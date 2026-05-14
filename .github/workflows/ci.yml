@@ -23,7 +23,7 @@ jobs:
         with:
           filters: |
             frontend:
-              - 'apps/dsa-web/**'
+              - 'web/**'
 
   ai-governance:
     name: ai-governance
@@ -108,7 +108,7 @@ jobs:
     if: needs.changes.outputs.frontend == 'true'
     defaults:
       run:
-        working-directory: apps/dsa-web
+        working-directory: web
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v5
@@ -117,7 +117,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: apps/dsa-web/package-lock.json
+          cache-dependency-path: web/package-lock.json
       - name: 📦 Install
         run: npm ci
       - name: 🔎 Lint

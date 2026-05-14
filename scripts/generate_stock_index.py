@@ -4,7 +4,7 @@
 Stock Index Generation Script
 
 Generate stock index file for frontend autocomplete functionality
-Output to apps/dsa-web/public/stocks.index.json
+Output to web/public/stocks.index.json
 
 Two-phase strategy:
 1. MVP: Use existing STOCK_NAME_MAP
