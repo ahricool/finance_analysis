@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create } from 'vue-zustand';
 import type { ParsedApiError } from '../api/error';
 import type { AnalysisResult, AnalysisReport } from '../types/analysis';
 

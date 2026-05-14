@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create } from 'vue-zustand';
 import { analysisApi, DuplicateTaskError } from '../api/analysis';
 import type { ParsedApiError } from '../api/error';
 import { getParsedApiError } from '../api/error';

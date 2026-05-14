@@ -1,23 +1,43 @@
-import js from '@eslint/js'
-import globals from 'globals'
-import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
-import tseslint from 'typescript-eslint'
-import { defineConfig, globalIgnores } from 'eslint/config'
+import js from '@eslint/js';
+import globals from 'globals';
+import tseslint from 'typescript-eslint';
+import pluginVue from 'eslint-plugin-vue';
+import vueParser from 'vue-eslint-parser';
 
-export default defineConfig([
-  globalIgnores(['dist', 'playwright-report', 'test-results']),
+export default [
   {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      js.configs.recommended,
-      tseslint.configs.recommended,
-      reactHooks.configs.flat.recommended,
-      reactRefresh.configs.vite,
-    ],
+    ignores: ['dist/**', 'playwright-report/**', 'test-results/**', '../static/**'],
+  },
+  js.configs.recommended,
+  ...pluginVue.configs['flat/recommended'],
+  ...tseslint.configs.recommended,
+  {
+    files: ['**/*.vue'],
     languageOptions: {
-      ecmaVersion: 2020,
+      ecmaVersion: 'latest',
       globals: globals.browser,
+      parser: vueParser,
+      parserOptions: {
+        parser: tseslint.parser,
+        extraFileExtensions: ['.vue'],
+        sourceType: 'module',
+      },
     },
   },
-])
+  {
+    files: ['**/*.{ts,mts,cts}'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      globals: globals.browser,
+      parserOptions: {
+        sourceType: 'module',
+      },
+    },
+  },
+  {
+    rules: {
+      'vue/multi-word-component-names': 'off',
+      'vue/html-self-closing': 'off',
+    },
+  },
+];

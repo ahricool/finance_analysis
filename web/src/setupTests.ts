@@ -1,5 +1,3 @@
-import '@testing-library/jest-dom';
-
 class IntersectionObserverMock implements IntersectionObserver {
   readonly root = null;
   readonly rootMargin = '';
