@@ -64,30 +64,13 @@ const settingsHelpZhCN: SettingsHelpMap = {
       '自定义渠道名在 GitHub Actions 中通常还需要 workflow 显式映射对应环境变量。',
     ],
   },
-  'settings.notification.FEISHU_WEBHOOK_URL': {
-    title: '飞书群机器人 Webhook',
-    summary: '配置飞书自定义群机器人，用于把分析报告推送到指定飞书群。',
-    usage: '在飞书群中添加自定义机器人后，复制 open-apis/bot/v2/hook 开头的 Webhook URL 到这里。',
-    valueNotes: [
-      '如果机器人开启“签名校验”，还需要填写 FEISHU_WEBHOOK_SECRET。',
-      '如果机器人开启“关键词”，还需要填写 FEISHU_WEBHOOK_KEYWORD，系统会自动补到消息前。',
-      'FEISHU_APP_ID / FEISHU_APP_SECRET 用于飞书应用、云文档或 Stream Bot，不会直接启用群 Webhook 推送。',
-    ],
-    impact: [
-      '影响飞书通知渠道；失败时不应拖垮主分析流程，只影响该渠道送达。',
-    ],
-    notes: [
-      '不要把 FEISHU_APP_SECRET 当作 FEISHU_WEBHOOK_SECRET 使用。',
-      '如果飞书侧配置 IP 白名单，需要确认当前运行环境出口 IP 已加入白名单。',
-    ],
-  },
   'settings.notification.CUSTOM_WEBHOOK_URLS': {
     title: '自定义 Webhook',
-    summary: '配置任意支持 POST JSON 的通知端点，可用于钉钉、Bark、Slack、Discord 或自建服务。',
+    summary: '配置任意支持 POST JSON 的通知端点，可用于钉钉、Bark 或自建服务。',
     usage: '多个 URL 使用英文逗号分隔。Bark 可直接填写 https://api.day.app/YOUR_BARK_KEY。',
     valueNotes: [
       '未配置 CUSTOM_WEBHOOK_BODY_TEMPLATE 时，系统会按 URL 类型自动生成常见 payload。',
-      '配置全局 Body 模板后，会覆盖 Bark、Slack、Discord 等自动 payload。',
+      '配置全局 Body 模板后，会覆盖 Bark 等自动 payload。',
       '需要认证的通用 webhook 可搭配 CUSTOM_WEBHOOK_BEARER_TOKEN。',
     ],
     impact: [
@@ -161,28 +144,13 @@ const settingsHelpEnUS: SettingsHelpMap = {
       'Custom channel names in GitHub Actions usually need explicit workflow env mappings.',
     ],
   },
-  'settings.notification.FEISHU_WEBHOOK_URL': {
-    title: 'Feishu Webhook URL',
-    summary: 'Sends analysis reports to a Feishu group through a custom bot webhook.',
-    usage: 'Create a custom bot in the target Feishu group and paste the open-apis/bot/v2/hook webhook URL here.',
-    valueNotes: [
-      'If signing is enabled, also set FEISHU_WEBHOOK_SECRET.',
-      'If keyword protection is enabled, also set FEISHU_WEBHOOK_KEYWORD; the sender prepends it automatically.',
-      'FEISHU_APP_ID / FEISHU_APP_SECRET are for app, cloud-doc, or Stream Bot modes and do not enable group webhook delivery.',
-    ],
-    impact: ['Affects only the Feishu notification channel; delivery failure should not block the main analysis flow.'],
-    notes: [
-      'Do not use FEISHU_APP_SECRET as FEISHU_WEBHOOK_SECRET.',
-      'If IP allowlisting is enabled in Feishu, add the outbound IP of your runtime environment.',
-    ],
-  },
   'settings.notification.CUSTOM_WEBHOOK_URLS': {
     title: 'Custom Webhook',
-    summary: 'Sends notifications to any endpoint that accepts POST JSON, such as DingTalk, Bark, Slack, Discord, or a self-hosted service.',
+    summary: 'Sends notifications to any endpoint that accepts POST JSON, such as DingTalk, Bark, or a self-hosted service.',
     usage: 'Separate multiple URLs with commas. For Bark, use https://api.day.app/YOUR_BARK_KEY.',
     valueNotes: [
       'Without CUSTOM_WEBHOOK_BODY_TEMPLATE, the sender auto-builds payloads for known URL types.',
-      'A global body template overrides auto-detected payloads for Bark, Slack, Discord, and similar URLs.',
+      'A global body template overrides auto-detected payloads for Bark and similar URLs.',
       'Use CUSTOM_WEBHOOK_BEARER_TOKEN for generic webhook endpoints that require bearer auth.',
     ],
     impact: [

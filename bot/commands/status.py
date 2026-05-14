@@ -112,33 +112,11 @@ class StatusCommand(BotCommand):
         status["search_searxng"] = config.has_searxng_enabled()
         
         # 通知渠道状态
-        status["notify_wechat"] = bool(config.wechat_webhook_url)
-        status["notify_feishu"] = bool(config.feishu_webhook_url)
         status["notify_telegram"] = bool(config.telegram_bot_token and config.telegram_chat_id)
         status["notify_email"] = bool(config.email_sender and config.email_password)
+        status["notify_ntfy"] = bool(getattr(config, "ntfy_url", None))
         status["notify_custom"] = bool(getattr(config, "custom_webhook_urls", []))
-        status["notify_discord"] = bool(
-            getattr(config, "discord_webhook_url", None)
-            or (
-                getattr(config, "discord_bot_token", None)
-                and getattr(config, "discord_main_channel_id", None)
-            )
-        )
-        status["notify_slack"] = bool(
-            getattr(config, "slack_webhook_url", None)
-            or (
-                getattr(config, "slack_bot_token", None)
-                and getattr(config, "slack_channel_id", None)
-            )
-        )
-        status["notify_push"] = bool(
-            getattr(config, "pushplus_token", None)
-            or (
-                getattr(config, "pushover_user_key", None)
-                and getattr(config, "pushover_api_token", None)
-            )
-            or getattr(config, "serverchan3_sendkey", None)
-        )
+        status["notify_astrbot"] = bool(getattr(config, "astrbot_url", None))
         
         return status
     
@@ -189,14 +167,11 @@ class StatusCommand(BotCommand):
             f"• SearXNG: {icon(status['search_searxng'])}",
             "",
             "**📢 通知渠道**",
-            f"• 企业微信: {icon(status['notify_wechat'])}",
-            f"• 飞书: {icon(status['notify_feishu'])}",
             f"• Telegram: {icon(status['notify_telegram'])}",
             f"• 邮件: {icon(status['notify_email'])}",
+            f"• ntfy: {icon(status['notify_ntfy'])}",
             f"• 自定义 Webhook: {icon(status['notify_custom'])}",
-            f"• Discord: {icon(status['notify_discord'])}",
-            f"• Slack: {icon(status['notify_slack'])}",
-            f"• PushPlus/Pushover/Server酱3: {icon(status['notify_push'])}",
+            f"• AstrBot: {icon(status['notify_astrbot'])}",
         ])
         
         # AI 服务总体状态

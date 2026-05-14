@@ -192,18 +192,10 @@ export interface TestLLMChannelResponse {
 }
 
 export type NotificationTestChannel =
-  | 'wechat'
-  | 'feishu'
   | 'telegram'
   | 'email'
-  | 'pushover'
   | 'ntfy'
-  | 'gotify'
-  | 'pushplus'
-  | 'serverchan3'
   | 'custom'
-  | 'discord'
-  | 'slack'
   | 'astrbot';
 
 export interface NotificationTestAttempt {

@@ -8,11 +8,11 @@ A股自选股智能分析系统 - 通知层
 1. 汇总分析结果生成日报
 2. 支持 Markdown 格式输出
 3. 多渠道推送（自动识别）：
-   - 企业微信 Webhook
-   - 飞书 Webhook
    - Telegram Bot
    - 邮件 SMTP
-   - Pushover（手机/桌面推送）
+   - ntfy
+   - 自定义 Webhook
+   - AstrBot
 """
 from __future__ import annotations
 
@@ -47,19 +47,9 @@ from src.utils.data_processing import normalize_model_used
 from src.notification_sender import (
     AstrbotSender,
     CustomWebhookSender,
-    DiscordSender,
     EmailSender,
-    FeishuSender,
-    GotifySender,
     NtfySender,
-    PushoverSender,
-    PushplusSender,
-    Serverchan3Sender,
-    SlackSender,
     TelegramSender,
-    WechatSender,
-    WECHAT_IMAGE_MAX_BYTES,
-    resolve_gotify_message_endpoint,
     resolve_ntfy_endpoint,
 )
 
@@ -71,18 +61,10 @@ if TYPE_CHECKING:
 
 class NotificationChannel(Enum):
     """通知渠道类型"""
-    WECHAT = "wechat"      # 企业微信
-    FEISHU = "feishu"      # 飞书
     TELEGRAM = "telegram"  # Telegram
     EMAIL = "email"        # 邮件
-    PUSHOVER = "pushover"  # Pushover（手机/桌面推送）
     NTFY = "ntfy"          # ntfy
-    GOTIFY = "gotify"      # Gotify
-    PUSHPLUS = "pushplus"  # PushPlus（国内推送服务）
-    SERVERCHAN3 = "serverchan3"  # Server酱3（手机APP推送服务）
     CUSTOM = "custom"      # 自定义 Webhook
-    DISCORD = "discord"    # Discord 机器人 (Bot)
-    SLACK = "slack"        # Slack
     ASTRBOT = "astrbot"
     UNKNOWN = "unknown"    # 未知
 
@@ -98,19 +80,11 @@ class ChannelDetector:
     def get_channel_name(channel: NotificationChannel) -> str:
         """获取渠道中文名称"""
         names = {
-            NotificationChannel.WECHAT: "企业微信",
-            NotificationChannel.FEISHU: "飞书",
             NotificationChannel.TELEGRAM: "Telegram",
             NotificationChannel.EMAIL: "邮件",
-            NotificationChannel.PUSHOVER: "Pushover",
             NotificationChannel.NTFY: "ntfy",
-            NotificationChannel.GOTIFY: "Gotify",
-            NotificationChannel.PUSHPLUS: "PushPlus",
-            NotificationChannel.SERVERCHAN3: "Server酱3",
             NotificationChannel.CUSTOM: "自定义Webhook",
-            NotificationChannel.DISCORD: "Discord机器人",
-            NotificationChannel.SLACK: "Slack",
-            NotificationChannel.ASTRBOT: "ASTRBOT机器人",
+            NotificationChannel.ASTRBOT: "AstrBot机器人",
             NotificationChannel.UNKNOWN: "未知渠道",
         }
         return names.get(channel, "未知渠道")
@@ -119,17 +93,9 @@ class ChannelDetector:
 class NotificationService(
     AstrbotSender,
     CustomWebhookSender,
-    DiscordSender,
     EmailSender,
-    FeishuSender,
-    GotifySender,
     NtfySender,
-    PushoverSender,
-    PushplusSender,
-    Serverchan3Sender,
-    SlackSender,
     TelegramSender,
-    WechatSender
 ):
     """
     通知服务
@@ -140,11 +106,11 @@ class NotificationService(
     3. 支持本地保存日报
     
     支持的渠道：
-    - 企业微信 Webhook
-    - 飞书 Webhook
     - Telegram Bot
     - 邮件 SMTP
-    - Pushover（手机/桌面推送）
+    - ntfy
+    - 自定义 Webhook
+    - AstrBot
     
     注意：所有已配置的渠道都会收到推送
     """
@@ -175,17 +141,9 @@ class NotificationService(
         # 初始化各渠道
         AstrbotSender.__init__(self, config)
         CustomWebhookSender.__init__(self, config)
-        DiscordSender.__init__(self, config)
         EmailSender.__init__(self, config)
-        FeishuSender.__init__(self, config)
-        GotifySender.__init__(self, config)
         NtfySender.__init__(self, config)
-        PushoverSender.__init__(self, config)
-        PushplusSender.__init__(self, config)
-        Serverchan3Sender.__init__(self, config)
-        SlackSender.__init__(self, config)
         TelegramSender.__init__(self, config)
-        WechatSender.__init__(self, config)
 
         # 检测所有已配置的渠道
         self._available_channels = self._detect_all_channels()
@@ -294,12 +252,6 @@ class NotificationService(
         """
         channels = []
 
-        if getattr(config, "wechat_webhook_url", None):
-            channels.append(NotificationChannel.WECHAT)
-
-        if getattr(config, "feishu_webhook_url", None):
-            channels.append(NotificationChannel.FEISHU)
-
         if (
             getattr(config, "telegram_bot_token", None)
             and getattr(config, "telegram_chat_id", None)
@@ -309,46 +261,12 @@ class NotificationService(
         if getattr(config, "email_sender", None) and getattr(config, "email_password", None):
             channels.append(NotificationChannel.EMAIL)
 
-        if (
-            getattr(config, "pushover_user_key", None)
-            and getattr(config, "pushover_api_token", None)
-        ):
-            channels.append(NotificationChannel.PUSHOVER)
-
         ntfy_server_url, ntfy_topic = resolve_ntfy_endpoint(getattr(config, "ntfy_url", None))
         if ntfy_server_url and ntfy_topic:
             channels.append(NotificationChannel.NTFY)
 
-        gotify_endpoint = resolve_gotify_message_endpoint(getattr(config, "gotify_url", None))
-        if gotify_endpoint and (getattr(config, "gotify_token", None) or "").strip():
-            channels.append(NotificationChannel.GOTIFY)
-
-        if getattr(config, "pushplus_token", None):
-            channels.append(NotificationChannel.PUSHPLUS)
-
-        if getattr(config, "serverchan3_sendkey", None):
-            channels.append(NotificationChannel.SERVERCHAN3)
-
         if getattr(config, "custom_webhook_urls", None):
             channels.append(NotificationChannel.CUSTOM)
-
-        if (
-            getattr(config, "discord_webhook_url", None)
-            or (
-                getattr(config, "discord_bot_token", None)
-                and getattr(config, "discord_main_channel_id", None)
-            )
-        ):
-            channels.append(NotificationChannel.DISCORD)
-
-        if (
-            getattr(config, "slack_webhook_url", None)
-            or (
-                getattr(config, "slack_bot_token", None)
-                and getattr(config, "slack_channel_id", None)
-            )
-        ):
-            channels.append(NotificationChannel.SLACK)
 
         if getattr(config, "astrbot_url", None):
             channels.append(NotificationChannel.ASTRBOT)
@@ -446,11 +364,8 @@ class NotificationService(
 
     # ===== Context channel =====
     def _has_context_channel(self) -> bool:
-        """判断是否存在基于消息上下文的临时渠道（如钉钉会话、飞书会话）"""
-        return (
-            self._extract_dingtalk_session_webhook() is not None
-            or self._extract_feishu_reply_info() is not None
-        )
+        """判断是否存在基于消息上下文的临时渠道（如钉钉会话）"""
+        return self._extract_dingtalk_session_webhook() is not None
 
     def _extract_dingtalk_session_webhook(self) -> Optional[str]:
         """从来源消息中提取钉钉会话 Webhook（用于 Stream 模式回复）"""
@@ -469,22 +384,6 @@ class NotificationService(
             session_webhook = raw_data["headers"].get("sessionWebhook")
         return session_webhook
 
-    def _extract_feishu_reply_info(self) -> Optional[Dict[str, str]]:
-        """
-        从来源消息中提取飞书回复信息（用于 Stream 模式回复）
-        
-        Returns:
-            包含 chat_id 的字典，或 None
-        """
-        if not isinstance(self._source_message, BotMessage):
-            return None
-        if getattr(self._source_message, "platform", "") != "feishu":
-            return None
-        chat_id = getattr(self._source_message, "chat_id", "")
-        if not chat_id:
-            return None
-        return {"chat_id": chat_id}
-
     def send_to_context(self, content: str) -> bool:
         """
         向基于消息上下文的渠道发送消息（例如钉钉 Stream 会话）
@@ -496,13 +395,12 @@ class NotificationService(
     
     def _send_via_source_context(self, content: str) -> bool:
         """
-        使用消息上下文（如钉钉/飞书会话）发送一份报告
+        使用消息上下文（如钉钉会话）发送一份报告
         
         主要用于从机器人 Stream 模式触发的任务，确保结果能回到触发的会话。
         """
         success = False
         
-        # 尝试钉钉会话
         session_webhook = self._extract_dingtalk_session_webhook()
         if session_webhook:
             try:
@@ -514,133 +412,6 @@ class NotificationService(
             except Exception as e:
                 logger.error(f"钉钉会话（Stream）推送异常: {e}")
 
-        # 尝试飞书会话
-        feishu_info = self._extract_feishu_reply_info()
-        if feishu_info:
-            try:
-                if self._send_feishu_stream_reply(feishu_info["chat_id"], content):
-                    logger.info("已通过飞书会话（Stream）推送报告")
-                    success = True
-                else:
-                    logger.error("飞书会话（Stream）推送失败")
-            except Exception as e:
-                logger.error(f"飞书会话（Stream）推送异常: {e}")
-
-        return success
-
-    def _send_feishu_stream_reply(self, chat_id: str, content: str) -> bool:
-        """
-        通过飞书 Stream 模式发送消息到指定会话
-        
-        Args:
-            chat_id: 飞书会话 ID
-            content: 消息内容
-            
-        Returns:
-            是否发送成功
-        """
-        try:
-            from bot.platforms.feishu_stream import FeishuReplyClient, FEISHU_SDK_AVAILABLE
-            if not FEISHU_SDK_AVAILABLE:
-                logger.warning("飞书 SDK 不可用，无法发送 Stream 回复")
-                return False
-            
-            from src.config import get_config
-            config = get_config()
-            
-            app_id = getattr(config, 'feishu_app_id', None)
-            app_secret = getattr(config, 'feishu_app_secret', None)
-            
-            if not app_id or not app_secret:
-                logger.warning("飞书 APP_ID 或 APP_SECRET 未配置")
-                return False
-            
-            # 创建回复客户端
-            reply_client = FeishuReplyClient(app_id, app_secret)
-            
-            # 飞书文本消息有长度限制，需要分批发送
-            max_bytes = getattr(config, 'feishu_max_bytes', 20000)
-            content_bytes = len(content.encode('utf-8'))
-            
-            if content_bytes > max_bytes:
-                return self._send_feishu_stream_chunked(reply_client, chat_id, content, max_bytes)
-            
-            return reply_client.send_to_chat(chat_id, content)
-            
-        except ImportError as e:
-            logger.error(f"导入飞书 Stream 模块失败: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"飞书 Stream 回复异常: {e}")
-            return False
-
-    def _send_feishu_stream_chunked(
-        self, 
-        reply_client, 
-        chat_id: str, 
-        content: str, 
-        max_bytes: int
-    ) -> bool:
-        """
-        分批发送长消息到飞书（Stream 模式）
-        
-        Args:
-            reply_client: FeishuReplyClient 实例
-            chat_id: 飞书会话 ID
-            content: 完整消息内容
-            max_bytes: 单条消息最大字节数
-            
-        Returns:
-            是否全部发送成功
-        """
-        import time
-        
-        def get_bytes(s: str) -> int:
-            return len(s.encode('utf-8'))
-        
-        # 按段落或分隔线分割
-        if "\n---\n" in content:
-            sections = content.split("\n---\n")
-            separator = "\n---\n"
-        elif "\n### " in content:
-            parts = content.split("\n### ")
-            sections = [parts[0]] + [f"### {p}" for p in parts[1:]]
-            separator = "\n"
-        else:
-            # 按行分割
-            sections = content.split("\n")
-            separator = "\n"
-        
-        chunks = []
-        current_chunk = []
-        current_bytes = 0
-        separator_bytes = get_bytes(separator)
-        
-        for section in sections:
-            section_bytes = get_bytes(section) + separator_bytes
-            
-            if current_bytes + section_bytes > max_bytes:
-                if current_chunk:
-                    chunks.append(separator.join(current_chunk))
-                current_chunk = [section]
-                current_bytes = section_bytes
-            else:
-                current_chunk.append(section)
-                current_bytes += section_bytes
-        
-        if current_chunk:
-            chunks.append(separator.join(current_chunk))
-        
-        # 发送每个分块
-        success = True
-        for i, chunk in enumerate(chunks):
-            if i > 0:
-                time.sleep(0.5)  # 避免请求过快
-            
-            if not reply_client.send_to_chat(chat_id, chunk):
-                success = False
-                logger.error(f"飞书 Stream 分块 {i+1}/{len(chunks)} 发送失败")
-        
         return success
         
     def generate_daily_report(
@@ -1668,12 +1439,6 @@ class NotificationService(
         """
         if channel.value not in self._markdown_to_image_channels or image_bytes is None:
             return False
-        if channel == NotificationChannel.WECHAT and len(image_bytes) > WECHAT_IMAGE_MAX_BYTES:
-            logger.warning(
-                "企业微信图片超限 (%d bytes)，回退为 Markdown 文本发送",
-                len(image_bytes),
-            )
-            return False
         return True
 
     def send(
@@ -1743,7 +1508,7 @@ class NotificationService(
         channels_needing_image = {
             ch for ch in target_channels
             if ch.value in self._markdown_to_image_channels
-            and ch not in {NotificationChannel.NTFY, NotificationChannel.GOTIFY}
+            and ch != NotificationChannel.NTFY
         }
         if channels_needing_image:
             from src.md2img import markdown_to_image
@@ -1778,14 +1543,7 @@ class NotificationService(
             channel_name = ChannelDetector.get_channel_name(channel)
             use_image = self._should_use_image_for_channel(channel, image_bytes)
             try:
-                if channel == NotificationChannel.WECHAT:
-                    if use_image:
-                        result = self._send_wechat_image(image_bytes)
-                    else:
-                        result = self.send_to_wechat(content)
-                elif channel == NotificationChannel.FEISHU:
-                    result = self.send_to_feishu(content)
-                elif channel == NotificationChannel.TELEGRAM:
+                if channel == NotificationChannel.TELEGRAM:
                     if use_image:
                         result = self._send_telegram_photo(image_bytes)
                     else:
@@ -1802,16 +1560,8 @@ class NotificationService(
                         )
                     else:
                         result = self.send_to_email(content, receivers=receivers)
-                elif channel == NotificationChannel.PUSHOVER:
-                    result = self.send_to_pushover(content)
                 elif channel == NotificationChannel.NTFY:
                     result = self.send_to_ntfy(content)
-                elif channel == NotificationChannel.GOTIFY:
-                    result = self.send_to_gotify(content)
-                elif channel == NotificationChannel.PUSHPLUS:
-                    result = self.send_to_pushplus(content)
-                elif channel == NotificationChannel.SERVERCHAN3:
-                    result = self.send_to_serverchan3(content)
                 elif channel == NotificationChannel.CUSTOM:
                     if use_image:
                         result = self._send_custom_webhook_image(
@@ -1819,15 +1569,6 @@ class NotificationService(
                         )
                     else:
                         result = self.send_to_custom(content)
-                elif channel == NotificationChannel.DISCORD:
-                    result = self.send_to_discord(content)
-                elif channel == NotificationChannel.SLACK:
-                    if use_image:
-                        result = self._send_slack_image(
-                            image_bytes, fallback_content=content
-                        )
-                    else:
-                        result = self.send_to_slack(content)
                 elif channel == NotificationChannel.ASTRBOT:
                     result = self.send_to_astrbot(content)
                 else:

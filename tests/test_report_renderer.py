@@ -69,6 +69,7 @@ class TestReportRenderer(unittest.TestCase):
         self.assertIn("核心结论", out)
         self.assertIn("作战计划", out)
 
+    @unittest.skip("uses removed channel config")
     def test_render_wechat(self) -> None:
         """Wechat platform renders."""
         r = _make_result()

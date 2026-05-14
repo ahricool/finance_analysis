@@ -25,18 +25,9 @@ from src.config import Config
 from src.notification_sender import (
     AstrbotSender,
     CustomWebhookSender,
-    DiscordSender,
     EmailSender,
-    FeishuSender,
-    GotifySender,
     NtfySender,
-    PushoverSender,
-    PushplusSender,
-    Serverchan3Sender,
-    SlackSender,
     TelegramSender,
-    WechatSender,
-    WECHAT_IMAGE_MAX_BYTES,
 )
 
 
@@ -57,6 +48,7 @@ def _response(status_code: int, json_body: Optional[dict] = None):
     return resp
 
 
+@unittest.skip("channel removed")
 class TestDiscordSender(unittest.TestCase):
     """Unit tests for DiscordSender."""
 
@@ -113,6 +105,7 @@ class TestDiscordSender(unittest.TestCase):
         self.assertEqual(call_kw["headers"]["Authorization"], "Bot TOKEN")
 
 
+@unittest.skip("channel removed")
 class TestWechatSender(unittest.TestCase):
     """Unit tests for WechatSender."""
 
@@ -154,6 +147,7 @@ class TestWechatSender(unittest.TestCase):
         mock_post.assert_not_called()
 
 
+@unittest.skip("channel removed")
 class TestFeishuSender(unittest.TestCase):
     """Unit tests for FeishuSender."""
 
@@ -441,6 +435,7 @@ class TestNtfySender(unittest.TestCase):
         self.assertNotIn("secret-token", "\n".join(captured.output))
 
 
+@unittest.skip("channel removed")
 class TestGotifySender(unittest.TestCase):
     """Unit tests for GotifySender."""
 
@@ -754,6 +749,7 @@ class TestCustomWebhookSender(unittest.TestCase):
         self.assertEqual(body["message"], "hello")
 
 
+@unittest.skip("channel removed")
 class TestPushoverSender(unittest.TestCase):
     """Unit tests for PushoverSender."""
 
@@ -788,6 +784,7 @@ class TestPushoverSender(unittest.TestCase):
         self.assertTrue(all(call.kwargs["timeout"] == 9 for call in mock_post.call_args_list))
 
 
+@unittest.skip("channel removed")
 class TestPushplusSender(unittest.TestCase):
     """Unit tests for PushplusSender."""
 
@@ -818,6 +815,7 @@ class TestPushplusSender(unittest.TestCase):
         self.assertGreaterEqual(mock_post.call_count, 2)
 
 
+@unittest.skip("channel removed")
 class TestServerchan3Sender(unittest.TestCase):
     """Unit tests for Serverchan3Sender."""
 
@@ -836,6 +834,7 @@ class TestServerchan3Sender(unittest.TestCase):
         self.assertTrue(result)
 
 
+@unittest.skip("channel removed")
 class TestSlackSender(unittest.TestCase):
     """Unit tests for SlackSender."""
 

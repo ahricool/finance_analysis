@@ -44,7 +44,6 @@ from src.core.config_registry import (
     get_registered_field_keys,
 )
 from src.notification_noise import validate_notification_timezone
-from src.notification_sender.gotify_sender import resolve_gotify_message_endpoint
 from src.notification_sender.ntfy_sender import resolve_ntfy_endpoint
 
 logger = logging.getLogger(__name__)
@@ -107,28 +106,13 @@ class SystemConfigService:
         }
     }
     _NOTIFICATION_TEST_CHANNELS: Tuple[str, ...] = (
-        "wechat",
-        "feishu",
         "telegram",
         "email",
-        "pushover",
         "ntfy",
-        "gotify",
-        "pushplus",
-        "serverchan3",
         "custom",
-        "discord",
-        "slack",
         "astrbot",
     )
     _NOTIFICATION_TEST_KEY_MAP: Dict[str, Tuple[str, str]] = {
-        "WECHAT_WEBHOOK_URL": ("wechat_webhook_url", "string"),
-        "WECHAT_MSG_TYPE": ("wechat_msg_type", "string"),
-        "WECHAT_MAX_BYTES": ("wechat_max_bytes", "int"),
-        "FEISHU_WEBHOOK_URL": ("feishu_webhook_url", "string"),
-        "FEISHU_WEBHOOK_SECRET": ("feishu_webhook_secret", "string"),
-        "FEISHU_WEBHOOK_KEYWORD": ("feishu_webhook_keyword", "string"),
-        "FEISHU_MAX_BYTES": ("feishu_max_bytes", "int"),
         "TELEGRAM_BOT_TOKEN": ("telegram_bot_token", "string"),
         "TELEGRAM_CHAT_ID": ("telegram_chat_id", "string"),
         "TELEGRAM_MESSAGE_THREAD_ID": ("telegram_message_thread_id", "string"),
@@ -136,58 +120,27 @@ class SystemConfigService:
         "EMAIL_SENDER_NAME": ("email_sender_name", "string"),
         "EMAIL_PASSWORD": ("email_password", "string"),
         "EMAIL_RECEIVERS": ("email_receivers", "csv"),
-        "PUSHOVER_USER_KEY": ("pushover_user_key", "string"),
-        "PUSHOVER_API_TOKEN": ("pushover_api_token", "string"),
         "NTFY_URL": ("ntfy_url", "string"),
         "NTFY_TOKEN": ("ntfy_token", "string"),
-        "GOTIFY_URL": ("gotify_url", "string"),
-        "GOTIFY_TOKEN": ("gotify_token", "string"),
-        "PUSHPLUS_TOKEN": ("pushplus_token", "string"),
-        "PUSHPLUS_TOPIC": ("pushplus_topic", "string"),
-        "SERVERCHAN3_SENDKEY": ("serverchan3_sendkey", "string"),
         "CUSTOM_WEBHOOK_URLS": ("custom_webhook_urls", "csv"),
         "CUSTOM_WEBHOOK_BEARER_TOKEN": ("custom_webhook_bearer_token", "string"),
         "CUSTOM_WEBHOOK_BODY_TEMPLATE": ("custom_webhook_body_template", "string"),
         "WEBHOOK_VERIFY_SSL": ("webhook_verify_ssl", "bool"),
-        "DISCORD_WEBHOOK_URL": ("discord_webhook_url", "string"),
-        "DISCORD_BOT_TOKEN": ("discord_bot_token", "string"),
-        "DISCORD_MAIN_CHANNEL_ID": ("discord_main_channel_id", "string"),
-        "DISCORD_CHANNEL_ID": ("discord_main_channel_id", "string"),
-        "DISCORD_MAX_WORDS": ("discord_max_words", "int"),
-        "SLACK_WEBHOOK_URL": ("slack_webhook_url", "string"),
-        "SLACK_BOT_TOKEN": ("slack_bot_token", "string"),
-        "SLACK_CHANNEL_ID": ("slack_channel_id", "string"),
         "ASTRBOT_URL": ("astrbot_url", "string"),
         "ASTRBOT_TOKEN": ("astrbot_token", "string"),
     }
     _NOTIFICATION_REQUIRED_KEY_GROUPS: Dict[str, Tuple[Tuple[str, ...], ...]] = {
-        "wechat": (("WECHAT_WEBHOOK_URL",),),
-        "feishu": (("FEISHU_WEBHOOK_URL",),),
         "telegram": (("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"),),
         "email": (("EMAIL_SENDER", "EMAIL_PASSWORD"),),
-        "pushover": (("PUSHOVER_USER_KEY", "PUSHOVER_API_TOKEN"),),
         "ntfy": (("NTFY_URL",),),
-        "gotify": (("GOTIFY_URL", "GOTIFY_TOKEN"),),
-        "pushplus": (("PUSHPLUS_TOKEN",),),
-        "serverchan3": (("SERVERCHAN3_SENDKEY",),),
         "custom": (("CUSTOM_WEBHOOK_URLS",),),
-        "discord": (("DISCORD_WEBHOOK_URL",), ("DISCORD_BOT_TOKEN", "DISCORD_MAIN_CHANNEL_ID"), ("DISCORD_BOT_TOKEN", "DISCORD_CHANNEL_ID")),
-        "slack": (("SLACK_WEBHOOK_URL",), ("SLACK_BOT_TOKEN", "SLACK_CHANNEL_ID")),
         "astrbot": (("ASTRBOT_URL",),),
     }
     _NOTIFICATION_TEST_TARGET_KEYS: Dict[str, Tuple[str, ...]] = {
-        "wechat": ("WECHAT_WEBHOOK_URL",),
-        "feishu": ("FEISHU_WEBHOOK_URL",),
         "telegram": ("TELEGRAM_BOT_TOKEN",),
         "email": ("EMAIL_RECEIVERS", "EMAIL_SENDER"),
-        "pushover": ("PUSHOVER_USER_KEY",),
         "ntfy": ("NTFY_URL",),
-        "gotify": ("GOTIFY_URL",),
-        "pushplus": ("PUSHPLUS_TOPIC",),
-        "serverchan3": ("SERVERCHAN3_SENDKEY",),
         "custom": ("CUSTOM_WEBHOOK_URLS",),
-        "discord": ("DISCORD_WEBHOOK_URL", "DISCORD_MAIN_CHANNEL_ID", "DISCORD_CHANNEL_ID"),
-        "slack": ("SLACK_WEBHOOK_URL", "SLACK_CHANNEL_ID"),
         "astrbot": ("ASTRBOT_URL",),
     }
 
@@ -1755,22 +1708,6 @@ class SystemConfigService:
                         }
                     )
 
-        if key == "GOTIFY_URL" and value.strip():
-            allowed_schemes = tuple(validation.get("allowed_schemes", ["http", "https"]))
-            if SystemConfigService._is_valid_url(value.strip(), allowed_schemes=allowed_schemes):
-                gotify_endpoint = resolve_gotify_message_endpoint(value)
-                if not gotify_endpoint:
-                    issues.append(
-                        {
-                            "key": key,
-                            "code": "invalid_gotify_url",
-                            "message": "GOTIFY_URL must be a Gotify server base URL and must not include /message",
-                            "severity": "error",
-                            "expected": "Gotify server base URL, e.g. https://gotify.example",
-                            "actual": value,
-                        }
-                    )
-
         return issues
 
     @staticmethod
@@ -1891,13 +1828,6 @@ class SystemConfigService:
             if ntfy_server_url and ntfy_topic:
                 return None
             return "NTFY_URL 必须包含 topic path，例如 https://ntfy.sh/my-topic。"
-        if channel == "gotify":
-            gotify_url = (effective_map.get("GOTIFY_URL") or "").strip()
-            if not gotify_url:
-                return None
-            if resolve_gotify_message_endpoint(gotify_url):
-                return None
-            return "GOTIFY_URL 必须是 Gotify server base URL，不包含 /message。"
         return None
 
     def _build_notification_test_config(self, effective_map: Dict[str, str]) -> Config:
@@ -1905,8 +1835,6 @@ class SystemConfigService:
         kwargs: Dict[str, Any] = {"stock_list": []}
         for key, (attr, value_type) in self._NOTIFICATION_TEST_KEY_MAP.items():
             if key not in effective_map:
-                continue
-            if key == "DISCORD_CHANNEL_ID" and (effective_map.get("DISCORD_MAIN_CHANNEL_ID") or "").strip():
                 continue
             raw_value = effective_map.get(key, "")
             kwargs[attr] = self._parse_notification_test_value(key, raw_value, value_type)
@@ -1918,12 +1846,7 @@ class SystemConfigService:
         if value_type == "bool":
             return parse_env_bool(value, default=True)
         if value_type == "int":
-            defaults = {
-                "WECHAT_MAX_BYTES": 4000,
-                "FEISHU_MAX_BYTES": 20000,
-                "DISCORD_MAX_WORDS": 2000,
-            }
-            return parse_env_int(value, defaults.get(key, 0), field_name=key, minimum=1)
+            return parse_env_int(value, 0, field_name=key, minimum=1)
         stripped = (value or "").strip()
         return stripped or None
 
@@ -1940,17 +1863,9 @@ class SystemConfigService:
         from src.notification_sender import (
             AstrbotSender,
             CustomWebhookSender,
-            DiscordSender,
             EmailSender,
-            FeishuSender,
-            GotifySender,
             NtfySender,
-            PushoverSender,
-            PushplusSender,
-            Serverchan3Sender,
-            SlackSender,
             TelegramSender,
-            WechatSender,
         )
 
         started_at = time.perf_counter()
@@ -1983,17 +1898,9 @@ class SystemConfigService:
             )
 
         dispatch = {
-            "wechat": lambda: WechatSender(config).send_to_wechat(titled_content, timeout_seconds=timeout_seconds),
-            "feishu": lambda: FeishuSender(config).send_to_feishu(titled_content, timeout_seconds=timeout_seconds),
             "telegram": lambda: TelegramSender(config).send_to_telegram(titled_content, timeout_seconds=timeout_seconds),
             "email": lambda: EmailSender(config).send_to_email(content, subject=title, timeout_seconds=timeout_seconds),
-            "pushover": lambda: PushoverSender(config).send_to_pushover(content, title=title, timeout_seconds=timeout_seconds),
             "ntfy": lambda: NtfySender(config).send_to_ntfy(content, title=title, timeout_seconds=timeout_seconds),
-            "gotify": lambda: GotifySender(config).send_to_gotify(content, title=title, timeout_seconds=timeout_seconds),
-            "pushplus": lambda: PushplusSender(config).send_to_pushplus(content, title=title, timeout_seconds=timeout_seconds),
-            "serverchan3": lambda: Serverchan3Sender(config).send_to_serverchan3(content, title=title, timeout_seconds=timeout_seconds),
-            "discord": lambda: DiscordSender(config).send_to_discord(titled_content, timeout_seconds=timeout_seconds),
-            "slack": lambda: SlackSender(config).send_to_slack(titled_content, timeout_seconds=timeout_seconds),
             "astrbot": lambda: AstrbotSender(config).send_to_astrbot(titled_content, timeout_seconds=timeout_seconds),
         }
 
@@ -2230,12 +2137,6 @@ class SystemConfigService:
         return bool(ntfy_server_url and ntfy_topic)
 
     @staticmethod
-    def _has_valid_gotify_config(effective_map: Dict[str, str]) -> bool:
-        return bool(
-            resolve_gotify_message_endpoint(effective_map.get("GOTIFY_URL"))
-            and (effective_map.get("GOTIFY_TOKEN") or "").strip()
-        )
-
     @classmethod
     def _anspire_legacy_llm_enabled(cls, effective_map: Dict[str, str]) -> bool:
         if not parse_env_bool(effective_map.get("ANSPIRE_LLM_ENABLED"), default=True):
@@ -2511,8 +2412,7 @@ class SystemConfigService:
 
     def _build_setup_notification_check(self, effective_map: Dict[str, str]) -> Dict[str, Any]:
         configured = (
-            self._has_any_config_value(effective_map, ("WECHAT_WEBHOOK_URL", "FEISHU_WEBHOOK_URL", "DISCORD_WEBHOOK_URL"))
-            or (
+            (
                 self._has_any_config_value(effective_map, ("TELEGRAM_BOT_TOKEN",))
                 and self._has_any_config_value(effective_map, ("TELEGRAM_CHAT_ID",))
             )
@@ -2524,36 +2424,14 @@ class SystemConfigService:
                 self._has_any_config_value(effective_map, ("DINGTALK_APP_KEY",))
                 and self._has_any_config_value(effective_map, ("DINGTALK_APP_SECRET",))
             )
-            or (
-                self._has_any_config_value(effective_map, ("DISCORD_BOT_TOKEN",))
-                and self._has_any_config_value(effective_map, ("DISCORD_MAIN_CHANNEL_ID", "DISCORD_CHANNEL_ID"))
-            )
-            or (
-                self._has_any_config_value(effective_map, ("PUSHOVER_USER_KEY",))
-                and self._has_any_config_value(effective_map, ("PUSHOVER_API_TOKEN",))
-            )
-            or self._has_any_config_value(effective_map, ("SLACK_WEBHOOK_URL",))
-            or (
-                self._has_any_config_value(effective_map, ("SLACK_BOT_TOKEN",))
-                and self._has_any_config_value(effective_map, ("SLACK_CHANNEL_ID",))
-            )
             or self._has_any_config_value(
                 effective_map,
                 (
-                    "PUSHPLUS_TOKEN",
-                    "SERVERCHAN3_SENDKEY",
                     "CUSTOM_WEBHOOK_URLS",
-                    "WECOM_WEBHOOK_URL",
                     "ASTRBOT_URL",
                 ),
             )
             or self._has_valid_ntfy_endpoint(effective_map)
-            or self._has_valid_gotify_config(effective_map)
-            or (
-                parse_env_bool(effective_map.get("FEISHU_STREAM_ENABLED"), default=False)
-                and self._has_any_config_value(effective_map, ("FEISHU_APP_ID",))
-                and self._has_any_config_value(effective_map, ("FEISHU_APP_SECRET",))
-            )
         )
         if configured:
             return self._setup_check(
@@ -3104,55 +2982,6 @@ class SystemConfigService:
                     "severity": "error",
                     "expected": "non-empty TELEGRAM_CHAT_ID",
                     "actual": chat_id_value,
-                }
-            )
-
-        feishu_relevant_keys = {
-            "FEISHU_APP_ID",
-            "FEISHU_APP_SECRET",
-            "FEISHU_WEBHOOK_URL",
-            "FEISHU_WEBHOOK_SECRET",
-            "FEISHU_WEBHOOK_KEYWORD",
-            "FEISHU_STREAM_ENABLED",
-            "FEISHU_FOLDER_TOKEN",
-        }
-        has_feishu_app_id = bool((effective_map.get("FEISHU_APP_ID") or "").strip())
-        has_feishu_app_secret = bool((effective_map.get("FEISHU_APP_SECRET") or "").strip())
-        has_feishu_app_credentials = has_feishu_app_id or has_feishu_app_secret
-        has_feishu_webhook = bool((effective_map.get("FEISHU_WEBHOOK_URL") or "").strip())
-        has_feishu_folder_token = bool((effective_map.get("FEISHU_FOLDER_TOKEN") or "").strip())
-        has_feishu_full_cloud_doc_credentials = (
-            has_feishu_app_id
-            and has_feishu_app_secret
-            and has_feishu_folder_token
-        )
-        # Match runtime semantics: Config.from_env only enables stream mode
-        # when the value is exactly "true" (case-insensitive).
-        feishu_stream_enabled = (
-            (effective_map.get("FEISHU_STREAM_ENABLED") or "false")
-            .strip()
-            .lower()
-            == "true"
-        )
-        if (
-            has_feishu_app_credentials
-            and not has_feishu_full_cloud_doc_credentials
-            and not has_feishu_webhook
-            and not (feishu_stream_enabled and has_feishu_app_id and has_feishu_app_secret)
-            and (updated_keys & feishu_relevant_keys)
-        ):
-            issues.append(
-                {
-                    "key": "FEISHU_WEBHOOK_URL",
-                    "code": "feishu_mode_mismatch",
-                    "message": (
-                        "仅配置 FEISHU_APP_ID / FEISHU_APP_SECRET 不会开启飞书群 Webhook 推送；"
-                        "如需通知推送请填写 FEISHU_WEBHOOK_URL，若要使用应用机器人请同时开启 "
-                        "FEISHU_STREAM_ENABLED 并完成应用发布与权限配置。"
-                    ),
-                    "severity": "warning",
-                    "expected": "FEISHU_WEBHOOK_URL or FEISHU_STREAM_ENABLED=true",
-                    "actual": "app credentials only",
                 }
             )
 
