@@ -5,6 +5,7 @@
 #
 # Python 3.13 + uv for fast, reproducible dependency installation.
 # Note: Python 3.14 is intentionally skipped — litellm requires <3.14.
+# Database: PostgreSQL via psycopg2-binary (no system libpq needed).
 
 # ── Stage 1: Web frontend build ─────────────────────────────────────────────
 FROM node:20-slim AS web-builder

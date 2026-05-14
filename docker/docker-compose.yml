@@ -6,63 +6,92 @@
 #   定时模式: docker-compose -f ./docker/docker-compose.yml up -d
 #   FastAPI模式: docker-compose -f ./docker/docker-compose.yml up -d server
 #   同时启动: docker-compose -f ./docker/docker-compose.yml up -d analyzer server
+#
+# 数据库：使用独立 postgres 服务；连接串由 DATABASE_URL 传入 app 容器。
+# 如需修改 PostgreSQL 密码，同步更新 .env 中的 DATABASE_URL 和 POSTGRES_PASSWORD。
 
 name: daily-stock-analysis
-version: '3.8'
-
-x-common: &common
-  build:
-    context: ..
-    dockerfile: docker/Dockerfile
-  restart: unless-stopped
-
-  # 环境变量（从 .env 文件加载）
-  env_file:
-    - ../.env
-
-  volumes:
-    - ../data:/app/data
-    - ../logs:/app/logs
-    - ../reports:/app/reports
-    - ../.env:/app/.env
-    - ../strategies:/app/strategies:ro
-    # 如需覆盖前端静态资源，可挂载本地 static 目录
-    # - ../static:/app/static:ro
-
-  environment:
-    - TZ=Asia/Shanghai
-
-    # Web/API service bind address (must be 0.0.0.0 inside container)
-    - WEBUI_HOST=0.0.0.0
-    # API_PORT 从 .env 文件读取，无需在此硬编码
-
-    # 代理设置（如果需要）
-    # - http_proxy=http://host.docker.internal:10809
-    # - https_proxy=http://host.docker.internal:10809
-  logging:
-    driver: "json-file"
-    options:
-      max-size: "10m"
-      max-file: "3"
-  # 资源限制
-  deploy:
-    resources:
-      limits:
-        memory: 512M
-      reservations:
-        memory: 256M
 
 services:
-  # 定时任务模式
-  analyzer:
-    <<: *common
-    container_name: stock-analyzer
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: dsa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dsa_db}
+      POSTGRES_USER: ${POSTGRES_USER:-dsa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dsa_password}
+      TZ: Asia/Shanghai
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # 仅暴露给宿主机做本地调试，生产环境可移除此行
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dsa} -d ${POSTGRES_DB:-dsa_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # FastAPI 模式
+  # ── 公共 app 配置 ────────────────────────────────────────────────────────────
+  x-app-base: &app-base
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    env_file:
+      - ../.env
+
+    environment:
+      - TZ=Asia/Shanghai
+      - WEBUI_HOST=0.0.0.0
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-dsa}:${POSTGRES_PASSWORD:-dsa_password}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-dsa_db}
+
+    volumes:
+      - ../data:/app/data
+      - ../logs:/app/logs
+      - ../reports:/app/reports
+      - ../.env:/app/.env
+      - ../strategies:/app/strategies:ro
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # ── 定时任务模式 ─────────────────────────────────────────────────────────────
+  analyzer:
+    <<: *app-base
+    container_name: dsa-analyzer
+
+  # ── FastAPI 模式 ─────────────────────────────────────────────────────────────
   server:
-    <<: *common
-    container_name: stock-server
+    <<: *app-base
+    container_name: dsa-server
     command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "${API_PORT:-8000}"]
-    # 若使用 network_mode: host，则以下 ports 映射无效，端口由 command 中的 --port 指定
     ports:
       - "${API_PORT:-8000}:${API_PORT:-8000}"
+
+volumes:
+  postgres_data:
+    name: dsa-postgres-data

@@ -802,7 +802,15 @@ class Config:
     prefetch_realtime_quotes: bool = True
 
     # === 数据库配置 ===
+    # DATABASE_URL 优先（PostgreSQL / 任意 SQLAlchemy URL）；
+    # 未设置时降级为 SQLite（database_path），便于本地无 Docker 开发。
+    database_url: str = ""
     database_path: str = "./data/stock_analysis.db"
+    # PostgreSQL 连接池（database_url 为 postgresql 时生效）
+    db_pool_size: int = 10
+    db_max_overflow: int = 5
+    db_pool_recycle: int = 1800
+    # SQLite 兼容参数（database_url 未设置时的降级路径）
     sqlite_wal_enabled: bool = True
     sqlite_busy_timeout_ms: int = 5000
     sqlite_write_retry_max: int = 3
@@ -1488,7 +1496,11 @@ class Config:
             ),
             md2img_engine=cls._parse_md2img_engine(os.getenv('MD2IMG_ENGINE', 'wkhtmltoimage')),
             prefetch_realtime_quotes=os.getenv('PREFETCH_REALTIME_QUOTES', 'true').lower() == 'true',
+            database_url=os.getenv('DATABASE_URL', ''),
             database_path=os.getenv('DATABASE_PATH', './data/stock_analysis.db'),
+            db_pool_size=parse_env_int(os.getenv('DB_POOL_SIZE'), 10, field_name='DB_POOL_SIZE', minimum=1),
+            db_max_overflow=parse_env_int(os.getenv('DB_MAX_OVERFLOW'), 5, field_name='DB_MAX_OVERFLOW', minimum=0),
+            db_pool_recycle=parse_env_int(os.getenv('DB_POOL_RECYCLE'), 1800, field_name='DB_POOL_RECYCLE', minimum=0),
             sqlite_wal_enabled=os.getenv('SQLITE_WAL_ENABLED', 'true').lower() == 'true',
             sqlite_busy_timeout_ms=parse_env_int(
                 os.getenv('SQLITE_BUSY_TIMEOUT_MS'),
@@ -2527,11 +2539,16 @@ class Config:
         return [issue.message for issue in self.validate_structured()]
     
     def get_db_url(self) -> str:
+        """Return the SQLAlchemy database connection URL.
+
+        Priority:
+        1. DATABASE_URL env var (any SQLAlchemy-compatible URL, e.g. postgresql+psycopg2://...)
+        2. Fallback: SQLite file constructed from DATABASE_PATH (for local dev without Docker)
         """
-        获取 SQLAlchemy 数据库连接 URL
-        
-        自动创建数据库目录（如果不存在）
-        """
+        url = (self.database_url or "").strip()
+        if url:
+            return url
+        # SQLite fallback — creates parent directory automatically
         db_path = Path(self.database_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         return f"sqlite:///{db_path.absolute()}"

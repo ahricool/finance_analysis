@@ -43,6 +43,7 @@ from sqlalchemy import (
     event,
     func,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import (
     declarative_base,
@@ -664,11 +665,19 @@ class DatabaseManager:
         self._sqlite_write_retry_max = config.sqlite_write_retry_max
         self._sqlite_write_retry_base_delay = config.sqlite_write_retry_base_delay
 
-        engine_kwargs = {
+        backend = str(db_url).split(":")[0].split("+")[0].lower()
+        is_pg = backend == "postgresql"
+
+        engine_kwargs: dict = {
             "echo": False,
             "pool_pre_ping": True,
         }
-        if str(db_url).startswith("sqlite:") and self._sqlite_busy_timeout_ms > 0:
+        if is_pg:
+            # PostgreSQL connection pool settings
+            engine_kwargs["pool_size"] = config.db_pool_size
+            engine_kwargs["max_overflow"] = config.db_max_overflow
+            engine_kwargs["pool_recycle"] = config.db_pool_recycle
+        elif str(db_url).startswith("sqlite:") and self._sqlite_busy_timeout_ms > 0:
             engine_kwargs["connect_args"] = {
                 "timeout": self._sqlite_busy_timeout_ms / 1000,
             }
@@ -679,6 +688,7 @@ class DatabaseManager:
             **engine_kwargs,
         )
         self._is_sqlite_engine = self._engine.url.get_backend_name() == 'sqlite'
+        self._is_postgresql_engine = self._engine.url.get_backend_name() == 'postgresql'
         self._sqlite_file_db = self._is_sqlite_engine and self._is_file_sqlite_database()
         self._install_sqlite_pragma_handler()
         
@@ -757,15 +767,16 @@ class DatabaseManager:
         operation_name: str,
         write_operation: Callable[[Session], T],
     ) -> T:
+        # SQLite needs explicit retry on lock contention; PostgreSQL relies on
+        # its own MVCC — no retries needed at the application layer.
         max_retries = self._sqlite_write_retry_max if self._is_sqlite_engine else 0
 
         for attempt in range(max_retries + 1):
             session = self.get_session()
             try:
                 if self._is_sqlite_engine:
-                    # Acquire the SQLite writer lock before any reads inside
-                    # `write_operation()` so pre-write existence checks and the
-                    # later upsert share one consistent write window.
+                    # Acquire the SQLite writer lock upfront so pre-write reads
+                    # and the upsert share one consistent write window.
                     session.connection().exec_driver_sql("BEGIN IMMEDIATE")
                 result = write_operation(session)
                 session.commit()
@@ -1471,90 +1482,87 @@ class DatabaseManager:
         records = list(records_by_date.values())
         batch_dates = list(records_by_date.keys())
 
-        def _write(session: Session) -> int:
-            if self._is_sqlite_engine:
-                # SQLite has a per-statement bind-parameter limit (commonly 999).
-                # Each record has ~15 columns, so chunk upserts to stay within bounds.
-                _SQLITE_CHUNK = 50
-                # `_run_write_transaction()` opens SQLite writes with
-                # `BEGIN IMMEDIATE`, so existence checks and upsert execute
-                # within one stable write window.
-                existing_dates = set()
-                _COUNT_CHUNK = 500
-                for j in range(0, len(batch_dates), _COUNT_CHUNK):
-                    chunk_dates = batch_dates[j : j + _COUNT_CHUNK]
-                    if not chunk_dates:
-                        continue
-                    existing_dates.update(
-                        session.execute(
-                            select(StockDaily.date).where(
-                                and_(
-                                    StockDaily.code == code,
-                                    StockDaily.date.in_(chunk_dates),
-                                )
-                            )
-                        ).scalars().all()
+        _UPSERT_COLUMNS = {
+            'open', 'high', 'low', 'close', 'volume', 'amount',
+            'pct_chg', 'ma5', 'ma10', 'ma20', 'volume_ratio',
+            'data_source', 'updated_at',
+        }
+
+        def _upsert_chunk(session: Session, chunk: list) -> None:
+            """Execute an INSERT … ON CONFLICT DO UPDATE for one batch."""
+            if self._is_postgresql_engine:
+                stmt = pg_insert(StockDaily).values(chunk)
+                session.execute(
+                    stmt.on_conflict_do_update(
+                        index_elements=['code', 'date'],
+                        set_={col: stmt.excluded[col] for col in _UPSERT_COLUMNS},
                     )
-                new_records = [
-                    record for record in records if record['date'] not in existing_dates
-                ]
-                for i in range(0, len(records), _SQLITE_CHUNK):
-                    chunk = records[i : i + _SQLITE_CHUNK]
-                    stmt = sqlite_insert(StockDaily).values(chunk)
-                    excluded = stmt.excluded
-                    session.execute(
-                        stmt.on_conflict_do_update(
-                            index_elements=['code', 'date'],
-                            set_={
-                                'open': excluded.open,
-                                'high': excluded.high,
-                                'low': excluded.low,
-                                'close': excluded.close,
-                                'volume': excluded.volume,
-                                'amount': excluded.amount,
-                                'pct_chg': excluded.pct_chg,
-                                'ma5': excluded.ma5,
-                                'ma10': excluded.ma10,
-                                'ma20': excluded.ma20,
-                                'volume_ratio': excluded.volume_ratio,
-                                'data_source': excluded.data_source,
-                                'updated_at': excluded.updated_at,
-                            },
-                        )
+                )
+            elif self._is_sqlite_engine:
+                stmt = sqlite_insert(StockDaily).values(chunk)
+                session.execute(
+                    stmt.on_conflict_do_update(
+                        index_elements=['code', 'date'],
+                        set_={col: stmt.excluded[col] for col in _UPSERT_COLUMNS},
                     )
-                return len(new_records)
+                )
             else:
+                # Generic fallback: SELECT + INSERT/UPDATE
                 existing_rows = {
                     row.date: row
                     for row in session.execute(
                         select(StockDaily).where(
                             and_(
                                 StockDaily.code == code,
-                                StockDaily.date.in_(batch_dates),
+                                StockDaily.date.in_([r['date'] for r in chunk]),
                             )
                         )
                     ).scalars().all()
                 }
-                new_count = 0
-                for record in records:
+                for record in chunk:
                     existing = existing_rows.get(record['date'])
                     if existing is None:
                         session.add(StockDaily(**record))
-                        new_count += 1
-                        continue
-                    existing.open = record['open']
-                    existing.high = record['high']
-                    existing.low = record['low']
-                    existing.close = record['close']
-                    existing.volume = record['volume']
-                    existing.amount = record['amount']
-                    existing.pct_chg = record['pct_chg']
-                    existing.ma5 = record['ma5']
-                    existing.ma10 = record['ma10']
-                    existing.ma20 = record['ma20']
-                    existing.volume_ratio = record['volume_ratio']
-                    existing.data_source = record['data_source']
-                    existing.updated_at = record['updated_at']
+                    else:
+                        for col in _UPSERT_COLUMNS:
+                            setattr(existing, col, record[col])
+
+        def _write(session: Session) -> int:
+            if self._is_sqlite_engine:
+                # SQLite: chunk to stay within the 999-parameter limit
+                # (≈15 cols × 50 rows = 750, safely under the bound).
+                _CHUNK = 50
+                existing_dates: set = set()
+                for j in range(0, len(batch_dates), 500):
+                    existing_dates.update(
+                        session.execute(
+                            select(StockDaily.date).where(
+                                and_(
+                                    StockDaily.code == code,
+                                    StockDaily.date.in_(batch_dates[j : j + 500]),
+                                )
+                            )
+                        ).scalars().all()
+                    )
+                new_count = sum(1 for r in records if r['date'] not in existing_dates)
+                for i in range(0, len(records), _CHUNK):
+                    _upsert_chunk(session, records[i : i + _CHUNK])
+                return new_count
+            else:
+                # PostgreSQL (and generic): no parameter-count constraint;
+                # count new rows by querying existing dates first.
+                existing_dates = set(
+                    session.execute(
+                        select(StockDaily.date).where(
+                            and_(
+                                StockDaily.code == code,
+                                StockDaily.date.in_(batch_dates),
+                            )
+                        )
+                    ).scalars().all()
+                )
+                new_count = sum(1 for r in records if r['date'] not in existing_dates)
+                _upsert_chunk(session, records)
                 return new_count
 
         try:
