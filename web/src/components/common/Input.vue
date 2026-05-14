@@ -114,7 +114,7 @@ function togglePassword() {
         :type="effectiveType"
         :aria-describedby="describedBy"
         :aria-invalid="error ? true : undefined"
-        :style="inputStyle as Record<string, string> | undefined"
+        :style="inputStyle ?? undefined"
         :data-appearance="appearance"
         :class="
           cn(
