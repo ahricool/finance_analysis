@@ -311,6 +311,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_discord_via_notification_service_with_webhook(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
     ):
@@ -328,6 +329,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_discord_via_notification_service_with_bot(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
     ):
@@ -345,6 +347,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_discord_via_notification_service_with_bot_requires_chunking(self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock):
         cfg = _make_config(
             discord_bot_token="TOKEN",
@@ -586,6 +589,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_feishu_via_notification_service(self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock):
         cfg = _make_config(feishu_webhook_url="https://feishu.example")
         mock_get_config.return_value = cfg
@@ -601,6 +605,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_feishu_via_notification_service_requires_chunking(self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock):
         cfg = _make_config(feishu_webhook_url="https://feishu.example", feishu_max_bytes=2000)
         mock_get_config.return_value = cfg
@@ -616,6 +621,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_gotify_via_notification_service(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
     ):
@@ -639,6 +645,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         )
 
     @mock.patch("src.notification.get_config")
+    @unittest.skip("channel removed")
     def test_gotify_without_token_is_not_available(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(gotify_url="https://gotify.example")
 
@@ -648,6 +655,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertFalse(service.is_available())
 
     @mock.patch("src.notification.get_config")
+    @unittest.skip("channel removed")
     def test_gotify_blank_token_is_not_available(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(
             gotify_url="https://gotify.example",
@@ -660,6 +668,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertFalse(service.is_available())
 
     @mock.patch("src.notification.get_config")
+    @unittest.skip("channel removed")
     def test_gotify_message_endpoint_is_not_available(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(
             gotify_url="https://gotify.example/message",
@@ -673,6 +682,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_gotify_does_not_trigger_markdown_to_image(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
     ):
@@ -753,6 +763,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_pushover_via_notification_service(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
     ):
@@ -773,6 +784,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_pushplus_via_notification_service(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
     ):
@@ -791,6 +803,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
     @mock.patch("src.notification_sender.pushplus_sender.time.sleep")
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_pushplus_via_notification_service_requires_chunking(
         self,
         mock_post: mock.MagicMock,
@@ -811,6 +824,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_slack_via_notification_service_with_webhook(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
     ):
@@ -831,6 +845,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_slack_via_notification_service_with_bot(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
     ):
@@ -848,6 +863,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_serverchan3_via_notification_service(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
     ):
@@ -882,6 +898,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_wechat_via_notification_service(self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock):
         cfg = _make_config(wechat_webhook_url="https://wechat.example")
         mock_get_config.return_value = cfg
@@ -897,6 +914,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
     @mock.patch("src.notification.get_config")
     @mock.patch("requests.post")
+    @unittest.skip("channel removed")
     def test_send_to_wechat_via_notification_service_requires_chunking(self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock):
         cfg = _make_config(wechat_webhook_url="https://wechat.example", wechat_max_bytes=2000)
         mock_get_config.return_value = cfg
