@@ -113,15 +113,24 @@ from api.middlewares.auth import add_auth_middleware
 from api.middlewares.error_handler import add_error_handlers
 from api.v1.schemas.common import HealthResponse
 from src.services.system_config_service import SystemConfigService
+from src.scheduler import (
+    attach_embedded_analysis_scheduler_from_pending,
+    shutdown_embedded_analysis_scheduler,
+)
 
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     """Initialize and release shared services for the app lifecycle."""
     app.state.system_config_service = SystemConfigService()
+    analysis_scheduler = attach_embedded_analysis_scheduler_from_pending()
+    app.state.analysis_scheduler = analysis_scheduler
     try:
         yield
     finally:
+        shutdown_embedded_analysis_scheduler(analysis_scheduler)
+        if hasattr(app.state, "analysis_scheduler"):
+            delattr(app.state, "analysis_scheduler")
         if hasattr(app.state, "system_config_service"):
             delattr(app.state, "system_config_service")
 
