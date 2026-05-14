@@ -4,11 +4,15 @@ __pycache__/
 *$py.class
 *.so
 
-# 忽略虚拟环境
+# 忽略虚拟环境（uv creates these; must not be copied into the build context）
 venv/
 .venv/
 env/
 .env.local
+
+# uv artifacts
+uv.lock
+.python-version
 
 # 忽略 IDE
 .idea/

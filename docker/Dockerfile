@@ -1,8 +1,12 @@
 # ===================================
 # A股自选股智能分析系统 - Docker 镜像
 # ===================================
-# 多阶段构建：前端打包 + 后端运行
+# 多阶段构建：前端打包 + Python 依赖安装 + 运行时
+#
+# Python 3.13 + uv for fast, reproducible dependency installation.
+# Note: Python 3.14 is intentionally skipped — litellm requires <3.14.
 
+# ── Stage 1: Web frontend build ─────────────────────────────────────────────
 FROM node:20-slim AS web-builder
 
 WORKDIR /app/web
@@ -13,8 +17,37 @@ RUN npm ci
 COPY web/ ./
 RUN npm run build
 
+# ── Stage 2: Python dependency build (uv) ────────────────────────────────────
+# Use python:3.13-slim-bookworm as base (same OS as runtime) and inject uv.
+# We keep both stages on bookworm so the compiled .venv is ABI-compatible.
+FROM python:3.13-slim-bookworm AS py-builder
+
+# Inject uv binary from the official distroless image
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# gcc is needed at build time to compile C extensions (e.g. pandas, numpy)
+RUN apt-get update && apt-get install -y --no-install-recommends gcc && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Enable bytecode compilation for faster container startup
+ENV UV_COMPILE_BYTECODE=1
+# Use copy link mode when a Docker cache mount is active
+ENV UV_LINK_MODE=copy
+# Never download extra Python interpreters (use the system Python)
+ENV UV_PYTHON_DOWNLOADS=never
+# Install into system Python (no extra venv layer needed in the builder)
+ENV UV_SYSTEM_PYTHON=1
+
+COPY requirements.txt .
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -r requirements.txt
+
+# ── Stage 3: Runtime image ───────────────────────────────────────────────────
 # Pin to bookworm: wkhtmltopdf was removed from Debian testing (2025)
-FROM python:3.11-slim-bookworm
+FROM python:3.13-slim-bookworm
 
 # 设置工作目录
 WORKDIR /app
@@ -25,7 +58,6 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # 安装系统依赖（wkhtmltopdf 含 wkhtmltoimage，用于 Markdown 转图片 Issue #289）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
     curl \
     gosu \
     wkhtmltopdf \
@@ -39,11 +71,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd -g 1000 dsa && \
     useradd -u 1000 -g dsa -m dsa
 
-# 复制依赖文件
-COPY requirements.txt .
-
-# 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy installed Python packages from the builder stage
+# Both stages share the same python:3.13-slim-bookworm base, so site-packages
+# paths and ABI are identical.
+COPY --from=py-builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=py-builder /usr/local/bin /usr/local/bin
 
 # 复制应用代码
 COPY *.py ./
