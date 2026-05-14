@@ -1,6 +1,19 @@
+[project]
+name = "daily-stock-analysis"
+version = "0.0.0"
+description = "A股智能分析系统"
+requires-python = ">=3.13,<3.14"
+dependencies = []
+
+[tool.uv]
+dev-dependencies = [
+    "flake8",
+    "pytest",
+]
+
 [tool.black]
 line-length = 120
-target-version = ['py310', 'py311', 'py312']
+target-version = ['py311', 'py312', 'py313']
 include = '\.pyi?$'
 exclude = '''
 /(

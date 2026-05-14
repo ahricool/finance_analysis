@@ -79,8 +79,11 @@ uvicorn server:app --reload --host 0.0.0.0 --port 8000
 ### 后端验证
 
 ```bash
+# 推荐使用 uv（快速）
+uv pip install -r requirements.txt
+uv pip install flake8 pytest
+# 或传统方式
 pip install -r requirements.txt
-pip install flake8 pytest
 ./scripts/ci_gate.sh
 python -m pytest -m "not network"
 python -m py_compile <changed_python_files>
