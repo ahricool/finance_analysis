@@ -625,6 +625,33 @@ class LLMUsage(Base):
     called_at = Column(DateTime, default=datetime.now, index=True)
 
 
+class WatchListItem(Base):
+    """自选股 — 用户关注但未必持有的股票。"""
+
+    __tablename__ = 'watch_list'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(16), nullable=False, unique=True, index=True)
+    name = Column(String(64), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+
+class StockHolding(Base):
+    """持仓股 — 用户实际持有的股票，含数量字段；同时作为分析任务默认股票列表。"""
+
+    __tablename__ = 'stock_list'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(16), nullable=False, unique=True, index=True)
+    name = Column(String(64), nullable=True)
+    quantity = Column(Integer, nullable=False, default=0)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式

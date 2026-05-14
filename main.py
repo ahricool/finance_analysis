@@ -463,12 +463,29 @@ def run_full_analysis(
     from src.core.pipeline import StockAnalysisPipeline
 
     try:
-        # Issue #529: Hot-reload STOCK_LIST from .env on each scheduled run
+        # Resolve analysis stock list: DB stock_list table > env STOCK_LIST fallback
         if stock_codes is None:
-            config.refresh_stock_list()
+            try:
+                from src.repositories.stock_list_repo import StockListRepo
+                db_codes = StockListRepo().get_codes()
+            except Exception as _db_err:
+                logger.debug("DB stock_list read failed, using config fallback: %s", _db_err)
+                db_codes = []
+
+            if db_codes:
+                stock_codes = db_codes
+                logger.info("从持仓股列表（stock_list 表）读取 %d 只股票", len(db_codes))
+            else:
+                # Backward-compat fallback: reload from STOCK_LIST env var
+                config.refresh_stock_list()
+                stock_codes = config.stock_list
+                if stock_codes:
+                    logger.info(
+                        "持仓股表为空，降级使用 STOCK_LIST 环境变量（%d 只）", len(stock_codes)
+                    )
 
         # Issue #373: Trading day filter (per-stock, per-market)
-        effective_codes = stock_codes if stock_codes is not None else config.stock_list
+        effective_codes = stock_codes
         filtered_codes, effective_region, should_skip = _compute_trading_day_filter(
             config, args, effective_codes
         )
