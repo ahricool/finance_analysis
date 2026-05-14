@@ -69,7 +69,7 @@ def _max_mtime(paths: Iterable[Path]) -> float:
 
 def _resolve_artifact_index(frontend_dir: Path) -> Path:
     # Prefer static/index.html because it is the configured output path in this repo.
-    static_index = (frontend_dir / ".." / ".." / "static" / "index.html").resolve()
+    static_index = (frontend_dir / ".." / "static" / "index.html").resolve()
     dist_index = frontend_dir / "dist" / "index.html"
     build_index = frontend_dir / "build" / "index.html"
     if static_index.exists():
@@ -177,7 +177,7 @@ def prepare_webui_frontend_assets() -> bool:
     - Do not compile frontend during backend startup.
     - Only check whether existing artifacts are available.
     """
-    frontend_dir = Path(__file__).resolve().parent.parent / "apps" / "dsa-web"
+    frontend_dir = Path(__file__).resolve().parent.parent / "web"
     auto_build_enabled = _is_truthy_env("WEBUI_AUTO_BUILD", "true")
     artifact_index = _resolve_artifact_index(frontend_dir)
 
