@@ -407,15 +407,15 @@ cp .env.example .env
 vim .env  # 填入 API Key 和配置
 
 # 3. 启动容器
-docker-compose -f ./docker/docker-compose.yml up -d server     # Web 服务模式（推荐，提供 API 与 WebUI）
-docker-compose -f ./docker/docker-compose.yml up -d analyzer   # 定时任务模式
-docker-compose -f ./docker/docker-compose.yml up -d            # 同时启动两种模式
+docker-compose  up -d server     # Web 服务模式（推荐，提供 API 与 WebUI）
+docker-compose  up -d analyzer   # 定时任务模式
+docker-compose  up -d            # 同时启动两种模式
 
 # 4. 访问 WebUI
 # http://localhost:8000
 
 # 5. 查看日志
-docker-compose -f ./docker/docker-compose.yml logs -f server
+docker-compose  logs -f server
 ```
 
 ### 直接拉官方镜像运行
@@ -453,9 +453,9 @@ docker run -d \
 
 | 命令 | 说明 | 端口 |
 |------|------|------|
-| `docker-compose -f ./docker/docker-compose.yml up -d server` | Web 服务模式，提供 API 与 WebUI | 8000 |
-| `docker-compose -f ./docker/docker-compose.yml up -d analyzer` | 定时任务模式，每日自动执行 | - |
-| `docker-compose -f ./docker/docker-compose.yml up -d` | 同时启动两种模式 | 8000 |
+| `docker-compose  up -d server` | Web 服务模式，提供 API 与 WebUI | 8000 |
+| `docker-compose  up -d analyzer` | 定时任务模式，每日自动执行 | - |
+| `docker-compose  up -d` | 同时启动两种模式 | 8000 |
 
 ### Docker Compose 配置
 
@@ -467,7 +467,7 @@ version: '3.8'
 x-common: &common
   build:
     context: ..
-    dockerfile: docker/Dockerfile
+    dockerfile: Dockerfile
   restart: unless-stopped
   env_file:
     - ../.env
@@ -522,23 +522,23 @@ services:
 
 ```bash
 # 查看运行状态
-docker-compose -f ./docker/docker-compose.yml ps
+docker-compose  ps
 
 # 查看日志
-docker-compose -f ./docker/docker-compose.yml logs -f server
+docker-compose  logs -f server
 
 # 停止服务
-docker-compose -f ./docker/docker-compose.yml down
+docker-compose  down
 
 # 重建镜像（代码更新后）
-docker-compose -f ./docker/docker-compose.yml build --no-cache
-docker-compose -f ./docker/docker-compose.yml up -d server
+docker-compose  build --no-cache
+docker-compose  up -d server
 ```
 
 ### 手动构建镜像
 
 ```bash
-docker build -f docker/Dockerfile -t stock-analysis .
+docker build -f Dockerfile -t stock-analysis .
 docker run -d \
   --name dsa-server-local \
   --env-file .env \

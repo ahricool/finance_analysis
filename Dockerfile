@@ -86,7 +86,7 @@ COPY bot/ ./bot/
 COPY src/ ./src/
 COPY strategies/ ./strategies/
 COPY --from=web-builder /app/static ./static/
-COPY docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # 确保数据目录存在并授权给 non-root 用户
 RUN mkdir -p /app/data /app/logs /app/reports && \

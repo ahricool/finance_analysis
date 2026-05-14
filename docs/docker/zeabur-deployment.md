@@ -27,7 +27,7 @@
 确保你的仓库包含以下文件：
 
 - `.github/workflows/docker-publish.yml`（已自动创建）
-- `docker/Dockerfile`（已存在）
+- `Dockerfile`（已存在）
 - 完整的项目代码
 
 ## 2. 在 Zeabur 上部署
@@ -48,7 +48,7 @@ Zeabur 会自动检测 `.github/workflows/docker-publish.yml` 文件，并使用
 
 1. 在项目页面，点击「构建规则」
 2. 选择「Dockerfile」
-3. Dockerfile 路径填写：`docker/Dockerfile`
+3. Dockerfile 路径填写：`Dockerfile`
 4. 点击「保存」
 
 ### 2.3 启动服务

@@ -35,8 +35,8 @@ def test_docker_entrypoint_repairs_ownership_and_user_permissions() -> None:
 
 
 def test_documented_compose_exec_commands_run_as_dsa() -> None:
-    safe_exec_prefix = "docker-compose -f ./docker/docker-compose.yml exec -u dsa"
-    unsafe_exec_prefix = "docker-compose -f ./docker/docker-compose.yml exec"
+    safe_exec_prefix = "docker-compose  exec -u dsa"
+    unsafe_exec_prefix = "docker-compose  exec"
 
     for doc_path in ("docs/DEPLOY.md", "docs/DEPLOY_EN.md"):
         doc = (REPO_ROOT / doc_path).read_text(encoding="utf-8")
