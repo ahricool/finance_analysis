@@ -46,13 +46,13 @@ vim .env  # 填入真实的 API Key 等配置
 
 ```bash
 # 构建并启动（同时包含定时分析和 Web 界面服务）
-docker-compose -f ./docker/docker-compose.yml up -d
+docker-compose  up -d
 
 # 查看日志
-docker-compose -f ./docker/docker-compose.yml logs -f
+docker-compose  logs -f
 
 # 查看运行状态
-docker-compose -f ./docker/docker-compose.yml ps
+docker-compose  ps
 ```
 
 启动成功后，在浏览器输入 `http://服务器公网IP:8000` 即可打开 Web 管理界面。如果打不开，记得先在云服务器控制台的「安全组」里放行 8000 端口。
@@ -63,21 +63,21 @@ docker-compose -f ./docker/docker-compose.yml ps
 
 ```bash
 # 停止服务
-docker-compose -f ./docker/docker-compose.yml down
+docker-compose  down
 
 # 重启服务
-docker-compose -f ./docker/docker-compose.yml restart
+docker-compose  restart
 
 # 更新代码后重新部署
 git pull
-docker-compose -f ./docker/docker-compose.yml build --no-cache
-docker-compose -f ./docker/docker-compose.yml up -d
+docker-compose  build --no-cache
+docker-compose  up -d
 
 # 进入容器调试
-docker-compose -f ./docker/docker-compose.yml exec -u dsa stock-analyzer bash
+docker-compose  exec -u dsa stock-analyzer bash
 
 # 手动执行一次分析
-docker-compose -f ./docker/docker-compose.yml exec -u dsa stock-analyzer python main.py --no-notify
+docker-compose  exec -u dsa stock-analyzer python main.py --no-notify
 ```
 
 ### 5. 数据持久化
@@ -250,7 +250,7 @@ os.environ["https_proxy"] = "http://your-proxy:port"
 
 ```bash
 # Docker 方式
-docker-compose -f ./docker/docker-compose.yml logs -f --tail=100
+docker-compose  logs -f --tail=100
 
 # 直接部署
 tail -f /opt/stock-analyzer/logs/stock_analysis_*.log
@@ -284,7 +284,7 @@ find /opt/stock-analyzer/reports -mtime +30 -delete
 
 ```bash
 # 清理缓存重新构建
-docker-compose -f ./docker/docker-compose.yml build --no-cache
+docker-compose  build --no-cache
 ```
 
 ### 2. API 访问超时
@@ -318,9 +318,9 @@ deploy:
 
 - **Docker 部署**：执行以下命令重新构建镜像（确保前端已正确打包进镜像）：
   ```bash
-  docker-compose -f ./docker/docker-compose.yml down
-  docker-compose -f ./docker/docker-compose.yml build --no-cache
-  docker-compose -f ./docker/docker-compose.yml up -d
+  docker-compose  down
+  docker-compose  build --no-cache
+  docker-compose  up -d
   ```
   构建完成后刷新浏览器缓存（`Ctrl+Shift+R`）再访问。
 
@@ -354,7 +354,7 @@ mkdir -p /opt/stock-analyzer
 cd /opt/stock-analyzer
 git clone <your-repo-url> .
 tar -xzvf stock-analyzer-backup.tar.gz
-docker-compose -f ./docker/docker-compose.yml up -d
+docker-compose  up -d
 ```
 
 ---

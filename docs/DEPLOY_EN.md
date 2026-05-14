@@ -46,34 +46,34 @@ vim .env  # Fill in real API Keys and configuration
 
 ```bash
 # Build and start
-docker-compose -f ./docker/docker-compose.yml up -d
+docker-compose  up -d
 
 # View logs
-docker-compose -f ./docker/docker-compose.yml logs -f
+docker-compose  logs -f
 
 # View running status
-docker-compose -f ./docker/docker-compose.yml ps
+docker-compose  ps
 ```
 
 ### 4. Common Management Commands
 
 ```bash
 # Stop services
-docker-compose -f ./docker/docker-compose.yml down
+docker-compose  down
 
 # Restart services
-docker-compose -f ./docker/docker-compose.yml restart
+docker-compose  restart
 
 # Redeploy after code update
 git pull
-docker-compose -f ./docker/docker-compose.yml build --no-cache
-docker-compose -f ./docker/docker-compose.yml up -d
+docker-compose  build --no-cache
+docker-compose  up -d
 
 # Enter container for debugging
-docker-compose -f ./docker/docker-compose.yml exec -u dsa stock-analyzer bash
+docker-compose  exec -u dsa stock-analyzer bash
 
 # Manually run analysis once
-docker-compose -f ./docker/docker-compose.yml exec -u dsa stock-analyzer python main.py --no-notify
+docker-compose  exec -u dsa stock-analyzer python main.py --no-notify
 ```
 
 ### 5. Data Persistence
@@ -238,7 +238,7 @@ os.environ["https_proxy"] = "http://your-proxy:port"
 
 ```bash
 # Docker method
-docker-compose -f ./docker/docker-compose.yml logs -f --tail=100
+docker-compose  logs -f --tail=100
 
 # Direct deployment
 tail -f /opt/stock-analyzer/logs/stock_analysis_*.log
@@ -272,7 +272,7 @@ find /opt/stock-analyzer/reports -mtime +30 -delete
 
 ```bash
 # Clear cache and rebuild
-docker-compose -f ./docker/docker-compose.yml build --no-cache
+docker-compose  build --no-cache
 ```
 
 ### 2. API access timeout
@@ -312,7 +312,7 @@ mkdir -p /opt/stock-analyzer
 cd /opt/stock-analyzer
 git clone <your-repo-url> .
 tar -xzvf stock-analyzer-backup.tar.gz
-docker-compose -f ./docker/docker-compose.yml up -d
+docker-compose  up -d
 ```
 
 ---

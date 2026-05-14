@@ -22,7 +22,7 @@ on:
       - '.github/PULL_REQUEST_TEMPLATE.md'
       - '.github/workflows/**'
       - '.github/scripts/**'
-      - 'docker/Dockerfile'
+      - 'Dockerfile'
       - 'docker-compose.yml'
   # 支持手动触发（用于重新审查）
   workflow_dispatch:

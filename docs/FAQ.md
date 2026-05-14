@@ -306,7 +306,7 @@ OPENAI_MODEL=deepseek-v4-flash
 
 **解决方案**（按优先级尝试）：
 
-1. **显式配置 DNS**：在 `docker/docker-compose.yml` 的 `x-common` 下添加：
+1. **显式配置 DNS**：在 `docker-compose.yml` 的 `x-common` 下添加：
    ```yaml
    dns:
      - 223.5.5.5

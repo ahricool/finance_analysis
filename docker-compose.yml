@@ -3,7 +3,7 @@
 # ===================================
 #
 # 使用方式:
-#   docker-compose -f ./docker/docker-compose.yml up -d
+#   docker-compose up -d
 #
 # 数据库：使用独立 postgres 服务；连接串由 DATABASE_URL 传入 app 容器。
 # 如需修改 PostgreSQL 密码，同步更新 .env 中的 DATABASE_URL 和 POSTGRES_PASSWORD。
@@ -42,8 +42,8 @@ services:
   # ── FastAPI 服务 ─────────────────────────────────────────────────────────────
   server:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     container_name: dsa-server
     restart: unless-stopped
     depends_on:
@@ -51,7 +51,7 @@ services:
         condition: service_healthy
     command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "${API_PORT:-8000}"]
     env_file:
-      - ../.env
+      - .env
     environment:
       - TZ=Asia/Shanghai
       - WEBUI_HOST=0.0.0.0
@@ -59,11 +59,11 @@ services:
     ports:
       - "${API_PORT:-8000}:${API_PORT:-8000}"
     volumes:
-      - ../data:/app/data
-      - ../logs:/app/logs
-      - ../reports:/app/reports
-      - ../.env:/app/.env
-      - ../strategies:/app/strategies:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./.env:/app/.env
+      - ./strategies:/app/strategies:ro
     logging:
       driver: "json-file"
       options:

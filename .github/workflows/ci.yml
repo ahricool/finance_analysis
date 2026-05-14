@@ -87,7 +87,7 @@ jobs:
         uses: actions/checkout@v5
       - name: 🐳 Build image
         run: |
-          docker build -t stock-analysis:test -f docker/Dockerfile .
+          docker build -t stock-analysis:test -f Dockerfile .
           docker run --rm stock-analysis:test python -c "print('✅ Docker OK')"
       - name: 🔍 Docker smoke imports
         run: |

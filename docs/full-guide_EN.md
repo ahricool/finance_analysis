@@ -371,15 +371,15 @@ cp .env.example .env
 vim .env  # Fill in API Keys and configuration
 
 # 3. Start container
-docker-compose -f ./docker/docker-compose.yml up -d server     # Web service mode (recommended, provides API & WebUI)
-docker-compose -f ./docker/docker-compose.yml up -d analyzer   # Scheduled task mode
-docker-compose -f ./docker/docker-compose.yml up -d            # Start both modes
+docker-compose  up -d server     # Web service mode (recommended, provides API & WebUI)
+docker-compose  up -d analyzer   # Scheduled task mode
+docker-compose  up -d            # Start both modes
 
 # 4. Access WebUI
 # http://localhost:8000
 
 # 5. View logs
-docker-compose -f ./docker/docker-compose.yml logs -f server
+docker-compose  logs -f server
 ```
 
 ### Run Official Images Directly
@@ -417,9 +417,9 @@ For pinned deployments or easier rollback, replace `latest` with a concrete vers
 
 | Command | Description | Port |
 |------|------|------|
-| `docker-compose -f ./docker/docker-compose.yml up -d server` | Web service mode, provides API & WebUI | 8000 |
-| `docker-compose -f ./docker/docker-compose.yml up -d analyzer` | Scheduled task mode, daily auto execution | - |
-| `docker-compose -f ./docker/docker-compose.yml up -d` | Start both modes simultaneously | 8000 |
+| `docker-compose  up -d server` | Web service mode, provides API & WebUI | 8000 |
+| `docker-compose  up -d analyzer` | Scheduled task mode, daily auto execution | - |
+| `docker-compose  up -d` | Start both modes simultaneously | 8000 |
 
 ### Docker Compose Configuration
 
@@ -431,7 +431,7 @@ version: '3.8'
 x-common: &common
   build:
     context: ..
-    dockerfile: docker/Dockerfile
+    dockerfile: Dockerfile
   restart: unless-stopped
   env_file:
     - ../.env
@@ -487,23 +487,23 @@ Optional static asset override:
 
 ```bash
 # View running status
-docker-compose -f ./docker/docker-compose.yml ps
+docker-compose  ps
 
 # View logs
-docker-compose -f ./docker/docker-compose.yml logs -f server
+docker-compose  logs -f server
 
 # Stop services
-docker-compose -f ./docker/docker-compose.yml down
+docker-compose  down
 
 # Rebuild image (after code update)
-docker-compose -f ./docker/docker-compose.yml build --no-cache
-docker-compose -f ./docker/docker-compose.yml up -d server
+docker-compose  build --no-cache
+docker-compose  up -d server
 ```
 
 ### Manual Image Build
 
 ```bash
-docker build -f docker/Dockerfile -t stock-analysis .
+docker build -f Dockerfile -t stock-analysis .
 docker run -d \
   --name dsa-server-local \
   --env-file .env \
