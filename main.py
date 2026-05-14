@@ -426,11 +426,30 @@ def _compute_trading_day_filter(
     return (filtered_codes, effective_region, should_skip_all)
 
 
+def build_embedded_schedule_args() -> argparse.Namespace:
+    """
+    FastAPI 内嵌定时任务使用的「虚拟 CLI 参数」。
+
+    直接启动 ``uvicorn`` / ``--serve-only`` 时没有命令行，此处提供与
+    ``run_full_analysis`` / 交易日过滤兼容的保守默认值。
+    """
+    return argparse.Namespace(
+        single_notify=False,
+        no_context_snapshot=False,
+        workers=None,
+        dry_run=False,
+        no_notify=False,
+        no_market_review=False,
+        force_run=False,
+    )
+
+
 def _run_market_review_with_shared_lock(
     config: Config,
     run_market_review_func: Callable[..., Optional[str]],
     **kwargs: Any,
 ) -> Optional[str]:
+    """在共享锁保护下执行大盘复盘，避免与 CLI / 定时入口并发冲突。"""
     from src.core.market_review_lock import (
         release_market_review_lock,
         try_acquire_market_review_lock,
@@ -892,8 +911,8 @@ def main() -> int:
     # === 启动 Web 服务 (如果启用) ===
     start_serve = (args.serve or args.serve_only) and os.getenv("GITHUB_ACTIONS") != "true"
 
-    # 与 FastAPI 同进程时，在 uvicorn 启动前注册 APScheduler 任务规格（serve-only 会提前退出，不注册）
-    if start_serve and schedule_mode and analysis_schedule_spec is not None and not args.serve_only:
+    # 与 FastAPI 同进程时，在 uvicorn 启动前注册 APScheduler 任务规格（含 --serve-only + 定时）
+    if start_serve and schedule_mode and analysis_schedule_spec is not None:
         from src.scheduler import register_pending_analysis_schedule
 
         register_pending_analysis_schedule(analysis_schedule_spec)
@@ -924,6 +943,8 @@ def main() -> int:
         logger.info(f"Web 服务运行中: http://{args.host}:{args.port}")
         logger.info("通过 /api/v1/analysis/analyze 接口触发分析")
         logger.info(f"API 文档: http://{args.host}:{args.port}/docs")
+        if schedule_mode:
+            logger.info("定时分析已启用（SCHEDULE_ENABLED 或 --schedule），由 FastAPI 内嵌 APScheduler 执行")
         logger.info("按 Ctrl+C 退出...")
         try:
             while True:

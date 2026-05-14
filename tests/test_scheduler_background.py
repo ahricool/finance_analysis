@@ -6,6 +6,13 @@ from unittest.mock import MagicMock, patch
 
 
 class SchedulerBackgroundTaskTestCase(unittest.TestCase):
+    def test_try_build_from_config_disabled(self) -> None:
+        with patch("src.config.get_config") as mock_gc:
+            mock_gc.return_value = MagicMock(schedule_enabled=False)
+            from src.scheduler import try_build_analysis_schedule_spec_from_config
+
+            self.assertIsNone(try_build_analysis_schedule_spec_from_config())
+
     def test_pending_spec_register_and_pop(self) -> None:
         from src.scheduler import (
             AnalysisScheduleSpec,

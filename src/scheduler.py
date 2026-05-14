@@ -286,9 +286,72 @@ def run_with_schedule(
     run_standalone_analysis_scheduler(spec)
 
 
-def attach_embedded_analysis_scheduler_from_pending() -> Optional[AnalysisSchedulerBundle]:
-    """由 FastAPI lifespan 调用：如有待处理 spec 则启动并返回 bundle。"""
+def try_build_analysis_schedule_spec_from_config() -> Optional[AnalysisScheduleSpec]:
+    """
+    当未通过 ``main.py`` 注册 pending spec 时，若 ``SCHEDULE_ENABLED=true``，
+    从当前配置构建与 CLI 定时模式等价的 ``AnalysisScheduleSpec``。
+    """
+    from src.config import get_config
+
+    config = get_config()
+    if not getattr(config, "schedule_enabled", False):
+        return None
+
+    import main as main_mod
+
+    logger.info(
+        "SCHEDULE_ENABLED=true：在 FastAPI 进程内自动启动定时分析（无需 --schedule）",
+    )
+    args = main_mod.build_embedded_schedule_args()
+    scheduled_stock_codes = main_mod._resolve_scheduled_stock_codes(None)
+    schedule_time_provider = main_mod._build_schedule_time_provider(config.schedule_time)
+    should_run_immediately = getattr(config, "schedule_run_immediately", True)
+
+    def scheduled_task() -> None:
+        runtime_config = main_mod._reload_runtime_config()
+        main_mod.run_full_analysis(runtime_config, args, scheduled_stock_codes)
+
+    background_tasks: List[Dict[str, Any]] = []
+    if getattr(config, "agent_event_monitor_enabled", False):
+        from src.agent.events import build_event_monitor_from_config, run_event_monitor_once
+
+        monitor = build_event_monitor_from_config(config)
+        if monitor is not None:
+            interval_minutes = max(1, getattr(config, "agent_event_monitor_interval_minutes", 5))
+
+            def event_monitor_task() -> None:
+                triggered = run_event_monitor_once(monitor)
+                if triggered:
+                    logger.info("[EventMonitor] 本轮触发 %d 条提醒", len(triggered))
+
+            background_tasks.append(
+                {
+                    "task": event_monitor_task,
+                    "interval_seconds": interval_minutes * 60,
+                    "run_immediately": True,
+                    "name": "agent_event_monitor",
+                }
+            )
+        else:
+            logger.info("EventMonitor 已启用，但未加载到有效规则，跳过后台提醒任务")
+
+    return AnalysisScheduleSpec(
+        task=scheduled_task,
+        schedule_time=config.schedule_time,
+        run_immediately=should_run_immediately,
+        background_tasks=background_tasks or None,
+        schedule_time_provider=schedule_time_provider,
+    )
+
+
+def start_embedded_analysis_scheduler() -> Optional[AnalysisSchedulerBundle]:
+    """
+    FastAPI lifespan 入口：优先消费 ``main.py`` 注册的 pending；
+    若无且 ``SCHEDULE_ENABLED=true``，则按配置自动构建并启动。
+    """
     spec = pop_pending_analysis_schedule()
+    if spec is None:
+        spec = try_build_analysis_schedule_spec_from_config()
     if spec is None:
         return None
     bundle = AnalysisSchedulerBundle(spec)
