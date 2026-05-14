@@ -633,6 +633,17 @@ schedule:
 
 ### 本地定时任务
 
+内建的定时任务由 **APScheduler** 跑在 **FastAPI 进程内**。开启方式二选一：
+
+1. **推荐（无需额外子命令）**：在 `.env` 或环境中设置 `SCHEDULE_ENABLED=true`，然后只启动 API 即可，例如：
+   ```bash
+   uvicorn server:app --host 0.0.0.0 --port 8000
+   # 或
+   python main.py --serve-only
+   ```
+   应用启动后会按 `SCHEDULE_TIME` 等指标自动注册每日分析（及可选 Event Monitor 后台任务）。
+2. **显式 CLI**：`python main.py --schedule`（可单独进程，也可与 `--serve` 组合；与上条同时满足时由 `main.py` 预先注册的规格优先，行为与原先一致）。
+
 内建的定时任务调度器支持每天在指定时间（默认 18:00）运行分析。
 
 #### 命令行方式
@@ -647,7 +658,7 @@ python main.py --schedule --no-run-immediately
 
 > 说明：定时模式每次触发前都会重新读取当前保存的 `STOCK_LIST`。如果同时传入 `--stocks`，该参数不会锁定后续计划执行的股票列表；需要临时只跑指定股票时，请使用非定时的单次运行命令。
 >
-> 从 `python main.py --schedule`、`python main.py --serve --schedule` 或等价内置调度模式启动后，WebUI 保存新的 `SCHEDULE_TIME` 会在下一轮调度检查内自动重绑 daily job，无需重启进程；旧的执行时间不会继续保留。
+> 从 `SCHEDULE_ENABLED=true`（如 `uvicorn server:app`）、`python main.py --schedule`、`python main.py --serve --schedule` 或等价内置调度模式启动后，WebUI 保存新的 `SCHEDULE_TIME` 会在 APScheduler 的时间同步任务（默认约每 30 秒）内自动重绑 daily job，无需重启进程；旧的执行时间不会继续保留。
 
 #### 环境变量方式
 

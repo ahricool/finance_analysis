@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
+- [改进] 当 `SCHEDULE_ENABLED=true` 时，仅启动 FastAPI（如 `uvicorn server:app` 或 `python main.py --serve-only`）也会在应用生命周期内自动启动内嵌定时分析，无需再带 `--schedule`。
+- [改进] 内置定时任务由 `schedule` 迁移为 APScheduler：`python main.py --serve --schedule` 时在 FastAPI 生命周期内启动/停止调度器；`python main.py --schedule` 无 Web 服务时仍以独立进程阻塞运行。
 - [文档] `docs/full-guide.md` / `docs/full-guide_EN.md` 项目结构说明将 `web/` 标注为 Vue 3 前端。
 - [改进] Web 端以 Vue 3 完整落地系统设置、智能体对话、回测与登录等页面/组件（含 LLM 渠道编辑器与相关设置卡片）；修正 ESLint 对 `.vue` 的解析配置以便 `npm run lint` 可用。
 - [新功能] 通知网关新增 ntfy 一等渠道，支持通过 `NTFY_URL` / `NTFY_TOKEN` 推送并接入 Web 测试、路由、Actions 与诊断。

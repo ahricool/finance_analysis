@@ -426,11 +426,30 @@ def _compute_trading_day_filter(
     return (filtered_codes, effective_region, should_skip_all)
 
 
+def build_embedded_schedule_args() -> argparse.Namespace:
+    """
+    FastAPI 内嵌定时任务使用的「虚拟 CLI 参数」。
+
+    直接启动 ``uvicorn`` / ``--serve-only`` 时没有命令行，此处提供与
+    ``run_full_analysis`` / 交易日过滤兼容的保守默认值。
+    """
+    return argparse.Namespace(
+        single_notify=False,
+        no_context_snapshot=False,
+        workers=None,
+        dry_run=False,
+        no_notify=False,
+        no_market_review=False,
+        force_run=False,
+    )
+
+
 def _run_market_review_with_shared_lock(
     config: Config,
     run_market_review_func: Callable[..., Optional[str]],
     **kwargs: Any,
 ) -> Optional[str]:
+    """在共享锁保护下执行大盘复盘，避免与 CLI / 定时入口并发冲突。"""
     from src.core.market_review_lock import (
         release_market_review_lock,
         try_acquire_market_review_lock,
@@ -841,8 +860,62 @@ def main() -> int:
     if config.webui_enabled and not (args.serve or args.serve_only):
         args.serve = True
 
+    schedule_mode = bool(args.schedule or config.schedule_enabled)
+    analysis_schedule_spec = None
+    if schedule_mode:
+        from src.scheduler import AnalysisScheduleSpec
+
+        should_run_immediately = config.schedule_run_immediately
+        if getattr(args, "no_run_immediately", False):
+            should_run_immediately = False
+
+        scheduled_stock_codes = _resolve_scheduled_stock_codes(stock_codes)
+        schedule_time_provider = _build_schedule_time_provider(config.schedule_time)
+
+        def scheduled_task():
+            runtime_config = _reload_runtime_config()
+            run_full_analysis(runtime_config, args, scheduled_stock_codes)
+
+        background_tasks = []
+        if getattr(config, "agent_event_monitor_enabled", False):
+            from src.agent.events import build_event_monitor_from_config, run_event_monitor_once
+
+            monitor = build_event_monitor_from_config(config)
+            if monitor is not None:
+                interval_minutes = max(1, getattr(config, "agent_event_monitor_interval_minutes", 5))
+
+                def event_monitor_task():
+                    triggered = run_event_monitor_once(monitor)
+                    if triggered:
+                        logger.info("[EventMonitor] 本轮触发 %d 条提醒", len(triggered))
+
+                background_tasks.append(
+                    {
+                        "task": event_monitor_task,
+                        "interval_seconds": interval_minutes * 60,
+                        "run_immediately": True,
+                        "name": "agent_event_monitor",
+                    }
+                )
+            else:
+                logger.info("EventMonitor 已启用，但未加载到有效规则，跳过后台提醒任务")
+
+        analysis_schedule_spec = AnalysisScheduleSpec(
+            task=scheduled_task,
+            schedule_time=config.schedule_time,
+            run_immediately=should_run_immediately,
+            background_tasks=background_tasks or None,
+            schedule_time_provider=schedule_time_provider,
+        )
+
     # === 启动 Web 服务 (如果启用) ===
     start_serve = (args.serve or args.serve_only) and os.getenv("GITHUB_ACTIONS") != "true"
+
+    # 与 FastAPI 同进程时，在 uvicorn 启动前注册 APScheduler 任务规格（含 --serve-only + 定时）
+    if start_serve and schedule_mode and analysis_schedule_spec is not None:
+        from src.scheduler import register_pending_analysis_schedule
+
+        register_pending_analysis_schedule(analysis_schedule_spec)
 
     # 兼容旧版 WEBUI_HOST/WEBUI_PORT：如果用户未通过 --host/--port 指定，则使用旧变量
     if start_serve:
@@ -870,6 +943,8 @@ def main() -> int:
         logger.info(f"Web 服务运行中: http://{args.host}:{args.port}")
         logger.info("通过 /api/v1/analysis/analyze 接口触发分析")
         logger.info(f"API 文档: http://{args.host}:{args.port}/docs")
+        if schedule_mode:
+            logger.info("定时分析已启用（SCHEDULE_ENABLED 或 --schedule），由 FastAPI 内嵌 APScheduler 执行")
         logger.info("按 Ctrl+C 退出...")
         try:
             while True:
@@ -931,56 +1006,23 @@ def main() -> int:
             return 0
 
         # 模式2: 定时任务模式
-        if args.schedule or config.schedule_enabled:
+        if schedule_mode:
             logger.info("模式: 定时任务")
             logger.info(f"每日执行时间: {config.schedule_time}")
+            logger.info(f"启动时立即执行: {analysis_schedule_spec.run_immediately}")
 
-            # Determine whether to run immediately:
-            # Command line arg --no-run-immediately overrides config if present.
-            # Otherwise use config (defaults to True).
-            should_run_immediately = config.schedule_run_immediately
-            if getattr(args, 'no_run_immediately', False):
-                should_run_immediately = False
+            if start_serve:
+                logger.info("定时任务由 FastAPI 内嵌 APScheduler 托管；进程将保持运行（Ctrl+C 退出）")
+                try:
+                    while True:
+                        time.sleep(1)
+                except KeyboardInterrupt:
+                    logger.info("\n用户中断，程序退出")
+                return 0
 
-            logger.info(f"启动时立即执行: {should_run_immediately}")
+            from src.scheduler import run_standalone_analysis_scheduler
 
-            from src.scheduler import run_with_schedule
-            scheduled_stock_codes = _resolve_scheduled_stock_codes(stock_codes)
-            schedule_time_provider = _build_schedule_time_provider(config.schedule_time)
-
-            def scheduled_task():
-                runtime_config = _reload_runtime_config()
-                run_full_analysis(runtime_config, args, scheduled_stock_codes)
-
-            background_tasks = []
-            if getattr(config, 'agent_event_monitor_enabled', False):
-                from src.agent.events import build_event_monitor_from_config, run_event_monitor_once
-
-                monitor = build_event_monitor_from_config(config)
-                if monitor is not None:
-                    interval_minutes = max(1, getattr(config, 'agent_event_monitor_interval_minutes', 5))
-
-                    def event_monitor_task():
-                        triggered = run_event_monitor_once(monitor)
-                        if triggered:
-                            logger.info("[EventMonitor] 本轮触发 %d 条提醒", len(triggered))
-
-                    background_tasks.append({
-                        "task": event_monitor_task,
-                        "interval_seconds": interval_minutes * 60,
-                        "run_immediately": True,
-                        "name": "agent_event_monitor",
-                    })
-                else:
-                    logger.info("EventMonitor 已启用，但未加载到有效规则，跳过后台提醒任务")
-
-            run_with_schedule(
-                task=scheduled_task,
-                schedule_time=config.schedule_time,
-                run_immediately=should_run_immediately,
-                background_tasks=background_tasks,
-                schedule_time_provider=schedule_time_provider,
-            )
+            run_standalone_analysis_scheduler(analysis_schedule_spec)
             return 0
 
         # 模式3: 正常单次运行
@@ -992,7 +1034,7 @@ def main() -> int:
         logger.info("\n程序执行完成")
 
         # 如果启用了服务且是非定时任务模式，保持程序运行
-        keep_running = start_serve and not (args.schedule or config.schedule_enabled)
+        keep_running = start_serve and not schedule_mode
         if keep_running:
             logger.info("API 服务运行中 (按 Ctrl+C 退出)...")
             try:

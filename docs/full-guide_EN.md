@@ -572,8 +572,19 @@ Common time reference:
 
 ### Local Scheduled Tasks
 
+The built-in scheduler runs **inside the FastAPI process (APScheduler)**. Enable it in one of two ways:
+
+1. **Recommended (no extra subcommand)**: set `SCHEDULE_ENABLED=true` in `.env`/environment, then start the API only, for example:
+   ```bash
+   uvicorn server:app --host 0.0.0.0 --port 8000
+   # or
+   python main.py --serve-only
+   ```
+   On startup the app registers daily analysis (and optional Event Monitor jobs) from `SCHEDULE_TIME` and related settings.
+2. **Explicit CLI**: `python main.py --schedule` (standalone process, or combined with `--serve`; when both apply, the spec pre-registered by `main.py` takes precedence).
+
 ```bash
-# Start scheduled mode (default 18:00 execution)
+# Scheduled-only process (blocking, no Web UI required)
 python main.py --schedule
 
 # Or use crontab
@@ -583,7 +594,7 @@ crontab -e
 
 > Note: Scheduled mode reloads the saved `STOCK_LIST` before each run. If you also pass `--stocks`, it will not pin future scheduled executions to the startup snapshot; use a normal one-off run when you want to analyze a temporary stock list.
 >
-> When the built-in scheduler is started via `python main.py --schedule`, `python main.py --serve --schedule`, or an equivalent local mode, saving a new `SCHEDULE_TIME` from the WebUI will rebind the daily job on the next scheduler poll without restarting the process. The previous trigger time is removed instead of being kept alongside the new one.
+> When the built-in scheduler is started via `SCHEDULE_ENABLED=true` (e.g. `uvicorn server:app`), `python main.py --schedule`, `python main.py --serve --schedule`, or an equivalent local mode, saving a new `SCHEDULE_TIME` from the WebUI will rebind the daily job on the next APScheduler schedule-time sync cycle (about every 30 seconds) without restarting the process. The previous trigger time is removed instead of being kept alongside the new one.
 
 ---
 

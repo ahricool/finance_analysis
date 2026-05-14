@@ -12,7 +12,8 @@ Daily Stock Analysis - FastAPI 后端服务入口
 
 启动方式：
     uvicorn server:app --reload --host 0.0.0.0 --port 8000
-    
+    # 若 .env 中 SCHEDULE_ENABLED=true，lifespan 会自动启动内嵌定时分析（APScheduler）
+
     或使用 main.py:
     python main.py --serve-only      # 仅启动 API 服务
     python main.py --serve           # API 服务 + 执行分析

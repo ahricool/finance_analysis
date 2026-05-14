@@ -1,196 +1,130 @@
 # -*- coding: utf-8 -*-
-"""Tests for Scheduler background task support."""
+"""Tests for APScheduler-based analysis scheduler."""
 
-from datetime import datetime
-import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
 
-class _FakeJob:
-    def __init__(self, schedule_module):
-        self._schedule_module = schedule_module
-        self.next_run = datetime(2026, 1, 1, 18, 0, 0)
-        self.at_time = None
-
-    @property
-    def day(self):
-        return self
-
-    def at(self, value):
-        self.at_time = value
-        hour, minute = [int(part) for part in value.split(":")]
-        self.next_run = datetime(2026, 1, 1, hour, minute, 0)
-        return self
-
-    def do(self, fn):
-        self.job_func = fn
-        self._schedule_module.jobs.append(self)
-        return self
-
-
-class _FakeScheduleModule:
-    def __init__(self):
-        self.jobs = []
-
-    def every(self):
-        return _FakeJob(self)
-
-    def get_jobs(self):
-        return list(self.jobs)
-
-    def run_pending(self):
-        return None
-
-    def cancel_job(self, job):
-        self.jobs.remove(job)
-
-
 class SchedulerBackgroundTaskTestCase(unittest.TestCase):
-    def test_background_task_runs_when_interval_elapsed(self):
-        fake_schedule = _FakeScheduleModule()
-        with patch.dict(sys.modules, {"schedule": fake_schedule}):
-            from src.scheduler import Scheduler
+    def test_try_build_from_config_disabled(self) -> None:
+        with patch("src.config.get_config") as mock_gc:
+            mock_gc.return_value = MagicMock(schedule_enabled=False)
+            from src.scheduler import try_build_analysis_schedule_spec_from_config
 
-            scheduler = Scheduler(schedule_time="18:00")
-            calls = []
-            fake_thread = MagicMock()
-            fake_thread.is_alive.return_value = False
+            self.assertIsNone(try_build_analysis_schedule_spec_from_config())
 
-            def _make_thread(target=None, **kwargs):
-                fake_thread.start.side_effect = target
-                return fake_thread
+    def test_pending_spec_register_and_pop(self) -> None:
+        from src.scheduler import (
+            AnalysisScheduleSpec,
+            pop_pending_analysis_schedule,
+            register_pending_analysis_schedule,
+        )
 
-            with patch("src.scheduler.threading.Thread", side_effect=_make_thread):
-                scheduler.add_background_task(lambda: calls.append("ran"), interval_seconds=1, run_immediately=True, name="test")
-
-        self.assertEqual(calls, ["ran"])
-
-    def test_background_task_waits_for_interval(self):
-        fake_schedule = _FakeScheduleModule()
-        with patch.dict(sys.modules, {"schedule": fake_schedule}):
-            from src.scheduler import Scheduler
-
-            scheduler = Scheduler(schedule_time="18:00")
-            calls = []
-            scheduler.add_background_task(lambda: calls.append("ran"), interval_seconds=60, run_immediately=False, name="test")
-
-            with patch("src.scheduler.time.time", return_value=scheduler._background_tasks[0]["last_run"] + 10):
-                scheduler._run_background_tasks()
-
-        self.assertEqual(calls, [])
-
-    def test_run_with_schedule_registers_background_tasks_before_immediate_daily_task(self):
-        fake_schedule = _FakeScheduleModule()
-        with patch.dict(sys.modules, {"schedule": fake_schedule}):
-            from src import scheduler as scheduler_module
-
-            order = []
-
-            class FakeScheduler:
-                def __init__(self, schedule_time="18:00", schedule_time_provider=None):
-                    order.append(("init", schedule_time))
-                    order.append(("provider", callable(schedule_time_provider)))
-
-                def add_background_task(self, **kwargs):
-                    order.append(("background", kwargs["name"]))
-
-                def set_daily_task(self, task, run_immediately=True):
-                    order.append(("daily", run_immediately))
-
-                def run(self):
-                    order.append(("run", None))
-
-            with patch.object(scheduler_module, "Scheduler", FakeScheduler):
-                scheduler_module.run_with_schedule(
-                    task=lambda: None,
-                    run_immediately=True,
-                    background_tasks=[{
-                        "task": lambda: None,
-                        "interval_seconds": 60,
-                        "run_immediately": True,
-                        "name": "event_monitor",
-                    }],
-                )
-
-        self.assertEqual(order[:4], [("init", "18:00"), ("provider", False), ("background", "event_monitor"), ("daily", True)])
-
-    def test_scheduler_reloads_daily_job_when_schedule_time_changes(self):
-        fake_schedule = _FakeScheduleModule()
-        with patch.dict(sys.modules, {"schedule": fake_schedule}):
-            from src.scheduler import Scheduler
-
-            scheduler = Scheduler(
+        register_pending_analysis_schedule(
+            AnalysisScheduleSpec(
+                task=lambda: None,
                 schedule_time="18:00",
-                schedule_time_provider=lambda: "09:30",
+                run_immediately=False,
             )
-            scheduler.set_daily_task(lambda: None, run_immediately=False)
+        )
+        popped = pop_pending_analysis_schedule()
+        self.assertIsNotNone(popped)
+        self.assertEqual(popped.schedule_time, "18:00")
+        self.assertIsNone(pop_pending_analysis_schedule())
 
-            self.assertEqual(len(fake_schedule.jobs), 1)
-            self.assertEqual(fake_schedule.jobs[0].at_time, "18:00")
+    def test_bundle_rejects_invalid_initial_schedule_time(self) -> None:
+        with self.assertRaisesRegex(ValueError, "25:99"):
+            from src.scheduler import AnalysisScheduleSpec, AnalysisSchedulerBundle
 
-            scheduler._refresh_daily_schedule_if_needed()
-
-        self.assertEqual(len(fake_schedule.jobs), 1)
-        self.assertEqual(fake_schedule.jobs[0].at_time, "09:30")
-        self.assertEqual(scheduler.schedule_time, "09:30")
-
-    def test_scheduler_keeps_existing_daily_job_when_schedule_time_invalid(self):
-        fake_schedule = _FakeScheduleModule()
-        with patch.dict(sys.modules, {"schedule": fake_schedule}):
-            from src.scheduler import Scheduler
-
-            scheduler = Scheduler(
-                schedule_time="18:00",
-                schedule_time_provider=lambda: "25:99",
+            AnalysisSchedulerBundle(
+                AnalysisScheduleSpec(task=lambda: None, schedule_time="25:99", run_immediately=False)
             )
-            scheduler.set_daily_task(lambda: None, run_immediately=False)
 
-            scheduler._refresh_daily_schedule_if_needed()
+    def test_run_with_schedule_delegates_to_standalone(self) -> None:
+        captured = {}
 
-        self.assertEqual(len(fake_schedule.jobs), 1)
-        self.assertEqual(fake_schedule.jobs[0].at_time, "18:00")
-        self.assertEqual(scheduler.schedule_time, "18:00")
+        def fake_standalone(spec) -> None:
+            captured["spec"] = spec
 
-    def test_scheduler_keeps_current_daily_job_when_schedule_time_provider_fails(self):
-        fake_schedule = _FakeScheduleModule()
-        with patch.dict(sys.modules, {"schedule": fake_schedule}):
-            from src.scheduler import Scheduler
+        with patch("src.scheduler.run_standalone_analysis_scheduler", side_effect=fake_standalone):
+            from src.scheduler import run_with_schedule
 
-            provider_calls = {"count": 0}
+            run_with_schedule(lambda: None, schedule_time="09:15", run_immediately=False)
 
-            def provider():
-                provider_calls["count"] += 1
-                if provider_calls["count"] == 1:
-                    return "09:30"
-                raise RuntimeError("boom")
+        self.assertEqual(captured["spec"].schedule_time, "09:15")
+        self.assertFalse(captured["spec"].run_immediately)
 
-            scheduler = Scheduler(
-                schedule_time="18:00",
-                schedule_time_provider=provider,
-            )
-            scheduler.set_daily_task(lambda: None, run_immediately=False)
+    def test_refresh_daily_reschedules_when_provider_returns_new_time(self) -> None:
+        from src.scheduler import AnalysisScheduleSpec, AnalysisSchedulerBundle
 
-            scheduler._refresh_daily_schedule_if_needed()
-            scheduler._refresh_daily_schedule_if_needed()
+        spec = AnalysisScheduleSpec(
+            task=lambda: None,
+            schedule_time="18:00",
+            run_immediately=False,
+            schedule_time_provider=lambda: "09:30",
+        )
+        bundle = object.__new__(AnalysisSchedulerBundle)
+        bundle._spec = spec
+        bundle.schedule_time = "18:00"
+        bundle._schedule_time_provider = spec.schedule_time_provider
+        bundle._apply_daily_cron = MagicMock()
 
-        self.assertEqual(len(fake_schedule.jobs), 1)
-        self.assertEqual(fake_schedule.jobs[0].at_time, "09:30")
-        self.assertEqual(scheduler.schedule_time, "09:30")
+        bundle._refresh_daily_schedule_if_needed()
 
-    def test_scheduler_rejects_invalid_initial_schedule_time(self):
-        fake_schedule = _FakeScheduleModule()
-        with patch.dict(sys.modules, {"schedule": fake_schedule}):
-            from src.scheduler import Scheduler
+        bundle._apply_daily_cron.assert_called_once_with("09:30", log_reschedule=True)
 
-            scheduler = Scheduler(schedule_time="25:99")
-            calls = []
+    def test_refresh_daily_keeps_time_when_provider_returns_invalid(self) -> None:
+        from src.scheduler import AnalysisScheduleSpec, AnalysisSchedulerBundle
 
-            with self.assertRaisesRegex(ValueError, "25:99"):
-                scheduler.set_daily_task(lambda: calls.append("ran"), run_immediately=True)
+        spec = AnalysisScheduleSpec(
+            task=lambda: None,
+            schedule_time="18:00",
+            run_immediately=False,
+            schedule_time_provider=lambda: "25:99",
+        )
+        bundle = object.__new__(AnalysisSchedulerBundle)
+        bundle._spec = spec
+        bundle.schedule_time = "18:00"
+        bundle._schedule_time_provider = spec.schedule_time_provider
+        bundle._apply_daily_cron = MagicMock()
 
-        self.assertEqual(calls, [])
-        self.assertEqual(fake_schedule.jobs, [])
+        bundle._refresh_daily_schedule_if_needed()
+
+        bundle._apply_daily_cron.assert_not_called()
+        self.assertEqual(bundle.schedule_time, "18:00")
+
+    def test_refresh_daily_keeps_time_when_provider_raises(self) -> None:
+        from src.scheduler import AnalysisScheduleSpec, AnalysisSchedulerBundle
+
+        calls = {"n": 0}
+
+        def provider():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return "09:30"
+            raise RuntimeError("boom")
+
+        spec = AnalysisScheduleSpec(
+            task=lambda: None,
+            schedule_time="18:00",
+            run_immediately=False,
+            schedule_time_provider=provider,
+        )
+        bundle = object.__new__(AnalysisSchedulerBundle)
+        bundle._spec = spec
+        bundle.schedule_time = "18:00"
+        bundle._schedule_time_provider = provider
+        bundle._apply_daily_cron = MagicMock(
+            side_effect=lambda hh_mm, **kwargs: setattr(bundle, "schedule_time", hh_mm)
+        )
+
+        bundle._refresh_daily_schedule_if_needed()
+        bundle._apply_daily_cron.assert_called_once_with("09:30", log_reschedule=True)
+
+        bundle._apply_daily_cron.reset_mock()
+        bundle._refresh_daily_schedule_if_needed()
+        bundle._apply_daily_cron.assert_not_called()
+        self.assertEqual(bundle.schedule_time, "09:30")
 
 
 if __name__ == "__main__":
