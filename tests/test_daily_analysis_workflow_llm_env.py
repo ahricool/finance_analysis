@@ -10,7 +10,7 @@ import yaml
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-TEMPLATE_PATH = ROOT_DIR / "apps/dsa-web/src/components/settings/llmProviderTemplates.ts"
+TEMPLATE_PATH = ROOT_DIR / "web/src/components/settings/llmProviderTemplates.ts"
 WORKFLOW_PATH = ROOT_DIR / ".github/workflows/daily_analysis.yml"
 ENV_EXAMPLE_PATH = ROOT_DIR / ".env.example"
 

@@ -14,7 +14,7 @@ on:
       - 'docs/**'
       - 'README.md'
       - 'AGENTS.md'
-      - 'apps/dsa-web/**'
+      - 'web/**'
       - 'requirements.txt'
       - '.github/requirements-ci.txt'
       - 'pyproject.toml'

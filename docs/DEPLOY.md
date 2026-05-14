@@ -328,7 +328,7 @@ deploy:
   ```bash
   # 安装 Node.js 18+（推荐 20+，如尚未安装）
   # 构建前端
-  cd apps/dsa-web
+  cd web
   npm ci
   npm run build
   cd ../..

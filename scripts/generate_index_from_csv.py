@@ -7,7 +7,7 @@ Input:
   - Tushare format: data/stock_list_{a,hk,us}.csv
   - AkShare format: logs/stock_basic_*.csv
 
-Output: apps/dsa-web/public/stocks.index.json
+Output: web/public/stocks.index.json
 
 Usage:
     python3 scripts/generate_index_from_csv.py              # 默认使用 Tushare
