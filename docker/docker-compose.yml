@@ -1,11 +1,9 @@
 # ===================================
 # A股自选股智能分析系统 - Docker Compose
 # ===================================
-# 
+#
 # 使用方式:
-#   定时模式: docker-compose -f ./docker/docker-compose.yml up -d
-#   FastAPI模式: docker-compose -f ./docker/docker-compose.yml up -d server
-#   同时启动: docker-compose -f ./docker/docker-compose.yml up -d analyzer server
+#   docker-compose -f ./docker/docker-compose.yml up -d
 #
 # 数据库：使用独立 postgres 服务；连接串由 DATABASE_URL 传入 app 容器。
 # 如需修改 PostgreSQL 密码，同步更新 .env 中的 DATABASE_URL 和 POSTGRES_PASSWORD。
@@ -41,56 +39,42 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ── 公共 app 配置 ────────────────────────────────────────────────────────────
-  x-app-base: &app-base
+  # ── FastAPI 服务 ─────────────────────────────────────────────────────────────
+  server:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    container_name: dsa-server
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-
+    command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "${API_PORT:-8000}"]
     env_file:
       - ../.env
-
     environment:
       - TZ=Asia/Shanghai
       - WEBUI_HOST=0.0.0.0
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-dsa}:${POSTGRES_PASSWORD:-dsa_password}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-dsa_db}
-
+    ports:
+      - "${API_PORT:-8000}:${API_PORT:-8000}"
     volumes:
       - ../data:/app/data
       - ../logs:/app/logs
       - ../reports:/app/reports
       - ../.env:/app/.env
       - ../strategies:/app/strategies:ro
-
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-
     deploy:
       resources:
         limits:
           memory: 512M
         reservations:
           memory: 256M
-
-  # ── 定时任务模式 ─────────────────────────────────────────────────────────────
-  analyzer:
-    <<: *app-base
-    container_name: dsa-analyzer
-
-  # ── FastAPI 模式 ─────────────────────────────────────────────────────────────
-  server:
-    <<: *app-base
-    container_name: dsa-server
-    command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "${API_PORT:-8000}"]
-    ports:
-      - "${API_PORT:-8000}:${API_PORT:-8000}"
 
 volumes:
   postgres_data:
