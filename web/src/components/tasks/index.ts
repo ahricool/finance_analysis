@@ -1,2 +1,1 @@
-export { TaskPanel } from './TaskPanel';
-export { default as TaskPanelDefault } from './TaskPanel';
+export { default as TaskPanel } from './TaskPanel.vue';

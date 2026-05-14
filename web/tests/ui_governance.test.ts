@@ -15,7 +15,7 @@ function collectSourceFiles(dir: string): string[] {
       return collectSourceFiles(fullPath);
     }
 
-    if (!/\.(ts|tsx)$/.test(fullPath)) {
+    if (!/\.(ts|tsx|vue)$/.test(fullPath)) {
       return [];
     }
 

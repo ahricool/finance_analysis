@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create } from 'vue-zustand';
 import { agentApi } from '../api/agent';
 import type { ChatSessionItem, ChatStreamRequest } from '../api/agent';
 import {

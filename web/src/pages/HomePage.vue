@@ -1,0 +1,656 @@
+<script setup lang="ts">
+import { analysisApi } from '@/api/analysis';
+import { getParsedApiError, type ParsedApiError } from '@/api/error';
+import { systemConfigApi } from '@/api/systemConfig';
+import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
+import Button from '@/components/common/Button.vue';
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
+import EmptyState from '@/components/common/EmptyState.vue';
+import InlineAlert from '@/components/common/InlineAlert.vue';
+import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
+import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
+import HistoryList from '@/components/history/HistoryList.vue';
+import ReportMarkdown from '@/components/report/ReportMarkdown.vue';
+import ReportSummary from '@/components/report/ReportSummary.vue';
+import TaskPanel from '@/components/tasks/TaskPanel.vue';
+import { useDashboardLifecycle } from '@/composables/useDashboardLifecycle';
+import { useHomeDashboardState } from '@/composables/useHomeDashboardState';
+import type { SetupStatusResponse } from '@/types/systemConfig';
+import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
+import { BarChart3 } from 'lucide-vue-next';
+import { computed, onMounted, onUnmounted, ref, unref } from 'vue';
+import { useRouter } from 'vue-router';
+
+type MarketReviewNotice = {
+  variant: 'success' | 'warning' | 'danger';
+  title: string;
+  message: string;
+} | null;
+
+const router = useRouter();
+const sidebarOpen = ref(false);
+const showDeleteConfirm = ref(false);
+const isSubmittingMarketReview = ref(false);
+const marketReviewNotice = ref<MarketReviewNotice>(null);
+const marketReviewError = ref<ParsedApiError | null>(null);
+const marketReviewReport = ref<string | null>(null);
+const marketReviewReportCopied = ref(false);
+const marketReviewPollTimer = ref<number | null>(null);
+const dashboardScrollRef = ref<HTMLElement | null>(null);
+
+const setupStatus = ref<SetupStatusResponse | null>(null);
+
+const {
+  query,
+  inputError,
+  duplicateError,
+  error,
+  isAnalyzing,
+  historyItems,
+  selectedHistoryIds,
+  isDeletingHistory,
+  isLoadingHistory,
+  isLoadingMore,
+  hasMore,
+  selectedReport,
+  isLoadingReport,
+  activeTasks,
+  markdownDrawerOpen,
+  selectedIds,
+  setQuery,
+  clearError,
+  loadInitialHistory,
+  refreshHistory,
+  loadMoreHistory,
+  selectHistoryItem,
+  toggleHistorySelection,
+  toggleSelectAllVisible,
+  deleteSelectedHistory,
+  submitAnalysis,
+  notify,
+  setNotify,
+  syncTaskCreated,
+  syncTaskUpdated,
+  syncTaskFailed,
+  removeTask,
+  openMarkdownDrawer,
+  closeMarkdownDrawer,
+} = useHomeDashboardState();
+
+const reportLanguage = computed(() => normalizeReportLanguage(selectedReport.value?.meta.reportLanguage));
+const reportText = computed(() => getReportText(reportLanguage.value));
+const setupNeedsAction = computed(() => (setupStatus.value ? !setupStatus.value.isComplete : false));
+const deleteConfirmMessage = computed(() => {
+  const n = unref(selectedHistoryIds).length;
+  return n === 1
+    ? '确认删除这条历史记录吗？删除后将不可恢复。'
+    : `确认删除选中的 ${n} 条历史记录吗？删除后将不可恢复。`;
+});
+
+const setupMissingLabels = computed(() => {
+  if (!setupStatus.value) return '';
+  const requiredNeedsAction = setupStatus.value.checks
+    .filter((check) => check.required && check.status === 'needs_action')
+    .map((check) => check.title);
+  return requiredNeedsAction.slice(0, 3).join('、');
+});
+
+useDashboardLifecycle({
+  loadInitialHistory: async () => {
+    await unref(loadInitialHistory)();
+  },
+  refreshHistory: async (silent) => {
+    await unref(refreshHistory)(silent);
+  },
+  syncTaskCreated: (task) => unref(syncTaskCreated)(task),
+  syncTaskUpdated: (task) => unref(syncTaskUpdated)(task),
+  syncTaskFailed: (task) => unref(syncTaskFailed)(task),
+  removeTask: (taskId) => unref(removeTask)(taskId),
+});
+
+function stopMarketReviewPolling() {
+  if (marketReviewPollTimer.value !== null) {
+    window.clearInterval(marketReviewPollTimer.value);
+    marketReviewPollTimer.value = null;
+  }
+}
+
+function scrollMarketReviewFeedbackIntoView() {
+  const scrollContainer = dashboardScrollRef.value;
+  if (!scrollContainer) return;
+  if (typeof scrollContainer.scrollTo === 'function') {
+    scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+  scrollContainer.scrollTop = 0;
+}
+
+onMounted(() => {
+  document.title = '每日选股分析 - DSA';
+  let active = true;
+  void systemConfigApi
+    .getSetupStatus()
+    .then((status) => {
+      if (active) setupStatus.value = status;
+    })
+    .catch(() => {
+      if (active) setupStatus.value = null;
+    });
+  onUnmounted(() => {
+    active = false;
+    stopMarketReviewPolling();
+  });
+});
+
+function handleHistoryItemClick(recordId: number) {
+  void unref(selectHistoryItem)(recordId);
+  sidebarOpen.value = false;
+}
+
+function handleSubmitAnalysisWrapper(
+  stockCode?: string,
+  stockName?: string,
+  selectionSource?: 'manual' | 'autocomplete' | 'import' | 'image',
+) {
+  void unref(submitAnalysis)({
+    stockCode,
+    stockName,
+    originalQuery: unref(query),
+    selectionSource: selectionSource ?? 'manual',
+  });
+}
+
+function onStockAutocompleteSubmit(
+  code: string,
+  name?: string,
+  source?: 'manual' | 'autocomplete',
+) {
+  handleSubmitAnalysisWrapper(code, name, source ?? 'manual');
+}
+
+function handleAskFollowUp() {
+  if (selectedReport.value?.meta.id === undefined) return;
+  const code = selectedReport.value.meta.stockCode;
+  const name = selectedReport.value.meta.stockName;
+  const rid = selectedReport.value.meta.id;
+  router.push(
+    `/chat?stock=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}&recordId=${rid}`,
+  );
+}
+
+function handleReanalyze() {
+  if (!selectedReport.value) return;
+  void unref(submitAnalysis)({
+    stockCode: selectedReport.value.meta.stockCode,
+    stockName: selectedReport.value.meta.stockName,
+    originalQuery: selectedReport.value.meta.stockCode,
+    selectionSource: 'manual',
+    forceRefresh: true,
+  });
+}
+
+async function pollMarketReviewStatus(taskId: string) {
+  stopMarketReviewPolling();
+
+  const maxAttempts = 120;
+  const intervalMs = 2000;
+  let attempts = 0;
+
+  const poll = async (): Promise<boolean> => {
+    if (attempts >= maxAttempts) {
+      stopMarketReviewPolling();
+      marketReviewReport.value = null;
+      marketReviewNotice.value = {
+        variant: 'danger',
+        title: '大盘复盘已超时',
+        message: '任务长时间未返回最终结果，请在任务列表/历史中查看。',
+      };
+      scrollMarketReviewFeedbackIntoView();
+      return false;
+    }
+
+    attempts += 1;
+
+    try {
+      const status = await analysisApi.getStatus(taskId);
+      if (status.status === 'pending' || status.status === 'processing') {
+        marketReviewReport.value = null;
+        const progress =
+          typeof status.progress === 'number' ? `${status.progress}%` : '进行中';
+        marketReviewNotice.value = {
+          variant: 'warning',
+          title: '大盘复盘进行中',
+          message: `任务状态：${status.status}（${progress}）`,
+        };
+        return true;
+      }
+
+      if (status.status === 'completed') {
+        stopMarketReviewPolling();
+        const marketReviewText =
+          typeof status.marketReviewReport === 'string' ? status.marketReviewReport : '';
+        marketReviewReport.value = marketReviewText ? marketReviewText.trim() : null;
+        marketReviewNotice.value = {
+          variant: 'success',
+          title: '大盘复盘已完成',
+          message: marketReviewText
+            ? '大盘复盘任务已完成，结果如下：'
+            : '大盘复盘任务已完成，结果已生成并按配置推送。',
+        };
+        marketReviewError.value = null;
+        scrollMarketReviewFeedbackIntoView();
+        return false;
+      }
+
+      if (status.status === 'failed') {
+        stopMarketReviewPolling();
+        marketReviewReport.value = null;
+        marketReviewError.value = getParsedApiError({
+          response: {
+            status: 500,
+            data: {
+              error: 'market_review_failed',
+              message: status.error || '大盘复盘执行失败。',
+            },
+          },
+        });
+        marketReviewNotice.value = null;
+        scrollMarketReviewFeedbackIntoView();
+        return false;
+      }
+
+      stopMarketReviewPolling();
+      marketReviewReport.value = null;
+      marketReviewNotice.value = {
+        variant: 'danger',
+        title: '大盘复盘状态异常',
+        message: `收到未知任务状态：${status.status}`,
+      };
+      scrollMarketReviewFeedbackIntoView();
+      return false;
+    } catch (err: unknown) {
+      const parsed = getParsedApiError(err);
+      if (attempts >= maxAttempts) {
+        stopMarketReviewPolling();
+        marketReviewReport.value = null;
+        marketReviewError.value = parsed;
+        marketReviewNotice.value = null;
+        scrollMarketReviewFeedbackIntoView();
+        return false;
+      }
+      return true;
+    }
+  };
+
+  if (await poll()) {
+    marketReviewPollTimer.value = window.setInterval(() => {
+      void poll().then((shouldContinue) => {
+        if (!shouldContinue) {
+          stopMarketReviewPolling();
+        }
+      });
+    }, intervalMs);
+  }
+}
+
+async function handleTriggerMarketReview() {
+  isSubmittingMarketReview.value = true;
+  marketReviewNotice.value = null;
+  marketReviewError.value = null;
+  marketReviewReport.value = null;
+  scrollMarketReviewFeedbackIntoView();
+  try {
+    const result = await analysisApi.triggerMarketReview({ sendNotification: unref(notify) });
+    marketReviewNotice.value = {
+      variant: 'success',
+      title: '大盘复盘已提交',
+      message: result.message,
+    };
+    scrollMarketReviewFeedbackIntoView();
+
+    if (result.taskId) {
+      await pollMarketReviewStatus(result.taskId);
+    }
+  } catch (err: unknown) {
+    marketReviewError.value = getParsedApiError(err);
+    marketReviewNotice.value = null;
+    scrollMarketReviewFeedbackIntoView();
+  } finally {
+    isSubmittingMarketReview.value = false;
+  }
+}
+
+function handleCopyMarketReviewReport() {
+  if (!marketReviewReport.value) return;
+  void navigator.clipboard.writeText(marketReviewReport.value).then(
+    () => {
+      marketReviewReportCopied.value = true;
+      window.setTimeout(() => {
+        marketReviewReportCopied.value = false;
+      }, 2000);
+    },
+    (err) => {
+      console.error('复制失败:', err);
+    },
+  );
+}
+
+function handleDeleteSelectedHistory() {
+  void unref(deleteSelectedHistory)();
+  showDeleteConfirm.value = false;
+}
+</script>
+
+<template>
+  <div
+    data-testid="home-dashboard"
+    class="flex h-[calc(100vh-5rem)] w-full flex-col overflow-hidden sm:h-[calc(100vh-5.5rem)] md:flex-row lg:h-[calc(100vh-2rem)]"
+  >
+    <div class="mx-auto flex w-full max-w-full min-w-0 flex-1 flex-col lg:max-w-6xl">
+      <header class="flex min-w-0 flex-shrink-0 items-center overflow-hidden px-3 py-3 md:px-4 md:py-4">
+        <div class="flex min-w-0 flex-1 flex-col gap-2.5 md:flex-row md:items-center">
+          <div class="flex min-w-0 flex-1 items-center gap-2.5">
+            <button
+              type="button"
+              class="-ml-1 flex-shrink-0 rounded-lg p-1.5 text-secondary-text transition-colors hover:bg-hover hover:text-foreground md:hidden"
+              aria-label="历史记录"
+              @click="sidebarOpen = true"
+            >
+              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <div class="relative min-w-0 flex-1">
+              <StockAutocomplete
+                :model-value="query"
+                :disabled="isAnalyzing"
+                placeholder="输入股票代码或名称，如 600519、贵州茅台、AAPL"
+                :class="inputError ? 'border-danger/50' : undefined"
+                @update:model-value="(v: string) => unref(setQuery)(v)"
+                @submit="onStockAutocompleteSubmit"
+              />
+            </div>
+          </div>
+          <div class="flex min-w-0 flex-shrink-0 items-center gap-2.5">
+            <label
+              class="flex h-10 flex-shrink-0 cursor-pointer items-center gap-1.5 select-none rounded-xl border border-subtle bg-surface/60 px-3 text-xs text-secondary-text transition-colors hover:border-subtle-hover hover:text-foreground"
+            >
+              <input
+                type="checkbox"
+                :checked="unref(notify)"
+                class="h-3.5 w-3.5 rounded border-border accent-primary"
+                @change="unref(setNotify)(($event.target as HTMLInputElement).checked)"
+              />
+              推送通知
+            </label>
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              :is-loading="isSubmittingMarketReview"
+              loading-text="提交中"
+              class="h-10 flex-1 whitespace-nowrap md:flex-none"
+              @click="handleTriggerMarketReview"
+            >
+              <BarChart3 class="h-4 w-4" aria-hidden="true" />
+              大盘复盘
+            </Button>
+            <button
+              type="button"
+              :disabled="!query || isAnalyzing"
+              class="btn-primary flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap md:flex-none"
+              @click="handleSubmitAnalysisWrapper()"
+            >
+              <template v-if="isAnalyzing">
+                <svg class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                  <path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                分析中
+              </template>
+              <template v-else>分析</template>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div v-if="inputError || duplicateError" class="px-3 pb-2 md:px-4">
+        <InlineAlert
+          v-if="inputError"
+          variant="danger"
+          title="输入有误"
+          class="rounded-xl px-3 py-2 text-xs shadow-none"
+        >
+          {{ inputError }}
+        </InlineAlert>
+        <InlineAlert
+          v-else-if="duplicateError"
+          variant="warning"
+          title="任务已存在"
+          class="rounded-xl px-3 py-2 text-xs shadow-none"
+        >
+          {{ duplicateError }}
+        </InlineAlert>
+      </div>
+
+      <div v-if="setupNeedsAction" class="px-3 pb-2 md:px-4">
+        <InlineAlert
+          variant="warning"
+          title="基础配置未完成"
+          class="rounded-xl px-3 py-2 text-xs shadow-none"
+        >
+          {{
+            setupMissingLabels
+              ? `还缺少 ${setupMissingLabels}，完成后即可开始最小可用分析。`
+              : '还缺少基础配置，完成后即可开始最小可用分析。'
+          }}
+          <template #action>
+            <Button type="button" variant="secondary" size="sm" @click="router.push('/settings')">
+              去配置
+            </Button>
+          </template>
+        </InlineAlert>
+      </div>
+
+      <div class="flex min-h-0 flex-1 overflow-hidden">
+        <div class="hidden min-h-0 w-64 shrink-0 flex-col overflow-hidden pb-4 pl-4 md:flex lg:w-72">
+          <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+            <TaskPanel :tasks="activeTasks" />
+            <HistoryList
+              :items="historyItems"
+              :is-loading="isLoadingHistory"
+              :is-loading-more="isLoadingMore"
+              :has-more="hasMore"
+              :selected-id="selectedReport?.meta.id"
+              :selected-ids="selectedIds"
+              :is-deleting="isDeletingHistory"
+              class="min-h-0 flex-1 overflow-hidden"
+              @item-click="handleHistoryItemClick"
+              @load-more="() => unref(loadMoreHistory)()"
+              @toggle-item-selection="(id: number) => unref(toggleHistorySelection)(id)"
+              @toggle-select-all="() => unref(toggleSelectAllVisible)()"
+              @delete-selected="showDeleteConfirm = true"
+            />
+          </div>
+        </div>
+
+        <div
+          v-if="sidebarOpen"
+          class="fixed inset-0 z-40 md:hidden"
+          @click="sidebarOpen = false"
+        >
+          <div class="page-drawer-overlay absolute inset-0" />
+          <div
+            class="dashboard-card absolute bottom-0 left-0 top-0 flex w-72 flex-col overflow-hidden !rounded-none !rounded-r-xl p-3 shadow-2xl"
+            @click.stop
+          >
+            <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+              <TaskPanel :tasks="activeTasks" />
+              <HistoryList
+                :items="historyItems"
+                :is-loading="isLoadingHistory"
+                :is-loading-more="isLoadingMore"
+                :has-more="hasMore"
+                :selected-id="selectedReport?.meta.id"
+                :selected-ids="selectedIds"
+                :is-deleting="isDeletingHistory"
+                class="min-h-0 flex-1 overflow-hidden"
+                @item-click="handleHistoryItemClick"
+                @load-more="() => unref(loadMoreHistory)()"
+                @toggle-item-selection="(id: number) => unref(toggleHistorySelection)(id)"
+                @toggle-select-all="() => unref(toggleSelectAllVisible)()"
+                @delete-selected="showDeleteConfirm = true"
+              />
+            </div>
+          </div>
+        </div>
+
+        <section
+          ref="dashboardScrollRef"
+          data-testid="home-dashboard-scroll"
+          class="min-h-0 min-w-0 flex-1 touch-pan-y overflow-x-auto overflow-y-auto px-3 pb-4 md:px-6"
+        >
+          <div v-if="marketReviewNotice" class="mb-3">
+            <InlineAlert
+              :variant="marketReviewNotice.variant"
+              :title="marketReviewNotice.title"
+              class="rounded-xl px-3 py-2 text-xs shadow-none"
+            >
+              {{ marketReviewNotice.message }}
+            </InlineAlert>
+          </div>
+
+          <div v-if="marketReviewError" class="mb-3">
+            <ApiErrorAlert
+              :error="marketReviewError"
+              class="mb-1"
+              @dismiss="marketReviewError = null"
+            />
+          </div>
+
+          <div
+            v-if="marketReviewReport"
+            class="mb-3 rounded-xl border border-subtle bg-surface/70 px-3 py-3 text-xs text-secondary-text shadow-sm"
+          >
+            <div class="mb-2 flex items-center justify-between gap-2">
+              <p class="font-semibold text-foreground">大盘复盘报告</p>
+              <button
+                type="button"
+                class="home-surface-button h-7 rounded-md px-3 py-1 text-xs text-foreground"
+                :disabled="marketReviewReportCopied"
+                @click="handleCopyMarketReviewReport"
+              >
+                {{ marketReviewReportCopied ? '已复制' : '复制' }}
+              </button>
+            </div>
+            <pre
+              data-testid="market-review-report"
+              class="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-background px-3 py-2 leading-relaxed"
+            >{{ marketReviewReport }}</pre>
+          </div>
+
+          <ApiErrorAlert v-if="error" :error="error" class="mb-3" @dismiss="() => unref(clearError)()" />
+
+          <div v-if="isLoadingReport" class="flex h-full flex-col items-center justify-center">
+            <DashboardStateBlock title="加载报告中..." loading />
+          </div>
+          <div v-else-if="selectedReport" class="max-w-4xl space-y-4 pb-8">
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                variant="home-action-ai"
+                size="sm"
+                :disabled="isAnalyzing || selectedReport.meta.id === undefined"
+                @click="handleReanalyze"
+              >
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                {{ reportText.reanalyze }}
+              </Button>
+              <Button
+                variant="home-action-ai"
+                size="sm"
+                :disabled="selectedReport.meta.id === undefined"
+                @click="handleAskFollowUp"
+              >
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                  />
+                </svg>
+                追问 AI
+              </Button>
+              <Button
+                variant="home-action-ai"
+                size="sm"
+                :disabled="selectedReport.meta.id === undefined"
+                @click="unref(openMarkdownDrawer)()"
+              >
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
+                </svg>
+                {{ reportText.fullReport }}
+              </Button>
+            </div>
+            <ReportSummary :data="selectedReport" is-history />
+          </div>
+          <div v-else class="flex h-full items-center justify-center">
+            <EmptyState
+              title="开始分析"
+              description="输入股票代码进行分析，或从左侧选择历史报告查看。"
+              class="max-w-xl border-dashed"
+            >
+              <template #icon>
+                <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.5"
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                  />
+                </svg>
+              </template>
+            </EmptyState>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <ReportMarkdown
+      v-if="markdownDrawerOpen && selectedReport?.meta.id"
+      :record-id="selectedReport.meta.id"
+      :stock-name="selectedReport.meta.stockName || ''"
+      :stock-code="selectedReport.meta.stockCode"
+      :report-language="reportLanguage"
+      @close="() => unref(closeMarkdownDrawer)()"
+    />
+
+    <ConfirmDialog
+      :is-open="showDeleteConfirm"
+      title="删除历史记录"
+      :message="deleteConfirmMessage"
+      :confirm-text="isDeletingHistory ? '删除中...' : '确认删除'"
+      cancel-text="取消"
+      :is-danger="true"
+      @confirm="handleDeleteSelectedHistory"
+      @cancel="showDeleteConfirm = false"
+    />
+  </div>
+</template>

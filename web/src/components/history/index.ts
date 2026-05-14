@@ -1,2 +1,2 @@
-export { HistoryList } from './HistoryList';
-export { HistoryListItem } from './HistoryListItem';
+export { default as HistoryList } from './HistoryList.vue';
+export { default as HistoryListItem } from './HistoryListItem.vue';
