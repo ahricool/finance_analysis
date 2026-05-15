@@ -10,10 +10,6 @@ venv/
 env/
 .env.local
 
-# uv artifacts
-uv.lock
-.python-version
-
 # 忽略 IDE
 .idea/
 .vscode/
@@ -32,3 +28,9 @@ test_*.py
 # 忽略文档
 *.md
 !README.md
+
+node_modules
+web/node_modules
+web/dist
+web/.vite
+.pnpm-store
