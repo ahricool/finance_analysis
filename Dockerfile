@@ -13,13 +13,11 @@ FROM node:24-slim AS web-builder
 WORKDIR /workspace/web
 
 COPY web/ ./
-RUN pnpm install
-RUN pnpm run build
+RUN npm install
+RUN npm run build
 
 # ── Stage 2: Python dependency build (uv) ────────────────────────────────────
-# Use python:3.13-slim-bookworm as base (same OS as runtime) and inject uv.
-# We keep both stages on bookworm so the compiled .venv is ABI-compatible.
-FROM python:3.13-slim-bookworm AS py-builder
+FROM python:3.13-slim-trixie AS py-builder
 
 # Inject uv binary from the official distroless image
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
@@ -44,8 +42,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # ── Stage 3: Runtime image ───────────────────────────────────────────────────
-# Pin to bookworm: wkhtmltopdf was removed from Debian testing (2025)
-FROM python:3.13-slim-bookworm
+FROM python:3.13-slim-trixie
 
 # 设置工作目录
 WORKDIR /workspace
@@ -54,11 +51,9 @@ WORKDIR /workspace
 ENV TZ=Asia/Shanghai
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# 安装系统依赖（wkhtmltopdf 含 wkhtmltoimage，用于 Markdown 转图片 Issue #289）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gosu \
-    wkhtmltopdf \
     fontconfig \
     libjpeg62-turbo \
     libxrender1 \
@@ -67,8 +62,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 
 # Copy installed Python packages from the builder stage
-# Both stages share the same python:3.13-slim-bookworm base, so site-packages
-# paths and ABI are identical.
 COPY --from=py-builder /workspace/.venv /workspace/.venv
 
 # 复制应用代码

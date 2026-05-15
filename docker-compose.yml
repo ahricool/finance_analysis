@@ -1,25 +1,20 @@
 # ===================================
-# A股自选股智能分析系统 - Docker Compose
+# Finance Analysis - Docker Compose
 # ===================================
 #
-# 使用方式:
-#   docker-compose up -d
-#
-# 数据库：使用独立 postgres 服务；连接串由 DATABASE_URL 传入 app 容器。
-# 如需修改 PostgreSQL 密码，同步更新 .env 中的 DATABASE_URL 和 POSTGRES_PASSWORD。
 
-name: daily-stock-analysis
+name: finance-analysis
 
 services:
   # ── PostgreSQL ──────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: dsa-postgres
+    container_name: database
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-dsa_db}
-      POSTGRES_USER: ${POSTGRES_USER:-dsa}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dsa_password}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       TZ: Asia/Shanghai
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
@@ -28,7 +23,7 @@ services:
       # 仅暴露给宿主机做本地调试，生产环境可移除此行
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dsa} -d ${POSTGRES_DB:-dsa_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -44,7 +39,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: dsa-server
+    container_name: server
     restart: unless-stopped
     depends_on:
       postgres:
@@ -55,7 +50,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - WEBUI_HOST=0.0.0.0
-      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-dsa}:${POSTGRES_PASSWORD:-dsa_password}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-dsa_db}
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB}
     ports:
       - "${API_PORT:-8000}:${API_PORT:-8000}"
     volumes:
@@ -69,13 +64,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
 
 volumes:
   postgres_data:
-    name: dsa-postgres-data
+    name: finance-analysis-postgres-data
