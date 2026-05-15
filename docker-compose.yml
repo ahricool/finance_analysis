@@ -44,7 +44,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "${API_PORT:-8000}"]
+    # command: ["uv", "run", "main.py"]
     env_file:
       - .env
     environment:

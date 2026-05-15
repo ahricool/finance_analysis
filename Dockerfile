@@ -44,6 +44,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ── Stage 3: Runtime image ───────────────────────────────────────────────────
 FROM python:3.13-slim-trixie
 
+# Inject uv binary from the official distroless image
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
 # 设置工作目录
 WORKDIR /workspace
 
@@ -73,7 +76,6 @@ COPY src/ ./src/
 COPY strategies/ ./strategies/
 
 COPY --from=web-builder /workspace/static ./static/
-COPY entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # 设置环境变量默认值
 ENV PYTHONUNBUFFERED=1
@@ -93,8 +95,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || curl -f http://localhost:8000/health \
     || python -c "import sys; sys.exit(0)"
 
-# 文档化 docker-compose exec 命令需显式使用 -u dsa，避免手动进程写入 root-owned 文件。
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # 默认命令（可被覆盖）
-CMD ["uv", "run", "python", "main.py"]
+CMD ["uv", "run", "main.py"]

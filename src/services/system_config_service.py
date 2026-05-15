@@ -2136,7 +2136,6 @@ class SystemConfigService:
         ntfy_server_url, ntfy_topic = resolve_ntfy_endpoint(effective_map.get("NTFY_URL"))
         return bool(ntfy_server_url and ntfy_topic)
 
-    @staticmethod
     @classmethod
     def _anspire_legacy_llm_enabled(cls, effective_map: Dict[str, str]) -> bool:
         if not parse_env_bool(effective_map.get("ANSPIRE_LLM_ENABLED"), default=True):
