@@ -10,10 +10,6 @@ venv/
 env/
 .env.local
 
-# uv artifacts
-uv.lock
-.python-version
-
 # 忽略 IDE
 .idea/
 .vscode/
