@@ -1,5 +1,5 @@
 # ===================================
-# A股自选股智能分析系统 - 依赖列表
+# Finance Analysis - 依赖列表
 # ===================================
 # Python >= 3.13 required
 # Managed with uv (https://github.com/astral-sh/uv)

@@ -80,7 +80,7 @@ async function save() {
     closeDialog();
   } catch (e) {
     const parsed = getParsedApiError(e);
-    formError.value = parsed.detail ?? '操作失败，请重试';
+    formError.value = parsed.message || '操作失败，请重试';
   } finally {
     saving.value = false;
   }
@@ -282,7 +282,7 @@ onMounted(loadList);
           </p>
           <div class="flex justify-end gap-3">
             <Button variant="ghost" @click="showDeleteConfirm = false">取消</Button>
-            <Button variant="destructive" @click="confirmDelete">确认删除</Button>
+            <Button variant="danger" @click="confirmDelete">确认删除</Button>
           </div>
         </div>
       </div>
