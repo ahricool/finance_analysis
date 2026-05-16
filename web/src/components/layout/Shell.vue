@@ -1,78 +1,116 @@
 <script setup lang="ts">
-import { Menu } from 'lucide-vue-next';
-import { onMounted, onUnmounted, ref } from 'vue';
-import { RouterView } from 'vue-router';
-import Drawer from '@/components/common/Drawer.vue';
-import SidebarNav from '@/components/layout/SidebarNav.vue';
-import ThemeToggle from '@/components/theme/ThemeToggle.vue';
+import { BarChart3, BriefcaseBusiness, Home, LogOut, MessageSquareQuote, Star, Wallet } from 'lucide-vue-next';
+import { ref } from 'vue';
+import { RouterLink, RouterView } from 'vue-router';
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
+import StatusDot from '@/components/common/StatusDot.vue';
+import { useAuth } from '@/composables/useAuth';
+import { APP_NAME } from '@/config/app';
+import { useAgentChatStore } from '@/stores/agentChatStore';
 import { cn } from '@/utils/cn';
 
-const mobileOpen = ref(false);
-const collapsed = false;
+const { authEnabled, logout } = useAuth();
+const completionBadge = useAgentChatStore((s) => s.completionBadge);
+const showLogoutConfirm = ref(false);
 
-function onResize() {
-  if (window.innerWidth >= 1024) {
-    mobileOpen.value = false;
-  }
+const navItems = [
+  { key: 'home', label: '首页', to: '/', icon: Home, exact: true },
+  { key: 'watch-list', label: '自选股', to: '/watch-list', icon: Star },
+  { key: 'stock-list', label: '持仓股', to: '/stock-list', icon: Wallet },
+  { key: 'chat', label: '问股', to: '/chat', icon: MessageSquareQuote, badge: 'completion' as const },
+  { key: 'portfolio', label: '投资组合', to: '/portfolio', icon: BriefcaseBusiness },
+  { key: 'backtest', label: '回测', to: '/backtest', icon: BarChart3 },
+];
+
+async function onLogoutConfirm() {
+  showLogoutConfirm.value = false;
+  await logout();
 }
-
-onMounted(() => {
-  window.addEventListener('resize', onResize);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('resize', onResize);
-});
 </script>
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <div
-      class="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_18%_6%,hsl(var(--primary)/0.10),transparent_28rem),radial-gradient(circle_at_92%_14%,hsl(var(--accent-secondary)/0.08),transparent_32rem)]"
-      aria-hidden="true"
-    />
-    <div class="pointer-events-none fixed inset-x-0 top-3 z-40 flex items-start justify-between px-3 lg:hidden">
-      <button
-        type="button"
-        class="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border/80 bg-card/90 text-secondary-text shadow-soft-card backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:bg-card hover:text-foreground"
-        aria-label="打开导航菜单"
-        @click="mobileOpen = true"
-      >
-        <Menu class="h-5 w-5" />
-      </button>
-      <div class="pointer-events-auto">
-        <ThemeToggle />
-      </div>
-    </div>
-
-    <div class="mx-auto flex min-h-screen w-full max-w-[1680px] px-3 py-3 sm:px-4 sm:py-4 lg:px-5">
-      <aside
-        :class="
-          cn(
-            'sticky top-3 z-40 hidden shrink-0 overflow-visible rounded-2xl border border-[var(--shell-sidebar-border)] bg-card/88 p-2 shadow-soft-card backdrop-blur-xl transition-[width] duration-200 lg:flex',
-            'max-h-[calc(100vh-1.5rem)] self-start sm:top-4 sm:max-h-[calc(100vh-2rem)]',
-            collapsed ? 'w-[64px]' : 'w-[116px]',
-          )
-        "
-        aria-label="桌面侧边导航"
-      >
-        <SidebarNav :collapsed="collapsed" @navigate="mobileOpen = false" />
-      </aside>
-
-      <main class="min-h-0 min-w-0 flex-1 touch-pan-y pt-14 lg:pl-3 lg:pt-0">
-        <RouterView />
-      </main>
-    </div>
-
-    <Drawer
-      :is-open="mobileOpen"
-      title="导航菜单"
-      width="max-w-xs"
-      :z-index="90"
-      side="left"
-      @close="mobileOpen = false"
+    <header
+      class="fixed inset-x-0 top-0 z-50 border-b border-border/70 bg-card/90 shadow-[0_8px_26px_hsl(222_32%_18%/0.08)] backdrop-blur-xl"
     >
-      <SidebarNav @navigate="mobileOpen = false" />
-    </Drawer>
+      <div class="mx-auto flex h-16 w-full max-w-[1280px] items-center gap-3 px-3 sm:px-4 lg:px-6">
+        <RouterLink
+          to="/"
+          class="flex min-w-max items-center gap-2 rounded-xl px-2 py-1.5 text-foreground transition-colors hover:bg-hover"
+          aria-label="回到首页"
+        >
+          <span class="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card">
+            <img src="/flower.svg" alt="" class="h-8 w-8" />
+          </span>
+          <span class="hidden font-display text-base leading-none text-black md:block">{{ APP_NAME }}</span>
+        </RouterLink>
+
+        <nav
+          class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          aria-label="主导航"
+        >
+          <RouterLink
+            v-for="item in navItems"
+            :key="item.key"
+            v-slot="{ href, navigate, isActive, isExactActive }"
+            :to="item.to"
+            custom
+          >
+            <a
+              :href="href"
+              :aria-label="item.label"
+              :class="
+                cn(
+                  'group relative inline-flex h-10 min-w-max items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium transition-colors',
+                  (item.exact ? isExactActive : isActive)
+                    ? 'bg-[var(--nav-active-bg)] text-[hsl(var(--primary))]'
+                    : 'text-secondary-text hover:bg-[var(--nav-hover-bg)] hover:text-foreground',
+                )
+              "
+              @click="navigate"
+            >
+              <component :is="item.icon" class="h-4 w-4 shrink-0" />
+              <span>{{ item.label }}</span>
+              <span
+                v-if="item.exact ? isExactActive : isActive"
+                class="absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-[var(--nav-indicator-bg)]"
+              />
+              <StatusDot
+                v-if="item.badge === 'completion' && completionBadge"
+                tone="info"
+                data-testid="chat-completion-badge"
+                class="absolute right-1 top-1 border-2 border-background shadow-[0_0_10px_var(--nav-indicator-shadow)]"
+                aria-label="问股有新消息"
+              />
+            </a>
+          </RouterLink>
+        </nav>
+
+        <button
+          v-if="authEnabled"
+          type="button"
+          class="inline-flex h-10 min-w-max items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground"
+          @click="showLogoutConfirm = true"
+        >
+          <LogOut class="h-4 w-4" />
+          <span class="hidden sm:inline">退出</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="mx-auto min-h-screen w-full max-w-[1280px] px-3 pb-4 pt-20 sm:px-4 lg:px-6">
+      <RouterView />
+    </main>
+
+    <ConfirmDialog
+      :is-open="showLogoutConfirm"
+      title="退出登录"
+      message="确认退出当前登录状态吗？退出后需要重新输入密码。"
+      confirm-text="确认退出"
+      cancel-text="取消"
+      :is-danger="true"
+      @confirm="onLogoutConfirm"
+      @cancel="showLogoutConfirm = false"
+    />
   </div>
 </template>

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { BarChart3, BriefcaseBusiness, Home, LogOut, MessageSquareQuote, Settings2, Star, Wallet } from 'lucide-vue-next';
+import { BarChart3, BriefcaseBusiness, Home, LogOut, MessageSquareQuote, Star, Wallet } from 'lucide-vue-next';
 import { ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import StatusDot from '@/components/common/StatusDot.vue';
-import ThemeToggle from '@/components/theme/ThemeToggle.vue';
+import { APP_NAME } from '@/config/app';
 import { cn } from '@/utils/cn';
 import { useAuth } from '@/composables/useAuth';
 import { useAgentChatStore } from '@/stores/agentChatStore';
@@ -23,12 +23,11 @@ const showLogoutConfirm = ref(false);
 
 const navItems = [
   { key: 'home', label: '首页', to: '/', icon: Home, exact: true },
-  { key: 'chat', label: '问股', to: '/chat', icon: MessageSquareQuote, badge: 'completion' as const },
   { key: 'watch-list', label: '自选股', to: '/watch-list', icon: Star },
   { key: 'stock-list', label: '持仓股', to: '/stock-list', icon: Wallet },
+  { key: 'chat', label: '问股', to: '/chat', icon: MessageSquareQuote, badge: 'completion' as const },
   { key: 'portfolio', label: '投资组合', to: '/portfolio', icon: BriefcaseBusiness },
   { key: 'backtest', label: '回测', to: '/backtest', icon: BarChart3 },
-  { key: 'settings', label: '设置', to: '/settings', icon: Settings2 },
 ];
 
 async function onLogoutConfirm() {
@@ -42,11 +41,13 @@ async function onLogoutConfirm() {
   <div class="flex h-full flex-col">
     <div :class="cn('mb-5 flex items-center gap-2 px-1', collapsed ? 'justify-center' : '')">
       <div
-        class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-gradient text-[hsl(var(--primary-foreground))] shadow-[0_14px_30px_var(--nav-brand-shadow)]"
+        class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card"
       >
-        <BarChart3 class="h-5 w-5" />
+        <img src="/flower.svg" alt="" class="h-9 w-9" />
       </div>
-      <p v-if="!collapsed" class="min-w-0 truncate font-display text-xl leading-none text-foreground">DSA</p>
+      <p v-if="!collapsed" class="min-w-0 truncate font-display text-base leading-none text-foreground">
+        {{ APP_NAME }}
+      </p>
     </div>
 
     <nav class="flex flex-1 flex-col gap-1.5" aria-label="主导航">
@@ -105,10 +106,6 @@ async function onLogoutConfirm() {
         </a>
       </RouterLink>
     </nav>
-
-    <div class="mt-4 mb-2">
-      <ThemeToggle variant="nav" :collapsed="collapsed" />
-    </div>
 
     <button
       v-if="authEnabled"

@@ -4,7 +4,6 @@ import HomePage from '@/pages/HomePage.vue';
 import ChatPage from '@/pages/ChatPage.vue';
 import PortfolioPage from '@/pages/PortfolioPage.vue';
 import BacktestPage from '@/pages/BacktestPage.vue';
-import SettingsPage from '@/pages/SettingsPage.vue';
 import WatchListPage from '@/pages/WatchListPage.vue';
 import StockListPage from '@/pages/StockListPage.vue';
 import LoginPage from '@/pages/LoginPage.vue';
@@ -23,7 +22,6 @@ const router = createRouter({
         { path: 'stock-list', name: 'stock-list', component: StockListPage },
         { path: 'portfolio', name: 'portfolio', component: PortfolioPage },
         { path: 'backtest', name: 'backtest', component: BacktestPage },
-        { path: 'settings', name: 'settings', component: SettingsPage },
         { path: ':pathMatch(.*)*', name: 'not-found', component: NotFoundPage },
       ],
     },

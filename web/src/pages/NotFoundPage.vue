@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 import { onMounted } from 'vue';
+import { formatDocumentTitle } from '@/config/app';
 
 const router = useRouter();
 
 onMounted(() => {
-  document.title = '页面未找到 - DSA';
+  document.title = formatDocumentTitle('页面未找到');
 });
 </script>
 

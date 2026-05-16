@@ -8,6 +8,7 @@ import InlineAlert from '@/components/common/InlineAlert.vue';
 import Input from '@/components/common/Input.vue';
 import Select from '@/components/common/Select.vue';
 import SettingsSectionCard from '@/components/settings/SettingsSectionCard.vue';
+import { APP_NAME } from '@/config/app';
 import type {
   NotificationTestChannel,
   TestNotificationChannelResponse,
@@ -40,8 +41,8 @@ function clampTimeout(value: string): number {
 }
 
 const channel = ref<NotificationTestChannel>('telegram');
-const title = ref('DSA 通知测试');
-const content = ref('这是一条来自 DSA Web 设置页的通知测试消息。');
+const title = ref(`${APP_NAME} 通知测试`);
+const content = ref(`这是一条来自 ${APP_NAME} Web 工作台的通知测试消息。`);
 const timeoutSeconds = ref('20');
 const result = ref<TestNotificationChannelResponse | null>(null);
 const error = ref<ParsedApiError | null>(null);
@@ -60,8 +61,8 @@ async function runTest() {
       channel: channel.value,
       items: normalizedItems.value,
       maskToken: props.maskToken,
-      title: title.value.trim() || 'DSA 通知测试',
-      content: content.value.trim() || '这是一条来自 DSA Web 设置页的通知测试消息。',
+      title: title.value.trim() || `${APP_NAME} 通知测试`,
+      content: content.value.trim() || `这是一条来自 ${APP_NAME} Web 工作台的通知测试消息。`,
       timeoutSeconds: clampTimeout(timeoutSeconds.value),
     });
     result.value = payload;

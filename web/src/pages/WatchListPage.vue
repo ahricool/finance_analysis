@@ -125,7 +125,7 @@ onMounted(loadList);
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl px-4 py-6 sm:px-6">
+  <div class="mx-auto w-full px-4 py-6 sm:px-6">
     <!-- Header -->
     <div class="mb-6 flex items-center justify-between">
       <div class="flex items-center gap-3">
