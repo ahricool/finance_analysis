@@ -1,6 +1,7 @@
 import apiClient from './index';
 import { createParsedApiError, getParsedApiError, type ParsedApiError } from './error';
 import { toCamelCase } from './utils';
+import { APP_NAME } from '@/config/app';
 import type {
   DiscoverLLMChannelModelsRequest,
   DiscoverLLMChannelModelsResponse,
@@ -110,8 +111,8 @@ function toSnakeNotificationTestPayload(payload: TestNotificationChannelRequest)
       value: item.value,
     })),
     mask_token: payload.maskToken ?? '******',
-    title: payload.title ?? 'DSA 通知测试',
-    content: payload.content ?? '这是一条来自 DSA Web 设置页的通知测试消息。',
+    title: payload.title ?? `${APP_NAME} 通知测试`,
+    content: payload.content ?? `这是一条来自 ${APP_NAME} Web 工作台的通知测试消息。`,
     timeout_seconds: payload.timeoutSeconds ?? 20,
   };
 }

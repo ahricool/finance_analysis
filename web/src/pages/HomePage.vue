@@ -15,6 +15,7 @@ import ReportSummary from '@/components/report/ReportSummary.vue';
 import TaskPanel from '@/components/tasks/TaskPanel.vue';
 import { useDashboardLifecycle } from '@/composables/useDashboardLifecycle';
 import { useHomeDashboardState } from '@/composables/useHomeDashboardState';
+import { formatDocumentTitle } from '@/config/app';
 import type { SetupStatusResponse } from '@/types/systemConfig';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { BarChart3 } from 'lucide-vue-next';
@@ -126,7 +127,7 @@ function scrollMarketReviewFeedbackIntoView() {
 }
 
 onMounted(() => {
-  document.title = '每日选股分析 - DSA';
+  document.title = formatDocumentTitle();
   let active = true;
   void systemConfigApi
     .getSetupStatus()
@@ -344,9 +345,9 @@ function handleDeleteSelectedHistory() {
 <template>
   <div
     data-testid="home-dashboard"
-    class="flex h-[calc(100vh-5rem)] w-full flex-col overflow-hidden sm:h-[calc(100vh-5.5rem)] md:flex-row lg:h-[calc(100vh-2rem)]"
+    class="flex h-[calc(100vh-5rem)] w-full flex-col overflow-hidden sm:h-[calc(100vh-5.5rem)] md:flex-row lg:h-[calc(100vh-6rem)]"
   >
-    <div class="mx-auto flex w-full max-w-full min-w-0 flex-1 flex-col lg:max-w-6xl">
+    <div class="mx-auto flex w-full max-w-full min-w-0 flex-1 flex-col">
       <header class="flex min-w-0 flex-shrink-0 items-center overflow-hidden px-3 py-3 md:px-4 md:py-4">
         <div class="flex min-w-0 flex-1 flex-col gap-2.5 md:flex-row md:items-center">
           <div class="flex min-w-0 flex-1 items-center gap-2.5">
@@ -445,14 +446,9 @@ function handleDeleteSelectedHistory() {
         >
           {{
             setupMissingLabels
-              ? `还缺少 ${setupMissingLabels}，完成后即可开始最小可用分析。`
-              : '还缺少基础配置，完成后即可开始最小可用分析。'
+              ? `还缺少 ${setupMissingLabels}，请补齐运行环境配置后再开始最小可用分析。`
+              : '还缺少基础配置，请补齐运行环境配置后再开始最小可用分析。'
           }}
-          <template #action>
-            <Button type="button" variant="secondary" size="sm" @click="router.push('/settings')">
-              去配置
-            </Button>
-          </template>
         </InlineAlert>
       </div>
 
@@ -558,7 +554,7 @@ function handleDeleteSelectedHistory() {
           <div v-if="isLoadingReport" class="flex h-full flex-col items-center justify-center">
             <DashboardStateBlock title="加载报告中..." loading />
           </div>
-          <div v-else-if="selectedReport" class="max-w-4xl space-y-4 pb-8">
+          <div v-else-if="selectedReport" class="space-y-4 pb-8">
             <div class="flex flex-wrap items-center justify-end gap-2">
               <Button
                 variant="home-action-ai"

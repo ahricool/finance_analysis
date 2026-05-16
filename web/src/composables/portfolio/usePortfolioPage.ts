@@ -8,6 +8,7 @@ import {
 import { portfolioApi } from '@/api/portfolio';
 import type { ParsedApiError } from '@/api/error';
 import { getParsedApiError } from '@/api/error';
+import { formatDocumentTitle } from '@/config/app';
 import type {
   PortfolioAccountItem,
   PortfolioCashDirection,
@@ -770,7 +771,7 @@ export function usePortfolioPage() {
   });
 
   onMounted(() => {
-    document.title = '持仓分析 - DSA';
+    document.title = formatDocumentTitle('持仓分析');
     void loadAccounts();
     void loadBrokers();
     void loadSnapshotAndRisk();

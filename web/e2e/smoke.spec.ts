@@ -108,32 +108,23 @@ test.describe('web smoke', () => {
     await expect(composer).not.toHaveAttribute('title', /.+/);
   });
 
-  test('mobile shell opens navigation drawer after login', async ({ page }) => {
+  test('mobile shell keeps top navigation accessible after login', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await login(page);
 
-    // Try to open navigation menu
-    const menuButton = page.getByRole('button', { name: /打开导航|菜单/i });
-    if (await menuButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await menuButton.click();
-    }
-
-    // Check if navigation is visible
+    await page
+      .getByRole('navigation', { name: '主导航' })
+      .evaluate((el) => {
+        el.scrollLeft = el.scrollWidth;
+      });
     await expect(page.getByRole('link', { name: '回测' })).toBeVisible({ timeout: 5000 });
   });
 
-  test('settings page renders title and save actions after login', async ({ page }) => {
+  test('settings and theme navigation entries are removed after login', async ({ page }) => {
     await login(page);
 
-    // Navigate to settings page by clicking the link
-    await page.getByRole('link', { name: '设置' }).click();
-    await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(1000);
-
-    // Use heading role for more precise selection
-    await expect(page.getByRole('heading', { name: '系统设置' })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole('button', { name: '重置' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /保存配置/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: '设置' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '切换主题' })).toHaveCount(0);
   });
 
   test('backtest page renders filter controls after login', async ({ page }) => {

@@ -46,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] Web 首页大盘复盘结果改由主内容滚动区承载，避免 loading 切换到长结果后下方报告区域被截断或无法继续滚动。
 - [修复] Web 自选股/股票列表删除确认按钮使用有效 `Button` variant，表单错误提示改用 `ParsedApiError.message`，修复 `vue-tsc` 与 Docker 前端构建失败。
 - [改进] Web 前端样式重构为浅色优先的 Minimalist Modern 设计系统，统一 Electric Blue 令牌、字体、卡片、按钮、导航与焦点状态。
+- [改进] Web 前端导航改为固定顶部横向布局，并移除设置页入口与主题切换入口。
+- [改进] Web 前端统一品牌名为 Finance Analysis，调整顶部导航顺序与各页面内容最大宽度。
 
 ## [3.16.0] - 2026-05-10
 

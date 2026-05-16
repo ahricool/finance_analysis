@@ -9,6 +9,7 @@ import EmptyState from '@/components/common/EmptyState.vue';
 import Pagination from '@/components/common/Pagination.vue';
 import StatusDot from '@/components/common/StatusDot.vue';
 import Tooltip from '@/components/common/Tooltip.vue';
+import { formatDocumentTitle } from '@/config/app';
 import type { BacktestResultItem, BacktestRunResponse, PerformanceMetrics } from '@/types/backtest';
 import { Check, Minus, X } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
@@ -63,7 +64,7 @@ const showNextDayActualColumns = computed(() => isNextDayValidation.value);
 const totalPages = computed(() => Math.ceil(totalResults.value / pageSize));
 
 onMounted(() => {
-  document.title = '策略回测 - DSA';
+  document.title = formatDocumentTitle('策略回测');
   void (async () => {
     const overall = await backtestApi.getOverallPerformance();
     overallPerf.value = overall;
@@ -196,7 +197,7 @@ function onCodeInput(e: Event) {
 <template>
   <div class="min-h-full flex flex-col rounded-[1.5rem] bg-transparent">
     <header class="flex-shrink-0 border-b border-white/5 px-3 py-3 sm:px-4">
-      <div class="flex max-w-5xl flex-wrap items-center gap-2">
+      <div class="flex w-full flex-wrap items-center gap-2">
         <div class="relative min-w-0 flex-[1_1_220px]">
           <input
             type="text"
@@ -288,7 +289,7 @@ function onCodeInput(e: Event) {
           <template v-else>Run Backtest</template>
         </button>
       </div>
-      <div v-if="runResult" class="mt-2 max-w-4xl">
+      <div v-if="runResult" class="mt-2 w-full">
         <div class="backtest-summary animate-fade-in">
           <span class="label">Processed: <span class="value">{{ runResult.processed }}</span></span>
           <span class="label">Saved: <span class="value primary">{{ runResult.saved }}</span></span>
@@ -299,7 +300,7 @@ function onCodeInput(e: Event) {
           </span>
         </div>
       </div>
-      <ApiErrorAlert v-if="runError" :error="runError" class="mt-2 max-w-4xl" />
+      <ApiErrorAlert v-if="runError" :error="runError" class="mt-2 w-full" />
       <p class="mt-2 text-xs text-muted-text">
         {{
           isNextDayValidation

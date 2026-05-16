@@ -11,6 +11,7 @@ import InlineAlert from '@/components/common/InlineAlert.vue';
 import ScrollArea from '@/components/common/ScrollArea.vue';
 import Tooltip from '@/components/common/Tooltip.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
+import { formatDocumentTitle } from '@/config/app';
 import { cn } from '@/utils/cn';
 import { downloadSession, formatSessionAsMarkdown } from '@/utils/chatExport';
 import {
@@ -121,7 +122,7 @@ const sessionsLoading = computed(() => unref(chat.sessionsLoading));
 const chatError = computed(() => unref(chat.chatError));
 
 onMounted(() => {
-  document.title = '问股 - DSA';
+  document.title = formatDocumentTitle('问股');
   isMountedRef.value = true;
   unref(chat.loadInitialSession)();
   unref(chat.clearCompletionBadge)();
@@ -486,7 +487,7 @@ function onTextareaInput(e: Event) {
 <template>
   <div
     data-testid="chat-workspace"
-    class="flex h-[calc(100vh-5rem)] w-full min-w-0 gap-4 overflow-hidden sm:h-[calc(100vh-5.5rem)] lg:h-[calc(100vh-2rem)]"
+    class="flex h-[calc(100vh-5rem)] w-full min-w-0 gap-4 overflow-hidden sm:h-[calc(100vh-5.5rem)] lg:h-[calc(100vh-6rem)]"
   >
     <div class="hidden h-full w-64 flex-shrink-0 flex-col overflow-hidden rounded-[1.25rem] border border-white/8 bg-card/82 shadow-soft-card md:flex">
       <div class="flex items-center justify-between border-b border-white/5 bg-white/2 p-3.5">

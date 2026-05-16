@@ -6,6 +6,7 @@ import Input from '@/components/common/Input.vue';
 import ParticleBackground from '@/components/common/ParticleBackground.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
 import { useAuth } from '@/composables/useAuth';
+import { APP_NAME, formatDocumentTitle } from '@/config/app';
 import { Cpu, Loader2, Lock, Network, ShieldCheck, TrendingUp } from 'lucide-vue-next';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -15,7 +16,7 @@ const router = useRouter();
 const route = useRoute();
 
 onMounted(() => {
-  document.title = '登录 - DSA';
+  document.title = formatDocumentTitle('登录');
 });
 
 const rawRedirect = computed(() => (route.query.redirect as string) ?? '');
@@ -165,7 +166,7 @@ async function handleSubmit(e: Event) {
               {{
                 isFirstTime
                   ? '首次启用认证，请为系统工作台设置管理员密码。'
-                  : '访问 DSA 量化决策引擎需要有效的身份凭证。'
+                  : `访问 ${APP_NAME} 工作台需要有效的身份凭证。`
               }}
             </p>
           </div>
@@ -241,7 +242,7 @@ async function handleSubmit(e: Event) {
       <p
         class="mt-8 animate-[loginFade_0.4s_ease-out_0.6s_both] text-center font-mono text-xs uppercase tracking-wider text-[var(--login-text-muted)]"
       >
-        Secure Connection Established via DSA-V3-TLS
+        Secure Connection Established via Finance-Analysis-TLS
       </p>
     </div>
   </div>
