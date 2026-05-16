@@ -33,14 +33,14 @@ const ACTION_REPORT_STYLES =
   'bg-[var(--home-action-report-bg)] border border-[var(--home-action-report-border)] text-[var(--home-action-report-text)] hover:bg-[var(--home-action-report-hover-bg)]';
 
 const BUTTON_VARIANT_STYLES: Record<Variant, string> = {
-  primary: 'border border-cyan/30 bg-primary-gradient text-primary-foreground shadow-lg shadow-cyan/20 hover:brightness-105',
-  secondary: 'border border-border/70 bg-card text-foreground shadow-soft-card hover:bg-hover',
+  primary: 'border border-primary/20 bg-primary-gradient text-primary-foreground shadow-lg shadow-cyan/20 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-cyan/22',
+  secondary: 'border border-border/80 bg-card/90 text-foreground shadow-soft-card hover:-translate-y-0.5 hover:border-primary/25 hover:bg-muted/60',
   'settings-primary': 'border settings-button-primary hover:brightness-105 hover:shadow-xl',
   'settings-secondary': 'border settings-button-secondary hover:translate-y-[-1px]',
-  outline: 'border border-cyan/25 bg-transparent text-cyan hover:bg-cyan/10',
+  outline: 'border border-primary/25 bg-transparent text-cyan hover:-translate-y-0.5 hover:bg-cyan/10',
   ghost: 'border border-transparent bg-transparent text-secondary-text hover:bg-hover hover:text-foreground',
-  gradient: 'border border-cyan/20 bg-gradient-to-r from-cyan to-purple text-primary-foreground shadow-lg shadow-cyan/20 hover:brightness-105',
-  danger: 'border border-danger/40 bg-danger text-destructive-foreground shadow-lg shadow-danger/20 hover:brightness-105',
+  gradient: 'border border-primary/20 bg-gradient-to-r from-cyan to-accent-secondary text-primary-foreground shadow-lg shadow-cyan/20 hover:-translate-y-0.5 hover:brightness-110',
+  danger: 'border border-danger/40 bg-danger text-destructive-foreground shadow-lg shadow-danger/20 hover:-translate-y-0.5 hover:brightness-105',
   'danger-subtle': 'border border-danger/60 bg-danger/10 text-danger hover:bg-danger/15',
   'action-primary': ACTION_AI_STYLES,
   'action-secondary': ACTION_REPORT_STYLES,
@@ -72,7 +72,8 @@ const props = withDefaults(
 const btnClass = computed(() =>
   cn(
     'inline-flex cursor-pointer items-center justify-center gap-2 font-medium transition-all duration-200',
-    'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan/15 focus-visible:ring-offset-0',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+    'active:scale-[0.98]',
     'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 disabled:transform-none',
     BUTTON_SIZE_STYLES[props.size],
     BUTTON_VARIANT_STYLES[props.variant],

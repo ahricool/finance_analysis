@@ -10,7 +10,7 @@ import type {
   PortfolioSide,
 } from '@/types/portfolio';
 
-export const PIE_COLORS = ['#00d4ff', '#00ff88', '#ffaa00', '#ff7a45', '#7f8cff', '#ff4466'];
+export const PIE_COLORS = ['#0052ff', '#10b981', '#f59e0b', '#f97316', '#4d7cff', '#ff4466'];
 export const DEFAULT_PAGE_SIZE = 20;
 export const FALLBACK_BROKERS: PortfolioImportBrokerItem[] = [
   { broker: 'huatai', aliases: [], displayName: '华泰' },

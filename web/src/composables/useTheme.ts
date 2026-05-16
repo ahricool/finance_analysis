@@ -5,10 +5,10 @@ export type ThemePreference = 'light' | 'dark' | 'system';
 const STORAGE_KEY = 'theme';
 
 function readStored(): ThemePreference {
-  if (typeof localStorage === 'undefined') return 'dark';
+  if (typeof localStorage === 'undefined') return 'light';
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw === 'light' || raw === 'dark' || raw === 'system') return raw;
-  return 'dark';
+  return 'light';
 }
 
 export const theme = ref<ThemePreference>(readStored());

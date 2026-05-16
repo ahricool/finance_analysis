@@ -54,11 +54,21 @@ services:
     ports:
       - "${API_PORT:-8000}:${API_PORT:-8000}"
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./reports:/app/reports
-      - ./.env:/app/.env
-      - ./strategies:/app/strategies:ro
+      - ./data:/workspace/data
+      - ./logs:/workspace/logs
+      - ./reports:/workspace/reports
+      - ./.env:/workspace/.env
+      - ./strategies:/workspace/strategies:ro
+      
+      - ./static:/workspace/static
+      - ./api:/workspace/api
+      - ./data_provider:/workspace/data_provider
+      - ./bot:/workspace/bot
+      - ./src:/workspace/src
+      - ./strategies:/workspace/strategies
+      - ./.env:/workspace/.env
+      - ./main.py:/workspace/main.py
+
     logging:
       driver: "json-file"
       options:

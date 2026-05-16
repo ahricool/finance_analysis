@@ -27,10 +27,14 @@ onUnmounted(() => {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
+    <div
+      class="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_18%_6%,hsl(var(--primary)/0.10),transparent_28rem),radial-gradient(circle_at_92%_14%,hsl(var(--accent-secondary)/0.08),transparent_32rem)]"
+      aria-hidden="true"
+    />
     <div class="pointer-events-none fixed inset-x-0 top-3 z-40 flex items-start justify-between px-3 lg:hidden">
       <button
         type="button"
-        class="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-card/85 text-secondary-text shadow-soft-card backdrop-blur-md transition-colors hover:bg-hover hover:text-foreground"
+        class="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border/80 bg-card/90 text-secondary-text shadow-soft-card backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:bg-card hover:text-foreground"
         aria-label="打开导航菜单"
         @click="mobileOpen = true"
       >
@@ -45,7 +49,7 @@ onUnmounted(() => {
       <aside
         :class="
           cn(
-            'sticky top-3 z-40 hidden shrink-0 overflow-visible rounded-[1.5rem] border border-[var(--shell-sidebar-border)] bg-card/72 p-2 shadow-soft-card backdrop-blur-sm transition-[width] duration-200 lg:flex',
+            'sticky top-3 z-40 hidden shrink-0 overflow-visible rounded-2xl border border-[var(--shell-sidebar-border)] bg-card/88 p-2 shadow-soft-card backdrop-blur-xl transition-[width] duration-200 lg:flex',
             'max-h-[calc(100vh-1.5rem)] self-start sm:top-4 sm:max-h-[calc(100vh-2rem)]',
             collapsed ? 'w-[64px]' : 'w-[116px]',
           )
