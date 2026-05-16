@@ -352,12 +352,14 @@ For the notification baseline, diagnostics, and deployment notes, see [Notificat
 
 ## Docker Deployment
 
-The image uses prebuilt frontend assets under `/app/static` at runtime, so the running `server` container does not require the `web` source tree or runtime `npm`. If WebUI cannot be opened after Docker deployment, first verify that `/app/static/index.html` exists inside the container.
+The image uses prebuilt frontend assets under `/workspace/static` at runtime, so the running `server` container does not require the `web` source tree or runtime `npm`. If WebUI cannot be opened after Docker deployment, first verify that `/workspace/static/index.html` exists inside the container.
 
 Official image registries:
 
 - GHCR: `ghcr.io/zhulinsen/daily_stock_analysis:<tag>`
 - Docker Hub: `<DOCKERHUB_USERNAME>/daily_stock_analysis:<tag>` (driven by the publisher's `DOCKERHUB_USERNAME` secret; the official release uses `zhulinsen/daily_stock_analysis`)
+
+Merges to `main` automatically publish GHCR `latest` / `main` / commit SHA tags. Formal release tags are still published by the release Docker workflow.
 
 ### Quick Start
 
@@ -371,9 +373,8 @@ cp .env.example .env
 vim .env  # Fill in API Keys and configuration
 
 # 3. Start container
-docker-compose  up -d server     # Web service mode (recommended, provides API & WebUI)
-docker-compose  up -d analyzer   # Scheduled task mode
-docker-compose  up -d            # Start both modes
+docker-compose  up -d server     # Pull GHCR latest first; fall back to local build if unavailable
+docker-compose  up -d            # Start PostgreSQL and the Web service
 
 # 4. Access WebUI
 # http://localhost:8000
@@ -388,27 +389,27 @@ If you do not want to keep the source tree on the target machine, you can run th
 
 ```bash
 # Web/API mode
-docker pull zhulinsen/daily_stock_analysis:latest
+docker pull ghcr.io/zhulinsen/daily_stock_analysis:latest
 docker run -d \
   --name dsa-server \
   --env-file .env \
   -p 8000:8000 \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/logs:/app/logs" \
-  -v "$(pwd)/reports:/app/reports" \
-  -v "$(pwd)/.env:/app/.env" \
-  zhulinsen/daily_stock_analysis:latest \
+  -v "$(pwd)/data:/workspace/data" \
+  -v "$(pwd)/logs:/workspace/logs" \
+  -v "$(pwd)/reports:/workspace/reports" \
+  -v "$(pwd)/.env:/workspace/.env" \
+  ghcr.io/zhulinsen/daily_stock_analysis:latest \
   python main.py --serve-only --host 0.0.0.0 --port 8000
 
 # Scheduled-task mode
 docker run -d \
   --name dsa-analyzer \
   --env-file .env \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/logs:/app/logs" \
-  -v "$(pwd)/reports:/app/reports" \
-  -v "$(pwd)/.env:/app/.env" \
-  zhulinsen/daily_stock_analysis:latest
+  -v "$(pwd)/data:/workspace/data" \
+  -v "$(pwd)/logs:/workspace/logs" \
+  -v "$(pwd)/reports:/workspace/reports" \
+  -v "$(pwd)/.env:/workspace/.env" \
+  ghcr.io/zhulinsen/daily_stock_analysis:latest
 ```
 
 For pinned deployments or easier rollback, replace `latest` with a concrete version tag such as `v3.13.0`.
@@ -418,43 +419,27 @@ For pinned deployments or easier rollback, replace `latest` with a concrete vers
 | Command | Description | Port |
 |------|------|------|
 | `docker-compose  up -d server` | Web service mode, provides API & WebUI | 8000 |
-| `docker-compose  up -d analyzer` | Scheduled task mode, daily auto execution | - |
-| `docker-compose  up -d` | Start both modes simultaneously | 8000 |
+| `docker-compose  up -d` | Start PostgreSQL and the Web service | 8000 |
 
 ### Docker Compose Configuration
 
-`docker-compose.yml` uses YAML anchors to reuse configuration:
+The `server` service in `docker-compose.yml` declares both `image` and `build`: Compose pulls `ghcr.io/zhulinsen/daily_stock_analysis:latest` first, then falls back to the local `Dockerfile` build if the image is unavailable for the current platform.
 
 ```yaml
-version: '3.8'
-
-x-common: &common
-  build:
-    context: ..
-    dockerfile: Dockerfile
-  restart: unless-stopped
-  env_file:
-    - ../.env
-  environment:
-    - TZ=Asia/Shanghai
-  volumes:
-    - ../data:/app/data
-    - ../logs:/app/logs
-    - ../reports:/app/reports
-    - ../.env:/app/.env
-    - ../strategies:/app/strategies:ro
-
 services:
-  # Scheduled task mode
-  analyzer:
-    <<: *common
-    container_name: stock-analyzer
-
-  # FastAPI mode
   server:
-    <<: *common
-    container_name: stock-server
-    command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "${API_PORT:-8000}"]
+    image: ghcr.io/zhulinsen/daily_stock_analysis:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - ./data:/workspace/data
+      - ./logs:/workspace/logs
+      - ./reports:/workspace/reports
+      - ./.env:/workspace/.env
+      - ./strategies:/workspace/strategies:ro
     ports:
       - "${API_PORT:-8000}:${API_PORT:-8000}"
 ```
@@ -465,23 +450,23 @@ For both `docker run` and Compose, keep these two layers in mind:
 
 - Environment injection: `--env-file .env` or Compose `env_file`
   This passes key/value pairs from `.env` into the container process environment.
-- File mapping: `-v "$(pwd)/.env:/app/.env"` or Compose `../.env:/app/.env`
+- File mapping: `-v "$(pwd)/.env:/workspace/.env"` or Compose `./.env:/workspace/.env`
   This mounts the same `.env` file into the container so the Web settings page and backend read/write the same persisted config file.
 
 Recommended host mappings:
 
-- `./data:/app/data` for runtime data and database files
-- `./logs:/app/logs` for logs
-- `./reports:/app/reports` for generated reports
-- `./strategies:/app/strategies:ro` for custom strategy YAML files
+- `./data:/workspace/data` for runtime data and database files
+- `./logs:/workspace/logs` for logs
+- `./reports:/workspace/reports` for generated reports
+- `./strategies:/workspace/strategies:ro` for custom strategy YAML files
 
-Official Docker images automatically create and fix ownership for the `/app/data`, `/app/logs`, and `/app/reports` mounts during startup, then drop privileges to the non-root `dsa` user inside the container (UID/GID `1000:1000`). Normal Docker / Compose deployments do not require manual host-side `chown` or `chmod`.
+Official Docker images automatically create and fix ownership for the `/workspace/data`, `/workspace/logs`, and `/workspace/reports` mounts during startup, then drop privileges to the non-root `dsa` user inside the container (UID/GID `1000:1000`). Normal Docker / Compose deployments do not require manual host-side `chown` or `chmod`.
 
 If you override the runtime user with `--user` or Compose `user:`, or use read-only mounts, rootless Docker, NFS, or another storage environment that blocks `chown`, the automatic repair may not apply. In that case, make sure the actual runtime user can write to `data`, `logs`, and `reports`, or use writable volumes.
 
 Optional static asset override:
 
-- `./static:/app/static:ro`
+- `./static:/workspace/static:ro`
 
 ### Common Commands
 
@@ -495,8 +480,8 @@ docker-compose  logs -f server
 # Stop services
 docker-compose  down
 
-# Rebuild image (after code update)
-docker-compose  build --no-cache
+# Update image (pull GHCR latest first; compose up can fall back to local build)
+docker-compose  pull server || true
 docker-compose  up -d server
 ```
 
@@ -508,10 +493,10 @@ docker run -d \
   --name dsa-server-local \
   --env-file .env \
   -p 8000:8000 \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/logs:/app/logs" \
-  -v "$(pwd)/reports:/app/reports" \
-  -v "$(pwd)/.env:/app/.env" \
+  -v "$(pwd)/data:/workspace/data" \
+  -v "$(pwd)/logs:/workspace/logs" \
+  -v "$(pwd)/reports:/workspace/reports" \
+  -v "$(pwd)/.env:/workspace/.env" \
   stock-analysis \
   python main.py --serve-only --host 0.0.0.0 --port 8000
 ```

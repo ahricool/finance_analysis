@@ -45,7 +45,7 @@ vim .env  # 填入真实的 API Key 等配置
 ### 3. 一键启动
 
 ```bash
-# 构建并启动（同时包含定时分析和 Web 界面服务）
+# 默认优先拉取 GHCR latest 镜像；镜像不可用时回退本地构建
 docker-compose  up -d
 
 # 查看日志
@@ -70,7 +70,7 @@ docker-compose  restart
 
 # 更新代码后重新部署
 git pull
-docker-compose  build --no-cache
+docker-compose  pull server || true
 docker-compose  up -d
 
 # 进入容器调试
@@ -316,10 +316,10 @@ deploy:
 
 **解决方法**：
 
-- **Docker 部署**：执行以下命令重新构建镜像（确保前端已正确打包进镜像）：
+- **Docker 部署**：优先拉取最新镜像并重启；若需要强制本地重建，再执行 `docker-compose build --no-cache`：
   ```bash
   docker-compose  down
-  docker-compose  build --no-cache
+  docker-compose  pull server || true
   docker-compose  up -d
   ```
   构建完成后刷新浏览器缓存（`Ctrl+Shift+R`）再访问。

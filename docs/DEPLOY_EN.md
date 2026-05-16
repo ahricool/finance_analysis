@@ -45,7 +45,7 @@ vim .env  # Fill in real API Keys and configuration
 ### 3. One-Click Start
 
 ```bash
-# Build and start
+# Pull GHCR latest first; fall back to local build if the image is unavailable
 docker-compose  up -d
 
 # View logs
@@ -66,7 +66,7 @@ docker-compose  restart
 
 # Redeploy after code update
 git pull
-docker-compose  build --no-cache
+docker-compose  pull server || true
 docker-compose  up -d
 
 # Enter container for debugging

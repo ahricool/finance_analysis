@@ -387,13 +387,14 @@ daily_stock_analysis/
 ## Docker 部署
 
 Dockerfile 使用多阶段构建，前端会在构建镜像时自动打包并内置到 `static/`。
-如需覆盖静态资源，可挂载本地 `static/` 到容器内 `/app/static`。
-运行中的 `server` 容器默认直接复用 `/app/static` 里的预构建产物，不要求容器内保留 `web` 源码目录或运行时安装 `npm`；若 WebUI 无法打开，请优先确认 `/app/static/index.html` 是否存在。
+运行中的 `server` 容器默认直接复用 `/workspace/static` 里的预构建产物，不要求容器内保留 `web` 源码目录或运行时安装 `npm`；若 WebUI 无法打开，请优先确认 `/workspace/static/index.html` 是否存在。
 
 当前官方镜像发布地址：
 
 - GHCR：`ghcr.io/zhulinsen/daily_stock_analysis:<tag>`
 - Docker Hub：`<DOCKERHUB_USERNAME>/daily_stock_analysis:<tag>`（由发布者的 `DOCKERHUB_USERNAME` secret 决定，官方发布为 `zhulinsen/daily_stock_analysis`）
+
+`main` 分支合入后会自动发布 GHCR `latest` / `main` / commit SHA 标签；正式发版 tag 仍由 release Docker workflow 发布版本标签。
 
 ### 快速启动
 
@@ -407,9 +408,8 @@ cp .env.example .env
 vim .env  # 填入 API Key 和配置
 
 # 3. 启动容器
-docker-compose  up -d server     # Web 服务模式（推荐，提供 API 与 WebUI）
-docker-compose  up -d analyzer   # 定时任务模式
-docker-compose  up -d            # 同时启动两种模式
+docker-compose  up -d server     # 默认优先拉取 GHCR latest；拉取不可用时回退本地构建
+docker-compose  up -d            # 启动 PostgreSQL 与 Web 服务
 
 # 4. 访问 WebUI
 # http://localhost:8000
@@ -424,27 +424,27 @@ docker-compose  logs -f server
 
 ```bash
 # Web/API 模式
-docker pull zhulinsen/daily_stock_analysis:latest
+docker pull ghcr.io/zhulinsen/daily_stock_analysis:latest
 docker run -d \
   --name dsa-server \
   --env-file .env \
   -p 8000:8000 \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/logs:/app/logs" \
-  -v "$(pwd)/reports:/app/reports" \
-  -v "$(pwd)/.env:/app/.env" \
-  zhulinsen/daily_stock_analysis:latest \
+  -v "$(pwd)/data:/workspace/data" \
+  -v "$(pwd)/logs:/workspace/logs" \
+  -v "$(pwd)/reports:/workspace/reports" \
+  -v "$(pwd)/.env:/workspace/.env" \
+  ghcr.io/zhulinsen/daily_stock_analysis:latest \
   python main.py --serve-only --host 0.0.0.0 --port 8000
 
 # 定时任务模式
 docker run -d \
   --name dsa-analyzer \
   --env-file .env \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/logs:/app/logs" \
-  -v "$(pwd)/reports:/app/reports" \
-  -v "$(pwd)/.env:/app/.env" \
-  zhulinsen/daily_stock_analysis:latest
+  -v "$(pwd)/data:/workspace/data" \
+  -v "$(pwd)/logs:/workspace/logs" \
+  -v "$(pwd)/reports:/workspace/reports" \
+  -v "$(pwd)/.env:/workspace/.env" \
+  ghcr.io/zhulinsen/daily_stock_analysis:latest
 ```
 
 如需固定版本或便于回滚，请将 `latest` 替换为具体版本 tag，例如 `v3.13.0`。
@@ -454,44 +454,29 @@ docker run -d \
 | 命令 | 说明 | 端口 |
 |------|------|------|
 | `docker-compose  up -d server` | Web 服务模式，提供 API 与 WebUI | 8000 |
-| `docker-compose  up -d analyzer` | 定时任务模式，每日自动执行 | - |
-| `docker-compose  up -d` | 同时启动两种模式 | 8000 |
+| `docker-compose  up -d` | 启动 PostgreSQL 与 Web 服务 | 8000 |
 
 ### Docker Compose 配置
 
-`docker-compose.yml` 使用 YAML 锚点复用配置：
+`docker-compose.yml` 的 `server` 服务同时声明了 `image` 和 `build`：默认先拉取 `ghcr.io/zhulinsen/daily_stock_analysis:latest`，如果镜像在当前平台不可用或拉取失败，再使用本地 `Dockerfile` 构建。
 
 ```yaml
-version: '3.8'
-
-x-common: &common
-  build:
-    context: ..
-    dockerfile: Dockerfile
-  restart: unless-stopped
-  env_file:
-    - ../.env
-  environment:
-    - TZ=Asia/Shanghai
-  volumes:
-    - ../data:/app/data
-    - ../logs:/app/logs
-    - ../reports:/app/reports
-    - ../.env:/app/.env
-
 services:
-  # 定时任务模式
-  analyzer:
-    <<: *common
-    container_name: stock-analyzer
-
-  # FastAPI 模式
   server:
-    <<: *common
-    container_name: stock-server
-    command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "8000"]
+    image: ghcr.io/zhulinsen/daily_stock_analysis:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - ./data:/workspace/data
+      - ./logs:/workspace/logs
+      - ./reports:/workspace/reports
+      - ./.env:/workspace/.env
+      - ./strategies:/workspace/strategies:ro
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:${API_PORT:-8000}"
 ```
 
 ### `.env` 与数据目录映射说明
@@ -500,23 +485,23 @@ services:
 
 - 环境变量注入：`--env-file .env` 或 Compose 的 `env_file`
   作用：把 `.env` 中的键值作为容器启动时的环境变量传入 Python 进程。
-- 文件映射：`-v "$(pwd)/.env:/app/.env"` 或 Compose 的 `../.env:/app/.env`
+- 文件映射：`-v "$(pwd)/.env:/workspace/.env"` 或 Compose 的 `./.env:/workspace/.env`
   作用：让容器内的 Web 设置页和后端读写同一份 `.env` 文件，修改后可持久化到宿主机。
 
 推荐同时映射这几个目录：
 
-- `./data:/app/data`：数据库、缓存和运行时数据
-- `./logs:/app/logs`：日志输出
-- `./reports:/app/reports`：生成的分析报告
-- `./strategies:/app/strategies:ro`：自定义策略 YAML（只读挂载）
+- `./data:/workspace/data`：数据库、缓存和运行时数据
+- `./logs:/workspace/logs`：日志输出
+- `./reports:/workspace/reports`：生成的分析报告
+- `./strategies:/workspace/strategies:ro`：自定义策略 YAML（只读挂载）
 
-官方 Docker 镜像启动时会自动创建并修复 `/app/data`、`/app/logs`、`/app/reports` 的挂载目录权限，然后降权为容器内非 root 用户 `dsa`（UID/GID `1000:1000`）运行应用。普通 Docker / Compose 部署不需要手动 `chown` 或 `chmod` 宿主机目录。
+官方 Docker 镜像启动时会自动创建并修复 `/workspace/data`、`/workspace/logs`、`/workspace/reports` 的挂载目录权限，然后降权为容器内非 root 用户 `dsa`（UID/GID `1000:1000`）运行应用。普通 Docker / Compose 部署不需要手动 `chown` 或 `chmod` 宿主机目录。
 
 如果你通过 `--user` 或 Compose `user:` 指定了其他运行用户，或使用只读挂载、rootless Docker、NFS 等限制 `chown` 的存储环境，自动修复可能无法生效。此时请确保实际运行用户对 `data`、`logs`、`reports` 具备写入权限，或改用可写卷。
 
 如果你需要覆盖内置静态资源，还可以额外挂载：
 
-- `./static:/app/static:ro`
+- `./static:/workspace/static:ro`
 
 ### 常用命令
 
@@ -530,8 +515,8 @@ docker-compose  logs -f server
 # 停止服务
 docker-compose  down
 
-# 重建镜像（代码更新后）
-docker-compose  build --no-cache
+# 更新镜像（优先拉 GHCR latest，失败时 compose up 会回退本地构建）
+docker-compose  pull server || true
 docker-compose  up -d server
 ```
 
@@ -543,10 +528,10 @@ docker run -d \
   --name dsa-server-local \
   --env-file .env \
   -p 8000:8000 \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/logs:/app/logs" \
-  -v "$(pwd)/reports:/app/reports" \
-  -v "$(pwd)/.env:/app/.env" \
+  -v "$(pwd)/data:/workspace/data" \
+  -v "$(pwd)/logs:/workspace/logs" \
+  -v "$(pwd)/reports:/workspace/reports" \
+  -v "$(pwd)/.env:/workspace/.env" \
   stock-analysis \
   python main.py --serve-only --host 0.0.0.0 --port 8000
 ```
