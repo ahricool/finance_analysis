@@ -28,11 +28,11 @@ const current = computed(
 </script>
 
 <template>
-  <header class="sticky top-0 z-30 border-b border-border/60 bg-background/84 backdrop-blur-xl">
+  <header class="sticky top-0 z-30 border-b border-border/70 bg-background/86 backdrop-blur-xl">
     <div class="mx-auto flex h-16 w-full max-w-[1680px] items-center gap-3 px-4 sm:px-6 lg:px-8">
       <button
         type="button"
-        class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-card/70 text-secondary-text transition-colors hover:bg-hover hover:text-foreground lg:hidden"
+        class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/80 bg-card/86 text-secondary-text shadow-soft-card transition-all hover:-translate-y-0.5 hover:bg-hover hover:text-foreground lg:hidden"
         aria-label="打开导航菜单"
         @click="emit('openMobileNav')"
       >
@@ -41,7 +41,7 @@ const current = computed(
 
       <button
         type="button"
-        class="hidden h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-card/70 text-secondary-text transition-colors hover:bg-hover hover:text-foreground lg:inline-flex"
+        class="hidden h-10 w-10 items-center justify-center rounded-xl border border-border/80 bg-card/86 text-secondary-text shadow-soft-card transition-all hover:-translate-y-0.5 hover:bg-hover hover:text-foreground lg:inline-flex"
         :aria-label="collapsed ? '展开侧边栏' : '折叠侧边栏'"
         @click="emit('toggleSidebar')"
       >
@@ -50,7 +50,7 @@ const current = computed(
       </button>
 
       <div class="min-w-0 flex-1">
-        <p class="truncate text-sm font-semibold text-foreground">{{ current.title }}</p>
+        <p class="truncate font-display text-xl leading-tight text-foreground">{{ current.title }}</p>
         <p class="truncate text-xs text-secondary-text">{{ current.description }}</p>
       </div>
 

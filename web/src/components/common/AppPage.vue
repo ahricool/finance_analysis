@@ -10,7 +10,7 @@ const props = withDefaults(
 </script>
 
 <template>
-  <div :class="cn('app-page relative flex min-h-screen flex-1 flex-col overflow-hidden bg-background', props.class)">
+  <div :class="cn('app-page relative flex min-h-screen flex-1 flex-col overflow-hidden bg-background text-foreground', props.class)">
     <slot />
   </div>
 </template>

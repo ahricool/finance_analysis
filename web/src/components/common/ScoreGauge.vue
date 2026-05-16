@@ -88,16 +88,16 @@ type SentimentKey = 'greed' | 'neutral' | 'fear';
 
 const sentimentConfig = {
   greed: {
-    color: '#00d4ff',
-    glowFilter: 'rgba(0, 212, 255, 0.66)',
-    lightColor: '#22d3ee',
-    lightEndColor: '#0891b2',
+    color: '#0052ff',
+    glowFilter: 'rgba(0, 82, 255, 0.46)',
+    lightColor: '#4d7cff',
+    lightEndColor: '#0052ff',
   },
   neutral: {
-    color: '#a855f7',
-    glowFilter: 'rgba(168, 85, 247, 0.66)',
-    lightColor: '#c084fc',
-    lightEndColor: '#9333ea',
+    color: '#4d7cff',
+    glowFilter: 'rgba(77, 124, 255, 0.46)',
+    lightColor: '#7ca0ff',
+    lightEndColor: '#4d7cff',
   },
   fear: {
     color: '#ff4466',

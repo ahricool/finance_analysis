@@ -40,13 +40,13 @@ async function onLogoutConfirm() {
 
 <template>
   <div class="flex h-full flex-col">
-    <div :class="cn('mb-4 flex items-center gap-2 px-1', collapsed ? 'justify-center' : '')">
+    <div :class="cn('mb-5 flex items-center gap-2 px-1', collapsed ? 'justify-center' : '')">
       <div
-        class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary-gradient text-[hsl(var(--primary-foreground))] shadow-[0_12px_28px_var(--nav-brand-shadow)]"
+        class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-gradient text-[hsl(var(--primary-foreground))] shadow-[0_14px_30px_var(--nav-brand-shadow)]"
       >
         <BarChart3 class="h-5 w-5" />
       </div>
-      <p v-if="!collapsed" class="min-w-0 truncate text-sm font-semibold text-foreground">DSA</p>
+      <p v-if="!collapsed" class="min-w-0 truncate font-display text-xl leading-none text-foreground">DSA</p>
     </div>
 
     <nav class="flex flex-1 flex-col gap-1.5" aria-label="主导航">
@@ -59,13 +59,13 @@ async function onLogoutConfirm() {
       >
         <a
           :href="href"
-          class="group relative flex items-center gap-3 border-x-0 border-y text-sm transition-all h-[var(--nav-item-height)]"
+          class="group relative flex h-[var(--nav-item-height)] items-center gap-3 overflow-hidden rounded-xl border text-sm transition-all duration-200"
           :class="
             cn(
               collapsed ? 'justify-center px-0' : 'px-[var(--nav-item-padding-x)]',
               (item.exact ? isExactActive : isActive)
                 ? 'border-[var(--nav-active-border)] bg-[var(--nav-active-bg)] text-[hsl(var(--primary))] font-medium'
-                : 'border-transparent text-secondary-text hover:bg-[var(--nav-hover-bg)] hover:text-foreground',
+                : 'border-transparent text-secondary-text hover:-translate-y-0.5 hover:bg-[var(--nav-hover-bg)] hover:text-foreground',
             )
           "
           :aria-label="item.label"
@@ -78,7 +78,7 @@ async function onLogoutConfirm() {
         >
           <span
             v-if="item.exact ? isExactActive : isActive"
-            class="absolute top-0 bottom-0 left-0 w-[var(--nav-indicator-width)] bg-[var(--nav-indicator-bg)] shadow-[0_0_10px_var(--nav-indicator-shadow)]"
+            class="absolute bottom-2 left-2 top-2 w-[var(--nav-indicator-width)] rounded-full bg-[var(--nav-indicator-bg)] shadow-[0_0_10px_var(--nav-indicator-shadow)]"
           />
           <component
             :is="item.icon"
@@ -115,7 +115,7 @@ async function onLogoutConfirm() {
       type="button"
       :class="
         cn(
-          'mt-5 flex h-11 w-full cursor-pointer select-none items-center gap-3 rounded-2xl border border-transparent px-3 text-sm text-secondary-text transition-all hover:border-border/70 hover:bg-hover hover:text-foreground',
+          'mt-5 flex h-11 w-full cursor-pointer select-none items-center gap-3 rounded-xl border border-transparent px-3 text-sm text-secondary-text transition-all hover:-translate-y-0.5 hover:border-border/80 hover:bg-hover hover:text-foreground',
           collapsed ? 'justify-center px-2' : '',
         )
       "

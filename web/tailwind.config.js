@@ -3,7 +3,7 @@ export default {
   darkMode: ['class'],
   content: [
     './index.html',
-    './src/**/*.{js,ts,jsx,tsx}',
+    './src/**/*.{vue,js,ts,jsx,tsx}',
   ],
   theme: {
     container: {
@@ -40,6 +40,7 @@ export default {
           DEFAULT: 'hsl(var(--accent))',
           foreground: 'hsl(var(--accent-foreground))',
         },
+        'accent-secondary': 'hsl(var(--accent-secondary))',
         popover: {
           DEFAULT: 'hsl(var(--popover))',
           foreground: 'hsl(var(--popover-foreground))',
@@ -89,6 +90,7 @@ export default {
         'surface-1': 'var(--surface-1)',
         'surface-2': 'var(--surface-2)',
         'surface-3': 'var(--surface-3)',
+        surface: 'var(--surface-1)',
         'overlay-hover': 'var(--overlay-hover)',
         'overlay-selected': 'var(--overlay-selected)',
       },
@@ -104,20 +106,20 @@ export default {
         'subtle-active': 'hsl(var(--bg-subtle-raw) / 0.15)',
       },
       backgroundImage: {
-        'gradient-purple-cyan': 'linear-gradient(135deg, hsla(var(--accent), 0.2) 0%, hsla(var(--primary), 0.1) 100%)',
-        'gradient-card-border': 'linear-gradient(180deg, hsla(var(--accent), 0.4) 0%, hsla(var(--accent), 0.1) 50%, hsla(var(--primary), 0.2) 100%)',
-        'gradient-cyan': 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.8) 100%)',
-        'primary-gradient': 'linear-gradient(135deg, #00d4ff 0%, #00a8cc 100%)',
+        'gradient-purple-cyan': 'linear-gradient(135deg, hsl(var(--accent-secondary) / 0.18) 0%, hsl(var(--primary) / 0.1) 100%)',
+        'gradient-card-border': 'linear-gradient(135deg, hsl(var(--primary) / 0.42) 0%, hsl(var(--accent-secondary) / 0.28) 55%, hsl(var(--border) / 0.5) 100%)',
+        'gradient-cyan': 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent-secondary)) 100%)',
+        'primary-gradient': 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent-secondary)) 100%)',
       },
       boxShadow: {
         'soft-card': 'var(--shadow-soft-card)',
         'soft-card-strong': 'var(--shadow-soft-card-strong)',
-        'glow-cyan': '0 0 20px rgba(0, 212, 255, 0.4)',
-        'glow-purple': '0 0 20px rgba(168, 85, 247, 0.3)',
+        'glow-cyan': '0 0 22px hsl(var(--primary) / 0.34)',
+        'glow-purple': '0 0 22px hsl(var(--accent-secondary) / 0.28)',
         'glow-success': '0 0 20px rgba(0, 255, 136, 0.3)',
         'glow-danger': '0 0 20px rgba(255, 68, 102, 0.3)',
-        'cyan/20': '0 12px 28px rgba(0, 212, 255, 0.2)',
-        'cyan/22': '0 18px 34px rgba(0, 212, 255, 0.22)',
+        'cyan/20': '0 12px 28px hsl(var(--primary) / 0.2)',
+        'cyan/22': '0 18px 34px hsl(var(--primary) / 0.22)',
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -140,8 +142,10 @@ export default {
         'slide-up': 'slideUp 0.4s ease-out',
         'slide-in-right': 'slideInRight 0.3s ease-out',
         'pulse-glow': 'pulseGlow 2s ease-in-out infinite',
-        'spin-slow': 'spin 2s linear infinite',
+        'spin-slow': 'spin 60s linear infinite',
         'float-in': 'floatIn 0.45s ease-out',
+        'float-gentle': 'floatGentle 5s ease-in-out infinite',
+        'pulse-dot': 'pulseDot 2s ease-in-out infinite',
       },
       keyframes: {
         fadeIn: {
@@ -161,9 +165,22 @@ export default {
           to: { opacity: '1', transform: 'translateY(0)' },
         },
         pulseGlow: {
-          '0%, 100%': { boxShadow: '0 0 20px rgba(0, 212, 255, 0.4)' },
-          '50%': { boxShadow: '0 0 40px rgba(0, 212, 255, 0.6)' },
+          '0%, 100%': { boxShadow: '0 0 20px hsl(var(--primary) / 0.28)' },
+          '50%': { boxShadow: '0 0 40px hsl(var(--primary) / 0.42)' },
         },
+        floatGentle: {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-10px)' },
+        },
+        pulseDot: {
+          '0%, 100%': { transform: 'scale(1)', opacity: '1' },
+          '50%': { transform: 'scale(1.3)', opacity: '0.72' },
+        },
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+        display: ['Calistoga', 'Georgia', 'serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
     },
   },

@@ -12,12 +12,7 @@ onMounted(() => {
 <template>
   <div class="flex min-h-screen flex-col items-center justify-center px-4 text-center">
     <div class="relative mb-8">
-      <span
-        class="bg-clip-text text-8xl font-bold text-transparent"
-        style="
-          background-image: linear-gradient(135deg, #00d4ff 0%, #a855f7 100%);
-        "
-      >
+      <span class="gradient-text font-display text-8xl">
         404
       </span>
     </div>
