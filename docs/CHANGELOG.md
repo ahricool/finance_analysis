@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [改进] Web 前端样式重构为浅色优先的 Minimalist Modern 设计系统，统一 Electric Blue 令牌、字体、卡片、按钮、导航与焦点状态。
 - [改进] Web 前端导航改为固定顶部横向布局，并移除设置页入口与主题切换入口。
 - [改进] Web 前端统一品牌名为 Finance Analysis，调整顶部导航顺序与各页面内容最大宽度。
+- [新功能] 新增 Web「日历」Tab：支持按周切换日期并查看当日自动化信号列表；后端新增 `calendar_signals` 表及 `/api/v1/calendar` 增删改查接口。
 - [改进] 新增 main 分支 GHCR Docker 镜像自动发布 workflow，Docker Compose 默认优先拉取 `ghcr.io/zhulinsen/daily_stock_analysis:latest`，不可用时回退本地构建。
 
 ## [3.16.0] - 2026-05-10

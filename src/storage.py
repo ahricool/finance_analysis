@@ -652,6 +652,20 @@ class StockHolding(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
 
 
+class CalendarSignal(Base):
+    """日历信号记录 — 按日期记录自动化信号结果。"""
+
+    __tablename__ = 'calendar_signals'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    signal_date = Column(Date, nullable=False, index=True)
+    title = Column(String(120), nullable=False)
+    content = Column(Text, nullable=True)
+    signal_type = Column(String(32), nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BarChart3, BriefcaseBusiness, Home, LogOut, MessageSquareQuote, Star, Wallet } from 'lucide-vue-next';
+import { BarChart3, BriefcaseBusiness, CalendarDays, Home, LogOut, MessageSquareQuote, Star, Wallet } from 'lucide-vue-next';
 import { ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
@@ -28,6 +28,7 @@ const navItems = [
   { key: 'chat', label: '问股', to: '/chat', icon: MessageSquareQuote, badge: 'completion' as const },
   { key: 'portfolio', label: '投资组合', to: '/portfolio', icon: BriefcaseBusiness },
   { key: 'backtest', label: '回测', to: '/backtest', icon: BarChart3 },
+  { key: 'calendar', label: '日历', to: '/calendar', icon: CalendarDays },
 ];
 
 async function onLogoutConfirm() {
