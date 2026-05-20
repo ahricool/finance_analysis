@@ -67,6 +67,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy installed Python packages from the builder stage
 COPY --from=py-builder /workspace/.venv /workspace/.venv
 
+# 让 `python` 默认走 venv 解释器，使 CMD / HEALTHCHECK / 镜像 smoke 都使用已安装的依赖
+ENV PATH="/workspace/.venv/bin:${PATH}"
+ENV VIRTUAL_ENV="/workspace/.venv"
+
+# 复制项目元数据（保留 `uv run` / `uv pip` 在容器内的兜底能力，并使 Python 版本可追溯）
+COPY pyproject.toml uv.lock .python-version ./
+
 # 复制应用代码
 COPY *.py ./
 COPY api/ ./api/
@@ -97,4 +104,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 
 
 # 默认命令（可被覆盖）
-CMD ["uv", "run", "main.py"]
+# 使用 venv 内的 python（已通过 PATH 注入），与 smoke / HEALTHCHECK 行为一致
+CMD ["python", "main.py"]
