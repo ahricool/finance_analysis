@@ -67,6 +67,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy installed Python packages from the builder stage
 COPY --from=py-builder /workspace/.venv /workspace/.venv
 
+# CI / 运维常用 `docker run ... python -c` 探测镜像；须让 `python` 指向 venv，否则会落到 slim 系统解释器且无项目依赖。
+ENV PATH="/workspace/.venv/bin:$PATH"
+
 # 复制应用代码
 COPY *.py ./
 COPY api/ ./api/
