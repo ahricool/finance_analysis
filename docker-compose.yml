@@ -36,6 +36,8 @@ services:
 
   # ── FastAPI 服务 ─────────────────────────────────────────────────────────────
   server:
+    # Compose 会在同时配置 image 和 build 时优先拉取镜像；若镜像不可用，再回退到本地构建。
+    image: ghcr.io/zhulinsen/daily_stock_analysis:latest
     build:
       context: .
       dockerfile: Dockerfile
