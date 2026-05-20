@@ -7,6 +7,7 @@ import BacktestPage from '@/pages/BacktestPage.vue';
 import WatchListPage from '@/pages/WatchListPage.vue';
 import StockListPage from '@/pages/StockListPage.vue';
 import LoginPage from '@/pages/LoginPage.vue';
+import CalendarPage from '@/pages/CalendarPage.vue';
 import NotFoundPage from '@/pages/NotFoundPage.vue';
 
 const router = createRouter({
@@ -22,6 +23,7 @@ const router = createRouter({
         { path: 'stock-list', name: 'stock-list', component: StockListPage },
         { path: 'portfolio', name: 'portfolio', component: PortfolioPage },
         { path: 'backtest', name: 'backtest', component: BacktestPage },
+        { path: 'calendar', name: 'calendar', component: CalendarPage },
         { path: ':pathMatch(.*)*', name: 'not-found', component: NotFoundPage },
       ],
     },
