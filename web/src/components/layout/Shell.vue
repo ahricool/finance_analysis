@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { BarChart3, BriefcaseBusiness, Home, LogOut, MessageSquareQuote, Star, Wallet } from 'lucide-vue-next';
+import { LogOut } from 'lucide-vue-next';
 import { ref } from 'vue';
 import { RouterLink, RouterView } from 'vue-router';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import StatusDot from '@/components/common/StatusDot.vue';
 import { useAuth } from '@/composables/useAuth';
 import { APP_NAME } from '@/config/app';
+import { mainNavItems } from '@/config/mainNav';
 import { useAgentChatStore } from '@/stores/agentChatStore';
 import { cn } from '@/utils/cn';
 
@@ -13,14 +14,7 @@ const { authEnabled, logout } = useAuth();
 const completionBadge = useAgentChatStore((s) => s.completionBadge);
 const showLogoutConfirm = ref(false);
 
-const navItems = [
-  { key: 'home', label: '首页', to: '/', icon: Home, exact: true },
-  { key: 'watch-list', label: '自选股', to: '/watch-list', icon: Star },
-  { key: 'stock-list', label: '持仓股', to: '/stock-list', icon: Wallet },
-  { key: 'chat', label: '问股', to: '/chat', icon: MessageSquareQuote, badge: 'completion' as const },
-  { key: 'portfolio', label: '投资组合', to: '/portfolio', icon: BriefcaseBusiness },
-  { key: 'backtest', label: '回测', to: '/backtest', icon: BarChart3 },
-];
+const navItems = mainNavItems;
 
 async function onLogoutConfirm() {
   showLogoutConfirm.value = false;
