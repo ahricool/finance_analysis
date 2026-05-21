@@ -5,6 +5,8 @@ import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 
+const WEEKDAY_CN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'] as const;
+
 const weekStart = ref(startOfWeek(new Date()));
 const selectedDate = ref(formatDate(new Date()));
 const signals = ref<CalendarSignalItem[]>([]);
@@ -27,11 +29,27 @@ function addDays(d: Date, n: number): Date {
   return copy;
 }
 function formatDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
-function label(d: Date): string {
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+
+function weekdayCn(d: Date): string {
+  return WEEKDAY_CN[d.getDay()] ?? '';
 }
+
+/** 展示用：YYYY-MM-DD 星期x */
+function dateWithWeekday(d: Date): string {
+  return `${formatDate(d)} ${weekdayCn(d)}`;
+}
+
+const selectedDateDisplay = computed(() => {
+  const parts = selectedDate.value.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return selectedDate.value;
+  const [y, m, d] = parts;
+  return dateWithWeekday(new Date(y, m - 1, d));
+});
 
 async function loadSignals() {
   loading.value = true;
@@ -76,22 +94,23 @@ onMounted(loadSignals);
         <p class="text-sm font-medium">当周日历</p>
         <button class="rounded-lg p-2 hover:bg-hover" @click="shiftWeek(1)"><ChevronRight class="h-4 w-4" /></button>
       </div>
-      <div class="grid grid-cols-7 gap-2">
+      <div class="grid grid-cols-7 gap-1.5 sm:gap-2">
         <button
           v-for="d in weekDates"
           :key="formatDate(d)"
-          class="rounded-xl border px-2 py-2 text-sm"
+          type="button"
+          class="rounded-xl border px-1 py-2 text-center text-[10px] leading-snug sm:px-1.5 sm:text-[11px] md:text-xs"
           :class="selectedDate === formatDate(d) ? 'border-primary bg-primary/10 text-primary' : 'border-border/60 hover:bg-hover'"
           @click="selectDate(d)"
         >
-          {{ label(d) }}
+          <span class="block">{{ dateWithWeekday(d) }}</span>
         </button>
       </div>
     </div>
 
     <ApiErrorAlert v-if="error" :error="error" class="mb-4" />
     <div class="rounded-2xl border border-border/60 bg-card p-4">
-      <h2 class="mb-3 text-sm font-semibold">{{ selectedDate }} 信号列表</h2>
+      <h2 class="mb-3 text-sm font-semibold">{{ selectedDateDisplay }} 信号列表</h2>
       <div v-if="loading" class="space-y-2"><div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-xl bg-hover" /></div>
       <div v-else-if="!signals.length" class="py-6 text-sm text-secondary-text">当天暂无信号数据</div>
       <div v-else class="space-y-2">
