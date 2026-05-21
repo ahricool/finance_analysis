@@ -26,8 +26,6 @@ export { default as Tooltip } from './Tooltip.vue';
 export { default as Pagination } from './Pagination.vue';
 export { default as ConfirmDialog } from './ConfirmDialog.vue';
 export { default as Shell } from '../layout/Shell.vue';
-export { default as SidebarNav } from '../layout/SidebarNav.vue';
-export { default as ShellHeader } from '../layout/ShellHeader.vue';
 export { default as ThemeProvider } from '../theme/ThemeProvider.vue';
 export { default as ThemeToggle } from '../theme/ThemeToggle.vue';
 export { default as ParticleBackground } from './ParticleBackground.vue';
