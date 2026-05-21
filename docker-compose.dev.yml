@@ -23,7 +23,7 @@ services:
       start_period: 10s
 
   server:
-    image: ghcr.io/zhulinsen/daily_stock_analysis:latest
+    image: ${FINANCE_ANALYSIS_IMAGE:-docker.io/zhulinsen/daily_stock_analysis:latest}
     build:
       context: .
       dockerfile: Dockerfile
