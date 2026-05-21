@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
+- [改进] Docker Compose 拆分为 `docker-compose.dev.yml` 与 `docker-compose.prod.yml`，开发环境保留源码挂载，生产环境收敛为镜像运行与最小挂载。
+- [新功能] 新增 `scripts/deploy_prod.sh` 一键部署脚本：自动切换 `main`、`git pull --ff-only` 并使用生产 Compose 拉取镜像后后台启动容器。
 - [修复] Docker 运行时镜像将 `.venv/bin` 加入 `PATH`，使 `docker run ... python` 与 CI 冒烟导入使用项目虚拟环境，避免系统 Python 缺少依赖导致 “Docker Main Image” 等工作流失败。
 - [改进] 当 `SCHEDULE_ENABLED=true` 时，仅启动 FastAPI（如 `uvicorn server:app` 或 `python main.py --serve-only`）也会在应用生命周期内自动启动内嵌定时分析，无需再带 `--schedule`。
 - [改进] 内置定时任务由 `schedule` 迁移为 APScheduler：`python main.py --serve --schedule` 时在 FastAPI 生命周期内启动/停止调度器；`python main.py --schedule` 无 Web 服务时仍以独立进程阻塞运行。
