@@ -5,11 +5,104 @@
  * - Exact match: code, name, pinyin, alias
  * - Prefix match: code prefix, name prefix, pinyin prefix
  * - Contains match: code contains, name contains, pinyin contains
+ * - Fuzzy match: ordered subsequence (e.g. typos / skipped chars in pinyin or Chinese name)
  */
 
 import type { StockIndexItem, StockSuggestion } from '../types/stockIndex';
-import { normalizeQuery } from './normalizeQuery';
+import { isStockCodeLike, normalizeQuery } from './normalizeQuery';
 import { MATCH_SCORE, SEARCH_CONFIG } from './stockIndexFields';
+
+/** Fuzzy tier scores stay strictly below {@link MATCH_SCORE.CONTAINS_MIN}. */
+const FUZZY_SCORE_MAX = MATCH_SCORE.CONTAINS_MIN - 1;
+
+/** Skip fuzzy for single-character queries (too noisy); cap length for performance. */
+const FUZZY_MIN_QUERY_LEN = 2;
+const FUZZY_MAX_QUERY_LEN = 48;
+
+type MatchField = 'code' | 'name' | 'pinyin' | 'alias';
+
+/**
+ * If every character of `query` appears in `text` in order (subsequence), return a score in
+ * `[MATCH_SCORE.FUZZY_MIN, FUZZY_SCORE_MAX]`. Otherwise `0`.
+ */
+function subsequenceFuzzyScore(query: string, text: string): number {
+  if (query.length < FUZZY_MIN_QUERY_LEN || query.length > FUZZY_MAX_QUERY_LEN) return 0;
+  if (!text) return 0;
+  if (query.length > text.length) return 0;
+
+  const q = query.toLowerCase();
+  const t = text.toLowerCase();
+
+  let qi = 0;
+  let first = -1;
+  let prev = -1;
+  let gap = 0;
+
+  for (let i = 0; i < t.length && qi < q.length; i++) {
+    if (t[i] === q[qi]) {
+      if (prev === -1) {
+        first = i;
+      } else {
+        gap += i - prev - 1;
+      }
+      prev = i;
+      qi++;
+    }
+  }
+
+  if (qi < q.length || first === -1 || prev === -1) return 0;
+
+  const span = prev - first + 1;
+  const coverage = q.length / span;
+  const gapSlots = Math.max(1, span - 1);
+  const gapNorm = gap / gapSlots;
+  const tightness = coverage * (1 - 0.28 * Math.min(1, gapNorm));
+  const raw = 1 + (FUZZY_SCORE_MAX - 1) * Math.max(0, Math.min(1, tightness));
+  return Math.round(raw);
+}
+
+function fieldPriority(field: MatchField): number {
+  if (field === 'name') return 4;
+  if (field === 'pinyin') return 3;
+  if (field === 'alias') return 2;
+  return 1;
+}
+
+function computeFuzzyMatch(
+  query: string,
+  item: StockIndexItem,
+): { score: number; field: MatchField } {
+  const q = query.toLowerCase();
+  const candidates: { field: MatchField; text: string }[] = [
+    { field: 'name', text: normalizeQuery(item.nameZh) },
+    { field: 'pinyin', text: normalizeQuery(item.pinyinFull || '') },
+    { field: 'pinyin', text: normalizeQuery(item.pinyinAbbr || '') },
+  ];
+
+  for (const alias of item.aliases || []) {
+    candidates.push({ field: 'alias', text: normalizeQuery(alias) });
+  }
+
+  if (isStockCodeLike(q)) {
+    candidates.push(
+      { field: 'code', text: normalizeQuery(item.displayCode) },
+      { field: 'code', text: normalizeQuery(item.canonicalCode) },
+    );
+  }
+
+  let bestScore = 0;
+  let bestField: MatchField = 'name';
+
+  for (const { field, text } of candidates) {
+    const s = subsequenceFuzzyScore(q, text);
+    if (s > bestScore || (s === bestScore && s > 0 && fieldPriority(field) > fieldPriority(bestField))) {
+      bestScore = s;
+      bestField = field;
+    }
+  }
+
+  return { score: bestScore, field: bestField };
+}
 
 export interface SearchOptions {
   /** Limit on number of results to return */
@@ -45,10 +138,10 @@ export function searchStocks(
   });
 
   // Calculate match score for each item
-  const suggestions = filteredIndex.map(item => ({
-    item,
-    score: calculateMatchScore(normalizedQuery, item),
-  }));
+  const suggestions = filteredIndex.map(item => {
+    const { score, fuzzyField } = calculateMatchScore(normalizedQuery, item);
+    return { item, score, fuzzyField };
+  });
 
   // Filter out items with score of 0
   const matched = suggestions.filter(s => s.score > 0);
@@ -66,7 +159,7 @@ export function searchStocks(
     nameZh: s.item.nameZh,
     market: s.item.market,
     matchType: determineMatchType(s.score),
-    matchField: determineMatchField(normalizedQuery, s.item),
+    matchField: determineMatchField(normalizedQuery, s.item, s.score, s.fuzzyField),
     score: s.score,
   }));
 }
@@ -82,9 +175,10 @@ export function searchStocks(
  * - 96: Exact match pinyin abbreviation
  * - 80-89: Prefix match
  * - 60-69: Contains match
+ * - 1-56: Fuzzy (ordered subsequence on name / pinyin / alias / code when code-like)
  * - 0: No match
  */
-function calculateMatchScore(query: string, item: StockIndexItem): number {
+function calculateMatchScore(query: string, item: StockIndexItem): { score: number; fuzzyField?: MatchField } {
   let score = 0;
   const q = query.toLowerCase();
   const normalizedCanonicalCode = normalizeQuery(item.canonicalCode);
@@ -95,11 +189,11 @@ function calculateMatchScore(query: string, item: StockIndexItem): number {
   const normalizedAliases = item.aliases?.map(alias => normalizeQuery(alias)) || [];
 
   // 1. Exact match (96-100 points)
-  if (q === normalizedCanonicalCode) return 100;
-  if (q === normalizedDisplayCode) return 99;
-  if (q === normalizedName) return 98;
-  if (normalizedAliases.some(a => a === q)) return 97;
-  if (q === normalizedPinyinAbbr) return 96;
+  if (q === normalizedCanonicalCode) return { score: 100 };
+  if (q === normalizedDisplayCode) return { score: 99 };
+  if (q === normalizedName) return { score: 98 };
+  if (normalizedAliases.some(a => a === q)) return { score: 97 };
+  if (q === normalizedPinyinAbbr) return { score: 96 };
 
   // 2. Prefix match (77-80 points)
   if (normalizedDisplayCode.startsWith(q)) score = Math.max(score, 80);
@@ -113,7 +207,15 @@ function calculateMatchScore(query: string, item: StockIndexItem): number {
   if (normalizedPinyinFull.includes(q)) score = Math.max(score, 58);
   if (normalizedAliases.some(a => a.includes(q))) score = Math.max(score, 57);
 
-  return score;
+  // 4. Fuzzy (subsequence) — only if no stronger tier matched
+  if (score < MATCH_SCORE.CONTAINS_MIN) {
+    const fuzzy = computeFuzzyMatch(q, item);
+    if (fuzzy.score > 0) {
+      return { score: fuzzy.score, fuzzyField: fuzzy.field };
+    }
+  }
+
+  return { score };
 }
 
 /**
@@ -127,10 +229,19 @@ function determineMatchType(score: number): 'exact' | 'prefix' | 'contains' | 'f
 }
 
 /**
- * Determine match field
+ * Determine match field (best-effort for fuzzy-only matches).
  */
-function determineMatchField(query: string, item: StockIndexItem): 'code' | 'name' | 'pinyin' | 'alias' {
+function determineMatchField(
+  query: string,
+  item: StockIndexItem,
+  score: number,
+  fuzzyField?: MatchField,
+): MatchField {
   const q = query.toLowerCase();
+  if (fuzzyField !== undefined && score > 0 && score < MATCH_SCORE.CONTAINS_MIN) {
+    return fuzzyField;
+  }
+
   const normalizedCanonicalCode = normalizeQuery(item.canonicalCode);
   const normalizedDisplayCode = normalizeQuery(item.displayCode);
   const normalizedName = normalizeQuery(item.nameZh);

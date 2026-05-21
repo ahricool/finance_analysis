@@ -391,6 +391,22 @@ describe('searchStocks', () => {
       const results = searchStocks('maotai', mockIndex);
       expect(results[0].matchType).toBe('contains');
     });
+
+    test('fuzzy match type (Chinese ordered subsequence)', () => {
+      const results = searchStocks('贵台', mockIndex);
+      const m = results.find(r => r.canonicalCode === '600519.SH');
+      expect(m).toBeDefined();
+      expect(m!.matchType).toBe('fuzzy');
+      expect(m!.matchField).toBe('name');
+    });
+
+    test('fuzzy match type (pinyin ordered subsequence / typo tolerance)', () => {
+      const results = searchStocks('gizmt', mockIndex);
+      const m = results.find(r => r.canonicalCode === '600519.SH');
+      expect(m).toBeDefined();
+      expect(m!.matchType).toBe('fuzzy');
+      expect(m!.matchField).toBe('pinyin');
+    });
   });
 
   describe('Match field tests', () => {
