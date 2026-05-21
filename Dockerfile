@@ -10,11 +10,19 @@
 # ── Stage 1: Web frontend build ─────────────────────────────────────────────
 FROM node:24-slim AS web-builder
 
+# Corepack reads `packageManager` from package.json on first `pnpm` invocation.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
+
 WORKDIR /workspace/web
 
+# Dependency layer: caches when only source (not lockfile) changes.
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN --mount=type=cache,id=pnpm-store-web,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
 COPY web/ ./
-RUN npm install
-RUN npm run build
+RUN pnpm run build
 
 # ── Stage 2: Python dependency build (uv) ────────────────────────────────────
 FROM python:3.13-slim-trixie AS py-builder
