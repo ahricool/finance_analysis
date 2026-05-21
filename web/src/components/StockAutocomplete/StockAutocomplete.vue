@@ -3,7 +3,7 @@ import SuggestionsList from '@/components/StockAutocomplete/SuggestionsList.vue'
 import { useAutocomplete } from '@/composables/useAutocomplete';
 import { useStockIndex } from '@/composables/useStockIndex';
 import { cn } from '@/utils/cn';
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 
 const AUTOCOMPLETE_INPUT_CLASS =
   'input-surface input-focus-glow h-11 w-full rounded-xl border bg-transparent px-4 text-sm transition-all focus:outline-none disabled:cursor-not-allowed disabled:opacity-60';
@@ -85,17 +85,37 @@ watch(isOpen, (open) => {
   openListenersCleanup = null;
 
   if (!open) {
+    dropdownStyle.value = null;
     return;
   }
 
-  const frame = requestAnimationFrame(() => updateDropdownPosition());
-  window.addEventListener('resize', updateDropdownPosition);
-  window.addEventListener('scroll', updateDropdownPosition, true);
-  openListenersCleanup = () => {
-    cancelAnimationFrame(frame);
-    window.removeEventListener('resize', updateDropdownPosition);
-    window.removeEventListener('scroll', updateDropdownPosition, true);
-  };
+  // Wait for DOM (ref + layout) so getBoundingClientRect is valid; IME can open the panel
+  // in the same tick as isOpen flipping true without a prior dropdownStyle.
+  void nextTick().then(() => {
+    if (!isOpen.value) {
+      return;
+    }
+    updateDropdownPosition();
+    const frame = requestAnimationFrame(() => {
+      if (!isOpen.value) {
+        return;
+      }
+      updateDropdownPosition();
+    });
+    window.addEventListener('resize', updateDropdownPosition);
+    window.addEventListener('scroll', updateDropdownPosition, true);
+    openListenersCleanup = () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', updateDropdownPosition);
+      window.removeEventListener('scroll', updateDropdownPosition, true);
+    };
+  });
+});
+
+watch(suggestions, () => {
+  if (isOpen.value) {
+    void nextTick(() => updateDropdownPosition());
+  }
 });
 
 onUnmounted(() => {
@@ -161,8 +181,18 @@ function onSelectSuggestion(s: (typeof suggestions.value)[number]) {
 
 function onFocus() {
   if (isOpen.value) {
-    updateDropdownPosition();
+    void nextTick(() => updateDropdownPosition());
   }
+}
+
+function onCompositionEnd(e: CompositionEvent) {
+  setIsComposing(false);
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement) || props.disabled) return;
+  // Some IMEs (notably Safari / macOS) commit composed text without a final `input` event;
+  // sync so debounced search runs on the final Chinese string (e.g. 贵州).
+  emit('update:modelValue', el.value);
+  setQuery(el.value);
 }
 </script>
 
@@ -201,7 +231,7 @@ function onFocus() {
       "
       @keydown="onKeyDown"
       @compositionstart="setIsComposing(true)"
-      @compositionend="setIsComposing(false)"
+      @compositionend="onCompositionEnd"
       @focus="onFocus"
       @blur="onBlur"
     />
