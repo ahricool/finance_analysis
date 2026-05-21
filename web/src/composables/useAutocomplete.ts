@@ -147,5 +147,3 @@ export function useAutocomplete(
     error,
   };
 }
-
-export default useAutocomplete;

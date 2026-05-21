@@ -38,5 +38,3 @@ export function useStockIndex() {
     loaded,
   };
 }
-
-export default useStockIndex;
