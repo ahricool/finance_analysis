@@ -99,11 +99,12 @@ onMounted(loadSignals);
           v-for="d in weekDates"
           :key="formatDate(d)"
           type="button"
-          class="rounded-xl border px-1 py-2 text-center text-[10px] leading-snug sm:px-1.5 sm:text-[11px] md:text-xs"
+          class="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-center text-xs leading-tight"
           :class="selectedDate === formatDate(d) ? 'border-primary bg-primary/10 text-primary' : 'border-border/60 hover:bg-hover'"
           @click="selectDate(d)"
         >
-          <span class="block">{{ dateWithWeekday(d) }}</span>
+          <span class="block whitespace-nowrap font-medium">{{ formatDate(d) }}</span>
+          <span class="block whitespace-nowrap text-secondary-text" :class="selectedDate === formatDate(d) ? 'text-primary' : ''">{{ weekdayCn(d) }}</span>
         </button>
       </div>
     </div>
