@@ -64,7 +64,7 @@ const emit = defineEmits<{
   <ul
     v-if="props.suggestions.length > 0"
     id="suggestions-list"
-    class="z-[100] max-h-60 overflow-auto rounded-b-lg rounded-t-none border-x border-b"
+    class="z-[200] max-h-60 overflow-auto rounded-b-lg rounded-t-none border-x border-b"
     :style="{
       position: 'fixed',
       ...props.listStyle,
