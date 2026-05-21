@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 import time
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, Callable, TypeVar
@@ -678,13 +679,15 @@ class DatabaseManager:
     
     _instance: Optional['DatabaseManager'] = None
     _initialized: bool = False
+    _instance_lock = threading.RLock()
     
     def __new__(cls, *args, **kwargs):
         """单例模式实现"""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
+        with cls._instance_lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                cls._instance._initialized = False
+            return cls._instance
     
     def __init__(self, db_url: Optional[str] = None):
         """
@@ -693,77 +696,81 @@ class DatabaseManager:
         Args:
             db_url: 数据库连接 URL（可选，默认从配置读取）
         """
-        if getattr(self, '_initialized', False):
-            return
+        with self.__class__._instance_lock:
+            if getattr(self, '_initialized', False):
+                return
 
-        config = get_config()
-        if db_url is None:
-            db_url = config.get_db_url()
+            config = get_config()
+            if db_url is None:
+                db_url = config.get_db_url()
 
-        self._db_url = db_url
-        self._sqlite_wal_enabled = config.sqlite_wal_enabled
-        self._sqlite_busy_timeout_ms = config.sqlite_busy_timeout_ms
-        self._sqlite_write_retry_max = config.sqlite_write_retry_max
-        self._sqlite_write_retry_base_delay = config.sqlite_write_retry_base_delay
+            self._db_url = db_url
+            self._sqlite_wal_enabled = config.sqlite_wal_enabled
+            self._sqlite_busy_timeout_ms = config.sqlite_busy_timeout_ms
+            self._sqlite_write_retry_max = config.sqlite_write_retry_max
+            self._sqlite_write_retry_base_delay = config.sqlite_write_retry_base_delay
 
-        backend = str(db_url).split(":")[0].split("+")[0].lower()
-        is_pg = backend == "postgresql"
+            backend = str(db_url).split(":")[0].split("+")[0].lower()
+            is_pg = backend == "postgresql"
 
-        engine_kwargs: dict = {
-            "echo": False,
-            "pool_pre_ping": True,
-        }
-        if is_pg:
-            # PostgreSQL connection pool settings
-            engine_kwargs["pool_size"] = config.db_pool_size
-            engine_kwargs["max_overflow"] = config.db_max_overflow
-            engine_kwargs["pool_recycle"] = config.db_pool_recycle
-        elif str(db_url).startswith("sqlite:") and self._sqlite_busy_timeout_ms > 0:
-            engine_kwargs["connect_args"] = {
-                "timeout": self._sqlite_busy_timeout_ms / 1000,
+            engine_kwargs: dict = {
+                "echo": False,
+                "pool_pre_ping": True,
             }
+            if is_pg:
+                # PostgreSQL connection pool settings
+                engine_kwargs["pool_size"] = config.db_pool_size
+                engine_kwargs["max_overflow"] = config.db_max_overflow
+                engine_kwargs["pool_recycle"] = config.db_pool_recycle
+            elif str(db_url).startswith("sqlite:") and self._sqlite_busy_timeout_ms > 0:
+                engine_kwargs["connect_args"] = {
+                    "timeout": self._sqlite_busy_timeout_ms / 1000,
+                }
 
-        # 创建数据库引擎
-        self._engine = create_engine(
-            db_url,
-            **engine_kwargs,
-        )
-        self._is_sqlite_engine = self._engine.url.get_backend_name() == 'sqlite'
-        self._is_postgresql_engine = self._engine.url.get_backend_name() == 'postgresql'
-        self._sqlite_file_db = self._is_sqlite_engine and self._is_file_sqlite_database()
-        self._install_sqlite_pragma_handler()
-        
-        # 创建 Session 工厂
-        self._SessionLocal = sessionmaker(
-            bind=self._engine,
-            autocommit=False,
-            autoflush=False,
-        )
-        
-        # 创建所有表
-        Base.metadata.create_all(self._engine)
+            # 创建数据库引擎
+            self._engine = create_engine(
+                db_url,
+                **engine_kwargs,
+            )
+            self._is_sqlite_engine = self._engine.url.get_backend_name() == 'sqlite'
+            self._is_postgresql_engine = self._engine.url.get_backend_name() == 'postgresql'
+            self._sqlite_file_db = self._is_sqlite_engine and self._is_file_sqlite_database()
+            self._install_sqlite_pragma_handler()
+            
+            # 创建 Session 工厂
+            self._SessionLocal = sessionmaker(
+                bind=self._engine,
+                autocommit=False,
+                autoflush=False,
+                expire_on_commit=False,
+            )
+            
+            # 创建所有表
+            Base.metadata.create_all(self._engine)
 
-        self._initialized = True
-        logger.info(f"数据库初始化完成: {db_url}")
+            self._initialized = True
+            logger.info(f"数据库初始化完成: {db_url}")
 
-        # 注册退出钩子，确保程序退出时关闭数据库连接
-        atexit.register(DatabaseManager._cleanup_engine, self._engine)
+            # 注册退出钩子，确保程序退出时关闭数据库连接
+            atexit.register(DatabaseManager._cleanup_engine, self._engine)
     
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
         """获取单例实例"""
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+        with cls._instance_lock:
+            if cls._instance is None or not getattr(cls._instance, '_initialized', False):
+                cls()
+            return cls._instance
     
     @classmethod
     def reset_instance(cls) -> None:
         """重置单例（用于测试）"""
-        if cls._instance is not None:
-            if hasattr(cls._instance, '_engine') and cls._instance._engine is not None:
-                cls._instance._engine.dispose()
-            cls._instance._initialized = False
-            cls._instance = None
+        with cls._instance_lock:
+            if cls._instance is not None:
+                if hasattr(cls._instance, '_engine') and cls._instance._engine is not None:
+                    cls._instance._engine.dispose()
+                cls._instance._initialized = False
+                cls._instance = None
 
     @classmethod
     def _cleanup_engine(cls, engine) -> None:

@@ -133,6 +133,34 @@ class TestStorage(unittest.TestCase):
                     os.environ[key] = value
             temp_dir.cleanup()
 
+    def test_get_instance_initializes_partially_constructed_singleton(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        db_path = os.path.join(temp_dir.name, "partial_singleton.db")
+        original_database_path = os.environ.get("DATABASE_PATH")
+
+        try:
+            os.environ["DATABASE_PATH"] = db_path
+            Config.reset_instance()
+            DatabaseManager.reset_instance()
+
+            partial = object.__new__(DatabaseManager)
+            partial._initialized = False
+            DatabaseManager._instance = partial
+
+            db = DatabaseManager.get_instance()
+
+            self.assertIs(db, partial)
+            with db.get_session() as session:
+                self.assertEqual(session.execute(select(func.count(StockDaily.id))).scalar(), 0)
+        finally:
+            DatabaseManager.reset_instance()
+            Config.reset_instance()
+            if original_database_path is None:
+                os.environ.pop("DATABASE_PATH", None)
+            else:
+                os.environ["DATABASE_PATH"] = original_database_path
+            temp_dir.cleanup()
+
     def test_sqlite_write_transactions_begin_immediate(self):
         DatabaseManager.reset_instance()
         db = DatabaseManager(db_url="sqlite:///:memory:")
