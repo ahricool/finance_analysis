@@ -14,8 +14,6 @@ const { authEnabled, logout } = useAuth();
 const completionBadge = useAgentChatStore((s) => s.completionBadge);
 const showLogoutConfirm = ref(false);
 
-const navItems = mainNavItems;
-
 async function onLogoutConfirm() {
   showLogoutConfirm.value = false;
   await logout();
@@ -44,7 +42,7 @@ async function onLogoutConfirm() {
           aria-label="主导航"
         >
           <RouterLink
-            v-for="item in navItems"
+            v-for="item in mainNavItems"
             :key="item.key"
             v-slot="{ href, navigate, isActive, isExactActive }"
             :to="item.to"

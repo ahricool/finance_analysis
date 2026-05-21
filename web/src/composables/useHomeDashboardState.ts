@@ -48,5 +48,3 @@ export function useHomeDashboardState() {
     selectedIds,
   };
 }
-
-export default useHomeDashboardState;

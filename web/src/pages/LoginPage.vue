@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { isParsedApiError } from '@/api/error';
-import type { ParsedApiError } from '@/api/error';
+import { isParsedApiError, type ParsedApiError } from '@/api/error';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
 import ParticleBackground from '@/components/common/ParticleBackground.vue';
@@ -14,10 +13,6 @@ import { useRoute, useRouter } from 'vue-router';
 const { login, passwordSet, setupState } = useAuth();
 const router = useRouter();
 const route = useRoute();
-
-onMounted(() => {
-  document.title = formatDocumentTitle('登录');
-});
 
 const rawRedirect = computed(() => (route.query.redirect as string) ?? '');
 const redirect = computed(() =>
@@ -41,6 +36,7 @@ function onMouseMove(e: MouseEvent) {
 }
 
 onMounted(() => {
+  document.title = formatDocumentTitle('登录');
   window.addEventListener('mousemove', onMouseMove);
 });
 
