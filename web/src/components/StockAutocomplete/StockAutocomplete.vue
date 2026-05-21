@@ -46,7 +46,7 @@ const {
 
 const inputRef = ref<HTMLInputElement | null>(null);
 const prevValue = ref(props.modelValue);
-const dropdownStyle = ref<{ top: number; left: number; width: string } | null>(null);
+const dropdownStyle = ref<{ top: string; left: string; width: string } | null>(null);
 
 let openListenersCleanup: (() => void) | null = null;
 
@@ -58,8 +58,8 @@ function updateDropdownPosition() {
   }
   const rect = el.getBoundingClientRect();
   dropdownStyle.value = {
-    top: rect.bottom,
-    left: rect.left,
+    top: `${rect.bottom}px`,
+    left: `${rect.left}px`,
     width: `${rect.width}px`,
   };
 }
@@ -79,6 +79,17 @@ watch(
   },
   { immediate: true },
 );
+
+watch([loading, index], ([isLoading]) => {
+  if (isLoading || fallback.value || runtimeFallback.value) {
+    return;
+  }
+
+  const currentValue = props.modelValue.trim();
+  if (currentValue) {
+    setQuery(currentValue);
+  }
+});
 
 watch(isOpen, (open) => {
   openListenersCleanup?.();

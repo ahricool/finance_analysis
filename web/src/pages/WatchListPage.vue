@@ -4,8 +4,10 @@ import { watchListApi, type WatchListItem, type WatchListItemCreate } from '@/ap
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
+import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
+import { looksLikeStockCode } from '@/utils/validation';
 import { Eye, Pencil, Plus, Star, Trash2, X } from 'lucide-vue-next';
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const items = ref<WatchListItem[]>([]);
@@ -16,6 +18,7 @@ const error = ref<ParsedApiError | null>(null);
 // Dialog state
 const showDialog = ref(false);
 const editingId = ref<number | null>(null);
+const formStockQuery = ref('');
 const formCode = ref('');
 const formName = ref('');
 const formNotes = ref('');
@@ -25,6 +28,19 @@ const saving = ref(false);
 const showDeleteConfirm = ref(false);
 const deletingId = ref<number | null>(null);
 const deletingCode = ref('');
+
+function formatStockQuery(code: string, name?: string | null): string {
+  return name ? `${name}（${code}）` : code;
+}
+
+watch(formStockQuery, (value) => {
+  if (!formCode.value) return;
+  const selectedQuery = formatStockQuery(formCode.value, formName.value);
+  if (value !== selectedQuery && value !== formCode.value) {
+    formCode.value = '';
+    formName.value = '';
+  }
+});
 
 // ── API Calls ─────────────────────────────────────────────────────────────────
 async function loadList() {
@@ -43,9 +59,10 @@ async function loadList() {
 
 async function save() {
   formError.value = null;
-  const code = formCode.value.trim().toUpperCase();
+  const query = formStockQuery.value.trim();
+  const code = (formCode.value.trim() || (looksLikeStockCode(query) ? query : '')).toUpperCase();
   if (!code) {
-    formError.value = '股票代码不能为空';
+    formError.value = '请先搜索并选择股票';
     return;
   }
   saving.value = true;
@@ -94,6 +111,7 @@ async function confirmDelete() {
 // ── Dialog helpers ────────────────────────────────────────────────────────────
 function openCreate() {
   editingId.value = null;
+  formStockQuery.value = '';
   formCode.value = '';
   formName.value = '';
   formNotes.value = '';
@@ -105,6 +123,7 @@ function openEdit(item: WatchListItem) {
   editingId.value = item.id;
   formCode.value = item.code;
   formName.value = item.name ?? '';
+  formStockQuery.value = formatStockQuery(item.code, item.name);
   formNotes.value = item.notes ?? '';
   formError.value = null;
   showDialog.value = true;
@@ -113,6 +132,12 @@ function openEdit(item: WatchListItem) {
 function closeDialog() {
   showDialog.value = false;
   editingId.value = null;
+}
+
+function handleStockAutocompleteSubmit(code: string, name?: string) {
+  formCode.value = code;
+  formName.value = name ?? '';
+  formStockQuery.value = formatStockQuery(code, name);
 }
 
 function openDelete(item: WatchListItem) {
@@ -217,17 +242,13 @@ onMounted(loadList);
 
           <div class="space-y-4">
             <div>
-              <label class="mb-1 block text-sm font-medium text-foreground">股票代码 *</label>
-              <Input
-                v-model="formCode"
-                placeholder="如 600519"
+              <label class="mb-1 block text-sm font-medium text-foreground">股票 *</label>
+              <StockAutocomplete
+                v-model="formStockQuery"
+                placeholder="搜索股票代码、名称或拼音"
                 :disabled="editingId !== null"
-                class="uppercase"
+                @submit="handleStockAutocompleteSubmit"
               />
-            </div>
-            <div>
-              <label class="mb-1 block text-sm font-medium text-foreground">名称（可选）</label>
-              <Input v-model="formName" placeholder="如 贵州茅台" />
             </div>
             <div>
               <label class="mb-1 block text-sm font-medium text-foreground">备注（可选）</label>
