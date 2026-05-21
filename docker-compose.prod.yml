@@ -23,7 +23,7 @@ services:
       start_period: 10s
 
   server:
-    image: ${FINANCE_ANALYSIS_IMAGE:-docker.io/zhulinsen/daily_stock_analysis:latest}
+    image: ${FINANCE_ANALYSIS_IMAGE:-ghcr.io/zhulinsen/daily_stock_analysis:latest}
     container_name: finance-analysis-server
     restart: unless-stopped
     depends_on:

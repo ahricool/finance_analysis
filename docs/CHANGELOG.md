@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
-- [修复] Docker Compose 默认应用镜像改为 `docker.io/zhulinsen/daily_stock_analysis:latest`，并支持通过 `FINANCE_ANALYSIS_IMAGE` 覆盖，和仓库 Docker 发布工作流产物保持一致。
+- [修复] Docker Compose 默认应用镜像为 `ghcr.io/zhulinsen/daily_stock_analysis:latest`（与 `.github/workflows/docker-main.yml` 推送到 `ghcr.io/<GitHub owner>/<repo>` 的 upstream 产物一致），并支持通过 `FINANCE_ANALYSIS_IMAGE` 覆盖；fork 自建 CI 时可指向自有 GHCR 镜像。
 - [改进] Docker Compose 拆分为 `docker-compose.dev.yml` 与 `docker-compose.prod.yml`，开发环境保留源码挂载，生产环境收敛为镜像运行与最小挂载。
 - [新功能] 新增 `scripts/deploy_prod.sh` 一键部署脚本：自动切换 `main`、`git pull --ff-only` 并使用生产 Compose 拉取镜像后后台启动容器。
 - [修复] Docker 运行时镜像将 `.venv/bin` 加入 `PATH`，使 `docker run ... python` 与 CI 冒烟导入使用项目虚拟环境，避免系统 Python 缺少依赖导致 “Docker Main Image” 等工作流失败。
