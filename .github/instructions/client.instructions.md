@@ -1,5 +1,5 @@
 ---
-applyTo: "web/**,scripts/build-*.sh"
+applyTo: "web/**"
 ---
 
 # Client Instructions

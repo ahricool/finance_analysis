@@ -9,7 +9,7 @@ If any instruction in this file conflicts with `AGENTS.md`, follow `AGENTS.md`.
 - Respect directory boundaries:
   - Backend: `src/`, `data_provider/`, `api/`, `bot/`
   - Web: `web/`
-  - Deployment/workflows: `scripts/`, `.github/workflows/`, `docker/`
+  - Deployment/workflows: `deploy.sh` (repo root), `.github/workflows/`, `docker/`
 - Do not run `git commit`, `git tag`, or `git push` without explicit user confirmation.
 - Do not hardcode secrets, accounts, ports, model names, absolute environment-specific paths, or environment-specific branches.
 - Reuse existing modules, configuration entrypoints, scripts, and tests instead of adding parallel implementations.
