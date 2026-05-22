@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Lightweight schema migrations for user-scoped columns (PostgreSQL only).
+Lightweight schema migrations for user-scoped columns (PostgreSQL).
 
-The app uses SQLAlchemy create_all() without Alembic; existing deployments need
-explicit ALTER steps when new columns or constraints are added.
+The canonical schema is managed by **Alembic** (see ``alembic/`` and
+``docs/MIGRATIONS.md``). This module retains small, idempotent SQL fixes for
+legacy rows (e.g. backfilling ``user_id``) that are not worth encoding as
+versioned migrations.
 """
 
 from __future__ import annotations
