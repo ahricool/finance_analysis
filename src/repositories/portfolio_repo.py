@@ -12,7 +12,7 @@ from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import and_, delete, desc, func, select
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError
 
 from src.storage import (
     DatabaseManager,
@@ -39,7 +39,7 @@ class DuplicateTradeDedupHashError(Exception):
 
 
 class PortfolioBusyError(Exception):
-    """Raised when SQLite write serialization cannot acquire the ledger lock."""
+    """Raised when a portfolio write path signals contention (reserved for callers)."""
 
 
 class PortfolioRepository:
@@ -147,28 +147,8 @@ class PortfolioRepository:
     def portfolio_write_session(self):
         session = self.db.get_session()
         try:
-            if self.db._is_sqlite_engine:
-                # SQLite: acquire exclusive writer lock upfront to prevent
-                # "database is locked" on concurrent writes.
-                try:
-                    session.connection().exec_driver_sql("BEGIN IMMEDIATE")
-                except OperationalError as exc:
-                    session.close()
-                    if self._is_sqlite_locked_error(exc):
-                        raise PortfolioBusyError(
-                            "Portfolio ledger is busy; please retry shortly."
-                        ) from exc
-                    raise
-            # PostgreSQL uses MVCC — no explicit lock acquisition needed.
             yield session
             session.commit()
-        except OperationalError as exc:
-            session.rollback()
-            if self.db._is_sqlite_engine and self._is_sqlite_locked_error(exc):
-                raise PortfolioBusyError(
-                    "Portfolio ledger is busy; please retry shortly."
-                ) from exc
-            raise
         except Exception:
             session.rollback()
             raise
@@ -892,18 +872,6 @@ class PortfolioRepository:
                     PortfolioDailySnapshot.account_id == account_id,
                     PortfolioDailySnapshot.snapshot_date >= from_date,
                 )
-            )
-        )
-
-    @staticmethod
-    def _is_sqlite_locked_error(exc: OperationalError) -> bool:
-        err_text = str(getattr(exc, "orig", exc)).lower()
-        return any(
-            token in err_text
-            for token in (
-                "database is locked",
-                "database schema is locked",
-                "database table is locked",
             )
         )
 

@@ -8,13 +8,20 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from sqlalchemy import text
+
 from src.storage import DatabaseManager, LLMUsage, persist_llm_usage
 
 
 def _fresh_db() -> DatabaseManager:
-    """Return a DatabaseManager backed by a fresh in-memory SQLite database."""
+    """Return a DatabaseManager connected to the test PostgreSQL database."""
     DatabaseManager.reset_instance()
-    db = DatabaseManager(db_url="sqlite:///:memory:")
+    db_url = os.environ.get("DATABASE_URL", "").strip()
+    if not db_url:
+        raise RuntimeError("DATABASE_URL must be set for LLM usage tests")
+    db = DatabaseManager(db_url=db_url)
+    with db._engine.begin() as conn:
+        conn.execute(text("DELETE FROM llm_usage"))
     return db
 
 

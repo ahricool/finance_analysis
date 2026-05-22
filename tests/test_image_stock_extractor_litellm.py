@@ -8,6 +8,7 @@ Covers:
 - extract_stock_codes_from_image(): magic bytes check, parsing
 """
 import sys
+import os
 from unittest.mock import MagicMock
 
 # Stub out litellm and heavy chain-imports before any project code is loaded,
@@ -65,6 +66,7 @@ def _cfg(**kwargs) -> Config:
         openai_vision_model=None,
         deepseek_api_keys=[],
         config_validate_mode="warn",
+        database_url=os.environ["DATABASE_URL"],
     )
     defaults.update(kwargs)
     return Config(**defaults)

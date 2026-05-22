@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Integration tests for backtest service and repository.
 
-These tests run against a temporary SQLite DB (same approach as other tests)
-and validate idempotency/force semantics, result field correctness,
+These tests run against the PostgreSQL database indicated by ``DATABASE_URL``
+(see ``tests/__init__.py`` / CI defaults) and validate idempotency/force semantics, result field correctness,
 summary creation, and query methods.
 """
 
