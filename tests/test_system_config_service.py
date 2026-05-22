@@ -256,39 +256,39 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertEqual(storage_check["status"], "configured")
         self.assertFalse(missing_parent.exists())
 
-    def test_export_desktop_env_returns_raw_text(self) -> None:
+    def test_export_env_returns_raw_text(self) -> None:
         self.env_path.write_text(
-            "# Desktop config\nSTOCK_LIST=600519,000001\n\nGEMINI_API_KEY=secret-key-value\n",
+            "# env backup fixture\nSTOCK_LIST=600519,000001\n\nGEMINI_API_KEY=secret-key-value\n",
             encoding="utf-8",
         )
 
-        payload = self.service.export_desktop_env()
+        payload = self.service.export_env()
 
         self.assertEqual(
             payload["content"],
-            "# Desktop config\nSTOCK_LIST=600519,000001\n\nGEMINI_API_KEY=secret-key-value\n",
+            "# env backup fixture\nSTOCK_LIST=600519,000001\n\nGEMINI_API_KEY=secret-key-value\n",
         )
         self.assertEqual(payload["config_version"], self.manager.get_config_version())
 
-    def test_import_desktop_env_merges_keys_without_deleting_unspecified_values(self) -> None:
+    def test_import_env_merges_keys_without_deleting_unspecified_values(self) -> None:
         current_version = self.manager.get_config_version()
 
-        payload = self.service.import_desktop_env(
+        payload = self.service.import_env(
             config_version=current_version,
-            content="STOCK_LIST=300750\nCUSTOM_NOTE=desktop backup\n",
+            content="STOCK_LIST=300750\nCUSTOM_NOTE=imported note\n",
             reload_now=False,
         )
 
         self.assertTrue(payload["success"])
         current_map = self.manager.read_config_map()
         self.assertEqual(current_map["STOCK_LIST"], "300750")
-        self.assertEqual(current_map["CUSTOM_NOTE"], "desktop backup")
+        self.assertEqual(current_map["CUSTOM_NOTE"], "imported note")
         self.assertEqual(current_map["GEMINI_API_KEY"], "secret-key-value")
 
-    def test_import_desktop_env_treats_mask_token_as_literal_value(self) -> None:
+    def test_import_env_treats_mask_token_as_literal_value(self) -> None:
         current_version = self.manager.get_config_version()
 
-        self.service.import_desktop_env(
+        self.service.import_env(
             config_version=current_version,
             content="GEMINI_API_KEY=******\n",
             reload_now=False,
@@ -297,10 +297,10 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         current_map = self.manager.read_config_map()
         self.assertEqual(current_map["GEMINI_API_KEY"], "******")
 
-    def test_import_desktop_env_uses_last_duplicate_assignment(self) -> None:
+    def test_import_env_uses_last_duplicate_assignment(self) -> None:
         current_version = self.manager.get_config_version()
 
-        self.service.import_desktop_env(
+        self.service.import_env(
             config_version=current_version,
             content="STOCK_LIST=000001\nSTOCK_LIST=300750\n",
             reload_now=False,
@@ -309,10 +309,10 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         current_map = self.manager.read_config_map()
         self.assertEqual(current_map["STOCK_LIST"], "300750")
 
-    def test_import_desktop_env_allows_empty_assignment(self) -> None:
+    def test_import_env_allows_empty_assignment(self) -> None:
         current_version = self.manager.get_config_version()
 
-        self.service.import_desktop_env(
+        self.service.import_env(
             config_version=current_version,
             content="LOG_LEVEL=\n",
             reload_now=False,
@@ -321,17 +321,17 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         current_map = self.manager.read_config_map()
         self.assertEqual(current_map["LOG_LEVEL"], "")
 
-    def test_import_desktop_env_rejects_empty_or_comment_only_content(self) -> None:
+    def test_import_env_rejects_empty_or_comment_only_content(self) -> None:
         with self.assertRaises(ConfigImportError):
-            self.service.import_desktop_env(
+            self.service.import_env(
                 config_version=self.manager.get_config_version(),
                 content="   \n# only comments\n\n",
                 reload_now=False,
             )
 
-    def test_import_desktop_env_raises_conflict_for_stale_version(self) -> None:
+    def test_import_env_raises_conflict_for_stale_version(self) -> None:
         with self.assertRaises(ConfigConflictError):
-            self.service.import_desktop_env(
+            self.service.import_env(
                 config_version="stale-version",
                 content="STOCK_LIST=300750\n",
                 reload_now=False,
@@ -2075,9 +2075,9 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             if "已同步清理失效的运行时模型引用" in warning
         )
         self.assertIn("主模型 / Agent 主模型 / Vision 模型 / 备选模型中的失效项", warning)
-        self.assertIn("桌面端导出备份", warning)
+        self.assertIn("系统设置", warning)
 
-    def test_import_desktop_env_restores_runtime_models_after_cleanup(self) -> None:
+    def test_import_env_restores_runtime_models_after_cleanup(self) -> None:
         self._rewrite_env(
             "STOCK_LIST=600519,000001",
             "LLM_CHANNELS=deepseek",
@@ -2091,7 +2091,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             "VISION_MODEL=deepseek/deepseek-v4-flash",
         )
 
-        backup_content = self.service.export_desktop_env()["content"]
+        backup_content = self.service.export_env()["content"]
         pre_clear_map = dict(self.manager.read_config_map())
 
         clear_response = self.service.update(
@@ -2113,7 +2113,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertEqual(cleared_map["VISION_MODEL"], "")
         self.assertEqual(cleared_map["LITELLM_FALLBACK_MODELS"], "deepseek/deepseek-v4-flash")
 
-        restore_payload = self.service.import_desktop_env(
+        restore_payload = self.service.import_env(
             config_version=self.manager.get_config_version(),
             content=backup_content,
             reload_now=False,

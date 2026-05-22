@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -51,14 +50,7 @@ class EnvBackupAccessDenied(Exception):
 
 
 def _allow_env_backup_access(request: Request) -> None:
-    """Gate raw .env backup/restore to explicit secure modes.
-
-    - Desktop runtime keeps existing local behavior via FA_DESKTOP_MODE.
-    - Non-desktop runtime must have admin auth enabled and a valid session.
-    """
-    if os.getenv("FA_DESKTOP_MODE") == "true":
-        return
-
+    """Gate raw .env backup/restore: admin auth must be enabled with a valid session."""
     refresh_auth_state()
     if not is_auth_enabled():
         raise EnvBackupAccessDenied(
