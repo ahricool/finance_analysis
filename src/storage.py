@@ -5,7 +5,7 @@ A股自选股智能分析系统 - 存储层
 ===================================
 
 职责：
-1. 管理 SQLite 数据库连接（单例模式）
+1. 管理 PostgreSQL 数据库连接（单例模式）
 2. 定义 ORM 数据模型
 3. 提供数据存取接口
 4. 实现智能更新逻辑（断点续传）
@@ -17,7 +17,6 @@ import hashlib
 import json
 import logging
 import re
-import time
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, Callable, TypeVar
 
@@ -41,17 +40,15 @@ from sqlalchemy import (
     or_,
     delete,
     desc,
-    event,
     func,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import (
     declarative_base,
     sessionmaker,
     Session,
 )
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError
 
 from src.config import get_config
 
@@ -731,38 +728,29 @@ class DatabaseManager:
             db_url = config.get_db_url()
 
         self._db_url = db_url
-        self._sqlite_wal_enabled = config.sqlite_wal_enabled
-        self._sqlite_busy_timeout_ms = config.sqlite_busy_timeout_ms
-        self._sqlite_write_retry_max = config.sqlite_write_retry_max
-        self._sqlite_write_retry_base_delay = config.sqlite_write_retry_base_delay
 
         backend = str(db_url).split(":")[0].split("+")[0].lower()
         is_pg = backend == "postgresql"
+        if not is_pg:
+            raise ValueError(
+                "仅支持 PostgreSQL。请使用 postgresql:// 或 postgresql+psycopg2:// 等 URL；"
+                f"当前为: {db_url!r}"
+            )
 
         engine_kwargs: dict = {
             "echo": False,
             "pool_pre_ping": True,
+            "pool_size": config.db_pool_size,
+            "max_overflow": config.db_max_overflow,
+            "pool_recycle": config.db_pool_recycle,
         }
-        if is_pg:
-            # PostgreSQL connection pool settings
-            engine_kwargs["pool_size"] = config.db_pool_size
-            engine_kwargs["max_overflow"] = config.db_max_overflow
-            engine_kwargs["pool_recycle"] = config.db_pool_recycle
-        elif str(db_url).startswith("sqlite:") and self._sqlite_busy_timeout_ms > 0:
-            engine_kwargs["connect_args"] = {
-                "timeout": self._sqlite_busy_timeout_ms / 1000,
-            }
 
         # 创建数据库引擎
         self._engine = create_engine(
             db_url,
             **engine_kwargs,
         )
-        self._is_sqlite_engine = self._engine.url.get_backend_name() == 'sqlite'
-        self._is_postgresql_engine = self._engine.url.get_backend_name() == 'postgresql'
-        self._sqlite_file_db = self._is_sqlite_engine and self._is_file_sqlite_database()
-        self._install_sqlite_pragma_handler()
-        
+
         # 创建 Session 工厂
         self._SessionLocal = sessionmaker(
             bind=self._engine,
@@ -818,82 +806,21 @@ class DatabaseManager:
         except Exception as e:
             logger.warning(f"清理数据库引擎时出错: {e}")
 
-    def _install_sqlite_pragma_handler(self) -> None:
-        """为 SQLite 连接安装竞争保护参数。"""
-        if not self._is_sqlite_engine:
-            return
-
-        @event.listens_for(self._engine, "connect")
-        def _configure_sqlite_connection(dbapi_connection, _connection_record) -> None:
-            cursor = dbapi_connection.cursor()
-            try:
-                cursor.execute(f"PRAGMA busy_timeout={int(self._sqlite_busy_timeout_ms)}")
-                if self._sqlite_file_db and self._sqlite_wal_enabled:
-                    cursor.execute("PRAGMA journal_mode=WAL")
-            except Exception as exc:
-                logger.warning("初始化 SQLite PRAGMA 失败: %s", exc)
-            finally:
-                cursor.close()
-
-    def _is_file_sqlite_database(self) -> bool:
-        database = (self._engine.url.database or "").strip()
-        return bool(database) and database.lower() != ":memory:"
-
     def _run_write_transaction(
         self,
         operation_name: str,
         write_operation: Callable[[Session], T],
     ) -> T:
-        # SQLite needs explicit retry on lock contention; PostgreSQL relies on
-        # its own MVCC — no retries needed at the application layer.
-        max_retries = self._sqlite_write_retry_max if self._is_sqlite_engine else 0
-
-        for attempt in range(max_retries + 1):
-            session = self.get_session()
-            try:
-                if self._is_sqlite_engine:
-                    # Acquire the SQLite writer lock upfront so pre-write reads
-                    # and the upsert share one consistent write window.
-                    session.connection().exec_driver_sql("BEGIN IMMEDIATE")
-                result = write_operation(session)
-                session.commit()
-                return result
-            except OperationalError as exc:
-                session.rollback()
-                if (
-                    self._is_sqlite_engine
-                    and self._is_sqlite_locked_error(exc)
-                    and attempt < max_retries
-                ):
-                    delay = self._sqlite_write_retry_base_delay * (2 ** attempt)
-                    logger.warning(
-                        "SQLite 写入锁冲突，准备重试: %s (%s/%s, %.2fs)",
-                        operation_name,
-                        attempt + 1,
-                        max_retries,
-                        delay,
-                    )
-                    if delay > 0:
-                        time.sleep(delay)
-                    continue
-                raise
-            except Exception:
-                session.rollback()
-                raise
-            finally:
-                session.close()
-
-    @staticmethod
-    def _is_sqlite_locked_error(exc: OperationalError) -> bool:
-        err_text = str(getattr(exc, "orig", exc)).lower()
-        return any(
-            token in err_text
-            for token in (
-                "database is locked",
-                "database schema is locked",
-                "database table is locked",
-            )
-        )
+        session = self.get_session()
+        try:
+            result = write_operation(session)
+            session.commit()
+            return result
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     @staticmethod
     def _normalize_daily_date(value: Any) -> Any:
@@ -1516,7 +1443,7 @@ class DatabaseManager:
         策略：
         - 按 `(code, date)` 做批量 UPSERT，已存在记录会覆盖更新
         - 同一批次内若存在重复日期，以最后一条记录为准
-        - SQLite 分支按 chunk 写入以避免绑定参数上限
+        - 使用 PostgreSQL ON CONFLICT DO UPDATE
         
         Args:
             df: 包含日线数据的 DataFrame
@@ -1566,81 +1493,29 @@ class DatabaseManager:
         }
 
         def _upsert_chunk(session: Session, chunk: list) -> None:
-            """Execute an INSERT … ON CONFLICT DO UPDATE for one batch."""
-            if self._is_postgresql_engine:
-                stmt = pg_insert(StockDaily).values(chunk)
-                session.execute(
-                    stmt.on_conflict_do_update(
-                        index_elements=['code', 'date'],
-                        set_={col: stmt.excluded[col] for col in _UPSERT_COLUMNS},
-                    )
+            """Execute an INSERT … ON CONFLICT DO UPDATE for one batch (PostgreSQL)."""
+            stmt = pg_insert(StockDaily).values(chunk)
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=['code', 'date'],
+                    set_={col: stmt.excluded[col] for col in _UPSERT_COLUMNS},
                 )
-            elif self._is_sqlite_engine:
-                stmt = sqlite_insert(StockDaily).values(chunk)
-                session.execute(
-                    stmt.on_conflict_do_update(
-                        index_elements=['code', 'date'],
-                        set_={col: stmt.excluded[col] for col in _UPSERT_COLUMNS},
-                    )
-                )
-            else:
-                # Generic fallback: SELECT + INSERT/UPDATE
-                existing_rows = {
-                    row.date: row
-                    for row in session.execute(
-                        select(StockDaily).where(
-                            and_(
-                                StockDaily.code == code,
-                                StockDaily.date.in_([r['date'] for r in chunk]),
-                            )
-                        )
-                    ).scalars().all()
-                }
-                for record in chunk:
-                    existing = existing_rows.get(record['date'])
-                    if existing is None:
-                        session.add(StockDaily(**record))
-                    else:
-                        for col in _UPSERT_COLUMNS:
-                            setattr(existing, col, record[col])
+            )
 
         def _write(session: Session) -> int:
-            if self._is_sqlite_engine:
-                # SQLite: chunk to stay within the 999-parameter limit
-                # (≈15 cols × 50 rows = 750, safely under the bound).
-                _CHUNK = 50
-                existing_dates: set = set()
-                for j in range(0, len(batch_dates), 500):
-                    existing_dates.update(
-                        session.execute(
-                            select(StockDaily.date).where(
-                                and_(
-                                    StockDaily.code == code,
-                                    StockDaily.date.in_(batch_dates[j : j + 500]),
-                                )
-                            )
-                        ).scalars().all()
-                    )
-                new_count = sum(1 for r in records if r['date'] not in existing_dates)
-                for i in range(0, len(records), _CHUNK):
-                    _upsert_chunk(session, records[i : i + _CHUNK])
-                return new_count
-            else:
-                # PostgreSQL (and generic): no parameter-count constraint;
-                # count new rows by querying existing dates first.
-                existing_dates = set(
-                    session.execute(
-                        select(StockDaily.date).where(
-                            and_(
-                                StockDaily.code == code,
-                                StockDaily.date.in_(batch_dates),
-                            )
+            existing_dates = set(
+                session.execute(
+                    select(StockDaily.date).where(
+                        and_(
+                            StockDaily.code == code,
+                            StockDaily.date.in_(batch_dates),
                         )
-                    ).scalars().all()
-                )
-                new_count = sum(1 for r in records if r['date'] not in existing_dates)
-                _upsert_chunk(session, records)
-                return new_count
+                    )
+                ).scalars().all()
+            )
+            new_count = sum(1 for r in records if r['date'] not in existing_dates)
+            _upsert_chunk(session, records)
+            return new_count
 
         try:
             saved_count = self._run_write_transaction(

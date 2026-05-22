@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for read-only notification diagnostics."""
 
+import os
 import unittest
 
 from src.config import Config
@@ -17,7 +18,7 @@ from src.services.notification_diagnostics import (
 
 
 def _config(**overrides) -> Config:
-    return Config(stock_list=[], **overrides)
+    return Config(stock_list=[], database_url=os.environ["DATABASE_URL"], **overrides)
 
 
 class NotificationDiagnosticsTestCase(unittest.TestCase):

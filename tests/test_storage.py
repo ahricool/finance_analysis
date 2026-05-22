@@ -2,19 +2,17 @@
 import unittest
 import sys
 import os
-import tempfile
 import threading
+import uuid
 from datetime import date
-from unittest.mock import patch
 
 import pandas as pd
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, text
 from sqlalchemy.sql import func
 
 # Ensure src module can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.config import Config
 from src.storage import DatabaseManager, StockDaily
 
 class TestStorage(unittest.TestCase):
@@ -72,90 +70,49 @@ class TestStorage(unittest.TestCase):
 
     def test_get_chat_sessions_prefix_is_scoped_by_colon_boundary(self):
         DatabaseManager.reset_instance()
-        db = DatabaseManager(db_url="sqlite:///:memory:")
+        db_url = os.environ.get("DATABASE_URL", "").strip()
+        self.assertTrue(db_url, "DATABASE_URL must be set for storage tests")
+        db = DatabaseManager(db_url=db_url)
+        rand = uuid.uuid4().hex[:8]
+        sid_a = f"telegram_{rand}_12345:chat"
+        sid_b = f"telegram_{rand}_123456:chat"
+        db.save_conversation_message(sid_a, "user", "first user")
+        db.save_conversation_message(sid_b, "user", "second user")
 
-        db.save_conversation_message("telegram_12345:chat", "user", "first user")
-        db.save_conversation_message("telegram_123456:chat", "user", "second user")
-
-        sessions = db.get_chat_sessions(session_prefix="telegram_12345")
+        sessions = db.get_chat_sessions(session_prefix=f"telegram_{rand}_12345")
 
         self.assertEqual(len(sessions), 1)
-        self.assertEqual(sessions[0]["session_id"], "telegram_12345:chat")
+        self.assertEqual(sessions[0]["session_id"], sid_a)
 
         DatabaseManager.reset_instance()
 
     def test_get_chat_sessions_can_include_legacy_exact_session_id(self):
         DatabaseManager.reset_instance()
-        db = DatabaseManager(db_url="sqlite:///:memory:")
-
-        db.save_conversation_message("feishu_u1", "user", "legacy chat")
-        db.save_conversation_message("feishu_u1:ask_600519", "user", "ask session")
+        db_url = os.environ.get("DATABASE_URL", "").strip()
+        self.assertTrue(db_url, "DATABASE_URL must be set for storage tests")
+        db = DatabaseManager(db_url=db_url)
+        legacy = f"feishu_u_{uuid.uuid4().hex[:8]}"
+        ask_sid = f"{legacy}:ask_600519"
+        db.save_conversation_message(legacy, "user", "legacy chat")
+        db.save_conversation_message(ask_sid, "user", "ask session")
 
         sessions = db.get_chat_sessions(
-            session_prefix="feishu_u1:",
-            extra_session_ids=["feishu_u1"],
+            session_prefix=f"{legacy}:",
+            extra_session_ids=[legacy],
         )
 
-        self.assertEqual({item["session_id"] for item in sessions}, {"feishu_u1", "feishu_u1:ask_600519"})
+        self.assertEqual({item["session_id"] for item in sessions}, {legacy, ask_sid})
 
         DatabaseManager.reset_instance()
 
-    def test_file_sqlite_enables_wal_and_busy_timeout(self):
-        temp_dir = tempfile.TemporaryDirectory()
-        db_path = os.path.join(temp_dir.name, "sqlite_pragmas.db")
-        original_env = {
-            "DATABASE_PATH": os.environ.get("DATABASE_PATH"),
-            "SQLITE_BUSY_TIMEOUT_MS": os.environ.get("SQLITE_BUSY_TIMEOUT_MS"),
-            "SQLITE_WAL_ENABLED": os.environ.get("SQLITE_WAL_ENABLED"),
-        }
-
-        try:
-            os.environ["DATABASE_PATH"] = db_path
-            os.environ["SQLITE_BUSY_TIMEOUT_MS"] = "1234"
-            os.environ["SQLITE_WAL_ENABLED"] = "true"
-            Config.reset_instance()
-            DatabaseManager.reset_instance()
-
-            db = DatabaseManager.get_instance()
-            with db.get_session() as session:
-                journal_mode = session.connection().exec_driver_sql("PRAGMA journal_mode").scalar()
-                busy_timeout = session.connection().exec_driver_sql("PRAGMA busy_timeout").scalar()
-
-            self.assertEqual(str(journal_mode).lower(), "wal")
-            self.assertEqual(int(busy_timeout), 1234)
-        finally:
-            DatabaseManager.reset_instance()
-            Config.reset_instance()
-            for key, value in original_env.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
-            temp_dir.cleanup()
-
-    def test_sqlite_write_transactions_begin_immediate(self):
+    def test_save_daily_data_concurrent_same_code_date_counts_only_new_rows(self):
         DatabaseManager.reset_instance()
-        db = DatabaseManager(db_url="sqlite:///:memory:")
-        session = db.get_session()
-        connection = session.connection()
-
-        try:
-            with patch.object(db, "get_session", return_value=session):
-                with patch.object(connection, "exec_driver_sql", wraps=connection.exec_driver_sql) as mock_exec:
-                    result = db._run_write_transaction("unit-test", lambda current_session: 7)
-
-            self.assertEqual(result, 7)
-            self.assertTrue(
-                any(call.args == ("BEGIN IMMEDIATE",) for call in mock_exec.call_args_list)
-            )
-        finally:
-            DatabaseManager.reset_instance()
-
-    def test_save_daily_data_sqlite_concurrent_same_code_date_counts_only_new_rows(self):
-        DatabaseManager.reset_instance()
-        temp_dir = tempfile.TemporaryDirectory()
-        db_path = os.path.join(temp_dir.name, "sqlite_daily_concurrency.db")
-        db = DatabaseManager(db_url=f"sqlite:///{db_path}")
+        db_url = os.environ.get("DATABASE_URL", "").strip()
+        self.assertTrue(db_url, "DATABASE_URL must be set for storage tests")
+        db = DatabaseManager(db_url=db_url)
+        code = f"T{uuid.uuid4().hex[:6].upper()}"
+        with db._engine.begin() as conn:
+            conn.execute(text("DELETE FROM stock_daily WHERE code = :c"), {"c": code})
 
         results = []
         results_lock = threading.Lock()
@@ -182,7 +139,7 @@ class TestStorage(unittest.TestCase):
                         }
                     ]
                 ),
-                code='600519',
+                code=code,
                 data_source='test',
             )
             with results_lock:
@@ -201,7 +158,7 @@ class TestStorage(unittest.TestCase):
                 total = session.execute(
                     select(func.count()).select_from(StockDaily).where(
                         and_(
-                            StockDaily.code == '600519',
+                            StockDaily.code == code,
                             StockDaily.date == date(2026, 4, 1),
                         )
                     )
@@ -209,7 +166,8 @@ class TestStorage(unittest.TestCase):
 
             self.assertEqual(total, 1)
         finally:
-            temp_dir.cleanup()
+            with db._engine.begin() as conn:
+                conn.execute(text("DELETE FROM stock_daily WHERE code = :c"), {"c": code})
             DatabaseManager.reset_instance()
 
 if __name__ == '__main__':

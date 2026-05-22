@@ -14,6 +14,7 @@ from src.services.agent_model_service import list_agent_model_deployments
 
 def _build_config(**overrides):
     config = Config(
+        database_url=os.environ["DATABASE_URL"],
         litellm_model="gemini/gemini-2.5-flash",
         litellm_fallback_models=["openai/gpt-4o-mini"],
         llm_model_list=[],

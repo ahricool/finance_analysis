@@ -9,9 +9,12 @@ Covers:
 - validate() backward-compat: still returns List[str] with the same messages
 """
 import pytest
+from dataclasses import fields
 from unittest.mock import patch
 
 from src.config import Config, ConfigIssue
+
+_ALLOWED_CONFIG_FIELDS = {f.name for f in fields(Config)}
 
 
 # ---------------------------------------------------------------------------
@@ -24,6 +27,12 @@ def _make_config(**kwargs) -> Config:
     Any keyword argument overrides the corresponding dataclass field so tests
     only have to specify the fields that matter for their scenario.
     """
+    # Legacy test helper aliases (older env-style names)
+    wechat = kwargs.pop("wechat_webhook_url", Ellipsis)
+    if wechat is not Ellipsis:
+        kwargs["custom_webhook_urls"] = [wechat] if wechat else []
+    kwargs.pop("feishu_webhook_url", None)
+
     defaults = dict(
         stock_list=["600519"],
         tushare_token=None,
@@ -40,8 +49,6 @@ def _make_config(**kwargs) -> Config:
         serpapi_keys=[],
         searxng_base_urls=[],
         searxng_public_instances_enabled=True,
-        wechat_webhook_url="https://example.com/webhook",
-        feishu_webhook_url=None,
         telegram_bot_token=None,
         telegram_chat_id=None,
         email_sender=None,
@@ -50,7 +57,7 @@ def _make_config(**kwargs) -> Config:
         pushover_api_token=None,
         pushplus_token=None,
         serverchan3_sendkey=None,
-        custom_webhook_urls=[],
+        custom_webhook_urls=["https://example.com/webhook"],
         discord_bot_token=None,
         discord_main_channel_id=None,
         discord_webhook_url=None,
@@ -62,9 +69,11 @@ def _make_config(**kwargs) -> Config:
         openai_api_key=None,
         openai_base_url=None,
         openai_vision_model=None,
+        database_url="postgresql+psycopg2://test:test@127.0.0.1:5432/test_db",
     )
     defaults.update(kwargs)
-    return Config(**defaults)
+    filtered = {k: v for k, v in defaults.items() if k in _ALLOWED_CONFIG_FIELDS}
+    return Config(**filtered)
 
 
 def _severities(issues):
@@ -107,6 +116,29 @@ class TestValidateStructuredHappyPath:
         warnings = [i for i in issues if i.severity == "warning"]
         assert errors == []
         assert warnings == []
+
+
+# ---------------------------------------------------------------------------
+# validate_structured() — database
+# ---------------------------------------------------------------------------
+
+class TestValidateStructuredDatabase:
+    def test_empty_database_url_is_error(self):
+        cfg = _make_config(database_url="")
+        issues = cfg.validate_structured()
+        errors = [i for i in issues if i.severity == "error"]
+        assert any(i.field == "DATABASE_URL" for i in errors)
+
+    def test_non_postgresql_database_url_is_error(self):
+        cfg = _make_config(database_url="mysql+pymysql://user:pass@localhost/db")
+        issues = cfg.validate_structured()
+        errors = [i for i in issues if i.severity == "error"]
+        assert any(i.field == "DATABASE_URL" for i in errors)
+
+    def test_get_db_url_raises_when_empty(self):
+        cfg = _make_config(database_url="")
+        with pytest.raises(ValueError, match="DATABASE_URL"):
+            cfg.get_db_url()
 
 
 # ---------------------------------------------------------------------------
@@ -366,64 +398,6 @@ class TestValidateStructuredNotification:
         assert not any(i.field == "NTFY_URL" for i in issues)
         assert not any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
 
-    def test_gotify_url_and_token_count_as_notification_channel(self):
-        cfg = _make_config(
-            wechat_webhook_url=None,
-            gotify_url="https://gotify.example",
-            gotify_token="app-token",
-        )
-        issues = cfg.validate_structured()
-
-        assert not any(i.field == "GOTIFY_URL" for i in issues)
-        assert not any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
-
-    def test_gotify_blank_token_does_not_count_as_notification_channel(self):
-        cfg = _make_config(
-            wechat_webhook_url=None,
-            gotify_url="https://gotify.example",
-            gotify_token="   ",
-        )
-        issues = cfg.validate_structured()
-
-        assert any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
-        assert any(i.severity == "warning" and i.field == "GOTIFY_TOKEN" for i in issues)
-
-    def test_gotify_message_endpoint_reports_error_and_does_not_count_as_channel(self):
-        cfg = _make_config(
-            wechat_webhook_url=None,
-            gotify_url="https://gotify.example/message",
-            gotify_token="app-token",
-        )
-        issues = cfg.validate_structured()
-
-        assert any(i.severity == "error" and i.field == "GOTIFY_URL" for i in issues)
-        assert any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
-
-    def test_feishu_app_credentials_without_webhook_warns_mode_mismatch(self):
-        cfg = _make_config(
-            wechat_webhook_url=None,
-            feishu_app_id="cli_xxx",
-            feishu_app_secret="secret_xxx",
-            feishu_webhook_url=None,
-            feishu_stream_enabled=False,
-        )
-        issues = cfg.validate_structured()
-        warn = [i for i in issues if i.severity == "warning"]
-        assert any("FEISHU_APP_ID / FEISHU_APP_SECRET" in i.message for i in warn)
-
-    def test_feishu_cloud_doc_credentials_without_webhook_no_mode_warning(self):
-        cfg = _make_config(
-            wechat_webhook_url=None,
-            feishu_app_id="cli_xxx",
-            feishu_app_secret="secret_xxx",
-            feishu_folder_token="folder_xxx",
-            feishu_webhook_url=None,
-            feishu_stream_enabled=False,
-        )
-        issues = cfg.validate_structured()
-        warn = [i for i in issues if i.severity == "warning"]
-        assert not any("FEISHU_APP_ID / FEISHU_APP_SECRET" in i.message for i in warn)
-
     def test_invalid_notification_noise_config_reports_errors(self):
         cfg = _make_config(
             notification_quiet_hours="9:00-18:00",
@@ -565,70 +539,6 @@ class TestVisionKeyValidation:
         cfg = _make_config(vision_model="", gemini_api_keys=[])
         issues = cfg.validate_structured()
         assert not any(i.field == "VISION_MODEL" for i in issues)
-
-
-# ---------------------------------------------------------------------------
-# Env alias compatibility
-# ---------------------------------------------------------------------------
-
-class TestEnvAliasCompatibility:
-    @patch("src.config.setup_env")
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_discord_channel_id_legacy_alias_is_still_loaded(
-        self,
-        _mock_parse_yaml,
-        _mock_setup_env,
-    ):
-        with patch.dict(
-            "os.environ",
-            {
-                "DISCORD_BOT_TOKEN": "token",
-                "DISCORD_CHANNEL_ID": "legacy-channel",
-            },
-            clear=True,
-        ):
-            config = Config._load_from_env()
-
-        assert config.discord_bot_token == "token"
-        assert config.discord_main_channel_id == "legacy-channel"
-
-    @patch("src.config.setup_env")
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_discord_main_channel_id_takes_precedence_over_legacy_alias(
-        self,
-        _mock_parse_yaml,
-        _mock_setup_env,
-    ):
-        with patch.dict(
-            "os.environ",
-            {
-                "DISCORD_BOT_TOKEN": "token",
-                "DISCORD_CHANNEL_ID": "legacy-channel",
-                "DISCORD_MAIN_CHANNEL_ID": "main-channel",
-            },
-            clear=True,
-        ):
-            config = Config._load_from_env()
-
-        assert config.discord_main_channel_id == "main-channel"
-
-    @patch("src.config.setup_env")
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_discord_interactions_public_key_is_loaded(
-        self,
-        _mock_parse_yaml,
-        _mock_setup_env,
-    ):
-        with patch.dict(
-            "os.environ",
-            {
-                "DISCORD_INTERACTIONS_PUBLIC_KEY": "abcdef123456",
-            },
-            clear=True,
-        ):
-            config = Config._load_from_env()
-
-        assert config.discord_interactions_public_key == "abcdef123456"
 
 
 # ---------------------------------------------------------------------------

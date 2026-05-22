@@ -802,19 +802,14 @@ class Config:
     prefetch_realtime_quotes: bool = True
 
     # === 数据库配置 ===
-    # DATABASE_URL 优先（PostgreSQL / 任意 SQLAlchemy URL）；
-    # 未设置时降级为 SQLite（database_path），便于本地无 Docker 开发。
+    # 仅支持 PostgreSQL：必须设置 DATABASE_URL（例如 postgresql+psycopg2://...）。
     database_url: str = ""
+    # 本地数据目录锚点（会话密钥、管理密码等文件路径）；不再用作 SQLite 数据库路径。
     database_path: str = "./data/stock_analysis.db"
-    # PostgreSQL 连接池（database_url 为 postgresql 时生效）
+    # PostgreSQL 连接池
     db_pool_size: int = 10
     db_max_overflow: int = 5
     db_pool_recycle: int = 1800
-    # SQLite 兼容参数（database_url 未设置时的降级路径）
-    sqlite_wal_enabled: bool = True
-    sqlite_busy_timeout_ms: int = 5000
-    sqlite_write_retry_max: int = 3
-    sqlite_write_retry_base_delay: float = 0.1
 
     # 是否保存分析上下文快照（用于历史回溯）
     save_context_snapshot: bool = True
@@ -1501,25 +1496,6 @@ class Config:
             db_pool_size=parse_env_int(os.getenv('DB_POOL_SIZE'), 10, field_name='DB_POOL_SIZE', minimum=1),
             db_max_overflow=parse_env_int(os.getenv('DB_MAX_OVERFLOW'), 5, field_name='DB_MAX_OVERFLOW', minimum=0),
             db_pool_recycle=parse_env_int(os.getenv('DB_POOL_RECYCLE'), 1800, field_name='DB_POOL_RECYCLE', minimum=0),
-            sqlite_wal_enabled=os.getenv('SQLITE_WAL_ENABLED', 'true').lower() == 'true',
-            sqlite_busy_timeout_ms=parse_env_int(
-                os.getenv('SQLITE_BUSY_TIMEOUT_MS'),
-                5000,
-                field_name='SQLITE_BUSY_TIMEOUT_MS',
-                minimum=0,
-            ),
-            sqlite_write_retry_max=parse_env_int(
-                os.getenv('SQLITE_WRITE_RETRY_MAX'),
-                3,
-                field_name='SQLITE_WRITE_RETRY_MAX',
-                minimum=0,
-            ),
-            sqlite_write_retry_base_delay=parse_env_float(
-                os.getenv('SQLITE_WRITE_RETRY_BASE_DELAY'),
-                0.1,
-                field_name='SQLITE_WRITE_RETRY_BASE_DELAY',
-                minimum=0.0,
-            ),
             save_context_snapshot=os.getenv('SAVE_CONTEXT_SNAPSHOT', 'true').lower() == 'true',
             backtest_enabled=os.getenv('BACKTEST_ENABLED', 'true').lower() == 'true',
             backtest_eval_window_days=parse_env_int(os.getenv('BACKTEST_EVAL_WINDOW_DAYS'), 10, field_name='BACKTEST_EVAL_WINDOW_DAYS', minimum=1),
@@ -2233,6 +2209,24 @@ class Config:
         """
         issues: List[ConfigIssue] = []
 
+        # --- PostgreSQL database URL (required) ---
+        db_url = (self.database_url or "").strip()
+        if not db_url:
+            issues.append(ConfigIssue(
+                severity="error",
+                message="未配置 DATABASE_URL；本项目数据库仅支持 PostgreSQL。",
+                field="DATABASE_URL",
+            ))
+        elif not db_url.lower().startswith("postgresql"):
+            issues.append(ConfigIssue(
+                severity="error",
+                message=(
+                    "DATABASE_URL 必须为 PostgreSQL 连接串"
+                    "（以 postgresql:// 或 postgresql+driver:// 开头）。"
+                ),
+                field="DATABASE_URL",
+            ))
+
         # --- Stock list ---
         if not self.stock_list:
             issues.append(ConfigIssue(
@@ -2539,19 +2533,22 @@ class Config:
         return [issue.message for issue in self.validate_structured()]
     
     def get_db_url(self) -> str:
-        """Return the SQLAlchemy database connection URL.
+        """Return the SQLAlchemy PostgreSQL connection URL (DATABASE_URL).
 
-        Priority:
-        1. DATABASE_URL env var (any SQLAlchemy-compatible URL, e.g. postgresql+psycopg2://...)
-        2. Fallback: SQLite file constructed from DATABASE_PATH (for local dev without Docker)
+        Raises:
+            ValueError: If DATABASE_URL is missing or not a PostgreSQL URL.
         """
         url = (self.database_url or "").strip()
-        if url:
-            return url
-        # SQLite fallback — creates parent directory automatically
-        db_path = Path(self.database_path)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        return f"sqlite:///{db_path.absolute()}"
+        if not url:
+            raise ValueError(
+                "未配置 DATABASE_URL。本项目仅支持 PostgreSQL，请在环境变量中设置 "
+                "DATABASE_URL（例如 postgresql+psycopg2://user:pass@host:5432/dbname）。"
+            )
+        if not url.lower().startswith("postgresql"):
+            raise ValueError(
+                "DATABASE_URL 必须是 PostgreSQL 连接串（以 postgresql:// 或 postgresql+... 开头）。"
+            )
+        return url
 
 
 # === 便捷的配置访问函数 ===

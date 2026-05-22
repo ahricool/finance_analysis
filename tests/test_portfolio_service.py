@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import os
-import sqlite3
 import tempfile
 import threading
 import unittest
@@ -15,11 +14,10 @@ from typing import Optional
 from unittest.mock import patch
 
 import pandas as pd
-from sqlalchemy.exc import OperationalError
 from sqlalchemy import select
 
 from src.config import Config
-from src.repositories.portfolio_repo import PortfolioBusyError, PortfolioRepository
+from src.repositories.portfolio_repo import PortfolioRepository
 from src.services.portfolio_service import _AvgState, PortfolioConflictError, PortfolioOversellError, PortfolioService
 from src.storage import DatabaseManager, PortfolioDailySnapshot, PortfolioPosition, PortfolioPositionLot, PortfolioTrade
 
@@ -1091,25 +1089,6 @@ class PortfolioServiceTestCase(unittest.TestCase):
         self.assertEqual(actions["total"], 3)
         self.assertEqual({item["symbol"] for item in trades["items"]}, {"HK700", "00700.HK", "700.HK"})
         self.assertEqual({item["symbol"] for item in actions["items"]}, {"HK700", "00700.HK", "700.HK"})
-
-    def test_portfolio_write_session_maps_sqlite_locked_error(self) -> None:
-        repo = PortfolioRepository(db_manager=self.db)
-        session = self.db.get_session()
-        stmt_exc = OperationalError(
-            "BEGIN IMMEDIATE",
-            None,
-            sqlite3.OperationalError("database is locked"),
-        )
-
-        with patch.object(self.db, "get_session", return_value=session):
-            with patch.object(
-                session.connection(),
-                "exec_driver_sql",
-                side_effect=stmt_exc,
-            ):
-                with self.assertRaises(PortfolioBusyError):
-                    with repo.portfolio_write_session():
-                        pass
 
 
 if __name__ == "__main__":
