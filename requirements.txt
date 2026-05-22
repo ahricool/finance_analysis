@@ -8,6 +8,7 @@
 python-dotenv>=1.0.0        # 环境变量配置管理
 tenacity>=8.2.0             # 重试机制（指数退避）
 sqlalchemy>=2.0.40          # ORM数据库操作
+alembic>=1.14.0            # 数据库结构版本化迁移（PostgreSQL）
 psycopg2-binary>=2.9.0      # PostgreSQL driver (binary, no system libpq needed)
 apscheduler>=3.10.0,<4.0.0  # 定时任务调度（与 FastAPI 生命周期集成）
 exchange-calendars>=4.5.0   # 交易日历（A股/港股/美股，Issue #373）

@@ -6,7 +6,7 @@ A股自选股智能分析系统 - 存储层
 
 职责：
 1. 管理 PostgreSQL 数据库连接（单例模式）
-2. 定义 ORM 数据模型
+2. 定义 ORM 数据模型；表结构由 Alembic 迁移管理（见项目根 ``alembic/``）
 3. 提供数据存取接口
 4. 实现智能更新逻辑（断点续传）
 """
@@ -758,8 +758,10 @@ class DatabaseManager:
             autoflush=False,
         )
         
-        # 创建所有表
-        Base.metadata.create_all(self._engine)
+        # 数据库结构：Alembic 迁移（替代 create_all）
+        from src.db_migrations import run_alembic_upgrade_head
+
+        run_alembic_upgrade_head()
 
         from src.db_schema import run_user_scoped_migrations
         from src.repositories.user_repo import UserRepository

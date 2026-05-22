@@ -83,6 +83,8 @@ ENV VIRTUAL_ENV="/workspace/.venv"
 COPY pyproject.toml uv.lock .python-version ./
 
 # 复制应用代码
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 COPY *.py ./
 COPY api/ ./api/
 COPY data_provider/ ./data_provider/
