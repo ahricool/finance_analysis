@@ -24,19 +24,32 @@ class WatchListRepo:
 
     def list_all(self) -> List[WatchListItem]:
         with self.db.get_session() as session:
-            return session.execute(
-                select(WatchListItem).order_by(WatchListItem.created_at)
-            ).scalars().all()
+            items = list(
+                session.execute(
+                    select(WatchListItem).order_by(WatchListItem.created_at)
+                ).scalars().all()
+            )
+            # Expunge so instances survive session commit/close without
+            # expire-on-commit leaving attributes unloaded (DetachedInstanceError).
+            for row in items:
+                session.expunge(row)
+            return items
 
     def get_by_id(self, item_id: int) -> Optional[WatchListItem]:
         with self.db.get_session() as session:
-            return session.get(WatchListItem, item_id)
+            obj = session.get(WatchListItem, item_id)
+            if obj is not None:
+                session.expunge(obj)
+            return obj
 
     def get_by_code(self, code: str) -> Optional[WatchListItem]:
         with self.db.get_session() as session:
-            return session.execute(
+            obj = session.execute(
                 select(WatchListItem).where(WatchListItem.code == code.upper())
             ).scalar_one_or_none()
+            if obj is not None:
+                session.expunge(obj)
+            return obj
 
     def get_codes(self) -> List[str]:
         """Return all stock codes in the watch list."""
@@ -60,6 +73,7 @@ class WatchListRepo:
             session.add(item)
             session.flush()
             session.refresh(item)
+            session.expunge(item)
             return item
 
         return self.db._run_write_transaction("watch_list.create", _write)
@@ -81,6 +95,7 @@ class WatchListRepo:
             obj.updated_at = datetime.now()
             session.flush()
             session.refresh(obj)
+            session.expunge(obj)
             return obj
 
         return self.db._run_write_transaction("watch_list.update", _write)
