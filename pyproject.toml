@@ -1,7 +1,7 @@
 [project]
 name = "finance_analysis"
 version = "0.0.0"
-description = "finance_analysis"
+description = "Finance Analysis"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "akshare>=1.18.0",

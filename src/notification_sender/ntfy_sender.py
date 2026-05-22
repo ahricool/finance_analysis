@@ -80,11 +80,11 @@ class NtfySender:
 
         if title is None:
             date_str = datetime.now().strftime("%Y-%m-%d")
-            title = f"📈 股票分析报告 - {date_str}"
+            title = f"📈 Finance Analysis 报告 - {date_str}"
 
         headers = {
             "Content-Type": "application/json; charset=utf-8",
-            "User-Agent": "daily_stock_analysis",
+            "User-Agent": "finance-analysis",
         }
         token = (self._ntfy_token or "").strip()
         if token:

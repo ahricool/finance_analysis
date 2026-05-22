@@ -57,7 +57,7 @@ class SystemConfigApiTestCase(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
-        self._orig_dsa_desktop_mode = os.environ.get("DSA_DESKTOP_MODE")
+        self._orig_fa_desktop_mode = os.environ.get("FA_DESKTOP_MODE")
         self._orig_database_path = os.environ.get("DATABASE_PATH")
         os.environ["ENV_FILE"] = str(self.env_path)
         os.environ["DATABASE_PATH"] = str(Path(self.temp_dir.name) / "system_config_api_test.db")
@@ -72,10 +72,10 @@ class SystemConfigApiTestCase(unittest.TestCase):
         Config.reset_instance()
         self._verify_session_patch.stop()
         os.environ.pop("ENV_FILE", None)
-        if self._orig_dsa_desktop_mode is None:
-            os.environ.pop("DSA_DESKTOP_MODE", None)
+        if self._orig_fa_desktop_mode is None:
+            os.environ.pop("FA_DESKTOP_MODE", None)
         else:
-            os.environ["DSA_DESKTOP_MODE"] = self._orig_dsa_desktop_mode
+            os.environ["FA_DESKTOP_MODE"] = self._orig_fa_desktop_mode
         if self._orig_database_path is None:
             os.environ.pop("DATABASE_PATH", None)
         else:
@@ -339,7 +339,7 @@ class SystemConfigApiTestCase(unittest.TestCase):
         self.assertEqual(context.exception.detail["error"], "invalid_import_file")
 
     def test_config_env_endpoints_work_outside_desktop_mode(self) -> None:
-        with patch.dict(os.environ, {"DSA_DESKTOP_MODE": "false"}, clear=False):
+        with patch.dict(os.environ, {"FA_DESKTOP_MODE": "false"}, clear=False):
             current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()
 
             export_payload = system_config.export_system_config(
@@ -363,7 +363,7 @@ class SystemConfigApiTestCase(unittest.TestCase):
     def test_config_env_endpoints_reject_without_backup_access(self) -> None:
         with patch.dict(
             os.environ,
-            {"DSA_DESKTOP_MODE": "false"},
+            {"FA_DESKTOP_MODE": "false"},
             clear=False,
         ):
             self.env_path.write_text(
@@ -408,7 +408,7 @@ class SystemConfigApiTestCase(unittest.TestCase):
 
     def test_config_env_endpoints_require_valid_admin_session(self) -> None:
         with (
-            patch.dict(os.environ, {"DSA_DESKTOP_MODE": "false"}, clear=False),
+            patch.dict(os.environ, {"FA_DESKTOP_MODE": "false"}, clear=False),
             patch.object(system_config, "verify_session", return_value=False),
         ):
             current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()
@@ -435,7 +435,7 @@ class SystemConfigApiTestCase(unittest.TestCase):
     def test_config_env_endpoints_require_explicit_true_for_desktop_bypass(self) -> None:
         with patch.dict(
             os.environ,
-            {"DSA_DESKTOP_MODE": "desktop"},
+            {"FA_DESKTOP_MODE": "desktop"},
             clear=False,
         ):
             self.env_path.write_text(
@@ -601,7 +601,7 @@ class SystemConfigApiTestCase(unittest.TestCase):
                 request=TestNotificationChannelRequest(
                     channel="wechat",
                     items=[{"key": "WECHAT_WEBHOOK_URL", "value": "https://example.com/hook"}],
-                    title="DSA 通知测试",
+                    title="Finance Analysis 通知测试",
                     content="hello",
                     timeout_seconds=5,
                 ),
@@ -619,8 +619,8 @@ class SystemConfigApiTestCase(unittest.TestCase):
     def test_test_notification_channel_schema_accepts_p6_channels(self) -> None:
         ntfy_request = TestNotificationChannelRequest(
             channel="ntfy",
-            items=[{"key": "NTFY_URL", "value": "https://ntfy.sh/dsa-topic"}],
-            title="DSA 通知测试",
+            items=[{"key": "NTFY_URL", "value": "https://ntfy.sh/fa-topic"}],
+            title="Finance Analysis 通知测试",
             content="hello",
             timeout_seconds=5,
         )
@@ -630,7 +630,7 @@ class SystemConfigApiTestCase(unittest.TestCase):
                 {"key": "GOTIFY_URL", "value": "https://gotify.example"},
                 {"key": "GOTIFY_TOKEN", "value": "app-token"},
             ],
-            title="DSA 通知测试",
+            title="Finance Analysis 通知测试",
             content="hello",
             timeout_seconds=5,
         )
