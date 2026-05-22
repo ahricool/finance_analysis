@@ -22,39 +22,50 @@ class StockListRepo:
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
-    def list_all(self) -> List[StockHolding]:
+    def list_all(self, user_id: Optional[str] = None) -> List[StockHolding]:
         with self.db.get_session() as session:
-            return session.execute(
-                select(StockHolding).order_by(StockHolding.created_at)
-            ).scalars().all()
+            stmt = select(StockHolding).order_by(StockHolding.created_at)
+            if user_id is not None:
+                stmt = stmt.where(StockHolding.user_id == user_id)
+            return session.execute(stmt).scalars().all()
 
-    def get_by_id(self, item_id: int) -> Optional[StockHolding]:
+    def get_by_id(self, item_id: int, user_id: Optional[str] = None) -> Optional[StockHolding]:
         with self.db.get_session() as session:
-            return session.get(StockHolding, item_id)
+            obj = session.get(StockHolding, item_id)
+            if obj is None:
+                return None
+            if user_id is not None and obj.user_id != user_id:
+                return None
+            return obj
 
-    def get_by_code(self, code: str) -> Optional[StockHolding]:
+    def get_by_code(self, code: str, user_id: Optional[str] = None) -> Optional[StockHolding]:
         with self.db.get_session() as session:
-            return session.execute(
-                select(StockHolding).where(StockHolding.code == code.upper())
-            ).scalar_one_or_none()
+            stmt = select(StockHolding).where(StockHolding.code == code.upper())
+            if user_id is not None:
+                stmt = stmt.where(StockHolding.user_id == user_id)
+            return session.execute(stmt).scalars().first()
 
-    def get_codes(self) -> List[str]:
+    def get_codes(self, user_id: Optional[str] = None) -> List[str]:
         """Return all stock codes in the holdings list (used as analysis targets)."""
         with self.db.get_session() as session:
-            return list(
-                session.execute(select(StockHolding.code)).scalars().all()
-            )
+            stmt = select(StockHolding.code)
+            if user_id is not None:
+                stmt = stmt.where(StockHolding.user_id == user_id)
+            return list(session.execute(stmt).scalars().all())
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
     def create(
         self,
+        *,
+        user_id: str,
         code: str,
         name: Optional[str] = None,
         quantity: int = 0,
         notes: Optional[str] = None,
     ) -> StockHolding:
         item = StockHolding(
+            user_id=user_id,
             code=code.upper().strip(),
             name=(name or "").strip() or None,
             quantity=max(0, quantity),
@@ -74,6 +85,8 @@ class StockListRepo:
     def update(
         self,
         item_id: int,
+        *,
+        user_id: Optional[str] = None,
         name: Optional[str] = None,
         quantity: Optional[int] = None,
         notes: Optional[str] = None,
@@ -81,6 +94,8 @@ class StockListRepo:
         def _write(session: Session) -> Optional[StockHolding]:
             obj = session.get(StockHolding, item_id)
             if obj is None:
+                return None
+            if user_id is not None and obj.user_id != user_id:
                 return None
             if name is not None:
                 obj.name = name.strip() or None
@@ -95,10 +110,12 @@ class StockListRepo:
 
         return self.db._run_write_transaction("stock_list.update", _write)
 
-    def delete(self, item_id: int) -> bool:
+    def delete(self, item_id: int, user_id: Optional[str] = None) -> bool:
         def _write(session: Session) -> bool:
             obj = session.get(StockHolding, item_id)
             if obj is None:
+                return False
+            if user_id is not None and obj.user_id != user_id:
                 return False
             session.delete(obj)
             return True

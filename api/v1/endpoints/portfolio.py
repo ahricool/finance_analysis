@@ -7,7 +7,9 @@ import logging
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+
+from api.deps import get_effective_user_uid
 
 from api.v1.schemas.common import ErrorResponse
 from api.v1.schemas.portfolio import (
@@ -43,6 +45,10 @@ from src.services.portfolio_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def get_portfolio_service(request: Request) -> PortfolioService:
+    return PortfolioService(acting_owner_id=get_effective_user_uid(request))
 
 
 def _bad_request(exc: Exception) -> HTTPException:
@@ -83,8 +89,10 @@ def _serialize_import_record(item: dict) -> PortfolioImportTradeItem:
     responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     summary="Create portfolio account",
 )
-def create_account(request: PortfolioAccountCreateRequest) -> PortfolioAccountItem:
-    service = PortfolioService()
+def create_account(
+    request: PortfolioAccountCreateRequest,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> PortfolioAccountItem:
     try:
         row = service.create_account(
             name=request.name,
@@ -108,8 +116,8 @@ def create_account(request: PortfolioAccountCreateRequest) -> PortfolioAccountIt
 )
 def list_accounts(
     include_inactive: bool = Query(False, description="Whether to include inactive accounts"),
+    service: PortfolioService = Depends(get_portfolio_service),
 ) -> PortfolioAccountListResponse:
-    service = PortfolioService()
     try:
         rows = service.list_accounts(include_inactive=include_inactive)
         return PortfolioAccountListResponse(accounts=[PortfolioAccountItem(**item) for item in rows])
@@ -123,8 +131,11 @@ def list_accounts(
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     summary="Update portfolio account",
 )
-def update_account(account_id: int, request: PortfolioAccountUpdateRequest) -> PortfolioAccountItem:
-    service = PortfolioService()
+def update_account(
+    account_id: int,
+    request: PortfolioAccountUpdateRequest,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> PortfolioAccountItem:
     try:
         updated = service.update_account(
             account_id,
@@ -154,8 +165,10 @@ def update_account(account_id: int, request: PortfolioAccountUpdateRequest) -> P
     responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     summary="Deactivate portfolio account",
 )
-def delete_account(account_id: int):
-    service = PortfolioService()
+def delete_account(
+    account_id: int,
+    service: PortfolioService = Depends(get_portfolio_service),
+):
     try:
         ok = service.deactivate_account(account_id)
         if not ok:
@@ -176,8 +189,10 @@ def delete_account(account_id: int):
     responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     summary="Record trade event",
 )
-def create_trade(request: PortfolioTradeCreateRequest) -> PortfolioEventCreatedResponse:
-    service = PortfolioService()
+def create_trade(
+    request: PortfolioTradeCreateRequest,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> PortfolioEventCreatedResponse:
     try:
         data = service.record_trade(
             account_id=request.account_id,
@@ -220,8 +235,8 @@ def list_trades(
     side: Optional[str] = Query(None, description="Optional side filter: buy/sell"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    service: PortfolioService = Depends(get_portfolio_service),
 ) -> PortfolioTradeListResponse:
-    service = PortfolioService()
     try:
         data = service.list_trade_events(
             account_id=account_id,
@@ -245,8 +260,10 @@ def list_trades(
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     summary="Delete trade event",
 )
-def delete_trade(trade_id: int) -> PortfolioDeleteResponse:
-    service = PortfolioService()
+def delete_trade(
+    trade_id: int,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> PortfolioDeleteResponse:
     try:
         ok = service.delete_trade_event(trade_id)
         if not ok:
@@ -269,8 +286,10 @@ def delete_trade(trade_id: int) -> PortfolioDeleteResponse:
     responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     summary="Record cash event",
 )
-def create_cash_ledger(request: PortfolioCashLedgerCreateRequest) -> PortfolioEventCreatedResponse:
-    service = PortfolioService()
+def create_cash_ledger(
+    request: PortfolioCashLedgerCreateRequest,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> PortfolioEventCreatedResponse:
     try:
         data = service.record_cash_ledger(
             account_id=request.account_id,
@@ -302,8 +321,8 @@ def list_cash_ledger(
     direction: Optional[str] = Query(None, description="Optional direction filter: in/out"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    service: PortfolioService = Depends(get_portfolio_service),
 ) -> PortfolioCashLedgerListResponse:
-    service = PortfolioService()
     try:
         data = service.list_cash_ledger_events(
             account_id=account_id,
@@ -326,8 +345,10 @@ def list_cash_ledger(
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     summary="Delete cash ledger event",
 )
-def delete_cash_ledger(entry_id: int) -> PortfolioDeleteResponse:
-    service = PortfolioService()
+def delete_cash_ledger(
+    entry_id: int,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> PortfolioDeleteResponse:
     try:
         ok = service.delete_cash_ledger_event(entry_id)
         if not ok:
@@ -350,8 +371,10 @@ def delete_cash_ledger(entry_id: int) -> PortfolioDeleteResponse:
     responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     summary="Record corporate action event",
 )
-def create_corporate_action(request: PortfolioCorporateActionCreateRequest) -> PortfolioEventCreatedResponse:
-    service = PortfolioService()
+def create_corporate_action(
+    request: PortfolioCorporateActionCreateRequest,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> PortfolioEventCreatedResponse:
     try:
         data = service.record_corporate_action(
             account_id=request.account_id,
@@ -387,8 +410,8 @@ def list_corporate_actions(
     action_type: Optional[str] = Query(None, description="Optional action type filter"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    service: PortfolioService = Depends(get_portfolio_service),
 ) -> PortfolioCorporateActionListResponse:
-    service = PortfolioService()
     try:
         data = service.list_corporate_action_events(
             account_id=account_id,
@@ -412,8 +435,10 @@ def list_corporate_actions(
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     summary="Delete corporate action event",
 )
-def delete_corporate_action(action_id: int) -> PortfolioDeleteResponse:
-    service = PortfolioService()
+def delete_corporate_action(
+    action_id: int,
+    service: PortfolioService = Depends(get_portfolio_service),
+) -> PortfolioDeleteResponse:
     try:
         ok = service.delete_corporate_action_event(action_id)
         if not ok:
@@ -440,8 +465,8 @@ def get_snapshot(
     account_id: Optional[int] = Query(None, description="Optional account id, default returns all accounts"),
     as_of: Optional[date] = Query(None, description="Snapshot date, default today"),
     cost_method: str = Query("fifo", description="Cost method: fifo or avg"),
+    service: PortfolioService = Depends(get_portfolio_service),
 ) -> PortfolioSnapshotResponse:
-    service = PortfolioService()
     try:
         data = service.get_portfolio_snapshot(
             account_id=account_id,
@@ -535,8 +560,8 @@ def commit_csv_import(
 def refresh_fx_rates(
     account_id: Optional[int] = Query(None, description="Optional account id"),
     as_of: Optional[date] = Query(None, description="Rate date, default today"),
+    service: PortfolioService = Depends(get_portfolio_service),
 ) -> PortfolioFxRefreshResponse:
-    service = PortfolioService()
     try:
         data = service.refresh_fx_rates(account_id=account_id, as_of=as_of)
         return PortfolioFxRefreshResponse(**data)
@@ -556,8 +581,9 @@ def get_risk_report(
     account_id: Optional[int] = Query(None, description="Optional account id"),
     as_of: Optional[date] = Query(None, description="Risk report date, default today"),
     cost_method: str = Query("fifo", description="Cost method: fifo or avg"),
+    portfolio: PortfolioService = Depends(get_portfolio_service),
 ) -> PortfolioRiskResponse:
-    service = PortfolioRiskService()
+    service = PortfolioRiskService(portfolio_service=portfolio)
     try:
         data = service.get_risk_report(account_id=account_id, as_of=as_of, cost_method=cost_method)
         return PortfolioRiskResponse(**data)

@@ -9,11 +9,11 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from src.config import get_config
+from api.deps import get_effective_user_uid
 from src.services.agent_model_service import list_agent_model_deployments
 
 # Tool name -> Chinese display name mapping
@@ -146,43 +146,47 @@ async def get_strategies():
     )
 
 @router.post("/chat", response_model=ChatResponse)
-async def agent_chat(request: ChatRequest):
+async def agent_chat(http_request: Request, body: ChatRequest):
     """
     Chat with the AI Agent.
     """
     config = get_config()
-    
+
     if not config.is_agent_available():
         raise HTTPException(status_code=400, detail="Agent mode is not enabled")
-        
-    session_id = request.session_id or str(uuid.uuid4())
-    
+
+    session_id = body.session_id or str(uuid.uuid4())
+
     try:
-        skills = request.effective_skills
+        skills = body.effective_skills
         executor = _build_executor(config, skills or None)
 
         # Pass explicit skills into context for the orchestrator.
         # Direct assignment so caller-provided skills always take precedence
         # over any stale value carried in the context dict.
-        ctx = dict(request.context or {})
+        ctx = dict(body.context or {})
         if skills is not None:
             ctx["skills"] = skills
+        ctx["web_user_id"] = get_effective_user_uid(http_request)
 
         # Offload the blocking call to a thread to avoid blocking the event loop.
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
-            lambda: executor.chat(message=request.message, session_id=session_id,
-                                  context=ctx),
+            lambda: executor.chat(
+                message=body.message,
+                session_id=session_id,
+                context=ctx,
+            ),
         )
 
         return ChatResponse(
             success=result.success,
             content=result.content,
             session_id=session_id,
-            error=result.error
+            error=result.error,
         )
-            
+
     except Exception as e:
         logger.error(f"Agent chat API failed: {e}")
         logger.exception("Agent chat error details:")
@@ -205,39 +209,45 @@ class SessionMessagesResponse(BaseModel):
 
 
 @router.get("/chat/sessions", response_model=SessionsResponse)
-async def list_chat_sessions(limit: int = 50, user_id: Optional[str] = None):
-    """获取聊天会话列表
-
-    Args:
-        limit: Maximum number of sessions to return.
-        user_id: Optional platform-prefixed user identifier for session
-            isolation.  When provided, only sessions whose session_id
-            starts with this prefix are returned.  The value must
-            include the platform prefix, e.g. ``telegram_12345``,
-            ``feishu_ou_abc``.
-    """
+async def list_chat_sessions(
+    http_request: Request,
+    limit: int = 50,
+    user_id: Optional[str] = None,
+):
+    """获取聊天会话列表"""
     from src.storage import get_db
+
+    restrict_uid = get_effective_user_uid(http_request)
     sessions = get_db().get_chat_sessions(
         limit=limit,
         session_prefix=user_id,
         extra_session_ids=[user_id] if user_id else None,
+        restrict_user_id=restrict_uid,
     )
     return SessionsResponse(sessions=sessions)
 
 
 @router.get("/chat/sessions/{session_id}", response_model=SessionMessagesResponse)
-async def get_chat_session_messages(session_id: str, limit: int = 100):
+async def get_chat_session_messages(
+    http_request: Request,
+    session_id: str,
+    limit: int = 100,
+):
     """获取单个会话的完整消息"""
     from src.storage import get_db
-    messages = get_db().get_conversation_messages(session_id, limit=limit)
+
+    uid = get_effective_user_uid(http_request)
+    messages = get_db().get_conversation_messages(session_id, limit=limit, user_id=uid)
     return SessionMessagesResponse(session_id=session_id, messages=messages)
 
 
 @router.delete("/chat/sessions/{session_id}")
-async def delete_chat_session(session_id: str):
+async def delete_chat_session(http_request: Request, session_id: str):
     """删除指定会话"""
     from src.storage import get_db
-    count = get_db().delete_conversation_session(session_id)
+
+    uid = get_effective_user_uid(http_request)
+    count = get_db().delete_conversation_session(session_id, user_id=uid)
     return {"deleted": count}
 
 
@@ -371,7 +381,7 @@ async def agent_research(request: ResearchRequest):
 
 
 @router.post("/chat/stream")
-async def agent_chat_stream(request: ChatRequest):
+async def agent_chat_stream(http_request: Request, body: ChatRequest):
     """
     Chat with the AI Agent, streaming progress via SSE.
     Each SSE event is a JSON object with a 'type' field:
@@ -386,16 +396,17 @@ async def agent_chat_stream(request: ChatRequest):
     if not config.is_agent_available():
         raise HTTPException(status_code=400, detail="Agent mode is not enabled")
 
-    session_id = request.session_id or str(uuid.uuid4())
+    session_id = body.session_id or str(uuid.uuid4())
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
 
     # Pass explicit skills into context for the orchestrator.
     # Direct assignment so caller-provided skills always take precedence.
-    skills = request.effective_skills
-    stream_ctx = dict(request.context or {})
+    skills = body.effective_skills
+    stream_ctx = dict(body.context or {})
     if skills is not None:
         stream_ctx["skills"] = skills
+    stream_ctx["web_user_id"] = get_effective_user_uid(http_request)
 
     def progress_callback(event: dict):
         # Enrich tool events with display names
@@ -408,7 +419,7 @@ async def agent_chat_stream(request: ChatRequest):
         try:
             executor = _build_executor(config, skills or None)
             result = executor.chat(
-                message=request.message,
+                message=body.message,
                 session_id=session_id,
                 progress_callback=progress_callback,
                 context=stream_ctx,

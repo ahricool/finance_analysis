@@ -15,17 +15,20 @@ from src.storage import get_db
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class ConversationSession:
     """A single multi-turn conversation session."""
     session_id: str
+    user_id: Optional[str] = None
     context: Dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.now)
     last_active: datetime = field(default_factory=datetime.now)
 
-    def add_message(self, role: str, content: str):
+    def add_message(self, role: str, content: str, user_id: Optional[str] = None):
         """Add a message to the session history."""
-        get_db().save_conversation_message(self.session_id, role, content)
+        uid = user_id if user_id is not None else self.user_id
+        get_db().save_conversation_message(self.session_id, role, content, user_id=uid)
         self.last_active = datetime.now()
 
     def update_context(self, key: str, value: Any):
@@ -35,35 +38,50 @@ class ConversationSession:
 
     def get_history(self) -> List[Dict[str, Any]]:
         """Get message history."""
-        messages = get_db().get_conversation_history(self.session_id)
+        messages = get_db().get_conversation_history(
+            self.session_id,
+            user_id=self.user_id,
+        )
         return messages
+
 
 class ConversationManager:
     """Manages multiple conversation sessions with TTL."""
-    
+
     def __init__(self, ttl_minutes: int = 30):
         self._sessions: Dict[str, ConversationSession] = {}
         self.ttl = timedelta(minutes=ttl_minutes)
         self._lock = threading.RLock()
 
-    def get_or_create(self, session_id: str) -> ConversationSession:
+    def get_or_create(self, session_id: str, user_id: Optional[str] = None) -> ConversationSession:
         """Get an existing session or create a new one."""
         with self._lock:
             self._cleanup_expired()
 
             if session_id not in self._sessions:
-                self._sessions[session_id] = ConversationSession(session_id=session_id)
-                logger.info(f"Created new conversation session: {session_id}")
+                self._sessions[session_id] = ConversationSession(
+                    session_id=session_id,
+                    user_id=user_id,
+                )
+                logger.info("Created new conversation session: %s", session_id)
             else:
-                # Update last active time
-                self._sessions[session_id].last_active = datetime.now()
+                sess = self._sessions[session_id]
+                if user_id and not sess.user_id:
+                    sess.user_id = user_id
+                sess.last_active = datetime.now()
 
             return self._sessions[session_id]
 
-    def add_message(self, session_id: str, role: str, content: str):
+    def add_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        user_id: Optional[str] = None,
+    ):
         """Add a message to a session."""
-        session = self.get_or_create(session_id)
-        session.add_message(role, content)
+        session = self.get_or_create(session_id, user_id=user_id)
+        session.add_message(role, content, user_id=user_id)
 
     def get_history(self, session_id: str) -> List[Dict[str, Any]]:
         """Get message history for a session."""
@@ -75,21 +93,21 @@ class ConversationManager:
         with self._lock:
             if session_id in self._sessions:
                 del self._sessions[session_id]
-                logger.info(f"Cleared conversation session: {session_id}")
-        # We don't delete from DB here to keep history, or we could add a delete method.
-        # For now, just clear from memory.
+                logger.info("Cleared conversation session: %s", session_id)
 
     def _cleanup_expired(self):
         """Remove expired sessions."""
         with self._lock:
             now = datetime.now()
             expired = [
-                sid for sid, session in self._sessions.items()
+                sid
+                for sid, session in self._sessions.items()
                 if now - session.last_active > self.ttl
             ]
             for sid in expired:
                 del self._sessions[sid]
-                logger.info(f"Cleaned up expired conversation session: {sid}")
+                logger.info("Cleaned up expired conversation session: %s", sid)
+
 
 # Global instance
 conversation_manager = ConversationManager()

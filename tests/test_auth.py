@@ -91,13 +91,17 @@ class AuthSessionTestCase(unittest.TestCase):
 
     def test_create_session_returns_signed_payload(self) -> None:
         def run():
-            tok = auth.create_session()
+            tok = auth.create_session(user_uid="u-test-1")
             self.assertTrue(tok, "session token should be non-empty")
-            parts = tok.split(".")
-            self.assertEqual(len(parts), 3, "format: nonce.ts.signature")
-            nonce, ts, sig = parts
-            self.assertTrue(nonce)
-            self.assertTrue(ts.isdigit())
+            parts = tok.rsplit(".", 1)
+            self.assertEqual(len(parts), 2, "format: v2.nonce.ts.uid.signature")
+            body, sig = parts
+            segs = body.split(".")
+            self.assertEqual(len(segs), 4, "v2 + nonce + ts + uid")
+            self.assertEqual(segs[0], "v2")
+            self.assertTrue(segs[1])
+            self.assertTrue(segs[2].isdigit())
+            self.assertEqual(segs[3], "u-test-1")
             self.assertTrue(sig)
             return tok
 
@@ -105,7 +109,7 @@ class AuthSessionTestCase(unittest.TestCase):
 
     def test_verify_session_valid_token(self) -> None:
         def run():
-            tok = auth.create_session()
+            tok = auth.create_session(user_uid="u-test-2")
             self.assertTrue(auth.verify_session(tok))
 
         self._patch_env_and_run(test_fn=run)
@@ -115,7 +119,7 @@ class AuthSessionTestCase(unittest.TestCase):
             past = time.time() - 48 * 3600
             with patch.object(auth, "time") as mock_time:
                 mock_time.time.return_value = past
-                tok = auth.create_session()
+                tok = auth.create_session(user_uid="u-exp")
             self.assertFalse(auth.verify_session(tok), "48h-old token should be expired")
 
         self._patch_env_and_run(test_fn=run)
@@ -149,7 +153,7 @@ class AuthSessionTestCase(unittest.TestCase):
             secret_path.write_bytes(b"x")
             secret_path.chmod(0o600)
 
-            tok = auth.create_session()
+            tok = auth.create_session(user_uid="u-load")
             self.assertTrue(tok)
 
             new_secret = secret_path.read_bytes()
@@ -241,7 +245,7 @@ class AuthSetPasswordTestCase(unittest.TestCase):
 
     def test_refresh_auth_state_clears_session_secret_cache(self) -> None:
         def run():
-            first_secret = auth.create_session()
+            first_secret = auth.create_session(user_uid="u-refresh")
             self.assertTrue(first_secret)
             self.assertIsNotNone(auth._session_secret)
 

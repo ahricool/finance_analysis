@@ -329,42 +329,50 @@ def change_password(current: str, new: str) -> Optional[str]:
         return "密码保存失败"
 
 
-def create_session() -> str:
-    """Create a signed session payload. Format: nonce.ts.signature."""
+def create_session(*, user_uid: str) -> str:
+    """Create a signed session cookie value. Format: v2.nonce.ts.uid.signature."""
     secret = _get_session_secret()
-    if not secret:
+    if not secret or not (user_uid or "").strip():
         return ""
     nonce = secrets.token_urlsafe(32)
     ts = str(int(time.time()))
-    payload = f"{nonce}.{ts}"
+    payload = f"v2.{nonce}.{ts}.{user_uid}"
     sig = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
     return f"{payload}.{sig}"
 
 
-def verify_session(value: str) -> bool:
-    """Verify session cookie and check expiry."""
+def parse_session_user_uid(value: str) -> Optional[str]:
+    """Verify session cookie and return embedded user uid, or None."""
     secret = _get_session_secret()
     if not secret or not value:
-        return False
-    parts = value.split(".")
-    if len(parts) != 3:
-        return False
-    nonce, ts_str, sig = parts[0], parts[1], parts[2]
-    payload = f"{nonce}.{ts_str}"
-    expected = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        return None
+    parts = value.rsplit(".", 1)
+    if len(parts) != 2:
+        return None
+    body, sig = parts[0], parts[1]
+    expected = hmac.new(secret, body.encode("utf-8"), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(sig, expected):
-        return False
+        return None
+    segments = body.split(".")
+    if len(segments) != 4 or segments[0] != "v2":
+        return None
+    _v, _nonce, ts_str, uid = segments
     try:
         ts = int(ts_str)
     except ValueError:
-        return False
+        return None
     try:
         max_age_hours = int(os.getenv("ADMIN_SESSION_MAX_AGE_HOURS", str(SESSION_MAX_AGE_HOURS_DEFAULT)))
     except ValueError:
         max_age_hours = SESSION_MAX_AGE_HOURS_DEFAULT
     if time.time() - ts > max_age_hours * 3600:
-        return False
-    return True
+        return None
+    return uid or None
+
+
+def verify_session(value: str) -> bool:
+    """Verify session cookie and check expiry."""
+    return parse_session_user_uid(value) is not None
 
 
 def get_client_ip(request) -> str:

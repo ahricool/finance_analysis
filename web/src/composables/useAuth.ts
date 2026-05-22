@@ -12,6 +12,7 @@ export function useAuth() {
     passwordSet,
     passwordChangeable,
     setupState,
+    currentUser,
     isLoading,
     loadError,
   } = storeToRefs(store);
@@ -22,6 +23,7 @@ export function useAuth() {
     passwordSet,
     passwordChangeable,
     setupState,
+    currentUser,
     isLoading,
     loadError,
     login: store.login,

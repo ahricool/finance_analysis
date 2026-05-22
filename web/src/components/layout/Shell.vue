@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { LogOut } from 'lucide-vue-next';
+import { LogOut, User } from 'lucide-vue-next';
 import { ref } from 'vue';
 import { RouterLink, RouterView } from 'vue-router';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
@@ -9,7 +9,11 @@ import { APP_NAME } from '@/config/app';
 import { mainNavItems } from '@/config/mainNav';
 import { useAgentChatStore } from '@/stores/agentChatStore';
 import { cn } from '@/utils/cn';
+import { storeToRefs } from 'pinia';
+import { useAuthStore } from '@/stores/authStore';
 
+const authStore = useAuthStore();
+const { currentUser } = storeToRefs(authStore);
 const { authEnabled, logout } = useAuth();
 const completionBadge = useAgentChatStore((s) => s.completionBadge);
 const showLogoutConfirm = ref(false);
@@ -78,15 +82,40 @@ async function onLogoutConfirm() {
           </RouterLink>
         </nav>
 
-        <button
+        <div
           v-if="authEnabled"
-          type="button"
-          class="inline-flex h-10 min-w-max items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground"
-          @click="showLogoutConfirm = true"
+          class="flex min-w-max shrink-0 items-center gap-2"
         >
-          <LogOut class="h-4 w-4" />
-          <span class="hidden sm:inline">退出</span>
-        </button>
+          <div
+            v-if="currentUser"
+            class="hidden max-w-[200px] items-center gap-2 rounded-xl border border-border/60 bg-card/80 px-2 py-1 text-xs sm:flex"
+            title="当前登录用户"
+          >
+            <span
+              class="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-[10px] font-semibold text-primary"
+            >
+              <img
+                v-if="currentUser.avatarUrl"
+                :src="currentUser.avatarUrl"
+                alt=""
+                class="h-full w-full object-cover"
+              />
+              <User v-else class="h-3.5 w-3.5" />
+            </span>
+            <span class="min-w-0 truncate text-left leading-tight">
+              <span class="block truncate font-medium text-foreground">{{ currentUser.username }}</span>
+              <span class="block truncate text-[10px] text-secondary-text">{{ currentUser.role === 'admin' ? '管理员' : '用户' }}</span>
+            </span>
+          </div>
+          <button
+            type="button"
+            class="inline-flex h-10 min-w-max items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground"
+            @click="showLogoutConfirm = true"
+          >
+            <LogOut class="h-4 w-4" />
+            <span class="hidden sm:inline">退出</span>
+          </button>
+        </div>
       </div>
     </header>
 

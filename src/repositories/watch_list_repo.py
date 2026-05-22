@@ -22,33 +22,49 @@ class WatchListRepo:
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
-    def list_all(self) -> List[WatchListItem]:
+    def list_all(self, user_id: Optional[str] = None) -> List[WatchListItem]:
         with self.db.get_session() as session:
-            return session.execute(
-                select(WatchListItem).order_by(WatchListItem.created_at)
-            ).scalars().all()
+            stmt = select(WatchListItem).order_by(WatchListItem.created_at)
+            if user_id is not None:
+                stmt = stmt.where(WatchListItem.user_id == user_id)
+            return session.execute(stmt).scalars().all()
 
-    def get_by_id(self, item_id: int) -> Optional[WatchListItem]:
+    def get_by_id(self, item_id: int, user_id: Optional[str] = None) -> Optional[WatchListItem]:
         with self.db.get_session() as session:
-            return session.get(WatchListItem, item_id)
+            obj = session.get(WatchListItem, item_id)
+            if obj is None:
+                return None
+            if user_id is not None and obj.user_id != user_id:
+                return None
+            return obj
 
-    def get_by_code(self, code: str) -> Optional[WatchListItem]:
+    def get_by_code(self, code: str, user_id: Optional[str] = None) -> Optional[WatchListItem]:
         with self.db.get_session() as session:
-            return session.execute(
-                select(WatchListItem).where(WatchListItem.code == code.upper())
-            ).scalar_one_or_none()
+            stmt = select(WatchListItem).where(WatchListItem.code == code.upper())
+            if user_id is not None:
+                stmt = stmt.where(WatchListItem.user_id == user_id)
+            return session.execute(stmt).scalars().first()
 
-    def get_codes(self) -> List[str]:
+    def get_codes(self, user_id: Optional[str] = None) -> List[str]:
         """Return all stock codes in the watch list."""
         with self.db.get_session() as session:
-            return list(
-                session.execute(select(WatchListItem.code)).scalars().all()
-            )
+            stmt = select(WatchListItem.code)
+            if user_id is not None:
+                stmt = stmt.where(WatchListItem.user_id == user_id)
+            return list(session.execute(stmt).scalars().all())
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
-    def create(self, code: str, name: Optional[str] = None, notes: Optional[str] = None) -> WatchListItem:
+    def create(
+        self,
+        *,
+        user_id: str,
+        code: str,
+        name: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> WatchListItem:
         item = WatchListItem(
+            user_id=user_id,
             code=code.upper().strip(),
             name=(name or "").strip() or None,
             notes=(notes or "").strip() or None,
@@ -67,12 +83,16 @@ class WatchListRepo:
     def update(
         self,
         item_id: int,
+        *,
+        user_id: Optional[str] = None,
         name: Optional[str] = None,
         notes: Optional[str] = None,
     ) -> Optional[WatchListItem]:
         def _write(session: Session) -> Optional[WatchListItem]:
             obj = session.get(WatchListItem, item_id)
             if obj is None:
+                return None
+            if user_id is not None and obj.user_id != user_id:
                 return None
             if name is not None:
                 obj.name = name.strip() or None
@@ -85,10 +105,12 @@ class WatchListRepo:
 
         return self.db._run_write_transaction("watch_list.update", _write)
 
-    def delete(self, item_id: int) -> bool:
+    def delete(self, item_id: int, user_id: Optional[str] = None) -> bool:
         def _write(session: Session) -> bool:
             obj = session.get(WatchListItem, item_id)
             if obj is None:
+                return False
+            if user_id is not None and obj.user_id != user_id:
                 return False
             session.delete(obj)
             return True

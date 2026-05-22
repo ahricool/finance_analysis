@@ -35,6 +35,7 @@ from sqlalchemy import (
     Index,
     UniqueConstraint,
     Text,
+    JSON,
     select,
     and_,
     or_,
@@ -397,6 +398,22 @@ class BacktestSummary(Base):
     )
 
 
+class User(Base):
+    """Registered web user (multi-tenant identity)."""
+
+    __tablename__ = "users"
+
+    uid = Column(String(36), primary_key=True)
+    username = Column(String(64), nullable=False, unique=True, index=True)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    password_hash = Column(Text, nullable=True)
+    avatar_url = Column(String(512), nullable=True)
+    role = Column(String(32), nullable=False)  # admin | user
+    extra = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+
 class PortfolioAccount(Base):
     """Portfolio account metadata."""
 
@@ -603,6 +620,7 @@ class ConversationMessage(Base):
     __tablename__ = 'conversation_messages'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey("users.uid"), nullable=True, index=True)
     session_id = Column(String(100), index=True, nullable=False)
     role = Column(String(20), nullable=False)  # user, assistant, system
     content = Column(Text, nullable=False)
@@ -615,6 +633,7 @@ class LLMUsage(Base):
     __tablename__ = 'llm_usage'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey("users.uid"), nullable=True, index=True)
     # 'analysis' | 'agent' | 'market_review'
     call_type = Column(String(32), nullable=False, index=True)
     model = Column(String(128), nullable=False)
@@ -631,11 +650,16 @@ class WatchListItem(Base):
     __tablename__ = 'watch_list'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    code = Column(String(16), nullable=False, unique=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.uid"), nullable=False, index=True)
+    code = Column(String(16), nullable=False, index=True)
     name = Column(String(64), nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "code", name="uix_watch_list_user_code"),
+    )
 
 
 class StockHolding(Base):
@@ -644,12 +668,17 @@ class StockHolding(Base):
     __tablename__ = 'stock_list'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    code = Column(String(16), nullable=False, unique=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.uid"), nullable=False, index=True)
+    code = Column(String(16), nullable=False, index=True)
     name = Column(String(64), nullable=True)
     quantity = Column(Integer, nullable=False, default=0)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "code", name="uix_stock_list_user_code"),
+    )
 
 
 class CalendarSignal(Base):
@@ -658,6 +687,7 @@ class CalendarSignal(Base):
     __tablename__ = 'calendar_signals'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey("users.uid"), nullable=False, index=True)
     signal_date = Column(Date, nullable=False, index=True)
     title = Column(String(120), nullable=False)
     content = Column(Text, nullable=True)
@@ -742,6 +772,12 @@ class DatabaseManager:
         
         # 创建所有表
         Base.metadata.create_all(self._engine)
+
+        from src.db_schema import run_user_scoped_migrations
+        from src.repositories.user_repo import UserRepository
+
+        admin_uid = UserRepository(self).ensure_default_admin()
+        run_user_scoped_migrations(self._engine, admin_uid)
 
         self._initialized = True
         logger.info(f"数据库初始化完成: {db_url}")
@@ -1920,39 +1956,57 @@ class DatabaseManager:
         digest = hashlib.md5(raw_key.encode("utf-8")).hexdigest()
         return f"no-url:{code}:{digest}"
 
-    def save_conversation_message(self, session_id: str, role: str, content: str) -> None:
+    def save_conversation_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        user_id: Optional[str] = None,
+    ) -> None:
         """
         保存 Agent 对话消息
         """
         with self.session_scope() as session:
             msg = ConversationMessage(
+                user_id=user_id,
                 session_id=session_id,
                 role=role,
-                content=content
+                content=content,
             )
             session.add(msg)
 
-    def get_conversation_history(self, session_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_conversation_history(
+        self,
+        session_id: str,
+        limit: int = 20,
+        user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """
         获取 Agent 对话历史
         """
         with self.session_scope() as session:
             stmt = select(ConversationMessage).filter(
                 ConversationMessage.session_id == session_id
-            ).order_by(ConversationMessage.created_at.desc()).limit(limit)
+            )
+            if user_id is not None:
+                stmt = stmt.where(ConversationMessage.user_id == user_id)
+            stmt = stmt.order_by(ConversationMessage.created_at.desc()).limit(limit)
             messages = session.execute(stmt).scalars().all()
 
             # 倒序返回，保证时间顺序
             return [{"role": msg.role, "content": msg.content} for msg in reversed(messages)]
 
-    def conversation_session_exists(self, session_id: str) -> bool:
+    def conversation_session_exists(
+        self, session_id: str, user_id: Optional[str] = None
+    ) -> bool:
         """Return True when at least one message exists for the given session."""
         with self.session_scope() as session:
-            stmt = (
-                select(ConversationMessage.id)
-                .where(ConversationMessage.session_id == session_id)
-                .limit(1)
+            stmt = select(ConversationMessage.id).where(
+                ConversationMessage.session_id == session_id
             )
+            if user_id is not None:
+                stmt = stmt.where(ConversationMessage.user_id == user_id)
+            stmt = stmt.limit(1)
             return session.execute(stmt).scalar() is not None
 
     def get_chat_sessions(
@@ -1960,6 +2014,7 @@ class DatabaseManager:
         limit: int = 50,
         session_prefix: Optional[str] = None,
         extra_session_ids: Optional[List[str]] = None,
+        restrict_user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         获取聊天会话列表（从 conversation_messages 聚合）
@@ -1999,6 +2054,8 @@ class DatabaseManager:
                 conditions.append(ConversationMessage.session_id.in_(exact_ids))
             if conditions:
                 base = base.where(or_(*conditions))
+            if restrict_user_id is not None:
+                base = base.where(ConversationMessage.user_id == restrict_user_id)
             stmt = (
                 base
                 .group_by(ConversationMessage.session_id)
@@ -2011,14 +2068,18 @@ class DatabaseManager:
             for row in rows:
                 sid = row.session_id
                 # 取该会话第一条 user 消息作为标题
+                first_scope = and_(
+                    ConversationMessage.session_id == sid,
+                    ConversationMessage.role == "user",
+                )
+                if restrict_user_id is not None:
+                    first_scope = and_(
+                        first_scope,
+                        ConversationMessage.user_id == restrict_user_id,
+                    )
                 first_user_msg = session.execute(
                     select(ConversationMessage.content)
-                    .where(
-                        and_(
-                            ConversationMessage.session_id == sid,
-                            ConversationMessage.role == "user",
-                        )
-                    )
+                    .where(first_scope)
                     .order_by(ConversationMessage.created_at)
                     .limit(1)
                 ).scalar()
@@ -2033,17 +2094,22 @@ class DatabaseManager:
                 })
             return results
 
-    def get_conversation_messages(self, session_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_conversation_messages(
+        self,
+        session_id: str,
+        limit: int = 100,
+        user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """
         获取单个会话的完整消息列表（用于前端恢复历史）
         """
         with self.session_scope() as session:
-            stmt = (
-                select(ConversationMessage)
-                .where(ConversationMessage.session_id == session_id)
-                .order_by(ConversationMessage.created_at)
-                .limit(limit)
+            stmt = select(ConversationMessage).where(
+                ConversationMessage.session_id == session_id
             )
+            if user_id is not None:
+                stmt = stmt.where(ConversationMessage.user_id == user_id)
+            stmt = stmt.order_by(ConversationMessage.created_at).limit(limit)
             messages = session.execute(stmt).scalars().all()
             return [
                 {
@@ -2055,7 +2121,9 @@ class DatabaseManager:
                 for msg in messages
             ]
 
-    def delete_conversation_session(self, session_id: str) -> int:
+    def delete_conversation_session(
+        self, session_id: str, user_id: Optional[str] = None
+    ) -> int:
         """
         删除指定会话的所有消息
 
@@ -2063,11 +2131,10 @@ class DatabaseManager:
             删除的消息数
         """
         with self.session_scope() as session:
-            result = session.execute(
-                delete(ConversationMessage).where(
-                    ConversationMessage.session_id == session_id
-                )
-            )
+            cond = ConversationMessage.session_id == session_id
+            if user_id is not None:
+                cond = and_(cond, ConversationMessage.user_id == user_id)
+            result = session.execute(delete(ConversationMessage).where(cond))
             return result.rowcount
 
     # ------------------------------------------------------------------
@@ -2082,9 +2149,11 @@ class DatabaseManager:
         completion_tokens: int,
         total_tokens: int,
         stock_code: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> None:
         """Append one LLM call record to llm_usage."""
         row = LLMUsage(
+            user_id=user_id,
             call_type=call_type,
             model=model or "unknown",
             stock_code=stock_code,
@@ -2099,6 +2168,7 @@ class DatabaseManager:
         self,
         from_dt: datetime,
         to_dt: datetime,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Return aggregated token usage between from_dt and to_dt.
 
@@ -2112,6 +2182,8 @@ class DatabaseManager:
                 LLMUsage.called_at >= from_dt,
                 LLMUsage.called_at <= to_dt,
             )
+            if user_id is not None:
+                base_filter = and_(base_filter, LLMUsage.user_id == user_id)
 
             # Overall totals
             totals = session.execute(
@@ -2170,6 +2242,7 @@ def persist_llm_usage(
     model: str,
     call_type: str,
     stock_code: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> None:
     """Fire-and-forget: write one LLM call record to llm_usage. Never raises."""
     try:
@@ -2181,6 +2254,7 @@ def persist_llm_usage(
             completion_tokens=usage.get("completion_tokens", 0) or 0,
             total_tokens=usage.get("total_tokens", 0) or 0,
             stock_code=stock_code,
+            user_id=user_id,
         )
     except Exception as exc:
         logging.getLogger(__name__).warning("[LLM usage] failed to persist usage record: %s", exc)

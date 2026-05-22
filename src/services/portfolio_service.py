@@ -83,8 +83,14 @@ class _ResolvedPositionPrice:
 class PortfolioService:
     """Business logic for account CRUD, event writes, and snapshot replay."""
 
-    def __init__(self, repo: Optional[PortfolioRepository] = None):
+    def __init__(
+        self,
+        repo: Optional[PortfolioRepository] = None,
+        *,
+        acting_owner_id: Optional[str] = None,
+    ):
         self.repo = repo or PortfolioRepository()
+        self._acting_owner_id = acting_owner_id
 
     # ------------------------------------------------------------------
     # Account CRUD
@@ -103,17 +109,23 @@ class PortfolioService:
             raise ValueError("name is required")
         market_norm = self._normalize_market(market)
         base_currency_norm = self._normalize_currency(base_currency)
+        effective_owner = (owner_id or "").strip() or None
+        if self._acting_owner_id is not None:
+            effective_owner = self._acting_owner_id
         row = self.repo.create_account(
             name=name_norm,
             broker=(broker or "").strip() or None,
             market=market_norm,
             base_currency=base_currency_norm,
-            owner_id=(owner_id or "").strip() or None,
+            owner_id=effective_owner,
         )
         return self._account_to_dict(row)
 
     def list_accounts(self, include_inactive: bool = False) -> List[Dict[str, Any]]:
-        rows = self.repo.list_accounts(include_inactive=include_inactive)
+        rows = self.repo.list_accounts(
+            include_inactive=include_inactive,
+            owner_id=self._acting_owner_id,
+        )
         return [self._account_to_dict(r) for r in rows]
 
     def update_account(
@@ -127,6 +139,17 @@ class PortfolioService:
         owner_id: Optional[str] = None,
         is_active: Optional[bool] = None,
     ) -> Optional[Dict[str, Any]]:
+        if self._acting_owner_id is not None:
+            if (
+                self.repo.get_account(
+                    account_id,
+                    include_inactive=True,
+                    owner_id=self._acting_owner_id,
+                )
+                is None
+            ):
+                return None
+            owner_id = None  # disallow owner transfer via API when scoped
         fields: Dict[str, Any] = {}
         if name is not None:
             name_norm = name.strip()
@@ -152,6 +175,16 @@ class PortfolioService:
         return self._account_to_dict(row)
 
     def deactivate_account(self, account_id: int) -> bool:
+        if self._acting_owner_id is not None:
+            if (
+                self.repo.get_account(
+                    account_id,
+                    include_inactive=True,
+                    owner_id=self._acting_owner_id,
+                )
+                is None
+            ):
+                return False
         return self.repo.deactivate_account(account_id)
 
     # ------------------------------------------------------------------
@@ -456,7 +489,10 @@ class PortfolioService:
             account = self._require_active_account(account_id)
             account_rows = [account]
         else:
-            account_rows = self.repo.list_accounts(include_inactive=False)
+            account_rows = self.repo.list_accounts(
+                include_inactive=False,
+                owner_id=self._acting_owner_id,
+            )
 
         accounts_payload: List[Dict[str, Any]] = []
         aggregate_currency = "CNY"
@@ -586,7 +622,10 @@ class PortfolioService:
         if account_id is not None:
             account_rows = [self._require_active_account(account_id)]
         else:
-            account_rows = self.repo.list_accounts(include_inactive=False)
+            account_rows = self.repo.list_accounts(
+                include_inactive=False,
+                owner_id=self._acting_owner_id,
+            )
 
         summary = {
             "as_of": as_of_date.isoformat(),
@@ -1473,7 +1512,11 @@ class PortfolioService:
         return value
 
     def _require_active_account(self, account_id: int) -> Any:
-        account = self.repo.get_account(account_id, include_inactive=False)
+        account = self.repo.get_account(
+            account_id,
+            include_inactive=False,
+            owner_id=self._acting_owner_id,
+        )
         if account is None:
             raise ValueError(f"Active account not found: {account_id}")
         return account
@@ -1483,6 +1526,7 @@ class PortfolioService:
             session=session,
             account_id=account_id,
             include_inactive=False,
+            owner_id=self._acting_owner_id,
         )
         if account is None:
             raise ValueError(f"Active account not found: {account_id}")
