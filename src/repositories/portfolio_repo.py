@@ -74,19 +74,26 @@ class PortfolioRepository:
             session.refresh(row)
             return row
 
-    def get_account(self, account_id: int, include_inactive: bool = False) -> Optional[PortfolioAccount]:
+    def get_account(self, account_id: int, include_inactive: bool = False, owner_id: Optional[str] = None) -> Optional[PortfolioAccount]:
         with self.db.get_session() as session:
             return self.get_account_in_session(
                 session=session,
                 account_id=account_id,
                 include_inactive=include_inactive,
+                owner_id=owner_id,
             )
 
-    def list_accounts(self, include_inactive: bool = False) -> List[PortfolioAccount]:
+    def list_accounts(
+        self,
+        include_inactive: bool = False,
+        owner_id: Optional[str] = None,
+    ) -> List[PortfolioAccount]:
         with self.db.get_session() as session:
             query = select(PortfolioAccount)
             if not include_inactive:
                 query = query.where(PortfolioAccount.is_active.is_(True))
+            if owner_id is not None:
+                query = query.where(PortfolioAccount.owner_id == owner_id)
             rows = session.execute(query.order_by(PortfolioAccount.id.asc())).scalars().all()
             return list(rows)
 
@@ -96,10 +103,13 @@ class PortfolioRepository:
         session: Any,
         account_id: int,
         include_inactive: bool = False,
+        owner_id: Optional[str] = None,
     ) -> Optional[PortfolioAccount]:
         conditions = [PortfolioAccount.id == account_id]
         if not include_inactive:
             conditions.append(PortfolioAccount.is_active.is_(True))
+        if owner_id is not None:
+            conditions.append(PortfolioAccount.owner_id == owner_id)
         return session.execute(
             select(PortfolioAccount).where(and_(*conditions)).limit(1)
         ).scalar_one_or_none()

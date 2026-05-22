@@ -22,21 +22,40 @@ from src.auth import (
     has_stored_password,
     is_auth_enabled,
     is_password_changeable,
-    is_password_set,
+    parse_session_user_uid,
     record_login_failure,
     refresh_auth_state,
     rotate_session_secret,
     set_initial_password,
-    verify_password,
     verify_stored_password,
-    verify_session,
 )
 from src.config import Config, setup_env
 from src.core.config_manager import ConfigManager
+from src.repositories.user_repo import UserRepository
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _ahri_user_uid() -> str | None:
+    u = UserRepository().get_by_username("ahri")
+    return u.uid if u else None
+
+
+def _combined_password_exists() -> bool:
+    if has_stored_password():
+        return True
+    try:
+        return UserRepository().any_user_has_password()
+    except Exception:
+        return False
+
+
+def _verify_current_password_any_source(current_password: str) -> bool:
+    if verify_stored_password(current_password):
+        return True
+    return UserRepository().verify_plain_for_user("ahri", current_password)
 
 
 class LoginRequest(BaseModel):
@@ -44,7 +63,8 @@ class LoginRequest(BaseModel):
 
     model_config = {"populate_by_name": True}
 
-    password: str = Field(default="", description="Admin password")
+    username: str = Field(default="ahri", description="用户名")
+    password: str = Field(default="", description="登录密码")
     password_confirm: str | None = Field(default=None, alias="passwordConfirm", description="Confirm (first-time)")
 
 
@@ -136,8 +156,15 @@ def _apply_auth_enabled(enabled: bool, request: Request | None = None) -> bool:
 
 
 def _password_set_for_response(auth_enabled: bool) -> bool:
-    """Avoid exposing stored-password state when auth is disabled."""
-    return is_password_set() if auth_enabled else False
+    """True when at least one login credential exists (DB user or legacy file hash)."""
+    if not auth_enabled:
+        return False
+    try:
+        if UserRepository().any_user_has_password():
+            return True
+    except Exception:
+        logger.debug("UserRepository password check failed", exc_info=True)
+    return has_stored_password()
 
 
 def _set_session_cookie(response: Response, session_value: str, request: Request) -> None:
@@ -158,17 +185,30 @@ def _get_auth_status_dict(request: Request | None = None) -> dict:
     """Helper to build consistent auth status response body."""
     auth_enabled = is_auth_enabled()
     logged_in = False
+    user_payload = None
     if auth_enabled and request:
         cookie_val = request.cookies.get(COOKIE_NAME)
-        logged_in = verify_session(cookie_val) if cookie_val else False
+        uid = parse_session_user_uid(cookie_val) if cookie_val else None
+        logged_in = uid is not None
+        if uid:
+            try:
+                u = UserRepository().get_by_uid(uid)
+                if u is not None:
+                    user_payload = UserRepository().to_public_dict(u)
+            except Exception:
+                logger.warning("Failed to load user for auth status", exc_info=True)
 
     # setupState determination:
     # - enabled: auth is active
     # - password_retained: auth disabled but password exists
     # - no_password: auth disabled and no password exists
+    try:
+        any_user_pw = UserRepository().any_user_has_password()
+    except Exception:
+        any_user_pw = False
     if auth_enabled:
         setup_state = "enabled"
-    elif has_stored_password():
+    elif has_stored_password() or any_user_pw:
         setup_state = "password_retained"
     else:
         setup_state = "no_password"
@@ -179,6 +219,7 @@ def _get_auth_status_dict(request: Request | None = None) -> dict:
         "passwordSet": _password_set_for_response(auth_enabled),
         "passwordChangeable": is_password_changeable() if auth_enabled else False,
         "setupState": setup_state,
+        "user": user_payload,
     }
 
 
@@ -205,7 +246,7 @@ async def auth_update_settings(request: Request, body: AuthSettingsRequest):
     """Manage auth enablement from the settings page."""
     target_enabled = body.auth_enabled
     current_enabled = is_auth_enabled()
-    stored_password_exists = has_stored_password()
+    combined_password_exists = _combined_password_exists()
 
     password = (body.password or "").strip()
     confirm = (body.password_confirm or "").strip()
@@ -213,7 +254,7 @@ async def auth_update_settings(request: Request, body: AuthSettingsRequest):
 
     if target_enabled:
         if password or confirm:
-            if stored_password_exists:
+            if combined_password_exists:
                 return JSONResponse(
                     status_code=400,
                     content={
@@ -231,21 +272,16 @@ async def auth_update_settings(request: Request, body: AuthSettingsRequest):
                     status_code=400,
                     content={"error": "password_mismatch", "message": "两次输入的密码不一致"},
                 )
-            if has_stored_password():
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "error": "password_already_set",
-                        "message": "已存在管理员密码，请启用认证后通过修改密码功能更新",
-                    },
-                )
             err = set_initial_password(password)
             if err:
                 return JSONResponse(
                     status_code=400,
                     content={"error": "invalid_password", "message": err},
                 )
-        elif not stored_password_exists:
+            ahri_uid = _ahri_user_uid()
+            if ahri_uid:
+                UserRepository().set_plain_password(ahri_uid, password)
+        elif not combined_password_exists:
             return JSONResponse(
                 status_code=400,
                 content={"error": "password_required", "message": "开启密码登录前请先设置密码"},
@@ -257,8 +293,8 @@ async def auth_update_settings(request: Request, body: AuthSettingsRequest):
             # This triggers whenever trying to enable/keep enabled an existing auth setup.
             cookie_val = request.cookies.get(COOKIE_NAME)
             # if target_enabled is True here, they are requesting to enable or keep auth enabled
-            is_valid_session = cookie_val and verify_session(cookie_val)
-            
+            is_valid_session = bool(parse_session_user_uid(cookie_val) if cookie_val else None)
+
             if not is_valid_session:
                 if not current_password:
                     return JSONResponse(
@@ -274,7 +310,7 @@ async def auth_update_settings(request: Request, body: AuthSettingsRequest):
                             "message": "Too many failed attempts. Please try again later.",
                         },
                     )
-                if not verify_stored_password(current_password):
+                if not _verify_current_password_any_source(current_password):
                     record_login_failure(ip)
                     return JSONResponse(
                         status_code=401,
@@ -284,7 +320,7 @@ async def auth_update_settings(request: Request, body: AuthSettingsRequest):
     else:
         if current_enabled:
             cookie_val = request.cookies.get(COOKIE_NAME)
-            is_valid_session = cookie_val and verify_session(cookie_val)
+            is_valid_session = bool(parse_session_user_uid(cookie_val) if cookie_val else None)
 
             if not is_valid_session:
                 if not current_password:
@@ -301,7 +337,7 @@ async def auth_update_settings(request: Request, body: AuthSettingsRequest):
                             "message": "Too many failed attempts. Please try again later.",
                         },
                     )
-                if not verify_stored_password(current_password):
+                if not _verify_current_password_any_source(current_password):
                     record_login_failure(ip)
                     return JSONResponse(
                         status_code=401,
@@ -331,7 +367,18 @@ async def auth_update_settings(request: Request, body: AuthSettingsRequest):
             )
 
     if target_enabled:
-        session_val = create_session()
+        cookie_val = request.cookies.get(COOKIE_NAME)
+        session_uid = parse_session_user_uid(cookie_val) if cookie_val else None
+        subject_uid = session_uid or _ahri_user_uid()
+        if not subject_uid:
+            rollback_ok = _apply_auth_enabled(current_enabled, request=request)
+            if not rollback_ok:
+                logger.error("Failed to roll back auth state after missing default user")
+            return JSONResponse(
+                status_code=500,
+                content={"error": "internal_error", "message": "Default admin user missing"},
+            )
+        session_val = create_session(user_uid=subject_uid)
         if not session_val:
             rollback_ok = _apply_auth_enabled(current_enabled, request=request)
             if not rollback_ok:
@@ -367,6 +414,7 @@ async def auth_login(request: Request, body: LoginRequest):
             content={"error": "auth_disabled", "message": "Authentication is not configured"},
         )
 
+    username = (body.username or "ahri").strip() or "ahri"
     password = (body.password or "").strip()
     if not password:
         return JSONResponse(
@@ -384,10 +432,16 @@ async def auth_login(request: Request, body: LoginRequest):
             },
         )
 
-    password_set = is_password_set()
+    repo = UserRepository()
+    user = repo.get_by_username(username)
+    if user is None:
+        record_login_failure(ip)
+        return JSONResponse(
+            status_code=401,
+            content={"error": "invalid_credentials", "message": "用户不存在或密码错误"},
+        )
 
-    if not password_set:
-        # First-time setup: require passwordConfirm
+    if not user.password_hash:
         confirm = (body.password_confirm or "").strip()
         if password != confirm:
             record_login_failure(ip)
@@ -395,15 +449,9 @@ async def auth_login(request: Request, body: LoginRequest):
                 status_code=400,
                 content={"error": "password_mismatch", "message": "Passwords do not match"},
             )
-        err = set_initial_password(password)
-        if err:
-            record_login_failure(ip)
-            return JSONResponse(
-                status_code=400,
-                content={"error": "invalid_password", "message": err},
-            )
+        repo.set_plain_password(user.uid, password)
     else:
-        if not verify_password(password):
+        if repo.verify_credentials(username, password) is None:
             record_login_failure(ip)
             return JSONResponse(
                 status_code=401,
@@ -411,7 +459,7 @@ async def auth_login(request: Request, body: LoginRequest):
             )
 
     clear_rate_limit(ip)
-    session_val = create_session()
+    session_val = create_session(user_uid=user.uid)
     if not session_val:
         return JSONResponse(
             status_code=500,
@@ -428,12 +476,19 @@ async def auth_login(request: Request, body: LoginRequest):
     summary="Change password",
     description="Change password. Requires valid session.",
 )
-async def auth_change_password(body: ChangePasswordRequest):
-    """Change password. Requires login."""
+async def auth_change_password(request: Request, body: ChangePasswordRequest):
+    """Change password for the logged-in user."""
     if not is_password_changeable():
         return JSONResponse(
             status_code=400,
             content={"error": "not_changeable", "message": "Password cannot be changed via web"},
+        )
+
+    uid = parse_session_user_uid(request.cookies.get(COOKIE_NAME) or "")
+    if not uid:
+        return JSONResponse(
+            status_code=401,
+            content={"error": "unauthorized", "message": "Login required"},
         )
 
     current = (body.current_password or "").strip()
@@ -451,12 +506,28 @@ async def auth_change_password(body: ChangePasswordRequest):
             content={"error": "password_mismatch", "message": "两次输入的新密码不一致"},
         )
 
-    err = change_password(current, new_pwd)
-    if err:
+    repo = UserRepository()
+    user = repo.get_by_uid(uid)
+    if user is None:
+        return JSONResponse(
+            status_code=401,
+            content={"error": "unauthorized", "message": "Login required"},
+        )
+    if not repo.verify_plain_for_user(user.username, current):
         return JSONResponse(
             status_code=400,
-            content={"error": "invalid_password", "message": err},
+            content={"error": "invalid_password", "message": "当前密码错误"},
         )
+
+    repo.set_plain_password(uid, new_pwd)
+    ahri_uid = _ahri_user_uid()
+    if ahri_uid == uid and has_stored_password():
+        err = change_password(current, new_pwd)
+        if err:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "invalid_password", "message": err},
+            )
     return Response(status_code=204)
 
 

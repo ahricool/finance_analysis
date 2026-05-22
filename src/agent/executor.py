@@ -555,7 +555,9 @@ class AgentExecutor:
         tool_decls = self.tool_registry.to_openai_tools()
 
         # Get conversation history
-        session = conversation_manager.get_or_create(session_id)
+        web_user_id = (context or {}).get("web_user_id")
+        web_uid = web_user_id if isinstance(web_user_id, str) else None
+        session = conversation_manager.get_or_create(session_id, user_id=web_uid)
         history = session.get_history()
 
         # Initialize conversation
@@ -591,20 +593,34 @@ class AgentExecutor:
         messages.append({"role": "user", "content": message})
 
         # Persist the user turn immediately so the session appears in history during processing
-        conversation_manager.add_message(session_id, "user", message)
+        conversation_manager.add_message(session_id, "user", message, user_id=web_uid)
 
-        result = self._run_loop(messages, tool_decls, parse_dashboard=False, progress_callback=progress_callback)
+        result = self._run_loop(
+            messages,
+            tool_decls,
+            parse_dashboard=False,
+            progress_callback=progress_callback,
+            usage_user_id=web_uid,
+        )
 
         # Persist assistant reply (or error note) for context continuity
         if result.success:
-            conversation_manager.add_message(session_id, "assistant", result.content)
+            conversation_manager.add_message(session_id, "assistant", result.content, user_id=web_uid)
         else:
             error_note = f"[分析失败] {result.error or '未知错误'}"
-            conversation_manager.add_message(session_id, "assistant", error_note)
+            conversation_manager.add_message(session_id, "assistant", error_note, user_id=web_uid)
 
         return result
 
-    def _run_loop(self, messages: List[Dict[str, Any]], tool_decls: List[Dict[str, Any]], parse_dashboard: bool, progress_callback: Optional[Callable] = None) -> AgentResult:
+    def _run_loop(
+        self,
+        messages: List[Dict[str, Any]],
+        tool_decls: List[Dict[str, Any]],
+        parse_dashboard: bool,
+        progress_callback: Optional[Callable] = None,
+        *,
+        usage_user_id: Optional[str] = None,
+    ) -> AgentResult:
         """Delegate to the shared runner and adapt the result.
 
         This preserves the exact same observable behaviour as the original
@@ -618,6 +634,7 @@ class AgentExecutor:
             max_steps=self.max_steps,
             progress_callback=progress_callback,
             max_wall_clock_seconds=self.timeout_seconds,
+            usage_user_id=usage_user_id,
         )
 
         model_str = loop_result.model

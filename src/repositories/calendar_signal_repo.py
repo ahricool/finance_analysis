@@ -20,22 +20,32 @@ class CalendarSignalRepo:
     def __init__(self, db: Optional[DatabaseManager] = None):
         self.db = db or get_db()
 
-    def list_by_date(self, signal_date: date) -> List[CalendarSignal]:
+    def list_by_date(
+        self,
+        signal_date: date,
+        user_id: Optional[str] = None,
+    ) -> List[CalendarSignal]:
         with self.db.get_session() as session:
-            return session.execute(
+            stmt = (
                 select(CalendarSignal)
                 .where(CalendarSignal.signal_date == signal_date)
                 .order_by(CalendarSignal.created_at.desc())
-            ).scalars().all()
+            )
+            if user_id is not None:
+                stmt = stmt.where(CalendarSignal.user_id == user_id)
+            return session.execute(stmt).scalars().all()
 
     def create(
         self,
+        *,
+        user_id: str,
         signal_date: date,
         title: str,
         content: Optional[str] = None,
         signal_type: Optional[str] = None,
     ) -> CalendarSignal:
         item = CalendarSignal(
+            user_id=user_id,
             signal_date=signal_date,
             title=title.strip(),
             content=(content or '').strip() or None,
@@ -55,6 +65,8 @@ class CalendarSignalRepo:
     def update(
         self,
         item_id: int,
+        *,
+        user_id: Optional[str] = None,
         title: Optional[str] = None,
         content: Optional[str] = None,
         signal_type: Optional[str] = None,
@@ -62,6 +74,8 @@ class CalendarSignalRepo:
         def _write(session: Session) -> Optional[CalendarSignal]:
             obj = session.get(CalendarSignal, item_id)
             if obj is None:
+                return None
+            if user_id is not None and obj.user_id != user_id:
                 return None
             if title is not None:
                 obj.title = title.strip()
@@ -76,10 +90,12 @@ class CalendarSignalRepo:
 
         return self.db._run_write_transaction('calendar_signals.update', _write)
 
-    def delete(self, item_id: int) -> bool:
+    def delete(self, item_id: int, user_id: Optional[str] = None) -> bool:
         def _write(session: Session) -> bool:
             obj = session.get(CalendarSignal, item_id)
             if obj is None:
+                return False
+            if user_id is not None and obj.user_id != user_id:
                 return False
             session.delete(obj)
             return True

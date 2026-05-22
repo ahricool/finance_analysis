@@ -48,6 +48,10 @@ class AuthApiTestCase(unittest.TestCase):
         )
         os.environ["ENV_FILE"] = str(self.env_path)
         os.environ["DATABASE_PATH"] = str(self.data_dir / "test.db")
+        os.environ.pop("AHRI_INITIAL_PASSWORD", None)
+        from src.storage import DatabaseManager
+
+        DatabaseManager.reset_instance()
         Config.reset_instance()
 
         self.auth_patcher = patch.object(auth, "_is_auth_enabled_from_env", return_value=True)
@@ -58,6 +62,9 @@ class AuthApiTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         self.auth_patcher.stop()
         self.data_dir_patcher.stop()
+        from src.storage import DatabaseManager
+
+        DatabaseManager.reset_instance()
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("DATABASE_PATH", None)
@@ -86,7 +93,7 @@ class AuthApiTestCase(unittest.TestCase):
         response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(password="newpass123", passwordConfirm="newpass123"),
+                auth_endpoint.LoginRequest(username="ahri", password="newpass123", passwordConfirm="newpass123"),
             )
         )
         self.assertEqual(response.status_code, 200)
@@ -97,7 +104,7 @@ class AuthApiTestCase(unittest.TestCase):
         response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(password="pass1", passwordConfirm="pass2"),
+                auth_endpoint.LoginRequest(username="ahri", password="pass1", passwordConfirm="pass2"),
             )
         )
         self.assertEqual(response.status_code, 400)
@@ -107,7 +114,7 @@ class AuthApiTestCase(unittest.TestCase):
         first_response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(password="mypass456", passwordConfirm="mypass456"),
+                auth_endpoint.LoginRequest(username="ahri", password="mypass456", passwordConfirm="mypass456"),
             )
         )
         self.assertEqual(first_response.status_code, 200)
@@ -115,7 +122,7 @@ class AuthApiTestCase(unittest.TestCase):
         response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(password="mypass456"),
+                auth_endpoint.LoginRequest(username="ahri", password="mypass456"),
             )
         )
         self.assertEqual(response.status_code, 200)
@@ -125,7 +132,7 @@ class AuthApiTestCase(unittest.TestCase):
         first_response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(password="correct", passwordConfirm="correct"),
+                auth_endpoint.LoginRequest(username="ahri", password="correct", passwordConfirm="correct"),
             )
         )
         self.assertEqual(first_response.status_code, 200)
@@ -133,7 +140,7 @@ class AuthApiTestCase(unittest.TestCase):
         response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(password="wrong"),
+                auth_endpoint.LoginRequest(username="ahri", password="wrong"),
             )
         )
         self.assertEqual(response.status_code, 401)
@@ -147,7 +154,7 @@ class AuthApiTestCase(unittest.TestCase):
         login_response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(password="passwd6", passwordConfirm="passwd6"),
+                auth_endpoint.LoginRequest(username="ahri", password="passwd6", passwordConfirm="passwd6"),
             )
         )
         self.assertEqual(login_response.status_code, 200)
@@ -171,7 +178,7 @@ class AuthApiTestCase(unittest.TestCase):
         first_response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(password="oldpass6", passwordConfirm="oldpass6"),
+                auth_endpoint.LoginRequest(username="ahri", password="oldpass6", passwordConfirm="oldpass6"),
             )
         )
         self.assertEqual(first_response.status_code, 200)
@@ -191,7 +198,7 @@ class AuthApiTestCase(unittest.TestCase):
         first_response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(password="actual6", passwordConfirm="actual6"),
+                auth_endpoint.LoginRequest(username="ahri", password="actual6", passwordConfirm="actual6"),
             )
         )
         self.assertEqual(first_response.status_code, 200)
@@ -267,7 +274,7 @@ class AuthApiTestCase(unittest.TestCase):
         call_next = AsyncMock(return_value=next_response)
 
         with patch("api.middlewares.auth.is_auth_enabled", return_value=True):
-            with patch("api.middlewares.auth.verify_session", return_value=True):
+            with patch("api.middlewares.auth.parse_session_user_uid", return_value="test-uid"):
                 response = asyncio.run(middleware.dispatch(request, call_next))
 
         self.assertEqual(response.status_code, 200)
@@ -519,7 +526,7 @@ class AuthApiTestCase(unittest.TestCase):
         )
         with patch.object(auth, "_is_auth_enabled_from_env", side_effect=self._read_auth_enabled_from_env):
             auth.refresh_auth_state()
-            with patch.object(auth_endpoint, "create_session", return_value=""):
+            with patch("src.auth.create_session", return_value=""):
                 response = asyncio.run(
                     auth_endpoint.auth_update_settings(
                         self._build_request(),

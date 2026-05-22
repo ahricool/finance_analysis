@@ -19,6 +19,7 @@ const redirect = computed(() =>
   rawRedirect.value.startsWith('/') && !rawRedirect.value.startsWith('//') ? rawRedirect.value : '/',
 );
 
+const username = ref('ahri');
 const password = ref('');
 const passwordConfirm = ref('');
 const isSubmitting = ref(false);
@@ -33,6 +34,18 @@ function onMouseMove(e: MouseEvent) {
     x: e.clientX / window.innerWidth - 0.5,
     y: e.clientY / window.innerHeight - 0.5,
   };
+}
+
+function onUsernameInput(e: Event) {
+  username.value = (e.target as HTMLInputElement).value;
+}
+
+function onPasswordInput(e: Event) {
+  password.value = (e.target as HTMLInputElement).value;
+}
+
+function onPasswordConfirmInput(e: Event) {
+  passwordConfirm.value = (e.target as HTMLInputElement).value;
 }
 
 onMounted(() => {
@@ -63,7 +76,11 @@ async function handleSubmit(e: Event) {
   }
   isSubmitting.value = true;
   try {
-    const result = await login(password.value, isFirstTime.value ? passwordConfirm.value : undefined);
+    const result = await login(
+      password.value,
+      isFirstTime.value ? passwordConfirm.value : undefined,
+      username.value.trim() || 'ahri',
+    );
     if (result.success) {
       await router.replace(redirect.value);
     } else {
@@ -155,7 +172,7 @@ async function handleSubmit(e: Event) {
               </template>
               <template v-else>
                 <Lock class="h-5 w-5 text-[var(--login-accent-text)]" />
-                <span>管理员登录</span>
+                <span>用户登录</span>
               </template>
             </h1>
             <p class="mt-2 text-sm text-[var(--login-text-secondary)]">
@@ -170,6 +187,20 @@ async function handleSubmit(e: Event) {
           <form class="space-y-6" @submit="handleSubmit">
             <div class="space-y-4">
               <Input
+                id="username"
+                type="text"
+                appearance="login"
+                icon-type="key"
+                label="用户名"
+                placeholder="默认管理员 ahri"
+                :value="username"
+                :disabled="isSubmitting"
+                autocomplete="username"
+                data-testid="login-username"
+                @input="onUsernameInput"
+              />
+
+              <Input
                 id="password"
                 type="password"
                 appearance="login"
@@ -182,7 +213,7 @@ async function handleSubmit(e: Event) {
                 autofocus
                 :autocomplete="isFirstTime ? 'new-password' : 'current-password'"
                 data-testid="login-password"
-                @input="password = ($event.target as HTMLInputElement).value"
+                @input="onPasswordInput"
               />
 
               <Input
@@ -197,7 +228,7 @@ async function handleSubmit(e: Event) {
                 :value="passwordConfirm"
                 :disabled="isSubmitting"
                 autocomplete="new-password"
-                @input="passwordConfirm = ($event.target as HTMLInputElement).value"
+                @input="onPasswordConfirmInput"
               />
             </div>
 

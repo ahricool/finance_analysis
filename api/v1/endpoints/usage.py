@@ -6,9 +6,9 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
-from api.deps import get_database_manager
+from api.deps import get_database_manager, get_effective_user_uid
 from api.v1.schemas.usage import UsageSummaryResponse
 from src.storage import DatabaseManager
 
@@ -40,6 +40,7 @@ def _date_range(period: str):
     description="Aggregate token consumption by period, call type, and model.",
 )
 def get_usage_summary(
+    http_request: Request,
     period: str = Query("month", description="'today' | 'month' | 'all'"),
     db_manager: DatabaseManager = Depends(get_database_manager),
 ) -> UsageSummaryResponse:
@@ -48,7 +49,13 @@ def get_usage_summary(
 
     from_dt, to_dt = _date_range(period)
 
-    data = db_manager.get_llm_usage_summary(from_dt, to_dt)
+    from src.auth import is_auth_enabled
+
+    if is_auth_enabled():
+        uid = get_effective_user_uid(http_request)
+    else:
+        uid = None
+    data = db_manager.get_llm_usage_summary(from_dt, to_dt, user_id=uid)
 
     return UsageSummaryResponse(
         period=period,

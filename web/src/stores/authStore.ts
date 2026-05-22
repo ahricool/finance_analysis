@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { authApi } from '../api/auth';
+import { authApi, type AuthStatusResponse } from '../api/auth';
 import { createParsedApiError, getParsedApiError, type ParsedApiError } from '../api/error';
 import { useStockPoolStore } from './stockPoolStore';
 
@@ -24,6 +24,7 @@ export const useAuthStore = defineStore('auth', () => {
   const passwordSet = ref(false);
   const passwordChangeable = ref(false);
   const setupState = ref<'enabled' | 'password_retained' | 'no_password'>('no_password');
+  const currentUser = ref<AuthStatusResponse['user']>(null);
   const isLoading = ref(true);
   const loadError = ref<ParsedApiError | null>(null);
 
@@ -37,6 +38,7 @@ export const useAuthStore = defineStore('auth', () => {
       passwordSet.value = status.passwordSet ?? false;
       passwordChangeable.value = status.passwordChangeable ?? false;
       setupState.value = status.setupState;
+      currentUser.value = status.user ?? null;
       if (status.authEnabled && !status.loggedIn) {
         useStockPoolStore.getState().resetDashboardState();
       }
@@ -47,6 +49,7 @@ export const useAuthStore = defineStore('auth', () => {
       passwordSet.value = false;
       passwordChangeable.value = false;
       setupState.value = 'no_password';
+      currentUser.value = null;
       useStockPoolStore.getState().resetDashboardState();
     } finally {
       isLoading.value = false;
@@ -56,9 +59,10 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(
     password: string,
     passwordConfirm?: string,
+    username = 'ahri',
   ): Promise<{ success: boolean; error?: ParsedApiError }> {
     try {
-      await authApi.login(password, passwordConfirm);
+      await authApi.login(password, passwordConfirm, username);
       await fetchStatus();
       return { success: true };
     } catch (err: unknown) {
@@ -100,6 +104,7 @@ export const useAuthStore = defineStore('auth', () => {
     passwordSet,
     passwordChangeable,
     setupState,
+    currentUser,
     isLoading,
     loadError,
     login,
