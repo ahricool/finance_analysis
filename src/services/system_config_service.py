@@ -276,8 +276,8 @@ class SystemConfigService:
         channel: str,
         items: Sequence[Dict[str, str]],
         mask_token: str = "******",
-        title: str = "DSA 通知测试",
-        content: str = "这是一条来自 DSA Web 设置页的通知测试消息。",
+        title: str = "Finance Analysis 通知测试",
+        content: str = "这是一条来自 Finance Analysis 设置页的通知测试消息。",
         timeout_seconds: float = 20.0,
     ) -> Dict[str, Any]:
         """Send one real notification test without persisting submitted values."""
@@ -408,7 +408,7 @@ class SystemConfigService:
         return self.update(
             config_version=config_version,
             items=updates,
-            mask_token="__DSA_IMPORT_LITERAL_MASK__",
+            mask_token="__FA_IMPORT_LITERAL_MASK__",
             reload_now=reload_now,
         )
 
@@ -911,7 +911,7 @@ class SystemConfigService:
             {
                 "type": "function",
                 "function": {
-                    "name": "dsa_probe_echo",
+                    "name": "fa_probe_echo",
                     "description": "Return the provided text.",
                     "parameters": {
                         "type": "object",
@@ -929,17 +929,17 @@ class SystemConfigService:
                     selected_api_key=selected_api_key,
                     base_url=base_url,
                     timeout_seconds=timeout_seconds,
-                    messages=[{"role": "user", "content": "Call the dsa_probe_echo tool with text set to ok."}],
+                    messages=[{"role": "user", "content": "Call the fa_probe_echo tool with text set to ok."}],
                     max_tokens=64,
                     extra={
                         "tools": tools,
-                        "tool_choice": {"type": "function", "function": {"name": "dsa_probe_echo"}},
+                        "tool_choice": {"type": "function", "function": {"name": "fa_probe_echo"}},
                     },
                 )
             )
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             tool_names = cls._extract_llm_tool_call_names(response)
-            if "dsa_probe_echo" not in tool_names:
+            if "fa_probe_echo" not in tool_names:
                 return cls._build_llm_capability_result(
                     capability="tools",
                     status="failed",

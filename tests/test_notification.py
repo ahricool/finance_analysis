@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-A股自选股智能分析系统 - 通知服务单元测试
+Finance Analysis - 通知服务单元测试
 ===================================
 
 职责：
@@ -707,7 +707,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
     def test_send_to_ntfy_via_notification_service(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
     ):
-        cfg = _make_config(ntfy_url="https://ntfy.sh/dsa-topic")
+        cfg = _make_config(ntfy_url="https://ntfy.sh/fa-topic")
         mock_get_config.return_value = cfg
         mock_post.return_value = _make_response(200)
 
@@ -719,7 +719,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
         self.assertEqual(mock_post.call_args.args[0], "https://ntfy.sh")
-        self.assertEqual(mock_post.call_args.kwargs["json"]["topic"], "dsa-topic")
+        self.assertEqual(mock_post.call_args.kwargs["json"]["topic"], "fa-topic")
 
     @mock.patch("src.notification.get_config")
     def test_ntfy_url_without_topic_is_not_available(self, mock_get_config: mock.MagicMock):
@@ -734,7 +734,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
     def test_ntfy_url_with_unsupported_scheme_is_not_available(
         self, mock_get_config: mock.MagicMock
     ):
-        mock_get_config.return_value = _make_config(ntfy_url="ntfy://ntfy.sh/dsa-topic")
+        mock_get_config.return_value = _make_config(ntfy_url="ntfy://ntfy.sh/fa-topic")
 
         service = NotificationService()
 
@@ -747,7 +747,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
     ):
         cfg = _make_config(
-            ntfy_url="https://ntfy.sh/dsa-topic",
+            ntfy_url="https://ntfy.sh/fa-topic",
             markdown_to_image_channels=["ntfy"],
         )
         mock_get_config.return_value = cfg

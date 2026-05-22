@@ -112,8 +112,8 @@ class CustomWebhookSender:
             try:
                 if self._is_discord_webhook(url):
                     files = {"file": ("report.png", image_bytes, "image/png")}
-                    data = {"content": "📈 股票智能分析报告"}
-                    headers = {"User-Agent": "StockAnalysis/1.0"}
+                    data = {"content": "📈 Finance Analysis 报告"}
+                    headers = {"User-Agent": "FinanceAnalysis/1.0"}
                     if self._custom_webhook_bearer_token:
                         headers["Authorization"] = (
                             f"Bearer {self._custom_webhook_bearer_token}"
