@@ -57,7 +57,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
-        self._orig_fa_desktop_mode = os.environ.get("FA_DESKTOP_MODE")
         self._orig_database_path = os.environ.get("DATABASE_PATH")
         os.environ["ENV_FILE"] = str(self.env_path)
         os.environ["DATABASE_PATH"] = str(Path(self.temp_dir.name) / "system_config_api_test.db")
@@ -72,10 +71,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
         Config.reset_instance()
         self._verify_session_patch.stop()
         os.environ.pop("ENV_FILE", None)
-        if self._orig_fa_desktop_mode is None:
-            os.environ.pop("FA_DESKTOP_MODE", None)
-        else:
-            os.environ["FA_DESKTOP_MODE"] = self._orig_fa_desktop_mode
         if self._orig_database_path is None:
             os.environ.pop("DATABASE_PATH", None)
         else:
@@ -338,15 +333,57 @@ class SystemConfigApiTestCase(unittest.TestCase):
         self.assertEqual(context.exception.status_code, 400)
         self.assertEqual(context.exception.detail["error"], "invalid_import_file")
 
-    def test_config_env_endpoints_work_outside_desktop_mode(self) -> None:
-        with patch.dict(os.environ, {"FA_DESKTOP_MODE": "false"}, clear=False):
-            current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()
+    def test_config_env_endpoints_work_with_auth_and_session(self) -> None:
+        current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()
 
-            export_payload = system_config.export_system_config(
+        export_payload = system_config.export_system_config(
+            request=self._build_request(),
+            service=self.service,
+        ).model_dump()
+        import_payload = system_config.import_system_config(
+            request_obj=self._build_request(),
+            request=ImportSystemConfigRequest(
+                config_version=current["config_version"],
+                content="STOCK_LIST=300750\n",
+                reload_now=False,
+            ),
+            service=self.service,
+        ).model_dump()
+
+        self.assertIn("STOCK_LIST=600519,000001", export_payload["content"])
+        self.assertTrue(import_payload["success"])
+        self.assertEqual(self.manager.read_config_map()["STOCK_LIST"], "300750")
+
+    def test_config_env_endpoints_reject_without_backup_access(self) -> None:
+        self.env_path.write_text(
+            "\n".join(
+                [
+                    "STOCK_LIST=600519,000001",
+                    "GEMINI_API_KEY=secret-key-value",
+                    "SCHEDULE_TIME=18:00",
+                    "LOG_LEVEL=INFO",
+                    "ADMIN_AUTH_ENABLED=false",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.manager = ConfigManager(env_path=self.env_path)
+        self.service = SystemConfigService(manager=self.manager)
+        Config.reset_instance()
+
+        current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()
+
+        with self.assertRaises(HTTPException) as export_ctx:
+            system_config.export_system_config(
                 request=self._build_request(),
                 service=self.service,
-            ).model_dump()
-            import_payload = system_config.import_system_config(
+            )
+        self.assertEqual(export_ctx.exception.status_code, 403)
+        self.assertEqual(export_ctx.exception.detail["error"], "env_backup_access_denied")
+
+        with self.assertRaises(HTTPException) as import_ctx:
+            system_config.import_system_config(
                 request_obj=self._build_request(),
                 request=ImportSystemConfigRequest(
                     config_version=current["config_version"],
@@ -354,63 +391,12 @@ class SystemConfigApiTestCase(unittest.TestCase):
                     reload_now=False,
                 ),
                 service=self.service,
-            ).model_dump()
-
-            self.assertIn("STOCK_LIST=600519,000001", export_payload["content"])
-            self.assertTrue(import_payload["success"])
-            self.assertEqual(self.manager.read_config_map()["STOCK_LIST"], "300750")
-
-    def test_config_env_endpoints_reject_without_backup_access(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"FA_DESKTOP_MODE": "false"},
-            clear=False,
-        ):
-            self.env_path.write_text(
-                "\n".join(
-                    [
-                        "STOCK_LIST=600519,000001",
-                        "GEMINI_API_KEY=secret-key-value",
-                        "SCHEDULE_TIME=18:00",
-                        "LOG_LEVEL=INFO",
-                        "ADMIN_AUTH_ENABLED=false",
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
             )
-            self.manager = ConfigManager(env_path=self.env_path)
-            self.service = SystemConfigService(manager=self.manager)
-            Config.reset_instance()
-
-            current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()
-
-            with self.assertRaises(HTTPException) as export_ctx:
-                system_config.export_system_config(
-                    request=self._build_request(),
-                    service=self.service,
-                )
-            self.assertEqual(export_ctx.exception.status_code, 403)
-            self.assertEqual(export_ctx.exception.detail["error"], "env_backup_access_denied")
-
-            with self.assertRaises(HTTPException) as import_ctx:
-                system_config.import_system_config(
-                    request_obj=self._build_request(),
-                    request=ImportSystemConfigRequest(
-                        config_version=current["config_version"],
-                        content="STOCK_LIST=300750\n",
-                        reload_now=False,
-                    ),
-                    service=self.service,
-                )
-            self.assertEqual(import_ctx.exception.status_code, 403)
-            self.assertEqual(import_ctx.exception.detail["error"], "env_backup_access_denied")
+        self.assertEqual(import_ctx.exception.status_code, 403)
+        self.assertEqual(import_ctx.exception.detail["error"], "env_backup_access_denied")
 
     def test_config_env_endpoints_require_valid_admin_session(self) -> None:
-        with (
-            patch.dict(os.environ, {"FA_DESKTOP_MODE": "false"}, clear=False),
-            patch.object(system_config, "verify_session", return_value=False),
-        ):
+        with patch.object(system_config, "verify_session", return_value=False):
             current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()
             invalid_request = self._build_request({system_config.COOKIE_NAME: "invalid-session"})
 
@@ -431,38 +417,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
                 )
             self.assertEqual(import_ctx.exception.status_code, 401)
             self.assertEqual(import_ctx.exception.detail["error"], "env_backup_access_denied")
-
-    def test_config_env_endpoints_require_explicit_true_for_desktop_bypass(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"FA_DESKTOP_MODE": "desktop"},
-            clear=False,
-        ):
-            self.env_path.write_text(
-                "\n".join(
-                    [
-                        "STOCK_LIST=600519,000001",
-                        "GEMINI_API_KEY=secret-key-value",
-                        "SCHEDULE_TIME=18:00",
-                        "LOG_LEVEL=INFO",
-                        "ADMIN_AUTH_ENABLED=false",
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            self.manager = ConfigManager(env_path=self.env_path)
-            self.service = SystemConfigService(manager=self.manager)
-            Config.reset_instance()
-
-            with self.assertRaises(HTTPException) as export_ctx:
-                system_config.export_system_config(
-                    request=self._build_request(),
-                    service=self.service,
-                )
-
-            self.assertEqual(export_ctx.exception.status_code, 403)
-            self.assertEqual(export_ctx.exception.detail["error"], "env_backup_access_denied")
 
     def test_config_env_endpoints_return_server_error_for_storage_permission_error(self) -> None:
         current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()

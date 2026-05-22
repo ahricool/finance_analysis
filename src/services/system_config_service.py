@@ -388,10 +388,6 @@ class SystemConfigService:
             "updated_at": self._manager.get_updated_at(),
         }
 
-    def export_desktop_env(self) -> Dict[str, Any]:
-        """Return the raw active `.env` content for desktop backup compatibility."""
-        return self.export_env()
-
     def import_env(
         self,
         *,
@@ -409,20 +405,6 @@ class SystemConfigService:
             config_version=config_version,
             items=updates,
             mask_token="__FA_IMPORT_LITERAL_MASK__",
-            reload_now=reload_now,
-        )
-
-    def import_desktop_env(
-        self,
-        *,
-        config_version: str,
-        content: str,
-        reload_now: bool = True,
-    ) -> Dict[str, Any]:
-        """Merge imported `.env` assignments for desktop backup compatibility."""
-        return self.import_env(
-            config_version=config_version,
-            content=content,
             reload_now=reload_now,
         )
 
@@ -1422,7 +1404,7 @@ class SystemConfigService:
         warning = (
             f"检测到已同步清理失效的运行时模型引用：{cleaned_text}。"
             "如需恢复，请先补回对应渠道模型列表后重新选择；"
-            "也可用桌面端导出备份或手动 .env 还原之前的 LLM_* / "
+            "也可在系统设置中使用「导出备份」或手动编辑 .env 还原之前的 LLM_* / "
             "LITELLM_MODEL / AGENT_LITELLM_MODEL / VISION_MODEL / LLM_TEMPERATURE。"
         )
         return [warning]

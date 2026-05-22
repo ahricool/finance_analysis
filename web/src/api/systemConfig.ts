@@ -141,10 +141,6 @@ export const systemConfigApi = {
     return toCamelCase<ExportSystemConfigResponse>(response.data);
   },
 
-  async exportDesktopEnv(): Promise<ExportSystemConfigResponse> {
-    return this.exportEnv();
-  },
-
   async getSchema(): Promise<SystemConfigSchemaResponse> {
     const response = await apiClient.get<Record<string, unknown>>('/api/v1/system/config/schema');
     return toCamelCase<SystemConfigSchemaResponse>(response.data);
@@ -169,10 +165,6 @@ export const systemConfigApi = {
       toSnakeImportPayload(payload),
     );
     return toCamelCase<UpdateSystemConfigResponse>(response.data);
-  },
-
-  async importDesktopEnv(payload: ImportSystemConfigRequest): Promise<UpdateSystemConfigResponse> {
-    return this.importEnv(payload);
   },
 
   async testLLMChannel(payload: TestLLMChannelRequest): Promise<TestLLMChannelResponse> {
