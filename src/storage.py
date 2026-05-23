@@ -766,10 +766,18 @@ class DatabaseManager:
         from src.db_schema import run_user_scoped_migrations
         from src.repositories.user_repo import UserRepository
 
-        admin_uid = UserRepository(self).ensure_default_admin()
-        run_user_scoped_migrations(self._engine, admin_uid)
-
+        # Mark the manager usable before repository-driven bootstrap work.
+        # ``ensure_default_admin`` uses ``get_session()`` on this same manager;
+        # delaying this flag leaves a half-initialized singleton that later
+        # surfaces as a 500 during first login.
         self._initialized = True
+        try:
+            admin_uid = UserRepository(self).ensure_default_admin()
+            run_user_scoped_migrations(self._engine, admin_uid)
+        except Exception:
+            self._initialized = False
+            raise
+
         logger.info(f"数据库初始化完成: {db_url}")
 
         # 注册退出钩子，确保程序退出时关闭数据库连接
@@ -780,6 +788,8 @@ class DatabaseManager:
         """获取单例实例"""
         if cls._instance is None:
             cls._instance = cls()
+        elif not getattr(cls._instance, '_initialized', False):
+            cls._instance.__init__()
         return cls._instance
     
     @classmethod
@@ -787,7 +797,9 @@ class DatabaseManager:
         """重置单例（用于测试）"""
         if cls._instance is not None:
             if hasattr(cls._instance, '_engine') and cls._instance._engine is not None:
-                cls._instance._engine.dispose()
+                dispose = getattr(cls._instance._engine, "dispose", None)
+                if callable(dispose):
+                    dispose()
             cls._instance._initialized = False
             cls._instance = None
 
@@ -803,8 +815,10 @@ class DatabaseManager:
         """
         try:
             if engine is not None:
-                engine.dispose()
-                logger.debug("数据库引擎已清理")
+                dispose = getattr(engine, "dispose", None)
+                if callable(dispose):
+                    dispose()
+                    logger.debug("数据库引擎已清理")
         except Exception as e:
             logger.warning(f"清理数据库引擎时出错: {e}")
 

@@ -307,6 +307,38 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         call_next.assert_not_awaited()
 
+    def test_database_manager_is_usable_during_default_admin_bootstrap(self) -> None:
+        from src.storage import DatabaseManager
+
+        seen = {}
+
+        class BootstrapRepo:
+            def __init__(self, db):
+                seen["initialized_during_bootstrap"] = getattr(db, "_initialized", False)
+
+            def ensure_default_admin(self):
+                return "default-user-uid"
+
+        fake_config = SimpleNamespace(
+            get_db_url=lambda: "postgresql+psycopg2://user:pass@127.0.0.1:5432/db",
+            db_pool_size=1,
+            db_max_overflow=0,
+            db_pool_recycle=1800,
+        )
+
+        DatabaseManager.reset_instance()
+        with patch("src.storage.get_config", return_value=fake_config):
+            with patch("src.storage.create_engine", return_value=object()):
+                with patch("src.storage.sessionmaker", return_value=lambda: object()):
+                    with patch("src.db_migrations.run_alembic_upgrade_head"):
+                        with patch("src.repositories.user_repo.UserRepository", side_effect=BootstrapRepo):
+                            with patch("src.db_schema.run_user_scoped_migrations"):
+                                db = DatabaseManager.get_instance()
+
+        self.assertTrue(seen["initialized_during_bootstrap"])
+        self.assertTrue(getattr(db, "_initialized", False))
+        DatabaseManager.reset_instance()
+
     def test_auth_settings_requires_session_when_auth_enabled(self) -> None:
         scope = {
             "type": "http",
