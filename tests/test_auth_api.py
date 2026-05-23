@@ -275,10 +275,37 @@ class AuthApiTestCase(unittest.TestCase):
 
         with patch("api.middlewares.auth.is_auth_enabled", return_value=True):
             with patch("api.middlewares.auth.parse_session_user_uid", return_value="test-uid"):
-                response = asyncio.run(middleware.dispatch(request, call_next))
+                with patch("api.middlewares.auth.UserRepository") as repo_cls:
+                    repo_cls.return_value.get_by_uid.return_value = SimpleNamespace(uid="test-uid")
+                    response = asyncio.run(middleware.dispatch(request, call_next))
 
         self.assertEqual(response.status_code, 200)
         call_next.assert_awaited_once()
+
+    def test_protected_api_rejects_session_for_missing_user(self) -> None:
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/system/config",
+            "headers": [(b"cookie", b"fa_session=test-session")],
+            "query_string": b"",
+            "scheme": "http",
+            "client": ("127.0.0.1", 1234),
+            "server": ("testserver", 80),
+            "root_path": "",
+        }
+        request = Request(scope)
+        middleware = AuthMiddleware(app=MagicMock())
+        call_next = AsyncMock(return_value=Response(status_code=200))
+
+        with patch("api.middlewares.auth.is_auth_enabled", return_value=True):
+            with patch("api.middlewares.auth.parse_session_user_uid", return_value="deleted-uid"):
+                with patch("api.middlewares.auth.UserRepository") as repo_cls:
+                    repo_cls.return_value.get_by_uid.return_value = None
+                    response = asyncio.run(middleware.dispatch(request, call_next))
+
+        self.assertEqual(response.status_code, 401)
+        call_next.assert_not_awaited()
 
     def test_auth_settings_requires_session_when_auth_enabled(self) -> None:
         scope = {

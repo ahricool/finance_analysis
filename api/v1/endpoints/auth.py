@@ -39,7 +39,11 @@ router = APIRouter()
 
 
 def _ahri_user_uid() -> str | None:
-    u = UserRepository().get_by_username("ahri")
+    try:
+        u = UserRepository().get_by_username("ahri")
+    except Exception:
+        logger.warning("Failed to load default admin user", exc_info=True)
+        return None
     return u.uid if u else None
 
 
@@ -55,7 +59,11 @@ def _combined_password_exists() -> bool:
 def _verify_current_password_any_source(current_password: str) -> bool:
     if verify_stored_password(current_password):
         return True
-    return UserRepository().verify_plain_for_user("ahri", current_password)
+    try:
+        return UserRepository().verify_plain_for_user("ahri", current_password)
+    except Exception:
+        logger.warning("Failed to verify default admin password", exc_info=True)
+        return False
 
 
 class LoginRequest(BaseModel):
@@ -189,11 +197,11 @@ def _get_auth_status_dict(request: Request | None = None) -> dict:
     if auth_enabled and request:
         cookie_val = request.cookies.get(COOKIE_NAME)
         uid = parse_session_user_uid(cookie_val) if cookie_val else None
-        logged_in = uid is not None
         if uid:
             try:
                 u = UserRepository().get_by_uid(uid)
                 if u is not None:
+                    logged_in = True
                     user_payload = UserRepository().to_public_dict(u)
             except Exception:
                 logger.warning("Failed to load user for auth status", exc_info=True)

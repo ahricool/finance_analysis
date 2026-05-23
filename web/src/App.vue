@@ -13,7 +13,9 @@ const route = useRoute();
 const router = useRouter();
 
 onMounted(() => {
-  void auth.fetchStatus();
+  if (isLoading.value) {
+    void auth.fetchStatus();
+  }
 });
 
 watch(

@@ -76,6 +76,12 @@ class AuthStatusSetupStateTestCase(unittest.TestCase):
                 self.assertEqual(data["setupState"], "no_password")
                 self.assertFalse(data["authEnabled"])
 
+    def test_auth_defaults_to_enabled_when_key_missing(self) -> None:
+        self.env_path.write_text("", encoding="utf-8")
+        _reset_auth_globals()
+
+        self.assertTrue(auth.is_auth_enabled())
+
     def test_status_password_retained(self) -> None:
         """Scenario: Auth disabled but password exists on disk."""
         auth.set_initial_password("password123")
