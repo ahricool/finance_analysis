@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.auth import COOKIE_NAME, is_auth_enabled, parse_session_user_uid
+from src.repositories.user_repo import UserRepository
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not is_auth_enabled():
             return await call_next(request)
 
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         path = request.url.path
         if _path_exempt(path):
             return await call_next(request)
@@ -54,6 +58,27 @@ class AuthMiddleware(BaseHTTPMiddleware):
         cookie_val = request.cookies.get(COOKIE_NAME)
         user_uid = parse_session_user_uid(cookie_val) if cookie_val else None
         if not user_uid:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "unauthorized",
+                    "message": "Login required",
+                },
+            )
+
+        try:
+            user = UserRepository().get_by_uid(user_uid)
+        except Exception:
+            logger.exception("Failed to validate authenticated user")
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "unauthorized",
+                    "message": "Login required",
+                },
+            )
+
+        if user is None:
             return JSONResponse(
                 status_code=401,
                 content={
