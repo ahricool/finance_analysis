@@ -89,7 +89,7 @@ async function onLogoutConfirm() {
           <div
             v-if="currentUser"
             class="hidden max-w-[200px] items-center gap-2 rounded-xl border border-border/60 bg-card/80 px-2 py-1 text-xs sm:flex"
-            title="当前登录用户"
+            aria-label="当前登录用户"
           >
             <span
               class="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-[10px] font-semibold text-primary"
