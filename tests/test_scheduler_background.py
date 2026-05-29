@@ -13,25 +13,6 @@ class SchedulerBackgroundTaskTestCase(unittest.TestCase):
 
             self.assertIsNone(try_build_analysis_schedule_spec_from_config())
 
-    def test_pending_spec_register_and_pop(self) -> None:
-        from src.scheduler import (
-            AnalysisScheduleSpec,
-            pop_pending_analysis_schedule,
-            register_pending_analysis_schedule,
-        )
-
-        register_pending_analysis_schedule(
-            AnalysisScheduleSpec(
-                task=lambda: None,
-                schedule_time="18:00",
-                run_immediately=False,
-            )
-        )
-        popped = pop_pending_analysis_schedule()
-        self.assertIsNotNone(popped)
-        self.assertEqual(popped.schedule_time, "18:00")
-        self.assertIsNone(pop_pending_analysis_schedule())
-
     def test_bundle_rejects_invalid_initial_schedule_time(self) -> None:
         with self.assertRaisesRegex(ValueError, "25:99"):
             from src.scheduler import AnalysisScheduleSpec, AnalysisSchedulerBundle

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
@@ -27,9 +26,6 @@ logger = logging.getLogger(__name__)
 _JOB_DAILY_ANALYSIS = "analysis_daily"
 _JOB_SCHEDULE_SYNC = "analysis_schedule_time_sync"
 _JOB_PREFIX_BG = "analysis_bg_"
-
-_pending_analysis_schedule_spec: Optional["AnalysisScheduleSpec"] = None
-_pending_lock = threading.Lock()
 
 
 @dataclass
@@ -41,22 +37,6 @@ class AnalysisScheduleSpec:
     run_immediately: bool = True
     background_tasks: Optional[List[Dict[str, Any]]] = None
     schedule_time_provider: Optional[Callable[[], str]] = None
-
-
-def register_pending_analysis_schedule(spec: AnalysisScheduleSpec) -> None:
-    """Register schedule spec to be picked up by FastAPI lifespan (must run before uvicorn starts)."""
-    global _pending_analysis_schedule_spec
-    with _pending_lock:
-        _pending_analysis_schedule_spec = spec
-
-
-def pop_pending_analysis_schedule() -> Optional[AnalysisScheduleSpec]:
-    """Atomically take pending spec for embedded startup; returns None if nothing registered."""
-    global _pending_analysis_schedule_spec
-    with _pending_lock:
-        spec = _pending_analysis_schedule_spec
-        _pending_analysis_schedule_spec = None
-        return spec
 
 
 def _is_valid_schedule_time(schedule_time: str) -> bool:
@@ -230,8 +210,8 @@ class AnalysisSchedulerBundle:
 
 def try_build_analysis_schedule_spec_from_config() -> Optional[AnalysisScheduleSpec]:
     """
-    当未通过外部 ``register_pending_analysis_schedule`` 注册 pending spec 时，
-    若 ``SCHEDULE_ENABLED=true``，从当前配置构建 ``AnalysisScheduleSpec``。
+    若 ``SCHEDULE_ENABLED=true``，从当前配置构建 ``AnalysisScheduleSpec``；
+    否则返回 ``None``。
     """
     from src.config import get_config
 
@@ -288,12 +268,10 @@ def try_build_analysis_schedule_spec_from_config() -> Optional[AnalysisScheduleS
 
 def start_embedded_analysis_scheduler() -> Optional[AnalysisSchedulerBundle]:
     """
-    FastAPI lifespan 入口：优先消费外部注册的 pending spec；
-    若无且 ``SCHEDULE_ENABLED=true``，则按配置自动构建并启动。
+    FastAPI lifespan 入口：若 ``SCHEDULE_ENABLED=true``，按配置构建并启动调度器；
+    否则返回 ``None``，不启动。
     """
-    spec = pop_pending_analysis_schedule()
-    if spec is None:
-        spec = try_build_analysis_schedule_spec_from_config()
+    spec = try_build_analysis_schedule_spec_from_config()
     if spec is None:
         return None
     bundle = AnalysisSchedulerBundle(spec)
