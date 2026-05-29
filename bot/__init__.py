@@ -5,7 +5,6 @@
 ===================================
 
 通过 @机器人 或发送命令触发股票分析等功能。
-支持飞书、钉钉、企业微信、Telegram 等多平台。
 
 模块结构：
 - models.py: 统一的消息/响应模型
@@ -17,11 +16,7 @@
 使用方式：
 1. 配置环境变量（各平台的 Token 等）
 2. 启动 WebUI 服务
-3. 在各平台配置 Webhook URL：
-   - 飞书: http://your-server/bot/feishu
-   - 钉钉: http://your-server/bot/dingtalk
-   - 企业微信: http://your-server/bot/wecom
-   - Telegram: http://your-server/bot/telegram
+3. 在对应平台配置 Webhook URL
 
 支持的命令：
 - /analyze <股票代码>  - 分析指定股票

@@ -46,8 +46,8 @@ class BotPlatform(ABC):
     def platform_name(self) -> str:
         """
         平台标识名称
-        
-        用于路由匹配和日志标识，如 "feishu", "dingtalk"
+
+        用于路由匹配和日志标识。
         """
         pass
     

@@ -49,7 +49,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
                 [
                     "STOCK_LIST=600519,000001",
                     "GEMINI_API_KEY=secret-key-value",
-                    "SCHEDULE_TIME=18:00",
                     "LOG_LEVEL=INFO",
                     "ADMIN_AUTH_ENABLED=true",
                 ]
@@ -213,38 +212,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
         self.assertIn("\n\n# Secrets\n", env_content)
         self.assertIn("STOCK_LIST=600519,300750\n", env_content)
 
-    def test_put_config_returns_startup_only_schedule_warning(self) -> None:
-        current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()
-        payload = system_config.update_system_config(
-            request=UpdateSystemConfigRequest(
-                config_version=current["config_version"],
-                reload_now=True,
-                items=[
-                    {"key": "RUN_IMMEDIATELY", "value": "false"},
-                    {"key": "SCHEDULE_RUN_IMMEDIATELY", "value": "true"},
-                ],
-            ),
-            service=self.service,
-        ).model_dump()
-
-        self.assertTrue(payload["success"])
-        run_warning = next(
-            warning
-            for warning in payload["warnings"]
-            if "RUN_IMMEDIATELY 已写入 .env" in warning
-        )
-        schedule_warning = next(
-            warning
-            for warning in payload["warnings"]
-            if "SCHEDULE_RUN_IMMEDIATELY" in warning
-        )
-
-        self.assertIn("非 schedule 模式", run_warning)
-        self.assertNotIn("以 schedule 模式", run_warning)
-        self.assertIn("不会自动重建 scheduler", schedule_warning)
-        self.assertIn("以 schedule 模式重新启动后生效", schedule_warning)
-        self.assertNotIn("它属于启动期单次运行配置", schedule_warning)
-
     def test_export_system_config_returns_raw_env_content(self) -> None:
         self.env_path.write_text(
             "# Web config\nSTOCK_LIST=600519,000001\nGEMINI_API_KEY=secret-key-value\nADMIN_AUTH_ENABLED=true\n",
@@ -360,7 +327,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
                 [
                     "STOCK_LIST=600519,000001",
                     "GEMINI_API_KEY=secret-key-value",
-                    "SCHEDULE_TIME=18:00",
                     "LOG_LEVEL=INFO",
                     "ADMIN_AUTH_ENABLED=false",
                 ]
@@ -452,7 +418,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
                 [
                     "STOCK_LIST=600519,000001",
                     "GEMINI_API_KEY=secret-key-value",
-                    "SCHEDULE_TIME=18:00",
                     "LOG_LEVEL=INFO",
                     "ADMIN_AUTH_ENABLED=false",
                 ]
@@ -469,7 +434,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
                 [
                     "STOCK_LIST=600519,000001",
                     "GEMINI_API_KEY=secret-key-value",
-                    "SCHEDULE_TIME=18:00",
                     "LOG_LEVEL=INFO",
                     "ADMIN_AUTH_ENABLED=true",
                 ]
@@ -524,7 +488,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
         mock_test.assert_called_once()
         self.assertEqual(mock_test.call_args.kwargs["capability_checks"], ["json", "stream"])
 
-    @unittest.skip("uses removed channel config")
     def test_test_notification_channel_endpoint_returns_service_payload(self) -> None:
         with patch.object(
             self.service,
@@ -538,10 +501,10 @@ class SystemConfigApiTestCase(unittest.TestCase):
                 "latency_ms": 42,
                 "attempts": [
                     {
-                        "channel": "wechat",
+                        "channel": "ntfy",
                         "success": True,
                         "message": "sent",
-                        "target": "https://qyapi.example.com/cgi-bin/webhook/send?key=***",
+                        "target": "https://ntfy.sh/***",
                         "error_code": None,
                         "stage": "notification_send",
                         "retryable": False,
@@ -553,8 +516,8 @@ class SystemConfigApiTestCase(unittest.TestCase):
         ) as mock_test:
             payload = system_config.test_notification_channel(
                 request=TestNotificationChannelRequest(
-                    channel="wechat",
-                    items=[{"key": "WECHAT_WEBHOOK_URL", "value": "https://example.com/hook"}],
+                    channel="ntfy",
+                    items=[{"key": "NTFY_URL", "value": "https://ntfy.sh/fa-topic"}],
                     title="Finance Analysis 通知测试",
                     content="hello",
                     timeout_seconds=5,
@@ -563,34 +526,11 @@ class SystemConfigApiTestCase(unittest.TestCase):
             ).model_dump()
 
         self.assertTrue(payload["success"])
-        self.assertEqual(payload["attempts"][0]["channel"], "wechat")
+        self.assertEqual(payload["attempts"][0]["channel"], "ntfy")
         self.assertEqual(payload["attempts"][0]["latency_ms"], 42)
         mock_test.assert_called_once()
-        self.assertEqual(mock_test.call_args.kwargs["channel"], "wechat")
+        self.assertEqual(mock_test.call_args.kwargs["channel"], "ntfy")
         self.assertEqual(mock_test.call_args.kwargs["timeout_seconds"], 5)
-
-    @unittest.skip("uses removed channel config")
-    def test_test_notification_channel_schema_accepts_p6_channels(self) -> None:
-        ntfy_request = TestNotificationChannelRequest(
-            channel="ntfy",
-            items=[{"key": "NTFY_URL", "value": "https://ntfy.sh/fa-topic"}],
-            title="Finance Analysis 通知测试",
-            content="hello",
-            timeout_seconds=5,
-        )
-        gotify_request = TestNotificationChannelRequest(
-            channel="gotify",
-            items=[
-                {"key": "GOTIFY_URL", "value": "https://gotify.example"},
-                {"key": "GOTIFY_TOKEN", "value": "app-token"},
-            ],
-            title="Finance Analysis 通知测试",
-            content="hello",
-            timeout_seconds=5,
-        )
-
-        self.assertEqual(ntfy_request.channel, "ntfy")
-        self.assertEqual(gotify_request.channel, "gotify")
 
     def test_validate_returns_user_facing_model_message_without_internal_env_key_name(self) -> None:
         validation = self.service.validate(

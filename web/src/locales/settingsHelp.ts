@@ -66,7 +66,7 @@ const settingsHelpZhCN: SettingsHelpMap = {
   },
   'settings.notification.CUSTOM_WEBHOOK_URLS': {
     title: '自定义 Webhook',
-    summary: '配置任意支持 POST JSON 的通知端点，可用于钉钉、Bark 或自建服务。',
+    summary: '配置任意支持 POST JSON 的通知端点，可用于 Bark、Discord、Slack 或自建服务。',
     usage: '多个 URL 使用英文逗号分隔。Bark 可直接填写 https://api.day.app/YOUR_BARK_KEY。',
     valueNotes: [
       '未配置 CUSTOM_WEBHOOK_BODY_TEMPLATE 时，系统会按 URL 类型自动生成常见 payload。',
@@ -146,7 +146,7 @@ const settingsHelpEnUS: SettingsHelpMap = {
   },
   'settings.notification.CUSTOM_WEBHOOK_URLS': {
     title: 'Custom Webhook',
-    summary: 'Sends notifications to any endpoint that accepts POST JSON, such as DingTalk, Bark, or a self-hosted service.',
+    summary: 'Sends notifications to any endpoint that accepts POST JSON, such as Bark, Discord, Slack, or a self-hosted service.',
     usage: 'Separate multiple URLs with commas. For Bark, use https://api.day.app/YOUR_BARK_KEY.',
     valueNotes: [
       'Without CUSTOM_WEBHOOK_BODY_TEMPLATE, the sender auto-builds payloads for known URL types.',

@@ -747,7 +747,7 @@ class Config:
     ntfy_token: Optional[str] = None
 
     # 自定义 Webhook（支持多个，逗号分隔）
-    # 适用于：钉钉、自建服务等任意支持 POST JSON 的 Webhook
+    # 适用于：自建服务等任意支持 POST JSON 的 Webhook
     custom_webhook_urls: List[str] = field(default_factory=list)
     custom_webhook_bearer_token: Optional[str] = None  # Bearer Token（用于需要认证的 Webhook）
     custom_webhook_body_template: Optional[str] = None  # 自定义 Webhook JSON body 模板
@@ -832,10 +832,8 @@ class Config:
     https_proxy: Optional[str] = None # HTTPS 代理
     
     # === 定时任务配置 ===
-    schedule_enabled: bool = False            # 是否启用定时任务
-    schedule_time: str = "18:00"              # 每日推送时间（HH:MM 格式）
-    schedule_run_immediately: bool = True     # 启动时是否立即执行一次
-    run_immediately: bool = True              # 启动时是否立即执行一次（非定时模式）
+    # NOTE: 定时任务（启用/时间/启动立即执行）已全部写死在 src/scheduler.py，
+    # 不再从环境变量读取。如需修改，请编辑 src/scheduler.py 并重启进程。
     market_review_enabled: bool = True        # 是否启用大盘复盘
     # 大盘复盘市场区域：cn(A股)、us(美股)、both(两者)，us 适合仅关注美股的用户
     market_review_region: str = "cn"
@@ -909,18 +907,7 @@ class Config:
     bot_rate_limit_requests: int = 10     # 频率限制：窗口内最大请求数
     bot_rate_limit_window: int = 60       # 频率限制：窗口时间（秒）
     bot_admin_users: List[str] = field(default_factory=list)  # 管理员用户 ID 列表
-    
-    # 钉钉机器人
-    dingtalk_app_key: Optional[str] = None      # 应用 AppKey
-    dingtalk_app_secret: Optional[str] = None   # 应用 AppSecret
-    dingtalk_stream_enabled: bool = False       # 是否启用 Stream 模式（无需公网IP）
-    
-    # 企业微信机器人（回调模式）
-    wecom_corpid: Optional[str] = None              # 企业 ID
-    wecom_token: Optional[str] = None               # 回调 Token
-    wecom_encoding_aes_key: Optional[str] = None    # 消息加解密密钥
-    wecom_agent_id: Optional[str] = None            # 应用 AgentId
-    
+
     # Telegram 机器人 - 已有 telegram_bot_token, telegram_chat_id
     telegram_webhook_secret: Optional[str] = None   # Webhook 密钥
 
@@ -936,10 +923,6 @@ class Config:
     _WEBUI_RUNTIME_ENV_FILE_PRIORITY_KEYS = frozenset(
         {
             "STOCK_LIST",
-            "RUN_IMMEDIATELY",
-            "SCHEDULE_ENABLED",
-            "SCHEDULE_TIME",
-            "SCHEDULE_RUN_IMMEDIATELY",
         }
     )
     _BOOTSTRAP_RUNTIME_ENV_OVERRIDES_CAPTURED = False
@@ -1269,44 +1252,6 @@ class Config:
             default=True,
         )
 
-        # Preserve historical semantics for startup flags: only an explicit
-        # literal "true" enables immediate execution; empty strings stay False.
-        legacy_run_immediately_env = cls._resolve_env_value(
-            'RUN_IMMEDIATELY',
-            prefer_env_file=True,
-        )
-        legacy_run_immediately = (
-            legacy_run_immediately_env.lower() == 'true'
-            if legacy_run_immediately_env is not None
-            else True
-        )
-
-        schedule_run_immediately_env = cls._resolve_env_value(
-            'SCHEDULE_RUN_IMMEDIATELY',
-            prefer_env_file=True,
-        )
-        # Keep backward compatibility for container/process overrides:
-        # when RUN_IMMEDIATELY is explicitly provided by the runtime but the
-        # schedule-specific alias is absent, schedule mode should inherit the
-        # legacy process value instead of being pulled back to the persisted
-        # `.env` copy of SCHEDULE_RUN_IMMEDIATELY.
-        if (
-            not cls._had_bootstrap_runtime_env_key('SCHEDULE_RUN_IMMEDIATELY')
-            and cls._has_bootstrap_runtime_env_override('RUN_IMMEDIATELY')
-        ):
-            schedule_run_immediately = legacy_run_immediately
-        else:
-            schedule_run_immediately = (
-                schedule_run_immediately_env.lower() == 'true'
-                if schedule_run_immediately_env is not None
-                else legacy_run_immediately
-            )
-        schedule_time_value = cls._resolve_env_value(
-            'SCHEDULE_TIME',
-            default='18:00',
-            prefer_env_file=True,
-        )
-
         report_language_raw = cls._resolve_report_language_env_value(
             preexisting_report_language
         )
@@ -1514,14 +1459,6 @@ class Config:
             config_validate_mode=os.getenv('CONFIG_VALIDATE_MODE', 'warn').lower(),
             http_proxy=os.getenv('HTTP_PROXY'),
             https_proxy=os.getenv('HTTPS_PROXY'),
-            schedule_enabled=cls._resolve_env_value(
-                'SCHEDULE_ENABLED',
-                default='false',
-                prefer_env_file=True,
-            ).lower() == 'true',
-            schedule_time=(schedule_time_value or '18:00').strip() or '18:00',
-            schedule_run_immediately=schedule_run_immediately,
-            run_immediately=legacy_run_immediately,
             market_review_enabled=os.getenv('MARKET_REVIEW_ENABLED', 'true').lower() == 'true',
             market_review_region=cls._parse_market_review_region(
                 os.getenv('MARKET_REVIEW_REGION', 'cn')
@@ -1536,15 +1473,6 @@ class Config:
             bot_rate_limit_requests=parse_env_int(os.getenv('BOT_RATE_LIMIT_REQUESTS'), 10, field_name='BOT_RATE_LIMIT_REQUESTS', minimum=1),
             bot_rate_limit_window=parse_env_int(os.getenv('BOT_RATE_LIMIT_WINDOW'), 60, field_name='BOT_RATE_LIMIT_WINDOW', minimum=1),
             bot_admin_users=[u.strip() for u in os.getenv('BOT_ADMIN_USERS', '').split(',') if u.strip()],
-            # 钉钉机器人
-            dingtalk_app_key=os.getenv('DINGTALK_APP_KEY'),
-            dingtalk_app_secret=os.getenv('DINGTALK_APP_SECRET'),
-            dingtalk_stream_enabled=os.getenv('DINGTALK_STREAM_ENABLED', 'false').lower() == 'true',
-            # 企业微信机器人
-            wecom_corpid=os.getenv('WECOM_CORPID'),
-            wecom_token=os.getenv('WECOM_TOKEN'),
-            wecom_encoding_aes_key=os.getenv('WECOM_ENCODING_AES_KEY'),
-            wecom_agent_id=os.getenv('WECOM_AGENT_ID'),
             # Telegram
             telegram_webhook_secret=os.getenv('TELEGRAM_WEBHOOK_SECRET'),
             # 实时行情增强数据配置

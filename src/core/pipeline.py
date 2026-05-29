@@ -1935,7 +1935,6 @@ class StockAnalysisPipeline:
             if self.notifier.is_available():
                 channels = self.notifier.get_available_channels()
                 channels = self.notifier.get_channels_for_route("report", channels=channels)
-                context_success = self.notifier.send_to_context(report)
                 if channels and hasattr(self.notifier, "evaluate_noise_control"):
                     report_type_key = report_type.value if isinstance(report_type, ReportType) else str(report_type)
                     codes_key = ",".join(
@@ -2105,7 +2104,7 @@ class StockAnalysisPipeline:
                     else:
                         logger.warning(f"未知通知渠道: {channel}")
 
-                success = all_channels_success or context_success
+                success = all_channels_success
                 if (
                     all_channels_success
                     and noise_decision is not None

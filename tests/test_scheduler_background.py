@@ -1,97 +1,134 @@
 # -*- coding: utf-8 -*-
-"""Tests for APScheduler-based analysis scheduler."""
+"""Tests for the hardcoded APScheduler analysis scheduler."""
 
+import sys
+import types
 import unittest
 from unittest.mock import MagicMock, patch
 
+import src.scheduler as scheduler_module
 
-class SchedulerBackgroundTaskTestCase(unittest.TestCase):
-    def test_try_build_from_config_disabled(self) -> None:
-        with patch("src.config.get_config") as mock_gc:
-            mock_gc.return_value = MagicMock(schedule_enabled=False)
-            from src.scheduler import try_build_analysis_schedule_spec_from_config
 
-            self.assertIsNone(try_build_analysis_schedule_spec_from_config())
+def _install_apscheduler_stub() -> tuple[MagicMock, MagicMock]:
+    """Install a minimal ``apscheduler`` stub so the scheduler module can run.
 
-    def test_bundle_rejects_invalid_initial_schedule_time(self) -> None:
-        with self.assertRaisesRegex(ValueError, "25:99"):
-            from src.scheduler import AnalysisScheduleSpec, AnalysisSchedulerBundle
+    Returns ``(BackgroundScheduler, CronTrigger)`` mocks injected into ``sys.modules``.
+    """
+    pkg = types.ModuleType("apscheduler")
+    schedulers_pkg = types.ModuleType("apscheduler.schedulers")
+    background_mod = types.ModuleType("apscheduler.schedulers.background")
+    triggers_pkg = types.ModuleType("apscheduler.triggers")
+    cron_mod = types.ModuleType("apscheduler.triggers.cron")
 
-            AnalysisSchedulerBundle(
-                AnalysisScheduleSpec(task=lambda: None, schedule_time="25:99", run_immediately=False)
+    background_scheduler = MagicMock(name="BackgroundScheduler")
+    cron_trigger = MagicMock(name="CronTrigger")
+    background_mod.BackgroundScheduler = background_scheduler
+    cron_mod.CronTrigger = cron_trigger
+
+    sys.modules.update(
+        {
+            "apscheduler": pkg,
+            "apscheduler.schedulers": schedulers_pkg,
+            "apscheduler.schedulers.background": background_mod,
+            "apscheduler.triggers": triggers_pkg,
+            "apscheduler.triggers.cron": cron_mod,
+        }
+    )
+    return background_scheduler, cron_trigger
+
+
+class HardcodedSchedulerTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self._modules_snapshot = {
+            name: sys.modules.get(name)
+            for name in (
+                "apscheduler",
+                "apscheduler.schedulers",
+                "apscheduler.schedulers.background",
+                "apscheduler.triggers",
+                "apscheduler.triggers.cron",
             )
+        }
+        self.background_scheduler_cls, self.cron_trigger_cls = _install_apscheduler_stub()
 
-    def test_refresh_daily_reschedules_when_provider_returns_new_time(self) -> None:
-        from src.scheduler import AnalysisScheduleSpec, AnalysisSchedulerBundle
+    def tearDown(self) -> None:
+        for name, mod in self._modules_snapshot.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
 
-        spec = AnalysisScheduleSpec(
-            task=lambda: None,
-            schedule_time="18:00",
-            run_immediately=False,
-            schedule_time_provider=lambda: "09:30",
+    def test_start_registers_daily_cron_with_hardcoded_time(self) -> None:
+        scheduler_instance = MagicMock()
+        scheduler_instance.get_job.return_value = MagicMock(next_run_time=None)
+        self.background_scheduler_cls.return_value = scheduler_instance
+
+        with patch.object(scheduler_module, "RUN_IMMEDIATELY_ON_STARTUP", False):
+            returned = scheduler_module.start_embedded_analysis_scheduler()
+
+        self.assertIs(returned, scheduler_instance)
+        self.cron_trigger_cls.assert_called_once_with(
+            hour=scheduler_module.DAILY_SCHEDULE_HOUR,
+            minute=scheduler_module.DAILY_SCHEDULE_MINUTE,
         )
-        bundle = object.__new__(AnalysisSchedulerBundle)
-        bundle._spec = spec
-        bundle.schedule_time = "18:00"
-        bundle._schedule_time_provider = spec.schedule_time_provider
-        bundle._apply_daily_cron = MagicMock()
+        scheduler_instance.add_job.assert_called_once()
+        add_job_kwargs = scheduler_instance.add_job.call_args.kwargs
+        self.assertEqual(add_job_kwargs["id"], "analysis_daily")
+        self.assertTrue(add_job_kwargs["replace_existing"])
+        self.assertEqual(add_job_kwargs["max_instances"], 1)
+        self.assertTrue(add_job_kwargs["coalesce"])
+        scheduler_instance.start.assert_called_once()
 
-        bundle._refresh_daily_schedule_if_needed()
+    def test_start_runs_task_immediately_when_flag_enabled(self) -> None:
+        scheduler_instance = MagicMock()
+        scheduler_instance.get_job.return_value = MagicMock(next_run_time=None)
+        self.background_scheduler_cls.return_value = scheduler_instance
 
-        bundle._apply_daily_cron.assert_called_once_with("09:30", log_reschedule=True)
+        with patch.object(scheduler_module, "RUN_IMMEDIATELY_ON_STARTUP", True), \
+             patch.object(scheduler_module, "_daily_analysis_task") as task_mock:
+            scheduler_module.start_embedded_analysis_scheduler()
 
-    def test_refresh_daily_keeps_time_when_provider_returns_invalid(self) -> None:
-        from src.scheduler import AnalysisScheduleSpec, AnalysisSchedulerBundle
+        task_mock.assert_called_once()
 
-        spec = AnalysisScheduleSpec(
-            task=lambda: None,
-            schedule_time="18:00",
-            run_immediately=False,
-            schedule_time_provider=lambda: "25:99",
-        )
-        bundle = object.__new__(AnalysisSchedulerBundle)
-        bundle._spec = spec
-        bundle.schedule_time = "18:00"
-        bundle._schedule_time_provider = spec.schedule_time_provider
-        bundle._apply_daily_cron = MagicMock()
+    def test_shutdown_waits_for_running_jobs(self) -> None:
+        scheduler_instance = MagicMock()
+        scheduler_module.shutdown_embedded_analysis_scheduler(scheduler_instance)
+        scheduler_instance.shutdown.assert_called_once_with(wait=True)
 
-        bundle._refresh_daily_schedule_if_needed()
+    def test_shutdown_noop_when_scheduler_is_none(self) -> None:
+        scheduler_module.shutdown_embedded_analysis_scheduler(None)
 
-        bundle._apply_daily_cron.assert_not_called()
-        self.assertEqual(bundle.schedule_time, "18:00")
+    def _install_pipeline_stub(self, pipeline_cls: MagicMock) -> dict:
+        """Inject stub modules so ``_daily_analysis_task`` can import without dotenv."""
+        fake_pipeline_module = types.ModuleType("src.core.pipeline")
+        fake_pipeline_module.StockAnalysisPipeline = pipeline_cls
+        fake_config_module = types.ModuleType("src.config")
+        fake_config_module.get_config = MagicMock(return_value=MagicMock(name="config"))
+        return {
+            "src.core.pipeline": fake_pipeline_module,
+            "src.config": fake_config_module,
+        }
 
-    def test_refresh_daily_keeps_time_when_provider_raises(self) -> None:
-        from src.scheduler import AnalysisScheduleSpec, AnalysisSchedulerBundle
+    def test_daily_task_invokes_pipeline_run(self) -> None:
+        pipeline_instance = MagicMock()
+        pipeline_cls = MagicMock(return_value=pipeline_instance)
+        stubs = self._install_pipeline_stub(pipeline_cls)
+        fake_config = stubs["src.config"].get_config.return_value
 
-        calls = {"n": 0}
+        with patch.dict(sys.modules, stubs):
+            scheduler_module._daily_analysis_task()
 
-        def provider():
-            calls["n"] += 1
-            if calls["n"] == 1:
-                return "09:30"
-            raise RuntimeError("boom")
+        pipeline_cls.assert_called_once_with(config=fake_config)
+        pipeline_instance.run.assert_called_once_with()
 
-        spec = AnalysisScheduleSpec(
-            task=lambda: None,
-            schedule_time="18:00",
-            run_immediately=False,
-            schedule_time_provider=provider,
-        )
-        bundle = object.__new__(AnalysisSchedulerBundle)
-        bundle._spec = spec
-        bundle.schedule_time = "18:00"
-        bundle._schedule_time_provider = provider
-        bundle._apply_daily_cron = MagicMock(
-            side_effect=lambda hh_mm, **kwargs: setattr(bundle, "schedule_time", hh_mm)
-        )
+    def test_daily_task_swallows_pipeline_exception(self) -> None:
+        pipeline_instance = MagicMock()
+        pipeline_instance.run.side_effect = RuntimeError("boom")
+        pipeline_cls = MagicMock(return_value=pipeline_instance)
+        stubs = self._install_pipeline_stub(pipeline_cls)
 
-        bundle._refresh_daily_schedule_if_needed()
-        bundle._apply_daily_cron.assert_called_once_with("09:30", log_reschedule=True)
-
-        bundle._apply_daily_cron.reset_mock()
-        bundle._refresh_daily_schedule_if_needed()
-        bundle._apply_daily_cron.assert_not_called()
-        self.assertEqual(bundle.schedule_time, "09:30")
+        with patch.dict(sys.modules, stubs):
+            scheduler_module._daily_analysis_task()
 
 
 if __name__ == "__main__":

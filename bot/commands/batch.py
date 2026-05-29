@@ -100,7 +100,7 @@ class BatchCommand(BotCommand):
         """后台执行批量分析"""
         try:
             from src.config import get_config
-            from main import StockAnalysisPipeline
+            from src.core.pipeline import StockAnalysisPipeline
             
             config = get_config()
             

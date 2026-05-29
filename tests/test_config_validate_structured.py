@@ -27,12 +27,6 @@ def _make_config(**kwargs) -> Config:
     Any keyword argument overrides the corresponding dataclass field so tests
     only have to specify the fields that matter for their scenario.
     """
-    # Legacy test helper aliases (older env-style names)
-    wechat = kwargs.pop("wechat_webhook_url", Ellipsis)
-    if wechat is not Ellipsis:
-        kwargs["custom_webhook_urls"] = [wechat] if wechat else []
-    kwargs.pop("feishu_webhook_url", None)
-
     defaults = dict(
         stock_list=["600519"],
         tushare_token=None,
@@ -359,40 +353,40 @@ class TestValidateStructuredLLM:
 
 class TestValidateStructuredNotification:
     def test_no_notification_is_warning(self):
-        cfg = _make_config(wechat_webhook_url=None)
+        cfg = _make_config(custom_webhook_urls=[])
         issues = cfg.validate_structured()
         warn = [i for i in issues if i.severity == "warning"]
         assert any("通知渠道" in i.message for i in warn)
 
     def test_notification_configured_no_warning(self):
-        cfg = _make_config(wechat_webhook_url="https://example.com/wh")
+        cfg = _make_config(custom_webhook_urls=["https://example.com/wh"])
         issues = cfg.validate_structured()
         assert not any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
 
     def test_astrbot_url_counts_as_notification_channel(self):
         cfg = _make_config(
-            wechat_webhook_url=None,
+            custom_webhook_urls=[],
             astrbot_url="https://astrbot.example/webhook",
         )
         issues = cfg.validate_structured()
         assert not any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
 
     def test_ntfy_url_without_topic_reports_error_and_does_not_count_as_channel(self):
-        cfg = _make_config(wechat_webhook_url=None, ntfy_url="https://ntfy.sh")
+        cfg = _make_config(custom_webhook_urls=[], ntfy_url="https://ntfy.sh")
         issues = cfg.validate_structured()
 
         assert any(i.severity == "error" and i.field == "NTFY_URL" for i in issues)
         assert any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
 
     def test_ntfy_encoded_blank_topic_reports_error_and_does_not_count_as_channel(self):
-        cfg = _make_config(wechat_webhook_url=None, ntfy_url="https://ntfy.sh/%20")
+        cfg = _make_config(custom_webhook_urls=[], ntfy_url="https://ntfy.sh/%20")
         issues = cfg.validate_structured()
 
         assert any(i.severity == "error" and i.field == "NTFY_URL" for i in issues)
         assert any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
 
     def test_ntfy_topic_endpoint_counts_as_notification_channel(self):
-        cfg = _make_config(wechat_webhook_url=None, ntfy_url="https://ntfy.sh/fa-topic")
+        cfg = _make_config(custom_webhook_urls=[], ntfy_url="https://ntfy.sh/fa-topic")
         issues = cfg.validate_structured()
 
         assert not any(i.field == "NTFY_URL" for i in issues)

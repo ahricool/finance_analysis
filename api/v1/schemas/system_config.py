@@ -9,8 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 LLMCapabilityCheck = Literal["json", "tools", "vision", "stream"]
 NotificationTestChannel = Literal[
-    "wechat",
-    "feishu",
     "telegram",
     "email",
     "pushover",

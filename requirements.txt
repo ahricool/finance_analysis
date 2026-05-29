@@ -47,7 +47,6 @@ markdown2>=2.4.0            # Markdown 转 HTML
 imgkit>=1.2.0              # Markdown 转图片（需安装 wkhtmltopdf）
 fake-useragent>=1.4.0       # 随机 User-Agent 防封禁
 httpx[socks]                # HTTP 客户端 + SOCKS 代理支持（OpenAI 可选依赖）
-dingtalk-stream>=0.24.3     # 钉钉 Stream SDK
 
 # Web Content Extraction
 newspaper3k>=0.2.8          # Article extraction
