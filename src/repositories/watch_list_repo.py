@@ -24,7 +24,10 @@ class WatchListRepo:
 
     def list_all(self, user_id: Optional[str] = None) -> List[WatchListItem]:
         with self.db.get_session() as session:
-            stmt = select(WatchListItem).order_by(WatchListItem.created_at)
+            stmt = select(WatchListItem).order_by(
+                WatchListItem.is_favorite.desc(),
+                WatchListItem.created_at,
+            )
             if user_id is not None:
                 stmt = stmt.where(WatchListItem.user_id == user_id)
             return session.execute(stmt).scalars().all()
@@ -62,12 +65,14 @@ class WatchListRepo:
         code: str,
         name: Optional[str] = None,
         notes: Optional[str] = None,
+        is_favorite: bool = False,
     ) -> WatchListItem:
         item = WatchListItem(
             user_id=user_id,
             code=code.upper().strip(),
             name=(name or "").strip() or None,
             notes=(notes or "").strip() or None,
+            is_favorite=is_favorite,
             created_at=datetime.now(),
             updated_at=datetime.now(),
         )
@@ -87,6 +92,7 @@ class WatchListRepo:
         user_id: Optional[str] = None,
         name: Optional[str] = None,
         notes: Optional[str] = None,
+        is_favorite: Optional[bool] = None,
     ) -> Optional[WatchListItem]:
         def _write(session: Session) -> Optional[WatchListItem]:
             obj = session.get(WatchListItem, item_id)
@@ -98,6 +104,8 @@ class WatchListRepo:
                 obj.name = name.strip() or None
             if notes is not None:
                 obj.notes = notes.strip() or None
+            if is_favorite is not None:
+                obj.is_favorite = is_favorite
             obj.updated_at = datetime.now()
             session.flush()
             session.refresh(obj)

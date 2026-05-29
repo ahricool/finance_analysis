@@ -651,6 +651,7 @@ class WatchListItem(Base):
     code = Column(String(16), nullable=False, index=True)
     name = Column(String(64), nullable=True)
     notes = Column(Text, nullable=True)
+    is_favorite = Column(Boolean, nullable=False, default=False, index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
 
