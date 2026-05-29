@@ -7,7 +7,7 @@
 职责：
 1. 支持每日定时执行股票分析
 2. 支持定时后台任务（如 Event Monitor）
-3. 与 FastAPI 生命周期集成；也可在无 Web 服务时独立阻塞运行
+3. 与 FastAPI 生命周期集成（由 ``api.app`` 的 lifespan 启动/停止）
 
 依赖：
 - APScheduler: 定时任务调度
@@ -17,9 +17,7 @@ from __future__ import annotations
 
 import logging
 import re
-import signal
 import threading
-import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
@@ -59,27 +57,6 @@ def pop_pending_analysis_schedule() -> Optional[AnalysisScheduleSpec]:
         spec = _pending_analysis_schedule_spec
         _pending_analysis_schedule_spec = None
         return spec
-
-
-class GracefulShutdown:
-    """捕获 SIGTERM/SIGINT，供独立阻塞模式退出。"""
-
-    def __init__(self) -> None:
-        self.shutdown_requested = False
-        self._lock = threading.Lock()
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-
-    def _signal_handler(self, signum, frame) -> None:
-        with self._lock:
-            if not self.shutdown_requested:
-                logger.info("收到退出信号 (%s)，正在停止调度器...", signum)
-                self.shutdown_requested = True
-
-    @property
-    def should_shutdown(self) -> bool:
-        with self._lock:
-            return self.shutdown_requested
 
 
 def _is_valid_schedule_time(schedule_time: str) -> bool:
@@ -251,45 +228,10 @@ class AnalysisSchedulerBundle:
             logger.info("APScheduler 已停止")
 
 
-def run_standalone_analysis_scheduler(spec: AnalysisScheduleSpec) -> None:
-    """无 FastAPI 时阻塞运行，直到收到 SIGINT/SIGTERM。"""
-    shutdown = GracefulShutdown()
-    bundle = AnalysisSchedulerBundle(spec)
-    bundle.start()
-    try:
-        while not shutdown.should_shutdown:
-            time.sleep(1)
-    finally:
-        bundle.shutdown()
-
-
-def run_with_schedule(
-    task: Callable[[], None],
-    schedule_time: str = "18:00",
-    run_immediately: bool = True,
-    background_tasks: Optional[List[Dict[str, Any]]] = None,
-    schedule_time_provider: Optional[Callable[[], str]] = None,
-) -> None:
-    """
-    便捷函数：独立进程定时模式（不使用 FastAPI 嵌入调度时）。
-
-    当 ``main.py`` 与 FastAPI 同进程启动时，应使用 ``register_pending_analysis_schedule``
-    + FastAPI lifespan，而非本函数。
-    """
-    spec = AnalysisScheduleSpec(
-        task=task,
-        schedule_time=schedule_time,
-        run_immediately=run_immediately,
-        background_tasks=background_tasks,
-        schedule_time_provider=schedule_time_provider,
-    )
-    run_standalone_analysis_scheduler(spec)
-
-
 def try_build_analysis_schedule_spec_from_config() -> Optional[AnalysisScheduleSpec]:
     """
-    当未通过 ``main.py`` 注册 pending spec 时，若 ``SCHEDULE_ENABLED=true``，
-    从当前配置构建与 CLI 定时模式等价的 ``AnalysisScheduleSpec``。
+    当未通过外部 ``register_pending_analysis_schedule`` 注册 pending spec 时，
+    若 ``SCHEDULE_ENABLED=true``，从当前配置构建 ``AnalysisScheduleSpec``。
     """
     from src.config import get_config
 
@@ -346,7 +288,7 @@ def try_build_analysis_schedule_spec_from_config() -> Optional[AnalysisScheduleS
 
 def start_embedded_analysis_scheduler() -> Optional[AnalysisSchedulerBundle]:
     """
-    FastAPI lifespan 入口：优先消费 ``main.py`` 注册的 pending；
+    FastAPI lifespan 入口：优先消费外部注册的 pending spec；
     若无且 ``SCHEDULE_ENABLED=true``，则按配置自动构建并启动。
     """
     spec = pop_pending_analysis_schedule()
@@ -362,18 +304,3 @@ def start_embedded_analysis_scheduler() -> Optional[AnalysisSchedulerBundle]:
 def shutdown_embedded_analysis_scheduler(bundle: Optional[AnalysisSchedulerBundle]) -> None:
     if bundle is not None:
         bundle.shutdown()
-
-
-if __name__ == "__main__":  # pragma: no cover - manual smoke
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s",
-    )
-
-    def test_task() -> None:
-        print(f"任务执行中... {datetime.now()}")
-        time.sleep(1)
-        print("任务完成!")
-
-    print("启动测试调度器（按 Ctrl+C 退出）")
-    run_with_schedule(test_task, schedule_time="23:59", run_immediately=True)

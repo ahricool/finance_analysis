@@ -40,20 +40,6 @@ class SchedulerBackgroundTaskTestCase(unittest.TestCase):
                 AnalysisScheduleSpec(task=lambda: None, schedule_time="25:99", run_immediately=False)
             )
 
-    def test_run_with_schedule_delegates_to_standalone(self) -> None:
-        captured = {}
-
-        def fake_standalone(spec) -> None:
-            captured["spec"] = spec
-
-        with patch("src.scheduler.run_standalone_analysis_scheduler", side_effect=fake_standalone):
-            from src.scheduler import run_with_schedule
-
-            run_with_schedule(lambda: None, schedule_time="09:15", run_immediately=False)
-
-        self.assertEqual(captured["spec"].schedule_time, "09:15")
-        self.assertFalse(captured["spec"].run_immediately)
-
     def test_refresh_daily_reschedules_when_provider_returns_new_time(self) -> None:
         from src.scheduler import AnalysisScheduleSpec, AnalysisSchedulerBundle
 
