@@ -48,7 +48,13 @@ def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
     if repo.get_by_code(body.code, user_id=uid):
         raise HTTPException(status_code=409, detail=f"股票 {body.code} 已在自选股中")
     try:
-        item = repo.create(user_id=uid, code=body.code, name=body.name, notes=body.notes)
+        item = repo.create(
+            user_id=uid,
+            code=body.code,
+            name=body.name,
+            notes=body.notes,
+            is_favorite=body.is_favorite,
+        )
     except Exception as e:
         logger.error("创建自选股失败: %s", e)
         raise HTTPException(status_code=500, detail="创建失败，请重试") from e
@@ -58,7 +64,13 @@ def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
 @router.put("/{item_id}", response_model=WatchListItemResponse, summary="更新自选股")
 def update_watch_list_item(http_request: Request, item_id: int, body: WatchListItemUpdate):
     uid = get_effective_user_uid(http_request)
-    item = _repo().update(item_id=item_id, user_id=uid, name=body.name, notes=body.notes)
+    item = _repo().update(
+        item_id=item_id,
+        user_id=uid,
+        name=body.name,
+        notes=body.notes,
+        is_favorite=body.is_favorite,
+    )
     if item is None:
         raise HTTPException(status_code=404, detail="未找到该自选股")
     return WatchListItemResponse.model_validate(item)

@@ -13,6 +13,7 @@ class WatchListItemCreate(BaseModel):
     code: str = Field(..., min_length=1, max_length=16, description="股票代码")
     name: Optional[str] = Field(None, max_length=64, description="股票名称（可选）")
     notes: Optional[str] = Field(None, description="备注（可选）")
+    is_favorite: bool = Field(False, description="是否特别关注")
 
     @field_validator("code")
     @classmethod
@@ -23,6 +24,7 @@ class WatchListItemCreate(BaseModel):
 class WatchListItemUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=64)
     notes: Optional[str] = None
+    is_favorite: Optional[bool] = Field(None, description="是否特别关注")
 
 
 class WatchListItemResponse(BaseModel):
@@ -30,6 +32,7 @@ class WatchListItemResponse(BaseModel):
     code: str
     name: Optional[str]
     notes: Optional[str]
+    is_favorite: bool
     created_at: datetime
     updated_at: datetime
 

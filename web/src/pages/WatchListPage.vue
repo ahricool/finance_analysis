@@ -6,7 +6,7 @@ import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import { looksLikeStockCode } from '@/utils/validation';
-import { Eye, Pencil, Plus, Star, Trash2, X } from 'lucide-vue-next';
+import { Eye, Heart, Pencil, Plus, Star, Trash2, X } from 'lucide-vue-next';
 import { onMounted, ref, watch } from 'vue';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -28,6 +28,7 @@ const saving = ref(false);
 const showDeleteConfirm = ref(false);
 const deletingId = ref<number | null>(null);
 const deletingCode = ref('');
+const togglingFavoriteId = ref<number | null>(null);
 
 function formatStockQuery(code: string, name?: string | null): string {
   return name ? `${name}（${code}）` : code;
@@ -146,6 +147,25 @@ function openDelete(item: WatchListItem) {
   showDeleteConfirm.value = true;
 }
 
+async function toggleFavorite(item: WatchListItem) {
+  if (togglingFavoriteId.value !== null) return;
+  togglingFavoriteId.value = item.id;
+  const next = !item.is_favorite;
+  try {
+    const updated = await watchListApi.update(item.id, { is_favorite: next });
+    const idx = items.value.findIndex((i) => i.id === item.id);
+    if (idx !== -1) items.value[idx] = updated;
+    items.value.sort((a, b) => {
+      if (a.is_favorite !== b.is_favorite) return a.is_favorite ? -1 : 1;
+      return a.created_at.localeCompare(b.created_at);
+    });
+  } catch (e) {
+    error.value = getParsedApiError(e);
+  } finally {
+    togglingFavoriteId.value = null;
+  }
+}
+
 onMounted(loadList);
 </script>
 
@@ -192,6 +212,21 @@ onMounted(loadList);
         :key="item.id"
         class="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 transition-colors hover:bg-hover"
       >
+        <button
+          type="button"
+          class="rounded-lg p-1.5 transition-colors disabled:opacity-50"
+          :class="
+            item.is_favorite
+              ? 'text-red-500 hover:text-red-600'
+              : 'text-secondary-text hover:text-red-500'
+          "
+          :disabled="togglingFavoriteId === item.id"
+          :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
+          :aria-pressed="item.is_favorite"
+          @click="toggleFavorite(item)"
+        >
+          <Heart class="h-4 w-4" :class="{ 'fill-current': item.is_favorite }" />
+        </button>
         <!-- Code badge -->
         <span class="min-w-[72px] rounded-lg bg-primary/10 px-2 py-0.5 text-center text-sm font-mono font-semibold text-primary">
           {{ item.code }}

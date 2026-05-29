@@ -5,6 +5,7 @@ export interface WatchListItem {
   code: string;
   name: string | null;
   notes: string | null;
+  is_favorite: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -18,11 +19,13 @@ export interface WatchListItemCreate {
   code: string;
   name?: string;
   notes?: string;
+  is_favorite?: boolean;
 }
 
 export interface WatchListItemUpdate {
   name?: string;
   notes?: string;
+  is_favorite?: boolean;
 }
 
 export const watchListApi = {
