@@ -68,36 +68,8 @@ _CATEGORY_DEFINITIONS: List[Dict[str, Any]] = [
 ]
 
 _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
-    "STOCK_LIST": {
-        "title": "Stock List",
-        "description": "Comma-separated watchlist stock codes.",
-        "category": "base",
-        "data_type": "array",
-        "ui_control": "textarea",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": "600519,300750,002594",
-        "options": [],
-        "validation": {"min_items": 1},
-        "display_order": 10,
-        "help_key": "settings.base.STOCK_LIST",
-        "examples": [
-            "STOCK_LIST=600519,300750,002594",
-            "STOCK_LIST=600519,hk00700,AAPL",
-        ],
-        "docs": [
-            {
-                "label": "完整指南：环境变量完整列表",
-                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/full-guide.md#环境变量完整列表",
-            },
-            {
-                "label": "Tushare 股票列表指南",
-                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/TUSHARE_STOCK_LIST_GUIDE.md",
-            },
-        ],
-        "warning_codes": [],
-    },
+    # NOTE: 自选股已迁移到数据库 ``watch_list`` 表（见 WatchListRepo），
+    # 通过 /api/v1/watch-list 接口与 WebUI「自选股」页面管理，不再作为 .env 字段。
     # ------------------------------------------------------------------
     # AI Model – LiteLLM unified config
     # ------------------------------------------------------------------
@@ -819,37 +791,9 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "validation": {"min": 256, "max": 8192},
         "display_order": 38,
     },
-    "DINGTALK_APP_KEY": {
-        "title": "DingTalk App Key",
-        "description": "DingTalk app key.",
-        "category": "notification",
-        "data_type": "string",
-        "ui_control": "password",
-        "is_sensitive": True,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": None,
-        "options": [],
-        "validation": {},
-        "display_order": 20,
-    },
-    "DINGTALK_APP_SECRET": {
-        "title": "DingTalk App Secret",
-        "description": "DingTalk app secret.",
-        "category": "notification",
-        "data_type": "string",
-        "ui_control": "password",
-        "is_sensitive": True,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": None,
-        "options": [],
-        "validation": {},
-        "display_order": 30,
-    },
     "CUSTOM_WEBHOOK_URLS": {
         "title": "Custom Webhook URLs",
-        "description": "Comma-separated webhook URLs for custom notifications (DingTalk, Bark, Discord, Slack, etc.).",
+        "description": "Comma-separated webhook URLs for custom notifications (Bark, Discord, Slack, etc.).",
         "category": "notification",
         "data_type": "array",
         "ui_control": "textarea",
@@ -861,7 +805,7 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "help_key": "settings.notification.CUSTOM_WEBHOOK_URLS",
         "examples": [
             "https://api.day.app/YOUR_BARK_KEY",
-            "https://oapi.dingtalk.com/robot/send?access_token=xxx",
+            "https://discord.com/api/webhooks/xxx",
         ],
         "validation": {"multi_value": True, "delimiter": ","},
         "display_order": 50,
@@ -1337,20 +1281,6 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "validation": {},
         "display_order": 70,
     },
-    "SCHEDULE_TIME": {
-        "title": "Schedule Time",
-        "description": "Daily schedule time in HH:MM format.",
-        "category": "system",
-        "data_type": "time",
-        "ui_control": "time",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": "18:00",
-        "options": [],
-        "validation": {"pattern": r"^([01]\d|2[0-3]):[0-5]\d$"},
-        "display_order": 10,
-    },
     "HTTP_PROXY": {
         "title": "HTTP Proxy",
         "description": "Optional HTTP proxy endpoint.",
@@ -1422,48 +1352,6 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "options": [],
         "validation": {"min": 1, "max": 65535},
         "display_order": 40,
-    },
-    "RUN_IMMEDIATELY": {
-        "title": "Run Immediately",
-        "description": "Whether to run analysis immediately on startup (non-schedule mode).",
-        "category": "system",
-        "data_type": "boolean",
-        "ui_control": "switch",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": "true",
-        "options": [],
-        "validation": {},
-        "display_order": 45,
-    },
-    "SCHEDULE_ENABLED": {
-        "title": "Schedule Enabled",
-        "description": "Enable daily scheduled analysis run.",
-        "category": "system",
-        "data_type": "boolean",
-        "ui_control": "switch",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": "false",
-        "options": [],
-        "validation": {},
-        "display_order": 8,
-    },
-    "SCHEDULE_RUN_IMMEDIATELY": {
-        "title": "Schedule Run Immediately",
-        "description": "Whether to run one analysis immediately on startup in schedule mode.",
-        "category": "system",
-        "data_type": "boolean",
-        "ui_control": "switch",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": "true",
-        "options": [],
-        "validation": {},
-        "display_order": 11,
     },
     "TRADING_DAY_CHECK_ENABLED": {
         "title": "Trading Day Check",
@@ -1960,8 +1848,6 @@ def _is_sensitive_key(key: str) -> bool:
 
 
 def _infer_category(key: str) -> str:
-    if key == "STOCK_LIST":
-        return "base"
     if key.startswith("BACKTEST_"):
         return "backtest"
     if key.startswith(("GEMINI_", "OPENAI_", "ANTHROPIC_", "LITELLM_", "AIHUBMIX_", "DEEPSEEK_", "LLM_")):
@@ -1990,12 +1876,11 @@ def _infer_category(key: str) -> str:
         "TELEGRAM",
         "EMAIL",
         "NTFY",
-        "DINGTALK",
         "CUSTOM_WEBHOOK",
         "ASTRBOT",
     )) or "WEBHOOK" in key:
         return "notification"
-    if key.startswith(("LOG_", "SCHEDULE_", "WEBUI_", "HTTP_", "HTTPS_", "MAX_", "DEBUG", "MARKET_REVIEW_", "TRADING_DAY_", "ANALYSIS_DELAY")):
+    if key.startswith(("LOG_", "WEBUI_", "HTTP_", "HTTPS_", "MAX_", "DEBUG", "MARKET_REVIEW_", "TRADING_DAY_", "ANALYSIS_DELAY")):
         return "system"
     return "uncategorized"
 
@@ -2022,7 +1907,7 @@ def _infer_data_type(key: str, value_hint: Optional[str]) -> str:
     except (TypeError, ValueError):
         pass
 
-    if key in {"STOCK_LIST", "EMAIL_RECEIVERS", "CUSTOM_WEBHOOK_URLS"}:
+    if key in {"EMAIL_RECEIVERS", "CUSTOM_WEBHOOK_URLS"}:
         return "array"
     return "string"
 

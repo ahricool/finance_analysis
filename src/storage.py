@@ -660,7 +660,10 @@ class WatchListItem(Base):
 
 
 class StockHolding(Base):
-    """持仓股 — 用户实际持有的股票，含数量字段；同时作为分析任务默认股票列表。"""
+    """持仓股 — 用户实际持有的股票，含数量字段。
+
+    注意：分析任务的默认股票列表请使用 :class:`WatchListItem`（自选股）。
+    """
 
     __tablename__ = 'stock_list'
 

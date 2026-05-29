@@ -9,10 +9,9 @@ Finance Analysis - 通知服务单元测试
 2. 验证通知服务的渠道检测逻辑
 3. 验证通知服务的消息发送逻辑
 
-TODO: 
+TODO:
 1. 添加发送渠道以外的测试，如：
     - 生成日报
-2. 添加 send_to_context 的测试
 """
 import os
 import sys
@@ -38,7 +37,7 @@ import requests
 
 def _make_config(**overrides) -> Config:
     """Create a Config instance overriding only notification-related fields."""
-    return Config(stock_list=[], database_url=os.environ["DATABASE_URL"], **overrides)
+    return Config(database_url=os.environ["DATABASE_URL"], **overrides)
 
 
 def _make_response(status_code: int, json: Optional[dict] = None) -> requests.Response:
@@ -126,16 +125,17 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
     @mock.patch("src.notification.get_config")
     def test_send_isolates_channel_exceptions(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(
-            wechat_webhook_url="https://wechat.example/hook",
+            telegram_bot_token="TOKEN",
+            telegram_chat_id="123",
             custom_webhook_urls=["https://example.com/webhook"],
         )
         mock_get_config.return_value = cfg
 
         service = NotificationService()
-        self.assertIn(NotificationChannel.WECHAT, service.get_available_channels())
+        self.assertIn(NotificationChannel.TELEGRAM, service.get_available_channels())
         self.assertIn(NotificationChannel.CUSTOM, service.get_available_channels())
 
-        with mock.patch.object(service, "send_to_wechat", side_effect=RuntimeError("boom")), \
+        with mock.patch.object(service, "send_to_telegram", side_effect=RuntimeError("boom")), \
              mock.patch.object(service, "send_to_custom", return_value=True) as mock_custom:
             ok = service.send("content")
 
@@ -145,25 +145,27 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
     @mock.patch("src.notification.get_config")
     def test_send_route_empty_keeps_all_configured_channels(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(
-            wechat_webhook_url="https://wechat.example/hook",
+            telegram_bot_token="TOKEN",
+            telegram_chat_id="123",
             custom_webhook_urls=["https://example.com/webhook"],
         )
         mock_get_config.return_value = cfg
 
         service = NotificationService()
 
-        with mock.patch.object(service, "send_to_wechat", return_value=True) as mock_wechat, \
+        with mock.patch.object(service, "send_to_telegram", return_value=True) as mock_telegram, \
              mock.patch.object(service, "send_to_custom", return_value=True) as mock_custom:
             ok = service.send("content", route_type="report")
 
         self.assertTrue(ok)
-        mock_wechat.assert_called_once_with("content")
+        mock_telegram.assert_called_once_with("content")
         mock_custom.assert_called_once_with("content")
 
     @mock.patch("src.notification.get_config")
     def test_send_report_route_filters_static_channels(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(
-            wechat_webhook_url="https://wechat.example/hook",
+            telegram_bot_token="TOKEN",
+            telegram_chat_id="123",
             custom_webhook_urls=["https://example.com/webhook"],
             notification_report_channels=["custom"],
         )
@@ -171,32 +173,33 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
 
         service = NotificationService()
 
-        with mock.patch.object(service, "send_to_wechat", return_value=True) as mock_wechat, \
+        with mock.patch.object(service, "send_to_telegram", return_value=True) as mock_telegram, \
              mock.patch.object(service, "send_to_custom", return_value=True) as mock_custom:
             ok = service.send("content", route_type="report")
 
         self.assertTrue(ok)
-        mock_wechat.assert_not_called()
+        mock_telegram.assert_not_called()
         mock_custom.assert_called_once_with("content")
 
     @mock.patch("src.notification.get_config")
     def test_send_alert_and_system_error_routes_filter_independently(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(
-            wechat_webhook_url="https://wechat.example/hook",
+            telegram_bot_token="TOKEN",
+            telegram_chat_id="123",
             custom_webhook_urls=["https://example.com/webhook"],
-            notification_alert_channels=["wechat"],
+            notification_alert_channels=["telegram"],
             notification_system_error_channels=["custom"],
         )
         mock_get_config.return_value = cfg
 
         service = NotificationService()
 
-        with mock.patch.object(service, "send_to_wechat", return_value=True) as mock_wechat, \
+        with mock.patch.object(service, "send_to_telegram", return_value=True) as mock_telegram, \
              mock.patch.object(service, "send_to_custom", return_value=True) as mock_custom:
             self.assertTrue(service.send("alert", route_type="alert"))
             self.assertTrue(service.send("system", route_type="system_error"))
 
-        mock_wechat.assert_called_once_with("alert")
+        mock_telegram.assert_called_once_with("alert")
         mock_custom.assert_called_once_with("system")
 
     @mock.patch("src.notification.get_config")
@@ -213,24 +216,6 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
             ok = service.send("content", route_type="report")
 
         self.assertFalse(ok)
-        mock_custom.assert_not_called()
-
-    @mock.patch("src.notification.get_config")
-    def test_send_to_context_is_not_limited_by_route(self, mock_get_config: mock.MagicMock):
-        cfg = _make_config(
-            custom_webhook_urls=["https://example.com/webhook"],
-            notification_report_channels=["telegram"],
-        )
-        mock_get_config.return_value = cfg
-
-        service = NotificationService()
-
-        with mock.patch.object(service, "send_to_context", return_value=True) as mock_context, \
-             mock.patch.object(service, "send_to_custom", return_value=True) as mock_custom:
-            ok = service.send("content", route_type="report")
-
-        self.assertTrue(ok)
-        mock_context.assert_called_once_with("content")
         mock_custom.assert_not_called()
 
     @mock.patch("src.notification.get_config")
@@ -276,24 +261,6 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
             )
 
         self.assertEqual(mock_custom.call_count, 2)
-
-    @mock.patch("src.notification.get_config")
-    def test_send_to_context_is_not_limited_by_noise_controls(self, mock_get_config: mock.MagicMock):
-        cfg = _make_config(
-            custom_webhook_urls=["https://example.com/webhook"],
-            notification_dedup_ttl_seconds=60,
-        )
-        mock_get_config.return_value = cfg
-
-        service = NotificationService()
-
-        with mock.patch.object(service, "send_to_context", return_value=True) as mock_context, \
-             mock.patch.object(service, "send_to_custom", return_value=True) as mock_custom:
-            self.assertTrue(service.send("content at 12:00", route_type="report", dedup_key="report:aggregate:simple:600519"))
-            self.assertTrue(service.send("content at 12:01", route_type="report", dedup_key="report:aggregate:simple:600519"))
-
-        self.assertEqual(mock_context.call_count, 2)
-        mock_custom.assert_called_once_with("content at 12:00")
 
     @mock.patch("src.notification.get_config")
     def test_noise_check_failure_does_not_block_static_send(self, mock_get_config: mock.MagicMock):
@@ -895,39 +862,6 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         self.assertTrue(ok)
         mock_post.assert_called_once()
-
-    @mock.patch("src.notification.get_config")
-    @mock.patch("requests.post")
-    @unittest.skip("channel removed")
-    def test_send_to_wechat_via_notification_service(self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock):
-        cfg = _make_config(wechat_webhook_url="https://wechat.example")
-        mock_get_config.return_value = cfg
-        mock_post.return_value = _make_response(200, {"errcode": 0})
-
-        service = NotificationService()
-        self.assertIn(NotificationChannel.WECHAT, service.get_available_channels())
-
-        ok = service.send("hello wechat")
-
-        self.assertTrue(ok)
-        mock_post.assert_called_once()
-
-    @mock.patch("src.notification.get_config")
-    @mock.patch("requests.post")
-    @unittest.skip("channel removed")
-    def test_send_to_wechat_via_notification_service_requires_chunking(self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock):
-        cfg = _make_config(wechat_webhook_url="https://wechat.example", wechat_max_bytes=2000)
-        mock_get_config.return_value = cfg
-        mock_post.return_value = _make_response(200, {"errcode": 0})
-
-        service = NotificationService()
-        self.assertIn(NotificationChannel.WECHAT, service.get_available_channels())
-
-        ok = service.send("A" * 6000)
-
-        self.assertTrue(ok)
-        self.assertAlmostEqual(mock_post.call_count, 4, delta=1)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,7 +23,6 @@ const categoryDescriptionMap: Partial<Record<SystemConfigCategory, string>> = {
 };
 
 const fieldTitleMap: Record<string, string> = {
-  STOCK_LIST: '自选股列表',
   TUSHARE_TOKEN: 'Tushare Token',
   BOCHA_API_KEYS: 'Bocha API Keys',
   TAVILY_API_KEYS: 'Tavily API Keys',
@@ -54,15 +53,12 @@ const fieldTitleMap: Record<string, string> = {
   OPENAI_API_KEY: 'OpenAI API Key',
   OPENAI_BASE_URL: 'OpenAI Base URL',
   OPENAI_MODEL: 'OpenAI 模型',
-  DINGTALK_APP_KEY: '钉钉 App Key',
-  DINGTALK_APP_SECRET: '钉钉 App Secret',
   CUSTOM_WEBHOOK_URLS: '自定义 Webhook 地址',
   CUSTOM_WEBHOOK_BODY_TEMPLATE: '自定义 Webhook Body 模板',
   NTFY_URL: 'ntfy URL',
   NTFY_TOKEN: 'ntfy Token',
   REPORT_SUMMARY_ONLY: '仅分析结果摘要',
   MAX_WORKERS: '最大并发线程数',
-  SCHEDULE_TIME: '定时任务时间',
   HTTP_PROXY: 'HTTP 代理',
   LOG_LEVEL: '日志级别',
   WEBUI_PORT: 'WebUI 端口',
@@ -85,7 +81,6 @@ const fieldTitleMap: Record<string, string> = {
 };
 
 const fieldDescriptionMap: Record<string, string> = {
-  STOCK_LIST: '使用逗号分隔股票代码，例如：600519,300750。',
   TUSHARE_TOKEN: '用于接入 Tushare Pro 数据服务的凭据。',
   BOCHA_API_KEYS: '用于新闻检索的 Bocha 密钥，支持逗号分隔多个（最高优先级）。',
   TAVILY_API_KEYS: '用于新闻检索的 Tavily 密钥，支持逗号分隔多个。',
@@ -116,15 +111,12 @@ const fieldDescriptionMap: Record<string, string> = {
   OPENAI_API_KEY: '用于 OpenAI 兼容服务调用的密钥。',
   OPENAI_BASE_URL: 'OpenAI 兼容 API 地址，例如 https://api.deepseek.com/v1。',
   OPENAI_MODEL: 'OpenAI 兼容模型名称，例如 gpt-4o-mini、deepseek-chat。',
-  DINGTALK_APP_KEY: '钉钉应用模式 App Key。',
-  DINGTALK_APP_SECRET: '钉钉应用模式 App Secret。',
   CUSTOM_WEBHOOK_URLS: '自定义通知端点，多个用英文逗号分隔；Bark 可直接填写 https://api.day.app/YOUR_BARK_KEY。',
   CUSTOM_WEBHOOK_BODY_TEMPLATE: '全局 JSON body 模板，会先于 Bark、Slack、Discord 等自动 payload 生效；推荐使用 $content_json / $title_json，裸 $content / $title 不做 JSON 转义。',
   NTFY_URL: 'ntfy 完整 topic endpoint，必须包含 topic path，例如 https://ntfy.sh/my-topic。',
   NTFY_TOKEN: 'ntfy Bearer Token；公开 topic 可留空。',
   REPORT_SUMMARY_ONLY: '仅推送分析结果摘要，不包含个股详情。多股时适合快速浏览。',
   MAX_WORKERS: '异步任务队列最大并发数。配置保存后，队列空闲时会自动应用；繁忙时延后生效。',
-  SCHEDULE_TIME: '每日定时任务执行时间，格式为 HH:MM。',
   HTTP_PROXY: '网络代理地址，可留空。',
   LOG_LEVEL: '设置日志输出级别。',
   WEBUI_PORT: 'Web 页面服务监听端口。',

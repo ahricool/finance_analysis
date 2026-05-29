@@ -118,13 +118,6 @@ CHANNEL_SPECS: Tuple[NotificationChannelSpec, ...] = (
         minimal_keys=(),
         note="Fallback enum value only; it is not configured from static environment keys.",
     ),
-    NotificationChannelSpec(
-        channel="dingtalk_context",
-        display_name="钉钉会话",
-        kind="context",
-        minimal_keys=(),
-        note="Runtime-only reply channel extracted from source message context.",
-    ),
 )
 
 KEY_SPECS: Tuple[NotificationKeySpec, ...] = tuple(
@@ -237,11 +230,6 @@ def run_notification_diagnostics(config: Config) -> NotificationDiagnosticResult
     errors: List[NotificationDiagnosticIssue] = []
     warnings: List[NotificationDiagnosticIssue] = []
     info: List[NotificationDiagnosticIssue] = [
-        _issue(
-            "info",
-            "context_channels_runtime_only",
-            "钉钉会话属于运行时消息上下文渠道，无法仅靠静态 .env 完整判断。",
-        ),
         _issue(
             "info",
             "phase_scope",

@@ -76,7 +76,7 @@ def render(
     Render report using Jinja2 template.
 
     Args:
-        platform: One of: markdown, wechat, brief
+        platform: One of: markdown, brief
         results: List of AnalysisResult
         report_date: Report date string (default: today)
         summary_only: Whether to output summary only

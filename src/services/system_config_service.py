@@ -1321,32 +1321,6 @@ class SystemConfigService:
                     )
                 )
 
-        startup_only_run_keys = submitted_keys & {
-            "RUN_IMMEDIATELY",
-        }
-        if startup_only_run_keys:
-            warnings.append(
-                (
-                    f"{', '.join(sorted(startup_only_run_keys))} 已写入 .env。"
-                    "它属于启动期单次运行配置：当前已运行的 WebUI/API 进程不会因为本次保存立即触发分析；"
-                    "请重启当前进程后，在非 schedule 模式下按新值生效。"
-                )
-            )
-
-        startup_only_schedule_keys = submitted_keys & {
-            "SCHEDULE_ENABLED",
-            "SCHEDULE_TIME",
-            "SCHEDULE_RUN_IMMEDIATELY",
-        }
-        if startup_only_schedule_keys:
-            warnings.append(
-                (
-                    f"{', '.join(sorted(startup_only_schedule_keys))} 已写入 .env。"
-                    "这些属于启动期调度配置：当前已运行的 WebUI/API 进程不会因为本次保存立即触发分析，"
-                    "也不会自动重建 scheduler；请重启当前进程，并以 schedule 模式重新启动后生效。"
-                )
-            )
-
         startup_only_bind_keys = submitted_keys & {
             "WEBUI_HOST",
             "WEBUI_PORT",
@@ -1814,7 +1788,7 @@ class SystemConfigService:
 
     def _build_notification_test_config(self, effective_map: Dict[str, str]) -> Config:
         """Build an isolated Config instance for notification testing."""
-        kwargs: Dict[str, Any] = {"stock_list": []}
+        kwargs: Dict[str, Any] = {}
         for key, (attr, value_type) in self._NOTIFICATION_TEST_KEY_MAP.items():
             if key not in effective_map:
                 continue
@@ -2058,7 +2032,6 @@ class SystemConfigService:
     @staticmethod
     def _is_setup_relevant_env_key(key: str) -> bool:
         if key in {
-            "STOCK_LIST",
             "DATABASE_PATH",
             "LITELLM_CONFIG",
             "LITELLM_MODEL",
@@ -2082,15 +2055,12 @@ class SystemConfigService:
             "EMAIL_",
             "DISCORD_",
             "SLACK_",
-            "DINGTALK_",
-            "WECHAT_",
             "PUSHOVER_",
             "NTFY_",
             "GOTIFY_",
             "PUSHPLUS_",
             "SERVERCHAN",
             "CUSTOM_WEBHOOK",
-            "WECOM_",
             "ASTRBOT_",
         )
         return key.startswith(prefixes) or key.endswith("_API_KEY") or key.endswith("_API_KEYS")
@@ -2371,7 +2341,13 @@ class SystemConfigService:
         )
 
     def _build_setup_stock_list_check(self, effective_map: Dict[str, str]) -> Dict[str, Any]:
-        stocks = self._split_csv(effective_map.get("STOCK_LIST") or "")
+        del effective_map  # 自选股已迁移到数据库 watch_list 表，不再依赖 .env
+        try:
+            from src.repositories.watch_list_repo import get_watch_list_codes
+            stocks = get_watch_list_codes()
+        except Exception as exc:  # 数据库不可用时降级为待办，避免阻塞 setup 向导
+            logger.warning("加载自选股失败，setup 检查降级为待办: %s", exc)
+            stocks = []
         if stocks:
             return self._setup_check(
                 "stock_list",
@@ -2387,8 +2363,8 @@ class SystemConfigService:
             "base",
             True,
             "needs_action",
-            "当前 STOCK_LIST 为空。",
-            "请至少添加 1 只股票用于首次试跑。",
+            "当前自选股列表为空。",
+            "请在 WebUI「自选股」页面或通过 /api/v1/watch-list 接口至少添加 1 只股票用于首次试跑。",
         )
 
     def _build_setup_notification_check(self, effective_map: Dict[str, str]) -> Dict[str, Any]:
@@ -2400,10 +2376,6 @@ class SystemConfigService:
             or (
                 self._has_any_config_value(effective_map, ("EMAIL_SENDER",))
                 and self._has_any_config_value(effective_map, ("EMAIL_PASSWORD",))
-            )
-            or (
-                self._has_any_config_value(effective_map, ("DINGTALK_APP_KEY",))
-                and self._has_any_config_value(effective_map, ("DINGTALK_APP_SECRET",))
             )
             or self._has_any_config_value(
                 effective_map,

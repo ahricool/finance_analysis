@@ -61,7 +61,7 @@ def handle_webhook(
     这是所有平台 Webhook 的统一入口。
 
     Args:
-        platform_name: 平台名称 (feishu, dingtalk, wecom, telegram)
+        platform_name: 平台名称
         headers: HTTP 请求头
         body: 请求体原始字节
         query_params: URL 查询参数（用于某些平台的验证）
@@ -203,21 +203,6 @@ async def handle_webhook_async(
         return webhook_response
 
     return WebhookResponse.success()
-
-
-def handle_feishu_webhook(headers: Dict[str, str], body: bytes) -> WebhookResponse:
-    """处理飞书 Webhook"""
-    return handle_webhook('feishu', headers, body)
-
-
-def handle_dingtalk_webhook(headers: Dict[str, str], body: bytes) -> WebhookResponse:
-    """处理钉钉 Webhook"""
-    return handle_webhook('dingtalk', headers, body)
-
-
-def handle_wecom_webhook(headers: Dict[str, str], body: bytes) -> WebhookResponse:
-    """处理企业微信 Webhook"""
-    return handle_webhook('wecom', headers, body)
 
 
 def handle_telegram_webhook(headers: Dict[str, str], body: bytes) -> WebhookResponse:

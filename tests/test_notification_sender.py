@@ -33,7 +33,7 @@ from src.notification_sender import (
 
 def _config(**overrides):
     """Minimal Config for sender tests."""
-    return Config(stock_list=[], database_url=os.environ["DATABASE_URL"], **overrides)
+    return Config(database_url=os.environ["DATABASE_URL"], **overrides)
 
 
 def _response(status_code: int, json_body: Optional[dict] = None):
@@ -103,48 +103,6 @@ class TestDiscordSender(unittest.TestCase):
         self.assertIn("discord.com/api/v10/channels/CH123/messages", mock_post.call_args[0][0])
         call_kw = mock_post.call_args[1]
         self.assertEqual(call_kw["headers"]["Authorization"], "Bot TOKEN")
-
-
-@unittest.skip("channel removed")
-class TestWechatSender(unittest.TestCase):
-    """Unit tests for WechatSender."""
-
-    def test_send_returns_false_when_no_webhook_url(self):
-        cfg = _config()
-        sender = WechatSender(cfg)
-        result = sender.send_to_wechat("hello")
-        self.assertFalse(result)
-
-    @mock.patch("src.notification_sender.wechat_sender.requests.post")
-    def test_send_success_returns_true(self, mock_post):
-        mock_post.return_value = _response(200, {"errcode": 0})
-        cfg = _config(wechat_webhook_url="https://wechat.example/hook")
-        sender = WechatSender(cfg)
-        result = sender.send_to_wechat("hello")
-        self.assertTrue(result)
-
-    def test_gen_wechat_payload_markdown(self):
-        cfg = _config(wechat_webhook_url="u", wechat_msg_type="markdown")
-        sender = WechatSender(cfg)
-        payload = sender._gen_wechat_payload("## title\nbody")
-        self.assertEqual(payload["msgtype"], "markdown")
-        self.assertEqual(payload["markdown"]["content"], "## title\nbody")
-
-    def test_gen_wechat_payload_text(self):
-        cfg = _config(wechat_webhook_url="u", wechat_msg_type="text")
-        sender = WechatSender(cfg)
-        payload = sender._gen_wechat_payload("plain")
-        self.assertEqual(payload["msgtype"], "text")
-        self.assertEqual(payload["text"]["content"], "plain")
-
-    @mock.patch("src.notification_sender.wechat_sender.requests.post")
-    def test_send_wechat_image_over_limit_returns_false(self, mock_post):
-        cfg = _config(wechat_webhook_url="https://wechat.example/hook")
-        sender = WechatSender(cfg)
-        big = b"x" * (WECHAT_IMAGE_MAX_BYTES + 1)
-        result = sender._send_wechat_image(big)
-        self.assertFalse(result)
-        mock_post.assert_not_called()
 
 
 @unittest.skip("channel removed")
@@ -675,47 +633,6 @@ class TestCustomWebhookSender(unittest.TestCase):
             json.loads(body),
             {"msg_type": "text", "content": 'hello "world"'},
         )
-
-    @mock.patch("src.notification_sender.custom_webhook_sender.requests.post")
-    def test_dingtalk_send_uses_custom_body_template(self, mock_post):
-        mock_post.return_value = _response(200)
-        cfg = _config(
-            custom_webhook_urls=["https://oapi.dingtalk.com/robot/send?access_token=token"],
-            custom_webhook_body_template='{"msgtype":"text","text":{"content":$content_json}}',
-        )
-        sender = CustomWebhookSender(cfg)
-
-        result = sender.send_to_custom("hello dingtalk")
-
-        self.assertTrue(result)
-        mock_post.assert_called_once()
-        body = mock_post.call_args[1]["data"].decode("utf-8")
-        self.assertEqual(
-            json.loads(body),
-            {"msgtype": "text", "text": {"content": "hello dingtalk"}},
-        )
-
-    @mock.patch("time.sleep", return_value=None)
-    @mock.patch("src.notification_sender.custom_webhook_sender.requests.post")
-    def test_dingtalk_template_failure_falls_back_to_chunked_send(
-        self, mock_post, _mock_sleep
-    ):
-        mock_post.side_effect = [_response(400), _response(200), _response(200), _response(200)]
-        cfg = _config(
-            custom_webhook_urls=["https://oapi.dingtalk.com/robot/send?access_token=token"],
-            custom_webhook_body_template='{"msgtype":"text","text":{"content":$content_json}}',
-        )
-        sender = CustomWebhookSender(cfg)
-
-        result = sender.send_to_custom("A" * 40000)
-
-        self.assertTrue(result)
-        self.assertGreater(mock_post.call_count, 1)
-        first_body = json.loads(mock_post.call_args_list[0].kwargs["data"].decode("utf-8"))
-        fallback_body = json.loads(mock_post.call_args_list[1].kwargs["data"].decode("utf-8"))
-        self.assertEqual(first_body["msgtype"], "text")
-        self.assertEqual(fallback_body["msgtype"], "markdown")
-        self.assertIn("markdown", fallback_body)
 
     @mock.patch("src.notification_sender.custom_webhook_sender.requests.post")
     def test_invalid_custom_body_template_falls_back(self, mock_post):

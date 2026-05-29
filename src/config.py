@@ -620,10 +620,9 @@ class Config:
     - 类方法 get_instance() 实现单例访问
     """
     
-    # === 自选股配置 ===
-    stock_list: List[str] = field(default_factory=list)
-
     # === 数据源 API Token ===
+    # 自选股已迁移到数据库 ``watch_list`` 表（见 src.repositories.watch_list_repo），
+    # 由 WebUI「自选股」页面或 /api/v1/watch-list 接口管理，不再作为环境变量。
     tushare_token: Optional[str] = None
     tickflow_api_key: Optional[str] = None
     longbridge_app_key: Optional[str] = None
@@ -747,7 +746,7 @@ class Config:
     ntfy_token: Optional[str] = None
 
     # 自定义 Webhook（支持多个，逗号分隔）
-    # 适用于：钉钉、自建服务等任意支持 POST JSON 的 Webhook
+    # 适用于：自建服务等任意支持 POST JSON 的 Webhook
     custom_webhook_urls: List[str] = field(default_factory=list)
     custom_webhook_bearer_token: Optional[str] = None  # Bearer Token（用于需要认证的 Webhook）
     custom_webhook_body_template: Optional[str] = None  # 自定义 Webhook JSON body 模板
@@ -832,10 +831,8 @@ class Config:
     https_proxy: Optional[str] = None # HTTPS 代理
     
     # === 定时任务配置 ===
-    schedule_enabled: bool = False            # 是否启用定时任务
-    schedule_time: str = "18:00"              # 每日推送时间（HH:MM 格式）
-    schedule_run_immediately: bool = True     # 启动时是否立即执行一次
-    run_immediately: bool = True              # 启动时是否立即执行一次（非定时模式）
+    # NOTE: 定时任务（启用/时间/启动立即执行）已全部写死在 src/scheduler.py，
+    # 不再从环境变量读取。如需修改，请编辑 src/scheduler.py 并重启进程。
     market_review_enabled: bool = True        # 是否启用大盘复盘
     # 大盘复盘市场区域：cn(A股)、us(美股)、both(两者)，us 适合仅关注美股的用户
     market_review_region: str = "cn"
@@ -909,18 +906,7 @@ class Config:
     bot_rate_limit_requests: int = 10     # 频率限制：窗口内最大请求数
     bot_rate_limit_window: int = 60       # 频率限制：窗口时间（秒）
     bot_admin_users: List[str] = field(default_factory=list)  # 管理员用户 ID 列表
-    
-    # 钉钉机器人
-    dingtalk_app_key: Optional[str] = None      # 应用 AppKey
-    dingtalk_app_secret: Optional[str] = None   # 应用 AppSecret
-    dingtalk_stream_enabled: bool = False       # 是否启用 Stream 模式（无需公网IP）
-    
-    # 企业微信机器人（回调模式）
-    wecom_corpid: Optional[str] = None              # 企业 ID
-    wecom_token: Optional[str] = None               # 回调 Token
-    wecom_encoding_aes_key: Optional[str] = None    # 消息加解密密钥
-    wecom_agent_id: Optional[str] = None            # 应用 AgentId
-    
+
     # Telegram 机器人 - 已有 telegram_bot_token, telegram_chat_id
     telegram_webhook_secret: Optional[str] = None   # Webhook 密钥
 
@@ -933,15 +919,9 @@ class Config:
     _VALID_AGENT_ARCH = {"single", "multi"}
     _VALID_ORCHESTRATOR_MODES = {"quick", "standard", "full", "specialist"}
     _VALID_SKILL_ROUTING = {"auto", "manual"}
-    _WEBUI_RUNTIME_ENV_FILE_PRIORITY_KEYS = frozenset(
-        {
-            "STOCK_LIST",
-            "RUN_IMMEDIATELY",
-            "SCHEDULE_ENABLED",
-            "SCHEDULE_TIME",
-            "SCHEDULE_RUN_IMMEDIATELY",
-        }
-    )
+    # 在 WebUI 中可热修改、且需要由持久化 ``.env`` 覆盖陈旧进程环境变量的键集合。
+    # 自选股已迁移到数据库 ``watch_list`` 表，因此此集合目前为空，但机制保留供未来扩展。
+    _WEBUI_RUNTIME_ENV_FILE_PRIORITY_KEYS: frozenset = frozenset()
     _BOOTSTRAP_RUNTIME_ENV_OVERRIDES_CAPTURED = False
     _BOOTSTRAP_RUNTIME_ENV_OVERRIDES = frozenset()
     _BOOTSTRAP_RUNTIME_ENV_PRESENT_KEYS = frozenset()
@@ -1047,22 +1027,6 @@ class Config:
                 os.environ['HTTPS_PROXY'] = https_proxy
                 os.environ['https_proxy'] = https_proxy
 
-        
-        # 解析自选股列表（逗号分隔，统一为大写 Issue #355）
-        stock_list_str = cls._resolve_env_value(
-            'STOCK_LIST',
-            default='',
-            prefer_env_file=True,
-        )
-        stock_list = [
-            (c or "").strip().upper()
-            for c in stock_list_str.split(',')
-            if (c or "").strip()
-        ]
-        
-        # 如果没有配置，使用默认的示例股票
-        if not stock_list:
-            stock_list = ['600519', '000001', '300750']
         
         # === LiteLLM multi-key parsing ===
         # GEMINI_API_KEYS (comma-separated) > GEMINI_API_KEY (single)
@@ -1269,50 +1233,11 @@ class Config:
             default=True,
         )
 
-        # Preserve historical semantics for startup flags: only an explicit
-        # literal "true" enables immediate execution; empty strings stay False.
-        legacy_run_immediately_env = cls._resolve_env_value(
-            'RUN_IMMEDIATELY',
-            prefer_env_file=True,
-        )
-        legacy_run_immediately = (
-            legacy_run_immediately_env.lower() == 'true'
-            if legacy_run_immediately_env is not None
-            else True
-        )
-
-        schedule_run_immediately_env = cls._resolve_env_value(
-            'SCHEDULE_RUN_IMMEDIATELY',
-            prefer_env_file=True,
-        )
-        # Keep backward compatibility for container/process overrides:
-        # when RUN_IMMEDIATELY is explicitly provided by the runtime but the
-        # schedule-specific alias is absent, schedule mode should inherit the
-        # legacy process value instead of being pulled back to the persisted
-        # `.env` copy of SCHEDULE_RUN_IMMEDIATELY.
-        if (
-            not cls._had_bootstrap_runtime_env_key('SCHEDULE_RUN_IMMEDIATELY')
-            and cls._has_bootstrap_runtime_env_override('RUN_IMMEDIATELY')
-        ):
-            schedule_run_immediately = legacy_run_immediately
-        else:
-            schedule_run_immediately = (
-                schedule_run_immediately_env.lower() == 'true'
-                if schedule_run_immediately_env is not None
-                else legacy_run_immediately
-            )
-        schedule_time_value = cls._resolve_env_value(
-            'SCHEDULE_TIME',
-            default='18:00',
-            prefer_env_file=True,
-        )
-
         report_language_raw = cls._resolve_report_language_env_value(
             preexisting_report_language
         )
         
         return cls(
-            stock_list=stock_list,
             tushare_token=os.getenv('TUSHARE_TOKEN'),
             tickflow_api_key=os.getenv('TICKFLOW_API_KEY'),
             longbridge_app_key=os.getenv('LONGBRIDGE_APP_KEY') or None,
@@ -1514,14 +1439,6 @@ class Config:
             config_validate_mode=os.getenv('CONFIG_VALIDATE_MODE', 'warn').lower(),
             http_proxy=os.getenv('HTTP_PROXY'),
             https_proxy=os.getenv('HTTPS_PROXY'),
-            schedule_enabled=cls._resolve_env_value(
-                'SCHEDULE_ENABLED',
-                default='false',
-                prefer_env_file=True,
-            ).lower() == 'true',
-            schedule_time=(schedule_time_value or '18:00').strip() or '18:00',
-            schedule_run_immediately=schedule_run_immediately,
-            run_immediately=legacy_run_immediately,
             market_review_enabled=os.getenv('MARKET_REVIEW_ENABLED', 'true').lower() == 'true',
             market_review_region=cls._parse_market_review_region(
                 os.getenv('MARKET_REVIEW_REGION', 'cn')
@@ -1536,15 +1453,6 @@ class Config:
             bot_rate_limit_requests=parse_env_int(os.getenv('BOT_RATE_LIMIT_REQUESTS'), 10, field_name='BOT_RATE_LIMIT_REQUESTS', minimum=1),
             bot_rate_limit_window=parse_env_int(os.getenv('BOT_RATE_LIMIT_WINDOW'), 60, field_name='BOT_RATE_LIMIT_WINDOW', minimum=1),
             bot_admin_users=[u.strip() for u in os.getenv('BOT_ADMIN_USERS', '').split(',') if u.strip()],
-            # 钉钉机器人
-            dingtalk_app_key=os.getenv('DINGTALK_APP_KEY'),
-            dingtalk_app_secret=os.getenv('DINGTALK_APP_SECRET'),
-            dingtalk_stream_enabled=os.getenv('DINGTALK_STREAM_ENABLED', 'false').lower() == 'true',
-            # 企业微信机器人
-            wecom_corpid=os.getenv('WECOM_CORPID'),
-            wecom_token=os.getenv('WECOM_TOKEN'),
-            wecom_encoding_aes_key=os.getenv('WECOM_ENCODING_AES_KEY'),
-            wecom_agent_id=os.getenv('WECOM_AGENT_ID'),
             # Telegram
             telegram_webhook_secret=os.getenv('TELEGRAM_WEBHOOK_SECRET'),
             # 实时行情增强数据配置
@@ -2161,39 +2069,6 @@ class Config:
         # Auto-detect: Agent inherits global model when AGENT_LITELLM_MODEL is empty.
         return bool(get_effective_agent_primary_model(self))
 
-    def refresh_stock_list(self) -> None:
-        """
-        热读取 STOCK_LIST 环境变量并更新配置中的自选股列表
-        
-        支持两种配置方式：
-        1. .env 文件（本地开发、定时任务模式） - 修改后下次执行自动生效
-        2. 系统环境变量（GitHub Actions、Docker） - 启动时固定，运行中不变
-        """
-        # 优先从 .env 文件读取最新配置，这样即使在容器环境中修改了 .env 文件，
-        # 也能获取到最新的股票列表配置
-        env_file = os.getenv("ENV_FILE")
-        env_path = Path(env_file) if env_file else (Path(__file__).parent.parent / '.env')
-        stock_list_str = ''
-        if env_path.exists():
-            # 直接从 .env 文件读取最新的配置
-            env_values = dotenv_values(env_path)
-            stock_list_str = (env_values.get('STOCK_LIST') or '').strip()
-
-        # 如果 .env 文件不存在或未配置，才尝试从系统环境变量读取
-        if not stock_list_str:
-            stock_list_str = os.getenv('STOCK_LIST', '')
-
-        stock_list = [
-            (c or "").strip().upper()
-            for c in stock_list_str.split(',')
-            if (c or "").strip()
-        ]
-
-        if not stock_list:
-            stock_list = ['000001']
-
-        self.stock_list = stock_list
-    
     def validate_structured(self) -> List[ConfigIssue]:
         """Return structured validation issues with severity levels.
 
@@ -2227,44 +2102,25 @@ class Config:
                 field="DATABASE_URL",
             ))
 
-        # --- Stock list ---
-        if not self.stock_list:
-            issues.append(ConfigIssue(
-                severity="error",
-                message="未配置自选股列表 (STOCK_LIST)",
-                field="STOCK_LIST",
-            ))
-        elif self.stock_email_groups:
-            from data_provider.base import normalize_stock_code
-            configured_stock_set = {
-                normalize_stock_code(code)
-                for code in self.stock_list
-                if (code or "").strip()
-            }
-            missing_group_stocks_dict: Dict[str, None] = {}
-            for stocks, _emails in self.stock_email_groups:
-                for stock in stocks:
-                    raw = (stock or "").strip()
-                    if not raw:
-                        continue
-                    normalized_stock = normalize_stock_code(stock)
-                    if normalized_stock in configured_stock_set:
-                        continue
-                    if normalized_stock in missing_group_stocks_dict:
-                        continue
-                    missing_group_stocks_dict[normalized_stock] = None
-            missing_group_stocks = list(missing_group_stocks_dict.keys())
-            if missing_group_stocks:
+        # --- 自选股 (watch_list) ---
+        # 自选股列表已迁移到数据库 ``watch_list`` 表（由 WebUI/REST 管理），
+        # 不再通过 .env 配置；这里以数据库实际记录为准做一次轻量提示。
+        # STOCK_GROUP_N 仅用于邮件路由，不再做与 .env 列表的子集校验，因为
+        # 自选股是动态数据，在配置启动校验阶段不便强制要求数据库可用。
+        try:
+            from src.repositories.watch_list_repo import get_watch_list_codes
+            if not get_watch_list_codes():
                 issues.append(ConfigIssue(
-                    severity="warning",
+                    severity="info",
                     message=(
-                        "检测到 STOCK_GROUP_N 中存在未包含在 STOCK_LIST 内的股票："
-                        f"{', '.join(missing_group_stocks[:6])}。"
-                        "STOCK_GROUP_N 仅用于邮件路由，不会扩大分析范围；"
-                        "请先将这些股票加入 STOCK_LIST。"
+                        "当前自选股列表为空，请在 WebUI「自选股」页面或"
+                        "通过 /api/v1/watch-list 接口添加股票后再运行分析任务。"
                     ),
-                    field="STOCK_GROUP_N",
+                    field="watch_list",
                 ))
+        except Exception:
+            # 配置校验阶段允许数据库尚未初始化（启动早期），不阻塞校验流程。
+            pass
 
         # --- Data sources (informational only) ---
         if not self.tushare_token:
@@ -2603,7 +2459,6 @@ if __name__ == "__main__":
     # 测试配置加载
     config = get_config()
     print("=== 配置加载测试 ===")
-    print(f"自选股列表: {config.stock_list}")
     print(f"数据库路径: {config.database_path}")
     print(f"最大并发数: {config.max_workers}")
     print(f"调试模式: {config.debug}")

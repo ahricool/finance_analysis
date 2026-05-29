@@ -27,14 +27,7 @@ def _make_config(**kwargs) -> Config:
     Any keyword argument overrides the corresponding dataclass field so tests
     only have to specify the fields that matter for their scenario.
     """
-    # Legacy test helper aliases (older env-style names)
-    wechat = kwargs.pop("wechat_webhook_url", Ellipsis)
-    if wechat is not Ellipsis:
-        kwargs["custom_webhook_urls"] = [wechat] if wechat else []
-    kwargs.pop("feishu_webhook_url", None)
-
     defaults = dict(
-        stock_list=["600519"],
         tushare_token=None,
         # Populate llm_model_list as the three-tier signal
         llm_model_list=[{"model_name": "gemini/gemini-2.0-flash", "litellm_params": {"model": "gemini/gemini-2.0-flash", "api_key": "sk-test"}}],
@@ -142,72 +135,37 @@ class TestValidateStructuredDatabase:
 
 
 # ---------------------------------------------------------------------------
-# validate_structured() — stock list
+# validate_structured() — watch_list (database)
 # ---------------------------------------------------------------------------
 
-class TestValidateStructuredStockList:
-    def test_empty_stock_list_is_error(self):
-        cfg = _make_config(stock_list=[])
+class TestValidateStructuredWatchList:
+    @patch("src.repositories.watch_list_repo.get_watch_list_codes", return_value=[])
+    def test_empty_watch_list_emits_info(self, _mock_codes):
+        cfg = _make_config()
         issues = cfg.validate_structured()
-        errors = [i for i in issues if i.severity == "error"]
-        assert any("STOCK_LIST" in i.field for i in errors)
+        info = next(i for i in issues if i.field == "watch_list")
+        assert info.severity == "info"
+        assert "自选股" in info.message
 
-    def test_configured_stock_list_no_stock_error(self):
-        cfg = _make_config(stock_list=["600519", "000001"])
+    @patch("src.repositories.watch_list_repo.get_watch_list_codes", return_value=["600519"])
+    def test_configured_watch_list_has_no_watch_list_issue(self, _mock_codes):
+        cfg = _make_config()
         issues = cfg.validate_structured()
-        assert not any(i.field == "STOCK_LIST" for i in issues if i.severity == "error")
+        assert not any(i.field == "watch_list" for i in issues)
 
-    def test_stock_email_groups_outside_stock_list_is_warning(self):
+    @patch("src.repositories.watch_list_repo.get_watch_list_codes", side_effect=RuntimeError("db down"))
+    def test_watch_list_db_unavailable_does_not_block_validation(self, _mock_codes):
+        cfg = _make_config()
+        issues = cfg.validate_structured()
+        assert not any(i.field == "watch_list" for i in issues)
+
+    def test_stock_email_groups_no_longer_validated_against_stock_list(self):
+        """STOCK_GROUP_N 路由校验已移除；仅保留分组解析，不再与 .env 自选股比对。"""
         cfg = _make_config(
-            stock_list=["600519"],
             stock_email_groups=[(["600519", "000001"], ["group@example.com"])],
         )
         issues = cfg.validate_structured()
-        warning = next(i for i in issues if i.field == "STOCK_GROUP_N")
-        assert warning.severity == "warning"
-        assert "000001" in warning.message
-        assert "邮件路由" in warning.message
-        assert "STOCK_LIST" in warning.message
-
-    def test_stock_email_groups_subset_of_stock_list_has_no_warning(self):
-        cfg = _make_config(
-            stock_list=["600519", "000001"],
-            stock_email_groups=[(["600519"], ["group@example.com"])],
-        )
-        issues = cfg.validate_structured()
         assert not any(i.field == "STOCK_GROUP_N" for i in issues)
-
-    def test_stock_email_groups_canonical_normalization_no_false_warning(self):
-        """Equivalent stock code formats (SH600519 vs 600519, 1810.HK vs HK01810)
-        should not trigger a subset warning after canonical normalization."""
-        cfg = _make_config(
-            stock_list=["600519", "HK00700"],
-            stock_email_groups=[
-                (["SH600519", "1810.HK"], ["group@example.com"]),
-            ],
-        )
-        issues = cfg.validate_structured()
-        group_warnings = [i for i in issues if i.field == "STOCK_GROUP_N"]
-        # SH600519 normalizes to 600519 (present in stock_list)
-        # 1810.HK normalizes to HK01810 (NOT present — HK00700 ≠ HK01810)
-        assert len(group_warnings) == 1
-        assert "HK01810" in group_warnings[0].message
-        assert "600519" not in group_warnings[0].message
-
-    def test_stock_email_groups_warning_normalizes_and_deduplicates_codes(self):
-        cfg = _make_config(
-            stock_list=["600519"],
-            stock_email_groups=[
-                (["  aapl ", "AAPL", "aapl", " "], ["group@example.com"]),
-            ],
-        )
-        issues = cfg.validate_structured()
-        warning = next(i for i in issues if i.field == "STOCK_GROUP_N")
-        assert warning.severity == "warning"
-        assert "AAPL" in warning.message
-        assert "  aapl " not in warning.message
-        assert warning.message.count("AAPL") == 1
-
 
 # ---------------------------------------------------------------------------
 # validate_structured() — LLM availability (three-tier check)
@@ -359,40 +317,40 @@ class TestValidateStructuredLLM:
 
 class TestValidateStructuredNotification:
     def test_no_notification_is_warning(self):
-        cfg = _make_config(wechat_webhook_url=None)
+        cfg = _make_config(custom_webhook_urls=[])
         issues = cfg.validate_structured()
         warn = [i for i in issues if i.severity == "warning"]
         assert any("通知渠道" in i.message for i in warn)
 
     def test_notification_configured_no_warning(self):
-        cfg = _make_config(wechat_webhook_url="https://example.com/wh")
+        cfg = _make_config(custom_webhook_urls=["https://example.com/wh"])
         issues = cfg.validate_structured()
         assert not any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
 
     def test_astrbot_url_counts_as_notification_channel(self):
         cfg = _make_config(
-            wechat_webhook_url=None,
+            custom_webhook_urls=[],
             astrbot_url="https://astrbot.example/webhook",
         )
         issues = cfg.validate_structured()
         assert not any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
 
     def test_ntfy_url_without_topic_reports_error_and_does_not_count_as_channel(self):
-        cfg = _make_config(wechat_webhook_url=None, ntfy_url="https://ntfy.sh")
+        cfg = _make_config(custom_webhook_urls=[], ntfy_url="https://ntfy.sh")
         issues = cfg.validate_structured()
 
         assert any(i.severity == "error" and i.field == "NTFY_URL" for i in issues)
         assert any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
 
     def test_ntfy_encoded_blank_topic_reports_error_and_does_not_count_as_channel(self):
-        cfg = _make_config(wechat_webhook_url=None, ntfy_url="https://ntfy.sh/%20")
+        cfg = _make_config(custom_webhook_urls=[], ntfy_url="https://ntfy.sh/%20")
         issues = cfg.validate_structured()
 
         assert any(i.severity == "error" and i.field == "NTFY_URL" for i in issues)
         assert any(i.severity == "warning" and "通知渠道" in i.message for i in issues)
 
     def test_ntfy_topic_endpoint_counts_as_notification_channel(self):
-        cfg = _make_config(wechat_webhook_url=None, ntfy_url="https://ntfy.sh/fa-topic")
+        cfg = _make_config(custom_webhook_urls=[], ntfy_url="https://ntfy.sh/fa-topic")
         issues = cfg.validate_structured()
 
         assert not any(i.field == "NTFY_URL" for i in issues)
@@ -559,7 +517,7 @@ class TestValidateBackwardCompat:
 
     def test_messages_match_validate_structured(self):
         """validate() strings must be the message field of each ConfigIssue."""
-        cfg = _make_config(llm_model_list=[], stock_list=[])
+        cfg = _make_config(llm_model_list=[])
         structured = cfg.validate_structured()
         plain = cfg.validate()
         assert plain == [i.message for i in structured]

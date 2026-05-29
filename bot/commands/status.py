@@ -59,13 +59,19 @@ class StatusCommand(BotCommand):
     def _collect_status(self, config) -> dict:
         """收集系统状态信息"""
         from src.config import _uses_direct_env_provider, get_configured_llm_models
+        from src.repositories.watch_list_repo import get_watch_list_codes
+
+        try:
+            watch_codes = get_watch_list_codes()
+        except Exception:  # 容错：状态命令不应因为 DB 不可用而崩溃
+            watch_codes = []
 
         status = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
             "platform": platform.system(),
-            "stock_count": len(config.stock_list),
-            "stock_list": config.stock_list[:5],  # 只显示前5个
+            "stock_count": len(watch_codes),
+            "stock_list": watch_codes[:5],  # 只显示前5个
         }
         
         # AI 配置状态

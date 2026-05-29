@@ -22,9 +22,6 @@ class ChatType(str, Enum):
 
 class Platform(str, Enum):
     """平台类型"""
-    FEISHU = "feishu"        # 飞书
-    DINGTALK = "dingtalk"    # 钉钉
-    WECOM = "wecom"          # 企业微信
     TELEGRAM = "telegram"    # Telegram
     UNKNOWN = "unknown"      # 未知
 
