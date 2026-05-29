@@ -18,7 +18,7 @@ from src.services.notification_diagnostics import (
 
 
 def _config(**overrides) -> Config:
-    return Config(stock_list=[], database_url=os.environ["DATABASE_URL"], **overrides)
+    return Config(database_url=os.environ["DATABASE_URL"], **overrides)
 
 
 class NotificationDiagnosticsTestCase(unittest.TestCase):

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { getParsedApiError } from '@/api/error';
 import { stocksApi, type ExtractItem } from '@/api/stocks';
-import { systemConfigApi, SystemConfigConflictError } from '@/api/systemConfig';
+import { watchListApi } from '@/api/watchList';
 import Badge from '@/components/common/Badge.vue';
 import Button from '@/components/common/Button.vue';
 import InlineAlert from '@/components/common/InlineAlert.vue';
@@ -20,16 +20,13 @@ const TEXT_MAX = 100 * 1024;
 
 const props = withDefaults(
   defineProps<{
-    stockListValue: string;
-    configVersion: string;
-    maskToken: string;
     disabled?: boolean;
   }>(),
   { disabled: false },
 );
 
 const emit = defineEmits<{
-  merged: [newValue: string];
+  merged: [addedCount: number];
 }>();
 
 const items = ref<ItemWithChecked[]>([]);
@@ -41,11 +38,9 @@ const pasteText = ref('');
 const imageInputRef = ref<HTMLInputElement | null>(null);
 const dataFileInputRef = ref<HTMLInputElement | null>(null);
 
-function parseCurrentList() {
-  return props.stockListValue
-    .split(',')
-    .map((c) => c.trim())
-    .filter(Boolean);
+async function loadExistingCodes(): Promise<string[]> {
+  const res = await watchListApi.list();
+  return res.items.map((item) => item.code.trim().toUpperCase()).filter(Boolean);
 }
 
 function addItems(newItems: ExtractItem[]) {
@@ -174,33 +169,29 @@ function clearAll() {
 async function mergeToWatchlist() {
   const toMerge = items.value.filter((i) => i.checked && i.code).map((i) => i.code!);
   if (toMerge.length === 0) return;
-  if (!props.configVersion) {
-    error.value = '请先加载配置后再合并';
-    return;
-  }
-  const current = parseCurrentList();
-  const merged = [...new Set([...current, ...toMerge])];
-  const value = merged.join(',');
 
   isMerging.value = true;
   error.value = null;
   try {
-    await systemConfigApi.update({
-      configVersion: props.configVersion,
-      maskToken: props.maskToken,
-      reloadNow: true,
-      items: [{ key: 'STOCK_LIST', value }],
-    });
+    const existing = new Set(await loadExistingCodes());
+    let added = 0;
+    for (const code of toMerge) {
+      const normalized = code.trim().toUpperCase();
+      if (!normalized || existing.has(normalized)) continue;
+      const item = items.value.find((i) => i.code?.toUpperCase() === normalized);
+      await watchListApi.create({
+        code: normalized,
+        name: item?.name?.trim() || undefined,
+      });
+      existing.add(normalized);
+      added += 1;
+    }
     items.value = [];
     pasteText.value = '';
-    emit('merged', value);
+    emit('merged', added);
   } catch (e) {
-    if (e instanceof SystemConfigConflictError) {
-      emit('merged', value);
-      error.value = '配置已更新，请再次点击「合并到自选股」';
-    } else {
-      error.value = e instanceof Error ? e.message : '合并保存失败';
-    }
+    const parsed = getParsedApiError(e);
+    error.value = parsed.message || '合并到自选股失败';
   } finally {
     isMerging.value = false;
   }

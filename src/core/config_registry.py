@@ -68,36 +68,8 @@ _CATEGORY_DEFINITIONS: List[Dict[str, Any]] = [
 ]
 
 _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
-    "STOCK_LIST": {
-        "title": "Stock List",
-        "description": "Comma-separated watchlist stock codes.",
-        "category": "base",
-        "data_type": "array",
-        "ui_control": "textarea",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": "600519,300750,002594",
-        "options": [],
-        "validation": {"min_items": 1},
-        "display_order": 10,
-        "help_key": "settings.base.STOCK_LIST",
-        "examples": [
-            "STOCK_LIST=600519,300750,002594",
-            "STOCK_LIST=600519,hk00700,AAPL",
-        ],
-        "docs": [
-            {
-                "label": "完整指南：环境变量完整列表",
-                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/full-guide.md#环境变量完整列表",
-            },
-            {
-                "label": "Tushare 股票列表指南",
-                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/TUSHARE_STOCK_LIST_GUIDE.md",
-            },
-        ],
-        "warning_codes": [],
-    },
+    # NOTE: 自选股已迁移到数据库 ``watch_list`` 表（见 WatchListRepo），
+    # 通过 /api/v1/watch-list 接口与 WebUI「自选股」页面管理，不再作为 .env 字段。
     # ------------------------------------------------------------------
     # AI Model – LiteLLM unified config
     # ------------------------------------------------------------------
@@ -1876,8 +1848,6 @@ def _is_sensitive_key(key: str) -> bool:
 
 
 def _infer_category(key: str) -> str:
-    if key == "STOCK_LIST":
-        return "base"
     if key.startswith("BACKTEST_"):
         return "backtest"
     if key.startswith(("GEMINI_", "OPENAI_", "ANTHROPIC_", "LITELLM_", "AIHUBMIX_", "DEEPSEEK_", "LLM_")):
@@ -1937,7 +1907,7 @@ def _infer_data_type(key: str, value_hint: Optional[str]) -> str:
     except (TypeError, ValueError):
         pass
 
-    if key in {"STOCK_LIST", "EMAIL_RECEIVERS", "CUSTOM_WEBHOOK_URLS"}:
+    if key in {"EMAIL_RECEIVERS", "CUSTOM_WEBHOOK_URLS"}:
         return "array"
     return "string"
 

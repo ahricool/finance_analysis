@@ -52,16 +52,13 @@ class BatchCommand(BotCommand):
     
     def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """执行批量分析命令"""
-        from src.config import get_config
+        from src.repositories.watch_list_repo import get_watch_list_codes
         
-        config = get_config()
-        config.refresh_stock_list()
-        
-        stock_list = config.stock_list
+        stock_list = get_watch_list_codes()
         
         if not stock_list:
             return BotResponse.error_response(
-                "自选股列表为空，请先配置 STOCK_LIST"
+                "自选股列表为空，请先在 WebUI 自选股页面或通过 /api/v1/watch-list 接口添加"
             )
         
         # 解析数量参数

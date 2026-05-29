@@ -102,11 +102,11 @@ class SystemConfigApiTestCase(unittest.TestCase):
     def test_get_config_schema_includes_help_metadata(self) -> None:
         payload = system_config.get_system_config(include_schema=True, service=self.service).model_dump(by_alias=True)
         item_map = {item["key"]: item for item in payload["items"]}
-        stock_schema = item_map["STOCK_LIST"]["schema"]
+        model_schema = item_map["LITELLM_MODEL"]["schema"]
 
-        self.assertEqual(stock_schema["help_key"], "settings.base.STOCK_LIST")
-        self.assertTrue(stock_schema["examples"])
-        self.assertTrue(stock_schema["docs"])
+        self.assertEqual(model_schema["help_key"], "settings.ai_model.LITELLM_MODEL")
+        self.assertTrue(model_schema["examples"])
+        self.assertTrue(model_schema["docs"])
 
     def test_get_config_schema_includes_notification_noise_fields(self) -> None:
         payload = system_config.get_system_config(include_schema=True, service=self.service).model_dump(by_alias=True)

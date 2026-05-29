@@ -19,7 +19,6 @@ def test_status_command_reports_unified_llm_and_notification_channels():
     ]
     config = Config(
         database_url=os.environ["DATABASE_URL"],
-        stock_list=["600519", "AAPL"],
         litellm_model="deepseek/deepseek-v4-flash",
         agent_litellm_model="openai/gpt-4o-mini",
         llm_channels=[
@@ -50,7 +49,7 @@ def test_status_command_reports_unified_llm_and_notification_channels():
 
 
 def test_status_command_warns_when_no_llm_source_configured():
-    config = Config(database_url=os.environ["DATABASE_URL"], stock_list=["600519"])
+    config = Config(database_url=os.environ["DATABASE_URL"])
     command = StatusCommand()
 
     status = command._collect_status(config)
@@ -65,7 +64,6 @@ def test_status_command_warns_when_no_llm_source_configured():
 def test_status_command_does_not_treat_managed_model_name_as_ready():
     config = Config(
         database_url=os.environ["DATABASE_URL"],
-        stock_list=["600519"],
         litellm_model="openai/gpt-4o-mini",
         llm_model_list=[],
     )
@@ -81,7 +79,6 @@ def test_status_command_does_not_treat_managed_model_name_as_ready():
 def test_status_command_keeps_channel_mode_priority_over_legacy_keys():
     config = Config(
         database_url=os.environ["DATABASE_URL"],
-        stock_list=["600519"],
         litellm_model="openai/gpt-4o-mini",
         llm_channels=[
             {
@@ -114,7 +111,6 @@ def test_status_command_keeps_channel_mode_priority_over_legacy_keys():
 def test_status_command_requires_primary_model_in_configured_router_models():
     config = Config(
         database_url=os.environ["DATABASE_URL"],
-        stock_list=["600519"],
         litellm_model="openai/gpt-4o-mini",
         llm_channels=[
             {
@@ -146,7 +142,6 @@ def test_status_command_requires_primary_model_in_configured_router_models():
 def test_status_command_requires_primary_model_for_yaml_router_models():
     config = Config(
         database_url=os.environ["DATABASE_URL"],
-        stock_list=["600519"],
         litellm_model="",
         llm_models_source="litellm_config",
         llm_model_list=[
@@ -174,7 +169,6 @@ def test_status_command_requires_primary_model_for_yaml_router_models():
 def test_status_command_does_not_treat_invalid_yaml_path_as_active():
     config = Config(
         database_url=os.environ["DATABASE_URL"],
-        stock_list=["600519"],
         litellm_config_path="missing.yaml",
         llm_models_source="legacy_env",
         llm_model_list=[],
@@ -193,7 +187,6 @@ def test_status_command_does_not_treat_invalid_yaml_path_as_active():
 def test_status_command_treats_direct_env_provider_model_as_ready():
     config = Config(
         database_url=os.environ["DATABASE_URL"],
-        stock_list=["600519"],
         litellm_model="cohere/command-r-plus",
         llm_model_list=[],
     )

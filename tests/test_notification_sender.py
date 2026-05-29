@@ -33,7 +33,7 @@ from src.notification_sender import (
 
 def _config(**overrides):
     """Minimal Config for sender tests."""
-    return Config(stock_list=[], database_url=os.environ["DATABASE_URL"], **overrides)
+    return Config(database_url=os.environ["DATABASE_URL"], **overrides)
 
 
 def _response(status_code: int, json_body: Optional[dict] = None):

@@ -91,8 +91,6 @@ class TestPipelineSingleStockNotify(unittest.TestCase):
         pipeline._save_local_report = MagicMock()
         pipeline._send_notifications = MagicMock()
         pipeline.config = SimpleNamespace(
-            stock_list=["000001", "600519"],
-            refresh_stock_list=lambda: None,
             single_stock_notify=True,
             report_type="simple",
             analysis_delay=0,

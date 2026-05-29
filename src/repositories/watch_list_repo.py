@@ -116,3 +116,16 @@ class WatchListRepo:
             return True
 
         return self.db._run_write_transaction("watch_list.delete", _write)
+
+
+def get_watch_list_codes(user_id: Optional[str] = None) -> List[str]:
+    """读取数据库 ``watch_list`` 表中的自选股代码列表。
+
+    取代旧的 ``config.stock_list`` 配置：分析任务、Bot 命令等所有需要"自选股"
+    的场景都应通过此函数从 DB 获取，保证与 WebUI 维护的自选股一致。
+
+    Args:
+        user_id: 可选，按用户隔离；不传则返回所有用户的自选股代码（用于
+            后台调度等无用户上下文的场景）。
+    """
+    return WatchListRepo().get_codes(user_id=user_id)

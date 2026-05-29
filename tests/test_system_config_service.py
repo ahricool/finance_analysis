@@ -66,7 +66,8 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertFalse(items["GEMINI_API_KEY"]["is_masked"])
         self.assertTrue(items["GEMINI_API_KEY"]["raw_value_exists"])
 
-    def test_get_setup_status_reports_required_gaps_for_empty_config(self) -> None:
+    @patch("src.repositories.watch_list_repo.get_watch_list_codes", return_value=[])
+    def test_get_setup_status_reports_required_gaps_for_empty_config(self, _mock_watch) -> None:
         self._rewrite_env("")
 
         with patch.dict(os.environ, {}, clear=True):
@@ -78,11 +79,11 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertIn("llm_primary", status["required_missing_keys"])
         self.assertIn("stock_list", status["required_missing_keys"])
 
-    def test_get_setup_status_marks_minimal_config_complete(self) -> None:
+    @patch("src.repositories.watch_list_repo.get_watch_list_codes", return_value=["600519"])
+    def test_get_setup_status_marks_minimal_config_complete(self, _mock_watch) -> None:
         self._rewrite_env(
             "LITELLM_MODEL=gemini/gemini-3-flash-preview",
             "GEMINI_API_KEY=secret-key-value",
-            "STOCK_LIST=600519",
         )
 
         with patch.dict(os.environ, {}, clear=True):
@@ -96,10 +97,10 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertEqual(checks["stock_list"]["status"], "configured")
         self.assertEqual(checks["notification"]["status"], "optional")
 
-    def test_get_setup_status_accepts_anspire_one_key_llm(self) -> None:
+    @patch("src.repositories.watch_list_repo.get_watch_list_codes", return_value=["600519"])
+    def test_get_setup_status_accepts_anspire_one_key_llm(self, _mock_watch) -> None:
         self._rewrite_env(
             "ANSPIRE_API_KEYS=sk-anspire-test-value",
-            "STOCK_LIST=600519",
         )
 
         with patch.dict(os.environ, {}, clear=True):
@@ -143,10 +144,10 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertEqual(checks["llm_primary"]["status"], "needs_action")
         self.assertIn("llm_primary", status["required_missing_keys"])
 
-    def test_get_setup_status_accepts_direct_env_primary_without_provider_key(self) -> None:
+    @patch("src.repositories.watch_list_repo.get_watch_list_codes", return_value=["600519"])
+    def test_get_setup_status_accepts_direct_env_primary_without_provider_key(self, _mock_watch) -> None:
         self._rewrite_env(
             "LITELLM_MODEL=minimax/MiniMax-M1",
-            "STOCK_LIST=600519",
         )
 
         with patch.dict(os.environ, {}, clear=True):
@@ -158,7 +159,8 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertEqual(checks["llm_agent"]["status"], "inherited")
 
 
-    def test_get_setup_status_uses_runtime_env_without_reloading_singletons(self) -> None:
+    @patch("src.repositories.watch_list_repo.get_watch_list_codes", return_value=["600519"])
+    def test_get_setup_status_uses_runtime_env_without_reloading_singletons(self, _mock_watch) -> None:
         self._rewrite_env("")
 
         with patch.dict(
@@ -166,7 +168,6 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             {
                 "LITELLM_MODEL": "gemini/gemini-3-flash-preview",
                 "GEMINI_API_KEY": "runtime-secret",
-                "STOCK_LIST": "600519",
             },
             clear=True,
         ), patch("src.services.system_config_service.Config.reset_instance") as mock_reset, \
@@ -1581,16 +1582,16 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         mock_reload_runtime_singletons.assert_called_once()
 
     def test_update_with_reload_applies_updated_env_file_when_process_env_is_stale(self) -> None:
-        os.environ["STOCK_LIST"] = "600519,000001"
+        os.environ["LOG_LEVEL"] = "INFO"
 
         response = self.service.update(
             config_version=self.manager.get_config_version(),
-            items=[{"key": "STOCK_LIST", "value": "300750,TSLA"}],
+            items=[{"key": "LOG_LEVEL", "value": "DEBUG"}],
             reload_now=True,
         )
 
         self.assertTrue(response["success"])
-        self.assertEqual(Config.get_instance().stock_list, ["300750", "TSLA"])
+        self.assertEqual(Config.get_instance().log_level, "DEBUG")
 
     def test_update_raises_conflict_for_stale_version(self) -> None:
         with self.assertRaises(ConfigConflictError):

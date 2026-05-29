@@ -1788,7 +1788,7 @@ class SystemConfigService:
 
     def _build_notification_test_config(self, effective_map: Dict[str, str]) -> Config:
         """Build an isolated Config instance for notification testing."""
-        kwargs: Dict[str, Any] = {"stock_list": []}
+        kwargs: Dict[str, Any] = {}
         for key, (attr, value_type) in self._NOTIFICATION_TEST_KEY_MAP.items():
             if key not in effective_map:
                 continue
@@ -2032,7 +2032,6 @@ class SystemConfigService:
     @staticmethod
     def _is_setup_relevant_env_key(key: str) -> bool:
         if key in {
-            "STOCK_LIST",
             "DATABASE_PATH",
             "LITELLM_CONFIG",
             "LITELLM_MODEL",
@@ -2342,7 +2341,13 @@ class SystemConfigService:
         )
 
     def _build_setup_stock_list_check(self, effective_map: Dict[str, str]) -> Dict[str, Any]:
-        stocks = self._split_csv(effective_map.get("STOCK_LIST") or "")
+        del effective_map  # 自选股已迁移到数据库 watch_list 表，不再依赖 .env
+        try:
+            from src.repositories.watch_list_repo import get_watch_list_codes
+            stocks = get_watch_list_codes()
+        except Exception as exc:  # 数据库不可用时降级为待办，避免阻塞 setup 向导
+            logger.warning("加载自选股失败，setup 检查降级为待办: %s", exc)
+            stocks = []
         if stocks:
             return self._setup_check(
                 "stock_list",
@@ -2358,8 +2363,8 @@ class SystemConfigService:
             "base",
             True,
             "needs_action",
-            "当前 STOCK_LIST 为空。",
-            "请至少添加 1 只股票用于首次试跑。",
+            "当前自选股列表为空。",
+            "请在 WebUI「自选股」页面或通过 /api/v1/watch-list 接口至少添加 1 只股票用于首次试跑。",
         )
 
     def _build_setup_notification_check(self, effective_map: Dict[str, str]) -> Dict[str, Any]:

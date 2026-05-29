@@ -37,7 +37,7 @@ import requests
 
 def _make_config(**overrides) -> Config:
     """Create a Config instance overriding only notification-related fields."""
-    return Config(stock_list=[], database_url=os.environ["DATABASE_URL"], **overrides)
+    return Config(database_url=os.environ["DATABASE_URL"], **overrides)
 
 
 def _make_response(status_code: int, json: Optional[dict] = None) -> requests.Response:

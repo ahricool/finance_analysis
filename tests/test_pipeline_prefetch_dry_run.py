@@ -29,8 +29,6 @@ class TestPipelinePrefetchBehavior(unittest.TestCase):
         pipeline.db.has_today_data.return_value = False
         pipeline.process_single_stock = MagicMock(return_value=process_result)
         pipeline.config = SimpleNamespace(
-            stock_list=["000001"],
-            refresh_stock_list=lambda: None,
             single_stock_notify=False,
             report_type="simple",
             analysis_delay=0,
