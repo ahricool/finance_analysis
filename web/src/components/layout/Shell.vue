@@ -14,7 +14,7 @@ import { useAuthStore } from '@/stores/authStore';
 
 const authStore = useAuthStore();
 const { currentUser } = storeToRefs(authStore);
-const { authEnabled, logout } = useAuth();
+const { logout } = useAuth();
 const completionBadge = useAgentChatStore((s) => s.completionBadge);
 const showLogoutConfirm = ref(false);
 
@@ -82,10 +82,7 @@ async function onLogoutConfirm() {
           </RouterLink>
         </nav>
 
-        <div
-          v-if="authEnabled"
-          class="flex min-w-max shrink-0 items-center gap-2"
-        >
+        <div class="flex min-w-max shrink-0 items-center gap-2">
           <div
             v-if="currentUser"
             class="hidden max-w-[200px] items-center gap-2 rounded-xl border border-border/60 bg-card/80 px-2 py-1 text-xs sm:flex"
@@ -104,7 +101,7 @@ async function onLogoutConfirm() {
             </span>
             <span class="min-w-0 truncate text-left leading-tight">
               <span class="block truncate font-medium text-foreground">{{ currentUser.username }}</span>
-              <span class="block truncate text-[10px] text-secondary-text">{{ currentUser.role === 'admin' ? '管理员' : '用户' }}</span>
+              <span class="block truncate text-[10px] text-secondary-text">{{ currentUser.email }}</span>
             </span>
           </div>
           <button

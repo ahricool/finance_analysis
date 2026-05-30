@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Web admin authentication module.
+Web authentication module.
 
-Single toggle (ADMIN_AUTH_ENABLED) + file-based credentials.
-First login sets initial password; supports web change-password and CLI reset.
+Login is always enabled. Legacy file-based credentials are retained for CLI
+password reset compatibility.
 """
 
 from __future__ import annotations
@@ -20,8 +20,6 @@ import time
 from pathlib import Path
 from typing import Optional, Tuple
 
-from dotenv import dotenv_values
-
 logger = logging.getLogger(__name__)
 
 COOKIE_NAME = "fa_session"
@@ -32,7 +30,6 @@ SESSION_MAX_AGE_HOURS_DEFAULT = 24
 MIN_PASSWORD_LEN = 6
 
 # Lazy-loaded state
-_auth_enabled: Optional[bool] = None
 _session_secret: Optional[bytes] = None
 _password_hash_salt: Optional[bytes] = None
 _password_hash_stored: Optional[bytes] = None
@@ -64,20 +61,6 @@ def _get_data_dir() -> Path:
 def _get_credential_path() -> Path:
     """Path to stored password hash file."""
     return _get_data_dir() / ".admin_password_hash"
-
-
-def _is_auth_enabled_from_env() -> bool:
-    """Read ADMIN_AUTH_ENABLED from .env file."""
-    _ensure_env_loaded()
-    env_file = os.getenv("ENV_FILE")
-    env_path = Path(env_file) if env_file else Path(__file__).resolve().parent.parent / ".env"
-    if not env_path.exists():
-        return True
-    values = dotenv_values(env_path)
-    val = (values.get("ADMIN_AUTH_ENABLED") or "").strip().lower()
-    if not val:
-        return True
-    return val in ("true", "1", "yes", "on")
 
 
 def rotate_session_secret() -> bool:
@@ -189,20 +172,15 @@ def _load_credential_from_file() -> bool:
 
 
 def refresh_auth_state() -> None:
-    """Reload auth-related state from disk and env."""
-    global _auth_enabled, _session_secret
-    _auth_enabled = None
+    """Reload auth-related state from disk."""
+    global _session_secret
     _session_secret = None
     _load_credential_from_file()
 
 
 def is_auth_enabled() -> bool:
-    """Return whether admin authentication is enabled (ADMIN_AUTH_ENABLED=true)."""
-    global _auth_enabled
-    if _auth_enabled is not None:
-        return _auth_enabled
-    _auth_enabled = _is_auth_enabled_from_env()
-    return _auth_enabled
+    """Authentication is always enabled."""
+    return True
 
 
 def has_stored_password() -> bool:
@@ -219,20 +197,16 @@ def verify_stored_password(password: str) -> bool:
 
 def is_password_set() -> bool:
     """Return whether initial password has been set (credential file exists and valid)."""
-    if not is_auth_enabled():
-        return False
     return has_stored_password()
 
 
 def is_password_changeable() -> bool:
-    """Return whether password can be changed via web/CLI (always True when auth enabled)."""
-    return is_auth_enabled()
+    """Return whether password can be changed via web/CLI."""
+    return True
 
 
 def _get_session_secret() -> Optional[bytes]:
     """Return session signing secret."""
-    if not is_auth_enabled():
-        return None
     return _load_session_secret()
 
 
@@ -283,8 +257,6 @@ def set_initial_password(password: str) -> Optional[str]:
 
 def verify_password(password: str) -> bool:
     """Verify password against stored credential. Constant-time where applicable."""
-    if not is_auth_enabled():
-        return True
     return verify_stored_password(password)
 
 
@@ -292,8 +264,6 @@ def change_password(current: str, new: str) -> Optional[str]:
     """
     Change password. Verifies current, writes new hash. Returns error message or None on success.
     """
-    if not is_auth_enabled():
-        return "认证功能未启用"
     if not is_password_set():
         return "尚未设置密码"
 
@@ -436,8 +406,6 @@ def overwrite_password(new_password: str) -> Optional[str]:
     Overwrite stored password without verifying current. For CLI reset only.
     Returns error message or None on success.
     """
-    if not is_auth_enabled():
-        return "认证功能未启用"
     err = _validate_password(new_password)
     if err:
         return err
@@ -472,11 +440,8 @@ def overwrite_password(new_password: str) -> Optional[str]:
 def reset_password_cli() -> int:
     """Interactive CLI to reset password. Returns exit code."""
     _ensure_env_loaded()
-    if not _is_auth_enabled_from_env():
-        print("Error: Auth is not enabled. Set ADMIN_AUTH_ENABLED=true in .env", file=sys.stderr)
-        return 1
 
-    print("Enter new admin password (will not echo):", end=" ")
+    print("Enter new login password (will not echo):", end=" ")
     pwd = getpass.getpass("")
     err = _validate_password(pwd)
     if err:
@@ -493,6 +458,16 @@ def reset_password_cli() -> int:
     if err:
         print(f"Error: {err}", file=sys.stderr)
         return 1
+
+    try:
+        from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL, UserRepository
+
+        repo = UserRepository()
+        user = repo.get_by_email(DEFAULT_ADMIN_EMAIL)
+        if user is not None:
+            repo.set_plain_password(user.uid, pwd)
+    except Exception:
+        logger.warning("Password reset file was updated, but database password sync failed", exc_info=True)
 
     print("Password has been reset successfully.")
     return 0

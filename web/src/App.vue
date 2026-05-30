@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useAgentChatStore } from '@/stores/agentChatStore';
 
 const auth = useAuthStore();
-const { isLoading, loadError, authEnabled, loggedIn } = storeToRefs(auth);
+const { isLoading, loadError, loggedIn } = storeToRefs(auth);
 const route = useRoute();
 const router = useRouter();
 
@@ -27,10 +27,10 @@ watch(
 );
 
 watch(
-  [isLoading, loadError, authEnabled, loggedIn, () => route.path],
+  [isLoading, loadError, loggedIn, () => route.path],
   () => {
     if (isLoading.value || loadError.value) return;
-    if (authEnabled.value && !loggedIn.value) {
+    if (!loggedIn.value) {
       if (route.path !== '/login') {
         const redirect = encodeURIComponent(route.fullPath);
         void router.replace(`/login?redirect=${redirect}`);

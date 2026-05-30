@@ -72,14 +72,29 @@ class UserRepository:
                 select(User).where(func.lower(User.username) == key).limit(1)
             ).scalars().first()
 
-    def verify_plain_for_user(self, username: str, plain: str) -> bool:
-        user = self.get_by_username(username)
+    def get_by_email(self, email: str) -> Optional[User]:
+        key = (email or "").strip().lower()
+        if not key:
+            return None
+        with self.db.get_session() as session:
+            return session.execute(
+                select(User).where(func.lower(User.email) == key).limit(1)
+            ).scalars().first()
+
+    def verify_plain_for_uid(self, uid: str, plain: str) -> bool:
+        user = self.get_by_uid(uid)
         if user is None or not user.password_hash:
             return False
         return _verify_password(plain, user.password_hash)
 
-    def verify_credentials(self, username: str, password: str) -> Optional[User]:
-        user = self.get_by_username(username)
+    def verify_plain_for_email(self, email: str, plain: str) -> bool:
+        user = self.get_by_email(email)
+        if user is None or not user.password_hash:
+            return False
+        return _verify_password(plain, user.password_hash)
+
+    def verify_credentials(self, email: str, password: str) -> Optional[User]:
+        user = self.get_by_email(email)
         if user is None or not user.password_hash:
             return None
         if _verify_password(password, user.password_hash):
@@ -122,7 +137,7 @@ class UserRepository:
         with self.db.get_session() as session:
             existing = session.execute(
                 select(User)
-                .where(func.lower(User.username) == DEFAULT_ADMIN_USERNAME)
+                .where(func.lower(User.email) == DEFAULT_ADMIN_EMAIL)
                 .limit(1)
             ).scalars().first()
             if existing:

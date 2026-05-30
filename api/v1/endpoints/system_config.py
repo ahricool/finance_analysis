@@ -27,7 +27,7 @@ from api.v1.schemas.system_config import (
     ValidateSystemConfigRequest,
     ValidateSystemConfigResponse,
 )
-from src.auth import COOKIE_NAME, is_auth_enabled, refresh_auth_state, verify_session
+from src.auth import COOKIE_NAME, refresh_auth_state, verify_session
 from src.services.system_config_service import (
     ConfigConflictError,
     ConfigImportError,
@@ -50,13 +50,8 @@ class EnvBackupAccessDenied(Exception):
 
 
 def _allow_env_backup_access(request: Request) -> None:
-    """Gate raw .env backup/restore: admin auth must be enabled with a valid session."""
+    """Gate raw .env backup/restore behind a valid session."""
     refresh_auth_state()
-    if not is_auth_enabled():
-        raise EnvBackupAccessDenied(
-            status_code=403,
-            message="System config backup is disabled; enable admin authentication first",
-        )
 
     cookie_val = request.cookies.get(COOKIE_NAME)
     if cookie_val and verify_session(cookie_val):
@@ -64,7 +59,7 @@ def _allow_env_backup_access(request: Request) -> None:
 
     raise EnvBackupAccessDenied(
         status_code=401,
-        message="System config backup requires a valid admin session",
+        message="System config backup requires a valid login session",
     )
 
 

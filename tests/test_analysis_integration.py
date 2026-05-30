@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 from api.app import create_app
 from src.services.task_queue import AnalysisTaskQueue, TaskStatus
 from src.config import Config
-import src.auth as auth
 
 @pytest.fixture
 def client():
@@ -27,12 +26,12 @@ def client():
 
 @pytest.fixture(autouse=True)
 def disable_auth():
-    """Keep analysis integration tests independent from local auth env state."""
-    auth._auth_enabled = None
-    with patch("api.middlewares.auth.is_auth_enabled", return_value=False), \
-         patch("src.auth.is_auth_enabled", return_value=False):
+    """Keep analysis integration tests focused on analysis behavior."""
+    async def passthrough(self, request, call_next):
+        return await call_next(request)
+
+    with patch("api.middlewares.auth.AuthMiddleware.dispatch", passthrough):
         yield
-    auth._auth_enabled = None
 
 @pytest.fixture
 def mock_task_queue():

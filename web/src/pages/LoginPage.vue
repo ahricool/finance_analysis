@@ -9,7 +9,7 @@ import { Lock, ShieldCheck } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-const { login, passwordSet, setupState } = useAuth();
+const { login, passwordSet } = useAuth();
 const router = useRouter();
 const route = useRoute();
 
@@ -18,16 +18,16 @@ const redirect = computed(() =>
   rawRedirect.value.startsWith('/') && !rawRedirect.value.startsWith('//') ? rawRedirect.value : '/',
 );
 
-const username = ref('ahri');
+const email = ref('ahri@localhost');
 const password = ref('');
 const passwordConfirm = ref('');
 const isSubmitting = ref(false);
 const error = ref<string | ParsedApiError | null>(null);
 
-const isFirstTime = computed(() => setupState.value === 'no_password' || !passwordSet.value);
+const isFirstTime = computed(() => !passwordSet.value);
 
-function onUsernameInput(e: Event) {
-  username.value = (e.target as HTMLInputElement).value;
+function onEmailInput(e: Event) {
+  email.value = (e.target as HTMLInputElement).value;
 }
 
 function onPasswordInput(e: Event) {
@@ -54,7 +54,7 @@ async function handleSubmit(e: Event) {
     const result = await login(
       password.value,
       isFirstTime.value ? passwordConfirm.value : undefined,
-      username.value.trim() || 'ahri',
+      email.value.trim() || 'ahri@localhost',
     );
     if (result.success) {
       await router.replace(redirect.value);
@@ -72,7 +72,7 @@ async function handleSubmit(e: Event) {
     <div
       class="mx-auto flex min-h-screen w-full max-w-[1280px] items-center justify-center px-3 py-10 sm:px-4 lg:justify-end lg:px-6 lg:pr-10 xl:pr-16"
     >
-      <div class="w-full max-w-[340px] shrink-0">
+      <div class="w-full max-w-[340px] shrink-0 -translate-y-4 sm:-translate-y-6">
         <div class="mb-6 flex items-center gap-2">
           <span
             class="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card"
@@ -97,7 +97,7 @@ async function handleSubmit(e: Event) {
             <p class="mt-2 text-sm text-secondary-text">
               {{
                 isFirstTime
-                  ? '首次启用认证，请为系统工作台设置管理员密码。'
+                  ? '首次使用，请为当前账号设置登录密码。'
                   : `访问 ${APP_NAME} 工作台需要有效的身份凭证。`
               }}
             </p>
@@ -106,16 +106,16 @@ async function handleSubmit(e: Event) {
           <form class="space-y-5" @submit="handleSubmit">
             <div class="space-y-4">
               <Input
-                id="username"
-                type="text"
+                id="email"
+                type="email"
                 icon-type="key"
-                label="用户名"
-                placeholder="默认管理员 ahri"
-                :value="username"
+                label="邮箱"
+                placeholder="请输入邮箱"
+                :value="email"
                 :disabled="isSubmitting"
-                autocomplete="username"
-                data-testid="login-username"
-                @input="onUsernameInput"
+                autocomplete="email"
+                data-testid="login-email"
+                @input="onEmailInput"
               />
 
               <Input
@@ -123,7 +123,7 @@ async function handleSubmit(e: Event) {
                 type="password"
                 allow-toggle-password
                 icon-type="password"
-                :label="isFirstTime ? '管理员密码' : '登录密码'"
+                :label="isFirstTime ? '设置密码' : '登录密码'"
                 :placeholder="isFirstTime ? '请设置 6 位以上密码' : '请输入密码'"
                 :value="password"
                 :disabled="isSubmitting"
@@ -140,7 +140,7 @@ async function handleSubmit(e: Event) {
                 allow-toggle-password
                 icon-type="password"
                 label="确认密码"
-                placeholder="再次确认管理员密码"
+                placeholder="再次确认登录密码"
                 :value="passwordConfirm"
                 :disabled="isSubmitting"
                 autocomplete="new-password"

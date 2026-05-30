@@ -36,7 +36,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
     """System config API tests in isolation without loading the full app."""
 
     def setUp(self) -> None:
-        auth._auth_enabled = None
         auth._session_secret = None
         auth._password_hash_salt = None
         auth._password_hash_stored = None
@@ -50,7 +49,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
                     "STOCK_LIST=600519,000001",
                     "GEMINI_API_KEY=secret-key-value",
                     "LOG_LEVEL=INFO",
-                    "ADMIN_AUTH_ENABLED=true",
                 ]
             )
             + "\n",
@@ -127,7 +125,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
                     "LITELLM_MODEL=gemini/gemini-3-flash-preview",
                     "GEMINI_API_KEY=secret-key-value",
                     "STOCK_LIST=600519",
-                    "ADMIN_AUTH_ENABLED=false",
                 ]
             )
             + "\n",
@@ -188,7 +185,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
                     "",
                     "# Secrets",
                     "GEMINI_API_KEY=secret-key-value",
-                    "ADMIN_AUTH_ENABLED=false",
                 ]
             )
             + "\n",
@@ -214,7 +210,7 @@ class SystemConfigApiTestCase(unittest.TestCase):
 
     def test_export_system_config_returns_raw_env_content(self) -> None:
         self.env_path.write_text(
-            "# Web config\nSTOCK_LIST=600519,000001\nGEMINI_API_KEY=secret-key-value\nADMIN_AUTH_ENABLED=true\n",
+            "# Web config\nSTOCK_LIST=600519,000001\nGEMINI_API_KEY=secret-key-value\n",
             encoding="utf-8",
         )
         self.manager = ConfigManager(env_path=self.env_path)
@@ -228,7 +224,7 @@ class SystemConfigApiTestCase(unittest.TestCase):
 
         self.assertEqual(
             payload["content"],
-            "# Web config\nSTOCK_LIST=600519,000001\nGEMINI_API_KEY=secret-key-value\nADMIN_AUTH_ENABLED=true\n",
+            "# Web config\nSTOCK_LIST=600519,000001\nGEMINI_API_KEY=secret-key-value\n",
         )
         self.assertEqual(payload["config_version"], self.manager.get_config_version())
 
@@ -328,7 +324,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
                     "STOCK_LIST=600519,000001",
                     "GEMINI_API_KEY=secret-key-value",
                     "LOG_LEVEL=INFO",
-                    "ADMIN_AUTH_ENABLED=false",
                 ]
             )
             + "\n",
@@ -419,7 +414,6 @@ class SystemConfigApiTestCase(unittest.TestCase):
                     "STOCK_LIST=600519,000001",
                     "GEMINI_API_KEY=secret-key-value",
                     "LOG_LEVEL=INFO",
-                    "ADMIN_AUTH_ENABLED=false",
                 ]
             )
             + "\n",
@@ -435,14 +429,11 @@ class SystemConfigApiTestCase(unittest.TestCase):
                     "STOCK_LIST=600519,000001",
                     "GEMINI_API_KEY=secret-key-value",
                     "LOG_LEVEL=INFO",
-                    "ADMIN_AUTH_ENABLED=true",
                 ]
             )
             + "\n",
             encoding="utf-8",
         )
-        auth._auth_enabled = False
-
         async def request_export() -> httpx.Response:
             transport = httpx.ASGITransport(app=self._build_client_app())
             async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:

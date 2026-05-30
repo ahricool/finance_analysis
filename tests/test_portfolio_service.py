@@ -34,7 +34,6 @@ class PortfolioServiceTestCase(unittest.TestCase):
                 [
                     "STOCK_LIST=600519",
                     "GEMINI_API_KEY=test",
-                    "ADMIN_AUTH_ENABLED=false",
                     f"DATABASE_PATH={self.db_path}",
                 ]
             )

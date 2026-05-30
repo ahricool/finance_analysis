@@ -36,14 +36,12 @@ from src.config import Config
 from src.storage import DatabaseManager, AnalysisHistory, BacktestResult
 from src.analyzer import AnalysisResult
 from src.services.history_service import HistoryService
-import src.auth as auth
 
 class AnalysisHistoryTestCase(unittest.TestCase):
     """分析历史存储测试"""
 
     def setUp(self) -> None:
         """为每个用例初始化独立数据库"""
-        auth._auth_enabled = False
         self._temp_dir = tempfile.TemporaryDirectory()
         self._db_path = os.path.join(self._temp_dir.name, "test_analysis_history.db")
         os.environ["DATABASE_PATH"] = self._db_path

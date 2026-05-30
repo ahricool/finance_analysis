@@ -15,10 +15,10 @@ from typing import Generator, Optional
 from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
-from src.auth import is_auth_enabled
 from src.storage import DatabaseManager
 from src.config import get_config, Config
 from src.services.system_config_service import SystemConfigService
+from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -73,20 +73,18 @@ def get_system_config_service(request: Request) -> SystemConfigService:
 
 
 def get_scoped_user_id(request: Request) -> Optional[str]:
-    """Return authenticated user uid when auth is enabled; otherwise None (no scoping)."""
-    if not is_auth_enabled():
-        return None
+    """Return authenticated user uid for the current request."""
     return getattr(request.state, "user_id", None)
 
 
 def get_effective_user_uid(request: Request) -> str:
-    """User uid for data scoping: session uid when auth is on, otherwise default ``ahri``."""
+    """User uid for data scoping."""
     uid = get_scoped_user_id(request)
     if uid is not None:
         return uid
     from src.repositories.user_repo import UserRepository
 
-    u = UserRepository().get_by_username("ahri")
+    u = UserRepository().get_by_email(DEFAULT_ADMIN_EMAIL)
     if u is None:
         raise HTTPException(status_code=500, detail="用户系统未初始化")
     return u.uid

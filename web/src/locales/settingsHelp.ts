@@ -78,7 +78,7 @@ const settingsHelpZhCN: SettingsHelpMap = {
     ],
     notes: [
       '修改 WEBUI_HOST 后需要重启当前进程、Docker 容器或服务管理器才会生效。',
-      '直连公网时建议同时启用 ADMIN_AUTH_ENABLED。',
+      '直连公网时请务必保留登录保护，并配置强密码。',
       '如果部署在反向代理后面，登录限流与真实 IP 识别还需要评估 TRUST_X_FORWARDED_FOR。',
     ],
   },
@@ -144,7 +144,7 @@ const settingsHelpEnUS: SettingsHelpMap = {
     impact: ['Affects whether the WebUI can be reached locally, on the LAN, or from the public internet after restart.'],
     notes: [
       'Restart the process, Docker container, or service manager after changing WEBUI_HOST.',
-      'Enable ADMIN_AUTH_ENABLED when exposing the service publicly.',
+      'Keep login protection enabled and use a strong password when exposing the service publicly.',
       'Behind a reverse proxy, also evaluate TRUST_X_FORWARDED_FOR for login rate limiting and real IP detection.',
     ],
   },

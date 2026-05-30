@@ -401,7 +401,7 @@ class User(Base):
     __tablename__ = "users"
 
     uid = Column(String(36), primary_key=True)
-    username = Column(String(64), nullable=False, unique=True, index=True)
+    username = Column(String(64), nullable=False, index=True)
     email = Column(String(255), nullable=False, unique=True, index=True)
     password_hash = Column(Text, nullable=True)
     avatar_url = Column(String(512), nullable=True)
