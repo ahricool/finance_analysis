@@ -7,6 +7,7 @@
 将定时任务**写死在代码中**，不再从环境变量或外部配置读取调度参数：
 
 - 每日 :data:`DAILY_SCHEDULE_HOUR` : :data:`DAILY_SCHEDULE_MINUTE` 执行一次全量分析。
+- 北京时间 21:00 执行美股盘前分析，仅分析自选股中标记为美股的股票。
 - 进程启动时如 :data:`RUN_IMMEDIATELY_ON_STARTUP` 为 ``True``，会立即执行一次。
 
 如需修改调度策略，请直接修改本文件中的常量或 ``_daily_analysis_task``，
@@ -26,9 +27,13 @@ logger = logging.getLogger(__name__)
 # === 调度参数（修改后需重启进程）===
 DAILY_SCHEDULE_HOUR = 18
 DAILY_SCHEDULE_MINUTE = 0
+US_PREMARKET_SCHEDULE_HOUR = 21
+US_PREMARKET_SCHEDULE_MINUTE = 0
+SCHEDULE_TIMEZONE = "Asia/Shanghai"
 RUN_IMMEDIATELY_ON_STARTUP = True
 
 _JOB_DAILY_ANALYSIS = "analysis_daily"
+_JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
 
 
 def _daily_analysis_task() -> None:
@@ -51,6 +56,32 @@ def _daily_analysis_task() -> None:
         )
 
 
+def _us_premarket_analysis_task() -> None:
+    """美股盘前定时任务：仅分析自选股中标记为美股的股票。"""
+    logger.info("=" * 50)
+    logger.info("美股盘前分析任务开始执行 - %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    logger.info("=" * 50)
+    try:
+        from src.config import get_config
+        from src.core.pipeline import StockAnalysisPipeline
+        from src.repositories.watch_list_repo import get_watch_list_codes_by_market
+
+        stock_codes = get_watch_list_codes_by_market("US")
+        if not stock_codes:
+            logger.warning("未配置美股自选股，跳过美股盘前分析任务")
+            return
+
+        pipeline = StockAnalysisPipeline(config=get_config())
+        pipeline.run(stock_codes=stock_codes)
+    except Exception as exc:
+        logger.exception("美股盘前分析任务执行失败: %s", exc)
+    else:
+        logger.info(
+            "美股盘前分析任务执行完成 - %s",
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+
 def start_embedded_analysis_scheduler():
     """启动 APScheduler，注册每日分析 Cron 任务。
 
@@ -67,17 +98,32 @@ def start_embedded_analysis_scheduler():
     scheduler = BackgroundScheduler()
     scheduler.add_job(
         _daily_analysis_task,
-        CronTrigger(hour=DAILY_SCHEDULE_HOUR, minute=DAILY_SCHEDULE_MINUTE),
+        CronTrigger(hour=DAILY_SCHEDULE_HOUR, minute=DAILY_SCHEDULE_MINUTE, timezone=SCHEDULE_TIMEZONE),
         id=_JOB_DAILY_ANALYSIS,
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        _us_premarket_analysis_task,
+        CronTrigger(
+            hour=US_PREMARKET_SCHEDULE_HOUR,
+            minute=US_PREMARKET_SCHEDULE_MINUTE,
+            timezone=SCHEDULE_TIMEZONE,
+        ),
+        id=_JOB_US_PREMARKET_ANALYSIS,
         replace_existing=True,
         max_instances=1,
         coalesce=True,
     )
     scheduler.start()
     logger.info(
-        "APScheduler 已启动，每日定时任务: %02d:%02d",
+        "APScheduler 已启动，每日定时任务: %02d:%02d，美股盘前分析: %02d:%02d (%s)",
         DAILY_SCHEDULE_HOUR,
         DAILY_SCHEDULE_MINUTE,
+        US_PREMARKET_SCHEDULE_HOUR,
+        US_PREMARKET_SCHEDULE_MINUTE,
+        SCHEDULE_TIMEZONE,
     )
     job = scheduler.get_job(_JOB_DAILY_ANALYSIS)
     if job is not None and job.next_run_time is not None:

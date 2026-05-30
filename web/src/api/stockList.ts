@@ -1,10 +1,13 @@
 import apiClient from './index';
 
+export type MarketType = 'CN' | 'US' | 'HK';
+
 export interface StockHolding {
   id: number;
   code: string;
   name: string | null;
   quantity: number;
+  market_type: MarketType;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -19,12 +22,14 @@ export interface StockHoldingCreate {
   code: string;
   name?: string;
   quantity?: number;
+  market_type?: MarketType;
   notes?: string;
 }
 
 export interface StockHoldingUpdate {
   name?: string;
   quantity?: number;
+  market_type?: MarketType;
   notes?: string;
 }
 

@@ -67,16 +67,28 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
             returned = scheduler_module.start_embedded_analysis_scheduler()
 
         self.assertIs(returned, scheduler_instance)
-        self.cron_trigger_cls.assert_called_once_with(
+        self.assertEqual(self.cron_trigger_cls.call_count, 2)
+        self.cron_trigger_cls.assert_any_call(
             hour=scheduler_module.DAILY_SCHEDULE_HOUR,
             minute=scheduler_module.DAILY_SCHEDULE_MINUTE,
+            timezone=scheduler_module.SCHEDULE_TIMEZONE,
         )
-        scheduler_instance.add_job.assert_called_once()
-        add_job_kwargs = scheduler_instance.add_job.call_args.kwargs
+        self.cron_trigger_cls.assert_any_call(
+            hour=scheduler_module.US_PREMARKET_SCHEDULE_HOUR,
+            minute=scheduler_module.US_PREMARKET_SCHEDULE_MINUTE,
+            timezone=scheduler_module.SCHEDULE_TIMEZONE,
+        )
+        self.assertEqual(scheduler_instance.add_job.call_count, 2)
+        add_job_kwargs = scheduler_instance.add_job.call_args_list[0].kwargs
         self.assertEqual(add_job_kwargs["id"], "analysis_daily")
         self.assertTrue(add_job_kwargs["replace_existing"])
         self.assertEqual(add_job_kwargs["max_instances"], 1)
         self.assertTrue(add_job_kwargs["coalesce"])
+        us_add_job_kwargs = scheduler_instance.add_job.call_args_list[1].kwargs
+        self.assertEqual(us_add_job_kwargs["id"], "analysis_us_premarket")
+        self.assertTrue(us_add_job_kwargs["replace_existing"])
+        self.assertEqual(us_add_job_kwargs["max_instances"], 1)
+        self.assertTrue(us_add_job_kwargs["coalesce"])
         scheduler_instance.start.assert_called_once()
 
     def test_start_runs_task_immediately_when_flag_enabled(self) -> None:
@@ -129,6 +141,34 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
 
         with patch.dict(sys.modules, stubs):
             scheduler_module._daily_analysis_task()
+
+    def test_us_premarket_task_runs_pipeline_for_us_watch_list(self) -> None:
+        pipeline_instance = MagicMock()
+        pipeline_cls = MagicMock(return_value=pipeline_instance)
+        stubs = self._install_pipeline_stub(pipeline_cls)
+        fake_repo_module = types.ModuleType("src.repositories.watch_list_repo")
+        fake_repo_module.get_watch_list_codes_by_market = MagicMock(return_value=["AAPL", "TSLA"])
+        stubs["src.repositories.watch_list_repo"] = fake_repo_module
+
+        with patch.dict(sys.modules, stubs):
+            scheduler_module._us_premarket_analysis_task()
+
+        fake_repo_module.get_watch_list_codes_by_market.assert_called_once_with("US")
+        pipeline_instance.run.assert_called_once_with(stock_codes=["AAPL", "TSLA"])
+
+    def test_us_premarket_task_skips_empty_us_watch_list(self) -> None:
+        pipeline_instance = MagicMock()
+        pipeline_cls = MagicMock(return_value=pipeline_instance)
+        stubs = self._install_pipeline_stub(pipeline_cls)
+        fake_repo_module = types.ModuleType("src.repositories.watch_list_repo")
+        fake_repo_module.get_watch_list_codes_by_market = MagicMock(return_value=[])
+        stubs["src.repositories.watch_list_repo"] = fake_repo_module
+
+        with patch.dict(sys.modules, stubs):
+            scheduler_module._us_premarket_analysis_task()
+
+        pipeline_cls.assert_not_called()
+        pipeline_instance.run.assert_not_called()
 
 
 if __name__ == "__main__":
