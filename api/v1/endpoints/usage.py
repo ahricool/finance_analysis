@@ -49,12 +49,7 @@ def get_usage_summary(
 
     from_dt, to_dt = _date_range(period)
 
-    from src.auth import is_auth_enabled
-
-    if is_auth_enabled():
-        uid = get_effective_user_uid(http_request)
-    else:
-        uid = None
+    uid = get_effective_user_uid(http_request)
     data = db_manager.get_llm_usage_summary(from_dt, to_dt, user_id=uid)
 
     return UsageSummaryResponse(

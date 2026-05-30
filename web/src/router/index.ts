@@ -39,7 +39,7 @@ router.beforeEach(async (to) => {
   }
 
   const isPublic = to.meta.public === true;
-  if (auth.authEnabled && !auth.loggedIn && !isPublic) {
+  if (!auth.loggedIn && !isPublic) {
     return {
       path: '/login',
       query: { redirect: to.fullPath },

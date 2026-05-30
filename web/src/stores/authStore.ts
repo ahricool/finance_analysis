@@ -19,11 +19,11 @@ function extractLoginError(err: unknown): ParsedApiError {
 }
 
 export const useAuthStore = defineStore('auth', () => {
-  const authEnabled = ref(false);
+  const authEnabled = ref(true);
   const loggedIn = ref(false);
   const passwordSet = ref(false);
   const passwordChangeable = ref(false);
-  const setupState = ref<'enabled' | 'password_retained' | 'no_password'>('no_password');
+  const setupState = ref<'enabled'>('enabled');
   const currentUser = ref<AuthStatusResponse['user']>(null);
   const isLoading = ref(true);
   const loadError = ref<ParsedApiError | null>(null);
@@ -39,16 +39,16 @@ export const useAuthStore = defineStore('auth', () => {
       passwordChangeable.value = status.passwordChangeable ?? false;
       setupState.value = status.setupState;
       currentUser.value = status.user ?? null;
-      if (status.authEnabled && !status.loggedIn) {
+      if (!status.loggedIn) {
         useStockPoolStore.getState().resetDashboardState();
       }
     } catch (err) {
       loadError.value = getParsedApiError(err);
-      authEnabled.value = false;
+      authEnabled.value = true;
       loggedIn.value = false;
       passwordSet.value = false;
       passwordChangeable.value = false;
-      setupState.value = 'no_password';
+      setupState.value = 'enabled';
       currentUser.value = null;
       useStockPoolStore.getState().resetDashboardState();
     } finally {
@@ -59,10 +59,10 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(
     password: string,
     passwordConfirm?: string,
-    username = 'ahri',
+    email = 'ahri@localhost',
   ): Promise<{ success: boolean; error?: ParsedApiError }> {
     try {
-      await authApi.login(password, passwordConfirm, username);
+      await authApi.login(password, passwordConfirm, email);
       await fetchStatus();
       return { success: true };
     } catch (err: unknown) {

@@ -28,7 +28,6 @@ from src.storage import DatabaseManager
 
 
 def _reset_auth_globals() -> None:
-    auth._auth_enabled = None
     auth._session_secret = None
     auth._password_hash_salt = None
     auth._password_hash_stored = None
@@ -49,7 +48,6 @@ class PortfolioApiTestCase(unittest.TestCase):
                 [
                     "STOCK_LIST=600519",
                     "GEMINI_API_KEY=test",
-                    "ADMIN_AUTH_ENABLED=false",
                     f"DATABASE_PATH={self.db_path}",
                 ]
             )

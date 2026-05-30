@@ -2,7 +2,6 @@
 """Unit tests for src.auth module."""
 
 import hashlib
-import os
 import secrets
 import tempfile
 import time
@@ -15,7 +14,6 @@ import src.auth as auth
 
 def _reset_auth_globals() -> None:
     """Reset auth module globals for test isolation."""
-    auth._auth_enabled = None
     auth._session_secret = None
     auth._password_hash_salt = None
     auth._password_hash_stored = None
@@ -83,11 +81,9 @@ class AuthSessionTestCase(unittest.TestCase):
     def _patch_env_and_run(
         self, auth_enabled: bool = True, test_fn=None
     ):
-        with patch.object(auth, "_is_auth_enabled_from_env", return_value=auth_enabled):
-            with patch.object(auth, "_get_data_dir", return_value=self.data_dir):
-                auth._auth_enabled = auth_enabled
-                if test_fn:
-                    return test_fn()
+        with patch.object(auth, "_get_data_dir", return_value=self.data_dir):
+            if test_fn:
+                return test_fn()
 
     def test_create_session_returns_signed_payload(self) -> None:
         def run():
@@ -197,10 +193,8 @@ class AuthSetPasswordTestCase(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
 
     def _run_with_patch(self, fn):
-        with patch.object(auth, "_is_auth_enabled_from_env", return_value=True):
-            with patch.object(auth, "_get_data_dir", return_value=self.data_dir):
-                auth._auth_enabled = True
-                return fn()
+        with patch.object(auth, "_get_data_dir", return_value=self.data_dir):
+            return fn()
 
     def test_set_initial_password_success(self) -> None:
         def run():
@@ -212,36 +206,29 @@ class AuthSetPasswordTestCase(unittest.TestCase):
 
         self._run_with_patch(run)
 
-    def test_has_stored_password_remains_true_after_auth_disabled(self) -> None:
+    def test_has_stored_password_tracks_legacy_credential(self) -> None:
         def run():
             err = auth.set_initial_password("password123")
             self.assertIsNone(err)
             self.assertTrue(auth.has_stored_password())
 
-            auth._auth_enabled = False
             self.assertTrue(auth.has_stored_password())
-            self.assertFalse(auth.is_password_set())
+            self.assertTrue(auth.is_password_set())
 
         self._run_with_patch(run)
 
-    def test_verify_stored_password_when_auth_disabled(self) -> None:
+    def test_verify_stored_password(self) -> None:
         def run():
             err = auth.set_initial_password("password123")
             self.assertIsNone(err)
 
-            auth._auth_enabled = False
             self.assertTrue(auth.verify_stored_password("password123"))
             self.assertFalse(auth.verify_stored_password("wrongpass"))
 
         self._run_with_patch(run)
 
-    def test_is_auth_enabled_from_env_respects_env_file(self) -> None:
-        custom_env = self.data_dir / "custom.env"
-        custom_env.write_text("ADMIN_AUTH_ENABLED=true\n", encoding="utf-8")
-
-        with patch.dict(os.environ, {"ENV_FILE": str(custom_env)}):
-            auth._auth_enabled = None
-            self.assertTrue(auth._is_auth_enabled_from_env())
+    def test_is_auth_enabled_always_true(self) -> None:
+        self.assertTrue(auth.is_auth_enabled())
 
     def test_refresh_auth_state_clears_session_secret_cache(self) -> None:
         def run():

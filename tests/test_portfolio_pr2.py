@@ -30,7 +30,6 @@ from src.storage import DatabaseManager
 
 
 def _reset_auth_globals() -> None:
-    auth._auth_enabled = None
     auth._session_secret = None
     auth._password_hash_salt = None
     auth._password_hash_stored = None
@@ -51,7 +50,6 @@ class PortfolioPr2TestCase(unittest.TestCase):
                 [
                     "STOCK_LIST=600519",
                     "GEMINI_API_KEY=test",
-                    "ADMIN_AUTH_ENABLED=false",
                     "PORTFOLIO_RISK_CONCENTRATION_ALERT_PCT=70.0",
                     "PORTFOLIO_RISK_DRAWDOWN_ALERT_PCT=10.0",
                     "PORTFOLIO_RISK_STOP_LOSS_ALERT_PCT=25.0",

@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for Auth setupState contract in /auth/status and /auth/settings."""
+"""Unit tests for the always-on Auth status contract."""
 
 import asyncio
-import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,12 +10,11 @@ from unittest.mock import patch
 from starlette.requests import Request
 
 import src.auth as auth
-from api.v1.endpoints.auth import AuthSettingsRequest, auth_status, auth_update_settings
+from api.v1.endpoints.auth import auth_status
 
 
 def _reset_auth_globals() -> None:
     """Reset auth module globals for test isolation."""
-    auth._auth_enabled = None
     auth._session_secret = None
     auth._password_hash_salt = None
     auth._password_hash_stored = None
@@ -52,92 +49,31 @@ class AuthStatusSetupStateTestCase(unittest.TestCase):
         _reset_auth_globals()
         self.temp_dir = tempfile.TemporaryDirectory()
         self.data_dir = Path(self.temp_dir.name)
-
         self._data_dir_patcher = patch.object(auth, "_get_data_dir", return_value=self.data_dir)
         self._data_dir_patcher.start()
 
-        self.env_path = self.data_dir / ".env"
-        self.env_path.write_text("ADMIN_AUTH_ENABLED=false\n", encoding="utf-8")
-        self._env_patcher = patch.dict(os.environ, {"ENV_FILE": str(self.env_path)})
-        self._env_patcher.start()
-
     def tearDown(self) -> None:
-        self._env_patcher.stop()
         self._data_dir_patcher.stop()
         _reset_auth_globals()
         self.temp_dir.cleanup()
 
-    def test_status_no_password(self) -> None:
-        """Scenario: Auth disabled and no password set."""
+    def test_status_without_password(self) -> None:
         request = _make_request()
-        with patch("api.v1.endpoints.auth.is_auth_enabled", return_value=False):
-            with patch("src.auth.is_auth_enabled", return_value=False):
-                data = asyncio.run(auth_status(request))
-                self.assertEqual(data["setupState"], "no_password")
-                self.assertFalse(data["authEnabled"])
-
-    def test_auth_defaults_to_enabled_when_key_missing(self) -> None:
-        self.env_path.write_text("", encoding="utf-8")
-        _reset_auth_globals()
-
-        self.assertTrue(auth.is_auth_enabled())
-
-    def test_status_password_retained(self) -> None:
-        """Scenario: Auth disabled but password exists on disk."""
-        auth.set_initial_password("password123")
-        request = _make_request()
-
-        with patch("api.v1.endpoints.auth.is_auth_enabled", return_value=False):
-            with patch("src.auth.is_auth_enabled", return_value=False):
-                data = asyncio.run(auth_status(request))
-                self.assertEqual(data["setupState"], "password_retained")
-                self.assertFalse(data["authEnabled"])
-                self.assertFalse(data["passwordSet"])
-
-    def test_status_enabled(self) -> None:
-        """Scenario: Auth enabled."""
-        auth.set_initial_password("password123")
-        request = _make_request()
-
-        with patch("api.v1.endpoints.auth.is_auth_enabled", return_value=True):
-            with patch("src.auth.is_auth_enabled", return_value=True):
-                data = asyncio.run(auth_status(request))
-                self.assertEqual(data["setupState"], "enabled")
-                self.assertTrue(data["authEnabled"])
-                self.assertTrue(data["passwordSet"])
-
-    def test_settings_update_returns_setup_state(self) -> None:
-        """Verify that /auth/settings also returns setupState in response."""
-        request = _make_request()
-        body = AuthSettingsRequest(
-            authEnabled=True,
-            password="newpassword123",
-            passwordConfirm="newpassword123",
-        )
-
-        with patch("api.v1.endpoints.auth.is_auth_enabled") as mock_endpoint_enabled:
-            with patch("src.auth.is_auth_enabled") as mock_src_enabled:
-                mock_src_enabled.return_value = False
-                mock_endpoint_enabled.return_value = False
-
-                with patch("api.v1.endpoints.auth._apply_auth_enabled", return_value=True):
-                    with patch("api.v1.endpoints.auth.rotate_session_secret", return_value=True):
-                        with patch("api.v1.endpoints.auth.create_session", return_value="mock.session.sig"):
-                            with patch("api.v1.endpoints.auth._get_auth_status_dict") as mock_status_dict:
-                                mock_status_dict.return_value = {
-                                    "authEnabled": True,
-                                    "loggedIn": True,
-                                    "passwordSet": True,
-                                    "passwordChangeable": True,
-                                    "setupState": "enabled",
-                                }
-
-                                response = asyncio.run(auth_update_settings(request, body))
-
-        self.assertEqual(response.status_code, 200)
-        data = json.loads(response.body)
+        data = asyncio.run(auth_status(request))
         self.assertEqual(data["setupState"], "enabled")
         self.assertTrue(data["authEnabled"])
+        self.assertFalse(data["passwordSet"])
+
+    def test_auth_is_always_enabled(self) -> None:
+        self.assertTrue(auth.is_auth_enabled())
+
+    def test_status_password_set(self) -> None:
+        auth.set_initial_password("password123")
+        request = _make_request()
+        data = asyncio.run(auth_status(request))
+        self.assertEqual(data["setupState"], "enabled")
+        self.assertTrue(data["authEnabled"])
+        self.assertTrue(data["passwordSet"])
 
 
 if __name__ == "__main__":

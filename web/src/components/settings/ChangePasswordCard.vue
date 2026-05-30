@@ -62,7 +62,7 @@ async function handleSubmit(e: Event) {
 <template>
   <SettingsSectionCard
     title="修改密码"
-    description="更新当前管理员登录密码。修改成功后，后续登录请使用新密码。"
+    description="更新当前登录密码。修改成功后，后续登录请使用新密码。"
   >
     <form class="space-y-3" @submit="handleSubmit">
       <div class="grid gap-4 md:grid-cols-2">
@@ -130,7 +130,7 @@ async function handleSubmit(e: Event) {
       <SettingsAlert
         v-if="success"
         title="修改成功"
-        message="管理员密码已更新。"
+        message="登录密码已更新。"
         variant="success"
       />
 

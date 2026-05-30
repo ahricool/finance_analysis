@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Auth middleware: protect /api/v1/* when admin auth is enabled.
+Auth middleware: protect /api/v1/*.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from src.auth import COOKIE_NAME, is_auth_enabled, parse_session_user_uid
+from src.auth import COOKIE_NAME, parse_session_user_uid
 from src.repositories.user_repo import UserRepository
 
 logger = logging.getLogger(__name__)
@@ -35,16 +35,13 @@ def _path_exempt(path: str) -> bool:
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """Require valid session for /api/v1/* when auth is enabled."""
+    """Require valid session for /api/v1/*."""
 
     async def dispatch(
         self,
         request: Request,
         call_next: Callable,
     ):
-        if not is_auth_enabled():
-            return await call_next(request)
-
         if request.method == "OPTIONS":
             return await call_next(request)
 
@@ -92,10 +89,5 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 def add_auth_middleware(app):
-    """Add auth middleware to protect API routes.
-
-    The middleware is always registered; whether auth is enforced is determined
-    at request time by is_auth_enabled() so the decision stays consistent across
-    any runtime configuration reload.
-    """
+    """Add auth middleware to protect API routes."""
     app.add_middleware(AuthMiddleware)
