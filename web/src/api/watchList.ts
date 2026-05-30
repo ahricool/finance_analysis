@@ -1,10 +1,13 @@
 import apiClient from './index';
 
+export type MarketType = 'CN' | 'US' | 'HK';
+
 export interface WatchListItem {
   id: number;
   code: string;
   name: string | null;
   notes: string | null;
+  market_type: MarketType;
   is_favorite: boolean;
   created_at: string;
   updated_at: string;
@@ -19,12 +22,14 @@ export interface WatchListItemCreate {
   code: string;
   name?: string;
   notes?: string;
+  market_type?: MarketType;
   is_favorite?: boolean;
 }
 
 export interface WatchListItemUpdate {
   name?: string;
   notes?: string;
+  market_type?: MarketType;
   is_favorite?: boolean;
 }
 

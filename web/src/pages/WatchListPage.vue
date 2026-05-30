@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import { watchListApi, type WatchListItem, type WatchListItemCreate } from '@/api/watchList';
+import { watchListApi, type MarketType, type WatchListItem, type WatchListItemCreate } from '@/api/watchList';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
@@ -22,6 +22,7 @@ const formStockQuery = ref('');
 const formCode = ref('');
 const formName = ref('');
 const formNotes = ref('');
+const formMarketType = ref<MarketType>('CN');
 const formError = ref<string | null>(null);
 const saving = ref(false);
 
@@ -29,6 +30,16 @@ const showDeleteConfirm = ref(false);
 const deletingId = ref<number | null>(null);
 const deletingCode = ref('');
 const togglingFavoriteId = ref<number | null>(null);
+
+const marketOptions: { value: MarketType; label: string }[] = [
+  { value: 'CN', label: 'A股' },
+  { value: 'US', label: '美股' },
+  { value: 'HK', label: '港股' },
+];
+
+function marketLabel(value: MarketType): string {
+  return marketOptions.find((option) => option.value === value)?.label ?? 'A股';
+}
 
 function formatStockQuery(code: string, name?: string | null): string {
   return name ? `${name}（${code}）` : code;
@@ -72,6 +83,7 @@ async function save() {
       const updated = await watchListApi.update(editingId.value, {
         name: formName.value.trim() || undefined,
         notes: formNotes.value.trim() || undefined,
+        market_type: formMarketType.value,
       });
       const idx = items.value.findIndex((i) => i.id === editingId.value);
       if (idx !== -1) items.value[idx] = updated;
@@ -80,6 +92,7 @@ async function save() {
         code,
         name: formName.value.trim() || undefined,
         notes: formNotes.value.trim() || undefined,
+        market_type: formMarketType.value,
       };
       const created = await watchListApi.create(body);
       items.value.push(created);
@@ -116,6 +129,7 @@ function openCreate() {
   formCode.value = '';
   formName.value = '';
   formNotes.value = '';
+  formMarketType.value = 'CN';
   formError.value = null;
   showDialog.value = true;
 }
@@ -126,6 +140,7 @@ function openEdit(item: WatchListItem) {
   formName.value = item.name ?? '';
   formStockQuery.value = formatStockQuery(item.code, item.name);
   formNotes.value = item.notes ?? '';
+  formMarketType.value = item.market_type;
   formError.value = null;
   showDialog.value = true;
 }
@@ -231,6 +246,10 @@ onMounted(loadList);
         <span class="min-w-[72px] rounded-lg bg-primary/10 px-2 py-0.5 text-center text-sm font-mono font-semibold text-primary">
           {{ item.code }}
         </span>
+        <!-- Market badge -->
+        <span class="shrink-0 rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-secondary-text">
+          {{ marketLabel(item.market_type) }}
+        </span>
         <!-- Name & notes -->
         <div class="min-w-0 flex-1">
           <p class="truncate text-sm font-medium text-foreground">
@@ -284,6 +303,17 @@ onMounted(loadList);
                 :disabled="editingId !== null"
                 @submit="handleStockAutocompleteSubmit"
               />
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-medium text-foreground">市场</label>
+              <select
+                v-model="formMarketType"
+                class="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary"
+              >
+                <option v-for="option in marketOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
             </div>
             <div>
               <label class="mb-1 block text-sm font-medium text-foreground">备注（可选）</label>

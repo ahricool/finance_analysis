@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import select
+
+from src.services.market_type_utils import normalize_market_type
 from sqlalchemy.orm import Session
 
 from src.storage import DatabaseManager, StockHolding
@@ -63,12 +65,14 @@ class StockListRepo:
         name: Optional[str] = None,
         quantity: int = 0,
         notes: Optional[str] = None,
+        market_type: Optional[str] = None,
     ) -> StockHolding:
         item = StockHolding(
             user_id=user_id,
             code=code.upper().strip(),
             name=(name or "").strip() or None,
             quantity=max(0, quantity),
+            market_type=normalize_market_type(market_type, code),
             notes=(notes or "").strip() or None,
             created_at=datetime.now(),
             updated_at=datetime.now(),
@@ -90,6 +94,7 @@ class StockListRepo:
         name: Optional[str] = None,
         quantity: Optional[int] = None,
         notes: Optional[str] = None,
+        market_type: Optional[str] = None,
     ) -> Optional[StockHolding]:
         def _write(session: Session) -> Optional[StockHolding]:
             obj = session.get(StockHolding, item_id)
@@ -103,6 +108,8 @@ class StockListRepo:
                 obj.quantity = max(0, quantity)
             if notes is not None:
                 obj.notes = notes.strip() or None
+            if market_type is not None:
+                obj.market_type = normalize_market_type(market_type, obj.code)
             obj.updated_at = datetime.now()
             session.flush()
             session.refresh(obj)

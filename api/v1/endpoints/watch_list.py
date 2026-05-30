@@ -53,6 +53,7 @@ def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
             code=body.code,
             name=body.name,
             notes=body.notes,
+            market_type=body.market_type,
             is_favorite=body.is_favorite,
         )
     except Exception as e:
@@ -69,6 +70,7 @@ def update_watch_list_item(http_request: Request, item_id: int, body: WatchListI
         user_id=uid,
         name=body.name,
         notes=body.notes,
+        market_type=body.market_type,
         is_favorite=body.is_favorite,
     )
     if item is None:

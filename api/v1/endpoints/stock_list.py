@@ -53,6 +53,7 @@ def create_stock_holding(http_request: Request, body: StockHoldingCreate):
             code=body.code,
             name=body.name,
             quantity=body.quantity,
+            market_type=body.market_type,
             notes=body.notes,
         )
     except Exception as e:
@@ -69,6 +70,7 @@ def update_stock_holding(http_request: Request, item_id: int, body: StockHolding
         user_id=uid,
         name=body.name,
         quantity=body.quantity,
+        market_type=body.market_type,
         notes=body.notes,
     )
     if item is None:
