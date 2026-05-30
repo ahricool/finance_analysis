@@ -54,6 +54,13 @@ def run_user_scoped_migrations(engine: Engine, default_user_uid: str) -> None:
     # --- watch_list ---
     if _table_exists(engine, "watch_list"):
         cols = _column_names(engine, "watch_list")
+        if "market_type" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE watch_list ADD COLUMN IF NOT EXISTS market_type VARCHAR(8) NOT NULL DEFAULT 'CN'")
+                )
+                conn.execute(text("ALTER TABLE watch_list ALTER COLUMN market_type DROP DEFAULT"))
+            logger.info("watch_list.market_type added (PostgreSQL)")
         if "user_id" not in cols:
             with engine.begin() as conn:
                 conn.execute(
@@ -71,6 +78,13 @@ def run_user_scoped_migrations(engine: Engine, default_user_uid: str) -> None:
     # --- stock_list ---
     if _table_exists(engine, "stock_list"):
         cols = _column_names(engine, "stock_list")
+        if "market_type" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE stock_list ADD COLUMN IF NOT EXISTS market_type VARCHAR(8) NOT NULL DEFAULT 'CN'")
+                )
+                conn.execute(text("ALTER TABLE stock_list ALTER COLUMN market_type DROP DEFAULT"))
+            logger.info("stock_list.market_type added (PostgreSQL)")
         if "user_id" not in cols:
             with engine.begin() as conn:
                 conn.execute(
