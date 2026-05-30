@@ -8,6 +8,8 @@
 
 - 每日 :data:`DAILY_SCHEDULE_HOUR` : :data:`DAILY_SCHEDULE_MINUTE` 执行一次全量分析。
 - 北京时间 21:00 执行美股盘前分析，仅分析自选股中标记为美股的股票。
+- 每 15 分钟执行一次美股盘中分析（当前任务流程为空）。
+- 每 15 分钟执行一次 A 股盘中分析（当前任务流程为空）。
 - 进程启动时如 :data:`RUN_IMMEDIATELY_ON_STARTUP` 为 ``True``，会立即执行一次。
 
 如需修改调度策略，请直接修改本文件中的常量或 ``_daily_analysis_task``，
@@ -20,7 +22,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +30,14 @@ DAILY_SCHEDULE_HOUR = 18
 DAILY_SCHEDULE_MINUTE = 0
 US_PREMARKET_SCHEDULE_HOUR = 21
 US_PREMARKET_SCHEDULE_MINUTE = 0
+INTRADAY_ANALYSIS_INTERVAL_MINUTES = 15
 SCHEDULE_TIMEZONE = "Asia/Shanghai"
 RUN_IMMEDIATELY_ON_STARTUP = True
 
 _JOB_DAILY_ANALYSIS = "analysis_daily"
 _JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
+_JOB_US_INTRADAY_ANALYSIS = "analysis_us_intraday"
+_JOB_A_SHARE_INTRADAY_ANALYSIS = "analysis_a_share_intraday"
 
 
 def _daily_analysis_task() -> None:
@@ -82,6 +86,22 @@ def _us_premarket_analysis_task() -> None:
         )
 
 
+def _us_intraday_analysis_task() -> None:
+    """美股盘中定时任务：任务流程暂为空。"""
+    logger.info(
+        "美股盘中分析任务触发 - %s（任务流程暂为空）",
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    )
+
+
+def _a_share_intraday_analysis_task() -> None:
+    """A 股盘中定时任务：任务流程暂为空。"""
+    logger.info(
+        "A股盘中分析任务触发 - %s（任务流程暂为空）",
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    )
+
+
 def start_embedded_analysis_scheduler():
     """启动 APScheduler，注册每日分析 Cron 任务。
 
@@ -116,13 +136,31 @@ def start_embedded_analysis_scheduler():
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        _us_intraday_analysis_task,
+        CronTrigger(minute=f"*/{INTRADAY_ANALYSIS_INTERVAL_MINUTES}", timezone=SCHEDULE_TIMEZONE),
+        id=_JOB_US_INTRADAY_ANALYSIS,
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        _a_share_intraday_analysis_task,
+        CronTrigger(minute=f"*/{INTRADAY_ANALYSIS_INTERVAL_MINUTES}", timezone=SCHEDULE_TIMEZONE),
+        id=_JOB_A_SHARE_INTRADAY_ANALYSIS,
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
     logger.info(
-        "APScheduler 已启动，每日定时任务: %02d:%02d，美股盘前分析: %02d:%02d (%s)",
+        "APScheduler 已启动，每日定时任务: %02d:%02d，美股盘前分析: %02d:%02d，"
+        "美股盘中分析/A股盘中分析: 每 %d 分钟一次 (%s)",
         DAILY_SCHEDULE_HOUR,
         DAILY_SCHEDULE_MINUTE,
         US_PREMARKET_SCHEDULE_HOUR,
         US_PREMARKET_SCHEDULE_MINUTE,
+        INTRADAY_ANALYSIS_INTERVAL_MINUTES,
         SCHEDULE_TIMEZONE,
     )
     job = scheduler.get_job(_JOB_DAILY_ANALYSIS)
