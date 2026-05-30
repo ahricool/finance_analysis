@@ -2,7 +2,8 @@
 import { calendarApi, type CalendarSignalItem } from '@/api/calendar';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { marked } from 'marked';
 import { computed, onMounted, ref } from 'vue';
 
 const WEEKDAY_CN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'] as const;
@@ -12,6 +13,7 @@ const selectedDate = ref(formatDate(new Date()));
 const signals = ref<CalendarSignalItem[]>([]);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
+const expandedSignalId = ref<number | null>(null);
 
 const weekDates = computed(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart.value, i)));
 
@@ -54,6 +56,7 @@ const selectedDateDisplay = computed(() => {
 async function loadSignals() {
   loading.value = true;
   error.value = null;
+  expandedSignalId.value = null;
   try {
     const res = await calendarApi.listByDate(selectedDate.value);
     signals.value = res.items;
@@ -73,6 +76,25 @@ function shiftWeek(step: number) {
   weekStart.value = addDays(weekStart.value, step * 7);
 }
 
+function toggleSignal(item: CalendarSignalItem) {
+  expandedSignalId.value = expandedSignalId.value === item.id ? null : item.id;
+}
+
+function signalTypeLabel(type: string | null): string {
+  if (type === 'scheduled_daily') return '定时全量';
+  if (type === 'scheduled_us_premarket') return '美股盘前';
+  return type || '日历信号';
+}
+
+function renderMarkdown(content: string | null): string {
+  if (!content) return '';
+  try {
+    return marked.parse(content, { async: false, gfm: true }) as string;
+  } catch {
+    return content;
+  }
+}
+
 onMounted(loadSignals);
 </script>
 
@@ -84,7 +106,7 @@ onMounted(loadSignals);
       </div>
       <div>
         <h1 class="text-lg font-semibold text-foreground">日历信号</h1>
-        <p class="text-xs text-secondary-text">按周查看每日自动化信号（信号生成即将接入）</p>
+        <p class="text-xs text-secondary-text">按周查看每日自动化信号与定时任务执行结果</p>
       </div>
     </div>
 
@@ -115,10 +137,30 @@ onMounted(loadSignals);
       <div v-if="loading" class="space-y-2"><div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-xl bg-hover" /></div>
       <div v-else-if="!signals.length" class="py-6 text-sm text-secondary-text">当天暂无信号数据</div>
       <div v-else class="space-y-2">
-        <div v-for="item in signals" :key="item.id" class="rounded-xl border border-border/60 p-3">
-          <p class="text-sm font-medium">{{ item.title }}</p>
-          <p v-if="item.content" class="mt-1 text-xs text-secondary-text">{{ item.content }}</p>
-        </div>
+        <article v-for="item in signals" :key="item.id" class="overflow-hidden rounded-xl border border-border/60">
+          <button
+            type="button"
+            class="flex w-full items-start justify-between gap-3 p-3 text-left transition hover:bg-hover/70"
+            @click="toggleSignal(item)"
+          >
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-medium">{{ item.title }}</span>
+              <span class="mt-1 flex flex-wrap items-center gap-2 text-xs text-secondary-text">
+                <span class="rounded-full bg-hover px-2 py-0.5">{{ signalTypeLabel(item.signal_type) }}</span>
+                <span>{{ new Date(item.created_at).toLocaleString() }}</span>
+                <span v-if="item.content">点击查看执行结果与报告</span>
+              </span>
+            </span>
+            <ChevronDown
+              class="mt-0.5 h-4 w-4 shrink-0 text-secondary-text transition-transform"
+              :class="expandedSignalId === item.id ? 'rotate-180 text-primary' : ''"
+            />
+          </button>
+          <div v-if="expandedSignalId === item.id" class="border-t border-border/60 bg-background/40 p-3">
+            <div v-if="item.content" class="prose prose-sm max-w-none text-sm text-foreground dark:prose-invert" v-html="renderMarkdown(item.content)" />
+            <p v-else class="text-sm text-secondary-text">该记录暂无详情内容</p>
+          </div>
+        </article>
       </div>
     </div>
   </div>
