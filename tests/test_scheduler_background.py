@@ -67,7 +67,7 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
             returned = scheduler_module.start_embedded_analysis_scheduler()
 
         self.assertIs(returned, scheduler_instance)
-        self.assertEqual(self.cron_trigger_cls.call_count, 2)
+        self.assertEqual(self.cron_trigger_cls.call_count, 4)
         self.cron_trigger_cls.assert_any_call(
             hour=scheduler_module.DAILY_SCHEDULE_HOUR,
             minute=scheduler_module.DAILY_SCHEDULE_MINUTE,
@@ -78,7 +78,11 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
             minute=scheduler_module.US_PREMARKET_SCHEDULE_MINUTE,
             timezone=scheduler_module.SCHEDULE_TIMEZONE,
         )
-        self.assertEqual(scheduler_instance.add_job.call_count, 2)
+        self.cron_trigger_cls.assert_any_call(
+            minute=f"*/{scheduler_module.INTRADAY_ANALYSIS_INTERVAL_MINUTES}",
+            timezone=scheduler_module.SCHEDULE_TIMEZONE,
+        )
+        self.assertEqual(scheduler_instance.add_job.call_count, 4)
         add_job_kwargs = scheduler_instance.add_job.call_args_list[0].kwargs
         self.assertEqual(add_job_kwargs["id"], "analysis_daily")
         self.assertTrue(add_job_kwargs["replace_existing"])
@@ -89,6 +93,16 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         self.assertTrue(us_add_job_kwargs["replace_existing"])
         self.assertEqual(us_add_job_kwargs["max_instances"], 1)
         self.assertTrue(us_add_job_kwargs["coalesce"])
+        us_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[2].kwargs
+        self.assertEqual(us_intraday_add_job_kwargs["id"], "analysis_us_intraday")
+        self.assertTrue(us_intraday_add_job_kwargs["replace_existing"])
+        self.assertEqual(us_intraday_add_job_kwargs["max_instances"], 1)
+        self.assertTrue(us_intraday_add_job_kwargs["coalesce"])
+        a_share_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[3].kwargs
+        self.assertEqual(a_share_intraday_add_job_kwargs["id"], "analysis_a_share_intraday")
+        self.assertTrue(a_share_intraday_add_job_kwargs["replace_existing"])
+        self.assertEqual(a_share_intraday_add_job_kwargs["max_instances"], 1)
+        self.assertTrue(a_share_intraday_add_job_kwargs["coalesce"])
         scheduler_instance.start.assert_called_once()
 
     def test_start_runs_task_immediately_when_flag_enabled(self) -> None:
