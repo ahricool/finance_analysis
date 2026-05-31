@@ -21,7 +21,6 @@ function extractLoginError(err: unknown): ParsedApiError {
 export const useAuthStore = defineStore('auth', () => {
   const authEnabled = ref(true);
   const loggedIn = ref(false);
-  const passwordSet = ref(false);
   const passwordChangeable = ref(false);
   const setupState = ref<'enabled'>('enabled');
   const currentUser = ref<AuthStatusResponse['user']>(null);
@@ -35,7 +34,6 @@ export const useAuthStore = defineStore('auth', () => {
       const status = await authApi.getStatus();
       authEnabled.value = status.authEnabled;
       loggedIn.value = status.loggedIn;
-      passwordSet.value = status.passwordSet ?? false;
       passwordChangeable.value = status.passwordChangeable ?? false;
       setupState.value = status.setupState;
       currentUser.value = status.user ?? null;
@@ -46,7 +44,6 @@ export const useAuthStore = defineStore('auth', () => {
       loadError.value = getParsedApiError(err);
       authEnabled.value = true;
       loggedIn.value = false;
-      passwordSet.value = false;
       passwordChangeable.value = false;
       setupState.value = 'enabled';
       currentUser.value = null;
@@ -58,11 +55,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function login(
     password: string,
-    passwordConfirm?: string,
-    email = 'ahri@localhost',
+    email: string,
   ): Promise<{ success: boolean; error?: ParsedApiError }> {
     try {
-      await authApi.login(password, passwordConfirm, email);
+      await authApi.login(password, email);
       await fetchStatus();
       return { success: true };
     } catch (err: unknown) {
@@ -101,7 +97,6 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     authEnabled,
     loggedIn,
-    passwordSet,
     passwordChangeable,
     setupState,
     currentUser,

@@ -3,7 +3,6 @@ import apiClient from './index';
 export type AuthStatusResponse = {
   authEnabled: boolean;
   loggedIn: boolean;
-  passwordSet?: boolean;
   passwordChangeable?: boolean;
   setupState: 'enabled';
   user?: {
@@ -21,19 +20,8 @@ export const authApi = {
     return data;
   },
 
-  async login(
-    password: string,
-    passwordConfirm?: string,
-    email = 'ahri@localhost',
-  ): Promise<void> {
-    const body: { email: string; password: string; passwordConfirm?: string } = {
-      email,
-      password,
-    };
-    if (passwordConfirm !== undefined) {
-      body.passwordConfirm = passwordConfirm;
-    }
-    await apiClient.post('/api/v1/auth/login', body);
+  async login(password: string, email: string): Promise<void> {
+    await apiClient.post('/api/v1/auth/login', { email, password });
   },
 
   async changePassword(
