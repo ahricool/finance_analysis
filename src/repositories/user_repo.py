@@ -7,7 +7,6 @@ import base64
 import hashlib
 import hmac
 import logging
-import os
 import secrets
 import uuid
 from typing import Any, Dict, Optional
@@ -124,49 +123,86 @@ class UserRepository:
         with self.db.get_session() as session:
             return int(session.scalar(select(func.count()).select_from(User)) or 0)
 
+    def create_user(
+        self,
+        *,
+        email: str,
+        username: str,
+        role: str = "user",
+        password: Optional[str] = None,
+    ) -> User:
+        """Create a user. Email must be unique; username may duplicate others."""
+        email_key = (email or "").strip().lower()
+        username_val = (username or "").strip()
+        if not email_key:
+            raise ValueError("email is required")
+        if not username_val:
+            raise ValueError("username is required")
+        if self.get_by_email(email_key):
+            raise ValueError(f"email already registered: {email_key}")
+
+        uid = str(uuid.uuid4())
+        pwd_hash = _hash_password(password) if password else None
+
+        def _write(session: Session) -> User:
+            row = User(
+                uid=uid,
+                email=email_key,
+                username=username_val,
+                password_hash=pwd_hash,
+                avatar_url=None,
+                role=role,
+                extra={},
+            )
+            session.add(row)
+            session.flush()
+            return row
+
+        self.db._run_write_transaction("users.create", _write)
+        created = self.get_by_uid(uid)
+        if created is None:
+            raise RuntimeError("failed to load user after create")
+        return created
+
+    def user_needs_password_setup(self, email: str) -> Optional[bool]:
+        """Return True if user exists and has no password; False if has password; None if unknown."""
+        user = self.get_by_email(email)
+        if user is None:
+            return None
+        return not bool(user.password_hash)
+
     def ensure_default_admin(self) -> str:
         """
         Ensure built-in admin ``ahri`` exists. Returns the admin uid.
 
-        Password:
-        - If ``AHRI_INITIAL_PASSWORD`` is set, assign that password on first create
-          or when the user exists but has no password yet.
-        - Otherwise leave password unset until first-time setup via login or settings.
+        Password is left unset until the user completes first-time setup on the login page.
         """
-        initial = (os.environ.get("AHRI_INITIAL_PASSWORD") or "").strip()
         with self.db.get_session() as session:
             existing = session.execute(
                 select(User)
-                .where(func.lower(User.email) == DEFAULT_ADMIN_EMAIL)
+                .where(func.lower(User.email) == DEFAULT_ADMIN_EMAIL.lower())
                 .limit(1)
             ).scalars().first()
             if existing:
-                if initial and not existing.password_hash:
-                    existing.password_hash = _hash_password(initial)
-                    session.commit()
-                    logger.info("Default admin %s password set from AHRI_INITIAL_PASSWORD", DEFAULT_ADMIN_USERNAME)
                 return existing.uid
 
             uid = str(uuid.uuid4())
-            pwd_hash = _hash_password(initial) if initial else None
             row = User(
                 uid=uid,
                 username=DEFAULT_ADMIN_USERNAME,
                 email=DEFAULT_ADMIN_EMAIL,
-                password_hash=pwd_hash,
+                password_hash=None,
                 avatar_url=None,
                 role="admin",
                 extra={},
             )
             session.add(row)
             session.commit()
-            if initial:
-                logger.info("Created default admin user %s (password from AHRI_INITIAL_PASSWORD)", DEFAULT_ADMIN_USERNAME)
-            else:
-                logger.info(
-                    "Created default admin user %s without password — set via first login or AHRI_INITIAL_PASSWORD",
-                    DEFAULT_ADMIN_USERNAME,
-                )
+            logger.info(
+                "Created default admin user %s (%s) without password — set via first login",
+                DEFAULT_ADMIN_USERNAME,
+                DEFAULT_ADMIN_EMAIL,
+            )
             return uid
 
     def to_public_dict(self, user: User) -> Dict[str, Any]:

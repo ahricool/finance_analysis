@@ -27,8 +27,6 @@ from src.config import Config
 
 def _reset_auth_globals() -> None:
     auth._session_secret = None
-    auth._password_hash_salt = None
-    auth._password_hash_stored = None
     auth._rate_limit = {}
 
 
@@ -46,7 +44,6 @@ class AuthApiTestCase(unittest.TestCase):
         )
         os.environ["ENV_FILE"] = str(self.env_path)
         os.environ["DATABASE_PATH"] = str(self.data_dir / "test.db")
-        os.environ.pop("AHRI_INITIAL_PASSWORD", None)
         from src.storage import DatabaseManager
 
         DatabaseManager.reset_instance()
@@ -80,7 +77,25 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertFalse(data["passwordSet"])
         self.assertFalse(data["loggedIn"])
 
-    def test_login_first_time_set_initial_password(self) -> None:
+    def test_lookup_unknown_email(self) -> None:
+        response = asyncio.run(
+            auth_endpoint.auth_lookup(
+                self._build_request(),
+                auth_endpoint.EmailLookupRequest(email="nobody@example.com"),
+            )
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_lookup_default_admin_needs_setup(self) -> None:
+        data = asyncio.run(
+            auth_endpoint.auth_lookup(
+                self._build_request(),
+                auth_endpoint.EmailLookupRequest(email="ahri@localhost"),
+            )
+        )
+        self.assertTrue(data["needsPasswordSetup"])
+
+    def test_login_first_time_set_initial_password_requires_relogin(self) -> None:
         response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
@@ -88,8 +103,8 @@ class AuthApiTestCase(unittest.TestCase):
             )
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn("fa_session=", response.headers["set-cookie"])
-        self.assertIn(b'"ok":true', response.body)
+        self.assertNotIn("set-cookie", response.headers)
+        self.assertIn(b'"requiresRelogin":true', response.body)
 
     def test_login_first_time_mismatch_rejected(self) -> None:
         response = asyncio.run(
@@ -142,10 +157,16 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertIn("fa_session=", response.headers["set-cookie"])
 
     def test_logout_invalidates_existing_session(self) -> None:
-        login_response = asyncio.run(
+        asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
                 auth_endpoint.LoginRequest(email="ahri@localhost", password="passwd6", passwordConfirm="passwd6"),
+            )
+        )
+        login_response = asyncio.run(
+            auth_endpoint.auth_login(
+                self._build_request(),
+                auth_endpoint.LoginRequest(email="ahri@localhost", password="passwd6"),
             )
         )
         self.assertEqual(login_response.status_code, 200)
@@ -153,7 +174,9 @@ class AuthApiTestCase(unittest.TestCase):
         session_cookie = cookie_header.split("fa_session=", 1)[1].split(";", 1)[0]
         self.assertTrue(auth.verify_session(session_cookie))
 
-        logout_response = asyncio.run(auth_endpoint.auth_logout(self._build_request()))
+        logout_response = asyncio.run(
+            auth_endpoint.auth_logout(self._build_request(cookies={"fa_session": session_cookie}))
+        )
 
         self.assertEqual(logout_response.status_code, 204)
         self.assertFalse(auth.verify_session(session_cookie))
@@ -166,41 +189,62 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertIn(b'"error":"internal_error"', response.body)
 
     def test_change_password_requires_session(self) -> None:
-        first_response = asyncio.run(
+        asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
                 auth_endpoint.LoginRequest(email="ahri@localhost", password="oldpass6", passwordConfirm="oldpass6"),
             )
         )
-        self.assertEqual(first_response.status_code, 200)
+        login_response = asyncio.run(
+            auth_endpoint.auth_login(
+                self._build_request(),
+                auth_endpoint.LoginRequest(email="ahri@localhost", password="oldpass6"),
+            )
+        )
+        cookie_header = login_response.headers["set-cookie"]
+        session_cookie = cookie_header.split("fa_session=", 1)[1].split(";", 1)[0]
+        request = self._build_request(cookies={"fa_session": session_cookie})
 
         response = asyncio.run(
             auth_endpoint.auth_change_password(
+                request,
                 auth_endpoint.ChangePasswordRequest(
                     currentPassword="oldpass6",
                     newPassword="newpass6",
                     newPasswordConfirm="newpass6",
-                )
+                ),
             )
         )
         self.assertIn(response.status_code, (200, 204))
 
     def test_change_password_wrong_current_rejected(self) -> None:
-        first_response = asyncio.run(
+        setup_response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
                 auth_endpoint.LoginRequest(email="ahri@localhost", password="actual6", passwordConfirm="actual6"),
             )
         )
-        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(setup_response.status_code, 200)
+
+        login_response = asyncio.run(
+            auth_endpoint.auth_login(
+                self._build_request(),
+                auth_endpoint.LoginRequest(email="ahri@localhost", password="actual6"),
+            )
+        )
+        self.assertEqual(login_response.status_code, 200)
+        cookie_header = login_response.headers["set-cookie"]
+        session_cookie = cookie_header.split("fa_session=", 1)[1].split(";", 1)[0]
+        request = self._build_request(cookies={"fa_session": session_cookie})
 
         response = asyncio.run(
             auth_endpoint.auth_change_password(
+                request,
                 auth_endpoint.ChangePasswordRequest(
                     currentPassword="wrong",
                     newPassword="new123",
                     newPasswordConfirm="new123",
-                )
+                ),
             )
         )
         self.assertEqual(response.status_code, 400)

@@ -24,6 +24,8 @@ export function useAuth() {
     currentUser,
     isLoading,
     loadError,
+    lookupEmail: store.lookupEmail,
+    setupPassword: store.setupPassword,
     login: store.login,
     changePassword: store.changePassword,
     logout: store.logout,

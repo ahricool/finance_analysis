@@ -9,7 +9,9 @@ import { Lock } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-const { login } = useAuth();
+type LoginStep = 'email' | 'password' | 'setup';
+
+const { lookupEmail, setupPassword, login } = useAuth();
 const router = useRouter();
 const route = useRoute();
 
@@ -18,10 +20,31 @@ const redirect = computed(() =>
   rawRedirect.value.startsWith('/') && !rawRedirect.value.startsWith('//') ? rawRedirect.value : '/',
 );
 
+const step = ref<LoginStep>('email');
 const email = ref('');
 const password = ref('');
+const passwordConfirm = ref('');
 const isSubmitting = ref(false);
 const error = ref<string | ParsedApiError | null>(null);
+const setupSuccessMessage = ref<string | null>(null);
+
+const stepTitle = computed(() => {
+  if (step.value === 'email') return '用户登录';
+  if (step.value === 'setup') return '设置登录密码';
+  return '输入密码';
+});
+
+const submitLabel = computed(() => {
+  if (step.value === 'email') return '继续';
+  if (step.value === 'setup') return '设置密码';
+  return '登录';
+});
+
+const loadingText = computed(() => {
+  if (step.value === 'email') return '正在验证...';
+  if (step.value === 'setup') return '正在设置...';
+  return '正在登录...';
+});
 
 function onEmailInput(e: Event) {
   email.value = (e.target as HTMLInputElement).value;
@@ -31,16 +54,56 @@ function onPasswordInput(e: Event) {
   password.value = (e.target as HTMLInputElement).value;
 }
 
-onMounted(() => {
-  document.title = formatDocumentTitle('登录');
-});
+function onPasswordConfirmInput(e: Event) {
+  passwordConfirm.value = (e.target as HTMLInputElement).value;
+}
+
+function resetToEmailStep() {
+  step.value = 'email';
+  password.value = '';
+  passwordConfirm.value = '';
+}
 
 async function handleSubmit(e: Event) {
   e.preventDefault();
   error.value = null;
+  setupSuccessMessage.value = null;
   isSubmitting.value = true;
+
   try {
-    const result = await login(password.value, email.value.trim());
+    const trimmedEmail = email.value.trim();
+    if (!trimmedEmail) {
+      error.value = '请输入邮箱';
+      return;
+    }
+
+    if (step.value === 'email') {
+      const lookup = await lookupEmail(trimmedEmail);
+      if (!lookup.success) {
+        error.value = lookup.error?.message ?? '邮箱验证失败';
+        return;
+      }
+      email.value = trimmedEmail;
+      step.value = lookup.needsPasswordSetup ? 'setup' : 'password';
+      return;
+    }
+
+    if (step.value === 'setup') {
+      if (!password.value || !passwordConfirm.value) {
+        error.value = '请填写并确认密码';
+        return;
+      }
+      const result = await setupPassword(trimmedEmail, password.value, passwordConfirm.value);
+      if (!result.success) {
+        error.value = result.error?.message ?? '设置密码失败';
+        return;
+      }
+      setupSuccessMessage.value = '密码已设置，请使用邮箱和新密码重新登录';
+      resetToEmailStep();
+      return;
+    }
+
+    const result = await login(trimmedEmail, password.value);
     if (result.success) {
       await router.replace(redirect.value);
     } else {
@@ -50,6 +113,10 @@ async function handleSubmit(e: Event) {
     isSubmitting.value = false;
   }
 }
+
+onMounted(() => {
+  document.title = formatDocumentTitle('登录');
+});
 </script>
 
 <template>
@@ -71,13 +138,17 @@ async function handleSubmit(e: Event) {
           <div class="mb-6">
             <h1 class="flex items-center gap-2 text-xl font-semibold tracking-tight text-foreground">
               <Lock class="h-5 w-5 text-primary" />
-              <span>用户登录</span>
+              <span>{{ stepTitle }}</span>
             </h1>
+            <p v-if="step !== 'email'" class="mt-2 text-sm text-muted-foreground">
+              {{ email }}
+            </p>
           </div>
 
           <form class="space-y-5" @submit="handleSubmit">
             <div class="space-y-4">
               <Input
+                v-if="step === 'email'"
                 id="email"
                 type="email"
                 icon-type="key"
@@ -90,19 +161,59 @@ async function handleSubmit(e: Event) {
                 @input="onEmailInput"
               />
 
-              <Input
-                id="password"
-                type="password"
-                allow-toggle-password
-                icon-type="password"
-                label="登录密码"
-                placeholder="请输入密码"
-                :value="password"
-                :disabled="isSubmitting"
-                autofocus
-                autocomplete="current-password"
-                data-testid="login-password"
-                @input="onPasswordInput"
+              <template v-if="step === 'password'">
+                <Input
+                  id="password"
+                  type="password"
+                  allow-toggle-password
+                  icon-type="password"
+                  label="登录密码"
+                  placeholder="请输入密码"
+                  :value="password"
+                  :disabled="isSubmitting"
+                  autofocus
+                  autocomplete="current-password"
+                  data-testid="login-password"
+                  @input="onPasswordInput"
+                />
+              </template>
+
+              <template v-if="step === 'setup'">
+                <Input
+                  id="password"
+                  type="password"
+                  allow-toggle-password
+                  icon-type="password"
+                  label="设置密码"
+                  placeholder="至少 6 位"
+                  :value="password"
+                  :disabled="isSubmitting"
+                  autofocus
+                  autocomplete="new-password"
+                  data-testid="login-password"
+                  @input="onPasswordInput"
+                />
+                <Input
+                  id="password-confirm"
+                  type="password"
+                  allow-toggle-password
+                  icon-type="password"
+                  label="确认密码"
+                  placeholder="再次输入密码"
+                  :value="passwordConfirm"
+                  :disabled="isSubmitting"
+                  autocomplete="new-password"
+                  data-testid="login-password-confirm"
+                  @input="onPasswordConfirmInput"
+                />
+              </template>
+            </div>
+
+            <div v-if="setupSuccessMessage" class="overflow-hidden">
+              <SettingsAlert
+                title="设置成功"
+                :message="setupSuccessMessage"
+                variant="success"
               />
             </div>
 
@@ -121,11 +232,22 @@ async function handleSubmit(e: Event) {
               class="h-11 w-full"
               :disabled="isSubmitting"
               :is-loading="isSubmitting"
-              loading-text="正在登录..."
+              :loading-text="loadingText"
               data-testid="login-submit"
             >
-              登录
+              {{ submitLabel }}
             </Button>
+
+            <button
+              v-if="step !== 'email'"
+              type="button"
+              class="w-full text-center text-sm text-muted-foreground hover:text-foreground"
+              :disabled="isSubmitting"
+              data-testid="login-back"
+              @click="resetToEmailStep"
+            >
+              使用其他邮箱
+            </button>
           </form>
         </div>
 

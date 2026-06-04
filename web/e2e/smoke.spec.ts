@@ -2,35 +2,47 @@ import { expect, test, type Page } from '@playwright/test';
 
 const smokePassword = process.env.FA_WEB_SMOKE_PASSWORD;
 
+const smokeEmail = process.env.FA_WEB_SMOKE_EMAIL ?? 'ahri@localhost';
+
 async function login(page: Page) {
   test.skip(!smokePassword, 'Set FA_WEB_SMOKE_PASSWORD to run authenticated smoke tests.');
 
   await page.goto('/login');
   await page.waitForLoadState('domcontentloaded');
 
-  const passwordInput = page.locator('#password');
-  const submitButton = page.getByRole('button', { name: /授权进入工作台|完成设置并登录/ });
   const homeLink = page.getByRole('link', { name: '首页' });
 
   const isAlreadyAuthenticated =
     page.url().endsWith('/') ||
-    await homeLink.isVisible({ timeout: 2_000 }).catch(() => false);
+    (await homeLink.isVisible({ timeout: 2_000 }).catch(() => false));
 
   if (isAlreadyAuthenticated) {
     await page.waitForLoadState('domcontentloaded');
     return;
   }
 
+  const emailInput = page.getByTestId('login-email');
+  await expect(emailInput).toBeVisible({ timeout: 10_000 });
+  await emailInput.fill(smokeEmail);
+
+  await Promise.all([
+    page.waitForResponse(
+      (response) => response.url().includes('/api/v1/auth/lookup') && response.status() === 200,
+      { timeout: 15_000 },
+    ),
+    page.getByTestId('login-submit').click(),
+  ]);
+
+  const passwordInput = page.getByTestId('login-password');
   await expect(passwordInput).toBeVisible({ timeout: 10_000 });
   await passwordInput.fill(smokePassword!);
-  await expect(submitButton).toBeVisible();
 
   await Promise.all([
     page.waitForResponse(
       (response) => response.url().includes('/api/v1/auth/login') && response.status() === 200,
-      { timeout: 15_000 }
+      { timeout: 15_000 },
     ),
-    submitButton.click(),
+    page.getByTestId('login-submit').click(),
   ]);
 
   await page.waitForURL('/', { timeout: 15_000 });

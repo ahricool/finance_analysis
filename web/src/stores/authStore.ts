@@ -53,12 +53,40 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function login(
-    password: string,
+  async function lookupEmail(
     email: string,
+  ): Promise<{ success: boolean; needsPasswordSetup?: boolean; error?: ParsedApiError }> {
+    try {
+      const result = await authApi.lookupEmail(email);
+      return { success: true, needsPasswordSetup: result.needsPasswordSetup };
+    } catch (err: unknown) {
+      return { success: false, error: extractLoginError(err) };
+    }
+  }
+
+  async function setupPassword(
+    email: string,
+    password: string,
+    passwordConfirm: string,
   ): Promise<{ success: boolean; error?: ParsedApiError }> {
     try {
-      await authApi.login(password, email);
+      const result = await authApi.login(email, password, passwordConfirm);
+      if (result.requiresRelogin) {
+        return { success: true };
+      }
+      await fetchStatus();
+      return { success: true };
+    } catch (err: unknown) {
+      return { success: false, error: extractLoginError(err) };
+    }
+  }
+
+  async function login(
+    email: string,
+    password: string,
+  ): Promise<{ success: boolean; error?: ParsedApiError }> {
+    try {
+      await authApi.login(email, password);
       await fetchStatus();
       return { success: true };
     } catch (err: unknown) {
@@ -102,6 +130,8 @@ export const useAuthStore = defineStore('auth', () => {
     currentUser,
     isLoading,
     loadError,
+    lookupEmail,
+    setupPassword,
     login,
     changePassword,
     logout,
