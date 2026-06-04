@@ -9,7 +9,6 @@ export function useAuth() {
   const {
     authEnabled,
     loggedIn,
-    passwordSet,
     passwordChangeable,
     setupState,
     currentUser,
@@ -20,7 +19,6 @@ export function useAuth() {
   return {
     authEnabled,
     loggedIn,
-    passwordSet,
     passwordChangeable,
     setupState,
     currentUser,
