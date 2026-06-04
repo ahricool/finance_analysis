@@ -15,8 +15,6 @@ import src.auth as auth
 def _reset_auth_globals() -> None:
     """Reset auth module globals for test isolation."""
     auth._session_secret = None
-    auth._password_hash_salt = None
-    auth._password_hash_stored = None
     auth._rate_limit = {}
 
 
@@ -27,46 +25,15 @@ class AuthValidationTestCase(unittest.TestCase):
         _reset_auth_globals()
 
     def test_validate_password_empty(self) -> None:
-        self.assertIsNotNone(auth._validate_password(""))
-        self.assertIsNotNone(auth._validate_password("   "))
+        self.assertIsNotNone(auth.validate_password(""))
+        self.assertIsNotNone(auth.validate_password("   "))
 
     def test_validate_password_too_short(self) -> None:
-        self.assertIsNotNone(auth._validate_password("12345"))
+        self.assertIsNotNone(auth.validate_password("12345"))
 
     def test_validate_password_valid(self) -> None:
-        self.assertIsNone(auth._validate_password("123456"))
-        self.assertIsNone(auth._validate_password("password123"))
-
-
-class AuthPasswordHashTestCase(unittest.TestCase):
-    """Test password hashing and verification."""
-
-    def setUp(self) -> None:
-        _reset_auth_globals()
-
-    def test_verify_password_hash_correct(self) -> None:
-        salt = secrets.token_bytes(32)
-        pwd = "testpass123"
-        derived = hashlib.pbkdf2_hmac(
-            "sha256", pwd.encode("utf-8"), salt=salt, iterations=auth.PBKDF2_ITERATIONS
-        )
-        self.assertTrue(auth._verify_password_hash(pwd, salt, derived))
-
-    def test_verify_password_hash_wrong_password(self) -> None:
-        salt = secrets.token_bytes(32)
-        pwd = "testpass123"
-        derived = hashlib.pbkdf2_hmac(
-            "sha256", pwd.encode("utf-8"), salt=salt, iterations=auth.PBKDF2_ITERATIONS
-        )
-        self.assertFalse(auth._verify_password_hash("wrong", salt, derived))
-
-    def test_verify_password_hash_constant_time(self) -> None:
-        """Verify compare_digest is used (constant-time)."""
-        salt = secrets.token_bytes(32)
-        derived = hashlib.pbkdf2_hmac(
-            "sha256", b"x", salt=salt, iterations=auth.PBKDF2_ITERATIONS
-        )
-        self.assertFalse(auth._verify_password_hash("y", salt, derived))
+        self.assertIsNone(auth.validate_password("123456"))
+        self.assertIsNone(auth.validate_password("password123"))
 
 
 class AuthSessionTestCase(unittest.TestCase):
@@ -158,6 +125,18 @@ class AuthSessionTestCase(unittest.TestCase):
 
         self._patch_env_and_run(test_fn=run)
 
+    def test_refresh_auth_state_clears_session_secret_cache(self) -> None:
+        def run():
+            first_secret = auth.create_session(user_uid="u-refresh")
+            self.assertTrue(first_secret)
+            self.assertIsNotNone(auth._session_secret)
+
+            auth._session_secret = b"x" * 32
+            auth.refresh_auth_state()
+            self.assertNotEqual(auth._session_secret, b"x" * 32)
+
+        self._patch_env_and_run(test_fn=run)
+
 
 class AuthRateLimitTestCase(unittest.TestCase):
     """Test rate limiting."""
@@ -183,100 +162,9 @@ class AuthRateLimitTestCase(unittest.TestCase):
         self.assertTrue(auth.check_rate_limit(ip))
 
 
-class AuthSetPasswordTestCase(unittest.TestCase):
-    """Test set_initial_password, change_password, overwrite_password."""
-
-    def setUp(self) -> None:
-        _reset_auth_globals()
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.data_dir = Path(self.temp_dir.name)
-        self.addCleanup(self.temp_dir.cleanup)
-
-    def _run_with_patch(self, fn):
-        with patch.object(auth, "_get_data_dir", return_value=self.data_dir):
-            return fn()
-
-    def test_set_initial_password_success(self) -> None:
-        def run():
-            err = auth.set_initial_password("password123")
-            self.assertIsNone(err)
-            self.assertIsNotNone(auth._password_hash_stored)
-            self.assertTrue(auth.is_password_set())
-            self.assertTrue(auth.verify_password("password123"))
-
-        self._run_with_patch(run)
-
-    def test_has_stored_password_tracks_legacy_credential(self) -> None:
-        def run():
-            err = auth.set_initial_password("password123")
-            self.assertIsNone(err)
-            self.assertTrue(auth.has_stored_password())
-
-            self.assertTrue(auth.has_stored_password())
-            self.assertTrue(auth.is_password_set())
-
-        self._run_with_patch(run)
-
-    def test_verify_stored_password(self) -> None:
-        def run():
-            err = auth.set_initial_password("password123")
-            self.assertIsNone(err)
-
-            self.assertTrue(auth.verify_stored_password("password123"))
-            self.assertFalse(auth.verify_stored_password("wrongpass"))
-
-        self._run_with_patch(run)
-
+class AuthEnabledTestCase(unittest.TestCase):
     def test_is_auth_enabled_always_true(self) -> None:
         self.assertTrue(auth.is_auth_enabled())
-
-    def test_refresh_auth_state_clears_session_secret_cache(self) -> None:
-        def run():
-            first_secret = auth.create_session(user_uid="u-refresh")
-            self.assertTrue(first_secret)
-            self.assertIsNotNone(auth._session_secret)
-
-            auth._session_secret = b"x" * 32
-            auth.refresh_auth_state()
-            self.assertNotEqual(auth._session_secret, b"x" * 32)
-
-        self._run_with_patch(run)
-
-    def test_set_initial_password_invalid(self) -> None:
-        def run():
-            self.assertIsNotNone(auth.set_initial_password(""))
-            self.assertIsNotNone(auth.set_initial_password("12345"))
-
-        self._run_with_patch(run)
-
-    def test_change_password_success(self) -> None:
-        def run():
-            auth.set_initial_password("oldpass123")
-            err = auth.change_password("oldpass123", "newpass456")
-            self.assertIsNone(err)
-            self.assertFalse(auth.verify_password("oldpass123"))
-            self.assertTrue(auth.verify_password("newpass456"))
-
-        self._run_with_patch(run)
-
-    def test_change_password_wrong_current(self) -> None:
-        def run():
-            auth.set_initial_password("correctpass")
-            err = auth.change_password("wrongpass", "newpass456")
-            self.assertIsNotNone(err)
-            self.assertTrue(auth.verify_password("correctpass"))
-
-        self._run_with_patch(run)
-
-    def test_overwrite_password_cli_style(self) -> None:
-        def run():
-            auth.set_initial_password("original")
-            err = auth.overwrite_password("resetpass")
-            self.assertIsNone(err)
-            self.assertFalse(auth.verify_password("original"))
-            self.assertTrue(auth.verify_password("resetpass"))
-
-        self._run_with_patch(run)
 
 
 if __name__ == "__main__":

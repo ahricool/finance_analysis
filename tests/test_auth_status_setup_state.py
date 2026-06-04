@@ -2,6 +2,7 @@
 """Unit tests for the always-on Auth status contract."""
 
 import asyncio
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,13 +12,14 @@ from starlette.requests import Request
 
 import src.auth as auth
 from api.v1.endpoints.auth import auth_status
+from src.config import Config
+from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL, UserRepository
+from src.storage import DatabaseManager
 
 
 def _reset_auth_globals() -> None:
     """Reset auth module globals for test isolation."""
     auth._session_secret = None
-    auth._password_hash_salt = None
-    auth._password_hash_stored = None
     auth._rate_limit = {}
 
 
@@ -49,11 +51,21 @@ class AuthStatusSetupStateTestCase(unittest.TestCase):
         _reset_auth_globals()
         self.temp_dir = tempfile.TemporaryDirectory()
         self.data_dir = Path(self.temp_dir.name)
+        self.env_path = self.data_dir / ".env"
+        self.env_path.write_text("STOCK_LIST=600519\n", encoding="utf-8")
+        os.environ["ENV_FILE"] = str(self.env_path)
+        os.environ["DATABASE_PATH"] = str(self.data_dir / "test.db")
+        DatabaseManager.reset_instance()
+        Config.reset_instance()
         self._data_dir_patcher = patch.object(auth, "_get_data_dir", return_value=self.data_dir)
         self._data_dir_patcher.start()
 
     def tearDown(self) -> None:
         self._data_dir_patcher.stop()
+        DatabaseManager.reset_instance()
+        Config.reset_instance()
+        os.environ.pop("ENV_FILE", None)
+        os.environ.pop("DATABASE_PATH", None)
         _reset_auth_globals()
         self.temp_dir.cleanup()
 
@@ -67,8 +79,11 @@ class AuthStatusSetupStateTestCase(unittest.TestCase):
     def test_auth_is_always_enabled(self) -> None:
         self.assertTrue(auth.is_auth_enabled())
 
-    def test_status_password_set(self) -> None:
-        auth.set_initial_password("password123")
+    def test_status_password_set_when_db_has_password(self) -> None:
+        repo = UserRepository()
+        user = repo.get_by_email(DEFAULT_ADMIN_EMAIL)
+        self.assertIsNotNone(user)
+        repo.set_plain_password(user.uid, "password123")
         request = _make_request()
         data = asyncio.run(auth_status(request))
         self.assertEqual(data["setupState"], "enabled")

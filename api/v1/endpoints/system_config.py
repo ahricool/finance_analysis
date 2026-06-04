@@ -51,10 +51,8 @@ class EnvBackupAccessDenied(Exception):
 
 def _allow_env_backup_access(request: Request) -> None:
     """Gate raw .env backup/restore behind a valid session."""
-    refresh_auth_state()
-
     cookie_val = request.cookies.get(COOKIE_NAME)
-    if cookie_val and verify_session(cookie_val):
+    if cookie_val and parse_session_user_uid(cookie_val):
         return
 
     raise EnvBackupAccessDenied(

@@ -1,36 +1,40 @@
 import { expect, test, type Page } from '@playwright/test';
 
 const smokePassword = process.env.FA_WEB_SMOKE_PASSWORD;
+const smokeEmail = process.env.FA_WEB_SMOKE_EMAIL ?? 'ahri@localhost';
 
 async function login(page: Page) {
   test.skip(!smokePassword, 'Set FA_WEB_SMOKE_PASSWORD to run report markdown tests.');
 
-  // Navigate to login page
   await page.goto('/login');
   await page.waitForLoadState('domcontentloaded');
 
-  // Wait for password input to be visible
-  await expect(page.locator('#password')).toBeVisible({ timeout: 10_000 });
+  const emailInput = page.getByTestId('login-email');
+  await expect(emailInput).toBeVisible({ timeout: 10_000 });
+  await emailInput.fill(smokeEmail);
 
-  // Fill password and submit
-  await page.locator('#password').fill(smokePassword!);
+  await Promise.all([
+    page.waitForResponse(
+      (response) => response.url().includes('/api/v1/auth/lookup') && response.status() === 200,
+      { timeout: 15_000 },
+    ),
+    page.getByTestId('login-submit').click(),
+  ]);
 
-  // Wait for and click the submit button
-  const submitButton = page.getByRole('button', { name: /授权进入工作台|完成设置并登录/ });
-  await expect(submitButton).toBeVisible();
+  const passwordInput = page.getByTestId('login-password');
+  await expect(passwordInput).toBeVisible({ timeout: 10_000 });
+  await passwordInput.fill(smokePassword!);
 
   await Promise.all([
     page.waitForResponse(
       (response) => response.url().includes('/api/v1/auth/login') && response.status() === 200,
-      { timeout: 15_000 }
+      { timeout: 15_000 },
     ),
-    submitButton.click(),
+    page.getByTestId('login-submit').click(),
   ]);
 
-  // Wait for navigation to home page after login
   await page.waitForURL('/', { timeout: 15_000 });
   await page.waitForLoadState('domcontentloaded');
-  // Wait for page to stabilize by checking for stock input
   const stockInput = page.getByPlaceholder('输入股票代码或名称，如 600519、贵州茅台、AAPL');
   await expect(stockInput).toBeVisible({ timeout: 10_000 });
 }

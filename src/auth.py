@@ -2,13 +2,13 @@
 """
 Web authentication module.
 
-Login is always enabled. Legacy file-based credentials are retained for CLI
-password reset compatibility.
+Credentials are stored only in the database (users.password_hash).
+Session signing uses a local .session_secret file under the data directory.
 """
 
 from __future__ import annotations
 
-import base64
+import argparse
 import getpass
 import hashlib
 import hmac
@@ -29,10 +29,7 @@ RATE_LIMIT_MAX_FAILURES = 5
 SESSION_MAX_AGE_HOURS_DEFAULT = 24
 MIN_PASSWORD_LEN = 6
 
-# Lazy-loaded state
 _session_secret: Optional[bytes] = None
-_password_hash_salt: Optional[bytes] = None
-_password_hash_stored: Optional[bytes] = None
 _rate_limit: dict[str, Tuple[int, float]] = {}
 _rate_limit_lock = None
 
@@ -42,6 +39,7 @@ def _get_lock():
     global _rate_limit_lock
     if _rate_limit_lock is None:
         import threading
+
         _rate_limit_lock = threading.Lock()
     return _rate_limit_lock
 
@@ -49,6 +47,7 @@ def _get_lock():
 def _ensure_env_loaded() -> None:
     """Ensure .env is loaded before reading config."""
     from src.config import setup_env
+
     setup_env()
 
 
@@ -56,11 +55,6 @@ def _get_data_dir() -> Path:
     """Return DATA_DIR as parent of DATABASE_PATH."""
     db_path = os.getenv("DATABASE_PATH", "./data/stock_analysis.db")
     return Path(db_path).resolve().parent
-
-
-def _get_credential_path() -> Path:
-    """Path to stored password hash file."""
-    return _get_data_dir() / ".admin_password_hash"
 
 
 def rotate_session_secret() -> bool:
@@ -119,85 +113,16 @@ def _load_session_secret() -> Optional[bytes]:
         return None
 
 
-def _parse_password_hash(value: str) -> Optional[Tuple[bytes, bytes]]:
-    """Parse salt_b64:hash_b64. Returns (salt, hash) or None."""
-    if not value or ":" not in value:
-        return None
-    parts = value.strip().split(":", 1)
-    if len(parts) != 2:
-        return None
-    try:
-        salt_b64, hash_b64 = parts[0].strip(), parts[1].strip()
-        salt = base64.standard_b64decode(salt_b64)
-        stored_hash = base64.standard_b64decode(hash_b64)
-        if salt and stored_hash:
-            return (salt, stored_hash)
-    except (ValueError, TypeError):
-        pass
-    return None
-
-
-def _verify_password_hash(submitted: str, salt: bytes, stored_hash: bytes) -> bool:
-    """Verify submitted password against stored pbkdf2 hash."""
-    computed = hashlib.pbkdf2_hmac(
-        "sha256",
-        submitted.encode("utf-8"),
-        salt=salt,
-        iterations=PBKDF2_ITERATIONS,
-    )
-    return hmac.compare_digest(computed, stored_hash)
-
-
-def _load_credential_from_file() -> bool:
-    """Load credential from file into module globals. Returns True if loaded."""
-    global _password_hash_salt, _password_hash_stored
-
-    path = _get_credential_path()
-    if not path.exists():
-        _password_hash_salt = None
-        _password_hash_stored = None
-        return False
-
-    try:
-        raw = path.read_text().strip()
-        parsed = _parse_password_hash(raw)
-        if parsed is None:
-            logger.warning("Invalid .admin_password_hash format, ignoring")
-            return False
-        _password_hash_salt, _password_hash_stored = parsed
-        return True
-    except OSError as e:
-        logger.error("Failed to read credential file: %s", e)
-        return False
-
-
 def refresh_auth_state() -> None:
-    """Reload auth-related state from disk."""
+    """Reload session signing secret from disk."""
     global _session_secret
     _session_secret = None
-    _load_credential_from_file()
+    _load_session_secret()
 
 
 def is_auth_enabled() -> bool:
     """Authentication is always enabled."""
     return True
-
-
-def has_stored_password() -> bool:
-    """Return whether a valid stored password hash exists on disk."""
-    return _load_credential_from_file()
-
-
-def verify_stored_password(password: str) -> bool:
-    """Verify password against stored credential even when auth is disabled."""
-    if not has_stored_password():
-        return False
-    return _verify_password_hash(password, _password_hash_salt, _password_hash_stored)
-
-
-def is_password_set() -> bool:
-    """Return whether initial password has been set (credential file exists and valid)."""
-    return has_stored_password()
 
 
 def is_password_changeable() -> bool:
@@ -210,95 +135,13 @@ def _get_session_secret() -> Optional[bytes]:
     return _load_session_secret()
 
 
-def _validate_password(pwd: str) -> Optional[str]:
+def validate_password(pwd: str) -> Optional[str]:
     """Return error message if invalid, None if valid."""
     if not pwd or not pwd.strip():
         return "密码不能为空"
     if len(pwd) < MIN_PASSWORD_LEN:
         return f"密码至少 {MIN_PASSWORD_LEN} 位"
     return None
-
-
-def set_initial_password(password: str) -> Optional[str]:
-    """
-    Set initial password (first-time setup). Returns error message or None on success.
-    Atomic write with 0o600 permissions.
-    """
-    err = _validate_password(password)
-    if err:
-        return err
-
-    data_dir = _get_data_dir()
-    data_dir.mkdir(parents=True, exist_ok=True)
-    cred_path = _get_credential_path()
-
-    salt = secrets.token_bytes(32)
-    derived = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt=salt,
-        iterations=PBKDF2_ITERATIONS,
-    )
-    salt_b64 = base64.standard_b64encode(salt).decode("ascii")
-    hash_b64 = base64.standard_b64encode(derived).decode("ascii")
-    content = f"{salt_b64}:{hash_b64}"
-
-    try:
-        tmp_path = cred_path.with_suffix(".tmp")
-        tmp_path.write_text(content)
-        tmp_path.chmod(0o600)
-        tmp_path.replace(cred_path)
-        _load_credential_from_file()
-        return None
-    except OSError as e:
-        logger.error("Failed to write credential file: %s", e)
-        return "密码保存失败"
-
-
-def verify_password(password: str) -> bool:
-    """Verify password against stored credential. Constant-time where applicable."""
-    return verify_stored_password(password)
-
-
-def change_password(current: str, new: str) -> Optional[str]:
-    """
-    Change password. Verifies current, writes new hash. Returns error message or None on success.
-    """
-    if not is_password_set():
-        return "尚未设置密码"
-
-    if not current or not current.strip():
-        return "请输入当前密码"
-    if not _verify_password_hash(current, _password_hash_salt, _password_hash_stored):
-        return "当前密码错误"
-
-    err = _validate_password(new)
-    if err:
-        return err
-
-    cred_path = _get_credential_path()
-    salt = secrets.token_bytes(32)
-    derived = hashlib.pbkdf2_hmac(
-        "sha256",
-        new.encode("utf-8"),
-        salt=salt,
-        iterations=PBKDF2_ITERATIONS,
-    )
-    salt_b64 = base64.standard_b64encode(salt).decode("ascii")
-    hash_b64 = base64.standard_b64encode(derived).decode("ascii")
-    content = f"{salt_b64}:{hash_b64}"
-
-    try:
-        tmp_path = cred_path.with_suffix(".tmp")
-        tmp_path.write_text(content)
-        tmp_path.chmod(0o600)
-        tmp_path.replace(cred_path)
-        # Reload into memory so subsequent verify_password uses new hash
-        _load_credential_from_file()
-        return None
-    except OSError as e:
-        logger.error("Failed to write credential file: %s", e)
-        return "密码保存失败"
 
 
 def create_session(*, user_uid: str) -> str:
@@ -348,13 +191,7 @@ def verify_session(value: str) -> bool:
 
 
 def get_client_ip(request) -> str:
-    """Get client IP, respecting TRUST_X_FORWARDED_FOR.
-
-    When behind a single trusted reverse proxy, the proxy appends the real
-    client IP as the rightmost entry in X-Forwarded-For.  We use [-1] instead
-    of [0] so that an attacker cannot spoof an arbitrary leftmost value to
-    rotate rate-limit buckets and bypass brute-force protection.
-    """
+    """Get client IP, respecting TRUST_X_FORWARDED_FOR."""
     if os.getenv("TRUST_X_FORWARDED_FOR", "false").lower() == "true":
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
@@ -401,83 +238,113 @@ def clear_rate_limit(ip: str) -> None:
         _rate_limit.pop(ip, None)
 
 
-def overwrite_password(new_password: str) -> Optional[str]:
-    """
-    Overwrite stored password without verifying current. For CLI reset only.
-    Returns error message or None on success.
-    """
-    err = _validate_password(new_password)
-    if err:
-        return err
-
-    data_dir = _get_data_dir()
-    data_dir.mkdir(parents=True, exist_ok=True)
-    cred_path = _get_credential_path()
-
-    salt = secrets.token_bytes(32)
-    derived = hashlib.pbkdf2_hmac(
-        "sha256",
-        new_password.encode("utf-8"),
-        salt=salt,
-        iterations=PBKDF2_ITERATIONS,
-    )
-    salt_b64 = base64.standard_b64encode(salt).decode("ascii")
-    hash_b64 = base64.standard_b64encode(derived).decode("ascii")
-    content = f"{salt_b64}:{hash_b64}"
-
-    try:
-        tmp_path = cred_path.with_suffix(".tmp")
-        tmp_path.write_text(content)
-        tmp_path.chmod(0o600)
-        tmp_path.replace(cred_path)
-        _load_credential_from_file()
-        return None
-    except OSError as e:
-        logger.error("Failed to write credential file: %s", e)
-        return "密码保存失败"
-
-
-def reset_password_cli() -> int:
-    """Interactive CLI to reset password. Returns exit code."""
-    _ensure_env_loaded()
-
-    print("Enter new login password (will not echo):", end=" ")
+def _prompt_password_twice() -> Optional[str]:
+    print("Enter password (will not echo):", end=" ")
     pwd = getpass.getpass("")
-    err = _validate_password(pwd)
+    err = validate_password(pwd)
     if err:
         print(f"Error: {err}", file=sys.stderr)
-        return 1
-
-    print("Confirm new password:", end=" ")
+        return None
+    print("Confirm password:", end=" ")
     pwd2 = getpass.getpass("")
     if pwd != pwd2:
         print("Error: Passwords do not match", file=sys.stderr)
+        return None
+    return pwd
+
+
+def add_user_cli(email: str, username: str, role: str = "user") -> int:
+    """CLI: register a user by email (password unset until first web login)."""
+    _ensure_env_loaded()
+    from src.repositories.user_repo import UserRepository
+
+    email = (email or "").strip()
+    username = (username or "").strip()
+    if not email:
+        print("Error: email is required", file=sys.stderr)
+        return 1
+    if not username:
+        print("Error: username is required", file=sys.stderr)
         return 1
 
-    err = overwrite_password(pwd)
-    if err:
-        print(f"Error: {err}", file=sys.stderr)
+    repo = UserRepository()
+    if repo.get_by_email(email):
+        print(f"Error: user with email {email} already exists", file=sys.stderr)
         return 1
 
-    try:
-        from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL, UserRepository
-
-        repo = UserRepository()
-        user = repo.get_by_email(DEFAULT_ADMIN_EMAIL)
-        if user is not None:
-            repo.set_plain_password(user.uid, pwd)
-    except Exception:
-        logger.warning("Password reset file was updated, but database password sync failed", exc_info=True)
-
-    print("Password has been reset successfully.")
+    user = repo.create_user(email=email, username=username, role=role)
+    print(f"User created: uid={user.uid} email={user.email} username={user.username} role={user.role}")
+    print("Password is unset — user must complete first-time setup on the login page.")
     return 0
 
 
+def set_password_cli(email: str) -> int:
+    """CLI: set or reset password for any user by email."""
+    _ensure_env_loaded()
+    from src.repositories.user_repo import UserRepository
+
+    email = (email or "").strip()
+    if not email:
+        print("Error: --email is required", file=sys.stderr)
+        return 1
+
+    repo = UserRepository()
+    user = repo.get_by_email(email)
+    if user is None:
+        print(f"Error: no user with email {email}", file=sys.stderr)
+        return 1
+
+    pwd = _prompt_password_twice()
+    if pwd is None:
+        return 1
+
+    repo.set_plain_password(user.uid, pwd)
+    print(f"Password updated for {email}")
+    return 0
+
+
+def _build_cli_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="User account management (database only)")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    add_p = sub.add_parser("add_user", help="Add a user (email must be unique; password unset)")
+    add_p.add_argument("--email", required=True, help="User email (login identifier)")
+    add_p.add_argument("--username", required=True, help="Display username (may duplicate others)")
+    add_p.add_argument("--role", default="user", choices=("user", "admin"), help="User role")
+
+    pwd_p = sub.add_parser("set_password", help="Set or reset a user's password")
+    pwd_p.add_argument("--email", required=True, help="User email")
+
+    sub.add_parser(
+        "reset_password",
+        help="Deprecated alias for set_password (interactive email prompt)",
+    )
+    return parser
+
+
 def _main() -> int:
-    """CLI entry: reset_password subcommand."""
-    if len(sys.argv) > 1 and sys.argv[1] == "reset_password":
-        return reset_password_cli()
-    print("Usage: python -m src.auth reset_password", file=sys.stderr)
+    parser = _build_cli_parser()
+    if len(sys.argv) <= 1:
+        parser.print_help()
+        return 1
+
+    if sys.argv[1] == "reset_password":
+        print(
+            "Note: reset_password now requires an email. Prefer:\n"
+            "  python -m src.auth set_password --email user@example.com",
+            file=sys.stderr,
+        )
+        if len(sys.argv) == 2:
+            email = input("Email: ").strip()
+            return set_password_cli(email)
+        return 1
+
+    args = parser.parse_args()
+    if args.command == "add_user":
+        return add_user_cli(args.email, args.username, args.role)
+    if args.command == "set_password":
+        return set_password_cli(args.email)
+    parser.print_help()
     return 1
 
 

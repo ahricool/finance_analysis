@@ -13,41 +13,36 @@ from pydantic import BaseModel, Field
 from src.auth import (
     COOKIE_NAME,
     SESSION_MAX_AGE_HOURS_DEFAULT,
-    change_password,
     check_rate_limit,
     clear_rate_limit,
     create_session,
     get_client_ip,
-    has_stored_password,
     is_auth_enabled,
     is_password_changeable,
     parse_session_user_uid,
     record_login_failure,
     rotate_session_secret,
-    verify_stored_password,
+    validate_password,
 )
-from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL, UserRepository
+from src.repositories.user_repo import UserRepository
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-def _default_user_uid() -> str | None:
-    try:
-        u = UserRepository().get_by_email(DEFAULT_ADMIN_EMAIL)
-    except Exception:
-        logger.warning("Failed to load default user", exc_info=True)
-        return None
-    return u.uid if u else None
+class EmailLookupRequest(BaseModel):
+    """Step 1: verify email is registered and whether password setup is needed."""
+
+    email: str = Field(..., description="邮箱")
 
 
 class LoginRequest(BaseModel):
-    """Login request body. For first-time setup use password + password_confirm."""
+    """Login request body. First-time setup uses password + password_confirm."""
 
     model_config = {"populate_by_name": True}
 
-    email: str = Field(default=DEFAULT_ADMIN_EMAIL, description="邮箱")
+    email: str = Field(..., description="邮箱")
     password: str = Field(default="", description="登录密码")
     password_confirm: str | None = Field(default=None, alias="passwordConfirm", description="Confirm (first-time)")
 
@@ -69,7 +64,6 @@ def _cookie_params(request: Request) -> dict:
         proto = request.headers.get("X-Forwarded-Proto", "").lower()
         secure = proto == "https"
     else:
-        # Check URL scheme when not behind proxy
         secure = request.url.scheme == "https"
 
     try:
@@ -88,13 +82,12 @@ def _cookie_params(request: Request) -> dict:
 
 
 def _password_set_for_response() -> bool:
-    """True when at least one login credential exists (DB user or legacy file hash)."""
+    """True when at least one user has a password in the database."""
     try:
-        if UserRepository().any_user_has_password():
-            return True
+        return UserRepository().any_user_has_password()
     except Exception:
         logger.debug("UserRepository password check failed", exc_info=True)
-    return has_stored_password()
+        return False
 
 
 def _set_session_cookie(response: Response, session_value: str, request: Request) -> None:
@@ -148,25 +141,56 @@ async def auth_status(request: Request):
     return _get_auth_status_dict(request)
 
 
+@router.post(
+    "/lookup",
+    summary="Lookup email for login step",
+    description="Step 1: check whether the email is registered and if first-time password setup is required.",
+)
+async def auth_lookup(request: Request, body: EmailLookupRequest):
+    """Return needsPasswordSetup for a registered email."""
+    email = (body.email or "").strip()
+    if not email:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "email_required", "message": "请输入邮箱"},
+        )
+
+    ip = get_client_ip(request)
+    if not check_rate_limit(ip):
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": "rate_limited",
+                "message": "Too many failed attempts. Please try again later.",
+            },
+        )
+
+    repo = UserRepository()
+    needs_setup = repo.user_needs_password_setup(email)
+    if needs_setup is None:
+        record_login_failure(ip)
+        return JSONResponse(
+            status_code=401,
+            content={"error": "unknown_email", "message": "邮箱不存在"},
+        )
+
+    clear_rate_limit(ip)
+    return {"ok": True, "needsPasswordSetup": needs_setup}
+
 
 @router.post(
     "/login",
     summary="Login or set initial password",
-    description="Verify password and set session cookie. If password not set yet, accepts password+passwordConfirm.",
+    description="Verify password and set session cookie. First-time setup sets password only (requires re-login).",
 )
 async def auth_login(request: Request, body: LoginRequest):
-    """Verify password or set initial password, set cookie on success. Returns 401 or 429 on failure."""
+    """Verify password or set initial password. Returns session cookie only for normal login."""
     email = (body.email or "").strip()
     password = (body.password or "").strip()
     if not email:
         return JSONResponse(
             status_code=400,
             content={"error": "email_required", "message": "请输入邮箱"},
-        )
-    if not password:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "password_required", "message": "请输入密码"},
         )
 
     ip = get_client_ip(request)
@@ -189,29 +213,45 @@ async def auth_login(request: Request, body: LoginRequest):
         )
 
     if not user.password_hash:
-        if user.email.lower() == DEFAULT_ADMIN_EMAIL and has_stored_password():
-            if not verify_stored_password(password):
-                record_login_failure(ip)
-                return JSONResponse(
-                    status_code=401,
-                    content={"error": "invalid_password", "message": "密码错误"},
-                )
-        else:
-            confirm = (body.password_confirm or "").strip()
-            if password != confirm:
-                record_login_failure(ip)
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "password_mismatch", "message": "Passwords do not match"},
-                )
-        repo.set_plain_password(user.uid, password)
-    else:
-        if repo.verify_credentials(email, password) is None:
+        if not password:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "password_required", "message": "请设置密码"},
+            )
+        confirm = (body.password_confirm or "").strip()
+        if not confirm:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "password_confirm_required", "message": "请确认密码"},
+            )
+        if password != confirm:
             record_login_failure(ip)
             return JSONResponse(
-                status_code=401,
-                content={"error": "invalid_password", "message": "密码错误"},
+                status_code=400,
+                content={"error": "password_mismatch", "message": "两次输入的密码不一致"},
             )
+        pwd_err = validate_password(password)
+        if pwd_err:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "invalid_password", "message": pwd_err},
+            )
+        repo.set_plain_password(user.uid, password)
+        clear_rate_limit(ip)
+        return JSONResponse(content={"ok": True, "requiresRelogin": True})
+
+    if not password:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "password_required", "message": "请输入密码"},
+        )
+
+    if repo.verify_credentials(email, password) is None:
+        record_login_failure(ip)
+        return JSONResponse(
+            status_code=401,
+            content={"error": "invalid_password", "message": "密码错误"},
+        )
 
     clear_rate_limit(ip)
     session_val = create_session(user_uid=user.uid)
@@ -261,6 +301,13 @@ async def auth_change_password(request: Request, body: ChangePasswordRequest):
             content={"error": "password_mismatch", "message": "两次输入的新密码不一致"},
         )
 
+    pwd_err = validate_password(new_pwd)
+    if pwd_err:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "invalid_password", "message": pwd_err},
+        )
+
     repo = UserRepository()
     user = repo.get_by_uid(uid)
     if user is None:
@@ -275,14 +322,6 @@ async def auth_change_password(request: Request, body: ChangePasswordRequest):
         )
 
     repo.set_plain_password(uid, new_pwd)
-    default_uid = _default_user_uid()
-    if default_uid == uid and has_stored_password():
-        err = change_password(current, new_pwd)
-        if err:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "invalid_password", "message": err},
-            )
     return Response(status_code=204)
 
 
