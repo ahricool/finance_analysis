@@ -6,7 +6,7 @@ import SettingsAlert from '@/components/settings/SettingsAlert.vue';
 import { useAuth } from '@/composables/useAuth';
 import { APP_NAME, formatDocumentTitle } from '@/config/app';
 import { Lock } from 'lucide-vue-next';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 type LoginStep = 'email' | 'password' | 'setup';
@@ -116,13 +116,21 @@ async function handleSubmit(e: Event) {
 
 onMounted(() => {
   document.title = formatDocumentTitle('登录');
+  document.documentElement.classList.add('login-page-active');
+});
+
+onUnmounted(() => {
+  document.documentElement.classList.remove('login-page-active');
 });
 </script>
 
 <template>
-  <div class="min-h-screen bg-background font-sans text-foreground">
+  <div
+    class="fixed inset-0 h-screen w-screen overflow-hidden bg-cover bg-center bg-no-repeat font-sans text-foreground"
+    style="background-image: url('/background.png')"
+  >
     <div
-      class="mx-auto flex min-h-screen w-full max-w-[1280px] items-center justify-center px-3 py-10 sm:px-4 lg:justify-end lg:px-6 lg:pr-10 xl:pr-16"
+      class="relative mx-auto flex min-h-screen w-full max-w-[1280px] items-center justify-center px-3 py-10 sm:px-4 lg:justify-end lg:px-6 lg:pr-10 xl:pr-16"
     >
       <div class="w-full max-w-[340px] shrink-0 -translate-y-4 sm:-translate-y-6">
         <div class="mb-6 flex items-center gap-2">
@@ -131,7 +139,7 @@ onMounted(() => {
           >
             <img src="/flower.svg" alt="" class="h-8 w-8" />
           </span>
-          <span class="font-display text-base leading-none text-black">{{ APP_NAME }}</span>
+          <span class="font-display text-base leading-none text-white [text-shadow:0_1px_6px_rgb(0_0_0_/_0.35)]">{{ APP_NAME }}</span>
         </div>
 
         <div class="rounded-2xl border border-border/80 bg-card p-6 shadow-soft-card sm:p-7">
@@ -151,7 +159,7 @@ onMounted(() => {
                 v-if="step === 'email'"
                 id="email"
                 type="email"
-                icon-type="key"
+                icon-type="mail"
                 label="邮箱"
                 placeholder="请输入邮箱"
                 :value="email"
@@ -257,6 +265,15 @@ onMounted(() => {
 </template>
 
 <style scoped>
+:global(html.login-page-active) {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+:global(html.login-page-active body) {
+  overflow: hidden;
+}
+
 @keyframes loginErr {
   from {
     opacity: 0;
