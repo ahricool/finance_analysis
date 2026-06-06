@@ -33,6 +33,8 @@ except ModuleNotFoundError:
     get_history_detail = None
 
 from src.config import Config
+from src.auth import COOKIE_NAME, create_session
+from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL, UserRepository
 from src.storage import DatabaseManager, AnalysisHistory, BacktestResult
 from src.analyzer import AnalysisResult
 from src.services.history_service import HistoryService
@@ -46,12 +48,20 @@ class AnalysisHistoryTestCase(unittest.TestCase):
 
         Config._instance = None
         DatabaseManager.reset_instance()
+        os.environ["SECRET_KEY"] = "analysis-history-test-secret"
         self.db = DatabaseManager.get_instance()
 
     def tearDown(self) -> None:
         """清理资源"""
         DatabaseManager.reset_instance()
+        os.environ.pop("SECRET_KEY", None)
         self._temp_dir.cleanup()
+
+    def _auth_cookies(self) -> dict[str, str]:
+        user = UserRepository(self.db).get_by_email(DEFAULT_ADMIN_EMAIL)
+        if user is None:
+            self.fail("default admin user was not initialized")
+        return {COOKIE_NAME: create_session(user_uid=user.uid)}
 
     def _build_result(self) -> AnalysisResult:
         """构造分析结果"""
@@ -264,8 +274,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         self.assertEqual(report.meta.current_price, 200.0)
         self.assertEqual(report.meta.change_pct, 1.23)
 
-    @patch("src.auth.is_auth_enabled", return_value=False)
-    def test_history_detail_ignores_non_dict_realtime_quote_raw(self, mock_auth) -> None:
+    def test_history_detail_ignores_non_dict_realtime_quote_raw(self) -> None:
         """GET /api/v1/history/{id} should tolerate truthy non-dict realtime_quote_raw."""
         if TestClient is None or create_app is None:
             self.skipTest("fastapi is not installed in this test environment")
@@ -297,7 +306,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         static_dir.mkdir(exist_ok=True)
         client = TestClient(create_app(static_dir=static_dir))
 
-        response = client.get(f"/api/v1/history/{record_id}")
+        response = client.get(f"/api/v1/history/{record_id}", cookies=self._auth_cookies())
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -724,8 +733,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
                 0,
             )
 
-    @patch("src.auth.is_auth_enabled", return_value=False)
-    def test_delete_history_api_deletes_selected_records(self, mock_auth) -> None:
+    def test_delete_history_api_deletes_selected_records(self) -> None:
         """DELETE /api/v1/history should remove only the requested records."""
         if TestClient is None or create_app is None:
             self.skipTest("fastapi is not installed in this test environment")
@@ -741,6 +749,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
             "DELETE",
             "/api/v1/history",
             json={"record_ids": [record_id_1]},
+            cookies=self._auth_cookies(),
         )
 
         self.assertEqual(response.status_code, 200)

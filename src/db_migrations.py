@@ -27,7 +27,10 @@ def run_alembic_upgrade_head(project_root: Optional[Path] = None) -> None:
             f"Alembic 配置文件不存在: {ini_path}。请确认仓库根目录包含 alembic.ini。"
         )
 
-    cfg = AlembicConfig(str(ini_path))
+    cfg = AlembicConfig()
+    cfg.set_main_option("script_location", str(root / "alembic"))
+    cfg.set_main_option("prepend_sys_path", str(root))
+    cfg.set_main_option("version_path_separator", "os")
     logger.info("正在执行数据库迁移: alembic upgrade head")
     command.upgrade(cfg, "head")
     logger.info("数据库迁移已完成")

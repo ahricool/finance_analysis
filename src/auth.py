@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Web authentication module.
+Web authentication helpers.
 
-Credentials are stored only in the database (users.password_hash).
-Session cookies are JWTs (HS256) carrying only the user uid. The signing
-secret is sourced from the SESSION_SECRET environment variable.
+Credentials are stored in the database. Session cookies are signed JWTs
+(HS256) carrying only the user uid, signed with SECRET_KEY.
 """
 
 from __future__ import annotations
@@ -12,24 +11,18 @@ from __future__ import annotations
 import argparse
 import getpass
 import hashlib
-import logging
 import os
-import secrets
 import sys
 import time
 from typing import Optional, Tuple
 
 import jwt
 
-logger = logging.getLogger(__name__)
-
 COOKIE_NAME = "session"
-PBKDF2_ITERATIONS = 100_000
 RATE_LIMIT_WINDOW_SEC = 300
 RATE_LIMIT_MAX_FAILURES = 5
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_DAYS = 180
-JWT_EXPIRE_SECONDS = JWT_EXPIRE_DAYS * 24 * 3600
+JWT_EXPIRE_SECONDS = 180 * 24 * 3600
 MIN_PASSWORD_LEN = 6
 
 _session_secret: Optional[bytes] = None
@@ -38,7 +31,7 @@ _rate_limit_lock = None
 
 
 def _get_lock():
-    """Lazy init threading lock for rate limit dict."""
+    """Lazy init threading lock for rate limit state."""
     global _rate_limit_lock
     if _rate_limit_lock is None:
         import threading
@@ -54,95 +47,51 @@ def _ensure_env_loaded() -> None:
     setup_env()
 
 
-def rotate_session_secret() -> bool:
-    """Rotate the in-memory session signing secret to invalidate active sessions.
-
-    With an environment-sourced secret we cannot persist a new value, so the
-    rotated secret lives only for the current process lifetime; on restart the
-    SESSION_SECRET value (if any) is loaded again.
-    """
-    global _session_secret
-    _session_secret = secrets.token_bytes(32)
-    logger.info("Session secret rotated successfully")
-    return True
-
-
-def _load_session_secret() -> Optional[bytes]:
-    """Return the JWT signing secret derived from the SESSION_SECRET env var.
-
-    The raw value is hashed (SHA-256) into a 32-byte key. Raises ValueError when
-    SESSION_SECRET is unset, since JWT sessions require a stable configured secret.
-    """
+def _load_session_secret() -> bytes:
     global _session_secret
     if _session_secret is not None:
         return _session_secret
 
-    raw = (os.getenv("SESSION_SECRET") or "").strip()
-    if raw:
-        _session_secret = hashlib.sha256(raw.encode("utf-8")).digest()
-        return _session_secret
-    else:
-        raise ValueError("SESSION_SECRET is not set")
+    raw = os.getenv("SECRET_KEY")
+    if not raw:
+        raise ValueError("SECRET_KEY is not set")
 
-
-def refresh_auth_state() -> None:
-    """Reload the session signing secret from the environment."""
-    global _session_secret
-    _session_secret = None
-    _load_session_secret()
-
-
-def is_auth_enabled() -> bool:
-    """Authentication is always enabled."""
-    return True
-
-
-def is_password_changeable() -> bool:
-    """Return whether password can be changed via web/CLI."""
-    return True
-
-
-def _get_session_secret() -> Optional[bytes]:
-    """Return session signing secret."""
-    return _load_session_secret()
+    _session_secret = hashlib.sha256(raw.encode("utf-8")).digest()
+    return _session_secret
 
 
 def validate_password(pwd: str) -> Optional[str]:
-    """Return error message if invalid, None if valid."""
+    """Return an error message if invalid, otherwise None."""
     if not pwd or not pwd.strip():
-        return "密码不能为空"
+        return "Password is required"
     if len(pwd) < MIN_PASSWORD_LEN:
-        return f"密码至少 {MIN_PASSWORD_LEN} 位"
+        return f"Password must be at least {MIN_PASSWORD_LEN} characters"
     return None
 
 
 def create_session(*, user_uid: str) -> str:
-    """Create a signed JWT session cookie value carrying only the user uid.
-
-    The token expires after JWT_EXPIRE_DAYS (180 days) and is signed (HS256)
-    with the secret loaded from the SESSION_SECRET environment variable.
-    """
-    secret = _get_session_secret()
-    if not secret or not (user_uid or "").strip():
+    """Create a signed JWT session cookie value carrying only the user uid."""
+    if not (user_uid or "").strip():
         return ""
+
     now = int(time.time())
     payload = {
         "uid": user_uid,
         "iat": now,
         "exp": now + JWT_EXPIRE_SECONDS,
     }
-    return jwt.encode(payload, secret, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, _load_session_secret(), algorithm=JWT_ALGORITHM)
 
 
 def parse_session_user_uid(value: str) -> Optional[str]:
-    """Verify the JWT session cookie and return the embedded user uid, or None."""
-    secret = _get_session_secret()
-    if not secret or not value:
+    """Verify the JWT session cookie and return the embedded user uid."""
+    if not value:
         return None
     try:
-        payload = jwt.decode(value, secret, algorithms=[JWT_ALGORITHM])
-    except jwt.InvalidTokenError:
+        payload = jwt.decode(value, _load_session_secret(), algorithms=[JWT_ALGORITHM])
+    except (ValueError, jwt.InvalidTokenError):
         return None
+
     uid = payload.get("uid")
     if not isinstance(uid, str) or not uid:
         return None
@@ -150,12 +99,12 @@ def parse_session_user_uid(value: str) -> Optional[str]:
 
 
 def verify_session(value: str) -> bool:
-    """Verify session cookie and check expiry."""
+    """Return whether the session cookie is a valid, unexpired JWT."""
     return parse_session_user_uid(value) is not None
 
 
 def get_client_ip(request) -> str:
-    """Get client IP, respecting TRUST_X_FORWARDED_FOR."""
+    """Get client IP, respecting TRUST_X_FORWARDED_FOR when explicitly enabled."""
     if os.getenv("TRUST_X_FORWARDED_FOR", "false").lower() == "true":
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
@@ -166,7 +115,7 @@ def get_client_ip(request) -> str:
 
 
 def check_rate_limit(ip: str) -> bool:
-    """Return True if under limit, False if rate limited."""
+    """Return True if the IP is under the failed-login limit."""
     lock = _get_lock()
     now = time.time()
     with lock:
@@ -174,7 +123,7 @@ def check_rate_limit(ip: str) -> bool:
         for k in expired_keys:
             del _rate_limit[k]
         if ip in _rate_limit:
-            count, first_ts = _rate_limit[ip]
+            count, _ = _rate_limit[ip]
             if count >= RATE_LIMIT_MAX_FAILURES:
                 return False
         return True
@@ -196,7 +145,7 @@ def record_login_failure(ip: str) -> None:
 
 
 def clear_rate_limit(ip: str) -> None:
-    """Clear rate limit for IP after successful login."""
+    """Clear rate limit state after successful login."""
     lock = _get_lock()
     with lock:
         _rate_limit.pop(ip, None)
@@ -218,7 +167,7 @@ def _prompt_password_twice() -> Optional[str]:
 
 
 def add_user_cli(email: str, username: str, role: str = "user") -> int:
-    """CLI: register a user by email (password unset until first web login)."""
+    """Register a user by email; password is unset until first web login."""
     _ensure_env_loaded()
     from src.repositories.user_repo import UserRepository
 
@@ -238,12 +187,12 @@ def add_user_cli(email: str, username: str, role: str = "user") -> int:
 
     user = repo.create_user(email=email, username=username, role=role)
     print(f"User created: uid={user.uid} email={user.email} username={user.username} role={user.role}")
-    print("Password is unset — user must complete first-time setup on the login page.")
+    print("Password is unset; user must complete first-time setup on the login page.")
     return 0
 
 
 def set_password_cli(email: str) -> int:
-    """CLI: set or reset password for any user by email."""
+    """Set or reset a user's password by email."""
     _ensure_env_loaded()
     from src.repositories.user_repo import UserRepository
 
@@ -268,21 +217,17 @@ def set_password_cli(email: str) -> int:
 
 
 def _build_cli_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="User account management (database only)")
+    parser = argparse.ArgumentParser(description="User account management")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    add_p = sub.add_parser("add_user", help="Add a user (email must be unique; password unset)")
+    add_p = sub.add_parser("add_user", help="Add a user with an unset password")
     add_p.add_argument("--email", required=True, help="User email (login identifier)")
-    add_p.add_argument("--username", required=True, help="Display username (may duplicate others)")
+    add_p.add_argument("--username", required=True, help="Display username")
     add_p.add_argument("--role", default="user", choices=("user", "admin"), help="User role")
 
     pwd_p = sub.add_parser("set_password", help="Set or reset a user's password")
     pwd_p.add_argument("--email", required=True, help="User email")
 
-    sub.add_parser(
-        "reset_password",
-        help="Deprecated alias for set_password (interactive email prompt)",
-    )
     return parser
 
 
@@ -290,17 +235,6 @@ def _main() -> int:
     parser = _build_cli_parser()
     if len(sys.argv) <= 1:
         parser.print_help()
-        return 1
-
-    if sys.argv[1] == "reset_password":
-        print(
-            "Note: reset_password now requires an email. Prefer:\n"
-            "  python -m src.auth set_password --email user@example.com",
-            file=sys.stderr,
-        )
-        if len(sys.argv) == 2:
-            email = input("Email: ").strip()
-            return set_password_cli(email)
         return 1
 
     args = parser.parse_args()

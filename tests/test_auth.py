@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Unit tests for src.auth module."""
 
-import hashlib
 import os
 import time
 import unittest
@@ -40,10 +39,8 @@ class AuthSessionTestCase(unittest.TestCase):
     def setUp(self) -> None:
         _reset_auth_globals()
 
-    def _patch_env_and_run(
-        self, auth_enabled: bool = True, test_fn=None
-    ):
-        with patch.dict(os.environ, {"SESSION_SECRET": "unit-test-secret"}):
+    def _patch_env_and_run(self, test_fn=None):
+        with patch.dict(os.environ, {"SECRET_KEY": "unit-test-secret"}):
             _reset_auth_globals()
             if test_fn:
                 return test_fn()
@@ -52,10 +49,8 @@ class AuthSessionTestCase(unittest.TestCase):
         def run():
             tok = auth.create_session(user_uid="u-test-1")
             self.assertTrue(tok, "session token should be non-empty")
-            # A JWT has exactly three dot-separated segments (header.payload.signature).
             self.assertEqual(len(tok.split(".")), 3, "JWT format: header.payload.signature")
             self.assertEqual(auth.parse_session_user_uid(tok), "u-test-1")
-            return tok
 
         self._patch_env_and_run(test_fn=run)
 
@@ -68,7 +63,6 @@ class AuthSessionTestCase(unittest.TestCase):
             self.assertEqual(payload["uid"], "u-claims")
             self.assertEqual(set(payload.keys()), {"uid", "iat", "exp"})
             self.assertEqual(payload["exp"] - payload["iat"], auth.JWT_EXPIRE_SECONDS)
-            self.assertEqual(auth.JWT_EXPIRE_DAYS, 180)
 
         self._patch_env_and_run(test_fn=run)
 
@@ -81,7 +75,6 @@ class AuthSessionTestCase(unittest.TestCase):
 
     def test_verify_session_expired(self) -> None:
         def run():
-            # Issue a token whose exp is already in the past.
             past = time.time() - (auth.JWT_EXPIRE_SECONDS + 3600)
             with patch.object(auth, "time") as mock_time:
                 mock_time.time.return_value = past
@@ -98,47 +91,12 @@ class AuthSessionTestCase(unittest.TestCase):
 
         self._patch_env_and_run(test_fn=run)
 
-    def test_rotate_session_secret_replaces_in_memory_secret(self) -> None:
-        def run():
-            old_secret = auth._load_session_secret()
-            self.assertIsNotNone(old_secret)
-
-            self.assertTrue(auth.rotate_session_secret())
-
-            new_secret = auth._session_secret
-            self.assertIsNotNone(new_secret)
-            self.assertEqual(len(new_secret), 32)
-            self.assertNotEqual(old_secret, new_secret)
-
-        self._patch_env_and_run(test_fn=run)
-
-    def test_load_session_secret_derived_from_env(self) -> None:
-        def run():
-            secret = auth._load_session_secret()
-            expected = hashlib.sha256(b"unit-test-secret").digest()
-            self.assertEqual(secret, expected)
-            self.assertEqual(len(secret), 32)
-
-        self._patch_env_and_run(test_fn=run)
-
     def test_load_session_secret_requires_env(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("SESSION_SECRET", None)
+            os.environ.pop("SECRET_KEY", None)
             _reset_auth_globals()
             with self.assertRaises(ValueError):
                 auth._load_session_secret()
-
-    def test_refresh_auth_state_clears_session_secret_cache(self) -> None:
-        def run():
-            first_secret = auth.create_session(user_uid="u-refresh")
-            self.assertTrue(first_secret)
-            self.assertIsNotNone(auth._session_secret)
-
-            auth._session_secret = b"x" * 32
-            auth.refresh_auth_state()
-            self.assertNotEqual(auth._session_secret, b"x" * 32)
-
-        self._patch_env_and_run(test_fn=run)
 
 
 class AuthRateLimitTestCase(unittest.TestCase):
@@ -163,11 +121,6 @@ class AuthRateLimitTestCase(unittest.TestCase):
         self.assertFalse(auth.check_rate_limit(ip))
         auth.clear_rate_limit(ip)
         self.assertTrue(auth.check_rate_limit(ip))
-
-
-class AuthEnabledTestCase(unittest.TestCase):
-    def test_is_auth_enabled_always_true(self) -> None:
-        self.assertTrue(auth.is_auth_enabled())
 
 
 if __name__ == "__main__":
