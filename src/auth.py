@@ -14,9 +14,12 @@ import hashlib
 import os
 import sys
 import time
+import random
+import string
 from typing import Optional, Tuple
 
 import jwt
+from src.config import get_config
 
 COOKIE_NAME = "session"
 RATE_LIMIT_WINDOW_SEC = 300
@@ -25,7 +28,7 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_SECONDS = 180 * 24 * 3600
 MIN_PASSWORD_LEN = 6
 
-_session_secret: Optional[bytes] = None
+_secret_key: Optional[str] = None
 _rate_limit: dict[str, Tuple[int, float]] = {}
 _rate_limit_lock = None
 
@@ -47,17 +50,20 @@ def _ensure_env_loaded() -> None:
     setup_env()
 
 
-def _load_session_secret() -> bytes:
-    global _session_secret
-    if _session_secret is not None:
-        return _session_secret
+def  _load_secret_key() -> str:
+    global _secret_key
+    if _secret_key is not None:
+        return _secret_key
 
-    raw = os.getenv("SECRET_KEY")
-    if not raw:
-        raise ValueError("SECRET_KEY is not set")
+    config = get_config()
+    _sk = config.secret_key
 
-    _session_secret = hashlib.sha256(raw.encode("utf-8")).digest()
-    return _session_secret
+    # 如果 SECRET_KEY 未设置，则随机生成一个
+    if not _sk:
+        _sk = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+        config.secret_key = _sk
+    _secret_key = _sk
+    return _secret_key
 
 
 def validate_password(pwd: str) -> Optional[str]:
@@ -80,7 +86,7 @@ def create_session(*, user_uid: str) -> str:
         "iat": now,
         "exp": now + JWT_EXPIRE_SECONDS,
     }
-    return jwt.encode(payload, _load_session_secret(), algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, _load_secret_key(), algorithm=JWT_ALGORITHM)
 
 
 def parse_session_user_uid(value: str) -> Optional[str]:
@@ -88,7 +94,7 @@ def parse_session_user_uid(value: str) -> Optional[str]:
     if not value:
         return None
     try:
-        payload = jwt.decode(value, _load_session_secret(), algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(value, _load_secret_key(), algorithms=[JWT_ALGORITHM])
     except (ValueError, jwt.InvalidTokenError):
         return None
 

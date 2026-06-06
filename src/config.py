@@ -899,7 +899,9 @@ class Config:
     webui_enabled: bool = False
     webui_host: str = "127.0.0.1"
     webui_port: int = 8000
-    
+    # JWT session cookie 签名密钥；留空时首次使用时随机生成（见 src.auth._load_secret_key）
+    secret_key: str = ""
+
     # === 机器人配置 ===
     bot_enabled: bool = True              # 是否启用机器人功能
     bot_command_prefix: str = "/"         # 命令前缀
@@ -1447,6 +1449,7 @@ class Config:
             webui_enabled=os.getenv('WEBUI_ENABLED', 'false').lower() == 'true',
             webui_host=os.getenv('WEBUI_HOST', '127.0.0.1'),
             webui_port=parse_env_int(os.getenv('WEBUI_PORT'), 8000, field_name='WEBUI_PORT', minimum=1, maximum=65535),
+            secret_key=os.getenv('SECRET_KEY', ''),
             # 机器人配置
             bot_enabled=os.getenv('BOT_ENABLED', 'true').lower() == 'true',
             bot_command_prefix=os.getenv('BOT_COMMAND_PREFIX', '/'),
