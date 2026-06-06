@@ -25,7 +25,7 @@ from pathlib import Path
 from urllib.parse import unquote
 from typing import List, Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -108,6 +108,7 @@ def _missing_asset_media_type(asset_path: str) -> str:
         return content_type
     return "text/plain"
 
+
 from api.v1 import api_v1_router
 from api.middlewares.auth import add_auth_middleware
 from api.middlewares.error_handler import add_error_handlers
@@ -140,17 +141,17 @@ async def app_lifespan(app: FastAPI):
 def create_app(static_dir: Optional[Path] = None) -> FastAPI:
     """
     创建并配置 FastAPI 应用实例
-    
+
     Args:
         static_dir: 静态文件目录路径（可选，默认为项目根目录下的 static）
-        
+
     Returns:
         配置完成的 FastAPI 应用实例
     """
     # 默认静态文件目录
     if static_dir is None:
         static_dir = Path(__file__).parent.parent / "static"
-    
+
     # 创建 FastAPI 实例
     app = FastAPI(
         title="Finance Analysis API",
@@ -166,29 +167,29 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
         version="1.0.0",
         lifespan=app_lifespan,
     )
-    
+
     # ============================================================
     # CORS 配置
     # ============================================================
-    
+
     allowed_origins = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
-    
+
     # 从环境变量添加额外的允许来源
     extra_origins = os.environ.get("CORS_ORIGINS", "")
     if extra_origins:
         allowed_origins.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
-    
+
     # 允许所有来源（开发/演示用）
     allow_all_origins = os.environ.get("CORS_ALLOW_ALL", "").lower() == "true"
     allow_credentials = not allow_all_origins
     if allow_all_origins:
         allowed_origins = ["*"]
-    
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
@@ -198,20 +199,20 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
     )
 
     add_auth_middleware(app)
-    
+
     # ============================================================
     # 注册路由
     # ============================================================
-    
+
     app.include_router(api_v1_router)
     add_error_handlers(app)
-    
+
     # ============================================================
     # 根路由和健康检查
     # ============================================================
-    
+
     has_frontend = static_dir.exists() and (static_dir / "index.html").exists()
-    
+
     if has_frontend:
         # Surface bundle inconsistencies as soon as the app starts so that
         # blank-page reports (#1064 / #1065 / #1050) can be diagnosed from
@@ -222,57 +223,29 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
         async def root():
             """根路由 - 返回前端页面"""
             return FileResponse(static_dir / "index.html")
+
     else:
-        _FRONTEND_NOT_BUILT_HTML = """<!DOCTYPE html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Finance Analysis - Frontend Not Built</title>
-<style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{min-height:100vh;display:flex;align-items:center;justify-content:center;
-       background:#0a0e17;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,monospace}
-  .card{max-width:580px;padding:2.5rem;border:1px solid #1e293b;border-radius:12px;background:#111827}
-  h1{font-size:1.25rem;color:#38bdf8;margin-bottom:.75rem}
-  p{font-size:.9rem;line-height:1.7;color:#94a3b8;margin-bottom:.5rem}
-  code{background:#1e293b;padding:2px 8px;border-radius:4px;font-size:.85rem;color:#67e8f9}
-  .hint{margin-top:1.25rem;padding:.75rem 1rem;border-left:3px solid #f59e0b;background:#1c1917;border-radius:0 6px 6px 0}
-  .hint p{color:#fbbf24;margin:0}
-  a{color:#38bdf8;text-decoration:none}
-  a:hover{text-decoration:underline}
-  .status{margin-top:1rem;font-size:.8rem;color:#475569}
-</style></head><body><div class="card">
-<h1>&#9888;&#65039; Frontend Not Built</h1>
-<p>API is running, but the Web UI has not been built yet.</p>
-<p>Build the frontend first:</p>
-<p><code>cd web &amp;&amp; npm install &amp;&amp; npm run build</code></p>
-<p>Or start with auto-build:</p>
-<p><code>python main.py --serve-only</code></p>
-<div class="hint"><p>If you only need the API, visit <a href="/docs">/docs</a> for the interactive API documentation.</p></div>
-<p class="status">API Version 1.0.0 &bull; <a href="/api/health">/api/health</a></p>
-</div></body></html>"""
 
         @app.get("/", include_in_schema=False)
         async def root():
             """根路由 - 前端未构建时返回引导页面"""
-            return HTMLResponse(content=_FRONTEND_NOT_BUILT_HTML)
-    
+            return HTTPException(status_code=404)
+
     @app.get(
         "/api/health",
         response_model=HealthResponse,
         tags=["Health"],
         summary="健康检查",
-        description="用于负载均衡器或监控系统检查服务状态"
+        description="用于负载均衡器或监控系统检查服务状态",
     )
     async def health_check() -> HealthResponse:
         """健康检查接口"""
-        return HealthResponse(
-            status="ok",
-            timestamp=datetime.now().isoformat()
-        )
-    
+        return HealthResponse(status="ok", timestamp=datetime.now().isoformat())
+
     # ============================================================
     # 静态文件托管（前端 SPA）
     # ============================================================
-    
+
     if has_frontend:
         # Serve `/assets/*` explicitly so that misses return a plain-text
         # 404 with the correct Content-Type instead of the default JSON
@@ -312,8 +285,7 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
             """SPA 路由回退 - 非 API 路由返回 index.html"""
             if full_path == "api" or full_path.startswith("api/"):
                 return JSONResponse(
-                    status_code=404,
-                    content={"error": "not_found", "message": f"API endpoint /{full_path} not found"}
+                    status_code=404, content={"error": "not_found", "message": f"API endpoint /{full_path} not found"}
                 )
 
             # Reuse the same containment check as /assets/* so that requests
@@ -329,7 +301,7 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
                 return FileResponse(file_path, media_type=content_type)
 
             return FileResponse(static_dir / "index.html")
-    
+
     return app
 
 
