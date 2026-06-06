@@ -178,14 +178,13 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         mock_reset.assert_not_called()
         mock_setup_env.assert_not_called()
 
-    def test_get_setup_status_storage_check_does_not_create_database_parent(self) -> None:
-        missing_parent = Path(self.temp_dir.name) / "missing-data"
-        db_path = missing_parent / "stock_analysis.db"
+    def test_get_setup_status_storage_check_does_not_create_data_dir(self) -> None:
+        missing_dir = Path(self.temp_dir.name) / "missing-data"
         self._rewrite_env(
             "LITELLM_MODEL=gemini/gemini-3-flash-preview",
             "GEMINI_API_KEY=secret-key-value",
             "STOCK_LIST=600519",
-            f"DATABASE_PATH={db_path}",
+            f"DATA_DIR={missing_dir}",
         )
 
         with patch.dict(os.environ, {}, clear=True):
@@ -193,7 +192,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
         storage_check = next(check for check in status["checks"] if check["key"] == "storage")
         self.assertEqual(storage_check["status"], "configured")
-        self.assertFalse(missing_parent.exists())
+        self.assertFalse(missing_dir.exists())
 
     def test_export_env_returns_raw_text(self) -> None:
         self.env_path.write_text(

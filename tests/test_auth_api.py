@@ -43,23 +43,19 @@ class AuthApiTestCase(unittest.TestCase):
             encoding="utf-8",
         )
         os.environ["ENV_FILE"] = str(self.env_path)
-        os.environ["DATABASE_PATH"] = str(self.data_dir / "test.db")
+        os.environ["SESSION_SECRET"] = "auth-api-test-secret"
         from src.storage import DatabaseManager
 
         DatabaseManager.reset_instance()
         Config.reset_instance()
 
-        self.data_dir_patcher = patch.object(auth, "_get_data_dir", return_value=self.data_dir)
-        self.data_dir_patcher.start()
-
     def tearDown(self) -> None:
-        self.data_dir_patcher.stop()
         from src.storage import DatabaseManager
 
         DatabaseManager.reset_instance()
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
-        os.environ.pop("DATABASE_PATH", None)
+        os.environ.pop("SESSION_SECRET", None)
         self.temp_dir.cleanup()
 
     @staticmethod

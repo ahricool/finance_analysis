@@ -28,13 +28,11 @@ class PortfolioServiceTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.env_path = Path(self.temp_dir.name) / ".env"
-        self.db_path = Path(self.temp_dir.name) / "portfolio_test.db"
         self.env_path.write_text(
             "\n".join(
                 [
                     "STOCK_LIST=600519",
                     "GEMINI_API_KEY=test",
-                    f"DATABASE_PATH={self.db_path}",
                 ]
             )
             + "\n",
@@ -42,7 +40,6 @@ class PortfolioServiceTestCase(unittest.TestCase):
         )
 
         os.environ["ENV_FILE"] = str(self.env_path)
-        os.environ["DATABASE_PATH"] = str(self.db_path)
         Config.reset_instance()
         DatabaseManager.reset_instance()
 
@@ -53,7 +50,6 @@ class PortfolioServiceTestCase(unittest.TestCase):
         DatabaseManager.reset_instance()
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
-        os.environ.pop("DATABASE_PATH", None)
         self.temp_dir.cleanup()
 
     def _save_close(self, symbol: str, on_date: date, close: float) -> None:

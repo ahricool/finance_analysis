@@ -59,3 +59,4 @@ jinja2>=3.1.0               # Jinja2 template engine for report rendering
 fastapi>=0.136.0            # 现代 Python Web 框架
 uvicorn[standard]>=0.34.0   # ASGI 服务器
 python-multipart>=0.0.6     # FastAPI File/Form upload support
+PyJWT>=2.8.0               # JWT 会话签名（登录 Cookie）

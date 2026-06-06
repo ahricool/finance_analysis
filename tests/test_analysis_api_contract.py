@@ -114,7 +114,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             config = SimpleNamespace(
                 trading_day_check_enabled=False,
-                database_path=str(Path(temp_dir) / "stock_analysis.db"),
+                data_dir=temp_dir,
             )
             lock_token = try_acquire_market_review_lock(config)
             self.assertIsNotNone(lock_token)

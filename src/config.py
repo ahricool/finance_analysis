@@ -803,8 +803,8 @@ class Config:
     # === 数据库配置 ===
     # 仅支持 PostgreSQL：必须设置 DATABASE_URL（例如 postgresql+psycopg2://...）。
     database_url: str = ""
-    # 本地数据目录锚点（会话密钥、管理密码等文件路径）；不再用作 SQLite 数据库路径。
-    database_path: str = "./data/stock_analysis.db"
+    # 本地数据目录（市场复盘锁等运行期文件所在目录）。
+    data_dir: str = "./data"
     # PostgreSQL 连接池
     db_pool_size: int = 10
     db_max_overflow: int = 5
@@ -1417,7 +1417,7 @@ class Config:
             md2img_engine=cls._parse_md2img_engine(os.getenv('MD2IMG_ENGINE', 'wkhtmltoimage')),
             prefetch_realtime_quotes=os.getenv('PREFETCH_REALTIME_QUOTES', 'true').lower() == 'true',
             database_url=os.getenv('DATABASE_URL', ''),
-            database_path=os.getenv('DATABASE_PATH', './data/stock_analysis.db'),
+            data_dir=os.getenv('DATA_DIR', './data'),
             db_pool_size=parse_env_int(os.getenv('DB_POOL_SIZE'), 10, field_name='DB_POOL_SIZE', minimum=1),
             db_max_overflow=parse_env_int(os.getenv('DB_MAX_OVERFLOW'), 5, field_name='DB_MAX_OVERFLOW', minimum=0),
             db_pool_recycle=parse_env_int(os.getenv('DB_POOL_RECYCLE'), 1800, field_name='DB_POOL_RECYCLE', minimum=0),
@@ -2459,7 +2459,7 @@ if __name__ == "__main__":
     # 测试配置加载
     config = get_config()
     print("=== 配置加载测试 ===")
-    print(f"数据库路径: {config.database_path}")
+    print(f"数据目录: {config.data_dir}")
     print(f"最大并发数: {config.max_workers}")
     print(f"调试模式: {config.debug}")
     

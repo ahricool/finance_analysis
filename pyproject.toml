@@ -27,6 +27,7 @@ dependencies = [
     "pandas>=3.0.0",
     "psycopg2-binary>=2.9.0",
     "pypinyin>=0.50.0",
+    "pyjwt>=2.8.0",
     "pytdx>=1.72",
     "python-dotenv>=1.0.0",
     "python-multipart>=0.0.6",

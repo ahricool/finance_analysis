@@ -47,6 +47,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
+        # 放行非鉴权 API
         if _path_exempt(path):
             return await call_next(request)
 

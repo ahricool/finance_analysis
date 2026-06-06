@@ -75,14 +75,9 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
     """Tests for _augment_historical_with_realtime."""
 
     def setUp(self) -> None:
-        self._db_path = os.path.join(
-            os.path.dirname(__file__), "..", "data", "test_issue234.db"
-        )
-        os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
-        with patch.dict(os.environ, {"DATABASE_PATH": self._db_path}):
-            from src.config import Config
-            Config._instance = None
-            self.config = Config._load_from_env()
+        from src.config import Config
+        Config._instance = None
+        self.config = Config._load_from_env()
         self.pipeline = StockAnalysisPipeline(config=self.config)
 
     def test_returns_unchanged_when_realtime_none(self) -> None:
@@ -174,14 +169,9 @@ class TestEnhanceContextRealtimeOverride(unittest.TestCase):
     """Tests for _enhance_context today override with realtime + trend."""
 
     def setUp(self) -> None:
-        self._db_path = os.path.join(
-            os.path.dirname(__file__), "..", "data", "test_issue234.db"
-        )
-        os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
-        with patch.dict(os.environ, {"DATABASE_PATH": self._db_path}):
-            from src.config import Config
-            Config._instance = None
-            self.config = Config._load_from_env()
+        from src.config import Config
+        Config._instance = None
+        self.config = Config._load_from_env()
         self.pipeline = StockAnalysisPipeline(config=self.config)
 
     @patch("src.core.pipeline.get_market_now")

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from src.auth import (
     COOKIE_NAME,
-    SESSION_MAX_AGE_HOURS_DEFAULT,
+    JWT_EXPIRE_SECONDS,
     check_rate_limit,
     clear_rate_limit,
     create_session,
@@ -66,18 +66,12 @@ def _cookie_params(request: Request) -> dict:
     else:
         secure = request.url.scheme == "https"
 
-    try:
-        max_age_hours = int(os.getenv("ADMIN_SESSION_MAX_AGE_HOURS", str(SESSION_MAX_AGE_HOURS_DEFAULT)))
-    except ValueError:
-        max_age_hours = SESSION_MAX_AGE_HOURS_DEFAULT
-    max_age = max_age_hours * 3600
-
     return {
         "httponly": True,
         "samesite": "lax",
         "secure": secure,
         "path": "/",
-        "max_age": max_age,
+        "max_age": JWT_EXPIRE_SECONDS,
     }
 
 
