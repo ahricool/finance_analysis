@@ -3,7 +3,8 @@
 Web authentication module.
 
 Credentials are stored only in the database (users.password_hash).
-Session signing uses a local .session_secret file under the data directory.
+Session cookies are JWTs (HS256) carrying only the user uid. The signing
+secret is sourced from the SESSION_SECRET environment variable.
 """
 
 from __future__ import annotations
@@ -11,22 +12,24 @@ from __future__ import annotations
 import argparse
 import getpass
 import hashlib
-import hmac
 import logging
 import os
 import secrets
 import sys
 import time
-from pathlib import Path
 from typing import Optional, Tuple
+
+import jwt
 
 logger = logging.getLogger(__name__)
 
-COOKIE_NAME = "fa_session"
+COOKIE_NAME = "session"
 PBKDF2_ITERATIONS = 100_000
 RATE_LIMIT_WINDOW_SEC = 300
 RATE_LIMIT_MAX_FAILURES = 5
-SESSION_MAX_AGE_HOURS_DEFAULT = 24
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_DAYS = 180
+JWT_EXPIRE_SECONDS = JWT_EXPIRE_DAYS * 24 * 3600
 MIN_PASSWORD_LEN = 6
 
 _session_secret: Optional[bytes] = None
@@ -51,70 +54,39 @@ def _ensure_env_loaded() -> None:
     setup_env()
 
 
-def _get_data_dir() -> Path:
-    """Return DATA_DIR as parent of DATABASE_PATH."""
-    db_path = os.getenv("DATABASE_PATH", "./data/stock_analysis.db")
-    return Path(db_path).resolve().parent
-
-
 def rotate_session_secret() -> bool:
-    """Rotate the session signing secret to invalidate all active sessions."""
+    """Rotate the in-memory session signing secret to invalidate active sessions.
+
+    With an environment-sourced secret we cannot persist a new value, so the
+    rotated secret lives only for the current process lifetime; on restart the
+    SESSION_SECRET value (if any) is loaded again.
+    """
     global _session_secret
-    data_dir = _get_data_dir()
-    secret_path = data_dir / ".session_secret"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    new_secret = secrets.token_bytes(32)
-    try:
-        tmp_path = secret_path.with_suffix(".tmp")
-        tmp_path.write_bytes(new_secret)
-        tmp_path.chmod(0o600)
-        tmp_path.replace(secret_path)
-        _session_secret = new_secret
-        logger.info("Session secret rotated successfully")
-        return True
-    except OSError as e:
-        logger.error("Failed to rotate .session_secret: %s", e)
-        return False
+    _session_secret = secrets.token_bytes(32)
+    logger.info("Session secret rotated successfully")
+    return True
 
 
 def _load_session_secret() -> Optional[bytes]:
-    """Load or create session secret."""
+    """Return the JWT signing secret derived from the SESSION_SECRET env var.
+
+    The raw value is hashed (SHA-256) into a 32-byte key. Raises ValueError when
+    SESSION_SECRET is unset, since JWT sessions require a stable configured secret.
+    """
     global _session_secret
     if _session_secret is not None:
         return _session_secret
 
-    data_dir = _get_data_dir()
-    secret_path = data_dir / ".session_secret"
-
-    try:
-        if secret_path.exists():
-            _session_secret = secret_path.read_bytes()
-            if len(_session_secret) != 32:
-                logger.warning("Invalid .session_secret length, regenerating")
-                _session_secret = None
-                if rotate_session_secret():
-                    return _session_secret
-                return None
-            return _session_secret
-
-        data_dir.mkdir(parents=True, exist_ok=True)
-        new_secret = secrets.token_bytes(32)
-        try:
-            with open(secret_path, "xb") as f:
-                f.write(new_secret)
-            secret_path.chmod(0o600)
-        except FileExistsError:
-            _session_secret = secret_path.read_bytes()
-        else:
-            _session_secret = new_secret
+    raw = (os.getenv("SESSION_SECRET") or "").strip()
+    if raw:
+        _session_secret = hashlib.sha256(raw.encode("utf-8")).digest()
         return _session_secret
-    except OSError as e:
-        logger.error("Failed to create or read .session_secret: %s", e)
-        return None
+    else:
+        raise ValueError("SESSION_SECRET is not set")
 
 
 def refresh_auth_state() -> None:
-    """Reload session signing secret from disk."""
+    """Reload the session signing secret from the environment."""
     global _session_secret
     _session_secret = None
     _load_session_secret()
@@ -145,44 +117,36 @@ def validate_password(pwd: str) -> Optional[str]:
 
 
 def create_session(*, user_uid: str) -> str:
-    """Create a signed session cookie value. Format: v2.nonce.ts.uid.signature."""
+    """Create a signed JWT session cookie value carrying only the user uid.
+
+    The token expires after JWT_EXPIRE_DAYS (180 days) and is signed (HS256)
+    with the secret loaded from the SESSION_SECRET environment variable.
+    """
     secret = _get_session_secret()
     if not secret or not (user_uid or "").strip():
         return ""
-    nonce = secrets.token_urlsafe(32)
-    ts = str(int(time.time()))
-    payload = f"v2.{nonce}.{ts}.{user_uid}"
-    sig = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
-    return f"{payload}.{sig}"
+    now = int(time.time())
+    payload = {
+        "uid": user_uid,
+        "iat": now,
+        "exp": now + JWT_EXPIRE_SECONDS,
+    }
+    return jwt.encode(payload, secret, algorithm=JWT_ALGORITHM)
 
 
 def parse_session_user_uid(value: str) -> Optional[str]:
-    """Verify session cookie and return embedded user uid, or None."""
+    """Verify the JWT session cookie and return the embedded user uid, or None."""
     secret = _get_session_secret()
     if not secret or not value:
         return None
-    parts = value.rsplit(".", 1)
-    if len(parts) != 2:
-        return None
-    body, sig = parts[0], parts[1]
-    expected = hmac.new(secret, body.encode("utf-8"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(sig, expected):
-        return None
-    segments = body.split(".")
-    if len(segments) != 4 or segments[0] != "v2":
-        return None
-    _v, _nonce, ts_str, uid = segments
     try:
-        ts = int(ts_str)
-    except ValueError:
+        payload = jwt.decode(value, secret, algorithms=[JWT_ALGORITHM])
+    except jwt.InvalidTokenError:
         return None
-    try:
-        max_age_hours = int(os.getenv("ADMIN_SESSION_MAX_AGE_HOURS", str(SESSION_MAX_AGE_HOURS_DEFAULT)))
-    except ValueError:
-        max_age_hours = SESSION_MAX_AGE_HOURS_DEFAULT
-    if time.time() - ts > max_age_hours * 3600:
+    uid = payload.get("uid")
+    if not isinstance(uid, str) or not uid:
         return None
-    return uid or None
+    return uid
 
 
 def verify_session(value: str) -> bool:

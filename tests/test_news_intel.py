@@ -26,8 +26,6 @@ class NewsIntelStorageTestCase(unittest.TestCase):
     def setUp(self) -> None:
         """为每个用例初始化独立数据库"""
         self._temp_dir = tempfile.TemporaryDirectory()
-        self._db_path = os.path.join(self._temp_dir.name, "test_news_intel.db")
-        os.environ["DATABASE_PATH"] = self._db_path
 
         # 重置配置与数据库单例，确保使用临时库
         Config._instance = None
@@ -38,7 +36,6 @@ class NewsIntelStorageTestCase(unittest.TestCase):
         """清理资源"""
         DatabaseManager.reset_instance()
         Config.reset_instance()
-        os.environ.pop("DATABASE_PATH", None)
         self._temp_dir.cleanup()
 
     def _build_response(self, results) -> SearchResponse:

@@ -30,7 +30,7 @@ class MarketReviewNoFcntlLockTestCase(unittest.TestCase):
 
     def test_stale_no_fcntl_lock_file_is_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = SimpleNamespace(database_path=str(Path(temp_dir) / "stock_analysis.db"))
+            config = SimpleNamespace(data_dir=temp_dir)
             lock_path = market_review_lock.market_review_lock_path(config)
             self._write_lock_file(lock_path, pid=99999, started_at=datetime.now())
 
@@ -49,7 +49,7 @@ class MarketReviewNoFcntlLockTestCase(unittest.TestCase):
 
     def test_running_no_fcntl_lock_file_blocks_acquisition(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = SimpleNamespace(database_path=str(Path(temp_dir) / "stock_analysis.db"))
+            config = SimpleNamespace(data_dir=temp_dir)
             lock_path = market_review_lock.market_review_lock_path(config)
             self._write_lock_file(lock_path, pid=12345, started_at=datetime.now())
 
@@ -65,7 +65,7 @@ class MarketReviewNoFcntlLockTestCase(unittest.TestCase):
 
     def test_empty_fresh_no_fcntl_lock_file_blocks_acquisition(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = SimpleNamespace(database_path=str(Path(temp_dir) / "stock_analysis.db"))
+            config = SimpleNamespace(data_dir=temp_dir)
             lock_path = market_review_lock.market_review_lock_path(config)
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             lock_path.touch()
@@ -78,7 +78,7 @@ class MarketReviewNoFcntlLockTestCase(unittest.TestCase):
 
     def test_empty_old_no_fcntl_lock_file_is_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = SimpleNamespace(database_path=str(Path(temp_dir) / "stock_analysis.db"))
+            config = SimpleNamespace(data_dir=temp_dir)
             lock_path = market_review_lock.market_review_lock_path(config)
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             lock_path.touch()
@@ -96,7 +96,7 @@ class MarketReviewNoFcntlLockTestCase(unittest.TestCase):
 
     def test_lock_with_old_started_at_is_recovered_even_if_process_alive(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = SimpleNamespace(database_path=str(Path(temp_dir) / "stock_analysis.db"))
+            config = SimpleNamespace(data_dir=temp_dir)
             lock_path = market_review_lock.market_review_lock_path(config)
             self._write_lock_file(
                 lock_path,

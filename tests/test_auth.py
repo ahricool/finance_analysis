@@ -2,11 +2,9 @@
 """Unit tests for src.auth module."""
 
 import hashlib
-import secrets
-import tempfile
+import os
 import time
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 import src.auth as auth
@@ -41,32 +39,36 @@ class AuthSessionTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         _reset_auth_globals()
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.data_dir = Path(self.temp_dir.name)
-        self.addCleanup(self.temp_dir.cleanup)
 
     def _patch_env_and_run(
         self, auth_enabled: bool = True, test_fn=None
     ):
-        with patch.object(auth, "_get_data_dir", return_value=self.data_dir):
+        with patch.dict(os.environ, {"SESSION_SECRET": "unit-test-secret"}):
+            _reset_auth_globals()
             if test_fn:
                 return test_fn()
 
-    def test_create_session_returns_signed_payload(self) -> None:
+    def test_create_session_returns_jwt(self) -> None:
         def run():
             tok = auth.create_session(user_uid="u-test-1")
             self.assertTrue(tok, "session token should be non-empty")
-            parts = tok.rsplit(".", 1)
-            self.assertEqual(len(parts), 2, "format: v2.nonce.ts.uid.signature")
-            body, sig = parts
-            segs = body.split(".")
-            self.assertEqual(len(segs), 4, "v2 + nonce + ts + uid")
-            self.assertEqual(segs[0], "v2")
-            self.assertTrue(segs[1])
-            self.assertTrue(segs[2].isdigit())
-            self.assertEqual(segs[3], "u-test-1")
-            self.assertTrue(sig)
+            # A JWT has exactly three dot-separated segments (header.payload.signature).
+            self.assertEqual(len(tok.split(".")), 3, "JWT format: header.payload.signature")
+            self.assertEqual(auth.parse_session_user_uid(tok), "u-test-1")
             return tok
+
+        self._patch_env_and_run(test_fn=run)
+
+    def test_session_jwt_carries_only_uid_and_expiry(self) -> None:
+        def run():
+            import jwt as _jwt
+
+            tok = auth.create_session(user_uid="u-claims")
+            payload = _jwt.decode(tok, options={"verify_signature": False})
+            self.assertEqual(payload["uid"], "u-claims")
+            self.assertEqual(set(payload.keys()), {"uid", "iat", "exp"})
+            self.assertEqual(payload["exp"] - payload["iat"], auth.JWT_EXPIRE_SECONDS)
+            self.assertEqual(auth.JWT_EXPIRE_DAYS, 180)
 
         self._patch_env_and_run(test_fn=run)
 
@@ -79,11 +81,12 @@ class AuthSessionTestCase(unittest.TestCase):
 
     def test_verify_session_expired(self) -> None:
         def run():
-            past = time.time() - 48 * 3600
+            # Issue a token whose exp is already in the past.
+            past = time.time() - (auth.JWT_EXPIRE_SECONDS + 3600)
             with patch.object(auth, "time") as mock_time:
                 mock_time.time.return_value = past
                 tok = auth.create_session(user_uid="u-exp")
-            self.assertFalse(auth.verify_session(tok), "48h-old token should be expired")
+            self.assertFalse(auth.verify_session(tok), "expired token should be rejected")
 
         self._patch_env_and_run(test_fn=run)
 
@@ -95,35 +98,35 @@ class AuthSessionTestCase(unittest.TestCase):
 
         self._patch_env_and_run(test_fn=run)
 
-    def test_rotate_session_secret_overwrites_existing(self) -> None:
+    def test_rotate_session_secret_replaces_in_memory_secret(self) -> None:
         def run():
-            secret_path = self.data_dir / ".session_secret"
-            secret_path.write_bytes(b"a" * 32)
-            secret_path.chmod(0o600)
-            old_secret = secret_path.read_bytes()
+            old_secret = auth._load_session_secret()
+            self.assertIsNotNone(old_secret)
 
-            auth.rotate_session_secret()
+            self.assertTrue(auth.rotate_session_secret())
 
-            new_secret = secret_path.read_bytes()
-            self.assertNotEqual(old_secret, new_secret)
-            self.assertEqual(auth._session_secret, new_secret)
-
-        self._patch_env_and_run(test_fn=run)
-
-    def test_load_session_secret_regenerates_invalid_length(self) -> None:
-        def run():
-            secret_path = self.data_dir / ".session_secret"
-            secret_path.write_bytes(b"x")
-            secret_path.chmod(0o600)
-
-            tok = auth.create_session(user_uid="u-load")
-            self.assertTrue(tok)
-
-            new_secret = secret_path.read_bytes()
+            new_secret = auth._session_secret
+            self.assertIsNotNone(new_secret)
             self.assertEqual(len(new_secret), 32)
-            self.assertNotEqual(new_secret, b"x")
+            self.assertNotEqual(old_secret, new_secret)
 
         self._patch_env_and_run(test_fn=run)
+
+    def test_load_session_secret_derived_from_env(self) -> None:
+        def run():
+            secret = auth._load_session_secret()
+            expected = hashlib.sha256(b"unit-test-secret").digest()
+            self.assertEqual(secret, expected)
+            self.assertEqual(len(secret), 32)
+
+        self._patch_env_and_run(test_fn=run)
+
+    def test_load_session_secret_requires_env(self) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SESSION_SECRET", None)
+            _reset_auth_globals()
+            with self.assertRaises(ValueError):
+                auth._load_session_secret()
 
     def test_refresh_auth_state_clears_session_secret_cache(self) -> None:
         def run():

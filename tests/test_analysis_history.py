@@ -43,8 +43,6 @@ class AnalysisHistoryTestCase(unittest.TestCase):
     def setUp(self) -> None:
         """为每个用例初始化独立数据库"""
         self._temp_dir = tempfile.TemporaryDirectory()
-        self._db_path = os.path.join(self._temp_dir.name, "test_analysis_history.db")
-        os.environ["DATABASE_PATH"] = self._db_path
 
         Config._instance = None
         DatabaseManager.reset_instance()

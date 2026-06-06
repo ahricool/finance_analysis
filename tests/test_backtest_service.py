@@ -21,8 +21,6 @@ from src.storage import AnalysisHistory, BacktestResult, BacktestSummary, Databa
 class BacktestServiceTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self._temp_dir = tempfile.TemporaryDirectory()
-        self._db_path = os.path.join(self._temp_dir.name, "test_backtest_service.db")
-        os.environ["DATABASE_PATH"] = self._db_path
         os.environ["BACKTEST_EVAL_WINDOW_DAYS"] = "3"
 
         Config._instance = None

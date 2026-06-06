@@ -2032,7 +2032,7 @@ class SystemConfigService:
     @staticmethod
     def _is_setup_relevant_env_key(key: str) -> bool:
         if key in {
-            "DATABASE_PATH",
+            "DATA_DIR",
             "LITELLM_CONFIG",
             "LITELLM_MODEL",
             "LITELLM_FALLBACK_MODELS",
@@ -2406,30 +2406,29 @@ class SystemConfigService:
         )
 
     def _build_setup_storage_check(self, effective_map: Dict[str, str]) -> Dict[str, Any]:
-        db_path = Path((effective_map.get("DATABASE_PATH") or "./data/stock_analysis.db").strip()).expanduser()
-        parent = db_path.parent if db_path.parent != Path("") else Path(".")
-        probe = parent
+        data_dir = Path((effective_map.get("DATA_DIR") or "./data").strip()).expanduser()
+        probe = data_dir
         while not probe.exists() and probe != probe.parent:
             probe = probe.parent
 
         if not probe.exists() or not probe.is_dir():
             return self._setup_check(
                 "storage",
-                "数据库 / 本地存储",
+                "本地数据目录",
                 "system",
                 True,
                 "needs_action",
-                f"数据库路径父目录不可用: {parent}",
-                "请检查 DATABASE_PATH 或上级目录权限。",
+                f"数据目录不可用: {data_dir}",
+                "请检查 DATA_DIR 或上级目录权限。",
             )
 
         if os.access(probe, os.W_OK):
-            detail = f"数据库路径可用: {db_path}"
-            if not parent.exists():
-                detail = f"数据库上级目录可创建: {parent}"
+            detail = f"数据目录可用: {data_dir}"
+            if not data_dir.exists():
+                detail = f"数据目录可创建: {data_dir}"
             return self._setup_check(
                 "storage",
-                "数据库 / 本地存储",
+                "本地数据目录",
                 "system",
                 True,
                 "configured",
@@ -2438,12 +2437,12 @@ class SystemConfigService:
 
         return self._setup_check(
             "storage",
-            "数据库 / 本地存储",
+            "本地数据目录",
             "system",
             True,
             "needs_action",
-            f"数据库路径上级目录不可写: {probe}",
-            "请调整 DATABASE_PATH 或目录权限。",
+            f"数据目录不可写: {probe}",
+            "请调整 DATA_DIR 或目录权限。",
         )
 
     @staticmethod

@@ -27,8 +27,6 @@ class GetLatestDataTestCase(unittest.TestCase):
     def setUp(self) -> None:
         """Initialize an isolated database for each test case."""
         self._temp_dir = tempfile.TemporaryDirectory()
-        self._db_path = os.path.join(self._temp_dir.name, "test_get_latest_data.db")
-        os.environ["DATABASE_PATH"] = self._db_path
 
         Config._instance = None
         DatabaseManager.reset_instance()

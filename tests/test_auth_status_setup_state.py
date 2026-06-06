@@ -6,7 +6,6 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from starlette.requests import Request
 
@@ -54,18 +53,15 @@ class AuthStatusSetupStateTestCase(unittest.TestCase):
         self.env_path = self.data_dir / ".env"
         self.env_path.write_text("STOCK_LIST=600519\n", encoding="utf-8")
         os.environ["ENV_FILE"] = str(self.env_path)
-        os.environ["DATABASE_PATH"] = str(self.data_dir / "test.db")
+        os.environ["SESSION_SECRET"] = "auth-status-test-secret"
         DatabaseManager.reset_instance()
         Config.reset_instance()
-        self._data_dir_patcher = patch.object(auth, "_get_data_dir", return_value=self.data_dir)
-        self._data_dir_patcher.start()
 
     def tearDown(self) -> None:
-        self._data_dir_patcher.stop()
         DatabaseManager.reset_instance()
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
-        os.environ.pop("DATABASE_PATH", None)
+        os.environ.pop("SESSION_SECRET", None)
         _reset_auth_globals()
         self.temp_dir.cleanup()
 
