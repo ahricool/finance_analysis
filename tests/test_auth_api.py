@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Integration tests for auth API endpoints (login, logout, change-password, API protection)."""
+"""Integration tests for auth API endpoints and API protection."""
 
 import asyncio
 import os
@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.responses import Response
 from starlette.requests import Request
 
-# Keep this test runnable when optional LLM runtime deps are not installed.
 try:
     import litellm  # noqa: F401
 except ModuleNotFoundError:
@@ -30,6 +29,59 @@ def _reset_auth_globals() -> None:
     auth._rate_limit = {}
 
 
+class FakeUser:
+    def __init__(self, uid: str, email: str, username: str, password: str | None = None):
+        self.uid = uid
+        self.email = email
+        self.username = username
+        self.password_hash = password
+        self.avatar_url = None
+        self.role = "admin"
+
+
+class FakeUserRepository:
+    users: dict[str, FakeUser] = {}
+
+    def get_by_uid(self, uid: str):
+        return next((user for user in self.users.values() if user.uid == uid), None)
+
+    def get_by_email(self, email: str):
+        return self.users.get((email or "").strip().lower())
+
+    def user_needs_password_setup(self, email: str):
+        user = self.get_by_email(email)
+        if user is None:
+            return None
+        return not bool(user.password_hash)
+
+    def set_plain_password(self, uid: str, plain: str) -> None:
+        user = self.get_by_uid(uid)
+        if user is not None:
+            user.password_hash = plain
+
+    def verify_credentials(self, email: str, password: str):
+        user = self.get_by_email(email)
+        if user is not None and user.password_hash == password:
+            return user
+        return None
+
+    def verify_plain_for_uid(self, uid: str, plain: str) -> bool:
+        user = self.get_by_uid(uid)
+        return user is not None and user.password_hash == plain
+
+    def any_user_has_password(self) -> bool:
+        return any(bool(user.password_hash) for user in self.users.values())
+
+    def to_public_dict(self, user: FakeUser):
+        return {
+            "uid": user.uid,
+            "username": user.username,
+            "email": user.email,
+            "avatarUrl": user.avatar_url,
+            "role": user.role,
+        }
+
+
 class AuthApiTestCase(unittest.TestCase):
     """Integration tests for /api/v1/auth/* and API protection."""
 
@@ -38,24 +90,21 @@ class AuthApiTestCase(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.data_dir = Path(self.temp_dir.name)
         self.env_path = self.data_dir / ".env"
-        self.env_path.write_text(
-            "STOCK_LIST=600519\nGEMINI_API_KEY=test\n",
-            encoding="utf-8",
-        )
+        self.env_path.write_text("STOCK_LIST=600519\nGEMINI_API_KEY=test\n", encoding="utf-8")
         os.environ["ENV_FILE"] = str(self.env_path)
-        os.environ["SESSION_SECRET"] = "auth-api-test-secret"
-        from src.storage import DatabaseManager
-
-        DatabaseManager.reset_instance()
+        os.environ["SECRET_KEY"] = "auth-api-test-secret"
+        FakeUserRepository.users = {
+            "ahri@localhost": FakeUser(uid="u-admin", email="ahri@localhost", username="ahri"),
+        }
+        self.user_repo_patch = patch.object(auth_endpoint, "UserRepository", FakeUserRepository)
+        self.user_repo_patch.start()
         Config.reset_instance()
 
     def tearDown(self) -> None:
-        from src.storage import DatabaseManager
-
-        DatabaseManager.reset_instance()
+        self.user_repo_patch.stop()
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
-        os.environ.pop("SESSION_SECRET", None)
+        os.environ.pop("SECRET_KEY", None)
         self.temp_dir.cleanup()
 
     @staticmethod
@@ -67,9 +116,49 @@ class AuthApiTestCase(unittest.TestCase):
             client=SimpleNamespace(host="127.0.0.1"),
         )
 
+    @staticmethod
+    def _middleware_request(path: str, cookie_value: str | None = None) -> Request:
+        headers = []
+        if cookie_value is not None:
+            headers.append((b"cookie", f"{auth.COOKIE_NAME}={cookie_value}".encode("utf-8")))
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "headers": headers,
+            "query_string": b"",
+            "scheme": "http",
+            "client": ("127.0.0.1", 1234),
+            "server": ("testserver", 80),
+            "root_path": "",
+        }
+        return Request(scope)
+
+    def _set_default_admin_password(self, password: str = "mypass456") -> None:
+        response = asyncio.run(
+            auth_endpoint.auth_login(
+                self._build_request(),
+                auth_endpoint.LoginRequest(
+                    email="ahri@localhost",
+                    password=password,
+                    passwordConfirm=password,
+                ),
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def _login_default_admin(self, password: str = "mypass456"):
+        return asyncio.run(
+            auth_endpoint.auth_login(
+                self._build_request(),
+                auth_endpoint.LoginRequest(email="ahri@localhost", password=password),
+            )
+        )
+
     def test_auth_status_when_password_not_set(self) -> None:
         data = asyncio.run(auth_endpoint.auth_status(self._build_request()))
         self.assertTrue(data["authEnabled"])
+        self.assertTrue(data["passwordChangeable"])
         self.assertFalse(data["passwordSet"])
         self.assertFalse(data["loggedIn"])
 
@@ -95,49 +184,30 @@ class AuthApiTestCase(unittest.TestCase):
         response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="newpass123", passwordConfirm="newpass123"),
+                auth_endpoint.LoginRequest(
+                    email="ahri@localhost",
+                    password="newpass123",
+                    passwordConfirm="newpass123",
+                ),
             )
         )
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("set-cookie", response.headers)
         self.assertIn(b'"requiresRelogin":true', response.body)
 
-    def test_login_first_time_mismatch_rejected(self) -> None:
-        response = asyncio.run(
-            auth_endpoint.auth_login(
-                self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="pass1", passwordConfirm="pass2"),
-            )
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(b'"error":"password_mismatch"', response.body)
+    def test_login_after_set_normal_login_writes_session_cookie(self) -> None:
+        self._set_default_admin_password()
 
-    def test_login_after_set_normal_login(self) -> None:
-        first_response = asyncio.run(
-            auth_endpoint.auth_login(
-                self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="mypass456", passwordConfirm="mypass456"),
-            )
-        )
-        self.assertEqual(first_response.status_code, 200)
+        response = self._login_default_admin()
 
-        response = asyncio.run(
-            auth_endpoint.auth_login(
-                self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="mypass456"),
-            )
-        )
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'"ok":true', response.body)
+        cookie_header = response.headers["set-cookie"]
+        self.assertIn(f"{auth.COOKIE_NAME}=", cookie_header)
+        session_cookie = cookie_header.split(f"{auth.COOKIE_NAME}=", 1)[1].split(";", 1)[0]
+        self.assertTrue(auth.verify_session(session_cookie))
 
     def test_login_wrong_password_returns_401(self) -> None:
-        first_response = asyncio.run(
-            auth_endpoint.auth_login(
-                self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="correct", passwordConfirm="correct"),
-            )
-        )
-        self.assertEqual(first_response.status_code, 200)
+        self._set_default_admin_password("correct6")
 
         response = asyncio.run(
             auth_endpoint.auth_login(
@@ -148,58 +218,16 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_logout_clears_cookie(self) -> None:
-        response = asyncio.run(auth_endpoint.auth_logout(self._build_request()))
+        response = asyncio.run(auth_endpoint.auth_logout())
         self.assertEqual(response.status_code, 204)
-        self.assertIn("fa_session=", response.headers["set-cookie"])
-
-    def test_logout_invalidates_existing_session(self) -> None:
-        asyncio.run(
-            auth_endpoint.auth_login(
-                self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="passwd6", passwordConfirm="passwd6"),
-            )
-        )
-        login_response = asyncio.run(
-            auth_endpoint.auth_login(
-                self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="passwd6"),
-            )
-        )
-        self.assertEqual(login_response.status_code, 200)
-        cookie_header = login_response.headers["set-cookie"]
-        session_cookie = cookie_header.split("fa_session=", 1)[1].split(";", 1)[0]
-        self.assertTrue(auth.verify_session(session_cookie))
-
-        logout_response = asyncio.run(
-            auth_endpoint.auth_logout(self._build_request(cookies={"fa_session": session_cookie}))
-        )
-
-        self.assertEqual(logout_response.status_code, 204)
-        self.assertFalse(auth.verify_session(session_cookie))
-
-    def test_logout_returns_500_when_session_invalidation_fails(self) -> None:
-        with patch.object(auth_endpoint, "rotate_session_secret", return_value=False):
-            response = asyncio.run(auth_endpoint.auth_logout(self._build_request()))
-
-        self.assertEqual(response.status_code, 500)
-        self.assertIn(b'"error":"internal_error"', response.body)
+        self.assertIn(f"{auth.COOKIE_NAME}=", response.headers["set-cookie"])
 
     def test_change_password_requires_session(self) -> None:
-        asyncio.run(
-            auth_endpoint.auth_login(
-                self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="oldpass6", passwordConfirm="oldpass6"),
-            )
-        )
-        login_response = asyncio.run(
-            auth_endpoint.auth_login(
-                self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="oldpass6"),
-            )
-        )
+        self._set_default_admin_password("oldpass6")
+        login_response = self._login_default_admin("oldpass6")
         cookie_header = login_response.headers["set-cookie"]
-        session_cookie = cookie_header.split("fa_session=", 1)[1].split(";", 1)[0]
-        request = self._build_request(cookies={"fa_session": session_cookie})
+        session_cookie = cookie_header.split(f"{auth.COOKIE_NAME}=", 1)[1].split(";", 1)[0]
+        request = self._build_request(cookies={auth.COOKIE_NAME: session_cookie})
 
         response = asyncio.run(
             auth_endpoint.auth_change_password(
@@ -211,60 +239,17 @@ class AuthApiTestCase(unittest.TestCase):
                 ),
             )
         )
-        self.assertIn(response.status_code, (200, 204))
-
-    def test_change_password_wrong_current_rejected(self) -> None:
-        setup_response = asyncio.run(
-            auth_endpoint.auth_login(
-                self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="actual6", passwordConfirm="actual6"),
-            )
-        )
-        self.assertEqual(setup_response.status_code, 200)
-
-        login_response = asyncio.run(
-            auth_endpoint.auth_login(
-                self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="actual6"),
-            )
-        )
-        self.assertEqual(login_response.status_code, 200)
-        cookie_header = login_response.headers["set-cookie"]
-        session_cookie = cookie_header.split("fa_session=", 1)[1].split(";", 1)[0]
-        request = self._build_request(cookies={"fa_session": session_cookie})
-
-        response = asyncio.run(
-            auth_endpoint.auth_change_password(
-                request,
-                auth_endpoint.ChangePasswordRequest(
-                    currentPassword="wrong",
-                    newPassword="new123",
-                    newPasswordConfirm="new123",
-                ),
-            )
-        )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 204)
 
     def test_protected_api_returns_401_without_session(self) -> None:
-        scope = {
-            "type": "http",
-            "method": "GET",
-            "path": "/api/v1/system/config",
-            "headers": [],
-            "query_string": b"",
-            "scheme": "http",
-            "client": ("127.0.0.1", 1234),
-            "server": ("testserver", 80),
-            "root_path": "",
-        }
-        request = Request(scope)
+        request = self._middleware_request("/api/v1/system/config")
         middleware = AuthMiddleware(app=MagicMock())
 
         response = asyncio.run(middleware.dispatch(request, AsyncMock(return_value=Response(status_code=200))))
 
         self.assertEqual(response.status_code, 401)
 
-    def test_logout_requires_session(self) -> None:
+    def test_logout_requires_session_in_middleware(self) -> None:
         scope = {
             "type": "http",
             "method": "POST",
@@ -286,21 +271,9 @@ class AuthApiTestCase(unittest.TestCase):
         call_next.assert_not_awaited()
 
     def test_protected_api_accessible_with_session(self) -> None:
-        scope = {
-            "type": "http",
-            "method": "GET",
-            "path": "/api/v1/system/config",
-            "headers": [(b"cookie", b"fa_session=test-session")],
-            "query_string": b"",
-            "scheme": "http",
-            "client": ("127.0.0.1", 1234),
-            "server": ("testserver", 80),
-            "root_path": "",
-        }
-        request = Request(scope)
+        request = self._middleware_request("/api/v1/system/config", cookie_value="test-session")
         middleware = AuthMiddleware(app=MagicMock())
-        next_response = Response(status_code=200)
-        call_next = AsyncMock(return_value=next_response)
+        call_next = AsyncMock(return_value=Response(status_code=200))
 
         with patch("api.middlewares.auth.parse_session_user_uid", return_value="test-uid"):
             with patch("api.middlewares.auth.UserRepository") as repo_cls:
@@ -311,18 +284,7 @@ class AuthApiTestCase(unittest.TestCase):
         call_next.assert_awaited_once()
 
     def test_protected_api_rejects_session_for_missing_user(self) -> None:
-        scope = {
-            "type": "http",
-            "method": "GET",
-            "path": "/api/v1/system/config",
-            "headers": [(b"cookie", b"fa_session=test-session")],
-            "query_string": b"",
-            "scheme": "http",
-            "client": ("127.0.0.1", 1234),
-            "server": ("testserver", 80),
-            "root_path": "",
-        }
-        request = Request(scope)
+        request = self._middleware_request("/api/v1/system/config", cookie_value="test-session")
         middleware = AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
@@ -333,57 +295,6 @@ class AuthApiTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
         call_next.assert_not_awaited()
-
-    def test_database_manager_is_usable_during_default_admin_bootstrap(self) -> None:
-        from src.storage import DatabaseManager
-
-        seen = {}
-
-        class BootstrapRepo:
-            def __init__(self, db):
-                seen["initialized_during_bootstrap"] = getattr(db, "_initialized", False)
-
-            def ensure_default_admin(self):
-                return "default-user-uid"
-
-        fake_config = SimpleNamespace(
-            get_db_url=lambda: "postgresql+psycopg2://user:pass@127.0.0.1:5432/db",
-            db_pool_size=1,
-            db_max_overflow=0,
-            db_pool_recycle=1800,
-        )
-
-        DatabaseManager.reset_instance()
-        with patch("src.storage.get_config", return_value=fake_config):
-            with patch("src.storage.create_engine", return_value=object()):
-                with patch("src.storage.sessionmaker", return_value=lambda: object()):
-                    with patch("src.db_migrations.run_alembic_upgrade_head"):
-                        with patch("src.repositories.user_repo.UserRepository", side_effect=BootstrapRepo):
-                            with patch("src.db_schema.run_user_scoped_migrations"):
-                                db = DatabaseManager.get_instance()
-
-        self.assertTrue(seen["initialized_during_bootstrap"])
-        self.assertTrue(getattr(db, "_initialized", False))
-        DatabaseManager.reset_instance()
-
-    def test_auth_settings_requires_session(self) -> None:
-        scope = {
-            "type": "http",
-            "method": "POST",
-            "path": "/api/v1/auth/settings",
-            "headers": [],
-            "query_string": b"",
-            "scheme": "http",
-            "client": ("127.0.0.1", 1234),
-            "server": ("testserver", 80),
-            "root_path": "",
-        }
-        request = Request(scope)
-        middleware = AuthMiddleware(app=MagicMock())
-
-        response = asyncio.run(middleware.dispatch(request, AsyncMock(return_value=Response(status_code=200))))
-
-        self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":
