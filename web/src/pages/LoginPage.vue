@@ -159,7 +159,7 @@ onUnmounted(() => {
                 v-if="step === 'email'"
                 id="email"
                 type="email"
-                icon-type="key"
+                icon-type="mail"
                 label="邮箱"
                 placeholder="请输入邮箱"
                 :value="email"

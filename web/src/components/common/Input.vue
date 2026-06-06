@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import EyeToggleIcon from '@/components/common/EyeToggleIcon.vue';
 import { cn } from '@/utils/cn';
-import { Key, Lock } from 'lucide-vue-next';
+import { Key, Lock, Mail } from 'lucide-vue-next';
 import { computed, ref, useId } from 'vue';
 
 defineOptions({ inheritAttrs: false });
@@ -16,7 +16,7 @@ const props = withDefaults(
     class?: string;
     appearance?: 'default' | 'login';
     allowTogglePassword?: boolean;
-    iconType?: 'password' | 'key' | 'none';
+    iconType?: 'password' | 'key' | 'mail' | 'none';
     /** Controlled password visibility */
     passwordVisible?: boolean;
     type?: string;
@@ -99,6 +99,16 @@ function togglePassword() {
       </div>
       <div v-else-if="iconType === 'key'" class="pointer-events-none absolute left-3.5 z-10">
         <Key
+          :class="
+            cn(
+              'h-4 w-4',
+              isLoginAppearance ? 'text-[var(--login-input-icon)]' : 'text-muted-text/55',
+            )
+          "
+        />
+      </div>
+      <div v-else-if="iconType === 'mail'" class="pointer-events-none absolute left-3.5 z-10">
+        <Mail
           :class="
             cn(
               'h-4 w-4',
