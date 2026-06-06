@@ -54,42 +54,19 @@ def _ensure_env_loaded() -> None:
     setup_env()
 
 
-def rotate_session_secret() -> bool:
-    """Rotate the in-memory session signing secret to invalidate active sessions.
-
-    With an environment-sourced secret we cannot persist a new value, so the
-    rotated secret lives only for the current process lifetime; on restart the
-    SESSION_SECRET value (if any) is loaded again.
-    """
-    global _session_secret
-    _session_secret = secrets.token_bytes(32)
-    logger.info("Session secret rotated successfully")
-    return True
-
 
 def _load_session_secret() -> Optional[bytes]:
-    """Return the JWT signing secret derived from the SESSION_SECRET env var.
-
-    The raw value is hashed (SHA-256) into a 32-byte key. Raises ValueError when
-    SESSION_SECRET is unset, since JWT sessions require a stable configured secret.
-    """
     global _session_secret
     if _session_secret is not None:
         return _session_secret
 
-    raw = (os.getenv("SESSION_SECRET") or "").strip()
+    raw = os.getenv("SECRET_KEY")
     if raw:
         _session_secret = hashlib.sha256(raw.encode("utf-8")).digest()
         return _session_secret
     else:
-        raise ValueError("SESSION_SECRET is not set")
+        raise ValueError("SECRET_KEY is not set")
 
-
-def refresh_auth_state() -> None:
-    """Reload the session signing secret from the environment."""
-    global _session_secret
-    _session_secret = None
-    _load_session_secret()
 
 
 def is_auth_enabled() -> bool:

@@ -27,7 +27,7 @@ from api.v1.schemas.system_config import (
     ValidateSystemConfigRequest,
     ValidateSystemConfigResponse,
 )
-from src.auth import COOKIE_NAME, refresh_auth_state, verify_session
+from src.auth import COOKIE_NAME, verify_session
 from src.services.system_config_service import (
     ConfigConflictError,
     ConfigImportError,
