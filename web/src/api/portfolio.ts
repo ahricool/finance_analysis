@@ -113,7 +113,7 @@ export const portfolioApi = {
       broker: payload.broker,
       market: payload.market,
       base_currency: payload.baseCurrency,
-      owner_id: payload.ownerId,
+      uid: payload.uid,
     });
     return toCamelCase<PortfolioAccountItem>(response.data);
   },

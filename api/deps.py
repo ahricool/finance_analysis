@@ -72,14 +72,14 @@ def get_system_config_service(request: Request) -> SystemConfigService:
     return service
 
 
-def get_scoped_user_id(request: Request) -> Optional[str]:
-    """Return authenticated user uid for the current request."""
-    return getattr(request.state, "user_id", None)
+def get_scoped_uid(request: Request) -> Optional[int]:
+    """Return authenticated uid for the current request."""
+    return getattr(request.state, "uid", None)
 
 
-def get_effective_user_uid(request: Request) -> str:
-    """User uid for data scoping."""
-    uid = get_scoped_user_id(request)
+def get_effective_uid(request: Request) -> int:
+    """Return uid for data scoping."""
+    uid = get_scoped_uid(request)
     if uid is not None:
         return uid
     from src.repositories.user_repo import UserRepository
@@ -87,4 +87,4 @@ def get_effective_user_uid(request: Request) -> str:
     u = UserRepository().get_by_email(DEFAULT_ADMIN_EMAIL)
     if u is None:
         raise HTTPException(status_code=500, detail="用户系统未初始化")
-    return u.uid
+    return u.id

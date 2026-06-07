@@ -316,7 +316,7 @@ class AgentOrchestrator:
         ctx.meta["response_mode"] = "chat"
 
         web_user_id = (context or {}).get("web_user_id")
-        web_uid = web_user_id if isinstance(web_user_id, str) else None
+        web_uid = web_user_id if isinstance(web_user_id, int) else None
 
         session = conversation_manager.get_or_create(session_id, user_id=web_uid)
         history = session.get_history()

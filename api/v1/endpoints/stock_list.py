@@ -14,7 +14,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
-from api.deps import get_effective_user_uid
+from api.deps import get_effective_uid
 from api.v1.schemas.stock_list import (
     StockHoldingCreate,
     StockHoldingResponse,
@@ -33,8 +33,8 @@ def _repo() -> StockListRepo:
 
 @router.get("", response_model=StockListResponse, summary="获取持仓股列表")
 def list_stock_list(http_request: Request):
-    uid = get_effective_user_uid(http_request)
-    items = _repo().list_all(user_id=uid)
+    uid = get_effective_uid(http_request)
+    items = _repo().list_all(uid=uid)
     return StockListResponse(
         items=[StockHoldingResponse.model_validate(i) for i in items],
         total=len(items),
@@ -43,13 +43,13 @@ def list_stock_list(http_request: Request):
 
 @router.post("", response_model=StockHoldingResponse, status_code=201, summary="添加持仓股")
 def create_stock_holding(http_request: Request, body: StockHoldingCreate):
-    uid = get_effective_user_uid(http_request)
+    uid = get_effective_uid(http_request)
     repo = _repo()
-    if repo.get_by_code(body.code, user_id=uid):
+    if repo.get_by_code(body.code, uid=uid):
         raise HTTPException(status_code=409, detail=f"股票 {body.code} 已在持仓股中")
     try:
         item = repo.create(
-            user_id=uid,
+            uid=uid,
             code=body.code,
             name=body.name,
             quantity=body.quantity,
@@ -64,10 +64,10 @@ def create_stock_holding(http_request: Request, body: StockHoldingCreate):
 
 @router.put("/{item_id}", response_model=StockHoldingResponse, summary="更新持仓股")
 def update_stock_holding(http_request: Request, item_id: int, body: StockHoldingUpdate):
-    uid = get_effective_user_uid(http_request)
+    uid = get_effective_uid(http_request)
     item = _repo().update(
         item_id,
-        user_id=uid,
+        uid=uid,
         name=body.name,
         quantity=body.quantity,
         market_type=body.market_type,
@@ -80,7 +80,7 @@ def update_stock_holding(http_request: Request, item_id: int, body: StockHolding
 
 @router.delete("/{item_id}", status_code=204, summary="删除持仓股")
 def delete_stock_holding(http_request: Request, item_id: int):
-    uid = get_effective_user_uid(http_request)
-    deleted = _repo().delete(item_id, user_id=uid)
+    uid = get_effective_uid(http_request)
+    deleted = _repo().delete(item_id, uid=uid)
     if not deleted:
         raise HTTPException(status_code=404, detail="未找到该持仓股")

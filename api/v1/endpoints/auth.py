@@ -17,7 +17,7 @@ from src.auth import (
     clear_rate_limit,
     create_session,
     get_client_ip,
-    parse_session_user_uid,
+    parse_session_uid,
     record_login_failure,
     validate_password,
 )
@@ -70,15 +70,6 @@ def _cookie_params(request: Request) -> dict:
     }
 
 
-def _password_set_for_response() -> bool:
-    """True when at least one user has a password in the database."""
-    try:
-        return UserRepository().any_user_has_password()
-    except Exception:
-        logger.debug("UserRepository password check failed", exc_info=True)
-        return False
-
-
 def _set_session_cookie(response: Response, session_value: str, request: Request) -> None:
     """Attach the login session cookie to a response."""
     response.set_cookie(key=COOKIE_NAME, value=session_value, **_cookie_params(request))
@@ -90,7 +81,7 @@ def _get_auth_status_dict(request: Request | None = None) -> dict:
     user_payload = None
     if request:
         cookie_val = request.cookies.get(COOKIE_NAME)
-        uid = parse_session_user_uid(cookie_val) if cookie_val else None
+        uid = parse_session_uid(cookie_val) if cookie_val else None
         if uid:
             try:
                 repo = UserRepository()
@@ -102,11 +93,7 @@ def _get_auth_status_dict(request: Request | None = None) -> dict:
                 logger.warning("Failed to load user for auth status", exc_info=True)
 
     return {
-        "authEnabled": True,
         "loggedIn": logged_in,
-        "passwordSet": _password_set_for_response(),
-        "passwordChangeable": True,
-        "setupState": "enabled",
         "user": user_payload,
     }
 
@@ -178,14 +165,14 @@ async def auth_login(request: Request, body: LoginRequest):
         return JSONResponse(
             status_code=401,
             content={"error": "invalid_credentials", "message": "Invalid email or password"},
+        )  
+    if not password:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "password_required", "message": "Password is required"},
         )
 
     if not user.password_hash:
-        if not password:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "password_required", "message": "Password is required"},
-            )
         confirm = (body.password_confirm or "").strip()
         if not confirm:
             return JSONResponse(
@@ -202,15 +189,9 @@ async def auth_login(request: Request, body: LoginRequest):
         if pwd_err:
             return JSONResponse(status_code=400, content={"error": "invalid_password", "message": pwd_err})
 
-        repo.set_plain_password(user.uid, password)
+        repo.set_plain_password(user.id, password)
         clear_rate_limit(ip)
         return JSONResponse(content={"ok": True, "requiresRelogin": True})
-
-    if not password:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "password_required", "message": "Password is required"},
-        )
 
     if repo.verify_credentials(email, password) is None:
         record_login_failure(ip)
@@ -221,7 +202,7 @@ async def auth_login(request: Request, body: LoginRequest):
 
     clear_rate_limit(ip)
     try:
-        session_val = create_session(user_uid=user.uid)
+        session_val = create_session(uid=user.id)
     except ValueError:
         logger.exception("Failed to load auth session secret")
         return JSONResponse(
@@ -246,7 +227,7 @@ async def auth_login(request: Request, body: LoginRequest):
 )
 async def auth_change_password(request: Request, body: ChangePasswordRequest):
     """Change password for the logged-in user."""
-    uid = parse_session_user_uid(request.cookies.get(COOKIE_NAME) or "")
+    uid = parse_session_uid(request.cookies.get(COOKIE_NAME) or "")
     if not uid:
         return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
 
@@ -273,7 +254,7 @@ async def auth_change_password(request: Request, body: ChangePasswordRequest):
     user = repo.get_by_uid(uid)
     if user is None:
         return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
-    if not repo.verify_plain_for_uid(user.uid, current):
+    if not repo.verify_plain_for_uid(user.id, current):
         return JSONResponse(
             status_code=400,
             content={"error": "invalid_password", "message": "Current password is incorrect"},

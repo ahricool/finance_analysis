@@ -5,7 +5,7 @@ export type PortfolioCorporateActionType = 'cash_dividend' | 'split_adjustment';
 
 export interface PortfolioAccountItem {
   id: number;
-  ownerId?: string | null;
+  uid?: number | null;
   name: string;
   broker?: string | null;
   market: 'cn' | 'hk' | 'us';
@@ -24,7 +24,7 @@ export interface PortfolioAccountCreateRequest {
   broker?: string;
   market: 'cn' | 'hk' | 'us';
   baseCurrency: string;
-  ownerId?: string;
+  uid?: number;
 }
 
 export interface PortfolioPositionItem {
@@ -49,7 +49,7 @@ export interface PortfolioPositionItem {
 export interface PortfolioAccountSnapshot {
   accountId: number;
   accountName: string;
-  ownerId?: string | null;
+  uid?: number | null;
   broker?: string | null;
   market: string;
   baseCurrency: string;

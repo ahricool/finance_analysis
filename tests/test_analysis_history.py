@@ -61,7 +61,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         user = UserRepository(self.db).get_by_email(DEFAULT_ADMIN_EMAIL)
         if user is None:
             self.fail("default admin user was not initialized")
-        return {COOKIE_NAME: create_session(user_uid=user.uid)}
+        return {COOKIE_NAME: create_session(uid=user.id)}
 
     def _build_result(self) -> AnalysisResult:
         """构造分析结果"""

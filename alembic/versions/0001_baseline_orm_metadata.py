@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Baseline: create tables from SQLAlchemy metadata (bridge for existing installs).
+"""Baseline: create all tables from current SQLAlchemy metadata.
 
-Existing databases that already match the ORM schema will largely no-op
-(``create_all`` skips existing tables) and only record this revision in
-``alembic_version``. Subsequent revisions should use autogenerate or hand-written
-``op.*`` DDL.
+The system has not launched yet, so Alembic is intentionally collapsed to a
+single initial revision. Any pre-launch schema adjustment should update the ORM
+metadata and this baseline instead of adding stepwise revisions.
 
 Revision ID: 0001_baseline
 Revises:
@@ -26,7 +25,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    # Local import so env.py / CLI can load revision without pulling all ORM at collection time
+    # Local import so env.py / CLI can load revision without pulling all ORM at collection time.
     from src.storage import Base
 
     Base.metadata.create_all(bind=bind)

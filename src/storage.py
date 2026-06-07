@@ -30,7 +30,6 @@ from sqlalchemy import (
     Date,
     DateTime,
     Integer,
-    ForeignKey,
     Index,
     UniqueConstraint,
     Text,
@@ -279,12 +278,7 @@ class BacktestResult(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    analysis_history_id = Column(
-        Integer,
-        ForeignKey('analysis_history.id'),
-        nullable=False,
-        index=True,
-    )
+    analysis_history_id = Column(Integer, nullable=False, index=True)
 
     # 冗余字段，便于按股票筛选
     code = Column(String(10), nullable=False, index=True)
@@ -400,7 +394,7 @@ class User(Base):
 
     __tablename__ = "users"
 
-    uid = Column(String(36), primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(64), nullable=False, index=True)
     email = Column(String(255), nullable=False, unique=True, index=True)
     password_hash = Column(Text, nullable=True)
@@ -417,7 +411,7 @@ class PortfolioAccount(Base):
     __tablename__ = 'portfolio_accounts'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    owner_id = Column(String(64), index=True)
+    uid = Column(Integer, index=True)
     name = Column(String(64), nullable=False)
     broker = Column(String(64))
     market = Column(String(8), nullable=False, default='cn', index=True)  # cn/hk/us
@@ -427,7 +421,7 @@ class PortfolioAccount(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     __table_args__ = (
-        Index('ix_portfolio_account_owner_active', 'owner_id', 'is_active'),
+        Index('ix_portfolio_account_uid_active', 'uid', 'is_active'),
     )
 
 
@@ -437,7 +431,7 @@ class PortfolioTrade(Base):
     __tablename__ = 'portfolio_trades'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    account_id = Column(Integer, ForeignKey('portfolio_accounts.id'), nullable=False, index=True)
+    account_id = Column(Integer, nullable=False, index=True)
     trade_uid = Column(String(128))
     symbol = Column(String(16), nullable=False, index=True)
     market = Column(String(8), nullable=False, default='cn')
@@ -465,7 +459,7 @@ class PortfolioCashLedger(Base):
     __tablename__ = 'portfolio_cash_ledger'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    account_id = Column(Integer, ForeignKey('portfolio_accounts.id'), nullable=False, index=True)
+    account_id = Column(Integer, nullable=False, index=True)
     event_date = Column(Date, nullable=False, index=True)
     direction = Column(String(8), nullable=False)  # in/out
     amount = Column(Float, nullable=False)
@@ -484,7 +478,7 @@ class PortfolioCorporateAction(Base):
     __tablename__ = 'portfolio_corporate_actions'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    account_id = Column(Integer, ForeignKey('portfolio_accounts.id'), nullable=False, index=True)
+    account_id = Column(Integer, nullable=False, index=True)
     symbol = Column(String(16), nullable=False, index=True)
     market = Column(String(8), nullable=False, default='cn')
     currency = Column(String(8), nullable=False, default='CNY')
@@ -506,7 +500,7 @@ class PortfolioPosition(Base):
     __tablename__ = 'portfolio_positions'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    account_id = Column(Integer, ForeignKey('portfolio_accounts.id'), nullable=False, index=True)
+    account_id = Column(Integer, nullable=False, index=True)
     cost_method = Column(String(8), nullable=False, default='fifo')
     symbol = Column(String(16), nullable=False, index=True)
     market = Column(String(8), nullable=False, default='cn')
@@ -538,7 +532,7 @@ class PortfolioPositionLot(Base):
     __tablename__ = 'portfolio_position_lots'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    account_id = Column(Integer, ForeignKey('portfolio_accounts.id'), nullable=False, index=True)
+    account_id = Column(Integer, nullable=False, index=True)
     cost_method = Column(String(8), nullable=False, default='fifo')
     symbol = Column(String(16), nullable=False, index=True)
     market = Column(String(8), nullable=False, default='cn')
@@ -546,7 +540,7 @@ class PortfolioPositionLot(Base):
     open_date = Column(Date, nullable=False, index=True)
     remaining_quantity = Column(Float, nullable=False, default=0.0)
     unit_cost = Column(Float, nullable=False, default=0.0)
-    source_trade_id = Column(Integer, ForeignKey('portfolio_trades.id'))
+    source_trade_id = Column(Integer)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 
     __table_args__ = (
@@ -560,7 +554,7 @@ class PortfolioDailySnapshot(Base):
     __tablename__ = 'portfolio_daily_snapshots'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    account_id = Column(Integer, ForeignKey('portfolio_accounts.id'), nullable=False, index=True)
+    account_id = Column(Integer, nullable=False, index=True)
     snapshot_date = Column(Date, nullable=False, index=True)
     cost_method = Column(String(8), nullable=False, default='fifo')  # fifo/avg
     base_currency = Column(String(8), nullable=False, default='CNY')
@@ -617,7 +611,7 @@ class ConversationMessage(Base):
     __tablename__ = 'conversation_messages'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(36), ForeignKey("users.uid"), nullable=True, index=True)
+    uid = Column(Integer, nullable=True, index=True)
     session_id = Column(String(100), index=True, nullable=False)
     role = Column(String(20), nullable=False)  # user, assistant, system
     content = Column(Text, nullable=False)
@@ -630,7 +624,7 @@ class LLMUsage(Base):
     __tablename__ = 'llm_usage'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(36), ForeignKey("users.uid"), nullable=True, index=True)
+    uid = Column(Integer, nullable=True, index=True)
     # 'analysis' | 'agent' | 'market_review'
     call_type = Column(String(32), nullable=False, index=True)
     model = Column(String(128), nullable=False)
@@ -647,7 +641,7 @@ class WatchListItem(Base):
     __tablename__ = 'watch_list'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(36), ForeignKey("users.uid"), nullable=False, index=True)
+    uid = Column(Integer, nullable=False, index=True)
     code = Column(String(16), nullable=False, index=True)
     name = Column(String(64), nullable=True)
     notes = Column(Text, nullable=True)
@@ -657,7 +651,7 @@ class WatchListItem(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("user_id", "code", name="uix_watch_list_user_code"),
+        UniqueConstraint("uid", "code", name="uix_watch_list_uid_code"),
     )
 
 
@@ -670,7 +664,7 @@ class StockHolding(Base):
     __tablename__ = 'stock_list'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(36), ForeignKey("users.uid"), nullable=False, index=True)
+    uid = Column(Integer, nullable=False, index=True)
     code = Column(String(16), nullable=False, index=True)
     name = Column(String(64), nullable=True)
     quantity = Column(Integer, nullable=False, default=0)
@@ -680,7 +674,7 @@ class StockHolding(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("user_id", "code", name="uix_stock_list_user_code"),
+        UniqueConstraint("uid", "code", name="uix_stock_list_uid_code"),
     )
 
 
@@ -690,7 +684,7 @@ class CalendarSignal(Base):
     __tablename__ = 'calendar_signals'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(36), ForeignKey("users.uid"), nullable=False, index=True)
+    uid = Column(Integer, nullable=False, index=True)
     signal_date = Column(Date, nullable=False, index=True)
     title = Column(String(120), nullable=False)
     content = Column(Text, nullable=True)
@@ -769,7 +763,6 @@ class DatabaseManager:
 
         run_alembic_upgrade_head()
 
-        from src.db_schema import run_user_scoped_migrations
         from src.repositories.user_repo import UserRepository
 
         # Mark the manager usable before repository-driven bootstrap work.
@@ -778,8 +771,7 @@ class DatabaseManager:
         # surfaces as a 500 during first login.
         self._initialized = True
         try:
-            admin_uid = UserRepository(self).ensure_default_admin()
-            run_user_scoped_migrations(self._engine, admin_uid)
+            UserRepository(self).ensure_default_admin()
         except Exception:
             self._initialized = False
             raise
@@ -1858,14 +1850,14 @@ class DatabaseManager:
         session_id: str,
         role: str,
         content: str,
-        user_id: Optional[str] = None,
+        uid: Optional[int] = None,
     ) -> None:
         """
         保存 Agent 对话消息
         """
         with self.session_scope() as session:
             msg = ConversationMessage(
-                user_id=user_id,
+                uid=uid,
                 session_id=session_id,
                 role=role,
                 content=content,
@@ -1876,7 +1868,7 @@ class DatabaseManager:
         self,
         session_id: str,
         limit: int = 20,
-        user_id: Optional[str] = None,
+        uid: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         获取 Agent 对话历史
@@ -1885,8 +1877,8 @@ class DatabaseManager:
             stmt = select(ConversationMessage).filter(
                 ConversationMessage.session_id == session_id
             )
-            if user_id is not None:
-                stmt = stmt.where(ConversationMessage.user_id == user_id)
+            if uid is not None:
+                stmt = stmt.where(ConversationMessage.uid == uid)
             stmt = stmt.order_by(ConversationMessage.created_at.desc()).limit(limit)
             messages = session.execute(stmt).scalars().all()
 
@@ -1894,15 +1886,15 @@ class DatabaseManager:
             return [{"role": msg.role, "content": msg.content} for msg in reversed(messages)]
 
     def conversation_session_exists(
-        self, session_id: str, user_id: Optional[str] = None
+        self, session_id: str, uid: Optional[int] = None
     ) -> bool:
         """Return True when at least one message exists for the given session."""
         with self.session_scope() as session:
             stmt = select(ConversationMessage.id).where(
                 ConversationMessage.session_id == session_id
             )
-            if user_id is not None:
-                stmt = stmt.where(ConversationMessage.user_id == user_id)
+            if uid is not None:
+                stmt = stmt.where(ConversationMessage.uid == uid)
             stmt = stmt.limit(1)
             return session.execute(stmt).scalar() is not None
 
@@ -1911,7 +1903,7 @@ class DatabaseManager:
         limit: int = 50,
         session_prefix: Optional[str] = None,
         extra_session_ids: Optional[List[str]] = None,
-        restrict_user_id: Optional[str] = None,
+        restrict_uid: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         获取聊天会话列表（从 conversation_messages 聚合）
@@ -1951,8 +1943,8 @@ class DatabaseManager:
                 conditions.append(ConversationMessage.session_id.in_(exact_ids))
             if conditions:
                 base = base.where(or_(*conditions))
-            if restrict_user_id is not None:
-                base = base.where(ConversationMessage.user_id == restrict_user_id)
+            if restrict_uid is not None:
+                base = base.where(ConversationMessage.uid == restrict_uid)
             stmt = (
                 base
                 .group_by(ConversationMessage.session_id)
@@ -1969,10 +1961,10 @@ class DatabaseManager:
                     ConversationMessage.session_id == sid,
                     ConversationMessage.role == "user",
                 )
-                if restrict_user_id is not None:
+                if restrict_uid is not None:
                     first_scope = and_(
                         first_scope,
-                        ConversationMessage.user_id == restrict_user_id,
+                        ConversationMessage.uid == restrict_uid,
                     )
                 first_user_msg = session.execute(
                     select(ConversationMessage.content)
@@ -1995,7 +1987,7 @@ class DatabaseManager:
         self,
         session_id: str,
         limit: int = 100,
-        user_id: Optional[str] = None,
+        uid: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         获取单个会话的完整消息列表（用于前端恢复历史）
@@ -2004,8 +1996,8 @@ class DatabaseManager:
             stmt = select(ConversationMessage).where(
                 ConversationMessage.session_id == session_id
             )
-            if user_id is not None:
-                stmt = stmt.where(ConversationMessage.user_id == user_id)
+            if uid is not None:
+                stmt = stmt.where(ConversationMessage.uid == uid)
             stmt = stmt.order_by(ConversationMessage.created_at).limit(limit)
             messages = session.execute(stmt).scalars().all()
             return [
@@ -2019,7 +2011,7 @@ class DatabaseManager:
             ]
 
     def delete_conversation_session(
-        self, session_id: str, user_id: Optional[str] = None
+        self, session_id: str, uid: Optional[int] = None
     ) -> int:
         """
         删除指定会话的所有消息
@@ -2029,8 +2021,8 @@ class DatabaseManager:
         """
         with self.session_scope() as session:
             cond = ConversationMessage.session_id == session_id
-            if user_id is not None:
-                cond = and_(cond, ConversationMessage.user_id == user_id)
+            if uid is not None:
+                cond = and_(cond, ConversationMessage.uid == uid)
             result = session.execute(delete(ConversationMessage).where(cond))
             return result.rowcount
 
@@ -2046,11 +2038,11 @@ class DatabaseManager:
         completion_tokens: int,
         total_tokens: int,
         stock_code: Optional[str] = None,
-        user_id: Optional[str] = None,
+        uid: Optional[int] = None,
     ) -> None:
         """Append one LLM call record to llm_usage."""
         row = LLMUsage(
-            user_id=user_id,
+            uid=uid,
             call_type=call_type,
             model=model or "unknown",
             stock_code=stock_code,
@@ -2065,7 +2057,7 @@ class DatabaseManager:
         self,
         from_dt: datetime,
         to_dt: datetime,
-        user_id: Optional[str] = None,
+        uid: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Return aggregated token usage between from_dt and to_dt.
 
@@ -2079,8 +2071,8 @@ class DatabaseManager:
                 LLMUsage.called_at >= from_dt,
                 LLMUsage.called_at <= to_dt,
             )
-            if user_id is not None:
-                base_filter = and_(base_filter, LLMUsage.user_id == user_id)
+            if uid is not None:
+                base_filter = and_(base_filter, LLMUsage.uid == uid)
 
             # Overall totals
             totals = session.execute(
@@ -2139,7 +2131,7 @@ def persist_llm_usage(
     model: str,
     call_type: str,
     stock_code: Optional[str] = None,
-    user_id: Optional[str] = None,
+    uid: Optional[int] = None,
 ) -> None:
     """Fire-and-forget: write one LLM call record to llm_usage. Never raises."""
     try:
@@ -2151,7 +2143,7 @@ def persist_llm_usage(
             completion_tokens=usage.get("completion_tokens", 0) or 0,
             total_tokens=usage.get("total_tokens", 0) or 0,
             stock_code=stock_code,
-            user_id=user_id,
+            uid=uid,
         )
     except Exception as exc:
         logging.getLogger(__name__).warning("[LLM usage] failed to persist usage record: %s", exc)

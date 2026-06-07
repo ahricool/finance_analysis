@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const smokePassword = process.env.FA_WEB_SMOKE_PASSWORD;
 
-const smokeEmail = process.env.FA_WEB_SMOKE_EMAIL ?? 'ahri@localhost';
+const smokeEmail = process.env.FA_WEB_SMOKE_EMAIL ?? 'whoreahri@gmail.com';
 
 async function login(page: Page) {
   test.skip(!smokePassword, 'Set FA_WEB_SMOKE_PASSWORD to run authenticated smoke tests.');

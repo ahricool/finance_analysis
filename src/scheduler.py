@@ -143,9 +143,9 @@ def _record_scheduled_task_result(
         error=error,
         note=note,
     )
-    user_id = UserRepository().ensure_default_admin()
+    uid = UserRepository().ensure_default_admin()
     CalendarSignalRepo().create(
-        user_id=user_id,
+        uid=uid,
         signal_date=finished_at.date(),
         title=title[:120],
         content=content,

@@ -56,9 +56,6 @@ env/
 /data/
 logs/
 reports/
-*.db
-*.sqlite
-*.sqlite3
 
 # 系统文件
 .DS_Store

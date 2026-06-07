@@ -11,7 +11,7 @@ import src.auth as auth
 
 def _reset_auth_globals() -> None:
     """Reset auth module globals for test isolation."""
-    auth._session_secret = None
+    auth._secret_key = None
     auth._rate_limit = {}
 
 
@@ -47,20 +47,18 @@ class AuthSessionTestCase(unittest.TestCase):
 
     def test_create_session_returns_jwt(self) -> None:
         def run():
-            tok = auth.create_session(user_uid="u-test-1")
+            tok = auth.create_session(uid=1)
             self.assertTrue(tok, "session token should be non-empty")
             self.assertEqual(len(tok.split(".")), 3, "JWT format: header.payload.signature")
-            self.assertEqual(auth.parse_session_user_uid(tok), "u-test-1")
+            self.assertEqual(auth.parse_session_uid(tok), 1)
 
         self._patch_env_and_run(test_fn=run)
 
     def test_session_jwt_carries_only_uid_and_expiry(self) -> None:
         def run():
-            import jwt as _jwt
-
-            tok = auth.create_session(user_uid="u-claims")
-            payload = _jwt.decode(tok, options={"verify_signature": False})
-            self.assertEqual(payload["uid"], "u-claims")
+            tok = auth.create_session(uid=2)
+            payload = auth._jwt_decode(tok, auth._load_secret_key(), verify_signature=False)
+            self.assertEqual(payload["uid"], 2)
             self.assertEqual(set(payload.keys()), {"uid", "iat", "exp"})
             self.assertEqual(payload["exp"] - payload["iat"], auth.JWT_EXPIRE_SECONDS)
 
@@ -68,7 +66,7 @@ class AuthSessionTestCase(unittest.TestCase):
 
     def test_verify_session_valid_token(self) -> None:
         def run():
-            tok = auth.create_session(user_uid="u-test-2")
+            tok = auth.create_session(uid=3)
             self.assertTrue(auth.verify_session(tok))
 
         self._patch_env_and_run(test_fn=run)
@@ -78,7 +76,7 @@ class AuthSessionTestCase(unittest.TestCase):
             past = time.time() - (auth.JWT_EXPIRE_SECONDS + 3600)
             with patch.object(auth, "time") as mock_time:
                 mock_time.time.return_value = past
-                tok = auth.create_session(user_uid="u-exp")
+                tok = auth.create_session(uid=4)
             self.assertFalse(auth.verify_session(tok), "expired token should be rejected")
 
         self._patch_env_and_run(test_fn=run)
@@ -91,12 +89,11 @@ class AuthSessionTestCase(unittest.TestCase):
 
         self._patch_env_and_run(test_fn=run)
 
-    def test_load_session_secret_requires_env(self) -> None:
+    def test_load_secret_key_generates_when_env_missing(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("SECRET_KEY", None)
             _reset_auth_globals()
-            with self.assertRaises(ValueError):
-                auth._load_session_secret()
+            self.assertTrue(auth._load_secret_key())
 
 
 class AuthRateLimitTestCase(unittest.TestCase):

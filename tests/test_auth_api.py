@@ -22,16 +22,17 @@ import src.auth as auth
 from api.middlewares.auth import AuthMiddleware
 from api.v1.endpoints import auth as auth_endpoint
 from src.config import Config
+from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAME
 
 
 def _reset_auth_globals() -> None:
-    auth._session_secret = None
+    auth._secret_key = None
     auth._rate_limit = {}
 
 
 class FakeUser:
-    def __init__(self, uid: str, email: str, username: str, password: str | None = None):
-        self.uid = uid
+    def __init__(self, uid: int, email: str, username: str, password: str | None = None):
+        self.id = uid
         self.email = email
         self.username = username
         self.password_hash = password
@@ -42,8 +43,8 @@ class FakeUser:
 class FakeUserRepository:
     users: dict[str, FakeUser] = {}
 
-    def get_by_uid(self, uid: str):
-        return next((user for user in self.users.values() if user.uid == uid), None)
+    def get_by_uid(self, uid: int):
+        return next((user for user in self.users.values() if user.id == uid), None)
 
     def get_by_email(self, email: str):
         return self.users.get((email or "").strip().lower())
@@ -54,7 +55,7 @@ class FakeUserRepository:
             return None
         return not bool(user.password_hash)
 
-    def set_plain_password(self, uid: str, plain: str) -> None:
+    def set_plain_password(self, uid: int, plain: str) -> None:
         user = self.get_by_uid(uid)
         if user is not None:
             user.password_hash = plain
@@ -65,7 +66,7 @@ class FakeUserRepository:
             return user
         return None
 
-    def verify_plain_for_uid(self, uid: str, plain: str) -> bool:
+    def verify_plain_for_uid(self, uid: int, plain: str) -> bool:
         user = self.get_by_uid(uid)
         return user is not None and user.password_hash == plain
 
@@ -74,7 +75,7 @@ class FakeUserRepository:
 
     def to_public_dict(self, user: FakeUser):
         return {
-            "uid": user.uid,
+            "uid": user.id,
             "username": user.username,
             "email": user.email,
             "avatarUrl": user.avatar_url,
@@ -94,7 +95,11 @@ class AuthApiTestCase(unittest.TestCase):
         os.environ["ENV_FILE"] = str(self.env_path)
         os.environ["SECRET_KEY"] = "auth-api-test-secret"
         FakeUserRepository.users = {
-            "ahri@localhost": FakeUser(uid="u-admin", email="ahri@localhost", username="ahri"),
+            DEFAULT_ADMIN_EMAIL: FakeUser(
+                uid=1,
+                email=DEFAULT_ADMIN_EMAIL,
+                username=DEFAULT_ADMIN_USERNAME,
+            ),
         }
         self.user_repo_patch = patch.object(auth_endpoint, "UserRepository", FakeUserRepository)
         self.user_repo_patch.start()
@@ -139,7 +144,7 @@ class AuthApiTestCase(unittest.TestCase):
             auth_endpoint.auth_login(
                 self._build_request(),
                 auth_endpoint.LoginRequest(
-                    email="ahri@localhost",
+                    email=DEFAULT_ADMIN_EMAIL,
                     password=password,
                     passwordConfirm=password,
                 ),
@@ -151,16 +156,15 @@ class AuthApiTestCase(unittest.TestCase):
         return asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password=password),
+                auth_endpoint.LoginRequest(email=DEFAULT_ADMIN_EMAIL, password=password),
             )
         )
 
     def test_auth_status_when_password_not_set(self) -> None:
         data = asyncio.run(auth_endpoint.auth_status(self._build_request()))
-        self.assertTrue(data["authEnabled"])
-        self.assertTrue(data["passwordChangeable"])
-        self.assertFalse(data["passwordSet"])
+        self.assertEqual(set(data.keys()), {"loggedIn", "user"})
         self.assertFalse(data["loggedIn"])
+        self.assertIsNone(data["user"])
 
     def test_lookup_unknown_email(self) -> None:
         response = asyncio.run(
@@ -175,7 +179,7 @@ class AuthApiTestCase(unittest.TestCase):
         data = asyncio.run(
             auth_endpoint.auth_lookup(
                 self._build_request(),
-                auth_endpoint.EmailLookupRequest(email="ahri@localhost"),
+                auth_endpoint.EmailLookupRequest(email=DEFAULT_ADMIN_EMAIL),
             )
         )
         self.assertTrue(data["needsPasswordSetup"])
@@ -185,7 +189,7 @@ class AuthApiTestCase(unittest.TestCase):
             auth_endpoint.auth_login(
                 self._build_request(),
                 auth_endpoint.LoginRequest(
-                    email="ahri@localhost",
+                    email=DEFAULT_ADMIN_EMAIL,
                     password="newpass123",
                     passwordConfirm="newpass123",
                 ),
@@ -212,7 +216,7 @@ class AuthApiTestCase(unittest.TestCase):
         response = asyncio.run(
             auth_endpoint.auth_login(
                 self._build_request(),
-                auth_endpoint.LoginRequest(email="ahri@localhost", password="wrong"),
+                auth_endpoint.LoginRequest(email=DEFAULT_ADMIN_EMAIL, password="wrong"),
             )
         )
         self.assertEqual(response.status_code, 401)
@@ -275,9 +279,9 @@ class AuthApiTestCase(unittest.TestCase):
         middleware = AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("api.middlewares.auth.parse_session_user_uid", return_value="test-uid"):
+        with patch("api.middlewares.auth.parse_session_uid", return_value=1):
             with patch("api.middlewares.auth.UserRepository") as repo_cls:
-                repo_cls.return_value.get_by_uid.return_value = SimpleNamespace(uid="test-uid")
+                repo_cls.return_value.get_by_uid.return_value = SimpleNamespace(uid=1)
                 response = asyncio.run(middleware.dispatch(request, call_next))
 
         self.assertEqual(response.status_code, 200)
@@ -288,7 +292,7 @@ class AuthApiTestCase(unittest.TestCase):
         middleware = AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("api.middlewares.auth.parse_session_user_uid", return_value="deleted-uid"):
+        with patch("api.middlewares.auth.parse_session_uid", return_value=999):
             with patch("api.middlewares.auth.UserRepository") as repo_cls:
                 repo_cls.return_value.get_by_uid.return_value = None
                 response = asyncio.run(middleware.dispatch(request, call_next))
