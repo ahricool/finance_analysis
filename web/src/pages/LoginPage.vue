@@ -127,7 +127,7 @@ onUnmounted(() => {
 <template>
   <div
     class="fixed inset-0 h-screen w-screen overflow-hidden bg-cover bg-center bg-no-repeat font-sans text-foreground"
-    style="background-image: url('/background.png')"
+    style="background-image: url('/background.jpg')"
   >
     <div
       class="relative grid min-h-screen w-full grid-cols-1 place-items-center px-3 py-10 sm:px-4 lg:grid-cols-2 lg:px-6"
