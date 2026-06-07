@@ -17,7 +17,7 @@ from src.auth import (
     clear_rate_limit,
     create_session,
     get_client_ip,
-    parse_session_user_uid,
+    parse_session_uid,
     record_login_failure,
     validate_password,
 )
@@ -81,7 +81,7 @@ def _get_auth_status_dict(request: Request | None = None) -> dict:
     user_payload = None
     if request:
         cookie_val = request.cookies.get(COOKIE_NAME)
-        uid = parse_session_user_uid(cookie_val) if cookie_val else None
+        uid = parse_session_uid(cookie_val) if cookie_val else None
         if uid:
             try:
                 repo = UserRepository()
@@ -202,7 +202,7 @@ async def auth_login(request: Request, body: LoginRequest):
 
     clear_rate_limit(ip)
     try:
-        session_val = create_session(user_uid=user.id)
+        session_val = create_session(uid=user.id)
     except ValueError:
         logger.exception("Failed to load auth session secret")
         return JSONResponse(
@@ -227,7 +227,7 @@ async def auth_login(request: Request, body: LoginRequest):
 )
 async def auth_change_password(request: Request, body: ChangePasswordRequest):
     """Change password for the logged-in user."""
-    uid = parse_session_user_uid(request.cookies.get(COOKIE_NAME) or "")
+    uid = parse_session_uid(request.cookies.get(COOKIE_NAME) or "")
     if not uid:
         return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
 

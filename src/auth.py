@@ -3,7 +3,7 @@
 Web authentication helpers.
 
 Credentials are stored in the database. Session cookies are signed JWTs
-(HS256) carrying only the user uid, signed with SECRET_KEY.
+(HS256) carrying only uid, signed with SECRET_KEY.
 """
 
 from __future__ import annotations
@@ -107,22 +107,22 @@ def validate_password(pwd: str) -> Optional[str]:
     return None
 
 
-def create_session(*, user_uid: int) -> str:
-    """Create a signed JWT session cookie value carrying only the user uid."""
-    if not isinstance(user_uid, int) or user_uid <= 0:
+def create_session(*, uid: int) -> str:
+    """Create a signed JWT session cookie value carrying only uid."""
+    if not isinstance(uid, int) or uid <= 0:
         return ""
 
     now = int(time.time())
     payload = {
-        "uid": user_uid,
+        "uid": uid,
         "iat": now,
         "exp": now + JWT_EXPIRE_SECONDS,
     }
     return _jwt_encode(payload, _load_secret_key())
 
 
-def parse_session_user_uid(value: str) -> Optional[int]:
-    """Verify the JWT session cookie and return the embedded user uid."""
+def parse_session_uid(value: str) -> Optional[int]:
+    """Verify the JWT session cookie and return the embedded uid."""
     if not value:
         return None
     try:
@@ -138,7 +138,7 @@ def parse_session_user_uid(value: str) -> Optional[int]:
 
 def verify_session(value: str) -> bool:
     """Return whether the session cookie is a valid, unexpired JWT."""
-    return parse_session_user_uid(value) is not None
+    return parse_session_uid(value) is not None
 
 
 def get_client_ip(request) -> str:

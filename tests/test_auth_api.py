@@ -279,7 +279,7 @@ class AuthApiTestCase(unittest.TestCase):
         middleware = AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("api.middlewares.auth.parse_session_user_uid", return_value=1):
+        with patch("api.middlewares.auth.parse_session_uid", return_value=1):
             with patch("api.middlewares.auth.UserRepository") as repo_cls:
                 repo_cls.return_value.get_by_uid.return_value = SimpleNamespace(uid=1)
                 response = asyncio.run(middleware.dispatch(request, call_next))
@@ -292,7 +292,7 @@ class AuthApiTestCase(unittest.TestCase):
         middleware = AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("api.middlewares.auth.parse_session_user_uid", return_value=999):
+        with patch("api.middlewares.auth.parse_session_uid", return_value=999):
             with patch("api.middlewares.auth.UserRepository") as repo_cls:
                 repo_cls.return_value.get_by_uid.return_value = None
                 response = asyncio.run(middleware.dispatch(request, call_next))

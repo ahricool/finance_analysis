@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from api.deps import get_effective_user_uid
+from api.deps import get_effective_uid
 from src.services.agent_model_service import list_agent_model_deployments
 
 # Tool name -> Chinese display name mapping
@@ -167,7 +167,7 @@ async def agent_chat(http_request: Request, body: ChatRequest):
         ctx = dict(body.context or {})
         if skills is not None:
             ctx["skills"] = skills
-        ctx["web_user_id"] = get_effective_user_uid(http_request)
+        ctx["web_user_id"] = get_effective_uid(http_request)
 
         # Offload the blocking call to a thread to avoid blocking the event loop.
         loop = asyncio.get_running_loop()
@@ -217,7 +217,7 @@ async def list_chat_sessions(
     """获取聊天会话列表"""
     from src.storage import get_db
 
-    restrict_uid = get_effective_user_uid(http_request)
+    restrict_uid = get_effective_uid(http_request)
     sessions = get_db().get_chat_sessions(
         limit=limit,
         session_prefix=user_id,
@@ -236,7 +236,7 @@ async def get_chat_session_messages(
     """获取单个会话的完整消息"""
     from src.storage import get_db
 
-    uid = get_effective_user_uid(http_request)
+    uid = get_effective_uid(http_request)
     messages = get_db().get_conversation_messages(session_id, limit=limit, uid=uid)
     return SessionMessagesResponse(session_id=session_id, messages=messages)
 
@@ -246,7 +246,7 @@ async def delete_chat_session(http_request: Request, session_id: str):
     """删除指定会话"""
     from src.storage import get_db
 
-    uid = get_effective_user_uid(http_request)
+    uid = get_effective_uid(http_request)
     count = get_db().delete_conversation_session(session_id, uid=uid)
     return {"deleted": count}
 
@@ -406,7 +406,7 @@ async def agent_chat_stream(http_request: Request, body: ChatRequest):
     stream_ctx = dict(body.context or {})
     if skills is not None:
         stream_ctx["skills"] = skills
-    stream_ctx["web_user_id"] = get_effective_user_uid(http_request)
+    stream_ctx["web_user_id"] = get_effective_uid(http_request)
 
     def progress_callback(event: dict):
         # Enrich tool events with display names

@@ -72,14 +72,14 @@ def get_system_config_service(request: Request) -> SystemConfigService:
     return service
 
 
-def get_scoped_user_id(request: Request) -> Optional[int]:
-    """Return authenticated user uid for the current request."""
+def get_scoped_uid(request: Request) -> Optional[int]:
+    """Return authenticated uid for the current request."""
     return getattr(request.state, "uid", None)
 
 
-def get_effective_user_uid(request: Request) -> int:
-    """User uid for data scoping."""
-    uid = get_scoped_user_id(request)
+def get_effective_uid(request: Request) -> int:
+    """Return uid for data scoping."""
+    uid = get_scoped_uid(request)
     if uid is not None:
         return uid
     from src.repositories.user_repo import UserRepository

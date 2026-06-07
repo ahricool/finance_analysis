@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 
-from api.deps import get_effective_user_uid
+from api.deps import get_effective_uid
 
 from api.v1.schemas.common import ErrorResponse
 from api.v1.schemas.portfolio import (
@@ -48,7 +48,7 @@ router = APIRouter()
 
 
 def get_portfolio_service(request: Request) -> PortfolioService:
-    return PortfolioService(acting_uid=get_effective_user_uid(request))
+    return PortfolioService(acting_uid=get_effective_uid(request))
 
 
 def _bad_request(exc: Exception) -> HTTPException:

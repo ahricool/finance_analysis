@@ -47,16 +47,16 @@ class AuthSessionTestCase(unittest.TestCase):
 
     def test_create_session_returns_jwt(self) -> None:
         def run():
-            tok = auth.create_session(user_uid=1)
+            tok = auth.create_session(uid=1)
             self.assertTrue(tok, "session token should be non-empty")
             self.assertEqual(len(tok.split(".")), 3, "JWT format: header.payload.signature")
-            self.assertEqual(auth.parse_session_user_uid(tok), 1)
+            self.assertEqual(auth.parse_session_uid(tok), 1)
 
         self._patch_env_and_run(test_fn=run)
 
     def test_session_jwt_carries_only_uid_and_expiry(self) -> None:
         def run():
-            tok = auth.create_session(user_uid=2)
+            tok = auth.create_session(uid=2)
             payload = auth._jwt_decode(tok, auth._load_secret_key(), verify_signature=False)
             self.assertEqual(payload["uid"], 2)
             self.assertEqual(set(payload.keys()), {"uid", "iat", "exp"})
@@ -66,7 +66,7 @@ class AuthSessionTestCase(unittest.TestCase):
 
     def test_verify_session_valid_token(self) -> None:
         def run():
-            tok = auth.create_session(user_uid=3)
+            tok = auth.create_session(uid=3)
             self.assertTrue(auth.verify_session(tok))
 
         self._patch_env_and_run(test_fn=run)
@@ -76,7 +76,7 @@ class AuthSessionTestCase(unittest.TestCase):
             past = time.time() - (auth.JWT_EXPIRE_SECONDS + 3600)
             with patch.object(auth, "time") as mock_time:
                 mock_time.time.return_value = past
-                tok = auth.create_session(user_uid=4)
+                tok = auth.create_session(uid=4)
             self.assertFalse(auth.verify_session(tok), "expired token should be rejected")
 
         self._patch_env_and_run(test_fn=run)
