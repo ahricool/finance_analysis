@@ -20,15 +20,15 @@ logger = logging.getLogger(__name__)
 class ConversationSession:
     """A single multi-turn conversation session."""
     session_id: str
-    user_id: Optional[str] = None
+    user_id: Optional[int] = None
     context: Dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.now)
     last_active: datetime = field(default_factory=datetime.now)
 
-    def add_message(self, role: str, content: str, user_id: Optional[str] = None):
+    def add_message(self, role: str, content: str, user_id: Optional[int] = None):
         """Add a message to the session history."""
         uid = user_id if user_id is not None else self.user_id
-        get_db().save_conversation_message(self.session_id, role, content, user_id=uid)
+        get_db().save_conversation_message(self.session_id, role, content, uid=uid)
         self.last_active = datetime.now()
 
     def update_context(self, key: str, value: Any):
@@ -40,7 +40,7 @@ class ConversationSession:
         """Get message history."""
         messages = get_db().get_conversation_history(
             self.session_id,
-            user_id=self.user_id,
+            uid=self.user_id,
         )
         return messages
 
@@ -53,7 +53,7 @@ class ConversationManager:
         self.ttl = timedelta(minutes=ttl_minutes)
         self._lock = threading.RLock()
 
-    def get_or_create(self, session_id: str, user_id: Optional[str] = None) -> ConversationSession:
+    def get_or_create(self, session_id: str, user_id: Optional[int] = None) -> ConversationSession:
         """Get an existing session or create a new one."""
         with self._lock:
             self._cleanup_expired()
@@ -77,7 +77,7 @@ class ConversationManager:
         session_id: str,
         role: str,
         content: str,
-        user_id: Optional[str] = None,
+        user_id: Optional[int] = None,
     ):
         """Add a message to a session."""
         session = self.get_or_create(session_id, user_id=user_id)

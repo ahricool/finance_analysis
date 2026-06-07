@@ -1,12 +1,9 @@
 import apiClient from './index';
 
 export type AuthStatusResponse = {
-  authEnabled: boolean;
   loggedIn: boolean;
-  passwordChangeable?: boolean;
-  setupState: 'enabled';
   user?: {
-    uid: string;
+    uid: number;
     username: string;
     email: string;
     avatarUrl: string | null;

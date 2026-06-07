@@ -8,7 +8,6 @@ import hashlib
 import hmac
 import logging
 import secrets
-import uuid
 from typing import Any, Dict, Optional
 
 from sqlalchemy import func, select
@@ -58,7 +57,7 @@ class UserRepository:
     def __init__(self, db: Optional[DatabaseManager] = None):
         self.db = db or DatabaseManager.get_instance()
 
-    def get_by_uid(self, uid: str) -> Optional[User]:
+    def get_by_uid(self, uid: int) -> Optional[User]:
         with self.db.get_session() as session:
             return session.get(User, uid)
 
@@ -80,7 +79,7 @@ class UserRepository:
                 select(User).where(func.lower(User.email) == key).limit(1)
             ).scalars().first()
 
-    def verify_plain_for_uid(self, uid: str, plain: str) -> bool:
+    def verify_plain_for_uid(self, uid: int, plain: str) -> bool:
         user = self.get_by_uid(uid)
         if user is None or not user.password_hash:
             return False
@@ -100,7 +99,7 @@ class UserRepository:
             return user
         return None
 
-    def set_password_hash(self, uid: str, password_hash: str) -> bool:
+    def set_password_hash(self, uid: int, password_hash: str) -> bool:
         def _write(session: Session) -> bool:
             row = session.get(User, uid)
             if row is None:
@@ -111,12 +110,12 @@ class UserRepository:
 
         return self.db._run_write_transaction("users.set_password", _write)
 
-    def set_plain_password(self, uid: str, plain: str) -> None:
+    def set_plain_password(self, uid: int, plain: str) -> None:
         self.set_password_hash(uid, _hash_password(plain))
 
     def any_user_has_password(self) -> bool:
         with self.db.get_session() as session:
-            stmt = select(User.uid).where(User.password_hash.is_not(None)).limit(1)
+            stmt = select(User.id).where(User.password_hash.is_not(None)).limit(1)
             return session.execute(stmt).scalar() is not None
 
     def count_users(self) -> int:
@@ -141,12 +140,10 @@ class UserRepository:
         if self.get_by_email(email_key):
             raise ValueError(f"email already registered: {email_key}")
 
-        uid = str(uuid.uuid4())
         pwd_hash = _hash_password(password) if password else None
 
-        def _write(session: Session) -> User:
+        def _write(session: Session) -> int:
             row = User(
-                uid=uid,
                 email=email_key,
                 username=username_val,
                 password_hash=pwd_hash,
@@ -156,9 +153,9 @@ class UserRepository:
             )
             session.add(row)
             session.flush()
-            return row
+            return row.id
 
-        self.db._run_write_transaction("users.create", _write)
+        uid = self.db._run_write_transaction("users.create", _write)
         created = self.get_by_uid(uid)
         if created is None:
             raise RuntimeError("failed to load user after create")
@@ -171,7 +168,7 @@ class UserRepository:
             return None
         return not bool(user.password_hash)
 
-    def ensure_default_admin(self) -> str:
+    def ensure_default_admin(self) -> int:
         """
         Ensure built-in admin ``Ahri`` exists. Returns the admin uid.
 
@@ -184,11 +181,9 @@ class UserRepository:
                 .limit(1)
             ).scalars().first()
             if existing:
-                return existing.uid
+                return existing.id
 
-            uid = str(uuid.uuid4())
             row = User(
-                uid=uid,
                 username=DEFAULT_ADMIN_USERNAME,
                 email=DEFAULT_ADMIN_EMAIL,
                 password_hash=None,
@@ -197,6 +192,8 @@ class UserRepository:
                 extra={},
             )
             session.add(row)
+            session.flush()
+            uid = row.id
             session.commit()
             logger.info(
                 "Created default admin user %s (%s) without password — set via first login",
@@ -207,7 +204,7 @@ class UserRepository:
 
     def to_public_dict(self, user: User) -> Dict[str, Any]:
         return {
-            "uid": user.uid,
+            "uid": user.id,
             "username": user.username,
             "email": user.email,
             "avatarUrl": user.avatar_url,

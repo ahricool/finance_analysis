@@ -24,35 +24,35 @@ class StockListRepo:
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
-    def list_all(self, user_id: Optional[str] = None) -> List[StockHolding]:
+    def list_all(self, uid: Optional[int] = None) -> List[StockHolding]:
         with self.db.get_session() as session:
             stmt = select(StockHolding).order_by(StockHolding.created_at)
-            if user_id is not None:
-                stmt = stmt.where(StockHolding.user_id == user_id)
+            if uid is not None:
+                stmt = stmt.where(StockHolding.uid == uid)
             return session.execute(stmt).scalars().all()
 
-    def get_by_id(self, item_id: int, user_id: Optional[str] = None) -> Optional[StockHolding]:
+    def get_by_id(self, item_id: int, uid: Optional[int] = None) -> Optional[StockHolding]:
         with self.db.get_session() as session:
             obj = session.get(StockHolding, item_id)
             if obj is None:
                 return None
-            if user_id is not None and obj.user_id != user_id:
+            if uid is not None and obj.uid != uid:
                 return None
             return obj
 
-    def get_by_code(self, code: str, user_id: Optional[str] = None) -> Optional[StockHolding]:
+    def get_by_code(self, code: str, uid: Optional[int] = None) -> Optional[StockHolding]:
         with self.db.get_session() as session:
             stmt = select(StockHolding).where(StockHolding.code == code.upper())
-            if user_id is not None:
-                stmt = stmt.where(StockHolding.user_id == user_id)
+            if uid is not None:
+                stmt = stmt.where(StockHolding.uid == uid)
             return session.execute(stmt).scalars().first()
 
-    def get_codes(self, user_id: Optional[str] = None) -> List[str]:
+    def get_codes(self, uid: Optional[int] = None) -> List[str]:
         """Return all stock codes in the holdings list (used as analysis targets)."""
         with self.db.get_session() as session:
             stmt = select(StockHolding.code)
-            if user_id is not None:
-                stmt = stmt.where(StockHolding.user_id == user_id)
+            if uid is not None:
+                stmt = stmt.where(StockHolding.uid == uid)
             return list(session.execute(stmt).scalars().all())
 
     # ── Write ─────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ class StockListRepo:
     def create(
         self,
         *,
-        user_id: str,
+        uid: int,
         code: str,
         name: Optional[str] = None,
         quantity: int = 0,
@@ -68,7 +68,7 @@ class StockListRepo:
         market_type: Optional[str] = None,
     ) -> StockHolding:
         item = StockHolding(
-            user_id=user_id,
+            uid=uid,
             code=code.upper().strip(),
             name=(name or "").strip() or None,
             quantity=max(0, quantity),
@@ -90,7 +90,7 @@ class StockListRepo:
         self,
         item_id: int,
         *,
-        user_id: Optional[str] = None,
+        uid: Optional[int] = None,
         name: Optional[str] = None,
         quantity: Optional[int] = None,
         notes: Optional[str] = None,
@@ -100,7 +100,7 @@ class StockListRepo:
             obj = session.get(StockHolding, item_id)
             if obj is None:
                 return None
-            if user_id is not None and obj.user_id != user_id:
+            if uid is not None and obj.uid != uid:
                 return None
             if name is not None:
                 obj.name = name.strip() or None
@@ -117,12 +117,12 @@ class StockListRepo:
 
         return self.db._run_write_transaction("stock_list.update", _write)
 
-    def delete(self, item_id: int, user_id: Optional[str] = None) -> bool:
+    def delete(self, item_id: int, uid: Optional[int] = None) -> bool:
         def _write(session: Session) -> bool:
             obj = session.get(StockHolding, item_id)
             if obj is None:
                 return False
-            if user_id is not None and obj.user_id != user_id:
+            if uid is not None and obj.uid != uid:
                 return False
             session.delete(obj)
             return True

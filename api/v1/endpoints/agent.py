@@ -222,7 +222,7 @@ async def list_chat_sessions(
         limit=limit,
         session_prefix=user_id,
         extra_session_ids=[user_id] if user_id else None,
-        restrict_user_id=restrict_uid,
+        restrict_uid=restrict_uid,
     )
     return SessionsResponse(sessions=sessions)
 
@@ -237,7 +237,7 @@ async def get_chat_session_messages(
     from src.storage import get_db
 
     uid = get_effective_user_uid(http_request)
-    messages = get_db().get_conversation_messages(session_id, limit=limit, user_id=uid)
+    messages = get_db().get_conversation_messages(session_id, limit=limit, uid=uid)
     return SessionMessagesResponse(session_id=session_id, messages=messages)
 
 
@@ -247,7 +247,7 @@ async def delete_chat_session(http_request: Request, session_id: str):
     from src.storage import get_db
 
     uid = get_effective_user_uid(http_request)
-    count = get_db().delete_conversation_session(session_id, user_id=uid)
+    count = get_db().delete_conversation_session(session_id, uid=uid)
     return {"deleted": count}
 
 

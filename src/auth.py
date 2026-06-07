@@ -9,6 +9,7 @@ Credentials are stored in the database. Session cookies are signed JWTs
 from __future__ import annotations
 
 import argparse
+import base64
 import getpass
 import hashlib
 import os
@@ -50,7 +51,7 @@ def _ensure_env_loaded() -> None:
     setup_env()
 
 
-def  _load_secret_key() -> str:
+def _load_secret_key() -> str:
     global _secret_key
     if _secret_key is not None:
         return _secret_key
@@ -66,6 +67,37 @@ def  _load_secret_key() -> str:
     return _secret_key
 
 
+def _jwt_oct_key(secret: str):
+    """Build a JWK HMAC key for the Gehirn ``jwt`` package fallback."""
+    key = base64.urlsafe_b64encode(secret.encode("utf-8")).rstrip(b"=").decode("ascii")
+    return jwt.jwk_from_dict({"kty": "oct", "k": key})
+
+
+def _jwt_encode(payload: dict, secret: str) -> str:
+    """Encode JWT using PyJWT when available, otherwise the installed ``jwt`` API."""
+    if hasattr(jwt, "encode"):
+        return jwt.encode(payload, secret, algorithm=JWT_ALGORITHM)
+    return jwt.JWT().encode(payload, _jwt_oct_key(secret), alg=JWT_ALGORITHM)
+
+
+def _jwt_decode(value: str, secret: str, *, verify_signature: bool = True) -> dict:
+    """Decode JWT using PyJWT when available, otherwise the installed ``jwt`` API."""
+    if hasattr(jwt, "decode"):
+        if verify_signature:
+            return jwt.decode(value, secret, algorithms=[JWT_ALGORITHM])
+        return jwt.decode(value, options={"verify_signature": False})
+
+    key = _jwt_oct_key(secret) if verify_signature else None
+    algorithms = {JWT_ALGORITHM} if verify_signature else None
+    return jwt.JWT().decode(
+        value,
+        key,
+        do_verify=verify_signature,
+        algorithms=algorithms,
+        do_time_check=verify_signature,
+    )
+
+
 def validate_password(pwd: str) -> Optional[str]:
     """Return an error message if invalid, otherwise None."""
     if not pwd or not pwd.strip():
@@ -75,9 +107,9 @@ def validate_password(pwd: str) -> Optional[str]:
     return None
 
 
-def create_session(*, user_uid: str) -> str:
+def create_session(*, user_uid: int) -> str:
     """Create a signed JWT session cookie value carrying only the user uid."""
-    if not (user_uid or "").strip():
+    if not isinstance(user_uid, int) or user_uid <= 0:
         return ""
 
     now = int(time.time())
@@ -86,20 +118,20 @@ def create_session(*, user_uid: str) -> str:
         "iat": now,
         "exp": now + JWT_EXPIRE_SECONDS,
     }
-    return jwt.encode(payload, _load_secret_key(), algorithm=JWT_ALGORITHM)
+    return _jwt_encode(payload, _load_secret_key())
 
 
-def parse_session_user_uid(value: str) -> Optional[str]:
+def parse_session_user_uid(value: str) -> Optional[int]:
     """Verify the JWT session cookie and return the embedded user uid."""
     if not value:
         return None
     try:
-        payload = jwt.decode(value, _load_secret_key(), algorithms=[JWT_ALGORITHM])
-    except (ValueError, jwt.InvalidTokenError):
+        payload = _jwt_decode(value, _load_secret_key())
+    except Exception:
         return None
 
     uid = payload.get("uid")
-    if not isinstance(uid, str) or not uid:
+    if not isinstance(uid, int) or uid <= 0:
         return None
     return uid
 
@@ -192,7 +224,7 @@ def add_user_cli(email: str, username: str, role: str = "user") -> int:
         return 1
 
     user = repo.create_user(email=email, username=username, role=role)
-    print(f"User created: uid={user.uid} email={user.email} username={user.username} role={user.role}")
+    print(f"User created: uid={user.id} email={user.email} username={user.username} role={user.role}")
     print("Password is unset; user must complete first-time setup on the login page.")
     return 0
 
@@ -217,7 +249,7 @@ def set_password_cli(email: str) -> int:
     if pwd is None:
         return 1
 
-    repo.set_plain_password(user.uid, pwd)
+    repo.set_plain_password(user.id, pwd)
     print(f"Password updated for {email}")
     return 0
 

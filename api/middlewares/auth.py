@@ -68,7 +68,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 content={"error": "unauthorized", "message": "Login required"},
             )
 
-        request.state.user_id = user_uid
+        request.state.uid = user_uid
         return await call_next(request)
 
 

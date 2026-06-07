@@ -50,7 +50,7 @@ def get_usage_summary(
     from_dt, to_dt = _date_range(period)
 
     uid = get_effective_user_uid(http_request)
-    data = db_manager.get_llm_usage_summary(from_dt, to_dt, user_id=uid)
+    data = db_manager.get_llm_usage_summary(from_dt, to_dt, uid=uid)
 
     return UsageSummaryResponse(
         period=period,

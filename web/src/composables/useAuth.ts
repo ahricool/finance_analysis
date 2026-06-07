@@ -7,20 +7,14 @@ import { useAuthStore } from '@/stores/authStore';
 export function useAuth() {
   const store = useAuthStore();
   const {
-    authEnabled,
     loggedIn,
-    passwordChangeable,
-    setupState,
     currentUser,
     isLoading,
     loadError,
   } = storeToRefs(store);
 
   return {
-    authEnabled,
     loggedIn,
-    passwordChangeable,
-    setupState,
     currentUser,
     isLoading,
     loadError,

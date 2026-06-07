@@ -130,9 +130,9 @@ onUnmounted(() => {
     style="background-image: url('/background.png')"
   >
     <div
-      class="relative mx-auto flex min-h-screen w-full max-w-[1280px] items-center justify-center px-3 py-10 sm:px-4 lg:justify-end lg:px-6 lg:pr-10 xl:pr-16"
+      class="relative grid min-h-screen w-full grid-cols-1 place-items-center px-3 py-10 sm:px-4 lg:grid-cols-2 lg:px-6"
     >
-      <div class="w-full max-w-[340px] shrink-0 -translate-y-4 sm:-translate-y-6">
+      <div class="w-full max-w-[340px] shrink-0 -translate-y-4 sm:-translate-y-6 lg:col-start-2">
         <div class="mb-6 flex items-center gap-2">
           <span
             class="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card"

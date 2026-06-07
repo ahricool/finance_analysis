@@ -19,10 +19,7 @@ function extractLoginError(err: unknown): ParsedApiError {
 }
 
 export const useAuthStore = defineStore('auth', () => {
-  const authEnabled = ref(true);
   const loggedIn = ref(false);
-  const passwordChangeable = ref(false);
-  const setupState = ref<'enabled'>('enabled');
   const currentUser = ref<AuthStatusResponse['user']>(null);
   const isLoading = ref(true);
   const loadError = ref<ParsedApiError | null>(null);
@@ -32,20 +29,14 @@ export const useAuthStore = defineStore('auth', () => {
     loadError.value = null;
     try {
       const status = await authApi.getStatus();
-      authEnabled.value = status.authEnabled;
       loggedIn.value = status.loggedIn;
-      passwordChangeable.value = status.passwordChangeable ?? false;
-      setupState.value = status.setupState;
       currentUser.value = status.user ?? null;
       if (!status.loggedIn) {
         useStockPoolStore.getState().resetDashboardState();
       }
     } catch (err) {
       loadError.value = getParsedApiError(err);
-      authEnabled.value = true;
       loggedIn.value = false;
-      passwordChangeable.value = false;
-      setupState.value = 'enabled';
       currentUser.value = null;
       useStockPoolStore.getState().resetDashboardState();
     } finally {
@@ -123,10 +114,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    authEnabled,
     loggedIn,
-    passwordChangeable,
-    setupState,
     currentUser,
     isLoading,
     loadError,

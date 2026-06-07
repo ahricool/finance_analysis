@@ -18,27 +18,18 @@ alembic current
 # 升级到最新
 alembic upgrade head
 
-# 生成空 revision（手写 DDL）
-alembic revision -m "add_xyz_column"
-
-# 根据 ORM 与数据库差异自动生成（需能连上目标库）
-alembic revision --autogenerate -m "describe_change"
+# 当前系统未正式上线：不要新增增量 revision。
+# 如需调整 schema，直接修改 ORM，并更新 0001_baseline_orm_metadata。
 ```
-
-生成后务必**人工检查** `alembic/versions/` 下的脚本（索引、重命名、数据回填等 autogenerate 常不完美）。
 
 ## 初始基线
 
 `0001_baseline_orm_metadata` 在 `upgrade` 中调用 `Base.metadata.create_all()`，用于：
 
-- 全新空库一次性建表；
-- 已有与 ORM 一致的库：对已存在的表基本为 no-op，并写入 `alembic_version` 以便后续增量迁移。
+- 全新空库一次性建表。
+- 预上线阶段把所有 schema 调整归一到这个初始版本。
 
-后续变更请新增 revision，**避免**再依赖 `create_all` 作为长期方案。
-
-## 与 `src/db_schema.py` 的关系
-
-`run_user_scoped_migrations` 仍可在启动后做少量**数据/兼容**修正（例如历史行的 `user_id` 回填）。**新增列、改约束**等结构性变更应优先放在 Alembic revision 中，便于审计与回滚。
+正式上线前不维护历史兼容迁移，也不保留启动后的轻量补迁移；一致性与数据初始化由业务逻辑保证。
 
 ## Docker / CI
 

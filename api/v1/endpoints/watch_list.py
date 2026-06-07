@@ -34,7 +34,7 @@ def _repo() -> WatchListRepo:
 @router.get("", response_model=WatchListResponse, summary="获取自选股列表")
 def list_watch_list(http_request: Request):
     uid = get_effective_user_uid(http_request)
-    items = _repo().list_all(user_id=uid)
+    items = _repo().list_all(uid=uid)
     return WatchListResponse(
         items=[WatchListItemResponse.model_validate(i) for i in items],
         total=len(items),
@@ -45,11 +45,11 @@ def list_watch_list(http_request: Request):
 def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
     uid = get_effective_user_uid(http_request)
     repo = _repo()
-    if repo.get_by_code(body.code, user_id=uid):
+    if repo.get_by_code(body.code, uid=uid):
         raise HTTPException(status_code=409, detail=f"股票 {body.code} 已在自选股中")
     try:
         item = repo.create(
-            user_id=uid,
+            uid=uid,
             code=body.code,
             name=body.name,
             notes=body.notes,
@@ -67,7 +67,7 @@ def update_watch_list_item(http_request: Request, item_id: int, body: WatchListI
     uid = get_effective_user_uid(http_request)
     item = _repo().update(
         item_id=item_id,
-        user_id=uid,
+        uid=uid,
         name=body.name,
         notes=body.notes,
         market_type=body.market_type,
@@ -81,6 +81,6 @@ def update_watch_list_item(http_request: Request, item_id: int, body: WatchListI
 @router.delete("/{item_id}", status_code=204, summary="删除自选股")
 def delete_watch_list_item(http_request: Request, item_id: int):
     uid = get_effective_user_uid(http_request)
-    deleted = _repo().delete(item_id, user_id=uid)
+    deleted = _repo().delete(item_id, uid=uid)
     if not deleted:
         raise HTTPException(status_code=404, detail="未找到该自选股")

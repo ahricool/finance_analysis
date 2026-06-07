@@ -87,10 +87,10 @@ class PortfolioService:
         self,
         repo: Optional[PortfolioRepository] = None,
         *,
-        acting_owner_id: Optional[str] = None,
+        acting_uid: Optional[int] = None,
     ):
         self.repo = repo or PortfolioRepository()
-        self._acting_owner_id = acting_owner_id
+        self._acting_uid = acting_uid
 
     # ------------------------------------------------------------------
     # Account CRUD
@@ -102,29 +102,29 @@ class PortfolioService:
         broker: Optional[str],
         market: str,
         base_currency: str,
-        owner_id: Optional[str] = None,
+        uid: Optional[int] = None,
     ) -> Dict[str, Any]:
         name_norm = (name or "").strip()
         if not name_norm:
             raise ValueError("name is required")
         market_norm = self._normalize_market(market)
         base_currency_norm = self._normalize_currency(base_currency)
-        effective_owner = (owner_id or "").strip() or None
-        if self._acting_owner_id is not None:
-            effective_owner = self._acting_owner_id
+        effective_uid = uid
+        if self._acting_uid is not None:
+            effective_uid = self._acting_uid
         row = self.repo.create_account(
             name=name_norm,
             broker=(broker or "").strip() or None,
             market=market_norm,
             base_currency=base_currency_norm,
-            owner_id=effective_owner,
+            uid=effective_uid,
         )
         return self._account_to_dict(row)
 
     def list_accounts(self, include_inactive: bool = False) -> List[Dict[str, Any]]:
         rows = self.repo.list_accounts(
             include_inactive=include_inactive,
-            owner_id=self._acting_owner_id,
+            uid=self._acting_uid,
         )
         return [self._account_to_dict(r) for r in rows]
 
@@ -136,20 +136,20 @@ class PortfolioService:
         broker: Optional[str] = None,
         market: Optional[str] = None,
         base_currency: Optional[str] = None,
-        owner_id: Optional[str] = None,
+        uid: Optional[int] = None,
         is_active: Optional[bool] = None,
     ) -> Optional[Dict[str, Any]]:
-        if self._acting_owner_id is not None:
+        if self._acting_uid is not None:
             if (
                 self.repo.get_account(
                     account_id,
                     include_inactive=True,
-                    owner_id=self._acting_owner_id,
+                    uid=self._acting_uid,
                 )
                 is None
             ):
                 return None
-            owner_id = None  # disallow owner transfer via API when scoped
+            uid = None  # disallow user transfer via API when scoped
         fields: Dict[str, Any] = {}
         if name is not None:
             name_norm = name.strip()
@@ -162,8 +162,8 @@ class PortfolioService:
             fields["market"] = self._normalize_market(market)
         if base_currency is not None:
             fields["base_currency"] = self._normalize_currency(base_currency)
-        if owner_id is not None:
-            fields["owner_id"] = owner_id.strip() or None
+        if uid is not None:
+            fields["uid"] = uid
         if is_active is not None:
             fields["is_active"] = bool(is_active)
         if not fields:
@@ -175,12 +175,12 @@ class PortfolioService:
         return self._account_to_dict(row)
 
     def deactivate_account(self, account_id: int) -> bool:
-        if self._acting_owner_id is not None:
+        if self._acting_uid is not None:
             if (
                 self.repo.get_account(
                     account_id,
                     include_inactive=True,
-                    owner_id=self._acting_owner_id,
+                    uid=self._acting_uid,
                 )
                 is None
             ):
@@ -491,7 +491,7 @@ class PortfolioService:
         else:
             account_rows = self.repo.list_accounts(
                 include_inactive=False,
-                owner_id=self._acting_owner_id,
+                uid=self._acting_uid,
             )
 
         accounts_payload: List[Dict[str, Any]] = []
@@ -624,7 +624,7 @@ class PortfolioService:
         else:
             account_rows = self.repo.list_accounts(
                 include_inactive=False,
-                owner_id=self._acting_owner_id,
+                uid=self._acting_uid,
             )
 
         summary = {
@@ -953,7 +953,7 @@ class PortfolioService:
         account_payload = {
             "account_id": account.id,
             "account_name": account.name,
-            "owner_id": account.owner_id,
+            "uid": account.uid,
             "broker": account.broker,
             "market": account.market,
             "base_currency": account.base_currency,
@@ -1515,7 +1515,7 @@ class PortfolioService:
         account = self.repo.get_account(
             account_id,
             include_inactive=False,
-            owner_id=self._acting_owner_id,
+            uid=self._acting_uid,
         )
         if account is None:
             raise ValueError(f"Active account not found: {account_id}")
@@ -1526,7 +1526,7 @@ class PortfolioService:
             session=session,
             account_id=account_id,
             include_inactive=False,
-            owner_id=self._acting_owner_id,
+            uid=self._acting_uid,
         )
         if account is None:
             raise ValueError(f"Active account not found: {account_id}")
@@ -1556,7 +1556,7 @@ class PortfolioService:
     def _account_to_dict(row: Any) -> Dict[str, Any]:
         return {
             "id": row.id,
-            "owner_id": row.owner_id,
+            "uid": row.uid,
             "name": row.name,
             "broker": row.broker,
             "market": row.market,

@@ -368,7 +368,7 @@ def run_agent_loop(
     thinking_labels: Optional[Dict[str, str]] = None,
     max_wall_clock_seconds: Optional[float] = None,
     tool_call_timeout_seconds: Optional[float] = None,
-    usage_user_id: Optional[str] = None,
+    usage_user_id: Optional[int] = None,
 ) -> RunLoopResult:
     """Execute the ReAct LLM ↔ tool loop.
 
@@ -479,7 +479,7 @@ def run_agent_loop(
                 response.usage,
                 model_for_usage,
                 call_type="agent",
-                user_id=usage_user_id,
+                uid=usage_user_id,
             )
 
         remaining_timeout = _remaining_timeout_seconds(start_time, max_wall_clock_seconds)
