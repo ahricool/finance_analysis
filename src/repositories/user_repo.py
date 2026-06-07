@@ -19,8 +19,8 @@ from src.storage import DatabaseManager, User
 logger = logging.getLogger(__name__)
 
 PBKDF2_ITERATIONS = 100_000
-DEFAULT_ADMIN_USERNAME = "ahri"
-DEFAULT_ADMIN_EMAIL = "ahri@localhost"
+DEFAULT_ADMIN_USERNAME = "Ahri"
+DEFAULT_ADMIN_EMAIL = "whoreahri@gmail.com"
 
 
 def _hash_password(plain: str) -> str:
@@ -173,7 +173,7 @@ class UserRepository:
 
     def ensure_default_admin(self) -> str:
         """
-        Ensure built-in admin ``ahri`` exists. Returns the admin uid.
+        Ensure built-in admin ``Ahri`` exists. Returns the admin uid.
 
         Password is left unset until the user completes first-time setup on the login page.
         """

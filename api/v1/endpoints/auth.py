@@ -178,14 +178,14 @@ async def auth_login(request: Request, body: LoginRequest):
         return JSONResponse(
             status_code=401,
             content={"error": "invalid_credentials", "message": "Invalid email or password"},
+        )  
+    if not password:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "password_required", "message": "Password is required"},
         )
 
     if not user.password_hash:
-        if not password:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "password_required", "message": "Password is required"},
-            )
         confirm = (body.password_confirm or "").strip()
         if not confirm:
             return JSONResponse(
@@ -205,12 +205,6 @@ async def auth_login(request: Request, body: LoginRequest):
         repo.set_plain_password(user.uid, password)
         clear_rate_limit(ip)
         return JSONResponse(content={"ok": True, "requiresRelogin": True})
-
-    if not password:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "password_required", "message": "Password is required"},
-        )
 
     if repo.verify_credentials(email, password) is None:
         record_login_failure(ip)
