@@ -65,12 +65,16 @@ class WatchListRepo:
         code: str,
         name: Optional[str] = None,
         notes: Optional[str] = None,
+        market_type: Optional[str] = None,
+        is_favorite: bool = False,
     ) -> WatchListItem:
         item = WatchListItem(
             uid=uid,
             code=code.upper().strip(),
             name=(name or "").strip() or None,
             notes=(notes or "").strip() or None,
+            market_type=normalize_market_type(market_type, code),
+            is_favorite=bool(is_favorite),
             created_at=datetime.now(),
             updated_at=datetime.now(),
         )
@@ -90,6 +94,8 @@ class WatchListRepo:
         uid: Optional[int] = None,
         name: Optional[str] = None,
         notes: Optional[str] = None,
+        market_type: Optional[str] = None,
+        is_favorite: Optional[bool] = None,
     ) -> Optional[WatchListItem]:
         def _write(session: Session) -> Optional[WatchListItem]:
             obj = session.get(WatchListItem, item_id)
@@ -101,6 +107,10 @@ class WatchListRepo:
                 obj.name = name.strip() or None
             if notes is not None:
                 obj.notes = notes.strip() or None
+            if market_type is not None:
+                obj.market_type = normalize_market_type(market_type, obj.code)
+            if is_favorite is not None:
+                obj.is_favorite = bool(is_favorite)
             obj.updated_at = datetime.now()
             session.flush()
             session.refresh(obj)

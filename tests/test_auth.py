@@ -93,7 +93,14 @@ class AuthSessionTestCase(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("SECRET_KEY", None)
             _reset_auth_globals()
-            self.assertTrue(auth._load_secret_key())
+            self.assertGreaterEqual(len(auth._load_secret_key().encode("utf-8")), 32)
+
+    def test_load_secret_key_derives_short_configured_secret(self) -> None:
+        with patch.dict(os.environ, {"SECRET_KEY": "short-secret"}):
+            _reset_auth_globals()
+            secret = auth._load_secret_key()
+            self.assertNotEqual(secret, "short-secret")
+            self.assertGreaterEqual(len(secret.encode("utf-8")), 32)
 
 
 class AuthRateLimitTestCase(unittest.TestCase):

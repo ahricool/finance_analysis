@@ -133,13 +133,13 @@ onUnmounted(() => {
       class="relative grid min-h-screen w-full grid-cols-1 place-items-center px-3 py-10 sm:px-4 lg:grid-cols-2 lg:px-6"
     >
       <div class="w-full max-w-[340px] shrink-0 -translate-y-4 sm:-translate-y-6 lg:col-start-2">
-        <div class="mb-6 flex items-center gap-2">
+        <div class="mb-6 flex items-center gap-2.5">
           <span
-            class="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card"
+            class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card"
           >
-            <img src="/flower.svg" alt="" class="h-8 w-8" />
+            <img src="/flower.svg" alt="" class="h-11 w-11" />
           </span>
-          <span class="font-display text-base leading-none text-white [text-shadow:0_1px_6px_rgb(0_0_0_/_0.35)]">{{ APP_NAME }}</span>
+          <span class="font-display text-xl leading-none text-foreground">{{ APP_NAME }}</span>
         </div>
 
         <div class="rounded-2xl border border-border/80 bg-card p-6 shadow-soft-card sm:p-7">
