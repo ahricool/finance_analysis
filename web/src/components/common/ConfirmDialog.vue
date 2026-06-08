@@ -29,7 +29,7 @@ const emit = defineEmits<{
       @click="emit('cancel')"
     >
       <div
-        class="mx-4 w-full max-w-sm rounded-xl border border-border/70 bg-elevated p-6 shadow-2xl animate-in fade-in zoom-in duration-200"
+        class="mx-4 w-full max-w-sm rounded-2xl border border-border/70 bg-elevated p-6 shadow-soft-card-strong animate-in fade-in zoom-in duration-200"
         @click.stop
       >
         <h3 class="mb-2 text-lg font-medium text-foreground">{{ title }}</h3>
@@ -39,7 +39,7 @@ const emit = defineEmits<{
         <div class="flex justify-end gap-3">
           <button
             type="button"
-            class="rounded-lg border border-border/70 px-4 py-2 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground"
+            class="inline-flex h-10 items-center justify-center rounded-xl border border-border/70 px-4 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground"
             @click="emit('cancel')"
           >
             {{ cancelText }}
@@ -48,8 +48,8 @@ const emit = defineEmits<{
             type="button"
             :class="
               isDanger
-                ? 'rounded-lg bg-red-500/80 px-4 py-2 text-sm font-medium text-foreground shadow-lg shadow-red-500/20 transition-colors hover:bg-red-500'
-                : 'rounded-lg bg-cyan/80 px-4 py-2 text-sm font-medium text-foreground shadow-lg shadow-cyan/20 transition-colors hover:bg-cyan'
+                ? 'inline-flex h-10 items-center justify-center rounded-xl bg-red-500/80 px-4 text-sm font-medium text-foreground shadow-danger/20 transition-colors hover:bg-red-500'
+                : 'inline-flex h-10 items-center justify-center rounded-xl bg-primary-gradient px-4 text-sm font-medium text-primary-foreground shadow-cyan/20 transition-colors hover:brightness-105'
             "
             @click="emit('confirm')"
           >

@@ -20,11 +20,11 @@ type Variant =
 type Size = 'xsm' | 'sm' | 'md' | 'lg' | 'xl';
 
 const BUTTON_SIZE_STYLES: Record<Size, string> = {
-  xsm: 'h-6 rounded-lg px-2 text-sm',
-  sm: 'h-9 rounded-lg px-3 text-sm',
+  xsm: 'h-7 rounded-lg px-2.5 text-xs',
+  sm: 'h-9 rounded-xl px-3.5 text-sm',
   md: 'h-10 rounded-xl px-4 text-sm',
   lg: 'h-11 rounded-xl px-5 text-sm',
-  xl: 'h-12 rounded-xl px-6 text-sm',
+  xl: 'h-12 rounded-2xl px-6 text-base',
 };
 
 const ACTION_AI_STYLES =
@@ -33,14 +33,14 @@ const ACTION_REPORT_STYLES =
   'bg-[var(--home-action-report-bg)] border border-[var(--home-action-report-border)] text-[var(--home-action-report-text)] hover:bg-[var(--home-action-report-hover-bg)]';
 
 const BUTTON_VARIANT_STYLES: Record<Variant, string> = {
-  primary: 'border border-primary/20 bg-primary-gradient text-primary-foreground shadow-lg shadow-cyan/20 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-cyan/22',
-  secondary: 'border border-border/80 bg-card/90 text-foreground shadow-soft-card hover:-translate-y-0.5 hover:border-primary/25 hover:bg-muted/60',
-  'settings-primary': 'border settings-button-primary hover:brightness-105 hover:shadow-xl',
+  primary: 'border border-primary/20 bg-primary-gradient text-primary-foreground shadow-cyan/20 hover:-translate-y-0.5 hover:brightness-105 hover:shadow-cyan/22',
+  secondary: 'border border-border/80 bg-card/92 text-foreground shadow-soft-card hover:-translate-y-0.5 hover:border-primary/25 hover:bg-muted/70',
+  'settings-primary': 'border settings-button-primary hover:brightness-105',
   'settings-secondary': 'border settings-button-secondary hover:translate-y-[-1px]',
   outline: 'border border-primary/25 bg-transparent text-cyan hover:-translate-y-0.5 hover:bg-cyan/10',
   ghost: 'border border-transparent bg-transparent text-secondary-text hover:bg-hover hover:text-foreground',
-  gradient: 'border border-primary/20 bg-gradient-to-r from-cyan to-accent-secondary text-primary-foreground shadow-lg shadow-cyan/20 hover:-translate-y-0.5 hover:brightness-110',
-  danger: 'border border-danger/40 bg-danger text-destructive-foreground shadow-lg shadow-danger/20 hover:-translate-y-0.5 hover:brightness-105',
+  gradient: 'border border-primary/20 bg-primary-gradient text-primary-foreground shadow-cyan/20 hover:-translate-y-0.5 hover:brightness-105',
+  danger: 'border border-danger/40 bg-danger text-destructive-foreground shadow-danger/20 hover:-translate-y-0.5 hover:brightness-105',
   'danger-subtle': 'border border-danger/60 bg-danger/10 text-danger hover:bg-danger/15',
   'action-primary': ACTION_AI_STYLES,
   'action-secondary': ACTION_REPORT_STYLES,
