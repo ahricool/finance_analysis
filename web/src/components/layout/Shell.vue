@@ -27,7 +27,7 @@ async function onLogoutConfirm() {
 <template>
   <div class="min-h-screen bg-background text-foreground">
     <header
-      class="fixed inset-x-0 top-0 z-50 border-b border-border/70 bg-card/90 shadow-[0_8px_26px_hsl(222_32%_18%/0.08)] backdrop-blur-xl"
+      class="fixed inset-x-0 top-0 z-50 border-b border-border/70 bg-card/90 shadow-soft-card backdrop-blur-xl"
     >
       <div class="mx-auto flex h-16 w-full max-w-[1280px] items-center gap-3 px-3 sm:px-4 lg:px-6">
         <RouterLink
@@ -109,7 +109,7 @@ async function onLogoutConfirm() {
             <div
               class="invisible absolute right-0 top-full z-50 w-72 pt-2 opacity-0 transition duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
             >
-              <div class="rounded-lg border border-border/70 bg-card p-4 text-sm shadow-[0_18px_50px_hsl(222_32%_18%/0.18)]">
+              <div class="rounded-2xl border border-border/70 bg-card p-4 text-sm shadow-soft-card-strong">
                 <div class="truncate text-center text-base font-semibold text-foreground">
                   {{ currentUser.username }}
                 </div>
