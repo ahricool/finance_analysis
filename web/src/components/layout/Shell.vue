@@ -85,11 +85,14 @@ async function onLogoutConfirm() {
         <div class="flex min-w-max shrink-0 items-center gap-2">
           <div
             v-if="currentUser"
-            class="hidden max-w-[200px] items-center gap-2 rounded-xl border border-border/60 bg-card/80 px-2 py-1 text-xs sm:flex"
+            class="group relative flex items-center"
             aria-label="当前登录用户"
           >
-            <span
-              class="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-[10px] font-semibold text-primary"
+            <button
+              type="button"
+              class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-primary/15 text-primary shadow-sm transition-colors hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/35 focus:ring-offset-2 focus:ring-offset-background"
+              aria-haspopup="dialog"
+              aria-label="查看当前登录用户信息"
             >
               <img
                 v-if="currentUser.avatarUrl"
@@ -97,21 +100,42 @@ async function onLogoutConfirm() {
                 alt=""
                 class="h-full w-full object-cover"
               />
-              <User v-else class="h-3.5 w-3.5" />
-            </span>
-            <span class="min-w-0 truncate text-left leading-tight">
-              <span class="block truncate font-medium text-foreground">{{ currentUser.username }}</span>
-              <span class="block truncate text-[10px] text-secondary-text">{{ currentUser.email }}</span>
-            </span>
+              <User
+                v-else
+                class="h-5 w-5"
+              />
+            </button>
+
+            <div
+              class="invisible absolute right-0 top-full z-50 w-72 pt-2 opacity-0 transition duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+            >
+              <div class="rounded-lg border border-border/70 bg-card p-4 text-sm shadow-[0_18px_50px_hsl(222_32%_18%/0.18)]">
+                <div class="truncate text-center text-base font-semibold text-foreground">
+                  {{ currentUser.username }}
+                </div>
+                <div class="mt-4 space-y-2 text-secondary-text">
+                  <div class="flex min-w-0 items-start gap-2">
+                    <span class="shrink-0 text-foreground">邮箱：</span>
+                    <span class="min-w-0 flex-1 break-all">{{ currentUser.email }}</span>
+                  </div>
+                  <div class="flex min-w-0 items-center gap-2">
+                    <span class="shrink-0 text-foreground">角色：</span>
+                    <span class="min-w-0 flex-1 truncate">{{ currentUser.role }}</span>
+                  </div>
+                </div>
+                <div class="mt-4 flex justify-center">
+                  <button
+                    type="button"
+                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
+                    @click="showLogoutConfirm = true"
+                  >
+                    <LogOut class="h-4 w-4" />
+                    <span>退出</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-          <button
-            type="button"
-            class="inline-flex h-10 min-w-max items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground"
-            @click="showLogoutConfirm = true"
-          >
-            <LogOut class="h-4 w-4" />
-            <span class="hidden sm:inline">退出</span>
-          </button>
         </div>
       </div>
     </header>
