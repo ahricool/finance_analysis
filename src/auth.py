@@ -13,10 +13,9 @@ import base64
 import getpass
 import hashlib
 import os
+import secrets
 import sys
 import time
-import random
-import string
 from typing import Optional, Tuple
 
 import jwt
@@ -59,10 +58,13 @@ def _load_secret_key() -> str:
     config = get_config()
     _sk = config.secret_key
 
-    # 如果 SECRET_KEY 未设置，则随机生成一个
-    if not _sk:
-        _sk = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+    # 如果 SECRET_KEY 未设置，则随机生成一个满足 HS256 推荐长度的密钥。
+    # 配置单例可能残留旧版本生成的短密钥；没有显式环境密钥时也一并修正。
+    if not _sk or (not os.getenv("SECRET_KEY") and len(_sk.encode("utf-8")) < 32):
+        _sk = secrets.token_urlsafe(32)
         config.secret_key = _sk
+    elif len(_sk.encode("utf-8")) < 32:
+        _sk = hashlib.sha256(_sk.encode("utf-8")).hexdigest()
     _secret_key = _sk
     return _secret_key
 

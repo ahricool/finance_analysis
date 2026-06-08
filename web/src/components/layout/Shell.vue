@@ -32,13 +32,13 @@ async function onLogoutConfirm() {
       <div class="mx-auto flex h-16 w-full max-w-[1280px] items-center gap-3 px-3 sm:px-4 lg:px-6">
         <RouterLink
           to="/"
-          class="flex min-w-max items-center gap-2 rounded-xl px-2 py-1.5 text-foreground transition-colors hover:bg-hover"
+          class="flex min-w-max items-center gap-2.5 rounded-xl px-2 py-1.5 text-foreground transition-colors hover:bg-hover"
           aria-label="回到首页"
         >
-          <span class="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card">
-            <img src="/flower.svg" alt="" class="h-8 w-8" />
+          <span class="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card">
+            <img src="/flower.svg" alt="" class="h-10 w-10" />
           </span>
-          <span class="hidden font-display text-base leading-none text-black md:block">{{ APP_NAME }}</span>
+          <span class="hidden font-display text-lg leading-none text-black md:block">{{ APP_NAME }}</span>
         </RouterLink>
 
         <nav

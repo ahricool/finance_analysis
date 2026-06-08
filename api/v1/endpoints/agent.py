@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from api.deps import get_effective_uid
+from src.config import get_config
 from src.services.agent_model_service import list_agent_model_deployments
 
 # Tool name -> Chinese display name mapping
