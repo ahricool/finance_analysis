@@ -59,6 +59,8 @@ POSTGRES_PASSWORD=postgres
 POSTGRES_DB=finance_analysis
 POSTGRES_PORT=5432
 DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}
+REDIS_PORT=6379
+REDIS_URL=redis://localhost:${REDIS_PORT}/0
 
 # Web 服务
 WEBUI_HOST=127.0.0.1
@@ -73,7 +75,7 @@ TAVILY_API_KEYS=
 SERPAPI_API_KEYS=
 ```
 
-> 小贴士 (๑•̀ㅂ•́)و✧：Docker Compose 会自动把 `DATABASE_URL` 改成容器内的 `postgres` 地址；如果你本机裸跑 Python，则保持 `localhost` 即可。
+> 小贴士：Docker Compose 会自动把 `DATABASE_URL` 和 `REDIS_URL` 改成容器内服务地址；如果你本机裸跑 Python，则保持 `localhost` 即可。
 
 ## 本地环境怎么搭建？🧑‍💻🌱
 
@@ -197,6 +199,7 @@ POSTGRES_USER=finance_user
 POSTGRES_PASSWORD=请换成超长随机密码
 POSTGRES_DB=finance_analysis
 POSTGRES_PORT=5432
+REDIS_PORT=6379
 
 # 云服务器对外监听通常需要 0.0.0.0
 WEBUI_HOST=0.0.0.0

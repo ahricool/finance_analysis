@@ -809,6 +809,8 @@ class Config:
     db_pool_size: int = 10
     db_max_overflow: int = 5
     db_pool_recycle: int = 1800
+    # Redis 直连地址，用于缓存、队列等轻量能力。
+    redis_url: str = "redis://localhost:6379/0"
 
     # 是否保存分析上下文快照（用于历史回溯）
     save_context_snapshot: bool = True
@@ -1423,6 +1425,7 @@ class Config:
             db_pool_size=parse_env_int(os.getenv('DB_POOL_SIZE'), 10, field_name='DB_POOL_SIZE', minimum=1),
             db_max_overflow=parse_env_int(os.getenv('DB_MAX_OVERFLOW'), 5, field_name='DB_MAX_OVERFLOW', minimum=0),
             db_pool_recycle=parse_env_int(os.getenv('DB_POOL_RECYCLE'), 1800, field_name='DB_POOL_RECYCLE', minimum=0),
+            redis_url=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
             save_context_snapshot=os.getenv('SAVE_CONTEXT_SNAPSHOT', 'true').lower() == 'true',
             backtest_enabled=os.getenv('BACKTEST_ENABLED', 'true').lower() == 'true',
             backtest_eval_window_days=parse_env_int(os.getenv('BACKTEST_EVAL_WINDOW_DAYS'), 10, field_name='BACKTEST_EVAL_WINDOW_DAYS', minimum=1),

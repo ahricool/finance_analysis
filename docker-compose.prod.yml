@@ -22,6 +22,22 @@ services:
       retries: 5
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    container_name: finance-analysis-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   server:
     image: ghcr.io/ahricool/finance_analysis:latest
     container_name: finance-analysis-server
@@ -29,12 +45,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       TZ: Asia/Shanghai
       WEBUI_HOST: 0.0.0.0
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "${API_PORT:-8000}:${API_PORT:-8000}"
     volumes:
@@ -47,3 +66,5 @@ services:
 volumes:
   postgres_data:
     name: finance-analysis-postgres-data
+  redis_data:
+    name: finance-analysis-redis-data
