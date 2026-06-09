@@ -29,6 +29,7 @@ from src.notification_sender import (
     NtfySender,
     TelegramSender,
 )
+from src.notification_sender.ntfy_sender import encode_ntfy_header
 
 
 def _config(**overrides):
@@ -310,7 +311,7 @@ class TestNtfySender(unittest.TestCase):
         self.assertFalse(result)
 
     @mock.patch("src.notification_sender.ntfy_sender.requests.post")
-    def test_send_success_uses_json_publish_with_topic_endpoint(self, mock_post):
+    def test_send_success_posts_markdown_to_topic_endpoint(self, mock_post):
         mock_post.return_value = _response(200)
         cfg = _config(
             ntfy_url="https://ntfy.sh/fa-topic",
@@ -323,18 +324,13 @@ class TestNtfySender(unittest.TestCase):
 
         self.assertTrue(result)
         mock_post.assert_called_once()
-        self.assertEqual(mock_post.call_args.args[0], "https://ntfy.sh")
+        self.assertEqual(mock_post.call_args.args[0], "https://ntfy.sh/fa-topic")
         call_kw = mock_post.call_args.kwargs
-        self.assertEqual(
-            call_kw["json"],
-            {
-                "topic": "fa-topic",
-                "title": "中文标题",
-                "message": "正文 **Markdown**",
-                "markdown": True,
-            },
-        )
+        self.assertEqual(call_kw["data"], "正文 **Markdown**".encode("utf-8"))
+        self.assertEqual(call_kw["headers"]["Title"], encode_ntfy_header("中文标题"))
+        self.assertEqual(call_kw["headers"]["Markdown"], "yes")
         self.assertEqual(call_kw["headers"]["Authorization"], "Bearer secret-token")
+        self.assertNotIn("Filename", call_kw["headers"])
         self.assertEqual(call_kw["timeout"], 5)
         self.assertFalse(call_kw["verify"])
 
@@ -347,8 +343,24 @@ class TestNtfySender(unittest.TestCase):
         result = sender.send_to_ntfy("body", title="title")
 
         self.assertTrue(result)
-        self.assertEqual(mock_post.call_args.args[0], "https://example.com/ntfy")
-        self.assertEqual(mock_post.call_args.kwargs["json"]["topic"], "fa-topic")
+        self.assertEqual(mock_post.call_args.args[0], "https://example.com/ntfy/fa-topic")
+
+    @mock.patch("src.notification_sender.ntfy_sender.requests.post")
+    def test_send_large_message_uses_attachment_filename(self, mock_post):
+        mock_post.return_value = _response(200)
+        cfg = _config(ntfy_url="https://ntfy.sh/fa-topic")
+        sender = NtfySender(cfg)
+
+        result = sender.send_to_ntfy("x" * 5000, title="title")
+
+        self.assertTrue(result)
+        self.assertEqual(mock_post.call_args.args[0], "https://ntfy.sh/fa-topic")
+        self.assertIn("Filename", mock_post.call_args.kwargs["headers"])
+        self.assertTrue(
+            mock_post.call_args.kwargs["headers"]["Filename"].startswith(
+                "finance-analysis-report-"
+            )
+        )
 
     @mock.patch("src.notification_sender.ntfy_sender.requests.post")
     def test_send_returns_false_when_url_has_no_topic(self, mock_post):
@@ -379,6 +391,11 @@ class TestNtfySender(unittest.TestCase):
         result = sender.send_to_ntfy("body")
 
         self.assertFalse(result)
+
+    def test_encode_ntfy_header_preserves_ascii_and_encodes_unicode(self):
+        self.assertEqual(encode_ntfy_header("plain-title"), "plain-title")
+        self.assertNotEqual(encode_ntfy_header("中文标题"), "中文标题")
+        self.assertTrue(encode_ntfy_header("中文标题").startswith("=?utf-8?"))
 
     @mock.patch("src.notification_sender.ntfy_sender.requests.post")
     def test_send_timeout_does_not_log_token_value(self, mock_post):

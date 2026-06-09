@@ -685,8 +685,8 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         self.assertTrue(ok)
         mock_post.assert_called_once()
-        self.assertEqual(mock_post.call_args.args[0], "https://ntfy.sh")
-        self.assertEqual(mock_post.call_args.kwargs["json"]["topic"], "fa-topic")
+        self.assertEqual(mock_post.call_args.args[0], "https://ntfy.sh/fa-topic")
+        self.assertEqual(mock_post.call_args.kwargs["data"], "ntfy content".encode("utf-8"))
 
     @mock.patch("src.notification.get_config")
     def test_ntfy_url_without_topic_is_not_available(self, mock_get_config: mock.MagicMock):
