@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import { RouterLink, RouterView } from 'vue-router';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import StatusDot from '@/components/common/StatusDot.vue';
+import TimezoneSwitcher from '@/components/timezone/TimezoneSwitcher.vue';
 import { useAuth } from '@/composables/useAuth';
 import { APP_NAME } from '@/config/app';
 import { mainNavItems } from '@/config/mainNav';
@@ -143,6 +144,8 @@ async function onLogoutConfirm() {
     <main class="mx-auto min-h-screen w-full max-w-[1280px] px-3 pb-4 pt-20 sm:px-4 lg:px-6">
       <RouterView />
     </main>
+
+    <TimezoneSwitcher />
 
     <ConfirmDialog
       :is-open="showLogoutConfirm"

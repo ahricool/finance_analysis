@@ -20,7 +20,6 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union, Dict, Any
 
@@ -75,6 +74,7 @@ from src.utils.data_processing import (
     extract_fundamental_detail_fields,
     extract_board_detail_fields,
 )
+from src.time_utils import utc_isoformat, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -442,7 +442,7 @@ def _handle_sync_analysis(
             stock_code=result.get("stock_code", stock_code),
             stock_name=result.get("stock_name"),
             report=report.model_dump() if report else None,
-            created_at=datetime.now().isoformat()
+            created_at=utc_isoformat(utc_now())
         )
 
     except HTTPException:
@@ -576,9 +576,9 @@ def get_task_list(
             progress=t.progress,
             message=t.message,
             report_type=t.report_type,
-            created_at=t.created_at.isoformat(),
-            started_at=t.started_at.isoformat() if t.started_at else None,
-            completed_at=t.completed_at.isoformat() if t.completed_at else None,
+            created_at=utc_isoformat(t.created_at),
+            started_at=utc_isoformat(t.started_at),
+            completed_at=utc_isoformat(t.completed_at),
             error=t.error,
             original_query=t.original_query,
             selection_source=t.selection_source,
@@ -646,7 +646,7 @@ async def task_stream():
                 except asyncio.TimeoutError:
                     # 心跳
                     yield _format_sse_event("heartbeat", {
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": utc_isoformat(utc_now())
                     })
         except asyncio.CancelledError:
             logger.debug("SSE client disconnected, cancelling event generator")
@@ -785,7 +785,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     stock_name=stock_name,
                     report_type=getattr(record, 'report_type', None),
                     report_language=report_language,
-                    created_at=record.created_at.isoformat() if record.created_at else None,
+                    created_at=utc_isoformat(record.created_at),
                     model_used=model_used,
                     current_price=current_price,
                     change_pct=change_pct,
@@ -812,7 +812,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     stock_code=record.code,
                     stock_name=stock_name,
                     report=report_dict,
-                    created_at=record.created_at.isoformat() if record.created_at else datetime.now().isoformat()
+                    created_at=utc_isoformat(record.created_at) or utc_isoformat(utc_now())
                 ),
                 error=None
             )
@@ -923,7 +923,7 @@ def _build_analysis_report(
         stock_name=localized_stock_name,
         report_type=meta_data.get("report_type", "detailed"),
         report_language=report_language,
-        created_at=meta_data.get("created_at", datetime.now().isoformat()),
+        created_at=meta_data.get("created_at", utc_isoformat(utc_now())),
         current_price=meta_data.get("current_price"),
         change_pct=meta_data.get("change_pct"),
         model_used=normalize_model_used(meta_data.get("model_used")),

@@ -12,6 +12,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from src.storage import DatabaseManager
+from src.time_utils import utc_isoformat
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ def _record_to_signal(record: Any) -> Optional[Dict[str, Any]]:
     """Convert AnalysisHistory record to signal dict. Skip on parse error."""
     try:
         return {
-            "created_at": record.created_at.isoformat() if record.created_at else None,
+            "created_at": utc_isoformat(record.created_at),
             "query_id": record.query_id,
             "sentiment_score": record.sentiment_score,
             "operation_advice": record.operation_advice,

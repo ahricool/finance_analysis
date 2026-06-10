@@ -31,6 +31,7 @@ from api.v1.schemas.history import (
 )
 from api.v1.schemas.common import ErrorResponse
 from src.storage import DatabaseManager
+from src.time_utils import DEFAULT_DISPLAY_TIMEZONE, validate_display_timezone
 from src.report_language import (
     get_sentiment_label,
     get_localized_stock_name,
@@ -64,6 +65,10 @@ def get_history_list(
     stock_code: Optional[str] = Query(None, description="股票代码筛选"),
     start_date: Optional[str] = Query(None, description="开始日期 (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="结束日期 (YYYY-MM-DD)"),
+    timezone: str = Query(
+        DEFAULT_DISPLAY_TIMEZONE,
+        description="start_date/end_date 所属展示时区：Asia/Shanghai | America/New_York",
+    ),
     page: int = Query(1, ge=1, description="页码（从 1 开始）"),
     limit: int = Query(20, ge=1, le=100, description="每页数量"),
     db_manager: DatabaseManager = Depends(get_database_manager)
@@ -85,6 +90,13 @@ def get_history_list(
         HistoryListResponse: 历史记录列表
     """
     try:
+        try:
+            timezone_name = validate_display_timezone(timezone)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "invalid_timezone", "message": str(exc)},
+            ) from exc
         service = HistoryService(db_manager)
         
         # 使用 def 而非 async def，FastAPI 自动在线程池中执行
@@ -92,6 +104,7 @@ def get_history_list(
             stock_code=stock_code,
             start_date=start_date,
             end_date=end_date,
+            timezone_name=timezone_name,
             page=page,
             limit=limit
         )
@@ -118,6 +131,8 @@ def get_history_list(
             items=items
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"查询历史列表失败: {e}", exc_info=True)
         raise HTTPException(

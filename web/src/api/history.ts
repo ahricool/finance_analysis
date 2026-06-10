@@ -1,5 +1,6 @@
 import apiClient from './index';
 import { toCamelCase } from './utils';
+import { getDisplayTimezone } from '../utils/format';
 import type {
   HistoryListResponse,
   HistoryItem,
@@ -28,6 +29,7 @@ export const historyApi = {
     if (stockCode) queryParams.stock_code = stockCode;
     if (startDate) queryParams.start_date = startDate;
     if (endDate) queryParams.end_date = endDate;
+    queryParams.timezone = getDisplayTimezone();
 
     const response = await apiClient.get<Record<string, unknown>>('/api/v1/history', {
       params: queryParams,

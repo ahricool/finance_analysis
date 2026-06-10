@@ -13,6 +13,7 @@ import Tooltip from '@/components/common/Tooltip.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
 import { formatDocumentTitle } from '@/config/app';
 import { cn } from '@/utils/cn';
+import { formatDate } from '@/utils/format';
 import { downloadSession, formatSessionAsMarkdown } from '@/utils/chatExport';
 import {
   buildFollowUpPrompt,
@@ -540,7 +541,7 @@ function onTextareaInput(e: Event) {
                   <template v-if="s.last_active">
                     <span class="separator" />
                     <span class="meta">
-                      {{ new Date(s.last_active).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) }}
+                      {{ formatDate(s.last_active) }}
                     </span>
                   </template>
                 </div>

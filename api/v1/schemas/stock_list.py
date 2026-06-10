@@ -6,9 +6,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from src.services.market_type_utils import normalize_market_type
+from src.time_utils import utc_isoformat
 
 
 class StockHoldingCreate(BaseModel):
@@ -47,6 +48,10 @@ class StockHoldingResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("created_at", "updated_at")
+    def serialize_datetime(self, value: datetime) -> str:
+        return utc_isoformat(value) or ""
 
 
 class StockListResponse(BaseModel):

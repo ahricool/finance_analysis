@@ -16,10 +16,12 @@ import TaskPanel from '@/components/tasks/TaskPanel.vue';
 import { useDashboardLifecycle } from '@/composables/useDashboardLifecycle';
 import { useHomeDashboardState } from '@/composables/useHomeDashboardState';
 import { formatDocumentTitle } from '@/config/app';
+import { useTimezoneStore } from '@/stores/timezoneStore';
 import type { SetupStatusResponse } from '@/types/systemConfig';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { BarChart3 } from 'lucide-vue-next';
-import { computed, onMounted, onUnmounted, ref, unref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, unref, watch } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 
 type MarketReviewNotice = {
@@ -29,6 +31,8 @@ type MarketReviewNotice = {
 } | null;
 
 const router = useRouter();
+const timezoneStore = useTimezoneStore();
+const { displayTimezone } = storeToRefs(timezoneStore);
 const sidebarOpen = ref(false);
 const showDeleteConfirm = ref(false);
 const isSubmittingMarketReview = ref(false);
@@ -141,6 +145,10 @@ onMounted(() => {
     active = false;
     stopMarketReviewPolling();
   });
+});
+
+watch(displayTimezone, () => {
+  void unref(refreshHistory)(true);
 });
 
 function handleHistoryItemClick(recordId: number) {

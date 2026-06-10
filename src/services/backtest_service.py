@@ -15,6 +15,7 @@ from src.core.backtest_engine import OVERALL_SENTINEL_CODE, BacktestEngine, Eval
 from src.repositories.backtest_repo import BacktestRepository
 from src.repositories.stock_repo import StockRepository
 from src.storage import BacktestResult, BacktestSummary, DatabaseManager, utc_now
+from src.time_utils import utc_isoformat
 
 logger = logging.getLogger(__name__)
 
@@ -447,7 +448,7 @@ class BacktestService:
             "eval_window_days": row.eval_window_days,
             "engine_version": row.engine_version,
             "eval_status": row.eval_status,
-            "evaluated_at": row.evaluated_at.isoformat() if row.evaluated_at else None,
+            "evaluated_at": utc_isoformat(row.evaluated_at),
             "operation_advice": row.operation_advice,
             "trend_prediction": trend_prediction,
             "position_recommendation": row.position_recommendation,
@@ -481,7 +482,7 @@ class BacktestService:
             "code": None if row.code == OVERALL_SENTINEL_CODE else row.code,
             "eval_window_days": row.eval_window_days,
             "engine_version": row.engine_version,
-            "computed_at": row.computed_at.isoformat() if row.computed_at else None,
+            "computed_at": utc_isoformat(row.computed_at),
             "total_evaluations": row.total_evaluations,
             "completed_count": row.completed_count,
             "insufficient_count": row.insufficient_count,
@@ -592,5 +593,5 @@ class BacktestService:
             engine_version=engine_version,
         )
         summary["code"] = None if summary.get("code") == OVERALL_SENTINEL_CODE else summary.get("code")
-        summary["computed_at"] = utc_now().isoformat()
+        summary["computed_at"] = utc_isoformat(utc_now())
         return summary

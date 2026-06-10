@@ -18,6 +18,7 @@ from src.repositories.portfolio_repo import (
     PortfolioBusyError as RepoPortfolioBusyError,
     PortfolioRepository,
 )
+from src.time_utils import utc_isoformat
 
 logger = logging.getLogger(__name__)
 
@@ -1562,8 +1563,8 @@ class PortfolioService:
             "market": row.market,
             "base_currency": row.base_currency,
             "is_active": bool(row.is_active),
-            "created_at": row.created_at.isoformat() if row.created_at else None,
-            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            "created_at": utc_isoformat(row.created_at),
+            "updated_at": utc_isoformat(row.updated_at),
         }
 
     @staticmethod
@@ -1582,7 +1583,7 @@ class PortfolioService:
             "fee": float(row.fee),
             "tax": float(row.tax),
             "note": row.note,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "created_at": utc_isoformat(row.created_at),
         }
 
     @staticmethod
@@ -1595,7 +1596,7 @@ class PortfolioService:
             "amount": float(row.amount),
             "currency": row.currency,
             "note": row.note,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "created_at": utc_isoformat(row.created_at),
         }
 
     @staticmethod
@@ -1613,7 +1614,7 @@ class PortfolioService:
             ),
             "split_ratio": float(row.split_ratio) if row.split_ratio is not None else None,
             "note": row.note,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "created_at": utc_isoformat(row.created_at),
         }
 
     @staticmethod

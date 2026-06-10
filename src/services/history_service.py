@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 
 from src.config import get_config, resolve_news_window_days
-from src.storage import utc_now
+from src.time_utils import utc_isoformat, utc_now
 from src.report_language import (
     get_bias_status_emoji,
     get_localized_stock_name,
@@ -67,6 +67,7 @@ class HistoryService:
         stock_code: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        timezone_name: str = "Asia/Shanghai",
         page: int = 1,
         limit: int = 20
     ) -> Dict[str, Any]:
@@ -108,6 +109,7 @@ class HistoryService:
                 code=stock_code,
                 start_date=start_dt,
                 end_date=end_dt,
+                timezone_name=timezone_name,
                 offset=offset,
                 limit=limit
             )
@@ -123,7 +125,7 @@ class HistoryService:
                     "report_type": record.report_type,
                     "sentiment_score": record.sentiment_score,
                     "operation_advice": record.operation_advice,
-                    "created_at": record.created_at.isoformat() if record.created_at else None,
+                    "created_at": utc_isoformat(record.created_at),
                 })
             
             return {
@@ -274,7 +276,7 @@ class HistoryService:
             "stock_code": record.code,
             "stock_name": record.name,
             "report_type": record.report_type,
-            "created_at": record.created_at.isoformat() if record.created_at else None,
+            "created_at": utc_isoformat(record.created_at),
             "model_used": model_used,
             "analysis_summary": record.analysis_summary,
             "operation_advice": record.operation_advice,

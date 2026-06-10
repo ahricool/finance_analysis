@@ -20,7 +20,6 @@ import mimetypes
 import os
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote
 from typing import List, Optional
@@ -119,6 +118,7 @@ from src.scheduler import (
     start_embedded_analysis_scheduler,
     shutdown_embedded_analysis_scheduler,
 )
+from src.time_utils import utc_isoformat, utc_now
 
 
 @asynccontextmanager
@@ -234,7 +234,7 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
     )
     async def health_check() -> HealthResponse:
         """健康检查接口"""
-        return HealthResponse(status="ok", timestamp=datetime.now().isoformat())
+        return HealthResponse(status="ok", timestamp=utc_isoformat(utc_now()))
 
     # ============================================================
     # 静态文件托管（前端 SPA）

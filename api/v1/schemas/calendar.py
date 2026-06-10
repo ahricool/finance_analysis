@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer, field_validator
+
+from src.time_utils import ensure_aware_utc, utc_isoformat
 
 
 class CalendarEntryCreate(BaseModel):
@@ -11,6 +13,14 @@ class CalendarEntryCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=120)
     content: Optional[str] = None
     type: Optional[str] = Field(None, max_length=32)
+
+    @field_validator("time")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        try:
+            return ensure_aware_utc(value)
+        except ValueError as exc:
+            raise ValueError("time must include timezone information, e.g. 2026-06-10T01:30:00Z") from exc
 
 
 class CalendarEntryUpdate(BaseModel):
@@ -29,6 +39,10 @@ class CalendarEntryResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("time", "created_at", "updated_at")
+    def serialize_datetime(self, value: datetime) -> str:
+        return utc_isoformat(value) or ""
 
 
 class CalendarEntryListResponse(BaseModel):

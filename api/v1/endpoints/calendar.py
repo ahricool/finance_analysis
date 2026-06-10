@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date as date_type
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -12,6 +13,7 @@ from api.v1.schemas.calendar import (
     CalendarEntryUpdate,
 )
 from src.repositories.calendar_repo import CalendarRepo
+from src.time_utils import DEFAULT_DISPLAY_TIMEZONE, validate_display_timezone
 
 router = APIRouter()
 
@@ -21,11 +23,29 @@ def _repo() -> CalendarRepo:
 
 
 @router.get('', response_model=CalendarEntryListResponse, summary='按日期获取日历记录')
-def list_calendar_entries(http_request: Request, time: date = Query(..., description='查询日期 YYYY-MM-DD')):
+def list_calendar_entries(
+    http_request: Request,
+    query_date: Optional[date_type] = Query(None, alias='date', description='查询日期 YYYY-MM-DD'),
+    legacy_time: Optional[date_type] = Query(None, alias='time', description='兼容旧参数；请改用 date'),
+    timezone: str = Query(DEFAULT_DISPLAY_TIMEZONE, description='Asia/Shanghai | America/New_York'),
+):
     uid = get_effective_uid(http_request)
-    items = _repo().list_by_date(time, uid=uid)
+    day = query_date or legacy_time
+    if day is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_params", "message": "date is required"},
+        )
+    try:
+        timezone_name = validate_display_timezone(timezone)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_timezone", "message": str(exc)},
+        ) from exc
+    items = _repo().list_by_date(day, timezone_name=timezone_name, uid=uid)
     return CalendarEntryListResponse(
-        date=time.isoformat(),
+        date=day.isoformat(),
         items=[CalendarEntryResponse.model_validate(i) for i in items],
         total=len(items),
     )
