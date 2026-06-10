@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { calendarApi, type CalendarSignalItem } from '@/api/calendar';
+import { calendarApi, type CalendarEntryItem } from '@/api/calendar';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-vue-next';
@@ -10,10 +10,10 @@ const WEEKDAY_CN = ['星期日', '星期一', '星期二', '星期三', '星期�
 
 const weekStart = ref(startOfWeek(new Date()));
 const selectedDate = ref(formatDate(new Date()));
-const signals = ref<CalendarSignalItem[]>([]);
+const entries = ref<CalendarEntryItem[]>([]);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
-const expandedSignalId = ref<number | null>(null);
+const expandedEntryId = ref<number | null>(null);
 
 const weekDates = computed(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart.value, i)));
 
@@ -53,13 +53,13 @@ const selectedDateDisplay = computed(() => {
   return dateWithWeekday(new Date(y, m - 1, d));
 });
 
-async function loadSignals() {
+async function loadEntries() {
   loading.value = true;
   error.value = null;
-  expandedSignalId.value = null;
+  expandedEntryId.value = null;
   try {
     const res = await calendarApi.listByDate(selectedDate.value);
-    signals.value = res.items;
+    entries.value = res.items;
   } catch (e) {
     error.value = getParsedApiError(e);
   } finally {
@@ -69,21 +69,21 @@ async function loadSignals() {
 
 function selectDate(d: Date) {
   selectedDate.value = formatDate(d);
-  void loadSignals();
+  void loadEntries();
 }
 
 function shiftWeek(step: number) {
   weekStart.value = addDays(weekStart.value, step * 7);
 }
 
-function toggleSignal(item: CalendarSignalItem) {
-  expandedSignalId.value = expandedSignalId.value === item.id ? null : item.id;
+function toggleEntry(item: CalendarEntryItem) {
+  expandedEntryId.value = expandedEntryId.value === item.id ? null : item.id;
 }
 
-function signalTypeLabel(type: string | null): string {
+function entryTypeLabel(type: string | null): string {
   if (type === 'scheduled_daily') return '定时全量';
   if (type === 'scheduled_us_premarket') return '美股盘前';
-  return type || '日历信号';
+  return type || '日历记录';
 }
 
 function renderMarkdown(content: string | null): string {
@@ -95,7 +95,7 @@ function renderMarkdown(content: string | null): string {
   }
 }
 
-onMounted(loadSignals);
+onMounted(loadEntries);
 </script>
 
 <template>
@@ -105,8 +105,8 @@ onMounted(loadSignals);
         <CalendarDays class="h-5 w-5" />
       </div>
       <div>
-        <h1 class="text-lg font-semibold text-foreground">日历信号</h1>
-        <p class="text-xs text-secondary-text">按周查看每日自动化信号与定时任务执行结果</p>
+        <h1 class="text-lg font-semibold text-foreground">日历记录</h1>
+        <p class="text-xs text-secondary-text">按周查看每日自动化记录与定时任务执行结果</p>
       </div>
     </div>
 
@@ -133,30 +133,30 @@ onMounted(loadSignals);
 
     <ApiErrorAlert v-if="error" :error="error" class="mb-4" />
     <div class="rounded-2xl border border-border/60 bg-card p-4">
-      <h2 class="mb-3 text-sm font-semibold">{{ selectedDateDisplay }} 信号列表</h2>
+      <h2 class="mb-3 text-sm font-semibold">{{ selectedDateDisplay }} 日历记录</h2>
       <div v-if="loading" class="space-y-2"><div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-xl bg-hover" /></div>
-      <div v-else-if="!signals.length" class="py-6 text-sm text-secondary-text">当天暂无信号数据</div>
+      <div v-else-if="!entries.length" class="py-6 text-sm text-secondary-text">当天暂无日历记录</div>
       <div v-else class="space-y-2">
-        <article v-for="item in signals" :key="item.id" class="overflow-hidden rounded-xl border border-border/60">
+        <article v-for="item in entries" :key="item.id" class="overflow-hidden rounded-xl border border-border/60">
           <button
             type="button"
             class="flex w-full items-start justify-between gap-3 p-3 text-left transition hover:bg-hover/70"
-            @click="toggleSignal(item)"
+            @click="toggleEntry(item)"
           >
             <span class="min-w-0 flex-1">
               <span class="block text-sm font-medium">{{ item.title }}</span>
               <span class="mt-1 flex flex-wrap items-center gap-2 text-xs text-secondary-text">
-                <span class="rounded-full bg-hover px-2 py-0.5">{{ signalTypeLabel(item.signal_type) }}</span>
-                <span>{{ new Date(item.created_at).toLocaleString() }}</span>
+                <span class="rounded-full bg-hover px-2 py-0.5">{{ entryTypeLabel(item.type) }}</span>
+                <span>{{ new Date(item.time).toLocaleString() }}</span>
                 <span v-if="item.content">点击查看执行结果与报告</span>
               </span>
             </span>
             <ChevronDown
               class="mt-0.5 h-4 w-4 shrink-0 text-secondary-text transition-transform"
-              :class="expandedSignalId === item.id ? 'rotate-180 text-primary' : ''"
+              :class="expandedEntryId === item.id ? 'rotate-180 text-primary' : ''"
             />
           </button>
-          <div v-if="expandedSignalId === item.id" class="border-t border-border/60 bg-background/40 p-3">
+          <div v-if="expandedEntryId === item.id" class="border-t border-border/60 bg-background/40 p-3">
             <div v-if="item.content" class="prose prose-sm max-w-none text-sm text-foreground dark:prose-invert" v-html="renderMarkdown(item.content)" />
             <p v-else class="text-sm text-secondary-text">该记录暂无详情内容</p>
           </div>

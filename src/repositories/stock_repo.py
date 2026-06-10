@@ -37,19 +37,20 @@ class StockRepository:
         """
         self.db = db_manager or DatabaseManager.get_instance()
     
-    def get_latest(self, code: str, days: int = 2) -> List[StockDaily]:
+    def get_latest(self, code: str, days: int = 2, market: Optional[str] = None) -> List[StockDaily]:
         """
         获取最近 N 天的数据
         
         Args:
             code: 股票代码
             days: 获取天数
+            market: 市场类型（CN/US/HK，默认按 code 推断）
             
         Returns:
             StockDaily 对象列表（按日期降序）
         """
         try:
-            return self.db.get_latest_data(code, days)
+            return self.db.get_latest_data(code, days, market=market)
         except Exception as e:
             logger.error(f"获取最新数据失败: {e}")
             return []
@@ -58,7 +59,8 @@ class StockRepository:
         self,
         code: str,
         start_date: date,
-        end_date: date
+        end_date: date,
+        market: Optional[str] = None,
     ) -> List[StockDaily]:
         """
         获取指定日期范围的数据
@@ -67,12 +69,13 @@ class StockRepository:
             code: 股票代码
             start_date: 开始日期
             end_date: 结束日期
+            market: 市场类型（CN/US/HK，默认按 code 推断）
             
         Returns:
             StockDaily 对象列表
         """
         try:
-            return self.db.get_data_range(code, start_date, end_date)
+            return self.db.get_data_range(code, start_date, end_date, market=market)
         except Exception as e:
             logger.error(f"获取日期范围数据失败: {e}")
             return []
@@ -81,7 +84,8 @@ class StockRepository:
         self,
         df: pd.DataFrame,
         code: str,
-        data_source: str = "Unknown"
+        data_source: str = "Unknown",
+        market: Optional[str] = None,
     ) -> int:
         """
         保存 DataFrame 到数据库
@@ -90,29 +94,36 @@ class StockRepository:
             df: 包含日线数据的 DataFrame
             code: 股票代码
             data_source: 数据来源
+            market: 市场类型（CN/US/HK，默认按 code 推断）
             
         Returns:
             保存的记录数
         """
         try:
-            return self.db.save_daily_data(df, code, data_source)
+            return self.db.save_daily_data(df, code, data_source, market=market)
         except Exception as e:
             logger.error(f"保存日线数据失败: {e}")
             return 0
     
-    def has_today_data(self, code: str, target_date: Optional[date] = None) -> bool:
+    def has_today_data(
+        self,
+        code: str,
+        target_date: Optional[date] = None,
+        market: Optional[str] = None,
+    ) -> bool:
         """
         检查是否有指定日期的数据
         
         Args:
             code: 股票代码
             target_date: 目标日期（默认今天）
+            market: 市场类型（CN/US/HK，默认按 code 推断）
             
         Returns:
             是否存在数据
         """
         try:
-            return self.db.has_today_data(code, target_date)
+            return self.db.has_today_data(code, target_date, market=market)
         except Exception as e:
             logger.error(f"检查数据存在失败: {e}")
             return False
@@ -138,23 +149,50 @@ class StockRepository:
             logger.error(f"获取分析上下文失败: {e}")
             return None
 
-    def get_start_daily(self, *, code: str, analysis_date: date) -> Optional[StockDaily]:
+    def get_start_daily(
+        self,
+        *,
+        code: str,
+        analysis_date: date,
+        market: Optional[str] = None,
+    ) -> Optional[StockDaily]:
         """Return StockDaily for analysis_date (preferred) or nearest previous date."""
+        normalized_market = self.db._normalize_market(market, code)
         with self.db.get_session() as session:
             row = session.execute(
                 select(StockDaily)
-                .where(and_(StockDaily.code == code, StockDaily.date <= analysis_date))
+                .where(
+                    and_(
+                        StockDaily.code == code,
+                        StockDaily.market == normalized_market,
+                        StockDaily.date <= analysis_date,
+                    )
+                )
                 .order_by(desc(StockDaily.date))
                 .limit(1)
             ).scalar_one_or_none()
             return row
 
-    def get_forward_bars(self, *, code: str, analysis_date: date, eval_window_days: int) -> List[StockDaily]:
+    def get_forward_bars(
+        self,
+        *,
+        code: str,
+        analysis_date: date,
+        eval_window_days: int,
+        market: Optional[str] = None,
+    ) -> List[StockDaily]:
         """Return forward daily bars after analysis_date, up to eval_window_days."""
+        normalized_market = self.db._normalize_market(market, code)
         with self.db.get_session() as session:
             rows = session.execute(
                 select(StockDaily)
-                .where(and_(StockDaily.code == code, StockDaily.date > analysis_date))
+                .where(
+                    and_(
+                        StockDaily.code == code,
+                        StockDaily.market == normalized_market,
+                        StockDaily.date > analysis_date,
+                    )
+                )
                 .order_by(StockDaily.date)
                 .limit(eval_window_days)
             ).scalars().all()

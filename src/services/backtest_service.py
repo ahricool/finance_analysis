@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, select
@@ -14,7 +14,7 @@ from src.config import get_config
 from src.core.backtest_engine import OVERALL_SENTINEL_CODE, BacktestEngine, EvaluationConfig
 from src.repositories.backtest_repo import BacktestRepository
 from src.repositories.stock_repo import StockRepository
-from src.storage import BacktestResult, BacktestSummary, DatabaseManager
+from src.storage import BacktestResult, BacktestSummary, DatabaseManager, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class BacktestService:
                             eval_window_days=int(eval_window_days),
                             engine_version=str(engine_version),
                             eval_status="error",
-                            evaluated_at=datetime.now(),
+                            evaluated_at=utc_now(),
                             operation_advice=analysis.operation_advice,
                         )
                     )
@@ -107,7 +107,7 @@ class BacktestService:
                             eval_window_days=int(eval_window_days),
                             engine_version=str(engine_version),
                             eval_status="insufficient_data",
-                            evaluated_at=datetime.now(),
+                            evaluated_at=utc_now(),
                             operation_advice=analysis.operation_advice,
                         )
                     )
@@ -153,7 +153,7 @@ class BacktestService:
                         eval_window_days=int(evaluation.get("eval_window_days") or eval_window_days),
                         engine_version=str(evaluation.get("engine_version") or engine_version),
                         eval_status=str(evaluation.get("eval_status") or "error"),
-                        evaluated_at=datetime.now(),
+                        evaluated_at=utc_now(),
                         operation_advice=evaluation.get("operation_advice"),
                         position_recommendation=evaluation.get("position_recommendation"),
                         start_price=evaluation.get("start_price"),
@@ -189,7 +189,7 @@ class BacktestService:
                         eval_window_days=int(eval_window_days),
                         engine_version=str(engine_version),
                         eval_status="error",
-                        evaluated_at=datetime.now(),
+                        evaluated_at=utc_now(),
                         operation_advice=analysis.operation_advice,
                     )
                 )
@@ -411,7 +411,7 @@ class BacktestService:
             code=summary_data.get("code"),
             eval_window_days=summary_data.get("eval_window_days"),
             engine_version=summary_data.get("engine_version"),
-            computed_at=datetime.now(),
+            computed_at=utc_now(),
             total_evaluations=summary_data.get("total_evaluations") or 0,
             completed_count=summary_data.get("completed_count") or 0,
             insufficient_count=summary_data.get("insufficient_count") or 0,
@@ -592,5 +592,5 @@ class BacktestService:
             engine_version=engine_version,
         )
         summary["code"] = None if summary.get("code") == OVERALL_SENTINEL_CODE else summary.get("code")
-        summary["computed_at"] = datetime.now().isoformat()
+        summary["computed_at"] = utc_now().isoformat()
         return summary
