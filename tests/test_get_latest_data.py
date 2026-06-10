@@ -94,6 +94,23 @@ class GetLatestDataTestCase(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].code, "600519")
 
+    def test_daily_data_is_isolated_by_market(self) -> None:
+        """同一代码同一日期可按市场独立存储和查询。"""
+        target_date = date(2026, 2, 3)
+        cn_df = pd.DataFrame([{"date": target_date, "close": 10.0}])
+        us_df = pd.DataFrame([{"date": target_date, "close": 20.0}])
+
+        self.assertEqual(self.db.save_daily_data(cn_df, "MIXED", data_source="cn", market="CN"), 1)
+        self.assertEqual(self.db.save_daily_data(us_df, "MIXED", data_source="us", market="US"), 1)
+
+        cn_rows = self.db.get_latest_data("MIXED", days=1, market="CN")
+        us_rows = self.db.get_latest_data("MIXED", days=1, market="US")
+
+        self.assertEqual(cn_rows[0].market, "CN")
+        self.assertEqual(us_rows[0].market, "US")
+        self.assertAlmostEqual(cn_rows[0].close, 10.0)
+        self.assertAlmostEqual(us_rows[0].close, 20.0)
+
     def test_save_daily_data_batch_upsert_updates_existing_rows_and_keeps_insert_count(self) -> None:
         base_date = date(2026, 1, 2)
         first_batch = pd.DataFrame(

@@ -1,37 +1,37 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
 
-class CalendarSignalCreate(BaseModel):
-    signal_date: date
+class CalendarEntryCreate(BaseModel):
+    time: datetime
     title: str = Field(..., min_length=1, max_length=120)
     content: Optional[str] = None
-    signal_type: Optional[str] = Field(None, max_length=32)
+    type: Optional[str] = Field(None, max_length=32)
 
 
-class CalendarSignalUpdate(BaseModel):
+class CalendarEntryUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=120)
     content: Optional[str] = None
-    signal_type: Optional[str] = Field(None, max_length=32)
+    type: Optional[str] = Field(None, max_length=32)
 
 
-class CalendarSignalResponse(BaseModel):
+class CalendarEntryResponse(BaseModel):
     id: int
-    signal_date: date
+    time: datetime
     title: str
     content: Optional[str]
-    signal_type: Optional[str]
+    type: Optional[str]
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
 
 
-class CalendarSignalListResponse(BaseModel):
-    date: date
-    items: List[CalendarSignalResponse]
+class CalendarEntryListResponse(BaseModel):
+    date: str
+    items: List[CalendarEntryResponse]
     total: int

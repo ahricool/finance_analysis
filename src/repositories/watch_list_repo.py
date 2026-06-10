@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.services.market_type_utils import normalize_market_type
-from src.storage import DatabaseManager, WatchListItem
+from src.storage import DatabaseManager, WatchListItem, utc_now
 
 
 def get_db() -> DatabaseManager:
@@ -75,8 +74,8 @@ class WatchListRepo:
             notes=(notes or "").strip() or None,
             market_type=normalize_market_type(market_type, code),
             is_favorite=bool(is_favorite),
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
+            created_at=utc_now(),
+            updated_at=utc_now(),
         )
 
         def _write(session: Session) -> WatchListItem:
@@ -111,7 +110,7 @@ class WatchListRepo:
                 obj.market_type = normalize_market_type(market_type, obj.code)
             if is_favorite is not None:
                 obj.is_favorite = bool(is_favorite)
-            obj.updated_at = datetime.now()
+            obj.updated_at = utc_now()
             session.flush()
             session.refresh(obj)
             return obj

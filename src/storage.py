@@ -17,7 +17,7 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, time, timedelta, timezone
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, Callable, TypeVar
 
 import pandas as pd
@@ -32,6 +32,7 @@ from sqlalchemy import (
     Integer,
     Index,
     UniqueConstraint,
+    CheckConstraint,
     Text,
     JSON,
     select,
@@ -50,6 +51,7 @@ from sqlalchemy.orm import (
 from sqlalchemy.exc import IntegrityError
 
 from src.config import get_config
+from src.services.market_type_utils import normalize_market_type
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -59,6 +61,26 @@ Base = declarative_base()
 
 if TYPE_CHECKING:
     from src.search_service import SearchResponse
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp for timestamptz columns."""
+    return datetime.now(timezone.utc)
+
+
+def ensure_aware_datetime(value: Optional[Any]) -> Optional[datetime]:
+    """Normalize datetime/date values to timezone-aware UTC datetimes."""
+    if value is None:
+        return None
+    if isinstance(value, pd.Timestamp):
+        value = value.to_pydatetime()
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    if isinstance(value, date):
+        return datetime.combine(value, time.min, tzinfo=timezone.utc)
+    return None
 
 
 # === 数据模型定义 ===
@@ -75,8 +97,11 @@ class StockDaily(Base):
     # 主键
     id = Column(Integer, primary_key=True, autoincrement=True)
     
-    # 股票代码（如 600519, 000001）
-    code = Column(String(10), nullable=False, index=True)
+    # 股票代码（如 600519, AAPL, HK00700）
+    code = Column(String(16), nullable=False, index=True)
+
+    # 市场类型：CN / US / HK
+    market = Column(String(8), nullable=False, default="CN", index=True)
     
     # 交易日期
     date = Column(Date, nullable=False, index=True)
@@ -102,22 +127,24 @@ class StockDaily(Base):
     data_source = Column(String(50))  # 记录数据来源（如 AkshareFetcher）
     
     # 更新时间
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
     
-    # 唯一约束：同一股票同一日期只能有一条数据
+    # 唯一约束：同一市场、同一股票、同一日期只能有一条数据
     __table_args__ = (
-        UniqueConstraint('code', 'date', name='uix_code_date'),
-        Index('ix_code_date', 'code', 'date'),
+        UniqueConstraint('market', 'code', 'date', name='uix_stock_daily_market_code_date'),
+        CheckConstraint("market IN ('CN', 'US', 'HK')", name='ck_stock_daily_market'),
+        Index('ix_stock_daily_market_code_date', 'market', 'code', 'date'),
     )
     
     def __repr__(self):
-        return f"<StockDaily(code={self.code}, date={self.date}, close={self.close})>"
+        return f"<StockDaily(market={self.market}, code={self.code}, date={self.date}, close={self.close})>"
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return {
             'code': self.code,
+            'market': self.market,
             'date': self.date,
             'open': self.open,
             'high': self.high,
@@ -161,10 +188,10 @@ class NewsIntel(Base):
     snippet = Column(Text)
     url = Column(String(1000), nullable=False)
     source = Column(String(100))
-    published_date = Column(DateTime, index=True)
+    published_date = Column(DateTime(timezone=True), index=True)
 
     # 入库时间
-    fetched_at = Column(DateTime, default=datetime.now, index=True)
+    fetched_at = Column(DateTime(timezone=True), default=utc_now, index=True)
     query_source = Column(String(32), index=True)  # bot/web/cli/system
     requester_platform = Column(String(20))
     requester_user_id = Column(String(64))
@@ -196,7 +223,7 @@ class FundamentalSnapshot(Base):
     payload = Column(Text, nullable=False)
     source_chain = Column(Text)
     coverage = Column(Text)
-    created_at = Column(DateTime, default=datetime.now, index=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, index=True)
 
     __table_args__ = (
         Index('ix_fundamental_snapshot_query_code', 'query_id', 'code'),
@@ -242,7 +269,7 @@ class AnalysisHistory(Base):
     stop_loss = Column(Float)
     take_profit = Column(Float)
 
-    created_at = Column(DateTime, default=datetime.now, index=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, index=True)
 
     __table_args__ = (
         Index('ix_analysis_code_time', 'code', 'created_at'),
@@ -290,7 +317,7 @@ class BacktestResult(Base):
 
     # 状态
     eval_status = Column(String(16), nullable=False, default='pending')
-    evaluated_at = Column(DateTime, default=datetime.now, index=True)
+    evaluated_at = Column(DateTime(timezone=True), default=utc_now, index=True)
 
     # 建议快照（避免未来分析字段变化导致回测不可解释）
     operation_advice = Column(String(20))
@@ -346,7 +373,7 @@ class BacktestSummary(Base):
 
     eval_window_days = Column(Integer, nullable=False, default=10)
     engine_version = Column(String(16), nullable=False, default='v1')
-    computed_at = Column(DateTime, default=datetime.now, index=True)
+    computed_at = Column(DateTime(timezone=True), default=utc_now, index=True)
 
     # 计数
     total_evaluations = Column(Integer, default=0)
@@ -401,8 +428,8 @@ class User(Base):
     avatar_url = Column(String(512), nullable=True)
     role = Column(String(32), nullable=False)  # admin | user
     extra = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
 
 class PortfolioAccount(Base):
@@ -417,8 +444,8 @@ class PortfolioAccount(Base):
     market = Column(String(8), nullable=False, default='cn', index=True)  # cn/hk/us
     base_currency = Column(String(8), nullable=False, default='CNY')
     is_active = Column(Boolean, nullable=False, default=True, index=True)
-    created_at = Column(DateTime, default=datetime.now, index=True)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=utc_now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         Index('ix_portfolio_account_uid_active', 'uid', 'is_active'),
@@ -444,7 +471,7 @@ class PortfolioTrade(Base):
     tax = Column(Float, default=0.0)
     note = Column(String(255))
     dedup_hash = Column(String(64), index=True)
-    created_at = Column(DateTime, default=datetime.now, index=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, index=True)
 
     __table_args__ = (
         UniqueConstraint('account_id', 'trade_uid', name='uix_portfolio_trade_uid'),
@@ -465,7 +492,7 @@ class PortfolioCashLedger(Base):
     amount = Column(Float, nullable=False)
     currency = Column(String(8), nullable=False, default='CNY')
     note = Column(String(255))
-    created_at = Column(DateTime, default=datetime.now, index=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, index=True)
 
     __table_args__ = (
         Index('ix_portfolio_cash_account_date', 'account_id', 'event_date'),
@@ -487,7 +514,7 @@ class PortfolioCorporateAction(Base):
     cash_dividend_per_share = Column(Float)
     split_ratio = Column(Float)
     note = Column(String(255))
-    created_at = Column(DateTime, default=datetime.now, index=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, index=True)
 
     __table_args__ = (
         Index('ix_portfolio_ca_account_date', 'account_id', 'effective_date'),
@@ -512,7 +539,7 @@ class PortfolioPosition(Base):
     market_value_base = Column(Float, nullable=False, default=0.0)
     unrealized_pnl_base = Column(Float, nullable=False, default=0.0)
     valuation_currency = Column(String(8), nullable=False, default='CNY')
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, index=True)
 
     __table_args__ = (
         UniqueConstraint(
@@ -541,7 +568,7 @@ class PortfolioPositionLot(Base):
     remaining_quantity = Column(Float, nullable=False, default=0.0)
     unit_cost = Column(Float, nullable=False, default=0.0)
     source_trade_id = Column(Integer)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, index=True)
 
     __table_args__ = (
         Index('ix_portfolio_lot_account_symbol', 'account_id', 'symbol'),
@@ -567,8 +594,8 @@ class PortfolioDailySnapshot(Base):
     tax_total = Column(Float, nullable=False, default=0.0)
     fx_stale = Column(Boolean, nullable=False, default=False)
     payload = Column(Text)
-    created_at = Column(DateTime, default=datetime.now, index=True)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=utc_now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         UniqueConstraint(
@@ -592,7 +619,7 @@ class PortfolioFxRate(Base):
     rate = Column(Float, nullable=False)
     source = Column(String(32), nullable=False, default='manual')
     is_stale = Column(Boolean, nullable=False, default=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         UniqueConstraint(
@@ -615,7 +642,7 @@ class ConversationMessage(Base):
     session_id = Column(String(100), index=True, nullable=False)
     role = Column(String(20), nullable=False)  # user, assistant, system
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.now, index=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class LLMUsage(Base):
@@ -632,7 +659,7 @@ class LLMUsage(Base):
     prompt_tokens = Column(Integer, nullable=False, default=0)
     completion_tokens = Column(Integer, nullable=False, default=0)
     total_tokens = Column(Integer, nullable=False, default=0)
-    called_at = Column(DateTime, default=datetime.now, index=True)
+    called_at = Column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class WatchListItem(Base):
@@ -647,8 +674,8 @@ class WatchListItem(Base):
     notes = Column(Text, nullable=True)
     market_type = Column(String(8), nullable=False, default="CN", index=True)
     is_favorite = Column(Boolean, nullable=False, default=False, index=True)
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("uid", "code", name="uix_watch_list_uid_code"),
@@ -670,27 +697,27 @@ class StockHolding(Base):
     quantity = Column(Integer, nullable=False, default=0)
     market_type = Column(String(8), nullable=False, default="CN", index=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("uid", "code", name="uix_stock_list_uid_code"),
     )
 
 
-class CalendarSignal(Base):
-    """日历信号记录 — 按日期记录自动化信号结果。"""
+class CalendarEntry(Base):
+    """日历记录 — 按具体时间记录自动化任务结果。"""
 
-    __tablename__ = 'calendar_signals'
+    __tablename__ = 'calendar'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     uid = Column(Integer, nullable=False, index=True)
-    signal_date = Column(Date, nullable=False, index=True)
+    time = Column(DateTime(timezone=True), nullable=False, index=True)
     title = Column(String(120), nullable=False)
     content = Column(Text, nullable=True)
-    signal_type = Column(String(32), nullable=True)
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    type = Column(String(32), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
 
 class DatabaseManager:
@@ -849,6 +876,10 @@ class DatabaseManager:
     @staticmethod
     def _normalize_sql_value(value: Any) -> Any:
         return None if pd.isna(value) else value
+
+    @staticmethod
+    def _normalize_market(value: Optional[str] = None, code: Optional[str] = None) -> str:
+        return normalize_market_type(value, code)
     
     def get_session(self) -> Session:
         """
@@ -884,7 +915,12 @@ class DatabaseManager:
         finally:
             session.close()
     
-    def has_today_data(self, code: str, target_date: Optional[date] = None) -> bool:
+    def has_today_data(
+        self,
+        code: str,
+        target_date: Optional[date] = None,
+        market: Optional[str] = None,
+    ) -> bool:
         """
         检查是否已有指定日期的数据
         
@@ -893,12 +929,14 @@ class DatabaseManager:
         Args:
             code: 股票代码
             target_date: 目标日期（默认今天）
+            market: 市场类型（CN/US/HK，默认按 code 推断）
             
         Returns:
             是否存在数据
         """
         if target_date is None:
             target_date = date.today()
+        normalized_market = self._normalize_market(market, code)
         # 注意：这里的 target_date 语义是“自然日”，而不是“最新交易日”。
         # 在周末/节假日/非交易日运行时，即使数据库已有最新交易日数据，这里也会返回 False。
         # 该行为目前保留（按需求不改逻辑）。
@@ -908,6 +946,7 @@ class DatabaseManager:
                 select(StockDaily).where(
                     and_(
                         StockDaily.code == code,
+                        StockDaily.market == normalized_market,
                         StockDaily.date == target_date
                     )
                 )
@@ -918,7 +957,8 @@ class DatabaseManager:
     def get_latest_data(
         self, 
         code: str, 
-        days: int = 2
+        days: int = 2,
+        market: Optional[str] = None,
     ) -> List[StockDaily]:
         """
         获取最近 N 天的数据
@@ -928,14 +968,16 @@ class DatabaseManager:
         Args:
             code: 股票代码
             days: 获取天数
+            market: 市场类型（CN/US/HK，默认按 code 推断）
             
         Returns:
             StockDaily 对象列表（按日期降序）
         """
+        normalized_market = self._normalize_market(market, code)
         with self.get_session() as session:
             results = session.execute(
                 select(StockDaily)
-                .where(StockDaily.code == code)
+                .where(and_(StockDaily.code == code, StockDaily.market == normalized_market))
                 .order_by(desc(StockDaily.date))
                 .limit(days)
             ).scalars().all()
@@ -1000,7 +1042,7 @@ class DatabaseManager:
                     existing.snippet = snippet or existing.snippet
                     existing.source = source or existing.source
                     existing.published_date = published_date or existing.published_date
-                    existing.fetched_at = datetime.now()
+                    existing.fetched_at = utc_now()
 
                     if query_context:
                         if not existing.query_id and current_query_id:
@@ -1041,7 +1083,7 @@ class DatabaseManager:
                             url=url_key,
                             source=source,
                             published_date=published_date,
-                            fetched_at=datetime.now(),
+                            fetched_at=utc_now(),
                             query_id=current_query_id or None,
                             query_source=query_ctx.get("query_source"),
                             requester_platform=query_ctx.get("requester_platform"),
@@ -1157,7 +1199,7 @@ class DatabaseManager:
         """
         获取指定股票最近 N 天的新闻情报
         """
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = utc_now() - timedelta(days=days)
 
         with self.get_session() as session:
             results = session.execute(
@@ -1240,7 +1282,7 @@ class DatabaseManager:
                         secondary_buy=sniper_points.get("secondary_buy"),
                         stop_loss=sniper_points.get("stop_loss"),
                         take_profit=sniper_points.get("take_profit"),
-                        created_at=datetime.now(),
+                        created_at=utc_now(),
                     )
                 )
                 return 1
@@ -1268,7 +1310,7 @@ class DatabaseManager:
         - If query_id is not provided, apply days-based time filtering.
         - exclude_query_id: exclude records with this query_id (for history comparison).
         """
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = utc_now() - timedelta(days=days)
 
         with self.get_session() as session:
             conditions = []
@@ -1324,10 +1366,12 @@ class DatabaseManager:
                 conditions.append(AnalysisHistory.code == code)
             if start_date:
                 # created_at >= start_date 00:00:00
-                conditions.append(AnalysisHistory.created_at >= datetime.combine(start_date, datetime.min.time()))
+                conditions.append(AnalysisHistory.created_at >= datetime.combine(start_date, time.min, tzinfo=timezone.utc))
             if end_date:
                 # created_at < end_date+1 00:00:00 (即 <= end_date 23:59:59)
-                conditions.append(AnalysisHistory.created_at < datetime.combine(end_date + timedelta(days=1), datetime.min.time()))
+                conditions.append(
+                    AnalysisHistory.created_at < datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=timezone.utc)
+                )
             
             # 构建 where 子句
             where_clause = and_(*conditions) if conditions else True
@@ -1417,7 +1461,8 @@ class DatabaseManager:
         self, 
         code: str, 
         start_date: date, 
-        end_date: date
+        end_date: date,
+        market: Optional[str] = None,
     ) -> List[StockDaily]:
         """
         获取指定日期范围的数据
@@ -1426,16 +1471,19 @@ class DatabaseManager:
             code: 股票代码
             start_date: 开始日期
             end_date: 结束日期
+            market: 市场类型（CN/US/HK，默认按 code 推断）
             
         Returns:
             StockDaily 对象列表
         """
+        normalized_market = self._normalize_market(market, code)
         with self.get_session() as session:
             results = session.execute(
                 select(StockDaily)
                 .where(
                     and_(
                         StockDaily.code == code,
+                        StockDaily.market == normalized_market,
                         StockDaily.date >= start_date,
                         StockDaily.date <= end_date
                     )
@@ -1449,13 +1497,14 @@ class DatabaseManager:
         self, 
         df: pd.DataFrame, 
         code: str,
-        data_source: str = "Unknown"
+        data_source: str = "Unknown",
+        market: Optional[str] = None,
     ) -> int:
         """
         保存日线数据到数据库
         
         策略：
-        - 按 `(code, date)` 做批量 UPSERT，已存在记录会覆盖更新
+        - 按 `(market, code, date)` 做批量 UPSERT，已存在记录会覆盖更新
         - 同一批次内若存在重复日期，以最后一条记录为准
         - 使用 PostgreSQL ON CONFLICT DO UPDATE
         
@@ -1463,6 +1512,7 @@ class DatabaseManager:
             df: 包含日线数据的 DataFrame
             code: 股票代码
             data_source: 数据来源名称
+            market: 市场类型（CN/US/HK，默认按 code 推断）
             
         Returns:
             本次实际新增的记录数（不含更新）
@@ -1471,12 +1521,14 @@ class DatabaseManager:
             logger.warning(f"保存数据为空，跳过 {code}")
             return 0
 
-        now = datetime.now()
+        normalized_market = self._normalize_market(market, code)
+        now = utc_now()
         records_by_date: Dict[date, Dict[str, Any]] = {}
         for row in df.to_dict(orient='records'):
             row_date = self._normalize_daily_date(row.get('date'))
             records_by_date[row_date] = {
                 'code': code,
+                'market': normalized_market,
                 'date': row_date,
                 'open': self._normalize_sql_value(row.get('open')),
                 'high': self._normalize_sql_value(row.get('high')),
@@ -1511,7 +1563,7 @@ class DatabaseManager:
             stmt = pg_insert(StockDaily).values(chunk)
             session.execute(
                 stmt.on_conflict_do_update(
-                    index_elements=['code', 'date'],
+                    constraint='uix_stock_daily_market_code_date',
                     set_={col: stmt.excluded[col] for col in _UPSERT_COLUMNS},
                 )
             )
@@ -1522,6 +1574,7 @@ class DatabaseManager:
                     select(StockDaily.date).where(
                         and_(
                             StockDaily.code == code,
+                            StockDaily.market == normalized_market,
                             StockDaily.date.in_(batch_dates),
                         )
                     )
@@ -1630,15 +1683,16 @@ class DatabaseManager:
             return "震荡整理 ↔️"
 
     @staticmethod
-    def _parse_published_date(value: Optional[str]) -> Optional[datetime]:
+    def _parse_published_date(value: Optional[Any]) -> Optional[datetime]:
         """
         解析发布时间字符串（失败返回 None）
         """
         if not value:
             return None
 
-        if isinstance(value, datetime):
-            return value
+        parsed = ensure_aware_datetime(value)
+        if parsed is not None:
+            return parsed
 
         text = str(value).strip()
         if not text:
@@ -1646,7 +1700,7 @@ class DatabaseManager:
 
         # 优先尝试 ISO 格式
         try:
-            return datetime.fromisoformat(text)
+            return ensure_aware_datetime(datetime.fromisoformat(text.replace("Z", "+00:00")))
         except ValueError:
             pass
 
@@ -1659,7 +1713,7 @@ class DatabaseManager:
             "%Y/%m/%d",
         ):
             try:
-                return datetime.strptime(text, fmt)
+                return ensure_aware_datetime(datetime.strptime(text, fmt))
             except ValueError:
                 continue
 
@@ -2066,6 +2120,8 @@ class DatabaseManager:
           by_call_type: list of {call_type, calls, total_tokens},
           by_model:     list of {model, calls, total_tokens}
         """
+        from_dt = ensure_aware_datetime(from_dt) or utc_now()
+        to_dt = ensure_aware_datetime(to_dt) or utc_now()
         with self.session_scope() as session:
             base_filter = and_(
                 LLMUsage.called_at >= from_dt,

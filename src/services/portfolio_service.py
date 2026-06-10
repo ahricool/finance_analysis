@@ -1036,7 +1036,7 @@ class PortfolioService:
                     }
                 )
 
-            price_info = self._resolve_position_price(symbol=symbol, as_of_date=as_of_date)
+            price_info = self._resolve_position_price(symbol=symbol, market=market, as_of_date=as_of_date)
             last_price = price_info.price
 
             if price_info.is_available:
@@ -1090,10 +1090,10 @@ class PortfolioService:
 
         return position_rows, lot_rows, market_value_base, total_cost_base, fx_stale
 
-    def _resolve_position_price(self, *, symbol: str, as_of_date: date) -> _ResolvedPositionPrice:
+    def _resolve_position_price(self, *, symbol: str, market: str, as_of_date: date) -> _ResolvedPositionPrice:
         today = date.today()
 
-        close = self.repo.get_latest_close_with_date(symbol=symbol, as_of=as_of_date)
+        close = self.repo.get_latest_close_with_date(symbol=symbol, as_of=as_of_date, market=market)
         if close is not None:
             close_price, close_date = close
             if close_price > 0:

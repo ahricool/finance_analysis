@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import select
@@ -11,7 +10,7 @@ from sqlalchemy import select
 from src.services.market_type_utils import normalize_market_type
 from sqlalchemy.orm import Session
 
-from src.storage import DatabaseManager, StockHolding
+from src.storage import DatabaseManager, StockHolding, utc_now
 
 
 def get_db() -> DatabaseManager:
@@ -74,8 +73,8 @@ class StockListRepo:
             quantity=max(0, quantity),
             market_type=normalize_market_type(market_type, code),
             notes=(notes or "").strip() or None,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
+            created_at=utc_now(),
+            updated_at=utc_now(),
         )
 
         def _write(session: Session) -> StockHolding:
@@ -110,7 +109,7 @@ class StockListRepo:
                 obj.notes = notes.strip() or None
             if market_type is not None:
                 obj.market_type = normalize_market_type(market_type, obj.code)
-            obj.updated_at = datetime.now()
+            obj.updated_at = utc_now()
             session.flush()
             session.refresh(obj)
             return obj

@@ -13,7 +13,7 @@ from typing import List, Optional, Tuple
 
 from sqlalchemy import and_, delete, desc, func, select
 
-from src.storage import BacktestResult, BacktestSummary, DatabaseManager, AnalysisHistory
+from src.storage import BacktestResult, BacktestSummary, DatabaseManager, AnalysisHistory, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class BacktestRepository:
         force: bool,
     ) -> List[AnalysisHistory]:
         """Return AnalysisHistory rows eligible for backtest."""
-        cutoff_dt = datetime.now() - timedelta(days=min_age_days)
+        cutoff_dt = utc_now() - timedelta(days=min_age_days)
 
         with self.db.get_session() as session:
             conditions = [AnalysisHistory.created_at <= cutoff_dt]
@@ -342,6 +342,6 @@ class BacktestRepository:
         if analysis_date_to is not None:
             conditions.append(BacktestResult.analysis_date <= analysis_date_to)
         if days:
-            cutoff = datetime.now() - timedelta(days=int(days))
+            cutoff = utc_now() - timedelta(days=int(days))
             conditions.append(BacktestResult.evaluated_at >= cutoff)
         return conditions

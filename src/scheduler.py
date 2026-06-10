@@ -117,7 +117,7 @@ def _build_calendar_content(
 def _record_scheduled_task_result(
     *,
     task_name: str,
-    signal_type: str,
+    type: str,
     started_at: datetime,
     finished_at: datetime,
     total_count: int,
@@ -127,7 +127,7 @@ def _record_scheduled_task_result(
     note: Optional[str] = None,
 ) -> None:
     """Create a calendar record for a completed scheduled task run."""
-    from src.repositories.calendar_signal_repo import CalendarSignalRepo
+    from src.repositories.calendar_repo import CalendarRepo
     from src.repositories.user_repo import UserRepository
 
     status = "失败" if error else ("跳过" if total_count == 0 else "完成")
@@ -144,12 +144,12 @@ def _record_scheduled_task_result(
         note=note,
     )
     uid = UserRepository().ensure_default_admin()
-    CalendarSignalRepo().create(
+    CalendarRepo().create(
         uid=uid,
-        signal_date=finished_at.date(),
+        time=finished_at,
         title=title[:120],
         content=content,
-        signal_type=signal_type,
+        type=type,
     )
 
 
@@ -188,7 +188,7 @@ def _daily_analysis_task() -> None:
         logger.exception("定时任务执行失败: %s", exc)
         _safe_record_scheduled_task_result(
             task_name=task_name,
-            signal_type="scheduled_daily",
+            type="scheduled_daily",
             started_at=started_at,
             finished_at=finished_at,
             total_count=total_count,
@@ -200,7 +200,7 @@ def _daily_analysis_task() -> None:
         finished_at = _scheduled_now()
         _safe_record_scheduled_task_result(
             task_name=task_name,
-            signal_type="scheduled_daily",
+            type="scheduled_daily",
             started_at=started_at,
             finished_at=finished_at,
             total_count=total_count,
@@ -236,7 +236,7 @@ def _us_premarket_analysis_task() -> None:
             finished_at = _scheduled_now()
             _safe_record_scheduled_task_result(
                 task_name=task_name,
-                signal_type="scheduled_us_premarket",
+                type="scheduled_us_premarket",
                 started_at=started_at,
                 finished_at=finished_at,
                 total_count=0,
@@ -255,7 +255,7 @@ def _us_premarket_analysis_task() -> None:
         logger.exception("美股盘前分析任务执行失败: %s", exc)
         _safe_record_scheduled_task_result(
             task_name=task_name,
-            signal_type="scheduled_us_premarket",
+            type="scheduled_us_premarket",
             started_at=started_at,
             finished_at=finished_at,
             total_count=total_count,
@@ -267,7 +267,7 @@ def _us_premarket_analysis_task() -> None:
         finished_at = _scheduled_now()
         _safe_record_scheduled_task_result(
             task_name=task_name,
-            signal_type="scheduled_us_premarket",
+            type="scheduled_us_premarket",
             started_at=started_at,
             finished_at=finished_at,
             total_count=total_count,

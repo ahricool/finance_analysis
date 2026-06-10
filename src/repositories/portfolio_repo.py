@@ -25,6 +25,7 @@ from src.storage import (
     PortfolioPositionLot,
     PortfolioTrade,
     StockDaily,
+    utc_now,
 )
 
 logger = logging.getLogger(__name__)
@@ -123,7 +124,7 @@ class PortfolioRepository:
                 return None
             for key, value in fields.items():
                 setattr(row, key, value)
-            row.updated_at = datetime.now()
+            row.updated_at = utc_now()
             session.commit()
             session.refresh(row)
             return row
@@ -136,7 +137,7 @@ class PortfolioRepository:
             if row is None:
                 return False
             row.is_active = False
-            row.updated_at = datetime.now()
+            row.updated_at = utc_now()
             session.commit()
             return True
 
@@ -683,17 +684,24 @@ class PortfolioRepository:
     # ------------------------------------------------------------------
     # Price / FX
     # ------------------------------------------------------------------
-    def get_latest_close(self, symbol: str, as_of: date) -> Optional[float]:
-        close = self.get_latest_close_with_date(symbol=symbol, as_of=as_of)
+    def get_latest_close(self, symbol: str, as_of: date, market: Optional[str] = None) -> Optional[float]:
+        close = self.get_latest_close_with_date(symbol=symbol, as_of=as_of, market=market)
         return close[0] if close is not None else None
 
-    def get_latest_close_with_date(self, symbol: str, as_of: date) -> Optional[Tuple[float, date]]:
+    def get_latest_close_with_date(
+        self,
+        symbol: str,
+        as_of: date,
+        market: Optional[str] = None,
+    ) -> Optional[Tuple[float, date]]:
+        normalized_market = self.db._normalize_market(market, symbol)
         with self.db.get_session() as session:
             row = session.execute(
                 select(StockDaily)
                 .where(
                     and_(
                         StockDaily.code == symbol,
+                        StockDaily.market == normalized_market,
                         StockDaily.date <= as_of,
                     )
                 )
@@ -739,7 +747,7 @@ class PortfolioRepository:
                 existing.rate = rate
                 existing.source = source
                 existing.is_stale = is_stale
-                existing.updated_at = datetime.now()
+                existing.updated_at = utc_now()
             session.commit()
 
     def get_latest_fx_rate(
@@ -955,7 +963,7 @@ class PortfolioRepository:
                 existing.tax_total = tax_total
                 existing.fx_stale = fx_stale
                 existing.payload = payload
-                existing.updated_at = datetime.now()
+                existing.updated_at = utc_now()
             session.commit()
 
     def replace_positions_lots_and_snapshot(
@@ -1069,6 +1077,6 @@ class PortfolioRepository:
                 existing.tax_total = tax_total
                 existing.fx_stale = fx_stale
                 existing.payload = payload
-                existing.updated_at = datetime.now()
+                existing.updated_at = utc_now()
 
             session.commit()
