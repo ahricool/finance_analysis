@@ -17,6 +17,7 @@ from api.v1.endpoints import (
     auth,
     backtest,
     calendar,
+    celery_demo,
     history,
     portfolio,
     stock_list,
@@ -99,4 +100,10 @@ router.include_router(
     calendar.router,
     prefix="/calendar",
     tags=["Calendar"],
+)
+
+router.include_router(
+    celery_demo.router,
+    prefix="/celery",
+    tags=["Celery"],
 )

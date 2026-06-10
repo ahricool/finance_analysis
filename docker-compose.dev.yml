@@ -76,6 +76,34 @@ services:
       - ./src:/workspace/src
       - ./main.py:/workspace/main.py
 
+  celery_worker:
+    image: ghcr.io/ahricool/finance_analysis:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finance-analysis-dev-celery
+    restart: unless-stopped
+    command: ["celery", "-A", "src.celery_app.app", "worker", "--loglevel=info"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./data:/workspace/data
+      - ./logs:/workspace/logs
+      - ./reports:/workspace/reports
+      - ./.env:/workspace/.env
+      - ./strategies:/workspace/strategies:ro
+      - ./api:/workspace/api
+      - ./data_provider:/workspace/data_provider
+      - ./bot:/workspace/bot
+      - ./src:/workspace/src
+      - ./main.py:/workspace/main.py
+
 volumes:
   postgres_data_dev:
     name: finance-analysis-dev-postgres-data
