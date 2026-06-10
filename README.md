@@ -57,19 +57,15 @@ cp .env.example .env
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=finance_analysis
-POSTGRES_PORT=5432
-DEV_POSTGRES_PORT=5433
+POSTGRES_PORT=
 DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}
-REDIS_PORT=6379
-DEV_REDIS_PORT=6380
+REDIS_PORT=
 REDIS_URL=redis://localhost:${REDIS_PORT}/0
 
-# Web 服务
-WEBUI_HOST=0.0.0.0
-WEBUI_PORT=8000
-API_PORT=8000
-PROD_API_PORT=8000
-DEV_API_PORT=8001
+# Web 服务：Docker Compose 会注入；本机裸跑 Python 时再填写
+WEBUI_HOST=
+WEBUI_PORT=
+API_PORT=
 
 # AI / 搜索 / 数据源：任选你实际使用的服务填写
 GEMINI_API_KEY=
@@ -96,16 +92,16 @@ SERPAPI_API_KEYS=
 
 ```bash
 cp .env.example .env
-# 按需编辑 .env，比如 API Key、端口、数据库密码等
+# 按需编辑 .env，比如 API Key、数据库密码等
 
 docker compose -f docker-compose.dev.yml up --build
 ```
 
 启动后访问：
 
-- 🌐 WebUI：`http://localhost:${DEV_API_PORT}`
-- 📚 API 文档：`http://localhost:${DEV_API_PORT}/docs`
-- ❤️ 健康检查：`http://localhost:${DEV_API_PORT}/api/health`
+- 🌐 WebUI：`http://localhost:8001`
+- 📚 API 文档：`http://localhost:8001/docs`
+- ❤️ 健康检查：`http://localhost:8001/api/health`
 
 后台运行可以这样：
 
@@ -151,7 +147,7 @@ cp .env.example .env
 4. 启动后端 API：
 
 ```bash
-uv run python main.py
+uv run python main.py --host 127.0.0.1 --port 8000
 ```
 
 5. 另开一个终端启动前端开发服务器：
@@ -165,9 +161,9 @@ pnpm run dev
 
 本机开发常用地址：
 
-- 后端 API：`http://${FA_WEB_SMOKE_BACKEND_HOST:-127.0.0.1}:${WEBUI_PORT}`
-- API 文档：`http://${FA_WEB_SMOKE_BACKEND_HOST:-127.0.0.1}:${WEBUI_PORT}/docs`
-- Vite 前端：`http://${VITE_DEV_HOST}:${VITE_DEV_PORT}`
+- 后端 API：`http://127.0.0.1:8000`
+- API 文档：`http://127.0.0.1:8000/docs`
+- Vite 前端：`http://127.0.0.1:5173`
 
 ## 生产环境怎么部署？🚀🏡
 
@@ -202,15 +198,8 @@ cp .env.example .env
 POSTGRES_USER=finance_user
 POSTGRES_PASSWORD=请换成超长随机密码
 POSTGRES_DB=finance_analysis
-POSTGRES_PORT=5432
-REDIS_PORT=6379
-
-# 云服务器对外监听通常需要 0.0.0.0
-WEBUI_HOST=0.0.0.0
-WEBUI_PORT=8000
-API_PORT=8000
-PROD_API_PORT=8000
-DEV_API_PORT=8001
+POSTGRES_PORT=
+REDIS_PORT=
 
 # 按需填写你的 AI、搜索、行情、通知配置
 OPENAI_API_KEY=
@@ -236,13 +225,13 @@ docker compose -f docker-compose.prod.yml up -d
 ```bash
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f server
-curl http://127.0.0.1:${PROD_API_PORT}/api/health
+curl http://127.0.0.1:8000/api/health
 ```
 
 访问：
 
-- 🌍 WebUI：`http://你的服务器IP:${PROD_API_PORT}`
-- 📖 API 文档：`http://你的服务器IP:${PROD_API_PORT}/docs`
+- 🌍 WebUI：`http://你的服务器IP:8000`
+- 📖 API 文档：`http://你的服务器IP:8000/docs`
 
 ### 5. 更新版本
 

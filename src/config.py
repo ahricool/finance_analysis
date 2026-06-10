@@ -166,6 +166,45 @@ def parse_env_int(
     return parsed
 
 
+def parse_optional_env_int(
+    value: Optional[str],
+    *,
+    field_name: str,
+    minimum: Optional[int] = None,
+    maximum: Optional[int] = None,
+) -> Optional[int]:
+    """Parse an optional integer env value with warning + unset semantics."""
+    raw_value = value
+    if raw_value is None or not str(raw_value).strip():
+        return None
+
+    try:
+        parsed = int(str(raw_value).strip())
+    except (TypeError, ValueError):
+        logger.warning("%s=%r is not a valid integer; ignoring it", field_name, raw_value)
+        return None
+
+    if minimum is not None and parsed < minimum:
+        logger.warning(
+            "%s=%r is below minimum %s; clamping to %s",
+            field_name,
+            parsed,
+            minimum,
+            minimum,
+        )
+        parsed = minimum
+    if maximum is not None and parsed > maximum:
+        logger.warning(
+            "%s=%r is above maximum %s; clamping to %s",
+            field_name,
+            parsed,
+            maximum,
+            maximum,
+        )
+        parsed = maximum
+    return parsed
+
+
 def parse_env_float(
     value: Optional[str],
     default: float,
@@ -899,8 +938,8 @@ class Config:
     
     # === WebUI 配置 ===
     webui_enabled: bool = False
-    webui_host: str = "127.0.0.1"
-    webui_port: int = 8000
+    webui_host: str = ""
+    webui_port: Optional[int] = None
     # JWT session cookie 签名密钥；留空时首次使用时随机生成（见 src.auth._load_secret_key）
     secret_key: str = ""
 
@@ -1451,9 +1490,8 @@ class Config:
             trading_day_check_enabled=os.getenv('TRADING_DAY_CHECK_ENABLED', 'true').lower() != 'false',
             webui_enabled=os.getenv('WEBUI_ENABLED', 'false').lower() == 'true',
             webui_host=os.getenv('WEBUI_HOST') or os.getenv('API_HOST') or cls.webui_host,
-            webui_port=parse_env_int(
+            webui_port=parse_optional_env_int(
                 os.getenv('WEBUI_PORT') or os.getenv('API_PORT'),
-                cls.webui_port,
                 field_name='WEBUI_PORT',
                 minimum=1,
                 maximum=65535,

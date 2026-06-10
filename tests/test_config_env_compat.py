@@ -136,7 +136,7 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
         self.assertEqual(config.agent_orchestrator_timeout_s, 600)
         self.assertEqual(config.news_max_age_days, 3)
         self.assertEqual(config.max_workers, 3)
-        self.assertEqual(config.webui_port, 8000)
+        self.assertIsNone(config.webui_port)
 
     @patch("src.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])

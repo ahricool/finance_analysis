@@ -31,6 +31,9 @@ def main() -> int:
         config = get_config()
         host = args.host or config.webui_host
         port = args.port or config.webui_port
+        if not host or port is None:
+            print("WEBUI_HOST and WEBUI_PORT must be configured, or pass --host and --port.")
+            return 1
 
         print(f"正在启动 Web 服务: http://{host}:{port}")
         print(f"API 文档: http://{host}:{port}/docs")
