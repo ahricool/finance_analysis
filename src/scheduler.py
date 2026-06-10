@@ -282,11 +282,36 @@ def _us_premarket_analysis_task() -> None:
 
 
 def _us_intraday_analysis_task() -> None:
-    """美股盘中定时任务：任务流程暂为空。"""
-    logger.info(
-        "美股盘中分析任务触发 - %s（任务流程暂为空）",
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    )
+    """美股盘中定时任务：检测自选美股的盘中异动并按需提醒。"""
+    started_at = _scheduled_now()
+    logger.info("美股盘中分析任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
+    try:
+        from src.config import get_config
+        from src.repositories.watch_list_repo import get_watch_list_codes_by_market
+        from src.services.us_intraday_analysis_service import USIntradayAnalysisService
+
+        stock_codes = get_watch_list_codes_by_market("US")
+        if not stock_codes:
+            logger.info("未配置美股自选股，跳过美股盘中分析任务")
+            return
+
+        service = USIntradayAnalysisService(config=get_config())
+        summary = service.run(stock_codes)
+        if not summary.market_open:
+            logger.info("当前不是美股盘中交易时段，跳过美股盘中分析任务")
+            return
+
+        logger.info(
+            "美股盘中分析完成: total=%s processed=%s skipped=%s candidates=%s signals=%s errors=%s",
+            summary.total_symbols,
+            summary.processed_symbols,
+            summary.skipped_symbols,
+            summary.candidate_count,
+            len(summary.signal_results),
+            len(summary.errors),
+        )
+    except Exception as exc:
+        logger.exception("美股盘中分析任务执行失败: %s", exc)
 
 
 def _a_share_intraday_analysis_task() -> None:

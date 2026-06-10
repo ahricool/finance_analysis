@@ -23,9 +23,9 @@ import logging
 import os
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import pandas as pd
 
@@ -532,6 +532,81 @@ class LongbridgeFetcher(BaseFetcher):
         except Exception as e:
             logger.debug(f"[Longbridge] 计算量比失败({symbol}): {e}")
             return None
+
+    # ------------------------------------------------------------------
+    # candlesticks
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _candle_to_dict(candle: Any) -> Dict[str, Any]:
+        """Convert a Longbridge Candlestick object into a JSON-serializable bar."""
+        timestamp = getattr(candle, "timestamp", None)
+        if hasattr(timestamp, "isoformat"):
+            timestamp_value = timestamp.isoformat()
+        elif timestamp is not None:
+            timestamp_value = str(timestamp)
+        else:
+            timestamp_value = ""
+
+        return {
+            "timestamp": timestamp_value,
+            "open": safe_float(getattr(candle, "open", None)),
+            "high": safe_float(getattr(candle, "high", None)),
+            "low": safe_float(getattr(candle, "low", None)),
+            "close": safe_float(getattr(candle, "close", None)),
+            "volume": int(getattr(candle, "volume", 0) or 0),
+            "turnover": safe_float(getattr(candle, "turnover", None)),
+            "trade_session": str(getattr(candle, "trade_session", "") or ""),
+        }
+
+    def get_minute_candlesticks(
+        self,
+        stock_code: str,
+        interval: int = 1,
+        count: int = 500,
+        include_extended: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Fetch recent 1/5/15 minute candlesticks from Longbridge.
+
+        Longbridge's Python SDK exposes this through ``QuoteContext.candlesticks``
+        with ``Period.Min_1``/``Min_5``/``Min_15`` and a max count of 1000.
+        """
+        if interval not in (1, 5, 15):
+            raise ValueError("Longbridge minute interval must be one of 1, 5, 15")
+        if not self.is_available_for_request("minute_candlesticks"):
+            return []
+
+        symbol = _to_longbridge_symbol(stock_code)
+        if symbol is None:
+            logger.debug("[Longbridge] 无法转换分钟K线代码: %s", stock_code)
+            return []
+
+        ctx = self._get_ctx()
+        if ctx is None:
+            return []
+
+        try:
+            from longbridge.openapi import AdjustType, Period, TradeSessions
+
+            period_map = {
+                1: Period.Min_1,
+                5: Period.Min_5,
+                15: Period.Min_15,
+            }
+            trade_sessions = TradeSessions.All if include_extended else TradeSessions.Intraday
+            candles = ctx.candlesticks(
+                symbol,
+                period_map[interval],
+                max(1, min(int(count), 1000)),
+                AdjustType.NoAdjust,
+                trade_sessions,
+            )
+            return [self._candle_to_dict(candle) for candle in sorted(candles, key=self._ts_sort_key)]
+        except Exception as e:
+            logger.info("[Longbridge] candlesticks(%s, %sm) 失败: %s", symbol, interval, e)
+            if self._is_connection_error(e):
+                self._mark_connection_cooldown(e)
+            return []
 
     # ------------------------------------------------------------------
     # get_realtime_quote
