@@ -29,11 +29,19 @@ class AppCorsConfigTestCase(unittest.TestCase):
         self.assertFalse(cors.kwargs["allow_credentials"])
 
     def test_explicit_origin_list_keeps_credentials_enabled(self):
-        with patch.dict(os.environ, {"CORS_ALLOW_ALL": "false"}, clear=False):
+        with patch.dict(
+            os.environ,
+            {
+                "CORS_ALLOW_ALL": "false",
+                "CORS_ORIGINS": "http://dev.example.test,http://preview.example.test",
+            },
+            clear=False,
+        ):
             app = self._build_app()
 
         cors = next(m for m in app.user_middleware if m.cls is CORSMiddleware)
-        self.assertIn("http://localhost:5173", cors.kwargs["allow_origins"])
+        self.assertIn("http://dev.example.test", cors.kwargs["allow_origins"])
+        self.assertIn("http://preview.example.test", cors.kwargs["allow_origins"])
         self.assertTrue(cors.kwargs["allow_credentials"])
 
 

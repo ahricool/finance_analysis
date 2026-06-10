@@ -1318,15 +1318,12 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "is_sensitive": False,
         "is_required": False,
         "is_editable": True,
-        "default_value": "127.0.0.1",
+        "default_value": None,
         "options": [],
         "validation": {},
         "display_order": 39,
         "help_key": "settings.system.WEBUI_HOST",
-        "examples": [
-            "WEBUI_HOST=127.0.0.1",
-            "WEBUI_HOST=0.0.0.0",
-        ],
+        "examples": ["WEBUI_HOST=<bind-address>"],
         "docs": [
             {
                 "label": "云服务器访问 WebUI",
@@ -1348,7 +1345,7 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "is_sensitive": False,
         "is_required": False,
         "is_editable": True,
-        "default_value": "8000",
+        "default_value": None,
         "options": [],
         "validation": {"min": 1, "max": 65535},
         "display_order": 40,

@@ -57,15 +57,15 @@ cp .env.example .env
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=finance_analysis
-POSTGRES_PORT=5432
+POSTGRES_PORT=
 DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}
-REDIS_PORT=6379
+REDIS_PORT=
 REDIS_URL=redis://localhost:${REDIS_PORT}/0
 
-# Web 服务
-WEBUI_HOST=127.0.0.1
-WEBUI_PORT=8000
-API_PORT=8000
+# Web 服务：Docker Compose 会注入；本机裸跑 Python 时再填写
+WEBUI_HOST=
+WEBUI_PORT=
+API_PORT=
 
 # AI / 搜索 / 数据源：任选你实际使用的服务填写
 GEMINI_API_KEY=
@@ -92,16 +92,16 @@ SERPAPI_API_KEYS=
 
 ```bash
 cp .env.example .env
-# 按需编辑 .env，比如 API Key、端口、数据库密码等
+# 按需编辑 .env，比如 API Key、数据库密码等
 
 docker compose -f docker-compose.dev.yml up --build
 ```
 
 启动后访问：
 
-- 🌐 WebUI：`http://localhost:8000`
-- 📚 API 文档：`http://localhost:8000/docs`
-- ❤️ 健康检查：`http://localhost:8000/api/health`
+- 🌐 WebUI：`http://localhost:8001`
+- 📚 API 文档：`http://localhost:8001/docs`
+- ❤️ 健康检查：`http://localhost:8001/api/health`
 
 后台运行可以这样：
 
@@ -147,7 +147,7 @@ cp .env.example .env
 4. 启动后端 API：
 
 ```bash
-uv run python main.py
+uv run python main.py --host 127.0.0.1 --port 8000
 ```
 
 5. 另开一个终端启动前端开发服务器：
@@ -198,13 +198,8 @@ cp .env.example .env
 POSTGRES_USER=finance_user
 POSTGRES_PASSWORD=请换成超长随机密码
 POSTGRES_DB=finance_analysis
-POSTGRES_PORT=5432
-REDIS_PORT=6379
-
-# 云服务器对外监听通常需要 0.0.0.0
-WEBUI_HOST=0.0.0.0
-WEBUI_PORT=8000
-API_PORT=8000
+POSTGRES_PORT=
+REDIS_PORT=
 
 # 按需填写你的 AI、搜索、行情、通知配置
 OPENAI_API_KEY=
