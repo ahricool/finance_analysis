@@ -67,6 +67,26 @@ services:
       - ./.env:/workspace/.env:ro
       - ./strategies:/workspace/strategies:ro
 
+  celery_worker:
+    image: ghcr.io/ahricool/finance_analysis:latest
+    container_name: finance-analysis-celery
+    restart: unless-stopped
+    command: ["celery", "-A", "src.celery_app.app", "worker", "--loglevel=info"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./data:/workspace/data
+      - ./logs:/workspace/logs
+      - ./reports:/workspace/reports
+      - ./.env:/workspace/.env:ro
+      - ./strategies:/workspace/strategies:ro
+
 volumes:
   postgres_data:
     name: finance-analysis-postgres-data
