@@ -58,14 +58,18 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=finance_analysis
 POSTGRES_PORT=5432
+DEV_POSTGRES_PORT=5433
 DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}
 REDIS_PORT=6379
+DEV_REDIS_PORT=6380
 REDIS_URL=redis://localhost:${REDIS_PORT}/0
 
 # Web 服务
-WEBUI_HOST=127.0.0.1
+WEBUI_HOST=0.0.0.0
 WEBUI_PORT=8000
 API_PORT=8000
+PROD_API_PORT=8000
+DEV_API_PORT=8001
 
 # AI / 搜索 / 数据源：任选你实际使用的服务填写
 GEMINI_API_KEY=
@@ -99,9 +103,9 @@ docker compose -f docker-compose.dev.yml up --build
 
 启动后访问：
 
-- 🌐 WebUI：`http://localhost:8000`
-- 📚 API 文档：`http://localhost:8000/docs`
-- ❤️ 健康检查：`http://localhost:8000/api/health`
+- 🌐 WebUI：`http://localhost:${DEV_API_PORT}`
+- 📚 API 文档：`http://localhost:${DEV_API_PORT}/docs`
+- ❤️ 健康检查：`http://localhost:${DEV_API_PORT}/api/health`
 
 后台运行可以这样：
 
@@ -161,9 +165,9 @@ pnpm run dev
 
 本机开发常用地址：
 
-- 后端 API：`http://127.0.0.1:8000`
-- API 文档：`http://127.0.0.1:8000/docs`
-- Vite 前端：`http://127.0.0.1:5173`
+- 后端 API：`http://${FA_WEB_SMOKE_BACKEND_HOST:-127.0.0.1}:${WEBUI_PORT}`
+- API 文档：`http://${FA_WEB_SMOKE_BACKEND_HOST:-127.0.0.1}:${WEBUI_PORT}/docs`
+- Vite 前端：`http://${VITE_DEV_HOST}:${VITE_DEV_PORT}`
 
 ## 生产环境怎么部署？🚀🏡
 
@@ -205,6 +209,8 @@ REDIS_PORT=6379
 WEBUI_HOST=0.0.0.0
 WEBUI_PORT=8000
 API_PORT=8000
+PROD_API_PORT=8000
+DEV_API_PORT=8001
 
 # 按需填写你的 AI、搜索、行情、通知配置
 OPENAI_API_KEY=
@@ -230,13 +236,13 @@ docker compose -f docker-compose.prod.yml up -d
 ```bash
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs -f server
-curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:${PROD_API_PORT}/api/health
 ```
 
 访问：
 
-- 🌍 WebUI：`http://你的服务器IP:8000`
-- 📖 API 文档：`http://你的服务器IP:8000/docs`
+- 🌍 WebUI：`http://你的服务器IP:${PROD_API_PORT}`
+- 📖 API 文档：`http://你的服务器IP:${PROD_API_PORT}/docs`
 
 ### 5. 更新版本
 

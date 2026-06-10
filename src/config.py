@@ -1450,8 +1450,14 @@ class Config:
             ),
             trading_day_check_enabled=os.getenv('TRADING_DAY_CHECK_ENABLED', 'true').lower() != 'false',
             webui_enabled=os.getenv('WEBUI_ENABLED', 'false').lower() == 'true',
-            webui_host=os.getenv('WEBUI_HOST', '127.0.0.1'),
-            webui_port=parse_env_int(os.getenv('WEBUI_PORT'), 8000, field_name='WEBUI_PORT', minimum=1, maximum=65535),
+            webui_host=os.getenv('WEBUI_HOST') or os.getenv('API_HOST') or cls.webui_host,
+            webui_port=parse_env_int(
+                os.getenv('WEBUI_PORT') or os.getenv('API_PORT'),
+                cls.webui_port,
+                field_name='WEBUI_PORT',
+                minimum=1,
+                maximum=65535,
+            ),
             secret_key=os.getenv('SECRET_KEY', ''),
             # 机器人配置
             bot_enabled=os.getenv('BOT_ENABLED', 'true').lower() == 'true',

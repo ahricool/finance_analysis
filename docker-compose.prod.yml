@@ -51,11 +51,15 @@ services:
       - .env
     environment:
       TZ: Asia/Shanghai
-      WEBUI_HOST: 0.0.0.0
+      WEBUI_HOST: ${WEBUI_HOST}
+      WEBUI_PORT: ${WEBUI_PORT}
+      API_PORT: ${API_PORT}
+      HEALTHCHECK_URL: ${HEALTHCHECK_URL}
+      HEALTHCHECK_FALLBACK_URL: ${HEALTHCHECK_FALLBACK_URL}
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
     ports:
-      - "${API_PORT:-8000}:${API_PORT:-8000}"
+      - "${PROD_API_PORT}:${WEBUI_PORT}"
     volumes:
       - ./data:/workspace/data
       - ./logs:/workspace/logs

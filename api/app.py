@@ -173,16 +173,10 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
     # ============================================================
 
     allowed_origins = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
+        origin.strip()
+        for origin in os.environ.get("CORS_ORIGINS", "").split(",")
+        if origin.strip()
     ]
-
-    # 从环境变量添加额外的允许来源
-    extra_origins = os.environ.get("CORS_ORIGINS", "")
-    if extra_origins:
-        allowed_origins.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
 
     # 允许所有来源（开发/演示用）
     allow_all_origins = os.environ.get("CORS_ALLOW_ALL", "").lower() == "true"
