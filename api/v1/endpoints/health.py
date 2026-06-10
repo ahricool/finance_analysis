@@ -9,11 +9,10 @@
 2. 用于负载均衡器和监控系统
 """
 
-from datetime import datetime
-
 from fastapi import APIRouter
 
 from api.v1.schemas.common import HealthResponse
+from src.time_utils import utc_isoformat, utc_now
 
 router = APIRouter()
 
@@ -30,5 +29,5 @@ async def health_check() -> HealthResponse:
     """
     return HealthResponse(
         status="ok",
-        timestamp=datetime.now().isoformat()
+        timestamp=utc_isoformat(utc_now())
     )

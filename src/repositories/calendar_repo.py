@@ -3,16 +3,14 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime
 from typing import List, Optional
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from src.storage import CalendarEntry, DatabaseManager, ensure_aware_datetime, utc_now
-
-CALENDAR_DISPLAY_TIMEZONE = ZoneInfo("Asia/Shanghai")
+from src.time_utils import day_bounds_utc
 
 
 def get_db() -> DatabaseManager:
@@ -26,11 +24,10 @@ class CalendarRepo:
     def list_by_date(
         self,
         day: date,
+        timezone_name: str = "Asia/Shanghai",
         uid: Optional[int] = None,
     ) -> List[CalendarEntry]:
-        local_start = datetime.combine(day, time.min, tzinfo=CALENDAR_DISPLAY_TIMEZONE)
-        start = local_start.astimezone(timezone.utc)
-        end = (local_start + timedelta(days=1)).astimezone(timezone.utc)
+        start, end = day_bounds_utc(day, timezone_name)
         with self.db.get_session() as session:
             stmt = (
                 select(CalendarEntry)

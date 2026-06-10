@@ -2,14 +2,20 @@
 import { calendarApi, type CalendarEntryItem } from '@/api/calendar';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
+import { useTimezoneStore } from '@/stores/timezoneStore';
+import { formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/utils/format';
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import { marked } from 'marked';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { storeToRefs } from 'pinia';
 
 const WEEKDAY_CN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'] as const;
 
-const weekStart = ref(startOfWeek(new Date()));
-const selectedDate = ref(formatDate(new Date()));
+const timezoneStore = useTimezoneStore();
+const { displayTimezone } = storeToRefs(timezoneStore);
+const initialSelectedDate = getTodayInDisplayTimezone();
+const weekStart = ref(startOfWeek(parseDateOnly(initialSelectedDate)));
+const selectedDate = ref(initialSelectedDate);
 const entries = ref<CalendarEntryItem[]>([]);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
@@ -35,6 +41,11 @@ function formatDate(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function parseDateOnly(value: string): Date {
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
 }
 
 function weekdayCn(d: Date): string {
@@ -96,6 +107,10 @@ function renderMarkdown(content: string | null): string {
 }
 
 onMounted(loadEntries);
+
+watch(displayTimezone, () => {
+  void loadEntries();
+});
 </script>
 
 <template>
@@ -147,7 +162,7 @@ onMounted(loadEntries);
               <span class="block text-sm font-medium">{{ item.title }}</span>
               <span class="mt-1 flex flex-wrap items-center gap-2 text-xs text-secondary-text">
                 <span class="rounded-full bg-hover px-2 py-0.5">{{ entryTypeLabel(item.type) }}</span>
-                <span>{{ new Date(item.time).toLocaleString() }}</span>
+                <span>{{ formatDateTimeInDisplayTimezone(item.time) }}</span>
                 <span v-if="item.content">点击查看执行结果与报告</span>
               </span>
             </span>

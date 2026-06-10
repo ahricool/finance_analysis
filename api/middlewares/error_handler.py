@@ -101,8 +101,14 @@ def add_error_handlers(app) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         """处理请求验证异常"""
+        status_code = 422
+        if request.url.path.endswith("/api/v1/calendar") and request.method.upper() == "POST":
+            for error in exc.errors():
+                if "time must include timezone information" in str(error.get("msg", "")):
+                    status_code = 400
+                    break
         return JSONResponse(
-            status_code=422,
+            status_code=status_code,
             content={
                 "error": "validation_error",
                 "message": "请求参数验证失败",

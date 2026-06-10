@@ -4,17 +4,17 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query, Request
 
 from api.deps import get_database_manager, get_effective_uid
 from api.v1.schemas.usage import UsageSummaryResponse
 from src.storage import DatabaseManager
+from src.time_utils import DEFAULT_DISPLAY_TIMEZONE
 
 logger = logging.getLogger(__name__)
-
-_CST = timezone(timedelta(hours=8))  # Beijing time (UTC+8)
 
 router = APIRouter()
 
@@ -22,15 +22,16 @@ _VALID_PERIODS = {"today", "month", "all"}
 
 
 def _date_range(period: str):
-    """Return (from_dt, to_dt) as naive datetimes in Beijing time (UTC+8)."""
-    now = datetime.now(tz=_CST).replace(tzinfo=None)  # naive, Beijing local
+    """Return aware UTC bounds for the requested period in the default display timezone."""
+    tz = ZoneInfo(DEFAULT_DISPLAY_TIMEZONE)
+    now = datetime.now(tz=tz)
     if period == "today":
         from_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "month":
         from_dt = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     else:  # all
-        from_dt = datetime(2000, 1, 1)
-    return from_dt, now
+        from_dt = datetime.combine(datetime(2000, 1, 1).date(), time.min, tzinfo=tz)
+    return from_dt.astimezone(ZoneInfo("UTC")), now.astimezone(ZoneInfo("UTC"))
 
 
 @router.get(

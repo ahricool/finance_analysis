@@ -23,6 +23,7 @@ from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, Callable, Ty
 import pandas as pd
 from sqlalchemy import (
     create_engine,
+    event,
     Column,
     String,
     Float,
@@ -52,6 +53,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.config import get_config
 from src.services.market_type_utils import normalize_market_type
+from src.time_utils import coerce_aware_utc, date_range_bounds_utc, utc_isoformat, utc_now
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -63,11 +65,6 @@ if TYPE_CHECKING:
     from src.search_service import SearchResponse
 
 
-def utc_now() -> datetime:
-    """Return a timezone-aware UTC timestamp for timestamptz columns."""
-    return datetime.now(timezone.utc)
-
-
 def ensure_aware_datetime(value: Optional[Any]) -> Optional[datetime]:
     """Normalize datetime/date values to timezone-aware UTC datetimes."""
     if value is None:
@@ -75,9 +72,7 @@ def ensure_aware_datetime(value: Optional[Any]) -> Optional[datetime]:
     if isinstance(value, pd.Timestamp):
         value = value.to_pydatetime()
     if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
+        return coerce_aware_utc(value)
     if isinstance(value, date):
         return datetime.combine(value, time.min, tzinfo=timezone.utc)
     return None
@@ -294,7 +289,7 @@ class AnalysisHistory(Base):
             'secondary_buy': self.secondary_buy,
             'stop_loss': self.stop_loss,
             'take_profit': self.take_profit,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_at': utc_isoformat(self.created_at),
         }
 
 
@@ -777,6 +772,7 @@ class DatabaseManager:
             db_url,
             **engine_kwargs,
         )
+        event.listen(self._engine, "connect", self._set_utc_timezone)
 
         # 创建 Session 工厂
         self._SessionLocal = sessionmaker(
@@ -846,6 +842,16 @@ class DatabaseManager:
                     logger.debug("数据库引擎已清理")
         except Exception as e:
             logger.warning(f"清理数据库引擎时出错: {e}")
+
+    @staticmethod
+    def _set_utc_timezone(dbapi_connection, connection_record) -> None:
+        """Force PostgreSQL sessions to UTC so timestamptz I/O is stable."""
+        del connection_record
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("SET TIME ZONE 'UTC'")
+        finally:
+            cursor.close()
 
     def _run_write_transaction(
         self,
@@ -1341,6 +1347,7 @@ class DatabaseManager:
         code: Optional[str] = None,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
+        timezone_name: str = "Asia/Shanghai",
         offset: int = 0,
         limit: int = 20
     ) -> Tuple[List[AnalysisHistory], int]:
@@ -1364,14 +1371,11 @@ class DatabaseManager:
             
             if code:
                 conditions.append(AnalysisHistory.code == code)
-            if start_date:
-                # created_at >= start_date 00:00:00
-                conditions.append(AnalysisHistory.created_at >= datetime.combine(start_date, time.min, tzinfo=timezone.utc))
-            if end_date:
-                # created_at < end_date+1 00:00:00 (即 <= end_date 23:59:59)
-                conditions.append(
-                    AnalysisHistory.created_at < datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=timezone.utc)
-                )
+            start_dt, end_dt = date_range_bounds_utc(start_date, end_date, timezone_name)
+            if start_dt:
+                conditions.append(AnalysisHistory.created_at >= start_dt)
+            if end_dt:
+                conditions.append(AnalysisHistory.created_at < end_dt)
             
             # 构建 where 子句
             where_clause = and_(*conditions) if conditions else True
@@ -2032,8 +2036,8 @@ class DatabaseManager:
                     "session_id": sid,
                     "title": title,
                     "message_count": row.message_count,
-                    "created_at": row.created_at.isoformat() if row.created_at else None,
-                    "last_active": row.last_active.isoformat() if row.last_active else None,
+                    "created_at": utc_isoformat(row.created_at),
+                    "last_active": utc_isoformat(row.last_active),
                 })
             return results
 
@@ -2059,7 +2063,7 @@ class DatabaseManager:
                     "id": str(msg.id),
                     "role": msg.role,
                     "content": msg.content,
-                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                    "created_at": utc_isoformat(msg.created_at),
                 }
                 for msg in messages
             ]

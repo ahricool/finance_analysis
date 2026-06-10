@@ -19,7 +19,7 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Dict, List, Any, TYPE_CHECKING, Tuple, Literal, Callable
 
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from asyncio import Queue as AsyncQueue
 
 from data_provider.base import canonical_stock_code, normalize_stock_code
+from src.time_utils import utc_isoformat
 from src.utils.analysis_metadata import SELECTION_SOURCES
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ class TaskInfo:
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     report_type: str = "detailed"
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     original_query: Optional[str] = None
@@ -82,9 +83,9 @@ class TaskInfo:
             "progress": self.progress,
             "message": self.message,
             "report_type": self.report_type,
-            "created_at": self.created_at.isoformat(),
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "created_at": utc_isoformat(self.created_at),
+            "started_at": utc_isoformat(self.started_at),
+            "completed_at": utc_isoformat(self.completed_at),
             "error": self.error,
             "original_query": self.original_query,
             "selection_source": self.selection_source,
@@ -589,7 +590,7 @@ class AnalysisTaskQueue:
             if not task:
                 return None
             task.status = TaskStatus.PROCESSING
-            task.started_at = datetime.now()
+            task.started_at = datetime.now(timezone.utc)
             task.message = "正在分析中..."
             task.progress = 10
         
@@ -621,7 +622,7 @@ class AnalysisTaskQueue:
                     if task:
                         task.status = TaskStatus.COMPLETED
                         task.progress = 100
-                        task.completed_at = datetime.now()
+                        task.completed_at = datetime.now(timezone.utc)
                         task.result = result
                         task.message = "分析完成"
                         task.stock_name = result.get("stock_name", task.stock_name)
@@ -650,7 +651,7 @@ class AnalysisTaskQueue:
                 task = self._tasks.get(task_id)
                 if task:
                     task.status = TaskStatus.FAILED
-                    task.completed_at = datetime.now()
+                    task.completed_at = datetime.now(timezone.utc)
                     task.error = error_msg[:200]  # 限制错误信息长度
                     task.message = f"分析失败: {error_msg[:50]}"
                     
@@ -687,7 +688,7 @@ class AnalysisTaskQueue:
                 return None
 
             task.status = TaskStatus.PROCESSING
-            task.started_at = datetime.now()
+            task.started_at = datetime.now(timezone.utc)
             task.message = "任务执行中"
             task.progress = 10
             self._broadcast_event("task_started", task.to_dict())
@@ -702,7 +703,7 @@ class AnalysisTaskQueue:
                 if task:
                     task.status = TaskStatus.COMPLETED
                     task.progress = 100
-                    task.completed_at = datetime.now()
+                    task.completed_at = datetime.now(timezone.utc)
                     task.result = result
                     task.message = "任务执行完成"
 
@@ -722,7 +723,7 @@ class AnalysisTaskQueue:
                 task = self._tasks.get(task_id)
                 if task:
                     task.status = TaskStatus.FAILED
-                    task.completed_at = datetime.now()
+                    task.completed_at = datetime.now(timezone.utc)
                     task.error = error_msg[:200]
                     task.message = f"任务失败: {error_msg[:80]}"
 

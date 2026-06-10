@@ -17,11 +17,11 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 from typing import Optional, Dict, Any, List, Union
 
 from src.enums import ReportType
 from src.storage import get_db
+from src.time_utils import utc_isoformat, utc_now
 from bot.models import BotMessage
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class TaskService:
         if isinstance(report_type, str):
             report_type = ReportType.from_str(report_type)
 
-        task_id = f"{code}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+        task_id = f"{code}_{utc_now().strftime('%Y%m%d_%H%M%S_%f')}"
 
         # 提交到线程池
         self.executor.submit(
@@ -158,7 +158,7 @@ class TaskService:
                 "task_id": task_id,
                 "code": code,
                 "status": "running",
-                "start_time": datetime.now().isoformat(),
+                "start_time": utc_isoformat(utc_now()),
                 "result": None,
                 "error": None,
                 "report_type": report_type.value
@@ -203,7 +203,7 @@ class TaskService:
                 with self._tasks_lock:
                     self._tasks[task_id].update({
                         "status": "completed",
-                        "end_time": datetime.now().isoformat(),
+                        "end_time": utc_isoformat(utc_now()),
                         "result": result_data
                     })
 
@@ -216,7 +216,7 @@ class TaskService:
                 with self._tasks_lock:
                     self._tasks[task_id].update({
                         "status": "failed",
-                        "end_time": datetime.now().isoformat(),
+                        "end_time": utc_isoformat(utc_now()),
                         "error": fail_message
                     })
 
@@ -230,7 +230,7 @@ class TaskService:
             with self._tasks_lock:
                 self._tasks[task_id].update({
                     "status": "failed",
-                    "end_time": datetime.now().isoformat(),
+                    "end_time": utc_isoformat(utc_now()),
                     "error": error_msg
                 })
 

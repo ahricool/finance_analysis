@@ -1,17 +1,11 @@
 import type { Message } from '../stores/agentChatStore';
+import { formatDateTimeInDisplayTimezone } from './format';
 
 /**
  * Format chat messages as Markdown for export.
  */
 export function formatSessionAsMarkdown(messages: Message[]): string {
-  const now = new Date();
-  const timeStr = now.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const timeStr = formatDateTimeInDisplayTimezone(new Date().toISOString());
 
   const lines: string[] = [
     '# 问股会话',
