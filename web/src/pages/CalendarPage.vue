@@ -131,24 +131,29 @@ watch(displayTimezone, () => {
         <p class="text-sm font-medium">当周日历</p>
         <button class="rounded-lg p-2 hover:bg-hover" @click="shiftWeek(1)"><ChevronRight class="h-4 w-4" /></button>
       </div>
-      <div class="grid grid-cols-7 gap-1.5 sm:gap-2">
+      <div class="grid grid-cols-2 gap-1.5 min-[430px]:grid-cols-4 sm:grid-cols-7 sm:gap-2">
         <button
           v-for="d in weekDates"
           :key="formatDate(d)"
           type="button"
-          class="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-center text-xs leading-tight"
+          class="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2 text-center leading-tight sm:min-h-16"
           :class="selectedDate === formatDate(d) ? 'border-primary bg-primary/10 text-primary' : 'border-border/60 hover:bg-hover'"
           @click="selectDate(d)"
         >
-          <span class="block whitespace-nowrap font-medium">{{ formatDate(d) }}</span>
-          <span class="block whitespace-nowrap text-secondary-text" :class="selectedDate === formatDate(d) ? 'text-primary' : ''">{{ weekdayCn(d) }}</span>
+          <span class="block whitespace-nowrap text-[11px] font-medium sm:text-xs">{{ formatDate(d) }}</span>
+          <span
+            class="block whitespace-nowrap text-[10px] text-secondary-text sm:text-[11px]"
+            :class="selectedDate === formatDate(d) ? 'text-primary' : ''"
+          >
+            {{ weekdayCn(d) }}
+          </span>
         </button>
       </div>
     </div>
 
     <ApiErrorAlert v-if="error" :error="error" class="mb-4" />
     <div class="rounded-2xl border border-border/60 bg-card p-4">
-      <h2 class="mb-3 text-sm font-semibold">{{ selectedDateDisplay }} 日历记录</h2>
+      <h2 class="mb-3 text-xs font-semibold sm:text-sm">{{ selectedDateDisplay }} 日历记录</h2>
       <div v-if="loading" class="space-y-2"><div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-xl bg-hover" /></div>
       <div v-else-if="!entries.length" class="py-6 text-sm text-secondary-text">当天暂无日历记录</div>
       <div v-else class="space-y-2">
