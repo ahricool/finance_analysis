@@ -36,6 +36,7 @@ from sqlalchemy import (
     CheckConstraint,
     Text,
     JSON,
+    text,
     select,
     and_,
     or_,
@@ -43,7 +44,7 @@ from sqlalchemy import (
     desc,
     func,
 )
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
 from sqlalchemy.orm import (
     declarative_base,
     sessionmaker,
@@ -422,9 +423,13 @@ class User(Base):
     password_hash = Column(Text, nullable=True)
     avatar_url = Column(String(512), nullable=True)
     role = Column(String(32), nullable=False)  # admin | user
-    extra = Column(JSON, nullable=True)
+    extra = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict, server_default=text("'{}'"))
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_users_extra", "extra", postgresql_using="gin"),
+    )
 
 
 class PortfolioAccount(Base):

@@ -8,6 +8,7 @@ import WatchListPage from '@/pages/WatchListPage.vue';
 import StockListPage from '@/pages/StockListPage.vue';
 import LoginPage from '@/pages/LoginPage.vue';
 import CalendarPage from '@/pages/CalendarPage.vue';
+import ProfilePage from '@/pages/ProfilePage.vue';
 import NotFoundPage from '@/pages/NotFoundPage.vue';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -25,6 +26,7 @@ const router = createRouter({
         { path: 'portfolio', name: 'portfolio', component: PortfolioPage },
         { path: 'backtest', name: 'backtest', component: BacktestPage },
         { path: 'calendar', name: 'calendar', component: CalendarPage },
+        { path: 'profile', name: 'profile', component: ProfilePage },
         { path: ':pathMatch(.*)*', name: 'not-found', component: NotFoundPage },
       ],
     },

@@ -8,7 +8,7 @@ import hashlib
 import hmac
 import logging
 import secrets
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -20,6 +20,39 @@ logger = logging.getLogger(__name__)
 PBKDF2_ITERATIONS = 100_000
 DEFAULT_ADMIN_USERNAME = "Ahri"
 DEFAULT_ADMIN_EMAIL = "whoreahri@gmail.com"
+VALID_GENDERS = {"male", "female", "unknown"}
+
+
+def _normalize_notification_items(items: Any, allowed_keys: List[str]) -> List[Dict[str, str]]:
+    if not isinstance(items, list):
+        return [{key: "" for key in allowed_keys}]
+
+    normalized: List[Dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        normalized.append({key: str(item.get(key) or "").strip() for key in allowed_keys})
+
+    return normalized or [{key: "" for key in allowed_keys}]
+
+
+def normalize_user_extra(extra: Any) -> Dict[str, Any]:
+    raw = extra if isinstance(extra, dict) else {}
+    gender = str(raw.get("gender") or "unknown").strip()
+    if gender not in VALID_GENDERS:
+        gender = "unknown"
+
+    notification_raw = raw.get("notification") if isinstance(raw.get("notification"), dict) else {}
+    return {
+        "gender": gender,
+        "notification": {
+            "ntfy": _normalize_notification_items(notification_raw.get("ntfy"), ["url"]),
+            "telegram": _normalize_notification_items(
+                notification_raw.get("telegram"),
+                ["bot_token", "chat_id"],
+            ),
+        },
+    }
 
 
 def _hash_password(plain: str) -> str:
@@ -112,6 +145,53 @@ class UserRepository:
 
     def set_plain_password(self, uid: int, plain: str) -> None:
         self.set_password_hash(uid, _hash_password(plain))
+
+    def update_profile(
+        self,
+        uid: int,
+        *,
+        username: Optional[str] = None,
+        gender: Optional[str] = None,
+        notification: Optional[Dict[str, Any]] = None,
+    ) -> Optional[User]:
+        username_val = username.strip() if username is not None else None
+        if username is not None and not username_val:
+            raise ValueError("username is required")
+        if username_val is not None and len(username_val) > 64:
+            raise ValueError("username is too long")
+        if gender is not None and gender not in VALID_GENDERS:
+            raise ValueError("invalid gender")
+
+        def _write(session: Session) -> Optional[int]:
+            row = session.get(User, uid)
+            if row is None:
+                return None
+            if username_val is not None:
+                row.username = username_val
+            next_extra = normalize_user_extra(row.extra)
+            if gender is not None:
+                next_extra["gender"] = gender
+            if notification is not None:
+                next_extra["notification"] = normalize_user_extra({"notification": notification})["notification"]
+            row.extra = next_extra
+            session.flush()
+            return row.id
+
+        updated_uid = self.db._run_write_transaction("users.update_profile", _write)
+        return self.get_by_uid(updated_uid) if updated_uid else None
+
+    def set_avatar_url(self, uid: int, avatar_url: str) -> Optional[User]:
+        def _write(session: Session) -> Optional[int]:
+            row = session.get(User, uid)
+            if row is None:
+                return None
+            row.avatar_url = avatar_url
+            row.extra = normalize_user_extra(row.extra)
+            session.flush()
+            return row.id
+
+        updated_uid = self.db._run_write_transaction("users.set_avatar_url", _write)
+        return self.get_by_uid(updated_uid) if updated_uid else None
 
     def any_user_has_password(self) -> bool:
         with self.db.get_session() as session:
@@ -210,3 +290,8 @@ class UserRepository:
             "avatarUrl": user.avatar_url,
             "role": user.role,
         }
+
+    def to_profile_dict(self, user: User) -> Dict[str, Any]:
+        payload = self.to_public_dict(user)
+        payload["extra"] = normalize_user_extra(user.extra)
+        return payload
