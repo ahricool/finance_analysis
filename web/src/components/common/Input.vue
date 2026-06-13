@@ -2,7 +2,7 @@
 import EyeToggleIcon from '@/components/common/EyeToggleIcon.vue';
 import { cn } from '@/utils/cn';
 import { Key, Lock, Mail } from 'lucide-vue-next';
-import { computed, ref, useId } from 'vue';
+import { computed, getCurrentInstance, ref, useId } from 'vue';
 
 defineOptions({ inheritAttrs: false });
 
@@ -45,7 +45,11 @@ const describedBy = computed(() => {
 
 const isPasswordVisibleInner = ref(false);
 const isPasswordInput = computed(() => props.type === 'password');
-const isVisibilityControlled = computed(() => typeof props.passwordVisible === 'boolean');
+const instance = getCurrentInstance();
+const isVisibilityControlled = computed(() => {
+  const vnodeProps = instance?.vnode.props;
+  return Boolean(vnodeProps && ('passwordVisible' in vnodeProps || 'password-visible' in vnodeProps));
+});
 const isLoginAppearance = computed(() => props.appearance === 'login');
 const visible = computed(() =>
   isVisibilityControlled.value ? props.passwordVisible! : isPasswordVisibleInner.value,
@@ -141,7 +145,7 @@ function togglePassword() {
       />
       <div
         v-if="isPasswordInput && allowTogglePassword"
-        class="absolute inset-y-0 right-2 flex items-center"
+        class="absolute inset-y-0 right-2 z-20 flex items-center"
       >
         <button
           type="button"
@@ -158,7 +162,6 @@ function togglePassword() {
             )
           "
           :aria-label="visible ? '隐藏内容' : '显示内容'"
-          tabindex="-1"
           @click="togglePassword"
         >
           <EyeToggleIcon :visible="visible" />
