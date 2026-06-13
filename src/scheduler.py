@@ -288,7 +288,7 @@ def _us_intraday_analysis_task() -> None:
     try:
         from src.config import get_config
         from src.repositories.watch_list_repo import get_watch_list_codes_by_market
-        from src.services.us_intraday_analysis_service import USIntradayAnalysisService
+        from src.services.tasks.us_intraday_analysis import USIntradayAnalysisService
 
         stock_codes = get_watch_list_codes_by_market("US")
         if not stock_codes:

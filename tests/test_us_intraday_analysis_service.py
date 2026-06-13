@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from src.services.us_intraday_analysis_service import (
+from src.services.tasks.us_intraday_analysis import (
     aggregate_bars,
     compute_intraday_metrics,
     evaluate_signal_candidates,
