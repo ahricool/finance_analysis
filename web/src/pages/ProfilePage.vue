@@ -3,7 +3,6 @@ import { authApi, type NotificationSettings, type UserGender, type UserProfileRe
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
-import Select from '@/components/common/Select.vue';
 import AvatarCropper from '@/components/profile/AvatarCropper.vue';
 import ChangePasswordCard from '@/components/settings/ChangePasswordCard.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
@@ -48,7 +47,7 @@ const tabs: Array<{ key: ProfileTab; label: string; icon: typeof UserRound }> = 
   { key: 'notification', label: '消息通知', icon: Bell },
 ];
 
-const genderOptions = [
+const genderOptions: Array<{ value: UserGender; label: string }> = [
   { value: 'unknown', label: '未知' },
   { value: 'male', label: '男' },
   { value: 'female', label: '女' },
@@ -273,6 +272,7 @@ onBeforeUnmount(clearAvatarSource);
               <Input
                 id="profile-email"
                 label="邮箱"
+                class="max-w-sm"
                 :value="profile?.email ?? ''"
                 disabled
                 autocomplete="email"
@@ -280,19 +280,43 @@ onBeforeUnmount(clearAvatarSource);
               <Input
                 id="profile-username"
                 label="昵称"
+                class="max-w-xs"
                 placeholder="输入昵称"
                 :value="infoForm.username"
                 :disabled="isSavingInfo"
                 autocomplete="nickname"
                 @input="infoForm.username = ($event.target as HTMLInputElement).value"
               />
-              <Select
-                id="profile-gender"
-                v-model="infoForm.gender"
-                label="性别"
-                :options="genderOptions"
-                :disabled="isSavingInfo"
-              />
+              <fieldset class="max-w-xs">
+                <legend class="mb-2 text-sm font-medium text-foreground">
+                  性别
+                </legend>
+                <div class="flex flex-wrap gap-2">
+                  <label
+                    v-for="option in genderOptions"
+                    :key="option.value"
+                    :class="[
+                      'inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm transition-colors',
+                      infoForm.gender === option.value
+                        ? 'border-primary/45 bg-primary/10 text-primary'
+                        : 'border-border/70 bg-card/60 text-secondary-text hover:border-primary/30 hover:text-foreground',
+                      isSavingInfo ? 'cursor-not-allowed opacity-60' : '',
+                    ]"
+                  >
+                    <input
+                      :id="`profile-gender-${option.value}`"
+                      type="radio"
+                      name="profile-gender"
+                      class="h-4 w-4 accent-primary"
+                      :value="option.value"
+                      :checked="infoForm.gender === option.value"
+                      :disabled="isSavingInfo"
+                      @change="infoForm.gender = option.value"
+                    />
+                    <span>{{ option.label }}</span>
+                  </label>
+                </div>
+              </fieldset>
 
               <div>
                 <Button type="submit" variant="primary" :is-loading="isSavingInfo">
@@ -328,6 +352,7 @@ onBeforeUnmount(clearAvatarSource);
               <Input
                 id="profile-ntfy-url"
                 label="ntfy URL"
+                class="max-w-lg"
                 placeholder="https://ntfy.sh/topic"
                 :value="notificationForm.ntfyUrl"
                 :disabled="isSavingNotification"
@@ -336,6 +361,7 @@ onBeforeUnmount(clearAvatarSource);
               <Input
                 id="profile-telegram-chat"
                 label="Telegram Chat ID"
+                class="max-w-sm"
                 placeholder="chat_id"
                 :value="notificationForm.telegramChatId"
                 :disabled="isSavingNotification"
@@ -348,6 +374,7 @@ onBeforeUnmount(clearAvatarSource);
               allow-toggle-password
               icon-type="key"
               label="Telegram Bot Token"
+              class="max-w-2xl"
               placeholder="bot_token"
               :value="notificationForm.telegramBotToken"
               :disabled="isSavingNotification"

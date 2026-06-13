@@ -70,6 +70,7 @@ async function handleSubmit(e: Event) {
         allow-toggle-password
         icon-type="password"
         label="当前密码"
+        class="max-w-sm"
         placeholder="输入当前密码"
         :value="currentPassword"
         :disabled="isSubmitting"
@@ -83,6 +84,7 @@ async function handleSubmit(e: Event) {
         allow-toggle-password
         icon-type="password"
         label="新密码"
+        class="max-w-sm"
         placeholder="输入新密码"
         :value="newPassword"
         :disabled="isSubmitting"
@@ -97,6 +99,7 @@ async function handleSubmit(e: Event) {
           allow-toggle-password
           icon-type="password"
           label="确认新密码"
+          class="max-w-sm"
           placeholder="再次输入新密码"
           :value="newPasswordConfirm"
           :disabled="isSubmitting"
