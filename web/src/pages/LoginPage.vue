@@ -139,7 +139,11 @@ onUnmounted(() => {
           >
             <img src="/flower.svg" alt="" class="h-11 w-11" />
           </span>
-          <span class="font-display text-xl leading-none text-foreground">{{ APP_NAME }}</span>
+          <span
+            class="font-display text-3xl font-semibold leading-none text-white [text-shadow:0_3px_12px_rgba(0,0,0,0.65)] sm:text-4xl"
+          >
+            {{ APP_NAME }}
+          </span>
         </div>
 
         <div class="rounded-2xl border border-border/80 bg-card p-6 shadow-soft-card sm:p-7">
