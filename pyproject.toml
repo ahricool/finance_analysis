@@ -44,6 +44,7 @@ dependencies = [
     "tushare>=1.4.0",
     "uvicorn[standard]>=0.34.0",
     "yfinance>=0.2.0",
+    "ipdb>=0.13.13",
 ]
 
 [tool.uv]

@@ -27,7 +27,7 @@ def compute_intraday_metrics(
     if latest_price is None and bars_1m:
         latest_price = safe_float(bars_1m[-1].get("close"))
 
-    vwap_value = _vwap(bars_1m)
+    vwap_value = _vwap(bars_1m) 
     intraday_high = max((float(bar["high"]) for bar in bars_1m), default=None)
     intraday_low = min((float(bar["low"]) for bar in bars_1m), default=None)
     high_distance_pct = None

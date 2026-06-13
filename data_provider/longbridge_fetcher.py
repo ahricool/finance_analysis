@@ -563,8 +563,8 @@ class LongbridgeFetcher(BaseFetcher):
         self,
         stock_code: str,
         interval: int = 1,
-        count: int = 500,
-        include_extended: bool = False,
+        count: int = 390,  # 9:30->16:00 共 390 分钟，最大为 1000
+        include_extended: bool = False,  # True 包含所有交易时段，False 仅日内交易时段
     ) -> List[Dict[str, Any]]:
         """Fetch recent 1/5/15 minute candlesticks from Longbridge.
 
@@ -603,7 +603,7 @@ class LongbridgeFetcher(BaseFetcher):
             )
             return [self._candle_to_dict(candle) for candle in sorted(candles, key=self._ts_sort_key)]
         except Exception as e:
-            logger.info("[Longbridge] candlesticks(%s, %sm) 失败: %s", symbol, interval, e)
+            logger.exception("[Longbridge] candlesticks(%s, %sm) 失败: %s", symbol, interval, e)
             if self._is_connection_error(e):
                 self._mark_connection_cooldown(e)
             return []
@@ -811,3 +811,11 @@ class LongbridgeFetcher(BaseFetcher):
                 df[col] = None
 
         return df[STANDARD_COLUMNS]
+
+
+if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    fetcher = LongbridgeFetcher()
+    bars = fetcher.get_minute_candlesticks("QQQ", interval=1)
+    print(bars)
