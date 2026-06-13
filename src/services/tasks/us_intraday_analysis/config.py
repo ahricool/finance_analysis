@@ -8,9 +8,6 @@ from zoneinfo import ZoneInfo
 
 US_EASTERN = ZoneInfo("America/New_York")
 
-REDIS_TTL_SECONDS = 7 * 24 * 60 * 60
-SIGNAL_DEDUP_TTL_SECONDS = 30 * 60
-
 # Market / sector ETFs used as relative-strength benchmarks. QQQ is treated as
 # the broad-market benchmark; the rest are sector references.
 MARKET_ETFS = ("QQQ", "SOXX", "UFO")

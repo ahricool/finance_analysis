@@ -11,8 +11,6 @@ from .bars import aggregate_bars, normalize_bars
 from .config import (
     DEFAULT_INTRADAY_SIGNAL_RULES,
     MARKET_ETFS,
-    REDIS_TTL_SECONDS,
-    SIGNAL_DEDUP_TTL_SECONDS,
     US_EASTERN,
 )
 from .llm import build_intraday_llm_prompt, parse_llm_json_response
@@ -25,8 +23,6 @@ from .service import USIntradayAnalysisService
 __all__ = [
     "DEFAULT_INTRADAY_SIGNAL_RULES",
     "MARKET_ETFS",
-    "REDIS_TTL_SECONDS",
-    "SIGNAL_DEDUP_TTL_SECONDS",
     "US_EASTERN",
     "USIntradayAnalysisService",
     "IntradaySignalResult",
