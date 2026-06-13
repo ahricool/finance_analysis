@@ -62,43 +62,35 @@ async function handleSubmit(e: Event) {
 <template>
   <SettingsSectionCard
     title="修改密码"
-    description="更新当前登录密码。修改成功后，后续登录请使用新密码。"
   >
-    <form class="space-y-3" @submit="handleSubmit">
-      <div class="grid gap-4 md:grid-cols-2">
-        <div class="space-y-3">
-          <Input
-            id="change-pass-current"
-            type="password"
-            allow-toggle-password
-            icon-type="password"
-            label="当前密码"
-            placeholder="输入当前密码"
-            :value="currentPassword"
-            :disabled="isSubmitting"
-            autocomplete="current-password"
-            @input="currentPassword = ($event.target as HTMLInputElement).value"
-          />
-        </div>
+    <form class="space-y-4" @submit="handleSubmit">
+      <Input
+        id="change-pass-current"
+        type="password"
+        allow-toggle-password
+        icon-type="password"
+        label="当前密码"
+        placeholder="输入当前密码"
+        :value="currentPassword"
+        :disabled="isSubmitting"
+        autocomplete="current-password"
+        @input="currentPassword = ($event.target as HTMLInputElement).value"
+      />
 
-        <div class="space-y-3">
-          <Input
-            id="change-pass-new"
-            type="password"
-            allow-toggle-password
-            icon-type="password"
-            label="新密码"
-            hint="至少 6 位。"
-            placeholder="输入新密码"
-            :value="newPassword"
-            :disabled="isSubmitting"
-            autocomplete="new-password"
-            @input="newPassword = ($event.target as HTMLInputElement).value"
-          />
-        </div>
-      </div>
+      <Input
+        id="change-pass-new"
+        type="password"
+        allow-toggle-password
+        icon-type="password"
+        label="新密码"
+        placeholder="输入新密码"
+        :value="newPassword"
+        :disabled="isSubmitting"
+        autocomplete="new-password"
+        @input="newPassword = ($event.target as HTMLInputElement).value"
+      />
 
-      <div class="space-y-3 md:max-w-md">
+      <div>
         <Input
           id="change-pass-confirm"
           type="password"

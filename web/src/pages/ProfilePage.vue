@@ -229,7 +229,6 @@ onBeforeUnmount(clearAvatarSource);
         <SettingsSectionCard
           v-if="activeTab === 'info'"
           title="我的信息"
-          description="邮箱不可更改。"
         >
           <div v-if="isLoading" class="py-10 text-center text-sm text-muted-text">加载中...</div>
           <div v-else class="space-y-5">
@@ -270,7 +269,7 @@ onBeforeUnmount(clearAvatarSource);
               @cropped="uploadCroppedAvatar"
             />
 
-            <form class="grid gap-4 md:grid-cols-2" @submit.prevent="saveInfo">
+            <form class="space-y-4" @submit.prevent="saveInfo">
               <Input
                 id="profile-email"
                 label="邮箱"
@@ -295,7 +294,7 @@ onBeforeUnmount(clearAvatarSource);
                 :disabled="isSavingInfo"
               />
 
-              <div class="flex items-end">
+              <div>
                 <Button type="submit" variant="primary" :is-loading="isSavingInfo">
                   <Save class="h-4 w-4" />
                   保存信息
@@ -323,10 +322,9 @@ onBeforeUnmount(clearAvatarSource);
         <SettingsSectionCard
           v-else
           title="消息通知"
-          description="保存通知渠道配置。"
         >
           <form class="space-y-5" @submit.prevent="saveNotification">
-            <div class="grid gap-4 md:grid-cols-2">
+            <div class="space-y-4">
               <Input
                 id="profile-ntfy-url"
                 label="ntfy URL"
