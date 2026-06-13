@@ -5,9 +5,14 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from io import BytesIO
+from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, File, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 from src.auth import (
@@ -21,11 +26,14 @@ from src.auth import (
     record_login_failure,
     validate_password,
 )
-from src.repositories.user_repo import UserRepository
+from src.repositories.user_repo import VALID_GENDERS, UserRepository
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+AVATAR_DIR = Path("data/avatar")
+MAX_AVATAR_BYTES = 2 * 1024 * 1024
+ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 class EmailLookupRequest(BaseModel):
@@ -52,6 +60,26 @@ class ChangePasswordRequest(BaseModel):
     current_password: str = Field(default="", alias="currentPassword")
     new_password: str = Field(default="", alias="newPassword")
     new_password_confirm: str = Field(default="", alias="newPasswordConfirm")
+
+
+class NtfyProfileConfig(BaseModel):
+    url: str = ""
+
+
+class TelegramProfileConfig(BaseModel):
+    bot_token: str = ""
+    chat_id: str = ""
+
+
+class NotificationProfileConfig(BaseModel):
+    ntfy: list[NtfyProfileConfig] = Field(default_factory=lambda: [NtfyProfileConfig()])
+    telegram: list[TelegramProfileConfig] = Field(default_factory=lambda: [TelegramProfileConfig()])
+
+
+class ProfileUpdateRequest(BaseModel):
+    username: str | None = None
+    gender: str | None = None
+    notification: NotificationProfileConfig | None = None
 
 
 def _cookie_params(request: Request) -> dict:
@@ -98,6 +126,26 @@ def _get_auth_status_dict(request: Request | None = None) -> dict:
     }
 
 
+def _get_request_uid(request: Request) -> int | None:
+    state = getattr(request, "state", None)
+    uid = getattr(state, "uid", None)
+    if uid:
+        return uid
+    return parse_session_uid(request.cookies.get(COOKIE_NAME) or "")
+
+
+def _notification_to_dict(notification: NotificationProfileConfig | None) -> dict[str, Any] | None:
+    if notification is None:
+        return None
+    return {
+        "ntfy": [{"url": item.url} for item in notification.ntfy],
+        "telegram": [
+            {"bot_token": item.bot_token, "chat_id": item.chat_id}
+            for item in notification.telegram
+        ],
+    }
+
+
 @router.get(
     "/status",
     summary="Get auth status",
@@ -106,6 +154,118 @@ def _get_auth_status_dict(request: Request | None = None) -> dict:
 async def auth_status(request: Request):
     """Return auth status without requiring auth."""
     return _get_auth_status_dict(request)
+
+
+@router.get(
+    "/profile",
+    summary="Get current user profile",
+    description="Returns editable profile fields for the current user.",
+)
+async def auth_profile(request: Request):
+    uid = _get_request_uid(request)
+    if not uid:
+        return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
+
+    repo = UserRepository()
+    user = repo.get_by_uid(uid)
+    if user is None:
+        return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
+    return repo.to_profile_dict(user)
+
+
+@router.patch(
+    "/profile",
+    summary="Update current user profile",
+    description="Updates nickname, gender, and notification settings for the current user.",
+)
+async def auth_update_profile(request: Request, body: ProfileUpdateRequest):
+    uid = _get_request_uid(request)
+    if not uid:
+        return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
+
+    username = body.username.strip() if body.username is not None else None
+    if body.username is not None and not username:
+        return JSONResponse(status_code=400, content={"error": "username_required", "message": "Nickname is required"})
+    if username is not None and len(username) > 64:
+        return JSONResponse(status_code=400, content={"error": "username_too_long", "message": "Nickname is too long"})
+    if body.gender is not None and body.gender not in VALID_GENDERS:
+        return JSONResponse(status_code=400, content={"error": "invalid_gender", "message": "Invalid gender"})
+
+    repo = UserRepository()
+    try:
+        user = repo.update_profile(
+            uid,
+            username=username,
+            gender=body.gender,
+            notification=_notification_to_dict(body.notification),
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": "invalid_profile", "message": str(exc)})
+    if user is None:
+        return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
+    return repo.to_profile_dict(user)
+
+
+@router.post(
+    "/avatar",
+    summary="Upload current user avatar",
+    description="Uploads a square avatar image and stores it as ./data/avatar/{uid}.jpg.",
+)
+async def auth_upload_avatar(request: Request, file: UploadFile = File(...)):
+    uid = _get_request_uid(request)
+    if not uid:
+        return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
+
+    if file.content_type not in ALLOWED_AVATAR_CONTENT_TYPES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "invalid_avatar_type", "message": "Unsupported image type"},
+        )
+
+    blob = await file.read(MAX_AVATAR_BYTES + 1)
+    if len(blob) > MAX_AVATAR_BYTES:
+        return JSONResponse(
+            status_code=413,
+            content={"error": "avatar_too_large", "message": "Avatar must be 2MB or less"},
+        )
+
+    try:
+        image = Image.open(BytesIO(blob))
+        image.load()
+    except (UnidentifiedImageError, OSError):
+        return JSONResponse(status_code=400, content={"error": "invalid_avatar", "message": "Invalid image"})
+
+    if image.width != image.height:
+        return JSONResponse(status_code=400, content={"error": "avatar_not_square", "message": "Avatar must be square"})
+
+    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+    avatar_path = AVATAR_DIR / f"{uid}.jpg"
+    image.convert("RGB").save(avatar_path, format="JPEG", quality=90, optimize=True)
+
+    avatar_url = f"/api/v1/auth/avatar/{uid}.jpg?v={int(time.time())}"
+    repo = UserRepository()
+    user = repo.set_avatar_url(uid, avatar_url)
+    if user is None:
+        return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
+    return {"ok": True, "user": repo.to_public_dict(user)}
+
+
+@router.get(
+    "/avatar/{uid}.jpg",
+    summary="Get user avatar",
+    description="Returns the stored avatar image for the current user.",
+)
+async def auth_get_avatar(request: Request, uid: int):
+    current_uid = _get_request_uid(request)
+    if not current_uid:
+        return JSONResponse(status_code=401, content={"error": "unauthorized", "message": "Login required"})
+    if current_uid != uid:
+        return JSONResponse(status_code=403, content={"error": "forbidden", "message": "Avatar access denied"})
+
+    avatar_path = AVATAR_DIR / f"{uid}.jpg"
+    if not avatar_path.is_file():
+        return JSONResponse(status_code=404, content={"error": "avatar_not_found", "message": "Avatar not found"})
+    return FileResponse(avatar_path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
 
 @router.post(
@@ -165,7 +325,7 @@ async def auth_login(request: Request, body: LoginRequest):
         return JSONResponse(
             status_code=401,
             content={"error": "invalid_credentials", "message": "Invalid email or password"},
-        )  
+        )
     if not password:
         return JSONResponse(
             status_code=400,

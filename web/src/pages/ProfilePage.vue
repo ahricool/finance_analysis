@@ -1,0 +1,382 @@
+<script setup lang="ts">
+import { authApi, type NotificationSettings, type UserGender, type UserProfileResponse } from '@/api/auth';
+import { getParsedApiError, type ParsedApiError } from '@/api/error';
+import Button from '@/components/common/Button.vue';
+import Input from '@/components/common/Input.vue';
+import Select from '@/components/common/Select.vue';
+import AvatarCropper from '@/components/profile/AvatarCropper.vue';
+import ChangePasswordCard from '@/components/settings/ChangePasswordCard.vue';
+import SettingsAlert from '@/components/settings/SettingsAlert.vue';
+import SettingsSectionCard from '@/components/settings/SettingsSectionCard.vue';
+import { formatDocumentTitle } from '@/config/app';
+import { useAuthStore } from '@/stores/authStore';
+import { Bell, Camera, LockKeyhole, Save, Upload, UserRound } from 'lucide-vue-next';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+
+type ProfileTab = 'info' | 'password' | 'notification';
+
+const authStore = useAuthStore();
+const activeTab = ref<ProfileTab>('info');
+const profile = ref<UserProfileResponse | null>(null);
+const isLoading = ref(false);
+const pageError = ref<ParsedApiError | null>(null);
+const infoError = ref<string | null>(null);
+const infoSuccess = ref(false);
+const notificationError = ref<string | null>(null);
+const notificationSuccess = ref(false);
+const avatarError = ref<string | null>(null);
+const avatarSourceUrl = ref<string | null>(null);
+const isSavingInfo = ref(false);
+const isSavingNotification = ref(false);
+const isUploadingAvatar = ref(false);
+const fileInput = ref<HTMLInputElement | null>(null);
+
+const infoForm = reactive({
+  username: '',
+  gender: 'unknown' as UserGender,
+});
+
+const notificationForm = reactive({
+  ntfyUrl: '',
+  telegramBotToken: '',
+  telegramChatId: '',
+});
+
+const tabs: Array<{ key: ProfileTab; label: string; icon: typeof UserRound }> = [
+  { key: 'info', label: '我的信息', icon: UserRound },
+  { key: 'password', label: '更改密码', icon: LockKeyhole },
+  { key: 'notification', label: '消息通知', icon: Bell },
+];
+
+const genderOptions = [
+  { value: 'unknown', label: '未知' },
+  { value: 'male', label: '男' },
+  { value: 'female', label: '女' },
+];
+
+const avatarUrl = computed(() => profile.value?.avatarUrl || authStore.currentUser?.avatarUrl || '');
+
+function firstNtfyUrl(notification: NotificationSettings): string {
+  return notification.ntfy[0]?.url ?? '';
+}
+
+function firstTelegram(notification: NotificationSettings): { bot_token: string; chat_id: string } {
+  return notification.telegram[0] ?? { bot_token: '', chat_id: '' };
+}
+
+function applyProfile(nextProfile: UserProfileResponse) {
+  profile.value = nextProfile;
+  infoForm.username = nextProfile.username;
+  infoForm.gender = nextProfile.extra.gender;
+  notificationForm.ntfyUrl = firstNtfyUrl(nextProfile.extra.notification);
+  const telegram = firstTelegram(nextProfile.extra.notification);
+  notificationForm.telegramBotToken = telegram.bot_token;
+  notificationForm.telegramChatId = telegram.chat_id;
+}
+
+async function loadProfile() {
+  isLoading.value = true;
+  pageError.value = null;
+  try {
+    applyProfile(await authApi.getProfile());
+  } catch (err) {
+    pageError.value = getParsedApiError(err);
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+function clearAvatarSource() {
+  if (avatarSourceUrl.value) {
+    URL.revokeObjectURL(avatarSourceUrl.value);
+    avatarSourceUrl.value = null;
+  }
+}
+
+function chooseAvatar() {
+  avatarError.value = null;
+  fileInput.value?.click();
+}
+
+function onAvatarFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+
+  avatarError.value = null;
+  if (!file.type.startsWith('image/')) {
+    avatarError.value = '请选择图片文件';
+    return;
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    avatarError.value = '头像不能超过 2MB';
+    return;
+  }
+
+  clearAvatarSource();
+  avatarSourceUrl.value = URL.createObjectURL(file);
+}
+
+async function uploadCroppedAvatar(file: File) {
+  avatarError.value = null;
+  isUploadingAvatar.value = true;
+  try {
+    await authApi.uploadAvatar(file);
+    await authStore.refreshStatus();
+    clearAvatarSource();
+    await loadProfile();
+  } catch (err) {
+    avatarError.value = getParsedApiError(err).message;
+  } finally {
+    isUploadingAvatar.value = false;
+  }
+}
+
+async function saveInfo() {
+  infoError.value = null;
+  infoSuccess.value = false;
+  if (!infoForm.username.trim()) {
+    infoError.value = '请输入昵称';
+    return;
+  }
+
+  isSavingInfo.value = true;
+  try {
+    applyProfile(
+      await authApi.updateProfile({
+        username: infoForm.username.trim(),
+        gender: infoForm.gender,
+      }),
+    );
+    await authStore.refreshStatus();
+    infoSuccess.value = true;
+  } catch (err) {
+    infoError.value = getParsedApiError(err).message;
+  } finally {
+    isSavingInfo.value = false;
+  }
+}
+
+async function saveNotification() {
+  notificationError.value = null;
+  notificationSuccess.value = false;
+  isSavingNotification.value = true;
+  try {
+    applyProfile(
+      await authApi.updateProfile({
+        notification: {
+          ntfy: [{ url: notificationForm.ntfyUrl.trim() }],
+          telegram: [
+            {
+              bot_token: notificationForm.telegramBotToken.trim(),
+              chat_id: notificationForm.telegramChatId.trim(),
+            },
+          ],
+        },
+      }),
+    );
+    notificationSuccess.value = true;
+  } catch (err) {
+    notificationError.value = getParsedApiError(err).message;
+  } finally {
+    isSavingNotification.value = false;
+  }
+}
+
+onMounted(() => {
+  document.title = formatDocumentTitle('个人中心');
+  void loadProfile();
+});
+onBeforeUnmount(clearAvatarSource);
+</script>
+
+<template>
+  <div class="space-y-5">
+    <div class="flex flex-col gap-1">
+      <h1 class="text-xl font-semibold text-foreground">个人中心</h1>
+      <p class="text-sm text-muted-text">管理账号资料、安全设置和通知渠道。</p>
+    </div>
+
+    <SettingsAlert
+      v-if="pageError"
+      title="加载失败"
+      :message="pageError.message"
+      variant="error"
+    />
+
+    <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <aside class="h-fit rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm">
+        <button
+          v-for="tab in tabs"
+          :key="tab.key"
+          type="button"
+          :aria-current="activeTab === tab.key ? 'page' : undefined"
+          :class="[
+            'flex h-11 w-full items-center gap-2 rounded-xl px-3 text-left text-sm font-medium transition-colors',
+            activeTab === tab.key
+              ? 'bg-primary/12 text-primary'
+              : 'text-secondary-text hover:bg-hover hover:text-foreground',
+          ]"
+          @click="activeTab = tab.key"
+        >
+          <component :is="tab.icon" class="h-4 w-4 shrink-0" />
+          <span class="truncate">{{ tab.label }}</span>
+        </button>
+      </aside>
+
+      <section class="min-w-0">
+        <SettingsSectionCard
+          v-if="activeTab === 'info'"
+          title="我的信息"
+          description="邮箱不可更改。"
+        >
+          <div v-if="isLoading" class="py-10 text-center text-sm text-muted-text">加载中...</div>
+          <div v-else class="space-y-5">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <div
+                class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-primary/10 text-primary"
+              >
+                <img v-if="avatarUrl" :src="avatarUrl" alt="" class="h-full w-full object-cover" />
+                <Camera v-else class="h-8 w-8" />
+              </div>
+              <div class="min-w-0 flex-1 space-y-3">
+                <input
+                  ref="fileInput"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  class="hidden"
+                  @change="onAvatarFileChange"
+                />
+                <Button type="button" variant="secondary" size="sm" @click="chooseAvatar">
+                  <Upload class="h-4 w-4" />
+                  上传头像
+                </Button>
+                <SettingsAlert
+                  v-if="avatarError"
+                  title="头像保存失败"
+                  :message="avatarError"
+                  variant="error"
+                />
+              </div>
+            </div>
+
+            <AvatarCropper
+              v-if="avatarSourceUrl"
+              :source-url="avatarSourceUrl"
+              :is-submitting="isUploadingAvatar"
+              @cancel="clearAvatarSource"
+              @error="avatarError = $event"
+              @cropped="uploadCroppedAvatar"
+            />
+
+            <form class="grid gap-4 md:grid-cols-2" @submit.prevent="saveInfo">
+              <Input
+                id="profile-email"
+                label="邮箱"
+                :value="profile?.email ?? ''"
+                disabled
+                autocomplete="email"
+              />
+              <Input
+                id="profile-username"
+                label="昵称"
+                placeholder="输入昵称"
+                :value="infoForm.username"
+                :disabled="isSavingInfo"
+                autocomplete="nickname"
+                @input="infoForm.username = ($event.target as HTMLInputElement).value"
+              />
+              <Select
+                id="profile-gender"
+                v-model="infoForm.gender"
+                label="性别"
+                :options="genderOptions"
+                :disabled="isSavingInfo"
+              />
+
+              <div class="flex items-end">
+                <Button type="submit" variant="primary" :is-loading="isSavingInfo">
+                  <Save class="h-4 w-4" />
+                  保存信息
+                </Button>
+              </div>
+            </form>
+
+            <SettingsAlert
+              v-if="infoError"
+              title="保存失败"
+              :message="infoError"
+              variant="error"
+            />
+            <SettingsAlert
+              v-if="infoSuccess"
+              title="保存成功"
+              message="个人信息已更新。"
+              variant="success"
+            />
+          </div>
+        </SettingsSectionCard>
+
+        <ChangePasswordCard v-else-if="activeTab === 'password'" />
+
+        <SettingsSectionCard
+          v-else
+          title="消息通知"
+          description="保存通知渠道配置。"
+        >
+          <form class="space-y-5" @submit.prevent="saveNotification">
+            <div class="grid gap-4 md:grid-cols-2">
+              <Input
+                id="profile-ntfy-url"
+                label="ntfy URL"
+                placeholder="https://ntfy.sh/topic"
+                :value="notificationForm.ntfyUrl"
+                :disabled="isSavingNotification"
+                @input="notificationForm.ntfyUrl = ($event.target as HTMLInputElement).value"
+              />
+              <Input
+                id="profile-telegram-chat"
+                label="Telegram Chat ID"
+                placeholder="chat_id"
+                :value="notificationForm.telegramChatId"
+                :disabled="isSavingNotification"
+                @input="notificationForm.telegramChatId = ($event.target as HTMLInputElement).value"
+              />
+            </div>
+            <Input
+              id="profile-telegram-token"
+              type="password"
+              allow-toggle-password
+              icon-type="key"
+              label="Telegram Bot Token"
+              placeholder="bot_token"
+              :value="notificationForm.telegramBotToken"
+              :disabled="isSavingNotification"
+              autocomplete="off"
+              @input="notificationForm.telegramBotToken = ($event.target as HTMLInputElement).value"
+            />
+
+            <Button type="submit" variant="primary" :is-loading="isSavingNotification">
+              <Save class="h-4 w-4" />
+              保存通知
+            </Button>
+
+            <SettingsAlert
+              v-if="notificationError"
+              title="保存失败"
+              :message="notificationError"
+              variant="error"
+            />
+            <SettingsAlert
+              v-if="notificationSuccess"
+              title="保存成功"
+              message="通知配置已保存。"
+              variant="success"
+            />
+          </form>
+        </SettingsSectionCard>
+      </section>
+    </div>
+  </div>
+</template>

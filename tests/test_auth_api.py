@@ -2,6 +2,7 @@
 """Integration tests for auth API endpoints and API protection."""
 
 import asyncio
+import io
 import os
 import sys
 import tempfile
@@ -10,7 +11,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from PIL import Image
 from fastapi.responses import Response
+from starlette.datastructures import Headers
+from starlette.datastructures import UploadFile
 from starlette.requests import Request
 
 try:
@@ -38,6 +42,7 @@ class FakeUser:
         self.password_hash = password
         self.avatar_url = None
         self.role = "admin"
+        self.extra = {}
 
 
 class FakeUserRepository:
@@ -70,8 +75,42 @@ class FakeUserRepository:
         user = self.get_by_uid(uid)
         return user is not None and user.password_hash == plain
 
+    def update_profile(self, uid: int, *, username=None, gender=None, notification=None):
+        user = self.get_by_uid(uid)
+        if user is None:
+            return None
+        if username is not None:
+            user.username = username
+        extra = self._normalized_extra(user.extra)
+        if gender is not None:
+            extra["gender"] = gender
+        if notification is not None:
+            extra["notification"] = notification
+        user.extra = extra
+        return user
+
+    def set_avatar_url(self, uid: int, avatar_url: str):
+        user = self.get_by_uid(uid)
+        if user is None:
+            return None
+        user.avatar_url = avatar_url
+        return user
+
     def any_user_has_password(self) -> bool:
         return any(bool(user.password_hash) for user in self.users.values())
+
+    @staticmethod
+    def _normalized_extra(extra):
+        notification = (extra or {}).get("notification") if isinstance(extra, dict) else None
+        if not isinstance(notification, dict):
+            notification = {}
+        return {
+            "gender": (extra or {}).get("gender", "unknown") if isinstance(extra, dict) else "unknown",
+            "notification": {
+                "ntfy": notification.get("ntfy") or [{"url": ""}],
+                "telegram": notification.get("telegram") or [{"bot_token": "", "chat_id": ""}],
+            },
+        }
 
     def to_public_dict(self, user: FakeUser):
         return {
@@ -81,6 +120,11 @@ class FakeUserRepository:
             "avatarUrl": user.avatar_url,
             "role": user.role,
         }
+
+    def to_profile_dict(self, user: FakeUser):
+        payload = self.to_public_dict(user)
+        payload["extra"] = self._normalized_extra(user.extra)
+        return payload
 
 
 class AuthApiTestCase(unittest.TestCase):
@@ -151,6 +195,13 @@ class AuthApiTestCase(unittest.TestCase):
             )
         )
         self.assertEqual(response.status_code, 200)
+
+    @staticmethod
+    def _jpeg_upload(size=(64, 64)) -> UploadFile:
+        stream = io.BytesIO()
+        Image.new("RGB", size, color=(32, 120, 200)).save(stream, format="JPEG")
+        stream.seek(0)
+        return UploadFile(filename="avatar.jpg", file=stream, headers=Headers({"content-type": "image/jpeg"}))
 
     def _login_default_admin(self, password: str = "mypass456"):
         return asyncio.run(
@@ -244,6 +295,59 @@ class AuthApiTestCase(unittest.TestCase):
             )
         )
         self.assertEqual(response.status_code, 204)
+
+    def test_profile_get_returns_normalized_extra(self) -> None:
+        token = auth.create_session(uid=1)
+        request = self._build_request(cookies={auth.COOKIE_NAME: token})
+
+        data = asyncio.run(auth_endpoint.auth_profile(request))
+
+        self.assertEqual(data["email"], DEFAULT_ADMIN_EMAIL)
+        self.assertEqual(data["extra"]["gender"], "unknown")
+        self.assertEqual(data["extra"]["notification"]["ntfy"], [{"url": ""}])
+        self.assertEqual(data["extra"]["notification"]["telegram"], [{"bot_token": "", "chat_id": ""}])
+
+    def test_profile_update_saves_gender_and_notification_extra(self) -> None:
+        token = auth.create_session(uid=1)
+        request = self._build_request(cookies={auth.COOKIE_NAME: token})
+
+        data = asyncio.run(
+            auth_endpoint.auth_update_profile(
+                request,
+                auth_endpoint.ProfileUpdateRequest(
+                    username="Alice",
+                    gender="female",
+                    notification=auth_endpoint.NotificationProfileConfig(
+                        ntfy=[auth_endpoint.NtfyProfileConfig(url="https://ntfy.sh/demo")],
+                        telegram=[auth_endpoint.TelegramProfileConfig(bot_token="token", chat_id="42")],
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(data["username"], "Alice")
+        self.assertEqual(data["extra"]["gender"], "female")
+        self.assertEqual(data["extra"]["notification"]["ntfy"], [{"url": "https://ntfy.sh/demo"}])
+        self.assertEqual(data["extra"]["notification"]["telegram"], [{"bot_token": "token", "chat_id": "42"}])
+
+    def test_avatar_upload_stores_jpeg_and_updates_avatar_url(self) -> None:
+        token = auth.create_session(uid=1)
+        request = self._build_request(cookies={auth.COOKIE_NAME: token})
+
+        with patch.object(auth_endpoint, "AVATAR_DIR", self.data_dir / "avatar"):
+            data = asyncio.run(auth_endpoint.auth_upload_avatar(request, self._jpeg_upload()))
+
+        avatar_path = self.data_dir / "avatar" / "1.jpg"
+        self.assertTrue(avatar_path.is_file())
+        self.assertTrue(data["user"]["avatarUrl"].startswith("/api/v1/auth/avatar/1.jpg?v="))
+
+    def test_avatar_upload_rejects_non_square_image(self) -> None:
+        token = auth.create_session(uid=1)
+        request = self._build_request(cookies={auth.COOKIE_NAME: token})
+
+        response = asyncio.run(auth_endpoint.auth_upload_avatar(request, self._jpeg_upload(size=(64, 48))))
+
+        self.assertEqual(response.status_code, 400)
 
     def test_protected_api_returns_401_without_session(self) -> None:
         request = self._middleware_request("/api/v1/system/config")

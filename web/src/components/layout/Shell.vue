@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { LogOut, User } from 'lucide-vue-next';
+import { LogOut, User, UserRound } from 'lucide-vue-next';
 import { ref } from 'vue';
 import { RouterLink, RouterView } from 'vue-router';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
@@ -124,7 +124,14 @@ async function onLogoutConfirm() {
                     <span class="min-w-0 flex-1 truncate">{{ currentUser.role }}</span>
                   </div>
                 </div>
-                <div class="mt-4 flex justify-center">
+                <div class="mt-4 flex flex-wrap justify-center gap-2">
+                  <RouterLink
+                    to="/profile"
+                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
+                  >
+                    <UserRound class="h-4 w-4" />
+                    <span>个人中心</span>
+                  </RouterLink>
                   <button
                     type="button"
                     class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
