@@ -22,7 +22,6 @@ from api.v1.endpoints import (
     portfolio,
     stock_list,
     stocks,
-    system_config,
     usage,
     watch_list,
 )
@@ -64,12 +63,6 @@ router.include_router(
     backtest.router,
     prefix="/backtest",
     tags=["Backtest"]
-)
-
-router.include_router(
-    system_config.router,
-    prefix="/system",
-    tags=["SystemConfig"]
 )
 
 router.include_router(

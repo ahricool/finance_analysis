@@ -2,8 +2,7 @@
 """Tests for config_registry field definitions and schema building.
 
 Ensures every notification channel that has a sender implementation also
-has its config keys registered in _FIELD_DEFINITIONS so the Web settings
-page and /api/v1/system/config/schema can expose them.
+has its config keys registered in _FIELD_DEFINITIONS for runtime validation.
 """
 import unittest
 

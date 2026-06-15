@@ -9,7 +9,8 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 from src.config import get_config, setup_env
-from src.storage import Base
+from src.db.base import Base
+import src.models  # noqa: F401  # register ORM models on Base.metadata
 
 config = context.config
 

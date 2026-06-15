@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { analysisApi } from '@/api/analysis';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import { systemConfigApi } from '@/api/systemConfig';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
@@ -17,7 +16,6 @@ import { useDashboardLifecycle } from '@/composables/useDashboardLifecycle';
 import { useHomeDashboardState } from '@/composables/useHomeDashboardState';
 import { formatDocumentTitle } from '@/config/app';
 import { useTimezoneStore } from '@/stores/timezoneStore';
-import type { SetupStatusResponse } from '@/types/systemConfig';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { BarChart3 } from 'lucide-vue-next';
 import { computed, onMounted, onUnmounted, ref, unref, watch } from 'vue';
@@ -42,8 +40,6 @@ const marketReviewReport = ref<string | null>(null);
 const marketReviewReportCopied = ref(false);
 const marketReviewPollTimer = ref<number | null>(null);
 const dashboardScrollRef = ref<HTMLElement | null>(null);
-
-const setupStatus = ref<SetupStatusResponse | null>(null);
 
 const {
   query,
@@ -84,20 +80,11 @@ const {
 
 const reportLanguage = computed(() => normalizeReportLanguage(selectedReport.value?.meta.reportLanguage));
 const reportText = computed(() => getReportText(reportLanguage.value));
-const setupNeedsAction = computed(() => (setupStatus.value ? !setupStatus.value.isComplete : false));
 const deleteConfirmMessage = computed(() => {
   const n = unref(selectedHistoryIds).length;
   return n === 1
     ? '确认删除这条历史记录吗？删除后将不可恢复。'
     : `确认删除选中的 ${n} 条历史记录吗？删除后将不可恢复。`;
-});
-
-const setupMissingLabels = computed(() => {
-  if (!setupStatus.value) return '';
-  const requiredNeedsAction = setupStatus.value.checks
-    .filter((check) => check.required && check.status === 'needs_action')
-    .map((check) => check.title);
-  return requiredNeedsAction.slice(0, 3).join('、');
 });
 
 useDashboardLifecycle({
@@ -132,19 +119,10 @@ function scrollMarketReviewFeedbackIntoView() {
 
 onMounted(() => {
   document.title = formatDocumentTitle();
-  let active = true;
-  void systemConfigApi
-    .getSetupStatus()
-    .then((status) => {
-      if (active) setupStatus.value = status;
-    })
-    .catch(() => {
-      if (active) setupStatus.value = null;
-    });
-  onUnmounted(() => {
-    active = false;
-    stopMarketReviewPolling();
-  });
+});
+
+onUnmounted(() => {
+  stopMarketReviewPolling();
 });
 
 watch(displayTimezone, () => {
@@ -443,20 +421,6 @@ function handleDeleteSelectedHistory() {
           class="rounded-xl px-3 py-2 text-xs shadow-none"
         >
           {{ duplicateError }}
-        </InlineAlert>
-      </div>
-
-      <div v-if="setupNeedsAction" class="px-3 pb-2 md:px-4">
-        <InlineAlert
-          variant="warning"
-          title="基础配置未完成"
-          class="rounded-xl px-3 py-2 text-xs shadow-none"
-        >
-          {{
-            setupMissingLabels
-              ? `还缺少 ${setupMissingLabels}，请补齐运行环境配置后再开始最小可用分析。`
-              : '还缺少基础配置，请补齐运行环境配置后再开始最小可用分析。'
-          }}
         </InlineAlert>
       </div>
 
