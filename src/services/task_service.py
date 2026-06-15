@@ -225,7 +225,7 @@ class TaskService:
 
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"[TaskService] 股票 {code} 分析异常: {error_msg}")
+            logger.exception(f"[TaskService] 股票 {code} 分析异常: {error_msg}")
 
             with self._tasks_lock:
                 self._tasks[task_id].update({

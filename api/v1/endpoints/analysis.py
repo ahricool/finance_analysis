@@ -448,7 +448,7 @@ def _handle_sync_analysis(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"分析失败: {e}", exc_info=True)
+        logger.exception(f"分析失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -818,7 +818,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
             )
 
     except Exception as e:
-        logger.error(f"查询任务状态失败: {e}", exc_info=True)
+        logger.exception(f"查询任务状态失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={

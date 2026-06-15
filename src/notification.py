@@ -1271,7 +1271,7 @@ class NotificationService(
                     fail_count += 1
 
             except Exception as e:
-                logger.error(f"{channel_name} 发送失败: {e}")
+                logger.exception(f"{channel_name} 发送失败: {e}")
                 fail_count += 1
 
         logger.info(f"通知发送完成：成功 {success_count} 个，失败 {fail_count} 个")

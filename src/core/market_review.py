@@ -144,6 +144,6 @@ def run_market_review(
             return review_report
         
     except Exception as e:
-        logger.error(f"大盘复盘分析失败: {e}")
+        logger.exception(f"大盘复盘分析失败: {e}")
     
     return None

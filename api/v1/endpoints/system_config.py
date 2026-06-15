@@ -91,7 +91,7 @@ def get_system_config(
         payload = service.get_config(include_schema=include_schema)
         return SystemConfigResponse.model_validate(payload)
     except Exception as exc:
-        logger.error("Failed to load system configuration: %s", exc, exc_info=True)
+        logger.exception("Failed to load system configuration: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -120,7 +120,7 @@ def get_setup_status(
         payload = service.get_setup_status()
         return SetupStatusResponse.model_validate(payload)
     except Exception as exc:
-        logger.error("Failed to load setup status: %s", exc, exc_info=True)
+        logger.exception("Failed to load setup status: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -174,7 +174,7 @@ def update_system_config(
             },
         )
     except Exception as exc:
-        logger.error("Failed to update system configuration: %s", exc, exc_info=True)
+        logger.exception("Failed to update system configuration: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -211,7 +211,7 @@ def export_system_config(
         payload = service.export_env()
         return ExportSystemConfigResponse.model_validate(payload)
     except Exception as exc:
-        logger.error("Failed to export system configuration: %s", exc, exc_info=True)
+        logger.exception("Failed to export system configuration: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -293,7 +293,7 @@ def import_system_config(
             },
         )
     except Exception as exc:
-        logger.error("Failed to import system configuration: %s", exc, exc_info=True)
+        logger.exception("Failed to import system configuration: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -322,7 +322,7 @@ def validate_system_config(
         payload = service.validate(items=[item.model_dump() for item in request.items])
         return ValidateSystemConfigResponse.model_validate(payload)
     except Exception as exc:
-        logger.error("Failed to validate system configuration: %s", exc, exc_info=True)
+        logger.exception("Failed to validate system configuration: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -368,7 +368,7 @@ def test_llm_channel(
             },
         )
     except Exception as exc:
-        logger.error("Failed to test LLM channel: %s", exc, exc_info=True)
+        logger.exception("Failed to test LLM channel: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -412,7 +412,7 @@ def test_notification_channel(
             },
         )
     except Exception as exc:
-        logger.error("Failed to test notification channel: %s", exc, exc_info=True)
+        logger.exception("Failed to test notification channel: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -456,7 +456,7 @@ def discover_llm_channel_models(
             },
         )
     except Exception as exc:
-        logger.error("Failed to discover LLM channel models: %s", exc, exc_info=True)
+        logger.exception("Failed to discover LLM channel models: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -484,7 +484,7 @@ def get_system_config_schema(
         payload = service.get_schema()
         return SystemConfigSchemaResponse.model_validate(payload)
     except Exception as exc:
-        logger.error("Failed to load system configuration schema: %s", exc, exc_info=True)
+        logger.exception("Failed to load system configuration schema: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={

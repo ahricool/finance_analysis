@@ -57,7 +57,7 @@ def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
             is_favorite=body.is_favorite,
         )
     except Exception as e:
-        logger.error("创建自选股失败: %s", e)
+        logger.exception("创建自选股失败: %s", e)
         raise HTTPException(status_code=500, detail="创建失败，请重试") from e
     return WatchListItemResponse.model_validate(item)
 

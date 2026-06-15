@@ -70,7 +70,7 @@ class HistoryCommand(BotCommand):
             from src.storage import get_db
             db = get_db()
         except Exception as e:
-            logger.error(f"History: storage unavailable: {e}")
+            logger.exception(f"History: storage unavailable: {e}")
             return BotResponse.text_response("⚠️ 存储模块不可用，无法查询对话历史。")
 
         prefix = _user_prefix(message)
@@ -87,7 +87,7 @@ class HistoryCommand(BotCommand):
                     f"✅ 已清除当前会话 ({deleted} 条消息)"
                 )
             except Exception as e:
-                logger.error(f"History clear failed: {e}")
+                logger.exception(f"History clear failed: {e}")
                 return BotResponse.text_response(f"⚠️ 清除失败: {str(e)}")
 
         # /history <session_id> — show messages for a specific session
@@ -114,7 +114,7 @@ class HistoryCommand(BotCommand):
 
                 return BotResponse.markdown_response("\n".join(lines))
             except Exception as e:
-                logger.error(f"History detail failed: {e}")
+                logger.exception(f"History detail failed: {e}")
                 return BotResponse.text_response(f"⚠️ 获取会话详情失败: {str(e)}")
 
         # /history [count] — list recent sessions for this user only
@@ -146,5 +146,5 @@ class HistoryCommand(BotCommand):
             return BotResponse.markdown_response("\n".join(lines))
 
         except Exception as e:
-            logger.error(f"History list failed: {e}")
+            logger.exception(f"History list failed: {e}")
             return BotResponse.text_response(f"⚠️ 获取会话列表失败: {str(e)}")

@@ -103,5 +103,5 @@ class AnalyzeCommand(BotCommand):
                 return BotResponse.error_response(f"提交分析任务失败: {error}")
                 
         except Exception as e:
-            logger.error(f"[AnalyzeCommand] 执行失败: {e}")
+            logger.exception(f"[AnalyzeCommand] 执行失败: {e}")
             return BotResponse.error_response(f"分析失败: {str(e)[:100]}")

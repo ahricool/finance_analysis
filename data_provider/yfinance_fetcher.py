@@ -16,6 +16,7 @@ YfinanceFetcher - 兜底数据源 (Priority 4)
 
 import csv
 import logging
+import time
 from datetime import datetime
 from io import StringIO
 from typing import Optional, List, Dict, Any
@@ -34,6 +35,7 @@ from tenacity import (
 from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS, is_bse_code
 from .realtime_types import UnifiedRealtimeQuote, RealtimeSource
 from .us_index_mapping import get_us_index_yf_symbol, is_us_stock_code
+from src.logging_config import log_external_call_exception
 
 # 可选导入本地股票映射补丁，若缺失则使用空字典兜底
 try:
@@ -174,6 +176,7 @@ class YfinanceFetcher(BaseFetcher):
 
         logger.debug(f"调用 yfinance.download({yf_code}, {start_date}, {end_date})")
 
+        api_start = time.time()
         try:
             # 使用 yfinance 下载数据
             df = yf.download(
@@ -200,6 +203,15 @@ class YfinanceFetcher(BaseFetcher):
         except Exception as e:
             if isinstance(e, DataFetchError):
                 raise
+            log_external_call_exception(
+                logger,
+                provider="yfinance",
+                operation="download",
+                exc=e,
+                symbol=yf_code,
+                params={"tickers": yf_code, "start": start_date, "end": end_date},
+                elapsed=time.time() - api_start,
+            )
             raise DataFetchError(f"Yahoo Finance 获取数据失败: {e}") from e
 
     def _normalize_data(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
@@ -343,7 +355,7 @@ class YfinanceFetcher(BaseFetcher):
                 return results
 
         except Exception as e:
-            logger.error(f"[Yfinance] 获取 A 股指数行情失败: {e}")
+            logger.exception(f"[Yfinance] 获取 A 股指数行情失败: {e}")
 
         return None
 
@@ -370,7 +382,7 @@ class YfinanceFetcher(BaseFetcher):
                 return results
 
         except Exception as e:
-            logger.error(f"[Yfinance] 获取美股指数行情失败: {e}")
+            logger.exception(f"[Yfinance] 获取美股指数行情失败: {e}")
 
         return None
 
@@ -402,7 +414,7 @@ class YfinanceFetcher(BaseFetcher):
                 return results
 
         except Exception as e:
-            logger.error(f"[Yfinance] 获取港股指数行情失败: {e}")
+            logger.exception(f"[Yfinance] 获取港股指数行情失败: {e}")
 
         return None
 
@@ -432,11 +444,20 @@ class YfinanceFetcher(BaseFetcher):
             },
         )
 
+        api_start = time.time()
         try:
             with urlopen(request, timeout=15) as response:
                 payload = response.read().decode("utf-8", "ignore").strip()
         except (HTTPError, URLError, TimeoutError) as exc:
-            logger.warning(f"[Stooq] 获取美股 {symbol} 实时行情失败: {exc}")
+            log_external_call_exception(
+                logger,
+                provider="stooq",
+                operation="realtime_quote",
+                exc=exc,
+                symbol=symbol,
+                params={"url": url, "method": "GET"},
+                elapsed=time.time() - api_start,
+            )
             return None
 
         if not payload or payload.upper().startswith("NO DATA"):
@@ -452,11 +473,20 @@ class YfinanceFetcher(BaseFetcher):
                     "Accept": "text/plain,text/csv,*/*",
                 },
             )
+            api_start = time.time()
             try:
                 with urlopen(history_request, timeout=15) as response:
                     history_payload = response.read().decode("utf-8", "ignore").strip()
             except (HTTPError, URLError, TimeoutError) as exc:
-                logger.debug(f"[Stooq] 获取美股 {symbol} 日线历史失败: {exc}")
+                log_external_call_exception(
+                    logger,
+                    provider="stooq",
+                    operation="daily_history",
+                    exc=exc,
+                    symbol=symbol,
+                    params={"url": history_url, "method": "GET"},
+                    elapsed=time.time() - api_start,
+                )
                 return None
 
             if not history_payload or history_payload.upper().startswith("NO DATA"):
@@ -584,6 +614,7 @@ class YfinanceFetcher(BaseFetcher):
         """
         import yfinance as yf
 
+        api_start = time.time()
         try:
             logger.debug(f"[Yfinance] 获取美股指数 {user_code} ({yf_symbol}) 实时行情")
             ticker = yf.Ticker(yf_symbol)
@@ -647,7 +678,15 @@ class YfinanceFetcher(BaseFetcher):
             logger.info(f"[Yfinance] 获取美股指数 {user_code} 实时行情成功: 价格={price}")
             return quote
         except Exception as e:
-            logger.warning(f"[Yfinance] 获取美股指数 {user_code} 实时行情失败: {e}")
+            log_external_call_exception(
+                logger,
+                provider="yfinance",
+                operation="index_realtime_quote",
+                exc=e,
+                symbol=yf_symbol,
+                params={"user_code": user_code},
+                elapsed=time.time() - api_start,
+            )
             return None
 
     def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
@@ -679,6 +718,7 @@ class YfinanceFetcher(BaseFetcher):
             logger.debug(f"[Yfinance] {stock_code} 不是美股，跳过")
             return None
 
+        api_start = time.time()
         try:
             symbol = stock_code.strip().upper()
             logger.debug(f"[Yfinance] 获取美股 {symbol} 实时行情")
@@ -763,7 +803,15 @@ class YfinanceFetcher(BaseFetcher):
             return quote
 
         except Exception as e:
-            logger.warning(f"[Yfinance] 获取美股 {stock_code} 实时行情失败: {e}，尝试 Stooq 兜底")
+            log_external_call_exception(
+                logger,
+                provider="yfinance",
+                operation="stock_realtime_quote",
+                exc=e,
+                symbol=stock_code,
+                params={"stock_code": stock_code},
+                elapsed=time.time() - api_start,
+            )
             return self._get_us_stock_quote_from_stooq(stock_code)
 
 

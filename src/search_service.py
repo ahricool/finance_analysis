@@ -247,7 +247,7 @@ class BaseSearchProvider(ABC):
         except Exception as e:
             self._record_error(api_key)
             elapsed = time.time() - start_time
-            logger.error(f"[{self._name}] 搜索 '{query}' 失败: {e}")
+            logger.exception(f"[{self._name}] 搜索 '{query}' 失败: {e}")
             return SearchResponse(
                 query=query,
                 results=[],
@@ -399,7 +399,7 @@ class TavilySearchProvider(BaseSearchProvider):
         except Exception as e:
             self._record_error(api_key)
             elapsed = time.time() - start_time
-            logger.error(f"[{self._name}] 搜索 '{query}' 失败: {e}")
+            logger.exception(f"[{self._name}] 搜索 '{query}' 失败: {e}")
             return SearchResponse(
                 query=query,
                 results=[],
@@ -1037,7 +1037,7 @@ class BochaSearchProvider(BaseSearchProvider):
             )
         except Exception as e:
             error_msg = f"未知错误: {str(e)}"
-            logger.error(f"[Bocha] {error_msg}")
+            logger.exception(f"[Bocha] {error_msg}")
             return SearchResponse(
                 query=query,
                 results=[],
@@ -1225,7 +1225,7 @@ class AnspireSearchProvider(BaseSearchProvider):
             )
         except Exception as e:
             error_msg = f"未知错误：{str(e)}"
-            logger.error(f"[Anspire] {error_msg}")
+            logger.exception(f"[Anspire] {error_msg}")
             return SearchResponse(
                 query=query,
                 results=[],
@@ -1446,7 +1446,7 @@ class MiniMaxSearchProvider(BaseSearchProvider):
             )
         except Exception as e:
             error_msg = f"Unexpected error: {e}"
-            logger.error(f"[MiniMax] {error_msg}")
+            logger.exception(f"[MiniMax] {error_msg}")
             return SearchResponse(
                 query=query, results=[], provider=self.name,
                 success=False, error_message=error_msg,
@@ -1628,7 +1628,7 @@ class BraveSearchProvider(BaseSearchProvider):
             )
         except Exception as e:
             error_msg = f"未知错误: {str(e)}"
-            logger.error(f"[Brave] {error_msg}")
+            logger.exception(f"[Brave] {error_msg}")
             return SearchResponse(
                 query=query,
                 results=[],

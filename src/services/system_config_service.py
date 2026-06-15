@@ -1241,7 +1241,7 @@ class SystemConfigService:
                 warnings.extend(config.validate())
                 reload_triggered = True
             except Exception as exc:  # pragma: no cover - defensive branch
-                logger.error("Configuration reload failed: %s", exc, exc_info=True)
+                logger.exception("Configuration reload failed: %s", exc, exc_info=True)
                 warnings.append("Configuration updated but reload failed")
 
         warnings.extend(

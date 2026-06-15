@@ -82,7 +82,7 @@ class StockService:
             logger.warning("DataFetcherManager 未找到，使用占位数据")
             return self._get_placeholder_quote(stock_code)
         except Exception as e:
-            logger.error(f"获取实时行情失败: {e}", exc_info=True)
+            logger.exception(f"获取实时行情失败: {e}", exc_info=True)
             return None
     
     def get_history_data(
@@ -157,7 +157,7 @@ class StockService:
             logger.warning("DataFetcherManager 未找到，返回空数据")
             return {"stock_code": stock_code, "period": period, "data": []}
         except Exception as e:
-            logger.error(f"获取历史数据失败: {e}", exc_info=True)
+            logger.exception(f"获取历史数据失败: {e}", exc_info=True)
             return {"stock_code": stock_code, "period": period, "data": []}
     
     def _get_placeholder_quote(self, stock_code: str) -> Dict[str, Any]:

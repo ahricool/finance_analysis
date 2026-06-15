@@ -1119,7 +1119,7 @@ class DatabaseManager:
             )
             logger.info(f"保存新闻情报成功: {code}, 新增 {saved_count} 条")
         except Exception as e:
-            logger.error(f"保存新闻情报失败: {e}")
+            logger.exception(f"保存新闻情报失败: {e}")
             raise
 
         return saved_count
@@ -1302,7 +1302,7 @@ class DatabaseManager:
                 _write,
             )
         except Exception as e:
-            logger.error(f"保存分析历史失败: {e}")
+            logger.exception(f"保存分析历史失败: {e}")
             return 0
 
     def get_analysis_history(
@@ -1601,7 +1601,7 @@ class DatabaseManager:
             logger.info(f"保存 {code} 数据成功，新增 {saved_count} 条")
             return saved_count
         except Exception as e:
-            logger.error(f"保存 {code} 数据失败: {e}")
+            logger.exception(f"保存 {code} 数据失败: {e}")
             raise
     
     def get_analysis_context(

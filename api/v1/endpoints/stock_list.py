@@ -57,7 +57,7 @@ def create_stock_holding(http_request: Request, body: StockHoldingCreate):
             notes=body.notes,
         )
     except Exception as e:
-        logger.error("创建持仓股失败: %s", e)
+        logger.exception("创建持仓股失败: %s", e)
         raise HTTPException(status_code=500, detail="创建失败，请重试") from e
     return StockHoldingResponse.model_validate(item)
 

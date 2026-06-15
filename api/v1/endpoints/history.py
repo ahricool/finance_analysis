@@ -134,7 +134,7 @@ def get_history_list(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"查询历史列表失败: {e}", exc_info=True)
+        logger.exception(f"查询历史列表失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -179,7 +179,7 @@ def delete_history_records(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"删除历史记录失败: {e}", exc_info=True)
+        logger.exception(f"删除历史记录失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -349,7 +349,7 @@ def get_history_detail(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"查询历史详情失败: {e}", exc_info=True)
+        logger.exception(f"查询历史详情失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -407,7 +407,7 @@ def get_history_news(
         )
 
     except Exception as e:
-        logger.error(f"查询新闻情报失败: {e}", exc_info=True)
+        logger.exception(f"查询新闻情报失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -462,7 +462,7 @@ def get_history_markdown(
             }
         )
     except Exception as e:
-        logger.error(f"获取 Markdown 报告失败: {e}", exc_info=True)
+        logger.exception(f"获取 Markdown 报告失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={

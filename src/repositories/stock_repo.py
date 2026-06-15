@@ -52,7 +52,7 @@ class StockRepository:
         try:
             return self.db.get_latest_data(code, days, market=market)
         except Exception as e:
-            logger.error(f"获取最新数据失败: {e}")
+            logger.exception(f"获取最新数据失败: {e}")
             return []
     
     def get_range(
@@ -77,7 +77,7 @@ class StockRepository:
         try:
             return self.db.get_data_range(code, start_date, end_date, market=market)
         except Exception as e:
-            logger.error(f"获取日期范围数据失败: {e}")
+            logger.exception(f"获取日期范围数据失败: {e}")
             return []
     
     def save_dataframe(
@@ -102,7 +102,7 @@ class StockRepository:
         try:
             return self.db.save_daily_data(df, code, data_source, market=market)
         except Exception as e:
-            logger.error(f"保存日线数据失败: {e}")
+            logger.exception(f"保存日线数据失败: {e}")
             return 0
     
     def has_today_data(
@@ -125,7 +125,7 @@ class StockRepository:
         try:
             return self.db.has_today_data(code, target_date, market=market)
         except Exception as e:
-            logger.error(f"检查数据存在失败: {e}")
+            logger.exception(f"检查数据存在失败: {e}")
             return False
     
     def get_analysis_context(
@@ -146,7 +146,7 @@ class StockRepository:
         try:
             return self.db.get_analysis_context(code, target_date)
         except Exception as e:
-            logger.error(f"获取分析上下文失败: {e}")
+            logger.exception(f"获取分析上下文失败: {e}")
             return None
 
     def get_start_daily(

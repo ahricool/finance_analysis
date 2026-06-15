@@ -181,7 +181,7 @@ class BacktestService:
 
             except Exception as exc:
                 errors += 1
-                logger.error(f"回测失败: {analysis.code}#{analysis.id}: {exc}")
+                logger.exception(f"回测失败: {analysis.code}#{analysis.id}: {exc}")
                 results_to_save.append(
                     BacktestResult(
                         analysis_history_id=analysis.id,
