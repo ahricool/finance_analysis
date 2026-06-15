@@ -5,7 +5,7 @@
 ===================================
 
 从截图/图片中提取股票代码，使用 Vision LLM。
-优先级：Gemini -> Anthropic -> OpenAI（首个可用）。
+通过 LiteLLM 调用配置的 Vision 模型。
 """
 
 from __future__ import annotations
@@ -13,26 +13,15 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import random
 import re
-import sys
 import time
 from typing import List, Optional, Tuple
 
-from src.config import Config, get_config
-from src.llm_client import build_completion_kwargs, validate_llm_config
+from src.config import get_config
+from src.llm import LLMClient, LLMRequest
 
 logger = logging.getLogger(__name__)
 
-
-class _LiteLLMPlaceholder:
-    """Provide a patchable placeholder before litellm is imported."""
-
-    completion = None
-
-
-# Keep a patchable module attribute while still avoiding a hard import at module load.
-litellm = sys.modules.get("litellm") or _LiteLLMPlaceholder()
 
 EXTRACT_PROMPT = """请分析这张股票市场截图或图片，提取其中所有可见的股票代码及名称。
 
@@ -209,45 +198,39 @@ def _parse_items_from_text(text: str) -> List[Tuple[str, Optional[str], str]]:
 
 
 def _resolve_vision_model() -> str:
-    """Determine the litellm model to use for vision."""
+    """Determine the LiteLLM model to use for vision."""
     cfg = get_config()
     return (cfg.vision_model or cfg.llm_model or "").strip()
 
 
 def _call_litellm_vision(image_b64: str, mime_type: str) -> str:
-    """Extract stock codes from an image using litellm."""
-    global litellm
+    """Extract stock codes from an image using the unified LLM client."""
     cfg = get_config()
     model = _resolve_vision_model()
     if not model:
         raise ValueError("未配置 Vision 模型。请设置 VISION_MODEL 或 LLM_MODEL。")
 
-    validate_llm_config(cfg, model=model)
-
     data_url = f"data:{mime_type};base64,{image_b64}"
-    call_kwargs = build_completion_kwargs(
-        cfg,
-        model,
-        [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": EXTRACT_PROMPT},
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                ],
-            }
-        ],
-        max_tokens=1024,
-        timeout=VISION_API_TIMEOUT,
+    client = LLMClient(config=cfg, models_to_try=[model])
+    result = client.complete_vision(
+        LLMRequest(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": EXTRACT_PROMPT},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                }
+            ],
+            max_tokens=1024,
+            timeout=VISION_API_TIMEOUT,
+            call_type="vision_stock_extraction",
+        )
     )
-
-    if getattr(litellm, "completion", None) is None:
-        import litellm as litellm_module
-        litellm = litellm_module
-    response = litellm.completion(**call_kwargs)
-    if response and response.choices and response.choices[0].message.content:
-        return response.choices[0].message.content
-    raise ValueError("LiteLLM vision returned empty response")
+    if result.text:
+        return result.text
+    raise ValueError("Vision LLM returned empty response")
 
 
 def extract_stock_codes_from_image(
@@ -257,8 +240,7 @@ def extract_stock_codes_from_image(
     """
     从图片中提取股票代码及名称（使用 Vision LLM）。
 
-    优先级：Gemini -> Anthropic -> OpenAI（首个可用）。
-    支持多 Key 轮询与重试（最多 3 次，指数退避）。
+    通过 LiteLLM 调用配置的 Vision 模型，最多重试 3 次。
 
     Args:
         image_bytes: 原始图片字节

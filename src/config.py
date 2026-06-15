@@ -362,7 +362,7 @@ def get_configured_llm_models(model_list: List[Dict[str, Any]]) -> List[str]:
     """Return non-legacy model names declared in Router model_list order.
 
     Uses the top-level ``model_name`` (the routing alias that users set in
-    LITELLM_MODEL) rather than ``litellm_params.model`` (the wire-level
+    LLM_MODEL) rather than ``litellm_params.model`` (the wire-level
     model identifier).  For channel-built entries both are identical, but
     YAML configs may define a friendly alias that differs from the
     underlying provider/model path.
@@ -524,37 +524,13 @@ def normalize_litellm_temperature(
 
 
 def resolve_unified_llm_temperature(model: str) -> float:
-    """Resolve the raw unified LLM temperature with backward-compatible fallbacks."""
+    """Resolve the raw unified LLM temperature."""
     llm_temperature_raw = os.getenv("LLM_TEMPERATURE")
     if llm_temperature_raw and llm_temperature_raw.strip():
         try:
             return float(llm_temperature_raw)
         except (ValueError, TypeError):
             pass
-
-    provider_temperature_env = {
-        "gemini": "GEMINI_TEMPERATURE",
-        "vertex_ai": "GEMINI_TEMPERATURE",
-        "anthropic": "ANTHROPIC_TEMPERATURE",
-        "openai": "OPENAI_TEMPERATURE",
-        "deepseek": "OPENAI_TEMPERATURE",
-    }
-    preferred_env = provider_temperature_env.get(_get_litellm_provider(model))
-    if preferred_env:
-        preferred_value = os.getenv(preferred_env)
-        if preferred_value and preferred_value.strip():
-            try:
-                return float(preferred_value)
-            except (ValueError, TypeError):
-                pass
-
-    for env_name in ("GEMINI_TEMPERATURE", "ANTHROPIC_TEMPERATURE", "OPENAI_TEMPERATURE"):
-        env_value = os.getenv(env_name)
-        if env_value and env_value.strip():
-            try:
-                return float(env_value)
-            except (ValueError, TypeError):
-                continue
 
     return 0.7
 
@@ -657,10 +633,10 @@ class Config:
     llm_temperature: float = 0.7
     llm_fallback_models: List[str] = field(default_factory=list)
 
-    # Request throttling for analysis calls (legacy env names retained)
-    gemini_request_delay: float = 2.0
-    gemini_max_retries: int = 5
-    gemini_retry_delay: float = 5.0
+    # Request throttling for LLM calls
+    llm_request_delay: float = 2.0
+    llm_max_retries: int = 5
+    llm_retry_delay: float = 5.0
 
     # === Vision 配置 ===
     vision_model: str = ""
@@ -685,7 +661,7 @@ class Config:
     bias_threshold: float = 5.0  # 乖离率阈值（%），超过此值提示不追高
 
     # === Agent 模式配置 ===
-    agent_litellm_model: str = ""  # Optional Agent-only primary model; empty inherits LITELLM_MODEL
+    agent_litellm_model: str = ""  # Optional Agent-only primary model; empty inherits LLM_MODEL
     agent_mode: bool = False
     _agent_mode_explicit: bool = False  # True when AGENT_MODE was explicitly set in env
     agent_max_steps: int = AGENT_MAX_STEPS_DEFAULT
@@ -1024,28 +1000,10 @@ class Config:
 
         
         # === LiteLLM unified config ===
-        llm_model = (
-            os.getenv("LLM_MODEL", "").strip()
-            or os.getenv("LITELLM_MODEL", "").strip()
-        )
-        llm_base_url = (
-            os.getenv("LLM_BASE_URL", "").strip()
-            or os.getenv("OPENAI_BASE_URL", "").strip()
-            or None
-        )
-        llm_api_key = (
-            os.getenv("LLM_API_KEY", "").strip()
-            or os.getenv("OPENAI_API_KEY", "").strip()
-            or os.getenv("AIHUBMIX_KEY", "").strip()
-            or os.getenv("GEMINI_API_KEY", "").strip()
-            or os.getenv("ANTHROPIC_API_KEY", "").strip()
-            or os.getenv("DEEPSEEK_API_KEY", "").strip()
-            or None
-        )
-        _fallback_str = (
-            os.getenv("LLM_FALLBACK_MODELS", "").strip()
-            or os.getenv("LITELLM_FALLBACK_MODELS", "").strip()
-        )
+        llm_model = os.getenv("LLM_MODEL", "").strip()
+        llm_base_url = os.getenv("LLM_BASE_URL", "").strip() or None
+        llm_api_key = os.getenv("LLM_API_KEY", "").strip() or None
+        _fallback_str = os.getenv("LLM_FALLBACK_MODELS", "").strip()
         if _fallback_str:
             llm_fallback_models = [m.strip() for m in _fallback_str.split(",") if m.strip()]
         else:
@@ -1107,9 +1065,9 @@ class Config:
             llm_api_key=llm_api_key,
             llm_temperature=resolve_unified_llm_temperature(llm_model),
             llm_fallback_models=llm_fallback_models,
-            gemini_request_delay=parse_env_float(os.getenv('GEMINI_REQUEST_DELAY'), 2.0, field_name='GEMINI_REQUEST_DELAY', minimum=0.0),
-            gemini_max_retries=parse_env_int(os.getenv('GEMINI_MAX_RETRIES'), 5, field_name='GEMINI_MAX_RETRIES', minimum=0),
-            gemini_retry_delay=parse_env_float(os.getenv('GEMINI_RETRY_DELAY'), 5.0, field_name='GEMINI_RETRY_DELAY', minimum=0.0),
+            llm_request_delay=parse_env_float(os.getenv('LLM_REQUEST_DELAY'), 2.0, field_name='LLM_REQUEST_DELAY', minimum=0.0),
+            llm_max_retries=parse_env_int(os.getenv('LLM_MAX_RETRIES'), 5, field_name='LLM_MAX_RETRIES', minimum=0),
+            llm_retry_delay=parse_env_float(os.getenv('LLM_RETRY_DELAY'), 5.0, field_name='LLM_RETRY_DELAY', minimum=0.0),
             vision_model=(
                 os.getenv('VISION_MODEL')
                 or os.getenv('OPENAI_VISION_MODEL')

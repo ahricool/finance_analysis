@@ -21,7 +21,7 @@ from src.config import (
     get_effective_agent_primary_model,
     normalize_litellm_temperature,
 )
-from src.llm_client import build_completion_kwargs, is_llm_configured
+from src.llm import completion, is_llm_configured
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,7 @@ class LLMToolAdapter:
     """Unified adapter for tool-calling via LiteLLM.
 
     Supports all providers (Gemini, Anthropic, OpenAI, DeepSeek, etc.) through
-    a single litellm.completion() interface with optional Router for multi-key
+    the unified LiteLLM client with optional fallback routing for multi-key
     load balancing.
     """
 
@@ -323,15 +323,25 @@ class LLMToolAdapter:
         """Call a specific litellm model with OpenAI-format messages and tools."""
         openai_messages = self._convert_messages(messages)
 
-        # Use short model name (without provider prefix) for thinking model lookup
-        model_short = model.split("/")[-1] if "/" in model else model
-        extra = get_thinking_extra_body(model_short)
+        model_for_rules = model
+        configured_extra: Optional[dict] = None
+        for entry in getattr(self._config, "llm_model_list", []) or []:
+            if not isinstance(entry, dict) or entry.get("model_name") != model:
+                continue
+            params = entry.get("litellm_params") if isinstance(entry.get("litellm_params"), dict) else {}
+            model_for_rules = params.get("model") or model
+            configured_extra = params.get("extra_body") if isinstance(params.get("extra_body"), dict) else None
+            break
+
+        # Use short model name (without provider prefix) for thinking model lookup.
+        model_short = model_for_rules.split("/")[-1] if "/" in model_for_rules else model_for_rules
+        extra = configured_extra if configured_extra is not None else get_thinking_extra_body(model_short)
 
         call_kwargs: Dict[str, Any] = {
             "model": model,
             "messages": openai_messages,
             "temperature": normalize_litellm_temperature(
-                model,
+                model_for_rules,
                 self._get_temperature() if temperature is None else temperature,
                 model_list=None,
                 request_overrides={"extra_body": extra} if extra else None,
@@ -348,7 +358,7 @@ class LLMToolAdapter:
         if tools:
             call_kwargs["tools"] = tools
 
-        effective_kwargs = build_completion_kwargs(
+        response = completion(
             self._config,
             model,
             openai_messages,
@@ -358,7 +368,6 @@ class LLMToolAdapter:
             tools=call_kwargs.get("tools"),
             extra_body=call_kwargs.get("extra_body"),
         )
-        response = litellm.completion(**effective_kwargs)
 
         return self._parse_litellm_response(response, model)
 

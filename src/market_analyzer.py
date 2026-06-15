@@ -453,7 +453,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         Returns:
             大盘复盘报告文本
         """
-        if not self.analyzer or not self.analyzer.is_available():
+        if not self.analyzer or not callable(getattr(self.analyzer, "generate_text", None)):
             logger.warning("[大盘] AI分析器未配置或不可用，使用模板生成报告")
             return self._generate_template_review(overview, news)
         

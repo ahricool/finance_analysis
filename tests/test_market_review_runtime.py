@@ -41,11 +41,11 @@ class TestMarketReviewRuntimeCompatibility(unittest.TestCase):
         analyzer = MagicMock()
         analyzer.is_available.return_value = True
 
-        import src.analyzer
+        import src.analysis.stock_report_analyzer
         import src.notification
         import src.search_service
 
-        with patch.object(src.analyzer, "GeminiAnalyzer", return_value=analyzer) as analyzer_cls, \
+        with patch.object(src.analysis.stock_report_analyzer, "StockReportAnalyzer", return_value=analyzer) as analyzer_cls, \
              patch.object(src.notification, "NotificationService", return_value=notifier) as notifier_cls, \
              patch.object(src.search_service, "SearchService") as search_cls:
             runtime_notifier, runtime_analyzer, runtime_search = build_market_review_runtime(config)

@@ -42,7 +42,7 @@ class UnifiedLLMConfigTestCase(unittest.TestCase):
 
     @patch("src.config.setup_env")
     @patch.object(Config, "_parse_stock_email_groups", return_value=[])
-    def test_legacy_litellm_aliases_still_load(self, _mock_groups, _mock_setup_env) -> None:
+    def test_legacy_litellm_aliases_are_ignored(self, _mock_groups, _mock_setup_env) -> None:
         env = {
             "LITELLM_MODEL": "gemini/gemini-3.1-pro-preview",
             "GEMINI_API_KEY": "gemini-test-key",
@@ -52,9 +52,9 @@ class UnifiedLLMConfigTestCase(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             config = Config._load_from_env()
 
-        self.assertEqual(config.llm_model, "gemini/gemini-3.1-pro-preview")
-        self.assertEqual(config.llm_api_key, "gemini-test-key")
-        self.assertEqual(config.llm_fallback_models, ["gemini/gemini-3-flash-preview"])
+        self.assertEqual(config.llm_model, "")
+        self.assertIsNone(config.llm_api_key)
+        self.assertEqual(config.llm_fallback_models, [])
 
     @patch("src.config.setup_env")
     @patch.object(Config, "_parse_stock_email_groups", return_value=[])
@@ -109,7 +109,7 @@ class LiteLLMClientTestCase(unittest.TestCase):
             ["openai/gpt-5.5", "openai/gpt-4.1"],
         )
 
-    @patch("src.llm_client.completion")
+    @patch("src.llm.client.completion")
     def test_completion_with_fallback_retries_next_model(self, mock_completion) -> None:
         mock_completion.side_effect = [RuntimeError("primary failed"), object()]
 

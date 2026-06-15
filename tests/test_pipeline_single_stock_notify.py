@@ -17,7 +17,7 @@ from tests.litellm_stub import ensure_litellm_stub
 
 ensure_litellm_stub()
 
-from src.analyzer import AnalysisResult
+from src.analysis.stock_report_analyzer import AnalysisResult
 from src.core.pipeline import StockAnalysisPipeline
 from src.enums import ReportType
 

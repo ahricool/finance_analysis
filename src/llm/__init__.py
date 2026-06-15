@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Compatibility exports for the unified LiteLLM client package."""
+"""Unified LiteLLM client package."""
 
 from src.llm.client import (
     AllModelsFailedError,

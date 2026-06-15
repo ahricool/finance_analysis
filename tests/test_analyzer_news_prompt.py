@@ -12,8 +12,8 @@ except ModuleNotFoundError:
 
     ensure_litellm_stub()
 
-from src.analyzer import (
-    GeminiAnalyzer,
+from src.analysis.stock_report_analyzer import (
+    StockReportAnalyzer,
     _BULLISH_TREND_HINTS,
     _contains_trend_hint,
     _infer_trend_direction,
@@ -79,8 +79,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         )
 
     def test_analysis_prompt_resolves_shared_skill_prompt_state_by_default(self) -> None:
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer()
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer()
 
         fake_state = SimpleNamespace(
             skill_instructions="### 技能 1: 波段低吸\n- 关注支撑确认",
@@ -93,8 +93,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertNotIn("专注于趋势交易", prompt)
 
     def test_analysis_prompt_uses_injected_skill_sections_instead_of_hardcoded_trend_baseline(self) -> None:
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer(
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer(
                 skill_instructions="### 技能 1: 缠论\n- 关注中枢与背驰",
                 default_skill_policy="",
             )
@@ -106,8 +106,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertNotIn("多头排列：MA5 > MA10 > MA20", prompt)
 
     def test_analysis_prompt_keeps_injected_default_policy_for_implicit_default_run(self) -> None:
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer(
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer(
                 skill_instructions="### 技能 1: 默认多头趋势",
                 default_skill_policy="## 默认技能基线（必须严格遵守）\n- **多头排列必须条件**：MA5 > MA10 > MA20",
                 use_legacy_default_prompt=True,
@@ -120,8 +120,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("多头排列：MA5 > MA10 > MA20", prompt)
 
     def test_analysis_prompt_contains_actionability_guardrails(self) -> None:
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer()
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer()
 
         prompt = analyzer._get_analysis_system_prompt("zh", stock_code="002812")
 
@@ -131,8 +131,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("洗盘观察", prompt)
 
     def test_prompt_contains_time_constraints(self) -> None:
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer()
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer()
 
         context = {
             "code": "600519",
@@ -152,7 +152,7 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
             news_max_age_days=30,
             news_strategy_profile="medium",  # 7 days
         )
-        with patch("src.analyzer.get_config", return_value=fake_cfg):
+        with patch("src.analysis.stock_report_analyzer.get_config", return_value=fake_cfg):
             prompt = analyzer._format_prompt(context, "贵州茅台", news_context="news")
 
         self.assertIn("近7日的新闻搜索结果", prompt)
@@ -163,8 +163,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("禁止编造", prompt)
 
     def test_prompt_includes_capital_flow_as_operation_filter(self) -> None:
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer()
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer()
 
         context = {
             "code": "002812",
@@ -198,8 +198,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("洗盘观察", prompt)
 
     def test_prompt_prefers_context_news_window_days(self) -> None:
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer()
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer()
 
         context = {
             "code": "600519",
@@ -212,15 +212,15 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
             news_max_age_days=30,
             news_strategy_profile="long",  # 30 days if fallback is used
         )
-        with patch("src.analyzer.get_config", return_value=fake_cfg):
+        with patch("src.analysis.stock_report_analyzer.get_config", return_value=fake_cfg):
             prompt = analyzer._format_prompt(context, "贵州茅台", news_context="news")
 
         self.assertIn("近1日的新闻搜索结果", prompt)
         self.assertIn("超出近1日窗口的新闻一律忽略", prompt)
 
     def test_format_prompt_omits_legacy_trend_checks_for_nondefault_skill_mode(self) -> None:
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer(
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer(
                 skill_instructions="### 技能 1: 缠论\n- 关注中枢与背驰",
                 default_skill_policy="",
                 use_legacy_default_prompt=False,
@@ -253,8 +253,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertNotIn("MA5>MA10>MA20为多头", prompt)
 
     def test_format_prompt_removes_bullish_reasons_when_final_trend_is_bearish(self) -> None:
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer(
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer(
                 skill_instructions="### 技能 1: 缠论\n- 关注中枢与背驰",
                 default_skill_policy="",
                 use_legacy_default_prompt=False,
@@ -296,8 +296,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("技术面一致性", prompt)
 
     def test_format_prompt_removes_bearish_risks_when_final_trend_is_bullish(self) -> None:
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer(
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer(
                 skill_instructions="### 技能 1: 缠论\n- 关注中枢与背驰",
                 default_skill_policy="",
                 use_legacy_default_prompt=False,
@@ -333,8 +333,8 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("已剔除与多头主判断直接冲突的空头结构风险表述", prompt)
 
     def test_format_prompt_removes_bullish_reasons_when_final_trend_is_weak_bearish(self) -> None:
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer(
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer(
                 skill_instructions="### 技能 1: 缠论\n- 关注中枢与背驰",
                 default_skill_policy="",
                 use_legacy_default_prompt=False,

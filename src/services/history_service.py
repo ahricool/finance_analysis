@@ -32,7 +32,7 @@ from src.storage import DatabaseManager
 from src.utils.data_processing import normalize_model_used, parse_json_field
 
 if TYPE_CHECKING:
-    from src.analyzer import AnalysisResult
+    from src.analysis.stock_report_analyzer import AnalysisResult
 
 logger = logging.getLogger(__name__)
 
@@ -515,7 +515,7 @@ class HistoryService:
             AnalysisResult object or None
         """
         try:
-            from src.analyzer import AnalysisResult
+            from src.analysis.stock_report_analyzer import AnalysisResult
             # Extract dashboard data if available
             dashboard = raw_result.get("dashboard", {})
 

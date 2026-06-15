@@ -43,6 +43,7 @@ from src.core.config_registry import (
     get_field_definition,
     get_registered_field_keys,
 )
+from src.llm import completion
 from src.notification_noise import validate_notification_timezone
 from src.notification_sender.ntfy_sender import resolve_ntfy_endpoint
 
@@ -642,32 +643,24 @@ class SystemConfigService:
         api_keys = [segment.strip() for segment in api_key.split(",") if segment.strip()]
         selected_api_key = api_keys[0] if api_keys else ""
 
-        call_kwargs: Dict[str, Any] = {
-            "model": resolved_model,
-            "messages": [{"role": "user", "content": "Reply with OK"}],
-            "temperature": normalize_litellm_temperature(
-                resolved_model,
-                self._get_runtime_llm_temperature(),
-            ),
-            "max_tokens": 256,  # Increased to allow MiniMax-M2.7 thinking process + response
-            "timeout": max(5.0, float(timeout_seconds)),
-        }
-        if selected_api_key:
-            call_kwargs["api_key"] = selected_api_key
-        if base_url.strip():
-            call_kwargs["api_base"] = base_url.strip()
-
         try:
-            import litellm
             from src.agent.llm_adapter import LLMToolAdapter
 
             # Register custom model pricing for MiniMax models not in LiteLLM's built-in list
-            # This must be done before litellm.completion() to prevent cost calculation errors
+            # This must be done before provider calls to prevent cost calculation errors
             # Reuses the registration logic from LLMToolAdapter to avoid code duplication
             LLMToolAdapter._register_custom_model_pricing()
 
             started_at = time.perf_counter()
-            response = litellm.completion(**call_kwargs)
+            response = self._complete_llm_channel_request(
+                resolved_model=resolved_model,
+                selected_api_key=selected_api_key,
+                base_url=base_url,
+                timeout_seconds=timeout_seconds,
+                messages=[{"role": "user", "content": "Reply with OK"}],
+                max_tokens=256,
+                temperature=self._get_runtime_llm_temperature(),
+            )
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             content, parse_error_code, parse_error, parse_reason = self._extract_llm_completion_content(response)
             if parse_error_code:
@@ -696,7 +689,7 @@ class SystemConfigService:
 
             capability_results = (
                 self._run_llm_capability_checks(
-                    litellm_module=litellm,
+                    litellm_module=None,
                     resolved_model=resolved_model,
                     selected_api_key=selected_api_key,
                     base_url=base_url,
@@ -823,16 +816,14 @@ class SystemConfigService:
     ) -> Dict[str, Any]:
         try:
             started_at = time.perf_counter()
-            response = litellm_module.completion(
-                **cls._build_llm_capability_completion_kwargs(
-                    resolved_model=resolved_model,
-                    selected_api_key=selected_api_key,
-                    base_url=base_url,
-                    timeout_seconds=timeout_seconds,
-                    messages=[{"role": "user", "content": 'Return exactly this JSON object: {"status":"ok"}'}],
-                    max_tokens=64,
-                    extra={"response_format": {"type": "json_object"}},
-                )
+            response = cls._complete_llm_channel_request(
+                resolved_model=resolved_model,
+                selected_api_key=selected_api_key,
+                base_url=base_url,
+                timeout_seconds=timeout_seconds,
+                messages=[{"role": "user", "content": 'Return exactly this JSON object: {"status":"ok"}'}],
+                max_tokens=64,
+                response_format={"type": "json_object"},
             )
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             content, parse_error_code, parse_error, parse_reason = cls._extract_llm_completion_content(response)
@@ -905,19 +896,15 @@ class SystemConfigService:
         ]
         try:
             started_at = time.perf_counter()
-            response = litellm_module.completion(
-                **cls._build_llm_capability_completion_kwargs(
-                    resolved_model=resolved_model,
-                    selected_api_key=selected_api_key,
-                    base_url=base_url,
-                    timeout_seconds=timeout_seconds,
-                    messages=[{"role": "user", "content": "Call the fa_probe_echo tool with text set to ok."}],
-                    max_tokens=64,
-                    extra={
-                        "tools": tools,
-                        "tool_choice": {"type": "function", "function": {"name": "fa_probe_echo"}},
-                    },
-                )
+            response = cls._complete_llm_channel_request(
+                resolved_model=resolved_model,
+                selected_api_key=selected_api_key,
+                base_url=base_url,
+                timeout_seconds=timeout_seconds,
+                messages=[{"role": "user", "content": "Call the fa_probe_echo tool with text set to ok."}],
+                max_tokens=64,
+                tools=tools,
+                tool_choice={"type": "function", "function": {"name": "fa_probe_echo"}},
             )
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             tool_names = cls._extract_llm_tool_call_names(response)
@@ -955,16 +942,14 @@ class SystemConfigService:
         stream = None
         started_at = time.perf_counter()
         try:
-            stream = litellm_module.completion(
-                **cls._build_llm_capability_completion_kwargs(
-                    resolved_model=resolved_model,
-                    selected_api_key=selected_api_key,
-                    base_url=base_url,
-                    timeout_seconds=timeout_seconds,
-                    messages=[{"role": "user", "content": "Reply with OK"}],
-                    max_tokens=32,
-                    extra={"stream": True},
-                )
+            stream = cls._complete_llm_channel_request(
+                resolved_model=resolved_model,
+                selected_api_key=selected_api_key,
+                base_url=base_url,
+                timeout_seconds=timeout_seconds,
+                messages=[{"role": "user", "content": "Reply with OK"}],
+                max_tokens=32,
+                stream=True,
             )
             for index, chunk in enumerate(stream):
                 content = cls._extract_llm_stream_chunk_content(chunk)
@@ -1012,23 +997,21 @@ class SystemConfigService:
     ) -> Dict[str, Any]:
         try:
             started_at = time.perf_counter()
-            response = litellm_module.completion(
-                **cls._build_llm_capability_completion_kwargs(
-                    resolved_model=resolved_model,
-                    selected_api_key=selected_api_key,
-                    base_url=base_url,
-                    timeout_seconds=timeout_seconds,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": "Reply with OK if this image is visible."},
-                                {"type": "image_url", "image_url": {"url": cls._LLM_CAPABILITY_PROBE_IMAGE}},
-                            ],
-                        }
-                    ],
-                    max_tokens=32,
-                )
+            response = cls._complete_llm_channel_request(
+                resolved_model=resolved_model,
+                selected_api_key=selected_api_key,
+                base_url=base_url,
+                timeout_seconds=timeout_seconds,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Reply with OK if this image is visible."},
+                            {"type": "image_url", "image_url": {"url": cls._LLM_CAPABILITY_PROBE_IMAGE}},
+                        ],
+                    }
+                ],
+                max_tokens=32,
             )
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             content, parse_error_code, parse_error, parse_reason = cls._extract_llm_completion_content(response)
@@ -1083,6 +1066,39 @@ class SystemConfigService:
         if extra:
             call_kwargs.update(extra)
         return call_kwargs
+
+    @classmethod
+    def _complete_llm_channel_request(
+        cls,
+        *,
+        resolved_model: str,
+        selected_api_key: str,
+        base_url: str,
+        timeout_seconds: float,
+        messages: List[Dict[str, Any]],
+        max_tokens: int,
+        temperature: float = 0.0,
+        **extra: Any,
+    ) -> Any:
+        try:
+            timeout = float(timeout_seconds)
+        except (TypeError, ValueError):
+            timeout = 10.0
+        probe_config = Config(
+            llm_model=resolved_model,
+            llm_api_key=selected_api_key or None,
+            llm_base_url=base_url.strip() or None,
+            llm_temperature=temperature,
+        )
+        return completion(
+            probe_config,
+            resolved_model,
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=min(max(5.0, timeout), 10.0),
+            **extra,
+        )
 
     @classmethod
     def _build_llm_capability_result(
@@ -1344,7 +1360,7 @@ class SystemConfigService:
     ) -> List[str]:
         """Explain when save payload clears stale runtime model references."""
         runtime_labels = {
-            "LITELLM_MODEL": "主模型",
+            "LLM_MODEL": "主模型",
             "AGENT_LITELLM_MODEL": "Agent 主模型",
             "VISION_MODEL": "Vision 模型",
         }
@@ -1354,15 +1370,15 @@ class SystemConfigService:
                 cleared_labels.append(label)
 
         removed_fallbacks: List[str] = []
-        if "LITELLM_FALLBACK_MODELS" in updates:
+        if "LLM_FALLBACK_MODELS" in updates:
             previous_fallbacks = [
                 item.strip()
-                for item in previous_map.get("LITELLM_FALLBACK_MODELS", "").split(",")
+                for item in previous_map.get("LLM_FALLBACK_MODELS", "").split(",")
                 if item.strip()
             ]
             next_fallbacks = {
                 item.strip()
-                for item in updates["LITELLM_FALLBACK_MODELS"].split(",")
+                for item in updates["LLM_FALLBACK_MODELS"].split(",")
                 if item.strip()
             }
             removed_fallbacks = [item for item in previous_fallbacks if item not in next_fallbacks]
@@ -1379,7 +1395,7 @@ class SystemConfigService:
             f"检测到已同步清理失效的运行时模型引用：{cleaned_text}。"
             "如需恢复，请先补回对应渠道模型列表后重新选择；"
             "也可在系统设置中使用「导出备份」或手动编辑 .env 还原之前的 LLM_* / "
-            "LITELLM_MODEL / AGENT_LITELLM_MODEL / VISION_MODEL / LLM_TEMPERATURE。"
+            "LLM_MODEL / AGENT_LITELLM_MODEL / VISION_MODEL / LLM_TEMPERATURE。"
         )
         return [warning]
 
@@ -2034,21 +2050,15 @@ class SystemConfigService:
         if key in {
             "DATA_DIR",
             "LITELLM_CONFIG",
-            "LITELLM_MODEL",
-            "LITELLM_FALLBACK_MODELS",
             "AGENT_LITELLM_MODEL",
             "VISION_MODEL",
-            "OPENAI_BASE_URL",
+            "LLM_BASE_URL",
             "OLLAMA_API_BASE",
             "FEISHU_STREAM_ENABLED",
         }:
             return True
         prefixes = (
             "LLM_",
-            "GEMINI_",
-            "OPENAI_",
-            "ANTHROPIC_",
-            "DEEPSEEK_",
             "OLLAMA_",
             "FEISHU_",
             "TELEGRAM_",
@@ -2106,28 +2116,10 @@ class SystemConfigService:
         normalized = canonicalize_llm_channel_protocol(provider)
         if normalized == "ollama":
             return True
-        if normalized == "gemini" or normalized == "vertex_ai":
-            return cls._has_any_config_value(effective_map, ("GEMINI_API_KEYS", "GEMINI_API_KEY"))
-        if normalized == "anthropic":
-            return cls._has_any_config_value(effective_map, ("ANTHROPIC_API_KEYS", "ANTHROPIC_API_KEY"))
-        if normalized == "deepseek":
-            return cls._has_any_config_value(effective_map, ("DEEPSEEK_API_KEYS", "DEEPSEEK_API_KEY"))
-        if normalized == "openai":
-            if cls._has_any_config_value(effective_map, ("OPENAI_API_KEYS", "OPENAI_API_KEY", "AIHUBMIX_KEY")):
-                return True
-            if (
-                cls._anspire_legacy_llm_enabled(effective_map)
-                and cls._has_any_config_value(effective_map, ("ANSPIRE_API_KEYS",))
-            ):
-                return True
-            base_url = (effective_map.get("OPENAI_BASE_URL") or "").strip()
-            return channel_allows_empty_api_key("openai", base_url)
-
-        env_prefix = normalized.upper().replace("-", "_")
-        return cls._has_any_config_value(
-            effective_map,
-            (f"{env_prefix}_API_KEYS", f"{env_prefix}_API_KEY"),
-        )
+        if cls._has_any_config_value(effective_map, ("LLM_API_KEY",)):
+            return True
+        base_url = (effective_map.get("LLM_BASE_URL") or "").strip()
+        return channel_allows_empty_api_key(normalized, base_url)
 
     @classmethod
     def _has_setup_runtime_source_for_model(cls, model: str, effective_map: Dict[str, str]) -> bool:
@@ -2196,34 +2188,13 @@ class SystemConfigService:
 
     @classmethod
     def _infer_setup_legacy_primary_model(cls, effective_map: Dict[str, str]) -> str:
-        if cls._has_any_config_value(effective_map, ("GEMINI_API_KEYS", "GEMINI_API_KEY")):
-            model = (effective_map.get("GEMINI_MODEL") or "gemini-3.1-pro-preview").strip()
-            return model if "/" in model else f"gemini/{model}"
-        if cls._has_any_config_value(effective_map, ("ANTHROPIC_API_KEYS", "ANTHROPIC_API_KEY")):
-            model = (effective_map.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6").strip()
-            return model if "/" in model else f"anthropic/{model}"
-        if cls._has_any_config_value(effective_map, ("DEEPSEEK_API_KEYS", "DEEPSEEK_API_KEY")):
-            return "deepseek/deepseek-chat"
-        if cls._has_any_config_value(effective_map, ("OPENAI_API_KEYS", "OPENAI_API_KEY", "AIHUBMIX_KEY")):
-            model = (effective_map.get("OPENAI_MODEL") or "gpt-5.5").strip()
-            return model if "/" in model else f"openai/{model}"
-        if (
-            cls._anspire_legacy_llm_enabled(effective_map)
-            and cls._has_any_config_value(effective_map, ("ANSPIRE_API_KEYS",))
-        ):
-            model = (
-                effective_map.get("ANSPIRE_LLM_MODEL")
-                or effective_map.get("OPENAI_MODEL")
-                or ANSPIRE_LLM_MODEL_DEFAULT
-            ).strip()
-            return model if "/" in model else f"openai/{model}"
         if (effective_map.get("OLLAMA_API_BASE") or "").strip():
             model = (effective_map.get("OLLAMA_MODEL") or "").strip()
             return model if model.startswith("ollama/") else (f"ollama/{model}" if model else "ollama/local")
         return ""
 
     def _resolve_setup_primary_model(self, effective_map: Dict[str, str]) -> Tuple[str, str]:
-        explicit_model = (effective_map.get("LITELLM_MODEL") or "").strip()
+        explicit_model = (effective_map.get("LLM_MODEL") or "").strip()
         yaml_models = self._collect_yaml_models_from_map(effective_map)
         channel_models = self._collect_setup_channel_models(effective_map)
 
@@ -2274,7 +2245,7 @@ class SystemConfigService:
             True,
             "needs_action",
             source,
-            "请配置 LITELLM_MODEL、LLM_CHANNELS、LITELLM_CONFIG 或 legacy provider API Key。",
+            "请配置 LLM_MODEL、LLM_API_KEY、LLM_CHANNELS 或 LITELLM_CONFIG。",
         )
 
     def _build_setup_agent_llm_check(
@@ -3128,34 +3099,16 @@ class SystemConfigService:
 
     @staticmethod
     def _has_legacy_key_for_provider(provider: str, effective_map: Dict[str, str]) -> bool:
-        """Return True when legacy env config can still back the provider."""
+        """Return True when unified env config can back the provider."""
         normalized_provider = canonicalize_llm_channel_protocol(provider)
-        if normalized_provider in {"gemini", "vertex_ai"}:
-            return bool(
-                (effective_map.get("GEMINI_API_KEYS") or "").strip()
-                or (effective_map.get("GEMINI_API_KEY") or "").strip()
-            )
-        if normalized_provider == "anthropic":
-            return bool(
-                (effective_map.get("ANTHROPIC_API_KEYS") or "").strip()
-                or (effective_map.get("ANTHROPIC_API_KEY") or "").strip()
-            )
-        if normalized_provider == "deepseek":
-            return bool(
-                (effective_map.get("DEEPSEEK_API_KEYS") or "").strip()
-                or (effective_map.get("DEEPSEEK_API_KEY") or "").strip()
-            )
-        if normalized_provider == "openai":
-            return bool(
-                (effective_map.get("OPENAI_API_KEYS") or "").strip()
-                or (effective_map.get("AIHUBMIX_KEY") or "").strip()
-                or (effective_map.get("OPENAI_API_KEY") or "").strip()
-                or (
-                    SystemConfigService._anspire_legacy_llm_enabled(effective_map)
-                    and (effective_map.get("ANSPIRE_API_KEYS") or "").strip()
-                )
-            )
-        return False
+        if normalized_provider == "ollama":
+            return True
+        if (effective_map.get("LLM_API_KEY") or "").strip():
+            return True
+        return channel_allows_empty_api_key(
+            normalized_provider,
+            (effective_map.get("LLM_BASE_URL") or "").strip(),
+        )
 
     @staticmethod
     def _has_runtime_source_for_model(model: str, effective_map: Dict[str, str]) -> bool:
@@ -3185,11 +3138,11 @@ class SystemConfigService:
                 configured_agent_model_raw,
                 configured_models=available_model_set,
             )
-            primary_model = (effective_map.get("LITELLM_MODEL") or "").strip()
+            primary_model = (effective_map.get("LLM_MODEL") or "").strip()
             if primary_model and not SystemConfigService._has_runtime_source_for_model(primary_model, effective_map):
                 issues.append(
                     {
-                        "key": "LITELLM_MODEL",
+                        "key": "LLM_MODEL",
                         "code": "missing_runtime_source",
                         "message": (
                             "A primary model is selected, but no usable runtime source was found. "
@@ -3227,7 +3180,7 @@ class SystemConfigService:
 
             fallback_models = [
                 model.strip()
-                for model in (effective_map.get("LITELLM_FALLBACK_MODELS") or "").split(",")
+                for model in (effective_map.get("LLM_FALLBACK_MODELS") or "").split(",")
                 if model.strip()
             ]
             invalid_fallbacks = [
@@ -3237,7 +3190,7 @@ class SystemConfigService:
             if invalid_fallbacks:
                 issues.append(
                     {
-                        "key": "LITELLM_FALLBACK_MODELS",
+                        "key": "LLM_FALLBACK_MODELS",
                         "code": "missing_runtime_source",
                         "message": (
                             "Some fallback models do not have an enabled channel "
@@ -3267,11 +3220,11 @@ class SystemConfigService:
 
             return issues
 
-        primary_model = (effective_map.get("LITELLM_MODEL") or "").strip()
+        primary_model = (effective_map.get("LLM_MODEL") or "").strip()
         if primary_model and primary_model not in available_model_set and not _uses_direct_env_provider(primary_model):
             issues.append(
                 {
-                    "key": "LITELLM_MODEL",
+                    "key": "LLM_MODEL",
                     "code": "unknown_model",
                     "message": (
                         "The selected primary model is not declared by the current enabled channels "
@@ -3312,7 +3265,7 @@ class SystemConfigService:
 
         fallback_models = [
             model.strip()
-            for model in (effective_map.get("LITELLM_FALLBACK_MODELS") or "").split(",")
+            for model in (effective_map.get("LLM_FALLBACK_MODELS") or "").split(",")
             if model.strip()
         ]
         invalid_fallbacks = [
@@ -3322,7 +3275,7 @@ class SystemConfigService:
         if invalid_fallbacks:
             issues.append(
                 {
-                    "key": "LITELLM_FALLBACK_MODELS",
+                    "key": "LLM_FALLBACK_MODELS",
                     "code": "unknown_model",
                     "message": (
                         "Fallback models include entries that are not declared by the current enabled channels "

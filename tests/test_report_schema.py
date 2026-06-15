@@ -20,7 +20,7 @@ except ModuleNotFoundError:
     sys.modules["litellm"] = MagicMock()
 
 from src.schemas.report_schema import AnalysisReportSchema
-from src.analyzer import GeminiAnalyzer, AnalysisResult
+from src.analysis.stock_report_analyzer import StockReportAnalyzer, AnalysisResult
 
 
 class TestAnalysisReportSchema(unittest.TestCase):
@@ -100,7 +100,7 @@ class TestAnalyzerSchemaFallback(unittest.TestCase):
 
     def test_parse_response_continues_when_schema_fails(self) -> None:
         """When schema validation fails, analyzer continues with raw dict."""
-        analyzer = GeminiAnalyzer()
+        analyzer = StockReportAnalyzer()
         response = json.dumps({
             "stock_name": "贵州茅台",
             "sentiment_score": 150,  # invalid for schema
@@ -116,7 +116,7 @@ class TestAnalyzerSchemaFallback(unittest.TestCase):
 
     def test_parse_response_valid_json_succeeds(self) -> None:
         """Valid JSON produces correct AnalysisResult."""
-        analyzer = GeminiAnalyzer()
+        analyzer = StockReportAnalyzer()
         response = json.dumps({
             "stock_name": "贵州茅台",
             "sentiment_score": 72,
@@ -133,7 +133,7 @@ class TestAnalyzerSchemaFallback(unittest.TestCase):
         self.assertEqual(result.analysis_summary, "技术面向好")
 
     def test_parse_response_keeps_unknown_dashboard_fields(self) -> None:
-        analyzer = GeminiAnalyzer()
+        analyzer = StockReportAnalyzer()
         response = json.dumps({
             "stock_name": "贵州茅台",
             "sentiment_score": 72,
@@ -158,8 +158,8 @@ class TestAnalyzerSchemaFallback(unittest.TestCase):
 
     def test_parse_text_response_honors_injected_runtime_report_language(self) -> None:
         """Fallback text parsing should use the analyzer's injected config, not the global singleton."""
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer(config=SimpleNamespace(report_language="en"))
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer(config=SimpleNamespace(report_language="en"))
 
         result = analyzer._parse_text_response("bullish buy setup", "AAPL", "Apple")
 

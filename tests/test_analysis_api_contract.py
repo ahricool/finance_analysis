@@ -218,7 +218,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         )
 
         with patch("src.notification.NotificationService"), \
-             patch("src.analyzer.GeminiAnalyzer") as analyzer_cls:
+             patch("src.analysis.stock_report_analyzer.StockReportAnalyzer") as analyzer_cls:
             analyzer_cls.return_value.is_available.return_value = True
 
             _, analyzer, search_service = analysis_endpoint_module._build_market_review_runtime(config)
@@ -1566,30 +1566,20 @@ class BatchTaskQueueContractTestCase(unittest.TestCase):
 class ImageStockExtractorContractTestCase(unittest.TestCase):
     def test_litellm_completion_patch_target_remains_available(self) -> None:
         cfg = SimpleNamespace(
-            vision_model="",
-            openai_vision_model=None,
-            litellm_model="",
-            gemini_api_keys=["sk-gemini-testkey-1234"],
-            gemini_model="gemini-2.0-flash",
-            anthropic_api_keys=[],
-            anthropic_model="claude-3-5-sonnet-20241022",
-            openai_api_keys=[],
-            openai_model="gpt-4o-mini",
-            openai_base_url=None,
+            vision_model="openai/gpt-4o",
+            llm_model="openai/gpt-5.5",
+            llm_api_key="sk-test-key",
+            llm_base_url=None,
         )
-        msg = MagicMock()
-        msg.content = '["600519"]'
-        choice = MagicMock()
-        choice.message = msg
-        response = MagicMock()
-        response.choices = [choice]
+        response = MagicMock(text='["600519"]')
 
         with patch("src.services.image_stock_extractor.get_config", return_value=cfg), \
-             patch("src.services.image_stock_extractor.litellm.completion", return_value=response) as mock_completion:
+             patch("src.services.image_stock_extractor.LLMClient") as client_cls:
+            client_cls.return_value.complete_vision.return_value = response
             result = _call_litellm_vision("base64data", "image/jpeg")
 
         self.assertEqual(result, '["600519"]')
-        mock_completion.assert_called_once()
+        client_cls.return_value.complete_vision.assert_called_once()
 
 
 if __name__ == "__main__":

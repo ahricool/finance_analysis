@@ -31,7 +31,7 @@ for optional_module in ("litellm", "json_repair"):
 from src.config import Config
 from src.notification import NotificationService, NotificationChannel
 from src.notification_noise import reset_notification_noise_state
-from src.analyzer import AnalysisResult
+from src.analysis.stock_report_analyzer import AnalysisResult
 import requests
 
 

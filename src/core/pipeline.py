@@ -27,8 +27,8 @@ from src.storage import get_db
 from data_provider import DataFetcherManager
 from data_provider.base import normalize_stock_code
 from data_provider.realtime_types import ChipDistribution
-from src.analyzer import (
-    GeminiAnalyzer,
+from src.analysis.stock_report_analyzer import (
+    StockReportAnalyzer,
     AnalysisResult,
     fill_chip_structure_if_needed,
     fill_price_position_if_needed,
@@ -107,7 +107,7 @@ class StockAnalysisPipeline:
         self.fetcher_manager = DataFetcherManager()
         # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
         self.trend_analyzer = StockTrendAnalyzer()  # 技术分析器
-        self.analyzer = GeminiAnalyzer(config=self.config)
+        self.analyzer = StockReportAnalyzer(config=self.config)
         self.notifier = NotificationService(source_message=source_message)
         self._single_stock_notify_lock = threading.Lock()
         
@@ -844,7 +844,7 @@ class StockAnalysisPipeline:
                 result.query_id = query_id
             # Agent weak integrity: placeholder fill only, no LLM retry
             if result and getattr(self.config, "report_integrity_enabled", False):
-                from src.analyzer import check_content_integrity, apply_placeholder_fill
+                from src.analysis.stock_report_analyzer import check_content_integrity, apply_placeholder_fill
 
                 pass_integrity, missing = check_content_integrity(result)
                 if not pass_integrity:
