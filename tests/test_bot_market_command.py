@@ -83,7 +83,7 @@ class MarketCommandRegionFilterTestCase(unittest.TestCase):
                     "src.core.market_review": market_review_module,
                     "src.core.market_review_runtime": runtime_module,
                     "src.search_service": search_module,
-                    "src.analyzer": analyzer_module,
+                    "src.analysis.stock_report_analyzer": analyzer_module,
                     "src.core.trading_calendar": trading_calendar_module,
                 },
             )

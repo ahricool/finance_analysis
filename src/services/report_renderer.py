@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.analyzer import AnalysisResult
+from src.analysis.stock_report_analyzer import AnalysisResult
 from src.config import get_config
 from src.report_language import (
     get_localized_stock_name,

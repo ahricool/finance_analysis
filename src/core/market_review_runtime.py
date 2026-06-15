@@ -25,9 +25,9 @@ def build_market_review_runtime(
     source_message: Optional[Any] = None,
 ) -> Tuple[Any, Any, Any]:
     """
-    Build shared NotificationService, GeminiAnalyzer and SearchService instances.
+    Build shared NotificationService, StockReportAnalyzer and SearchService instances.
     """
-    from src.analyzer import GeminiAnalyzer
+    from src.analysis.stock_report_analyzer import StockReportAnalyzer
     from src.notification import NotificationService
     from src.search_service import SearchService
 
@@ -55,7 +55,7 @@ def build_market_review_runtime(
 
     analyzer = None
     if has_configured_llm_runtime(config):
-        analyzer = GeminiAnalyzer(config=config)
+        analyzer = StockReportAnalyzer(config=config)
         if not analyzer.is_available():
             logger.warning("LLM analyzer initialized but not available (check LLM_MODEL / LLM_API_KEY)")
 

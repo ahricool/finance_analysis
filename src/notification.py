@@ -56,7 +56,7 @@ from src.notification_sender import (
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from src.analyzer import AnalysisResult
+    from src.analysis.stock_report_analyzer import AnalysisResult
 
 
 class NotificationChannel(Enum):
@@ -1397,7 +1397,7 @@ def send_daily_report(results: List[AnalysisResult]) -> bool:
 if __name__ == "__main__":
     # 测试代码
     logging.basicConfig(level=logging.DEBUG)
-    from src.analyzer import AnalysisResult
+    from src.analysis.stock_report_analyzer import AnalysisResult
     
     # 模拟分析结果
     test_results = [

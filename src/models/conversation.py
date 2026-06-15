@@ -22,7 +22,7 @@ class ConversationMessage(Base):
 
 
 class LLMUsage(Base):
-    """One row per litellm.completion() call — token-usage audit log."""
+    """One row per unified LLM client call for token-usage audit logging."""
 
     __tablename__ = 'llm_usage'
 

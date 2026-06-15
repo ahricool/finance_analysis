@@ -36,7 +36,7 @@ from src.config import Config
 from src.auth import COOKIE_NAME, create_session
 from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL, UserRepository
 from src.storage import DatabaseManager, AnalysisHistory, BacktestResult
-from src.analyzer import AnalysisResult
+from src.analysis.stock_report_analyzer import AnalysisResult
 from src.services.history_service import HistoryService
 
 class AnalysisHistoryTestCase(unittest.TestCase):

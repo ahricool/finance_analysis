@@ -5,7 +5,7 @@ Finance Analysis - AI分析层
 ===================================
 
 职责：
-1. 封装 LLM 调用逻辑（通过 LiteLLM 统一调用 Gemini/Anthropic/OpenAI 等）
+1. 调度单只股票分析报告生成
 2. 结合技术面和消息面生成分析报告
 3. 解析 LLM 响应为结构化 AnalysisResult
 """
@@ -18,18 +18,15 @@ import time
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Tuple, Callable
 
-import litellm
 from json_repair import repair_json
 
-from src.agent.llm_adapter import get_thinking_extra_body
 from src.agent.skills.defaults import CORE_TRADING_SKILL_POLICY_ZH
 from src.config import (
     Config,
     get_config,
-    normalize_litellm_temperature,
     resolve_news_window_days,
 )
-from src.llm_client import build_completion_kwargs, is_llm_configured
+from src.llm import AllModelsFailedError, LLMClient, LLMRequest, completion, is_llm_configured
 from src.storage import persist_llm_usage
 from src.data.stock_mapping import STOCK_NAME_MAP
 from src.report_language import (
@@ -85,7 +82,7 @@ class _AllModelsFailedError(Exception):
     """Raised when every model in the fallback chain fails.
 
     This includes both LLM call errors and JSON parse errors (when a
-    ``response_validator`` is provided to :meth:`GeminiAnalyzer._call_litellm`).
+    ``response_validator`` is provided to :meth:`StockReportAnalyzer._call_litellm`).
 
     The ``last_response_text`` attribute holds the raw text from the last model
     that *did* return a response (but whose JSON could not be validated), so
@@ -1192,7 +1189,7 @@ class AnalysisResult:
     """
     AI 分析结果数据类 - 决策仪表盘版
 
-    封装 Gemini 返回的分析结果，包含决策仪表盘和详细分析
+    封装 LLM 返回的分析结果，包含决策仪表盘和详细分析
     """
     code: str
     name: str
@@ -1346,17 +1343,17 @@ class AnalysisResult:
         return star_map.get(str(self.confidence_level or "").strip().lower(), "⭐⭐")
 
 
-class GeminiAnalyzer:
+class StockReportAnalyzer:
     """
-    Gemini AI 分析器
+    LLM 分析器
 
     职责：
-    1. 调用 Google Gemini API 进行股票分析
+    1. 调用 LiteLLM 进行股票分析
     2. 结合预先搜索的新闻和技术面数据生成分析报告
     3. 解析 AI 返回的 JSON 格式结果
 
     使用方式：
-        analyzer = GeminiAnalyzer()
+        analyzer = StockReportAnalyzer()
         result = analyzer.analyze(context, news_context)
     """
 
@@ -1688,7 +1685,6 @@ class GeminiAnalyzer:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
         *,
         config: Optional[Config] = None,
         skills: Optional[List[str]] = None,
@@ -1696,11 +1692,7 @@ class GeminiAnalyzer:
         default_skill_policy: Optional[str] = None,
         use_legacy_default_prompt: Optional[bool] = None,
     ):
-        """Initialize LLM Analyzer via LiteLLM.
-
-        Args:
-            api_key: Ignored (kept for backward compatibility). Keys are loaded from config.
-        """
+        """Initialize the stock report analyzer."""
         self._config_override = config
         self._requested_skills = list(skills) if skills is not None else None
         self._skill_instructions_override = skill_instructions
@@ -1808,18 +1800,17 @@ class GeminiAnalyzer:
         *,
         config: Config,
     ) -> Any:
-        """Dispatch a LiteLLM completion through the unified client."""
-        effective_kwargs = build_completion_kwargs(
+        """Dispatch one completion through the unified client."""
+        return completion(
             config,
             model,
             call_kwargs["messages"],
             temperature=call_kwargs.get("temperature"),
             max_tokens=call_kwargs.get("max_tokens"),
             stream=call_kwargs.get("stream"),
-            extra_body=call_kwargs.get("extra_body"),
             timeout=call_kwargs.get("timeout"),
+            extra_body=call_kwargs.get("extra_body"),
         )
-        return litellm.completion(**effective_kwargs)
 
     def _normalize_usage(self, usage_obj: Any) -> Dict[str, Any]:
         """Normalize usage objects from LiteLLM responses/chunks."""
@@ -1931,26 +1922,7 @@ class GeminiAnalyzer:
         stream_progress_callback: Optional[Callable[[int], None]] = None,
         response_validator: Optional[Callable[[str], None]] = None,
     ) -> Tuple[str, str, Dict[str, Any]]:
-        """Call LLM via litellm with fallback across configured models.
-
-        When channels/YAML are configured, every model goes through the Router
-        (which handles per-model key selection, load balancing, and retries).
-        In legacy mode, the primary model may use the Router while fallback
-        models fall back to direct litellm.completion().
-
-        Args:
-            prompt: User prompt text.
-            generation_config: Dict with optional keys: temperature, max_output_tokens, max_tokens.
-            response_validator: Optional callable that accepts the raw response text and raises
-                an exception if the response is unacceptable (e.g. not valid JSON).  When it
-                raises, the current model is treated as failed and the next fallback model is
-                tried.  If all models fail validation, :class:`_AllModelsFailedError` is raised
-                with ``last_response_text`` set to the last raw response received.
-
-        Returns:
-            Tuple of (response text, model_used, usage). On success model_used is the full model
-            name and usage is a dict with prompt_tokens, completion_tokens, total_tokens.
-        """
+        """Call the unified LLM client and return text, model, and normalized usage."""
         config = self._get_runtime_config()
         max_tokens = (
             generation_config.get('max_output_tokens')
@@ -1958,108 +1930,41 @@ class GeminiAnalyzer:
             or 8192
         )
         requested_temperature = generation_config.get('temperature', 0.7)
-
-        models_to_try = [config.llm_model] + (config.llm_fallback_models or [])
-        models_to_try = [m for m in models_to_try if m]
-
-        last_error = None
-        last_response_text: Optional[str] = None
-        last_model: Optional[str] = None
-        last_usage: Dict[str, Any] = {}
         effective_system_prompt = system_prompt or self.TEXT_SYSTEM_PROMPT
-        for model in models_to_try:
-            try:
-                model_short = model.split("/")[-1] if "/" in model else model
-                extra = get_thinking_extra_body(model_short)
-                call_kwargs: Dict[str, Any] = {
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": effective_system_prompt},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": normalize_litellm_temperature(
-                        model,
-                        requested_temperature,
-                        model_list=None,
-                        request_overrides={"extra_body": extra} if extra else None,
-                    ),
-                    "max_tokens": max_tokens,
-                }
-                if extra:
-                    call_kwargs["extra_body"] = extra
-
-                _stream_text: Optional[str] = None
-                _stream_usage: Dict[str, Any] = {}
-
-                if stream:
-                    try:
-                        stream_response = self._dispatch_litellm_completion(
-                            model,
-                            {**call_kwargs, "stream": True},
-                            config=config,
-                        )
-                        _stream_text, _stream_usage = self._consume_litellm_stream(
-                            stream_response,
-                            model=model,
-                            progress_callback=stream_progress_callback,
-                        )
-                    except _LiteLLMStreamError as exc:
-                        if exc.partial_received:
-                            logger.warning(
-                                "[LiteLLM] %s stream failed after partial output, retrying non-stream for same model: %s",
-                                model,
-                                exc,
-                            )
-                        else:
-                            logger.warning(
-                                "[LiteLLM] %s stream unavailable before first chunk, falling back to non-stream: %s",
-                                model,
-                                exc,
-                            )
-                        last_error = exc
-                    except Exception as exc:
-                        logger.warning(
-                            "[LiteLLM] %s stream request failed before first chunk, falling back to non-stream: %s",
-                            model,
-                            exc,
-                        )
-
-                if _stream_text is not None:
-                    last_response_text = _stream_text
-                    last_model = model
-                    last_usage = _stream_usage
-                    if response_validator is not None:
-                        response_validator(_stream_text)
-                    return _stream_text, model, _stream_usage
-
-                response = self._dispatch_litellm_completion(
-                    model,
-                    call_kwargs,
-                    config=config,
-                )
-
-                if response and response.choices and response.choices[0].message.content:
-                    content = response.choices[0].message.content
-                    usage = self._normalize_usage(getattr(response, "usage", None))
-                    last_response_text = content
-                    last_model = model
-                    last_usage = usage
-                    if response_validator is not None:
-                        response_validator(content)
-                    return (content, model, usage)
-                raise ValueError("LLM returned empty response")
-
-            except Exception as e:
-                logger.warning(f"[LiteLLM] {model} failed: {e}")
-                last_error = e
-                continue
-
-        raise _AllModelsFailedError(
-            f"All LLM models failed (tried {len(models_to_try)} model(s)). Last error: {last_error}",
-            last_response_text=last_response_text,
-            last_model=last_model,
-            last_usage=last_usage,
+        request = LLMRequest(
+            messages=[
+                {"role": "system", "content": effective_system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=requested_temperature,
+            max_tokens=max_tokens,
+            stream=stream,
+            extra_body=generation_config.get("extra_body"),
+            call_type="analysis",
         )
+        client = LLMClient(config=config)
+        client._dispatch_completion = lambda kwargs: self._dispatch_litellm_completion(
+            kwargs["model"],
+            kwargs,
+            config=config,
+        )
+        try:
+            if response_validator is not None:
+                result = client.complete_json(request, validator=response_validator)
+            elif stream:
+                result = client.complete_stream(request, progress_callback=stream_progress_callback)
+            else:
+                result = client.complete_text(request)
+        except AllModelsFailedError as exc:
+            raise _AllModelsFailedError(
+                str(exc),
+                last_response_text=exc.last_response_text,
+                last_model=exc.last_model,
+                last_usage=exc.last_usage,
+            ) from exc
+        if not result.text:
+            raise ValueError("LLM returned empty response")
+        return result.text, result.model_used or "", result.usage
 
     def generate_text(
         self,
@@ -2107,7 +2012,7 @@ class GeminiAnalyzer:
         
         流程：
         1. 格式化输入数据（技术面 + 新闻）
-        2. 调用 Gemini API（带重试和模型切换）
+        2. 调用 LLM（带重试和模型切换）
         3. 解析 JSON 响应
         4. 返回结构化结果
         
@@ -2130,13 +2035,6 @@ class GeminiAnalyzer:
         config = self._get_runtime_config()
         report_language = normalize_report_language(getattr(config, "report_language", "zh"))
         system_prompt = self._get_analysis_system_prompt(report_language, stock_code=code)
-        
-        # 请求前增加延时（防止连续请求触发限流）
-        request_delay = config.gemini_request_delay
-        if request_delay > 0:
-            logger.debug(f"[LLM] 请求前等待 {request_delay:.1f} 秒...")
-            _emit_progress(65, f"{code}：LLM 请求前等待 {request_delay:.1f} 秒")
-            time.sleep(request_delay)
         
         # 优先从上下文获取股票名称（由 main.py 传入）
         name = context.get('stock_name')
@@ -2170,7 +2068,7 @@ class GeminiAnalyzer:
             prompt = self._format_prompt(context, name, news_context, report_language=report_language)
             
             config = self._get_runtime_config()
-            model_name = config.litellm_model or "unknown"
+            model_name = getattr(config, "llm_model", None) or "unknown"
             logger.info(f"========== AI 分析 {name}({code}) ==========")
             logger.info(f"[LLM配置] 模型: {model_name}")
             logger.info(f"[LLM配置] Prompt 长度: {len(prompt)} 字符")
@@ -2861,7 +2759,7 @@ class GeminiAnalyzer:
         name: str
     ) -> AnalysisResult:
         """
-        解析 Gemini 响应（决策仪表盘版）
+        解析 LLM 响应（决策仪表盘版）
         
         尝试从响应中提取 JSON 格式的分析结果，包含 dashboard 字段
         如果解析失败，尝试智能提取或返回默认结果
@@ -3100,9 +2998,9 @@ class GeminiAnalyzer:
 
 
 # 便捷函数
-def get_analyzer() -> GeminiAnalyzer:
+def get_analyzer() -> StockReportAnalyzer:
     """获取 LLM 分析器实例"""
-    return GeminiAnalyzer()
+    return StockReportAnalyzer()
 
 
 if __name__ == "__main__":
@@ -3131,11 +3029,11 @@ if __name__ == "__main__":
         'price_change_ratio': 1.5,
     }
     
-    analyzer = GeminiAnalyzer()
+    analyzer = StockReportAnalyzer()
     
     if analyzer.is_available():
         print("=== AI 分析测试 ===")
         result = analyzer.analyze(test_context)
         print(f"分析结果: {result.to_dict()}")
     else:
-        print("Gemini API 未配置，跳过测试")
+        print("LLM 未配置，跳过测试")

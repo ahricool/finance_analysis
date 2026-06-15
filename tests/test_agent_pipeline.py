@@ -370,7 +370,7 @@ class TestAgentResultConversion(unittest.TestCase):
         with patch('src.core.pipeline.get_config') as mock_config, \
              patch('src.core.pipeline.get_db'), \
              patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.GeminiAnalyzer'), \
+             patch('src.core.pipeline.StockReportAnalyzer'), \
              patch('src.core.pipeline.NotificationService'), \
              patch('src.core.pipeline.SearchService'):
 
@@ -522,7 +522,7 @@ class TestAgentResultConversion(unittest.TestCase):
         pipeline = self._make_pipeline()
 
         from src.agent.executor import AgentResult
-        from src.analyzer import check_content_integrity
+        from src.analysis.stock_report_analyzer import check_content_integrity
         from src.enums import ReportType
         from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
@@ -942,7 +942,7 @@ class TestAgentResultConversion(unittest.TestCase):
         pipeline = self._make_pipeline()
 
         from src.agent.executor import AgentResult
-        from src.analyzer import check_content_integrity
+        from src.analysis.stock_report_analyzer import check_content_integrity
         from src.enums import ReportType
         from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
@@ -984,7 +984,7 @@ class TestAgentResultConversion(unittest.TestCase):
         pipeline = self._make_pipeline()
 
         from src.agent.executor import AgentResult
-        from src.analyzer import check_content_integrity
+        from src.analysis.stock_report_analyzer import check_content_integrity
         from src.enums import ReportType
         from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
@@ -1160,7 +1160,7 @@ class TestPipelineRouting(unittest.TestCase):
         with patch('src.core.pipeline.get_config') as mock_config, \
              patch('src.core.pipeline.get_db'), \
              patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.GeminiAnalyzer'), \
+             patch('src.core.pipeline.StockReportAnalyzer'), \
              patch('src.core.pipeline.NotificationService'), \
              patch('src.core.pipeline.SearchService'):
 
@@ -1205,7 +1205,7 @@ class TestPipelineRouting(unittest.TestCase):
         with patch('src.core.pipeline.get_config') as mock_config, \
              patch('src.core.pipeline.get_db') as mock_db, \
              patch('src.core.pipeline.DataFetcherManager') as mock_fm, \
-             patch('src.core.pipeline.GeminiAnalyzer') as mock_analyzer, \
+             patch('src.core.pipeline.StockReportAnalyzer') as mock_analyzer, \
              patch('src.core.pipeline.NotificationService'), \
              patch('src.core.pipeline.SearchService') as mock_search:
 
@@ -1257,7 +1257,7 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
         with patch('src.core.pipeline.get_config') as mock_config, \
              patch('src.core.pipeline.get_db'), \
              patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.GeminiAnalyzer'), \
+             patch('src.core.pipeline.StockReportAnalyzer'), \
              patch('src.core.pipeline.NotificationService'), \
              patch('src.core.pipeline.SearchService'), \
              patch('src.agent.factory.build_agent_executor') as mock_build_executor, \
@@ -1335,7 +1335,7 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
         with patch('src.core.pipeline.get_config') as mock_config, \
              patch('src.core.pipeline.get_db'), \
              patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.GeminiAnalyzer'), \
+             patch('src.core.pipeline.StockReportAnalyzer'), \
              patch('src.core.pipeline.NotificationService'), \
              patch('src.core.pipeline.SearchService'), \
              patch('src.agent.factory.build_agent_executor') as mock_build_executor:
@@ -1515,8 +1515,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         self.assertIsNotNone(executor.tool_registry)
         self.assertIsNotNone(executor.llm_adapter)
 
-    @patch("src.agent.llm_adapter.Router")
-    def test_llm_adapter_call_completion_uses_effective_agent_models_order(self, _mock_router):
+    def test_llm_adapter_call_completion_uses_effective_agent_models_order(self):
         """call_completion should use Agent effective model chain in order."""
         mock_cfg = MagicMock()
         mock_cfg.agent_litellm_model = "gpt-4o-mini"
@@ -1548,13 +1547,12 @@ class TestAgentConstructionChain(unittest.TestCase):
         self.assertEqual(calls, ["openai/gpt-4o-mini", "anthropic/claude-3-5-sonnet-20241022"])
         self.assertEqual(result.content, "ok")
 
-    @patch("src.agent.llm_adapter.Router")
-    def test_llm_adapter_normalizes_kimi_k26_temperature(self, _mock_router):
+    def test_llm_adapter_normalizes_kimi_k26_temperature(self):
         """Agent direct LiteLLM calls should not send unsupported temperatures to Kimi K2.6."""
         mock_cfg = SimpleNamespace(
-            agent_litellm_model="",
-            litellm_model="openai/kimi-k2.6",
-            litellm_fallback_models=[],
+            agent_llm_model="",
+            llm_model="openai/kimi-k2.6",
+            llm_fallback_models=[],
             llm_model_list=[],
             llm_temperature=0.2,
             gemini_api_keys=[],
@@ -1562,6 +1560,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             openai_api_keys=[],
             deepseek_api_keys=[],
             openai_base_url=None,
+            llm_api_key="sk-test",
         )
 
         from src.agent.llm_adapter import LLMToolAdapter
@@ -1579,7 +1578,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             usage=SimpleNamespace(prompt_tokens=1, completion_tokens=2, total_tokens=3),
         )
 
-        with patch("src.agent.llm_adapter.litellm.completion", return_value=response) as mock_completion:
+        with patch("src.agent.llm_adapter.completion", return_value=response) as mock_completion:
             result = adapter._call_litellm_model(
                 [{"role": "user", "content": "hi"}],
                 [],
@@ -1590,13 +1589,12 @@ class TestAgentConstructionChain(unittest.TestCase):
         self.assertEqual(result.content, "agent ok")
         self.assertEqual(mock_completion.call_args.kwargs["temperature"], 1.0)
 
-    @patch("src.agent.llm_adapter.Router")
-    def test_llm_adapter_normalizes_kimi_k26_temperature_for_yaml_alias(self, _mock_router):
+    def test_llm_adapter_normalizes_kimi_k26_temperature_for_yaml_alias(self):
         """Agent direct LiteLLM calls should normalize through routed YAML aliases."""
         mock_cfg = SimpleNamespace(
-            agent_litellm_model="",
-            litellm_model="kimi_router",
-            litellm_fallback_models=[],
+            agent_llm_model="",
+            llm_model="kimi_router",
+            llm_fallback_models=[],
             llm_model_list=[
                 {
                     "model_name": "kimi_router",
@@ -1609,6 +1607,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             openai_api_keys=[],
             deepseek_api_keys=[],
             openai_base_url=None,
+            llm_api_key="sk-test",
         )
 
         from src.agent.llm_adapter import LLMToolAdapter
@@ -1626,7 +1625,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             usage=SimpleNamespace(prompt_tokens=1, completion_tokens=2, total_tokens=3),
         )
 
-        with patch("src.agent.llm_adapter.litellm.completion", return_value=response) as mock_completion:
+        with patch("src.agent.llm_adapter.completion", return_value=response) as mock_completion:
             result = adapter._call_litellm_model(
                 [{"role": "user", "content": "hi"}],
                 [],
@@ -1637,13 +1636,12 @@ class TestAgentConstructionChain(unittest.TestCase):
         self.assertEqual(result.content, "agent ok")
         self.assertEqual(mock_completion.call_args.kwargs["temperature"], 1.0)
 
-    @patch("src.agent.llm_adapter.Router")
-    def test_llm_adapter_normalizes_kimi_k26_temperature_for_non_thinking_yaml_alias(self, _mock_router):
+    def test_llm_adapter_normalizes_kimi_k26_temperature_for_non_thinking_yaml_alias(self):
         """Agent direct LiteLLM calls should honor non-thinking Kimi YAML overrides."""
         mock_cfg = SimpleNamespace(
-            agent_litellm_model="",
-            litellm_model="kimi_router",
-            litellm_fallback_models=[],
+            agent_llm_model="",
+            llm_model="kimi_router",
+            llm_fallback_models=[],
             llm_model_list=[
                 {
                     "model_name": "kimi_router",
@@ -1659,6 +1657,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             openai_api_keys=[],
             deepseek_api_keys=[],
             openai_base_url=None,
+            llm_api_key="sk-test",
         )
 
         from src.agent.llm_adapter import LLMToolAdapter
@@ -1676,7 +1675,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             usage=SimpleNamespace(prompt_tokens=1, completion_tokens=2, total_tokens=3),
         )
 
-        with patch("src.agent.llm_adapter.litellm.completion", return_value=response) as mock_completion:
+        with patch("src.agent.llm_adapter.completion", return_value=response) as mock_completion:
             result = adapter._call_litellm_model(
                 [{"role": "user", "content": "hi"}],
                 [],
@@ -1687,13 +1686,12 @@ class TestAgentConstructionChain(unittest.TestCase):
         self.assertEqual(result.content, "agent ok")
         self.assertEqual(mock_completion.call_args.kwargs["temperature"], 0.6)
 
-    @patch("src.agent.llm_adapter.Router")
-    def test_llm_adapter_fallback_does_not_leak_kimi_fixed_temperature(self, _mock_router):
+    def test_llm_adapter_fallback_does_not_leak_kimi_fixed_temperature(self):
         """Non-Kimi fallbacks should keep the requested temperature after a Kimi failure."""
         mock_cfg = SimpleNamespace(
-            agent_litellm_model="",
-            litellm_model="openai/kimi-k2.6",
-            litellm_fallback_models=["openai/gpt-4o-mini"],
+            agent_llm_model="",
+            llm_model="openai/kimi-k2.6",
+            llm_fallback_models=["openai/gpt-4o-mini"],
             llm_model_list=[],
             llm_temperature=0.2,
             gemini_api_keys=[],
@@ -1701,6 +1699,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             openai_api_keys=[],
             deepseek_api_keys=[],
             openai_base_url=None,
+            llm_api_key="sk-test",
         )
 
         from src.agent.llm_adapter import LLMToolAdapter
@@ -1718,13 +1717,13 @@ class TestAgentConstructionChain(unittest.TestCase):
         )
         temperatures = []
 
-        def fake_completion(**kwargs):
-            temperatures.append((kwargs["model"], kwargs["temperature"]))
-            if kwargs["model"] == "openai/kimi-k2.6":
+        def fake_completion(_config, model, _messages, **kwargs):
+            temperatures.append((model, kwargs["temperature"]))
+            if model == "openai/kimi-k2.6":
                 raise RuntimeError("primary failed")
             return response
 
-        with patch("src.agent.llm_adapter.litellm.completion", side_effect=fake_completion):
+        with patch("src.agent.llm_adapter.completion", side_effect=fake_completion):
             result = adapter.call_completion(
                 messages=[{"role": "user", "content": "hi"}],
                 tools=[],
@@ -1737,8 +1736,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             [("openai/kimi-k2.6", 1.0), ("openai/gpt-4o-mini", 0.2)],
         )
 
-    @patch("src.agent.llm_adapter.Router")
-    def test_llm_adapter_recomputes_timeout_for_each_fallback_attempt(self, _mock_router):
+    def test_llm_adapter_recomputes_timeout_for_each_fallback_attempt(self):
         """Each fallback model attempt should receive only the remaining timeout budget."""
         mock_cfg = MagicMock()
         mock_cfg.agent_litellm_model = "gpt-4o-mini"
@@ -1776,8 +1774,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         self.assertEqual(timeouts[0], ("openai/gpt-4o-mini", 10.0))
         self.assertEqual(timeouts[1], ("anthropic/claude-3-5-sonnet-20241022", 3.0))
 
-    @patch("src.agent.llm_adapter.Router")
-    def test_llm_adapter_rate_limit_backoff_is_bounded_by_remaining_timeout(self, _mock_router):
+    def test_llm_adapter_rate_limit_backoff_is_bounded_by_remaining_timeout(self):
         """Rate-limit backoff should sleep, but never longer than the remaining timeout budget."""
         mock_cfg = MagicMock()
         mock_cfg.agent_litellm_model = "gpt-4o-mini"
@@ -1838,8 +1835,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         self.assertAlmostEqual(sleep_calls[0], expected_backoff)
         self.assertAlmostEqual(clock["value"], 8.0 + expected_backoff)
 
-    @patch("src.agent.llm_adapter.Router")
-    def test_llm_adapter_context_window_error_skips_sleep(self, _mock_router):
+    def test_llm_adapter_context_window_error_skips_sleep(self):
         """Context-window errors should continue fallback immediately without backoff."""
         mock_cfg = MagicMock()
         mock_cfg.agent_litellm_model = "gpt-4o-mini"
@@ -1875,8 +1871,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         self.assertEqual(result.content, "ok")
         mock_sleep.assert_not_called()
 
-    @patch("src.agent.llm_adapter.Router")
-    def test_llm_adapter_reports_rate_limit_suffix_when_any_fallback_hit_limit(self, _mock_router):
+    def test_llm_adapter_reports_rate_limit_suffix_when_any_fallback_hit_limit(self):
         """Final error should note earlier rate limiting even if the last error differs."""
         mock_cfg = MagicMock()
         mock_cfg.agent_litellm_model = "gpt-4o-mini"
@@ -1919,13 +1914,12 @@ class TestAgentConstructionChain(unittest.TestCase):
         self.assertIn("window exceeded", result.content)
         mock_sleep.assert_not_called()
 
-    @patch("src.agent.llm_adapter.Router")
-    def test_llm_adapter_reports_missing_configuration_without_generic_none_error(self, _mock_router):
+    def test_llm_adapter_reports_missing_configuration_without_generic_none_error(self):
         """Missing Agent model config should return a stable, actionable error message."""
         mock_cfg = SimpleNamespace(
-            agent_litellm_model="",
-            litellm_model="",
-            litellm_fallback_models=[],
+            agent_llm_model="",
+            llm_model="",
+            llm_fallback_models=[],
             llm_model_list=[],
             llm_temperature=0.7,
             gemini_api_keys=[],
@@ -1933,6 +1927,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             openai_api_keys=[],
             deepseek_api_keys=[],
             openai_base_url=None,
+            llm_api_key="sk-test",
         )
 
         from src.agent.llm_adapter import LLMToolAdapter
@@ -1959,7 +1954,7 @@ class TestSafeInt(unittest.TestCase):
         with patch('src.core.pipeline.get_config') as mock_config, \
              patch('src.core.pipeline.get_db'), \
              patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.GeminiAnalyzer'), \
+             patch('src.core.pipeline.StockReportAnalyzer'), \
              patch('src.core.pipeline.NotificationService'), \
              patch('src.core.pipeline.SearchService'):
 
@@ -2102,7 +2097,7 @@ class TestSkillActivation(unittest.TestCase):
         with patch('src.core.pipeline.get_config') as mock_config, \
              patch('src.core.pipeline.get_db'), \
              patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.GeminiAnalyzer'), \
+             patch('src.core.pipeline.StockReportAnalyzer'), \
              patch('src.core.pipeline.NotificationService'), \
              patch('src.core.pipeline.SearchService'):
 
