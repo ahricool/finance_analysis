@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 
 from src.storage import DatabaseManager
 from src.config import get_config, Config
-from src.services.system_config_service import SystemConfigService
 from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL
 
 
@@ -61,15 +60,6 @@ def get_database_manager() -> DatabaseManager:
         DatabaseManager: 数据库管理器单例对象
     """
     return DatabaseManager.get_instance()
-
-
-def get_system_config_service(request: Request) -> SystemConfigService:
-    """Get app-lifecycle shared SystemConfigService instance."""
-    service = getattr(request.app.state, "system_config_service", None)
-    if service is None:
-        service = SystemConfigService()
-        request.app.state.system_config_service = service
-    return service
 
 
 def get_scoped_uid(request: Request) -> Optional[int]:

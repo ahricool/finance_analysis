@@ -112,7 +112,6 @@ from api.v1 import api_v1_router
 from api.middlewares.auth import add_auth_middleware
 from api.middlewares.error_handler import add_error_handlers
 from api.v1.schemas.common import HealthResponse
-from src.services.system_config_service import SystemConfigService
 from src.config import setup_env
 from src.logging_config import ensure_backend_logging
 from src.scheduler import (
@@ -127,7 +126,6 @@ async def app_lifespan(app: FastAPI):
     """Initialize and release shared services for the app lifecycle."""
     setup_env()
     ensure_backend_logging(service="server", log_prefix="web_server")
-    app.state.system_config_service = SystemConfigService()
     analysis_scheduler = start_embedded_analysis_scheduler()
     app.state.analysis_scheduler = analysis_scheduler
     try:
@@ -136,8 +134,6 @@ async def app_lifespan(app: FastAPI):
         shutdown_embedded_analysis_scheduler(analysis_scheduler)
         if hasattr(app.state, "analysis_scheduler"):
             delattr(app.state, "analysis_scheduler")
-        if hasattr(app.state, "system_config_service"):
-            delattr(app.state, "system_config_service")
 
 
 def create_app(static_dir: Optional[Path] = None) -> FastAPI:
