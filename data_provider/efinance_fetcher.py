@@ -55,6 +55,7 @@ from src.patches.eastmoney_patch import eastmoney_patch
 from src.config import get_config
 from src.logging_config import log_external_call_exception
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS,is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code, _is_hk_market
+from .codes import _is_etf_code, _is_us_code
 from .realtime_types import (
     UnifiedRealtimeQuote, RealtimeSource,
     get_realtime_circuit_breaker,
@@ -134,36 +135,6 @@ _etf_realtime_cache: Dict[str, Any] = {
     'timestamp': 0,
     'ttl': 600  # 10分钟缓存有效期
 }
-
-
-def _is_etf_code(stock_code: str) -> bool:
-    """
-    判断代码是否为 ETF 基金
-    
-    ETF 代码规则：
-    - 上交所 ETF: 51xxxx, 52xxxx, 56xxxx, 58xxxx
-    - 深交所 ETF: 15xxxx, 16xxxx, 18xxxx
-    
-    Args:
-        stock_code: 股票/基金代码
-        
-    Returns:
-        True 表示是 ETF 代码，False 表示是普通股票代码
-    """
-    etf_prefixes = ('51', '52', '56', '58', '15', '16', '18')
-    return stock_code.startswith(etf_prefixes) and len(stock_code) == 6
-
-
-def _is_us_code(stock_code: str) -> bool:
-    """
-    判断代码是否为美股
-    
-    美股代码规则：
-    - 1-5个大写字母，如 'AAPL', 'TSLA'
-    - 可能包含 '.'，如 'BRK.B'
-    """
-    code = stock_code.strip().upper()
-    return bool(re.match(r'^[A-Z]{1,5}(\.[A-Z])?$', code))
 
 
 def _ef_call_with_timeout(func, *args, timeout=None, **kwargs):

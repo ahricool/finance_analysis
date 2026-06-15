@@ -32,6 +32,7 @@ from tenacity import (
 )
 
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS,is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code, _is_hk_market
+from .codes import _is_etf_code, _is_us_code
 from .realtime_types import UnifiedRealtimeQuote, ChipDistribution
 from src.config import get_config
 from src.logging_config import log_external_call_exception
@@ -39,38 +40,6 @@ import os
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
-
-
-# ETF code prefixes by exchange
-# Shanghai: 51xxxx, 52xxxx, 56xxxx, 58xxxx
-# Shenzhen: 15xxxx, 16xxxx, 18xxxx
-_ETF_SH_PREFIXES = ('51', '52', '56', '58')
-_ETF_SZ_PREFIXES = ('15', '16', '18')
-_ETF_ALL_PREFIXES = _ETF_SH_PREFIXES + _ETF_SZ_PREFIXES
-
-
-def _is_etf_code(stock_code: str) -> bool:
-    """
-    Check if the code is an ETF fund code.
-
-    ETF code ranges:
-    - Shanghai ETF: 51xxxx, 52xxxx, 56xxxx, 58xxxx
-    - Shenzhen ETF: 15xxxx, 16xxxx, 18xxxx
-    """
-    code = stock_code.strip().split('.')[0]
-    return code.startswith(_ETF_ALL_PREFIXES) and len(code) == 6
-
-
-def _is_us_code(stock_code: str) -> bool:
-    """
-    判断代码是否为美股
-    
-    美股代码规则：
-    - 1-5个大写字母，如 'AAPL', 'TSLA'
-    - 可能包含 '.'，如 'BRK.B'
-    """
-    code = stock_code.strip().upper()
-    return bool(re.match(r'^[A-Z]{1,5}(\.[A-Z])?$', code))
 
 
 class _TushareHttpClient:
@@ -402,9 +371,9 @@ class TushareFetcher(BaseFetcher):
             return f"{code}.BJ"
 
         # ETF: determine exchange by prefix
-        if code.startswith(_ETF_SH_PREFIXES) and len(code) == 6:
-            return f"{code}.SH"
-        if code.startswith(_ETF_SZ_PREFIXES) and len(code) == 6:
+        if _is_etf_code(code):
+            if code.startswith(("51", "52", "56", "58")):
+                return f"{code}.SH"
             return f"{code}.SZ"
         
         # BSE (Beijing Stock Exchange): 8xxxxx, 4xxxxx, 920xxx
