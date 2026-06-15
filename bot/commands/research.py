@@ -143,5 +143,5 @@ class ResearchCommand(BotCommand):
                 )
 
         except Exception as exc:
-            logger.error("[ResearchCommand] Error: %s", exc, exc_info=True)
+            logger.exception("[ResearchCommand] Error: %s", exc, exc_info=True)
             return BotResponse.text_response(f"❌ Research failed: {exc}")

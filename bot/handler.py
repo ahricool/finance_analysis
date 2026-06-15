@@ -112,7 +112,7 @@ def handle_webhook(
                 if response.text:
                     platform.send_followup(response, message)
             except Exception as exc:
-                logger.error("[BotHandler] 延迟命令处理失败: %s", exc)
+                logger.exception("[BotHandler] 延迟命令处理失败: %s", exc)
 
         threading.Thread(target=_deferred_dispatch, daemon=True).start()
         return immediate_response
@@ -184,7 +184,7 @@ async def handle_webhook_async(
                 if response.text:
                     await asyncio.to_thread(platform.send_followup, response, message)
             except Exception as exc:
-                logger.error("[BotHandler] 延迟命令处理失败: %s", exc)
+                logger.exception("[BotHandler] 延迟命令处理失败: %s", exc)
 
         asyncio.ensure_future(_deferred_dispatch())
         return immediate_response

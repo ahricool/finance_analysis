@@ -252,7 +252,7 @@ class AskCommand(BotCommand):
             return BotResponse.text_response(f"⚠️ 分析失败: {result.error}")
 
         except Exception as exc:
-            logger.error("Ask command failed: %s", exc)
+            logger.exception("Ask command failed: %s", exc)
             logger.exception("Ask error details:")
             return BotResponse.text_response(f"⚠️ 问股执行出错: {str(exc)}")
 

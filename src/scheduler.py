@@ -21,11 +21,15 @@
 from __future__ import annotations
 
 import logging
+from functools import wraps
 from datetime import datetime
-from typing import Any, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence, TypeVar
 from zoneinfo import ZoneInfo
 
+from src.logging_config import task_logging_context
+
 logger = logging.getLogger(__name__)
+F = TypeVar("F", bound=Callable[..., Any])
 
 # === 调度参数（修改后需重启进程）===
 DAILY_SCHEDULE_HOUR = 18
@@ -40,6 +44,19 @@ _JOB_DAILY_ANALYSIS = "analysis_daily"
 _JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
 _JOB_US_INTRADAY_ANALYSIS = "analysis_us_intraday"
 _JOB_A_SHARE_INTRADAY_ANALYSIS = "analysis_a_share_intraday"
+
+
+def _with_task_logging(task_log_name: str) -> Callable[[F], F]:
+    """Write scheduled task logs to the shared service log and a task-specific file."""
+    def decorator(func: F) -> F:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            with task_logging_context(task_log_name):
+                return func(*args, **kwargs)
+
+        return wrapper  # type: ignore[return-value]
+
+    return decorator
 
 
 def _scheduled_now() -> datetime:
@@ -161,6 +178,7 @@ def _safe_record_scheduled_task_result(**kwargs: Any) -> None:
         logger.warning("写入定时任务日历记录失败: %s", exc, exc_info=True)
 
 
+@_with_task_logging(_JOB_DAILY_ANALYSIS)
 def _daily_analysis_task() -> None:
     """每日定时任务：执行一次完整的股票分析流水线。"""
     task_name = "每日全量分析"
@@ -214,6 +232,7 @@ def _daily_analysis_task() -> None:
         )
 
 
+@_with_task_logging(_JOB_US_PREMARKET_ANALYSIS)
 def _us_premarket_analysis_task() -> None:
     """美股盘前定时任务：仅分析自选股中标记为美股的股票。"""
     task_name = "美股盘前分析"
@@ -281,6 +300,7 @@ def _us_premarket_analysis_task() -> None:
         )
 
 
+@_with_task_logging(_JOB_US_INTRADAY_ANALYSIS)
 def _us_intraday_analysis_task() -> None:
     """美股盘中定时任务：检测自选美股的盘中异动并按需提醒。"""
     started_at = _scheduled_now()
@@ -314,6 +334,7 @@ def _us_intraday_analysis_task() -> None:
         logger.exception("美股盘中分析任务执行失败: %s", exc)
 
 
+@_with_task_logging(_JOB_A_SHARE_INTRADAY_ANALYSIS)
 def _a_share_intraday_analysis_task() -> None:
     """A 股盘中定时任务：任务流程暂为空。"""
     logger.info(

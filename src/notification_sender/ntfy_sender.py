@@ -120,6 +120,6 @@ class NtfySender:
             logger.debug("ntfy 请求异常类型: %s", type(exc).__name__)
             return False
         except Exception as exc:
-            logger.error("发送 ntfy 消息失败: 未知异常")
+            logger.exception("发送 ntfy 消息失败: 未知异常")
             logger.debug("ntfy 未知异常类型: %s", type(exc).__name__)
             return False

@@ -238,7 +238,7 @@ class StockAnalysisPipeline:
 
         except Exception as e:
             error_msg = f"获取/保存数据失败: {str(e)}"
-            logger.error(f"{stock_name}({code}) {error_msg}")
+            logger.exception(f"{stock_name}({code}) {error_msg}")
             return False, error_msg
     
     def analyze_stock(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
@@ -527,7 +527,7 @@ class StockAnalysisPipeline:
             return result
 
         except Exception as e:
-            logger.error(f"{stock_name}({code}) 分析失败: {e}")
+            logger.exception(f"{stock_name}({code}) 分析失败: {e}")
             logger.exception(f"{stock_name}({code}) 详细错误信息:")
             return None
     
@@ -909,7 +909,7 @@ class StockAnalysisPipeline:
             return result
 
         except Exception as e:
-            logger.error(f"[{code}] Agent 分析失败: {e}")
+            logger.exception(f"[{code}] Agent 分析失败: {e}")
             logger.exception(f"[{code}] Agent 详细错误信息:")
             return None
 
@@ -1803,7 +1803,7 @@ class StockAnalysisPipeline:
                         time.sleep(analysis_delay)
 
                 except Exception as e:
-                    logger.error(f"[{code}] 任务执行失败: {e}")
+                    logger.exception(f"[{code}] 任务执行失败: {e}")
         
         # 统计
         elapsed_time = time.time() - start_time
@@ -1891,7 +1891,7 @@ class StockAnalysisPipeline:
                 else:
                     logger.warning(f"[{stock_code}] 单股推送失败")
             except Exception as e:
-                logger.error(f"[{stock_code}] 单股推送异常: {e}")
+                logger.exception(f"[{stock_code}] 单股推送异常: {e}")
 
     def _save_local_report(
         self,
@@ -1904,7 +1904,7 @@ class StockAnalysisPipeline:
             filepath = self.notifier.save_report_to_file(report)
             logger.info(f"决策仪表盘日报已保存: {filepath}")
         except Exception as e:
-            logger.error(f"保存本地报告失败: {e}")
+            logger.exception(f"保存本地报告失败: {e}")
 
     def _send_notifications(
         self,
@@ -2133,7 +2133,7 @@ class StockAnalysisPipeline:
             ):
                 self.notifier.release_noise_control(noise_decision)
             import traceback
-            logger.error(f"发送通知失败: {e}\n{traceback.format_exc()}")
+            logger.exception(f"发送通知失败: {e}\n{traceback.format_exc()}")
 
     def _generate_aggregate_report(
         self,

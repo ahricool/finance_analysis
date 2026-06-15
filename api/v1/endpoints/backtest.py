@@ -65,7 +65,7 @@ def run_backtest(
         )
         return BacktestRunResponse(**stats)
     except Exception as exc:
-        logger.error(f"回测执行失败: {exc}", exc_info=True)
+        logger.exception(f"回测执行失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={"error": "internal_error", "message": f"回测执行失败: {str(exc)}"},
@@ -112,7 +112,7 @@ def get_backtest_results(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"查询回测结果失败: {exc}", exc_info=True)
+        logger.exception(f"查询回测结果失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={"error": "internal_error", "message": f"查询回测结果失败: {str(exc)}"},
@@ -159,7 +159,7 @@ def get_overall_performance(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"查询整体表现失败: {exc}", exc_info=True)
+        logger.exception(f"查询整体表现失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={"error": "internal_error", "message": f"查询整体表现失败: {str(exc)}"},
@@ -207,7 +207,7 @@ def get_stock_performance(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"查询单股表现失败: {exc}", exc_info=True)
+        logger.exception(f"查询单股表现失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={"error": "internal_error", "message": f"查询单股表现失败: {str(exc)}"},

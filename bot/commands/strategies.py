@@ -98,6 +98,6 @@ class StrategiesCommand(BotCommand):
             return BotResponse.markdown_response("\n".join(lines))
 
         except Exception as e:
-            logger.error(f"Strategies command failed: {e}")
+            logger.exception(f"Strategies command failed: {e}")
             logger.exception("Strategies error details:")
             return BotResponse.text_response(f"⚠️ 获取策略列表失败: {str(e)}")

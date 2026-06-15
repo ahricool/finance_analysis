@@ -645,7 +645,7 @@ class AnalysisTaskQueue:
                 
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"[TaskQueue] 任务失败: {task_id} ({stock_code}), 错误: {error_msg}")
+            logger.exception(f"[TaskQueue] 任务失败: {task_id} ({stock_code}), 错误: {error_msg}")
             
             with self._data_lock:
                 task = self._tasks.get(task_id)
@@ -715,7 +715,7 @@ class AnalysisTaskQueue:
 
         except Exception as e:  # pragma: no cover - behavior verified in downstream tests
             error_msg = str(e)
-            logger.error(
+            logger.exception(
                 f"[TaskQueue] 自定义任务失败: {task_id}, 错误: {error_msg}"
             )
 

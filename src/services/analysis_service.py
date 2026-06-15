@@ -111,7 +111,7 @@ class AnalysisService:
             
         except Exception as e:
             self.last_error = str(e)
-            logger.error(f"分析股票 {stock_code} 失败: {e}", exc_info=True)
+            logger.exception(f"分析股票 {stock_code} 失败: {e}", exc_info=True)
             return None
     
     def _build_analysis_response(

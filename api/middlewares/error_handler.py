@@ -49,7 +49,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             
         except Exception as e:
             # 记录错误日志
-            logger.error(
+            logger.exception(
                 f"未处理的异常: {e}\n"
                 f"请求路径: {request.url.path}\n"
                 f"请求方法: {request.method}\n"

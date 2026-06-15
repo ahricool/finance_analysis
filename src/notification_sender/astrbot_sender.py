@@ -106,5 +106,5 @@ class AstrbotSender:
                 logger.error(f"AstrBot 发送失败: {response.status_code} {response.text}")
                 return False
         except Exception as e:
-            logger.error(f"AstrBot 发送异常: {e}")
+            logger.exception(f"AstrBot 发送异常: {e}")
             return False

@@ -338,7 +338,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 logger.info(f"[大盘] 获取到 {len(indices)} 个指数行情")
 
         except Exception as e:
-            logger.error(f"[大盘] 获取指数行情失败: {e}")
+            logger.exception(f"[大盘] 获取指数行情失败: {e}")
 
         return indices
 
@@ -362,7 +362,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                           f"成交额:{overview.total_amount:.0f}亿")
 
         except Exception as e:
-            logger.error(f"[大盘] 获取涨跌统计失败: {e}")
+            logger.exception(f"[大盘] 获取涨跌统计失败: {e}")
 
     def _get_sector_rankings(self, overview: MarketOverview):
         """获取板块涨跌榜"""
@@ -379,7 +379,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 logger.info(f"[大盘] 领跌板块: {[s['name'] for s in overview.bottom_sectors]}")
 
         except Exception as e:
-            logger.error(f"[大盘] 获取板块涨跌榜失败: {e}")
+            logger.exception(f"[大盘] 获取板块涨跌榜失败: {e}")
     
     # def _get_north_flow(self, overview: MarketOverview):
     #     """获取北向资金流入"""
@@ -438,7 +438,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
             logger.info(f"[大盘] 共获取 {len(all_news)} 条市场新闻")
             
         except Exception as e:
-            logger.error(f"[大盘] 搜索市场新闻失败: {e}")
+            logger.exception(f"[大盘] 搜索市场新闻失败: {e}")
         
         return all_news
     

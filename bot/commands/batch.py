@@ -119,5 +119,5 @@ class BatchCommand(BotCommand):
             logger.info(f"[BatchCommand] 批量分析完成，成功 {len(results)} 只")
             
         except Exception as e:
-            logger.error(f"[BatchCommand] 批量分析失败: {e}")
+            logger.exception(f"[BatchCommand] 批量分析失败: {e}")
             logger.exception(e)

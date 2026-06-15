@@ -78,7 +78,7 @@ class TelegramSender:
                 return self._send_telegram_chunked(api_url, chat_id, content, max_length, message_thread_id, timeout_seconds=timeout_seconds)
                 
         except Exception as e:
-            logger.error(f"发送 Telegram 消息失败: {e}")
+            logger.exception(f"发送 Telegram 消息失败: {e}")
             import traceback
             logger.debug(traceback.format_exc())
             return False
@@ -284,7 +284,7 @@ class TelegramSender:
             logger.error("Telegram 图片发送失败: %s", response.text[:200])
             return False
         except Exception as e:
-            logger.error("Telegram 图片发送异常: %s", e)
+            logger.exception("Telegram 图片发送异常: %s", e)
             return False
 
     def _convert_to_telegram_markdown(self, text: str) -> str:

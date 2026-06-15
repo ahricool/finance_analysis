@@ -389,7 +389,7 @@ class BaseFetcher(ABC):
         except Exception as e:
             elapsed = time.time() - request_start
             error_type, error_reason = summarize_exception(e)
-            logger.error(
+            logger.exception(
                 f"[{self.name}] {stock_code} 获取失败: 范围={start_date} ~ {end_date}, "
                 f"error_type={error_type}, elapsed={elapsed:.2f}s, reason={error_reason}"
             )
@@ -1257,7 +1257,7 @@ class DataFetcherManager:
                 return 0
                 
         except Exception as e:
-            logger.error(f"[预取] 批量预取异常: {e}")
+            logger.exception(f"[预取] 批量预取异常: {e}")
             return 0
     
     def get_realtime_quote(self, stock_code: str, *, log_final_failure: bool = True):

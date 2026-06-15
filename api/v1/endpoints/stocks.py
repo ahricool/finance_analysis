@@ -114,7 +114,7 @@ def extract_from_image(
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": "extract_failed", "message": str(e)})
     except Exception as e:
-        logger.error(f"图片提取失败: {e}", exc_info=True)
+        logger.exception(f"图片提取失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={"error": "internal_error", "message": "图片提取失败"},
@@ -298,7 +298,7 @@ def get_stock_quote(stock_code: str) -> StockQuote:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"获取实时行情失败: {e}", exc_info=True)
+        logger.exception(f"获取实时行情失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -379,7 +379,7 @@ def get_stock_history(
             }
         )
     except Exception as e:
-        logger.error(f"获取历史行情失败: {e}", exc_info=True)
+        logger.exception(f"获取历史行情失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={

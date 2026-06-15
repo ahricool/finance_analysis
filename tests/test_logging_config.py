@@ -2,10 +2,18 @@
 """Regression tests for application logging configuration."""
 
 import logging
+import types
 
 import pytest
 
-from src.logging_config import LITELLM_LOGGERS, setup_logging
+from src.logging_config import (
+    LITELLM_LOGGERS,
+    get_task_log_file,
+    log_external_call_exception,
+    setup_backend_logging,
+    setup_logging,
+    task_logging_context,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -89,3 +97,76 @@ def test_invalid_litellm_log_level_falls_back_to_warning(tmp_path, monkeypatch):
     assert "invalid level warning should remain" in debug_log_text
     assert "LITELLM_LOG_LEVEL" in debug_log_text
     assert "已回退为 WARNING" in debug_log_text
+
+
+def test_setup_backend_logging_uses_service_subdirectory(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+
+    setup_backend_logging(service="server", log_prefix="web_server", debug=False)
+    logging.getLogger("src.sample").info("server log routing works")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    server_log = next((tmp_path / "server").glob("web_server_*.log"))
+    assert "server log routing works" in server_log.read_text(encoding="utf-8")
+
+
+def test_task_logging_context_writes_task_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+
+    setup_backend_logging(service="server", log_prefix="web_server", debug=False)
+    with task_logging_context("analysis_daily"):
+        logging.getLogger("src.sample").info("task log routing works")
+
+    task_log = get_task_log_file("analysis_daily", log_base_dir=str(tmp_path))
+    assert task_log.is_file()
+    assert "task log routing works" in task_log.read_text(encoding="utf-8")
+
+
+def test_celery_task_logging_context_uses_celery_task_directory(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+
+    setup_backend_logging(service="celery", log_prefix="celery", debug=False)
+    with task_logging_context("demo.add", celery=True):
+        logging.getLogger("src.sample").info("celery task log routing works")
+
+    task_log = get_task_log_file("demo.add", celery=True, log_base_dir=str(tmp_path))
+    assert task_log.is_file()
+    assert "celery task log routing works" in task_log.read_text(encoding="utf-8")
+
+
+def test_external_call_exception_logs_response_details(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+    setup_backend_logging(service="server", log_prefix="web_server", debug=False)
+
+    request = types.SimpleNamespace(method="GET", url="https://example.test/quote")
+    response = types.SimpleNamespace(
+        status_code=503,
+        text="upstream unavailable",
+        request=request,
+        elapsed=types.SimpleNamespace(total_seconds=lambda: 1.25),
+    )
+    exc = RuntimeError("sdk failed")
+    exc.response = response
+
+    try:
+        raise exc
+    except RuntimeError as caught:
+        log_external_call_exception(
+            logging.getLogger("src.sample"),
+            provider="example",
+            operation="quote",
+            exc=caught,
+            symbol="AAPL",
+            params={"token": "secret", "period": "1d"},
+            elapsed=1.3,
+        )
+
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    debug_log = next((tmp_path / "server").glob("web_server_debug_*.log"))
+    text = debug_log.read_text(encoding="utf-8")
+    assert "status_code" in text
+    assert "503" in text
+    assert "upstream unavailable" in text
+    assert "'token': '***'" in text

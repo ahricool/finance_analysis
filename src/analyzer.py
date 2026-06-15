@@ -2174,7 +2174,7 @@ class GeminiAnalyzer:
                 return text
             return result
         except Exception as exc:
-            logger.error("[generate_text] LLM call failed: %s", exc)
+            logger.exception("[generate_text] LLM call failed: %s", exc)
             return None
 
     def analyze(
@@ -2362,7 +2362,7 @@ class GeminiAnalyzer:
             return result
             
         except Exception as e:
-            logger.error(f"AI 分析 {name}({code}) 失败: {e}")
+            logger.exception(f"AI 分析 {name}({code}) 失败: {e}")
             return AnalysisResult(
                 code=code,
                 name=name,

@@ -315,7 +315,7 @@ class CommandDispatcher:
             logger.info(f"[Dispatcher] 命令 {cmd_name} 执行成功")
             return response
         except Exception as e:
-            logger.error(f"[Dispatcher] 命令 {cmd_name} 执行失败: {e}")
+            logger.exception(f"[Dispatcher] 命令 {cmd_name} 执行失败: {e}")
             logger.exception(e)
             return BotResponse.error_response(f"命令执行失败: {str(e)[:100]}")
 
@@ -356,7 +356,7 @@ class CommandDispatcher:
             logger.info(f"[Dispatcher] 命令 {cmd_name} 执行成功")
             return response
         except Exception as e:
-            logger.error(f"[Dispatcher] 命令 {cmd_name} 执行失败: {e}")
+            logger.exception(f"[Dispatcher] 命令 {cmd_name} 执行失败: {e}")
             logger.exception(e)
             return BotResponse.error_response(f"命令执行失败: {str(e)[:100]}")
 
