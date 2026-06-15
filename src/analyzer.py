@@ -20,19 +20,16 @@ from typing import Optional, Dict, Any, List, Tuple, Callable
 
 import litellm
 from json_repair import repair_json
-from litellm import Router
 
 from src.agent.llm_adapter import get_thinking_extra_body
 from src.agent.skills.defaults import CORE_TRADING_SKILL_POLICY_ZH
 from src.config import (
     Config,
-    extra_litellm_params,
-    get_api_keys_for_model,
     get_config,
-    get_configured_llm_models,
     normalize_litellm_temperature,
     resolve_news_window_days,
 )
+from src.llm_client import build_completion_kwargs, is_llm_configured
 from src.storage import persist_llm_usage
 from src.data.stock_mapping import STOCK_NAME_MAP
 from src.report_language import (
@@ -1710,11 +1707,8 @@ class GeminiAnalyzer:
         self._default_skill_policy_override = default_skill_policy
         self._use_legacy_default_prompt_override = use_legacy_default_prompt
         self._resolved_prompt_state: Optional[Dict[str, Any]] = None
-        self._router = None
-        self._litellm_available = False
-        self._init_litellm()
-        if not self._litellm_available:
-            logger.warning("No LLM configured (LITELLM_MODEL / API keys), AI analysis will be unavailable")
+        if not is_llm_configured(self._get_runtime_config()):
+            logger.warning("No LLM configured (LLM_MODEL / LLM_API_KEY), AI analysis will be unavailable")
 
     def _get_runtime_config(self) -> Config:
         """Return the runtime config, honoring injected overrides for tests/pipeline."""
@@ -1803,76 +1797,9 @@ class GeminiAnalyzer:
 - 所有面向用户的人类可读文本值必须使用中文。
 """
 
-    def _has_channel_config(self, config: Config) -> bool:
-        """Check if multi-channel config (channels / YAML / legacy model_list) is active."""
-        return bool(config.llm_model_list) and not all(
-            e.get('model_name', '').startswith('__legacy_') for e in config.llm_model_list
-        )
-
-    def _init_litellm(self) -> None:
-        """Initialize litellm Router from channels / YAML / legacy keys."""
-        config = self._get_runtime_config()
-        litellm_model = config.litellm_model
-        if not litellm_model:
-            logger.warning("Analyzer LLM: LITELLM_MODEL not configured")
-            return
-
-        self._litellm_available = True
-
-        # --- Channel / YAML path: build Router from pre-built model_list ---
-        if self._has_channel_config(config):
-            model_list = config.llm_model_list
-            self._router = Router(
-                model_list=model_list,
-                routing_strategy="simple-shuffle",
-                num_retries=2,
-            )
-            unique_models = list(dict.fromkeys(
-                e['litellm_params']['model'] for e in model_list
-            ))
-            logger.info(
-                f"Analyzer LLM: Router initialized from channels/YAML — "
-                f"{len(model_list)} deployment(s), models: {unique_models}"
-            )
-            return
-
-        # --- Legacy path: build Router for multi-key, or use single key ---
-        keys = get_api_keys_for_model(litellm_model, config)
-
-        if len(keys) > 1:
-            # Build legacy Router for primary model multi-key load-balancing
-            extra_params = extra_litellm_params(litellm_model, config)
-            legacy_model_list = [
-                {
-                    "model_name": litellm_model,
-                    "litellm_params": {
-                        "model": litellm_model,
-                        "api_key": k,
-                        **extra_params,
-                    },
-                }
-                for k in keys
-            ]
-            self._router = Router(
-                model_list=legacy_model_list,
-                routing_strategy="simple-shuffle",
-                num_retries=2,
-            )
-            logger.info(
-                f"Analyzer LLM: Legacy Router initialized with {len(keys)} keys "
-                f"for {litellm_model}"
-            )
-        elif keys:
-            logger.info(f"Analyzer LLM: litellm initialized (model={litellm_model})")
-        else:
-            logger.info(
-                f"Analyzer LLM: litellm initialized (model={litellm_model}, "
-                f"API key from environment)"
-            )
-
     def is_available(self) -> bool:
-        """Check if LiteLLM is properly configured with at least one API key."""
-        return self._router is not None or self._litellm_available
+        """Check if LiteLLM is properly configured."""
+        return is_llm_configured(self._get_runtime_config())
 
     def _dispatch_litellm_completion(
         self,
@@ -1880,20 +1807,18 @@ class GeminiAnalyzer:
         call_kwargs: Dict[str, Any],
         *,
         config: Config,
-        use_channel_router: bool,
-        router_model_names: set[str],
     ) -> Any:
-        """Dispatch a LiteLLM completion through router or direct fallback."""
-        effective_kwargs = dict(call_kwargs)
-        if use_channel_router and self._router and model in router_model_names:
-            return self._router.completion(**effective_kwargs)
-        if self._router and model == config.litellm_model and not use_channel_router:
-            return self._router.completion(**effective_kwargs)
-
-        keys = get_api_keys_for_model(model, config)
-        if keys:
-            effective_kwargs["api_key"] = keys[0]
-        effective_kwargs.update(extra_litellm_params(model, config))
+        """Dispatch a LiteLLM completion through the unified client."""
+        effective_kwargs = build_completion_kwargs(
+            config,
+            model,
+            call_kwargs["messages"],
+            temperature=call_kwargs.get("temperature"),
+            max_tokens=call_kwargs.get("max_tokens"),
+            stream=call_kwargs.get("stream"),
+            extra_body=call_kwargs.get("extra_body"),
+            timeout=call_kwargs.get("timeout"),
+        )
         return litellm.completion(**effective_kwargs)
 
     def _normalize_usage(self, usage_obj: Any) -> Dict[str, Any]:
@@ -2034,17 +1959,14 @@ class GeminiAnalyzer:
         )
         requested_temperature = generation_config.get('temperature', 0.7)
 
-        models_to_try = [config.litellm_model] + (config.litellm_fallback_models or [])
+        models_to_try = [config.llm_model] + (config.llm_fallback_models or [])
         models_to_try = [m for m in models_to_try if m]
-
-        use_channel_router = self._has_channel_config(config)
 
         last_error = None
         last_response_text: Optional[str] = None
         last_model: Optional[str] = None
         last_usage: Dict[str, Any] = {}
         effective_system_prompt = system_prompt or self.TEXT_SYSTEM_PROMPT
-        router_model_names = set(get_configured_llm_models(config.llm_model_list))
         for model in models_to_try:
             try:
                 model_short = model.split("/")[-1] if "/" in model else model
@@ -2058,7 +1980,7 @@ class GeminiAnalyzer:
                     "temperature": normalize_litellm_temperature(
                         model,
                         requested_temperature,
-                        model_list=config.llm_model_list,
+                        model_list=None,
                         request_overrides={"extra_body": extra} if extra else None,
                     ),
                     "max_tokens": max_tokens,
@@ -2075,8 +1997,6 @@ class GeminiAnalyzer:
                             model,
                             {**call_kwargs, "stream": True},
                             config=config,
-                            use_channel_router=use_channel_router,
-                            router_model_names=router_model_names,
                         )
                         _stream_text, _stream_usage = self._consume_litellm_stream(
                             stream_response,
@@ -2116,8 +2036,6 @@ class GeminiAnalyzer:
                     model,
                     call_kwargs,
                     config=config,
-                    use_channel_router=use_channel_router,
-                    router_model_names=router_model_names,
                 )
 
                 if response and response.choices and response.choices[0].message.content:
@@ -2240,9 +2158,9 @@ class GeminiAnalyzer:
                 operation_advice='Hold' if report_language == "en" else '持有',
                 confidence_level='Low' if report_language == "en" else '低',
                 analysis_summary='AI analysis is unavailable because no API key is configured.' if report_language == "en" else 'AI 分析功能未启用（未配置 API Key）',
-                risk_warning='Configure an LLM API key (GEMINI_API_KEY/ANTHROPIC_API_KEY/OPENAI_API_KEY) and retry.' if report_language == "en" else '请配置 LLM API Key（GEMINI_API_KEY/ANTHROPIC_API_KEY/OPENAI_API_KEY）后重试',
+                risk_warning='Configure LLM_MODEL and LLM_API_KEY, then retry.' if report_language == "en" else '请配置 LLM_MODEL 与 LLM_API_KEY 后重试',
                 success=False,
-                error_message='LLM API key is not configured' if report_language == "en" else 'LLM API Key 未配置',
+                error_message='LLM API key is not configured' if report_language == "en" else 'LLM 未配置',
                 model_used=None,
                 report_language=report_language,
             )
