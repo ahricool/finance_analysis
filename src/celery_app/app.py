@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from contextlib import AbstractContextManager
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from celery import Celery
 from celery.signals import setup_logging as celery_setup_logging
@@ -34,20 +35,32 @@ def _on_worker_process_init(**_: Any) -> None:
     configure_celery_logging()
 
 
+def _resolve_celery_task_id(task_id: Optional[str], task: Any = None) -> str:
+    if task_id:
+        return str(task_id)
+    request = getattr(task, "request", None)
+    request_id = getattr(request, "id", None)
+    if request_id:
+        return str(request_id)
+    return uuid.uuid4().hex
+
+
 @task_prerun.connect
 def _start_task_file_logging(task_id: str, task: Any, **_: Any) -> None:
     task_name = getattr(task, "name", None) or "celery_task"
-    context = task_logging_context(task_name, celery=True)
+    resolved_task_id = _resolve_celery_task_id(task_id, task)
+    context = task_logging_context(task_name, task_id=resolved_task_id, celery=True)
     context.__enter__()
-    _TASK_LOG_CONTEXTS[task_id] = context
-    logger.info("Celery task started: task_id=%s task_name=%s", task_id, task_name)
+    _TASK_LOG_CONTEXTS[resolved_task_id] = context
+    logger.info("Celery task started: task_id=%s task_name=%s", resolved_task_id, task_name)
 
 
 @task_postrun.connect
 def _stop_task_file_logging(task_id: str, task: Any, state: str, **_: Any) -> None:
     task_name = getattr(task, "name", None) or "celery_task"
-    logger.info("Celery task finished: task_id=%s task_name=%s state=%s", task_id, task_name, state)
-    context = _TASK_LOG_CONTEXTS.pop(task_id, None)
+    resolved_task_id = _resolve_celery_task_id(task_id, task)
+    logger.info("Celery task finished: task_id=%s task_name=%s state=%s", resolved_task_id, task_name, state)
+    context = _TASK_LOG_CONTEXTS.pop(resolved_task_id, None)
     if context is not None:
         context.__exit__(None, None, None)
 
@@ -55,9 +68,10 @@ def _stop_task_file_logging(task_id: str, task: Any, state: str, **_: Any) -> No
 @task_failure.connect
 def _log_task_failure(task_id: str, exception: BaseException, sender: Any, **_: Any) -> None:
     task_name = getattr(sender, "name", None) or "celery_task"
-    logger.error(
+    resolved_task_id = _resolve_celery_task_id(task_id, sender)
+    logger.exception(
         "Celery task failed: task_id=%s task_name=%s exception=%r",
-        task_id,
+        resolved_task_id,
         task_name,
         exception,
         exc_info=(type(exception), exception, exception.__traceback__),

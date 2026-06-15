@@ -11,7 +11,6 @@
 """
 
 import logging
-import traceback
 from typing import Callable
 
 from fastapi import Request, Response
@@ -50,10 +49,10 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             # 记录错误日志
             logger.exception(
-                f"未处理的异常: {e}\n"
-                f"请求路径: {request.url.path}\n"
-                f"请求方法: {request.method}\n"
-                f"堆栈: {traceback.format_exc()}"
+                "未处理的异常: %s\n请求路径: %s\n请求方法: %s",
+                e,
+                request.url.path,
+                request.method,
             )
             
             # 返回统一格式的错误响应
@@ -119,10 +118,11 @@ def add_error_handlers(app) -> None:
     @app.exception_handler(Exception)
     async def general_exception_handler(request: Request, exc: Exception):
         """处理通用异常"""
-        logger.error(
-            f"未处理的异常: {exc}\n"
-            f"请求路径: {request.url.path}\n"
-            f"堆栈: {traceback.format_exc()}"
+        logger.exception(
+            "未处理的异常: %s\n请求路径: %s",
+            exc,
+            request.url.path,
+            exc_info=(type(exc), exc, exc.__traceback__),
         )
         return JSONResponse(
             status_code=500,

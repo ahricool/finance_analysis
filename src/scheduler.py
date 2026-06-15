@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from functools import wraps
 from datetime import datetime
 from typing import Any, Callable, List, Optional, Sequence, TypeVar
@@ -51,7 +52,8 @@ def _with_task_logging(task_log_name: str) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            with task_logging_context(task_log_name):
+            task_id = uuid.uuid4().hex
+            with task_logging_context(task_log_name, task_id=task_id):
                 return func(*args, **kwargs)
 
         return wrapper  # type: ignore[return-value]

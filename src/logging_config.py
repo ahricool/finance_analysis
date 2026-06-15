@@ -15,8 +15,11 @@ import os
 import re
 import sys
 import threading
+import uuid
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
+from logging import FileHandler
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
@@ -35,8 +38,6 @@ DEFAULT_APP_LOG_MAX_BYTES = 10 * 1024 * 1024
 DEFAULT_APP_LOG_BACKUP_COUNT = 5
 DEFAULT_DEBUG_LOG_MAX_BYTES = 50 * 1024 * 1024
 DEFAULT_DEBUG_LOG_BACKUP_COUNT = 3
-DEFAULT_TASK_LOG_MAX_BYTES = 10 * 1024 * 1024
-DEFAULT_TASK_LOG_BACKUP_COUNT = 10
 _ALLOWED_LOG_LEVELS = {
     'DEBUG': logging.DEBUG,
     'INFO': logging.INFO,
@@ -46,6 +47,10 @@ _ALLOWED_LOG_LEVELS = {
 }
 _DEFAULT_LITELLM_LOG_LEVEL = 'WARNING'
 _TASK_HANDLER_LOCK = threading.RLock()
+_TASK_RECORD_FACTORY_LOCK = threading.RLock()
+_TASK_RECORD_FACTORY_INSTALLED = False
+_TASK_ID_CONTEXT: ContextVar[Optional[str]] = ContextVar("finance_task_id", default=None)
+_TASK_NAME_CONTEXT: ContextVar[Optional[str]] = ContextVar("finance_task_name", default=None)
 _SAFE_LOG_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
@@ -144,9 +149,47 @@ def get_task_log_dir(*, celery: bool = False, log_base_dir: Optional[str] = None
     return get_log_base_dir(log_base_dir) / subdir
 
 
-def get_task_log_file(task_name: str, *, celery: bool = False, log_base_dir: Optional[str] = None) -> Path:
-    """Resolve the rotating log file for one logical task type."""
-    return get_task_log_dir(celery=celery, log_base_dir=log_base_dir) / f"{_sanitize_log_file_stem(task_name)}.log"
+def get_task_log_file(
+    task_name: str,
+    task_id: str,
+    *,
+    celery: bool = False,
+    log_base_dir: Optional[str] = None,
+) -> Path:
+    """Resolve the per-run task log file."""
+    file_stem = f"{_sanitize_log_file_stem(task_name)}_{_sanitize_log_file_stem(task_id)}"
+    return get_task_log_dir(celery=celery, log_base_dir=log_base_dir) / f"{file_stem}.log"
+
+
+class _TaskLogFilter(logging.Filter):
+    """Allow only records emitted from the matching task context."""
+
+    def __init__(self, task_id: str) -> None:
+        super().__init__()
+        self.task_id = task_id
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return getattr(record, "finance_task_id", None) == self.task_id
+
+
+def _install_task_record_factory() -> None:
+    """Attach task context fields to every LogRecord exactly once."""
+    global _TASK_RECORD_FACTORY_INSTALLED
+    if _TASK_RECORD_FACTORY_INSTALLED:
+        return
+    with _TASK_RECORD_FACTORY_LOCK:
+        if _TASK_RECORD_FACTORY_INSTALLED:
+            return
+        previous_factory = logging.getLogRecordFactory()
+
+        def record_factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
+            record = previous_factory(*args, **kwargs)
+            record.finance_task_id = _TASK_ID_CONTEXT.get()
+            record.finance_task_name = _TASK_NAME_CONTEXT.get()
+            return record
+
+        logging.setLogRecordFactory(record_factory)
+        _TASK_RECORD_FACTORY_INSTALLED = True
 
 
 def setup_logging(
@@ -308,44 +351,61 @@ def ensure_backend_logging(service: str = "server", **kwargs: Any) -> None:
 def task_logging_context(
     task_name: str,
     *,
+    task_id: Optional[str] = None,
     celery: bool = False,
     log_base_dir: Optional[str] = None,
     level: int = logging.DEBUG,
 ) -> Iterator[logging.Logger]:
-    """Attach a rotating task-specific file handler for the current task run."""
-    log_file = get_task_log_file(task_name, celery=celery, log_base_dir=log_base_dir)
+    """Attach a task-run-specific file handler for the current task context."""
+    _install_task_record_factory()
+    resolved_task_id = str(task_id or uuid.uuid4().hex)
+    log_file = get_task_log_file(
+        task_name,
+        resolved_task_id,
+        celery=celery,
+        log_base_dir=log_base_dir,
+    )
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
     project_root = Path.cwd()
     formatter = RelativePathFormatter(LOG_FORMAT, LOG_DATE_FORMAT, relative_to=project_root)
-    handler = RotatingFileHandler(
+    handler = FileHandler(
         log_file,
-        maxBytes=_env_int("TASK_LOG_MAX_BYTES", DEFAULT_TASK_LOG_MAX_BYTES),
-        backupCount=_env_int("TASK_LOG_BACKUP_COUNT", DEFAULT_TASK_LOG_BACKUP_COUNT),
         encoding="utf-8",
     )
     handler.setLevel(level)
     handler.setFormatter(formatter)
+    handler.addFilter(_TaskLogFilter(resolved_task_id))
     handler._finance_task_handler = True  # type: ignore[attr-defined]
     handler._finance_task_name = task_name  # type: ignore[attr-defined]
+    handler._finance_task_id = resolved_task_id  # type: ignore[attr-defined]
 
     root_logger = logging.getLogger()
     task_logger_name = "tasks.celery" if celery else "tasks.apscheduler"
     task_logger = logging.getLogger(f"{task_logger_name}.{_sanitize_log_file_stem(task_name)}")
 
+    task_id_token = _TASK_ID_CONTEXT.set(resolved_task_id)
+    task_name_token = _TASK_NAME_CONTEXT.set(task_name)
     with _TASK_HANDLER_LOCK:
         root_logger.addHandler(handler)
-    task_logger.info("任务日志开始: task_name=%s log_file=%s", task_name, log_file)
+    task_logger.info(
+        "任务日志开始: task_name=%s task_id=%s log_file=%s",
+        task_name,
+        resolved_task_id,
+        log_file,
+    )
     try:
         yield task_logger
     except Exception:
-        task_logger.exception("任务执行异常: task_name=%s", task_name)
+        task_logger.exception("任务执行异常: task_name=%s task_id=%s", task_name, resolved_task_id)
         raise
     finally:
-        task_logger.info("任务日志结束: task_name=%s", task_name)
+        task_logger.info("任务日志结束: task_name=%s task_id=%s", task_name, resolved_task_id)
         with _TASK_HANDLER_LOCK:
             root_logger.removeHandler(handler)
         handler.close()
+        _TASK_NAME_CONTEXT.reset(task_name_token)
+        _TASK_ID_CONTEXT.reset(task_id_token)
 
 
 def _truncate_for_log(value: Any, limit: int = 2000) -> Any:

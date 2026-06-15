@@ -2,6 +2,7 @@
 """Regression tests for application logging configuration."""
 
 import logging
+import threading
 import types
 
 import pytest
@@ -115,11 +116,12 @@ def test_task_logging_context_writes_task_file(tmp_path, monkeypatch):
     monkeypatch.setenv("LOG_DIR", str(tmp_path))
 
     setup_backend_logging(service="server", log_prefix="web_server", debug=False)
-    with task_logging_context("analysis_daily"):
+    with task_logging_context("analysis_daily", task_id="aps-123"):
         logging.getLogger("src.sample").info("task log routing works")
 
-    task_log = get_task_log_file("analysis_daily", log_base_dir=str(tmp_path))
+    task_log = get_task_log_file("analysis_daily", "aps-123", log_base_dir=str(tmp_path))
     assert task_log.is_file()
+    assert task_log.name == "analysis_daily_aps-123.log"
     assert "task log routing works" in task_log.read_text(encoding="utf-8")
 
 
@@ -127,12 +129,50 @@ def test_celery_task_logging_context_uses_celery_task_directory(tmp_path, monkey
     monkeypatch.setenv("LOG_DIR", str(tmp_path))
 
     setup_backend_logging(service="celery", log_prefix="celery", debug=False)
-    with task_logging_context("demo.add", celery=True):
+    with task_logging_context("demo.add", task_id="celery-123", celery=True):
         logging.getLogger("src.sample").info("celery task log routing works")
 
-    task_log = get_task_log_file("demo.add", celery=True, log_base_dir=str(tmp_path))
+    task_log = get_task_log_file("demo.add", "celery-123", celery=True, log_base_dir=str(tmp_path))
     assert task_log.is_file()
+    assert task_log.name == "demo.add_celery-123.log"
     assert "celery task log routing works" in task_log.read_text(encoding="utf-8")
+
+
+def test_overlapping_task_logging_contexts_do_not_cross_write(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+    setup_backend_logging(service="server", log_prefix="web_server", debug=False)
+    logger = logging.getLogger("src.sample")
+    barrier = threading.Barrier(2)
+
+    def run_task(task_id: str, own_message: str, other_message: str) -> None:
+        with task_logging_context("analysis_daily", task_id=task_id):
+            barrier.wait(timeout=5)
+            logger.info(own_message)
+            logger.info(other_message)
+
+    first = threading.Thread(target=run_task, args=("task-a", "message from task a", "shared overlap a"))
+    second = threading.Thread(target=run_task, args=("task-b", "message from task b", "shared overlap b"))
+    first.start()
+    second.start()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+
+    first_log = get_task_log_file("analysis_daily", "task-a", log_base_dir=str(tmp_path))
+    second_log = get_task_log_file("analysis_daily", "task-b", log_base_dir=str(tmp_path))
+    first_text = first_log.read_text(encoding="utf-8")
+    second_text = second_log.read_text(encoding="utf-8")
+
+    assert "message from task a" in first_text
+    assert "shared overlap a" in first_text
+    assert "message from task b" not in first_text
+    assert "shared overlap b" not in first_text
+    assert "message from task b" in second_text
+    assert "shared overlap b" in second_text
+    assert "message from task a" not in second_text
+    assert "shared overlap a" not in second_text
 
 
 def test_external_call_exception_logs_response_details(tmp_path, monkeypatch):

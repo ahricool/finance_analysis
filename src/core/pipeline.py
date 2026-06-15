@@ -2132,8 +2132,7 @@ class StockAnalysisPipeline:
                 and hasattr(self.notifier, "release_noise_control")
             ):
                 self.notifier.release_noise_control(noise_decision)
-            import traceback
-            logger.exception(f"发送通知失败: {e}\n{traceback.format_exc()}")
+            logger.exception("发送通知失败: %s", e)
 
     def _generate_aggregate_report(
         self,
