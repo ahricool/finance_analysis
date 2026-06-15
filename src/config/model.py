@@ -10,12 +10,12 @@ Finance Analysis - 配置管理模块
 3. 提供类型安全的配置访问接口
 """
 
-import json
 import logging
 import os
 import re
+import sys
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 from urllib.parse import unquote, urlparse
 from dotenv import load_dotenv, dotenv_values
 from dataclasses import dataclass, field
@@ -32,7 +32,26 @@ from src.notification_noise import (
     validate_notification_timezone,
 )
 
+from .constants import AGENT_MAX_STEPS_DEFAULT
+from .env_parsing import (
+    parse_env_bool,
+    parse_env_float,
+    parse_env_int,
+    parse_optional_env_int,
+)
+from .news import normalize_news_strategy_profile, resolve_news_window_days
+from .llm import resolve_unified_llm_temperature
+from .agent_models import (
+    get_effective_agent_primary_model,
+    normalize_agent_litellm_model,
+)
+
 logger = logging.getLogger(__name__)
+
+# Project root (config package lives at ``<root>/src/config``); resolve the
+# ``.env`` location relative to it so the package layout does not change which
+# file is loaded.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass
@@ -54,29 +73,6 @@ class ConfigIssue:
         return self.message
 
 
-_MANAGED_LITELLM_KEY_PROVIDERS = {"gemini", "vertex_ai", "anthropic", "openai", "deepseek"}
-SUPPORTED_LLM_CHANNEL_PROTOCOLS = ("openai", "anthropic", "gemini", "vertex_ai", "deepseek", "ollama")
-_FALSEY_ENV_VALUES = {"0", "false", "no", "off"}
-# Fallback defaults used when ANSPIRE_API_KEYS is reused as legacy OpenAI-compatible source.
-# These are compatibility examples; actual availability should be validated by Anspire console/model entitlement.
-ANSPIRE_LLM_BASE_URL_DEFAULT = "https://open-gateway.anspire.cn/v6"
-ANSPIRE_LLM_MODEL_DEFAULT = "Doubao-Seed-2.0-lite"
-# Kimi K2.6 is consumed through Moonshot's OpenAI-compatible API in this
-# repository. Official references:
-# - https://platform.kimi.ai/docs/guide/kimi-k2-6-quickstart
-# - https://platform.moonshot.ai/docs/guide/compatibility#parameters-differences-in-request-body
-# - https://huggingface.co/moonshotai/Kimi-K2.6
-# - https://docs.litellm.ai/docs/providers/openai_compatible
-# Only the strict Kimi K2.6 family is normalized here; other models and
-# fallbacks continue using the configured runtime temperature.
-_FIXED_TEMPERATURE_LITELLM_MODELS: Dict[str, Dict[str, float]] = {
-    "kimi-k2.6": {
-        "thinking": 1.0,
-        "non_thinking": 0.6,
-    },
-}
-
-
 def _has_ntfy_topic_endpoint(value: Optional[str]) -> bool:
     """Return whether an ntfy URL points at a concrete topic endpoint."""
     raw_url = (value or "").strip()
@@ -86,504 +82,6 @@ def _has_ntfy_topic_endpoint(value: Optional[str]) -> bool:
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
         return False
     return any(unquote(segment).strip() for segment in parsed.path.split("/") if segment)
-
-
-def _has_gotify_base_url_unused(value: Optional[str]) -> bool:  # noqa: kept for reference
-    """Return whether a Gotify URL points at a server base URL, not /message."""
-    raw_url = (value or "").strip().rstrip("/")
-    if not raw_url:
-        return False
-    parsed = urlparse(raw_url)
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
-        return False
-    if parsed.query or parsed.fragment:
-        return False
-    path_segments = [segment for segment in parsed.path.split("/") if segment]
-    return not (path_segments and path_segments[-1].lower() == "message")
-
-
-AGENT_MAX_STEPS_DEFAULT = 10
-NEWS_STRATEGY_WINDOWS: Dict[str, int] = {
-    "ultra_short": 1,
-    "short": 3,
-    "medium": 7,
-    "long": 30,
-}
-
-
-def parse_env_bool(value: Optional[str], default: bool = False) -> bool:
-    """Parse common truthy/falsey environment-style values."""
-    if value is None:
-        return default
-    normalized = value.strip().lower()
-    if not normalized:
-        return default
-    return normalized not in _FALSEY_ENV_VALUES
-
-
-def parse_env_int(
-    value: Optional[str],
-    default: int,
-    *,
-    field_name: str,
-    minimum: Optional[int] = None,
-    maximum: Optional[int] = None,
-) -> int:
-    """Parse an integer env value with warning + fallback semantics."""
-    raw_value = value
-    if raw_value is None or not str(raw_value).strip():
-        parsed = int(default)
-    else:
-        try:
-            parsed = int(str(raw_value).strip())
-        except (TypeError, ValueError):
-            logger.warning(
-                "%s=%r is not a valid integer; falling back to %s",
-                field_name,
-                raw_value,
-                default,
-            )
-            parsed = int(default)
-
-    if minimum is not None and parsed < minimum:
-        logger.warning(
-            "%s=%r is below minimum %s; clamping to %s",
-            field_name,
-            parsed,
-            minimum,
-            minimum,
-        )
-        parsed = minimum
-    if maximum is not None and parsed > maximum:
-        logger.warning(
-            "%s=%r is above maximum %s; clamping to %s",
-            field_name,
-            parsed,
-            maximum,
-            maximum,
-        )
-        parsed = maximum
-    return parsed
-
-
-def parse_optional_env_int(
-    value: Optional[str],
-    *,
-    field_name: str,
-    minimum: Optional[int] = None,
-    maximum: Optional[int] = None,
-) -> Optional[int]:
-    """Parse an optional integer env value with warning + unset semantics."""
-    raw_value = value
-    if raw_value is None or not str(raw_value).strip():
-        return None
-
-    try:
-        parsed = int(str(raw_value).strip())
-    except (TypeError, ValueError):
-        logger.warning("%s=%r is not a valid integer; ignoring it", field_name, raw_value)
-        return None
-
-    if minimum is not None and parsed < minimum:
-        logger.warning(
-            "%s=%r is below minimum %s; clamping to %s",
-            field_name,
-            parsed,
-            minimum,
-            minimum,
-        )
-        parsed = minimum
-    if maximum is not None and parsed > maximum:
-        logger.warning(
-            "%s=%r is above maximum %s; clamping to %s",
-            field_name,
-            parsed,
-            maximum,
-            maximum,
-        )
-        parsed = maximum
-    return parsed
-
-
-def parse_env_float(
-    value: Optional[str],
-    default: float,
-    *,
-    field_name: str,
-    minimum: Optional[float] = None,
-    maximum: Optional[float] = None,
-) -> float:
-    """Parse a float env value with warning + fallback semantics."""
-    raw_value = value
-    if raw_value is None or not str(raw_value).strip():
-        parsed = float(default)
-    else:
-        try:
-            parsed = float(str(raw_value).strip())
-        except (TypeError, ValueError):
-            logger.warning(
-                "%s=%r is not a valid number; falling back to %s",
-                field_name,
-                raw_value,
-                default,
-            )
-            parsed = float(default)
-
-    if minimum is not None and parsed < minimum:
-        logger.warning(
-            "%s=%r is below minimum %s; clamping to %s",
-            field_name,
-            parsed,
-            minimum,
-            minimum,
-        )
-        parsed = minimum
-    if maximum is not None and parsed > maximum:
-        logger.warning(
-            "%s=%r is above maximum %s; clamping to %s",
-            field_name,
-            parsed,
-            maximum,
-            maximum,
-        )
-        parsed = maximum
-    return parsed
-
-
-def normalize_news_strategy_profile(value: Optional[str]) -> str:
-    """Normalize news strategy profile to known values."""
-    candidate = (value or "short").strip().lower()
-    return candidate if candidate in NEWS_STRATEGY_WINDOWS else "short"
-
-
-def resolve_news_window_days(news_max_age_days: int, news_strategy_profile: Optional[str]) -> int:
-    """Resolve effective news window days from profile and global max-age."""
-    profile = normalize_news_strategy_profile(news_strategy_profile)
-    profile_days = NEWS_STRATEGY_WINDOWS.get(profile, NEWS_STRATEGY_WINDOWS["short"])
-    return max(1, min(max(1, int(news_max_age_days)), profile_days))
-
-
-def canonicalize_llm_channel_protocol(value: Optional[str]) -> str:
-    """Normalize a protocol label into a LiteLLM provider identifier."""
-    candidate = (value or "").strip().lower().replace("-", "_")
-    aliases = {
-        "openai_compatible": "openai",
-        "openai_compat": "openai",
-        "claude": "anthropic",
-        "google": "gemini",
-        "vertex": "vertex_ai",
-        "vertexai": "vertex_ai",
-    }
-    return aliases.get(candidate, candidate)
-
-
-def resolve_llm_channel_protocol(
-    protocol: Optional[str],
-    *,
-    base_url: Optional[str] = None,
-    models: Optional[List[str]] = None,
-    channel_name: Optional[str] = None,
-) -> str:
-    """Resolve the effective protocol for a channel."""
-    explicit = canonicalize_llm_channel_protocol(protocol)
-    if explicit in SUPPORTED_LLM_CHANNEL_PROTOCOLS:
-        return explicit
-
-    for model in models or []:
-        if "/" not in model:
-            continue
-        prefix = canonicalize_llm_channel_protocol(model.split("/", 1)[0])
-        if prefix in SUPPORTED_LLM_CHANNEL_PROTOCOLS:
-            return prefix
-
-    # Infer from channel name (e.g. "deepseek" -> deepseek, "gemini" -> gemini)
-    if channel_name:
-        name_protocol = canonicalize_llm_channel_protocol(channel_name)
-        if name_protocol in SUPPORTED_LLM_CHANNEL_PROTOCOLS:
-            return name_protocol
-
-    if base_url:
-        parsed = urlparse(base_url)
-        if parsed.hostname in {"127.0.0.1", "localhost", "0.0.0.0"}:
-            # Default to openai for local servers (vLLM, LM Studio, LocalAI, etc.).
-            # Ollama users should set PROTOCOL=ollama explicitly or name the channel "ollama".
-            return "openai"
-        return "openai"
-
-    return ""
-
-
-def channel_allows_empty_api_key(protocol: Optional[str], base_url: Optional[str]) -> bool:
-    """Return True when a channel can run without an API key."""
-    resolved_protocol = resolve_llm_channel_protocol(protocol, base_url=base_url)
-    if resolved_protocol == "ollama":
-        return True
-    parsed = urlparse(base_url or "")
-    return parsed.hostname in {"127.0.0.1", "localhost", "0.0.0.0"}
-
-
-def normalize_llm_channel_model(model: str, protocol: Optional[str], base_url: Optional[str] = None) -> str:
-    """Attach a provider prefix when the model omits it."""
-    normalized_model = model.strip()
-    if not normalized_model:
-        return normalized_model
-
-    resolved_protocol = resolve_llm_channel_protocol(protocol, base_url=base_url, models=[normalized_model])
-
-    if "/" in normalized_model:
-        # The model already has a slash, e.g. 'deepseek-ai/DeepSeek-V3'.
-        # Check if the prefix is a known LiteLLM provider; if so, keep it.
-        # Otherwise (e.g. HuggingFace-style IDs on SiliconFlow), prepend
-        # the resolved protocol so LiteLLM routes via the correct handler.
-        raw_prefix, remainder = normalized_model.split("/", 1)
-        prefix = raw_prefix.lower()
-        canonical_prefix = canonicalize_llm_channel_protocol(prefix)
-        known_providers = _MANAGED_LITELLM_KEY_PROVIDERS | set(SUPPORTED_LLM_CHANNEL_PROTOCOLS) | {
-            "minimax",
-            "cohere", "huggingface", "bedrock", "sagemaker", "azure",
-            "replicate", "together_ai", "palm", "text-completion-openai",
-            "command-r", "groq", "cerebras", "fireworks_ai", "friendliai",
-        }
-        if prefix in known_providers:
-            return normalized_model
-        if canonical_prefix in known_providers:
-            return f"{canonical_prefix}/{remainder}"
-        # Not a real provider prefix — add one so LiteLLM routes correctly.
-        if resolved_protocol:
-            return f"{resolved_protocol}/{normalized_model}"
-        return normalized_model
-
-    if not resolved_protocol:
-        return normalized_model
-    return f"{resolved_protocol}/{normalized_model}"
-
-
-def get_configured_llm_models(model_list: List[Dict[str, Any]]) -> List[str]:
-    """Return non-legacy model names declared in Router model_list order.
-
-    Uses the top-level ``model_name`` (the routing alias that users set in
-    LLM_MODEL) rather than ``litellm_params.model`` (the wire-level
-    model identifier).  For channel-built entries both are identical, but
-    YAML configs may define a friendly alias that differs from the
-    underlying provider/model path.
-    """
-    models: List[str] = []
-    seen: set = set()
-    for entry in model_list or []:
-        # Prefer top-level model_name (router routing key); fall back to
-        # litellm_params.model for entries that omit it.
-        name = str(entry.get("model_name") or "").strip()
-        if not name:
-            params = entry.get("litellm_params", {}) or {}
-            name = str(params.get("model") or "").strip()
-        if not name or name.startswith("__legacy_") or name in seen:
-            continue
-        seen.add(name)
-        models.append(name)
-    return models
-
-
-def resolve_litellm_wire_model(
-    model: str,
-    model_list: Optional[List[Dict[str, Any]]] = None,
-) -> str:
-    """Resolve a router alias to its underlying LiteLLM wire model."""
-    normalized_model = (model or "").strip()
-    if not normalized_model or not model_list:
-        return normalized_model
-
-    model_entry = _resolve_litellm_model_list_entry(normalized_model, model_list)
-    if not model_entry:
-        return normalized_model
-
-    params = model_entry.get("litellm_params", {}) or {}
-    wire_model = str(params.get("model") or "").strip()
-    if wire_model:
-        return wire_model
-    return normalized_model
-
-
-def _resolve_litellm_model_list_entry(
-    model: str,
-    model_list: Optional[List[Dict[str, Any]]] = None,
-) -> Optional[Dict[str, Any]]:
-    """Return the Router model_list entry matching the configured alias."""
-    normalized_model = (model or "").strip()
-    if not normalized_model or not model_list:
-        return None
-
-    for entry in model_list:
-        model_name = str(entry.get("model_name") or "").strip()
-        if not model_name:
-            params = entry.get("litellm_params", {}) or {}
-            model_name = str(params.get("model") or "").strip()
-        if model_name == normalized_model:
-            return entry
-    return None
-
-
-def _extract_thinking_config(payload: Optional[Dict[str, Any]]) -> Any:
-    """Extract a thinking-mode flag from LiteLLM-style request kwargs."""
-    if not isinstance(payload, dict):
-        return None
-    extra_body = payload.get("extra_body")
-    if isinstance(extra_body, dict) and "thinking" in extra_body:
-        return extra_body.get("thinking")
-    if "thinking" in payload:
-        return payload.get("thinking")
-    return None
-
-
-def _parse_thinking_enabled(value: Any) -> Optional[bool]:
-    """Parse thinking-mode config into True/False/unknown."""
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"enabled", "enable", "true", "1", "on", "thinking"}:
-            return True
-        if normalized in {"disabled", "disable", "false", "0", "off", "none", "non-thinking", "non_thinking"}:
-            return False
-        return None
-    if isinstance(value, dict):
-        if "enabled" in value:
-            return _parse_thinking_enabled(value.get("enabled"))
-        if "type" in value:
-            return _parse_thinking_enabled(value.get("type"))
-    return None
-
-
-def resolve_litellm_thinking_enabled(
-    model: str,
-    model_list: Optional[List[Dict[str, Any]]] = None,
-    request_overrides: Optional[Dict[str, Any]] = None,
-) -> Optional[bool]:
-    """Resolve whether the outgoing LiteLLM request explicitly enables thinking."""
-    thinking_config = None
-    model_entry = _resolve_litellm_model_list_entry(model, model_list)
-    if model_entry:
-        thinking_config = _extract_thinking_config(model_entry)
-        entry_params = model_entry.get("litellm_params", {}) or {}
-        entry_thinking_config = _extract_thinking_config(entry_params)
-        if entry_thinking_config is not None:
-            thinking_config = entry_thinking_config
-
-    override_thinking_config = _extract_thinking_config(request_overrides)
-    if override_thinking_config is not None:
-        thinking_config = override_thinking_config
-    return _parse_thinking_enabled(thinking_config)
-
-
-def get_fixed_litellm_temperature(
-    model: str,
-    model_list: Optional[List[Dict[str, Any]]] = None,
-    request_overrides: Optional[Dict[str, Any]] = None,
-) -> Optional[float]:
-    """Return a provider-mandated temperature for known strict models."""
-    normalized_model = resolve_litellm_wire_model(model, model_list).lower()
-    if not normalized_model:
-        return None
-    thinking_enabled = resolve_litellm_thinking_enabled(
-        model,
-        model_list=model_list,
-        request_overrides=request_overrides,
-    )
-    model_parts = [part for part in re.split(r"[/:\s]+", normalized_model) if part]
-    for model_name, temperatures in _FIXED_TEMPERATURE_LITELLM_MODELS.items():
-        if any(part == model_name or part.startswith(f"{model_name}-") for part in model_parts):
-            if thinking_enabled is False and temperatures.get("non_thinking") is not None:
-                return temperatures["non_thinking"]
-            if temperatures.get("thinking") is not None:
-                return temperatures["thinking"]
-            if temperatures.get("non_thinking") is not None:
-                return temperatures["non_thinking"]
-    return None
-
-
-def normalize_litellm_temperature(
-    model: str,
-    temperature: Optional[float],
-    *,
-    default: float = 0.7,
-    model_list: Optional[List[Dict[str, Any]]] = None,
-    request_overrides: Optional[Dict[str, Any]] = None,
-) -> float:
-    """Normalize temperature before sending a LiteLLM request."""
-    fixed_temperature = get_fixed_litellm_temperature(
-        model,
-        model_list=model_list,
-        request_overrides=request_overrides,
-    )
-    if fixed_temperature is not None:
-        return fixed_temperature
-    if temperature is None:
-        return default
-    return float(temperature)
-
-
-def resolve_unified_llm_temperature(model: str) -> float:
-    """Resolve the raw unified LLM temperature."""
-    llm_temperature_raw = os.getenv("LLM_TEMPERATURE")
-    if llm_temperature_raw and llm_temperature_raw.strip():
-        try:
-            return float(llm_temperature_raw)
-        except (ValueError, TypeError):
-            pass
-
-    return 0.7
-
-
-def _get_litellm_provider(model: str) -> str:
-    """Extract the LiteLLM provider prefix from a model string."""
-    if not model:
-        return ""
-    if "/" in model:
-        return model.split("/", 1)[0]
-    return "openai"
-
-
-def _uses_direct_env_provider(model: str) -> bool:
-    """Whether runtime handles the model via direct litellm env/provider resolution."""
-    provider = _get_litellm_provider(model)
-    return bool(provider) and provider not in _MANAGED_LITELLM_KEY_PROVIDERS
-
-
-def normalize_agent_litellm_model(model: str) -> str:
-    """Normalize AGENT_LITELLM_MODEL into a LiteLLM model id."""
-    normalized_model = (model or "").strip()
-    if not normalized_model:
-        return ""
-    if "/" not in normalized_model:
-        return f"openai/{normalized_model}"
-    return normalized_model
-
-
-def get_effective_agent_primary_model(config: "Config") -> str:
-    """Return the effective Agent primary model with fallback inheritance."""
-    configured_agent_model = normalize_agent_litellm_model(
-        getattr(config, "agent_litellm_model", ""),
-    )
-    if configured_agent_model:
-        return configured_agent_model
-    return (getattr(config, "llm_model", "") or "").strip()
-
-
-def get_effective_agent_models_to_try(config: "Config") -> List[str]:
-    """Return Agent model try-order: primary + global fallbacks (deduped)."""
-    raw_models = [get_effective_agent_primary_model(config)] + (
-        getattr(config, "llm_fallback_models", []) or []
-    )
-    seen = set()
-    ordered_models: List[str] = []
-    for model in raw_models:
-        normalized_model = (model or "").strip()
-        if not normalized_model or normalized_model in seen:
-            continue
-        seen.add(normalized_model)
-        ordered_models.append(normalized_model)
-    return ordered_models
 
 
 def setup_env(override: bool = False):
@@ -597,26 +95,29 @@ def setup_env(override: bool = False):
                   system environment variables take precedence.
     """
     Config._capture_bootstrap_runtime_env_overrides()
-    # src/config.py -> src/ -> root
     env_file = os.getenv("ENV_FILE")
     if env_file:
         env_path = Path(env_file)
     else:
-        env_path = Path(__file__).parent.parent / '.env'
-    load_dotenv(dotenv_path=env_path, override=override)
+        env_path = _PROJECT_ROOT / '.env'
+    # Resolve ``load_dotenv`` through the package namespace so that tests which
+    # patch ``src.config.load_dotenv`` keep working after the package split.
+    _pkg = sys.modules.get(__package__)
+    _load_dotenv = getattr(_pkg, "load_dotenv", load_dotenv) if _pkg else load_dotenv
+    _load_dotenv(dotenv_path=env_path, override=override)
 
 
 @dataclass
 class Config:
     """
     系统配置类 - 单例模式
-    
+
     设计说明：
     - 使用 dataclass 简化配置属性定义
     - 所有配置项从环境变量读取，支持默认值
     - 类方法 get_instance() 实现单例访问
     """
-    
+
     # === 数据源 API Token ===
     # 自选股已迁移到数据库 ``watch_list`` 表（见 src.repositories.watch_list_repo），
     # 由 WebUI「自选股」页面或 /api/v1/watch-list 接口管理，不再作为环境变量。
@@ -682,12 +183,12 @@ class Config:
     agent_event_alert_rules_json: str = ""  # JSON array of serialized EventMonitor rules
 
     # === 通知配置（可同时配置多个，全部推送）===
-    
+
     # Telegram 配置（需要同时配置 Bot Token 和 Chat ID）
     telegram_bot_token: Optional[str] = None  # Bot Token（@BotFather 获取）
     telegram_chat_id: Optional[str] = None  # Chat ID
     telegram_message_thread_id: Optional[str] = None  # Topic ID (Message Thread ID) for groups
-    
+
     # 邮件配置（只需邮箱和授权码，SMTP 自动识别）
     email_sender: Optional[str] = None  # 发件人邮箱
     email_sender_name: str = "Finance Analysis 分析助手"  # 发件人显示名称
@@ -778,17 +279,17 @@ class Config:
     backtest_min_age_days: int = 14
     backtest_engine_version: str = "v1"
     backtest_neutral_band_pct: float = 2.0
-    
+
     # === 日志配置 ===
     log_dir: str = "./logs"  # 日志文件目录
     log_level: str = "INFO"  # 日志级别
-    
+
     # === 系统配置 ===
     max_workers: int = 3  # 低并发防封禁
     debug: bool = False
     http_proxy: Optional[str] = None  # HTTP 代理 (例如: http://127.0.0.1:10809)
-    https_proxy: Optional[str] = None # HTTPS 代理
-    
+    https_proxy: Optional[str] = None  # HTTPS 代理
+
     # === 定时任务配置 ===
     # NOTE: 定时任务（启用/时间/启动立即执行）已全部写死在 src/scheduler.py，
     # 不再从环境变量读取。如需修改，请编辑 src/scheduler.py 并重启进程。
@@ -845,15 +346,15 @@ class Config:
     # Akshare 请求间隔范围（秒）
     akshare_sleep_min: float = 2.0
     akshare_sleep_max: float = 5.0
-    
+
     # Tushare 每分钟最大请求数（免费配额）
     tushare_rate_limit_per_minute: int = 80
-    
+
     # 重试配置
     max_retries: int = 3
     retry_base_delay: float = 1.0
     retry_max_delay: float = 30.0
-    
+
     # === WebUI 配置 ===
     webui_enabled: bool = False
     webui_host: str = ""
@@ -926,12 +427,12 @@ class Config:
 
     # 单例实例存储
     _instance: Optional['Config'] = None
-    
+
     @classmethod
     def get_instance(cls) -> 'Config':
         """
         获取配置单例实例
-        
+
         单例模式确保：
         1. 全局只有一个配置实例
         2. 配置只从环境变量加载一次
@@ -940,12 +441,12 @@ class Config:
         if cls._instance is None:
             cls._instance = cls._load_from_env()
         return cls._instance
-    
+
     @classmethod
     def _load_from_env(cls) -> 'Config':
         """
         从 .env 文件加载配置
-        
+
         加载优先级：
         1. 大多数配置保持系统环境变量优先
         2. WebUI 可写的运行期关键键优先复用持久化 `.env`，但保留启动时显式进程环境变量的 override
@@ -954,8 +455,11 @@ class Config:
         cls._capture_bootstrap_runtime_env_overrides()
         preexisting_report_language = os.environ.get("REPORT_LANGUAGE")
 
-        # 确保环境变量已加载
-        setup_env()
+        # 确保环境变量已加载。通过包命名空间解析 ``setup_env``，使得既有测试中
+        # ``@patch("src.config.setup_env")`` 在模块拆分后仍然生效。
+        _pkg = sys.modules.get(__package__)
+        _setup_env = getattr(_pkg, "setup_env", setup_env) if _pkg else setup_env
+        _setup_env()
 
         # === 智能代理配置 (关键修复) ===
         # 如果配置了代理，自动设置 NO_PROXY 以排除国内数据源，避免行情获取失败
@@ -998,7 +502,6 @@ class Config:
                 os.environ['HTTPS_PROXY'] = https_proxy
                 os.environ['https_proxy'] = https_proxy
 
-        
         # === LiteLLM unified config ===
         llm_model = os.getenv("LLM_MODEL", "").strip()
         llm_base_url = os.getenv("LLM_BASE_URL", "").strip() or None
@@ -1021,10 +524,10 @@ class Config:
 
         minimax_keys_str = os.getenv('MINIMAX_API_KEYS', '')
         minimax_api_keys = [k.strip() for k in minimax_keys_str.split(',') if k.strip()]
-        
+
         tavily_keys_str = os.getenv('TAVILY_API_KEYS', '')
         tavily_api_keys = [k.strip() for k in tavily_keys_str.split(',') if k.strip()]
-        
+
         serpapi_keys_str = os.getenv('SERPAPI_API_KEYS', '')
         serpapi_keys = [k.strip() for k in serpapi_keys_str.split(',') if k.strip()]
 
@@ -1053,7 +556,7 @@ class Config:
         report_language_raw = cls._resolve_report_language_env_value(
             preexisting_report_language
         )
-        
+
         return cls(
             tushare_token=os.getenv('TUSHARE_TOKEN'),
             tickflow_api_key=os.getenv('TICKFLOW_API_KEY'),
@@ -1326,7 +829,7 @@ class Config:
             ),
             portfolio_fx_update_enabled=os.getenv('PORTFOLIO_FX_UPDATE_ENABLED', 'true').lower() == 'true'
         )
-    
+
     @classmethod
     def _parse_stock_email_groups(cls) -> List[Tuple[List[str], List[str]]]:
         """
@@ -1367,7 +870,6 @@ class Config:
         v = (value or 'simple').strip().lower()
         if v in ('simple', 'full', 'brief'):
             return v
-        import logging
         logging.getLogger(__name__).warning(
             f"REPORT_TYPE '{value}' invalid, fallback to 'simple' (valid: simple/full/brief)"
         )
@@ -1377,7 +879,7 @@ class Config:
     def _get_env_file_value(cls, key: str) -> Optional[str]:
         """Read one config key directly from the active `.env` file."""
         env_file = os.getenv("ENV_FILE")
-        env_path = Path(env_file) if env_file else (Path(__file__).parent.parent / ".env")
+        env_path = Path(env_file) if env_file else (_PROJECT_ROOT / ".env")
         if not env_path.exists():
             return None
 
@@ -1479,7 +981,7 @@ class Config:
             env_text = preexisting_env_value.strip()
             file_text = (file_value or "").strip()
             if file_text and env_text and env_text.lower() != file_text.lower():
-                env_file = os.getenv("ENV_FILE") or str(Path(__file__).parent.parent / ".env")
+                env_file = os.getenv("ENV_FILE") or str(_PROJECT_ROOT / ".env")
                 logging.getLogger(__name__).warning(
                     "REPORT_LANGUAGE environment value '%s' overrides %s ('%s')",
                     preexisting_env_value,
@@ -1528,7 +1030,6 @@ class Config:
     @classmethod
     def _parse_market_review_region(cls, value: str) -> str:
         """解析大盘复盘市场区域，非法值记录警告后回退为 cn"""
-        import logging
         v = (value or 'cn').strip().lower()
         if v in ('cn', 'us', 'hk', 'both'):
             return v
@@ -1544,7 +1045,6 @@ class Config:
         if v in ('wkhtmltoimage', 'markdown-to-file'):
             return v
         if v:
-            import logging
             logging.getLogger(__name__).warning(
                 f"MD2IMG_ENGINE '{value}' invalid, fallback to 'wkhtmltoimage' "
                 "(valid: wkhtmltoimage | markdown-to-file)"
@@ -1571,10 +1071,8 @@ class Config:
         if tushare_token:
             # Token configured but no explicit priority override
             # Prepend tushare so the paid source is tried first
-            import logging
-            logger = logging.getLogger(__name__)
             resolved = f'tushare,{default_priority}'
-            logger.info(
+            logging.getLogger(__name__).info(
                 f"TUSHARE_TOKEN detected, auto-injecting tushare into realtime priority: {resolved}"
             )
             return resolved
@@ -1812,7 +1310,7 @@ class Config:
             List of message strings, one per ConfigIssue.
         """
         return [issue.message for issue in self.validate_structured()]
-    
+
     def get_db_url(self) -> str:
         """Return the SQLAlchemy PostgreSQL connection URL (DATABASE_URL).
 
@@ -1836,38 +1334,3 @@ class Config:
 def get_config() -> Config:
     """获取全局配置实例的快捷方式"""
     return Config.get_instance()
-
-
-# ============================================================
-# Shared LLM helpers (used by both analyzer and agent/llm_adapter)
-# ============================================================
-
-def get_api_keys_for_model(model: str, config: Config) -> List[str]:
-    """Deprecated: unified LLM config uses ``config.llm_api_key`` only."""
-    api_key = (getattr(config, "llm_api_key", "") or "").strip()
-    return [api_key] if api_key else []
-
-
-def extra_litellm_params(model: str, config: Config) -> Dict[str, Any]:
-    """Deprecated: unified LLM config uses ``config.llm_base_url`` only."""
-    params: Dict[str, Any] = {}
-    base_url = (getattr(config, "llm_base_url", "") or "").strip()
-    if base_url:
-        params["api_base"] = base_url
-    return params
-
-
-if __name__ == "__main__":
-    # 测试配置加载
-    config = get_config()
-    print("=== 配置加载测试 ===")
-    print(f"数据目录: {config.data_dir}")
-    print(f"最大并发数: {config.max_workers}")
-    print(f"调试模式: {config.debug}")
-    
-    # 验证配置
-    warnings = config.validate()
-    if warnings:
-        print("\n配置验证结果:")
-        for w in warnings:
-            print(f"  - {w}")
