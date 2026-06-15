@@ -17,13 +17,13 @@ from typing import Any, Dict, List, Optional, Sequence
 from data_provider.longbridge_fetcher import LongbridgeFetcher
 from data_provider.yfinance_fetcher import YfinanceFetcher
 
-from .config import DEFAULT_INTRADAY_SIGNAL_RULES, LLM_BATCH_SIZE, MARKET_ETFS
+from .config import LLM_BATCH_SIZE, MARKET_ETFS
 from .data_source import IntradayDataSource
 from .llm import IntradayLLMJudge, candidate_id, truthy
 from .metrics import compute_intraday_metrics
 from .models import IntradaySignalResult, IntradayTaskSummary
 from .notifications import SignalReporter
-from .rules import evaluate_signal_candidates
+from .rules import DEFAULT_INTRADAY_SIGNAL_RULES, RulePredicate, evaluate_signal_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +41,13 @@ class USIntradayAnalysisService:
         config: Any,
         longbridge_fetcher: Optional[LongbridgeFetcher] = None,
         yfinance_fetcher: Optional[YfinanceFetcher] = None,
-        rules: Optional[Dict[str, Dict[str, float]]] = None,
+        rules: Optional[Sequence[RulePredicate]] = None,
     ) -> None:
         self.config = config
         self.data_source = IntradayDataSource(longbridge_fetcher, yfinance_fetcher)
         self.llm_judge = IntradayLLMJudge(config)
         self.reporter = SignalReporter()
-        self.rules = rules or DEFAULT_INTRADAY_SIGNAL_RULES
+        self.rules: Sequence[RulePredicate] = rules if rules is not None else DEFAULT_INTRADAY_SIGNAL_RULES
 
     def run(self, stock_codes: Sequence[str], now: Optional[datetime] = None) -> IntradayTaskSummary:
         # if not is_us_market_open(now):
