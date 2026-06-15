@@ -20,6 +20,7 @@ import time
 from typing import List, Optional, Tuple
 
 from src.config import Config, get_config
+from src.llm_client import build_completion_kwargs, validate_llm_config
 
 logger = logging.getLogger(__name__)
 
@@ -210,48 +211,24 @@ def _parse_items_from_text(text: str) -> List[Tuple[str, Optional[str], str]]:
 def _resolve_vision_model() -> str:
     """Determine the litellm model to use for vision."""
     cfg = get_config()
-    # Prefer explicit vision model, then OPENAI_VISION_MODEL alias, then primary litellm model
-    model = (cfg.vision_model or cfg.openai_vision_model or cfg.litellm_model or "").strip()
-    if not model:
-        # Fallback: infer from available keys
-        if cfg.gemini_api_keys:
-            model_name = cfg.gemini_model or "gemini-3.1-pro-preview"
-            model = model_name if "/" in model_name else f"gemini/{model_name}"
-        elif cfg.anthropic_api_keys:
-            model = f"anthropic/{cfg.anthropic_model or 'claude-sonnet-4-6'}"
-        elif cfg.openai_api_keys:
-            model = f"openai/{cfg.openai_model or 'gpt-5.5'}"
-        else:
-            return ""
-    return model
+    return (cfg.vision_model or cfg.llm_model or "").strip()
 
 
-def _get_api_keys_for_model(model: str, cfg: Config) -> List[str]:
-    """Return available API keys for the given litellm model."""
-    if model.startswith("gemini/") or model.startswith("vertex_ai/"):
-        return [k for k in cfg.gemini_api_keys if k and len(k) >= 8]
-    if model.startswith("anthropic/"):
-        return [k for k in cfg.anthropic_api_keys if k and len(k) >= 8]
-    return [k for k in cfg.openai_api_keys if k and len(k) >= 8]
-
-
-def _call_litellm_vision(image_b64: str, mime_type: str, api_key: Optional[str] = None) -> str:
-    """Extract stock codes from an image using litellm (all providers via OpenAI vision format)."""
+def _call_litellm_vision(image_b64: str, mime_type: str) -> str:
+    """Extract stock codes from an image using litellm."""
     global litellm
     cfg = get_config()
     model = _resolve_vision_model()
     if not model:
-        raise ValueError("未配置 Vision API。请设置 LITELLM_MODEL 或相关 API Key。")
+        raise ValueError("未配置 Vision 模型。请设置 VISION_MODEL 或 LLM_MODEL。")
 
-    keys = _get_api_keys_for_model(model, cfg)
-    if not keys:
-        raise ValueError(f"No API key found for vision model {model}")
-    key = api_key if api_key and api_key in keys else random.choice(keys)
+    validate_llm_config(cfg, model=model)
 
     data_url = f"data:{mime_type};base64,{image_b64}"
-    call_kwargs: dict = {
-        "model": model,
-        "messages": [
+    call_kwargs = build_completion_kwargs(
+        cfg,
+        model,
+        [
             {
                 "role": "user",
                 "content": [
@@ -260,16 +237,9 @@ def _call_litellm_vision(image_b64: str, mime_type: str, api_key: Optional[str] 
                 ],
             }
         ],
-        "max_tokens": 1024,
-        "api_key": key,
-        "timeout": VISION_API_TIMEOUT,
-    }
-    # Add api_base and custom headers for OpenAI-compatible providers
-    if not model.startswith("gemini/") and not model.startswith("anthropic/") and not model.startswith("vertex_ai/"):
-        if cfg.openai_base_url:
-            call_kwargs["api_base"] = cfg.openai_base_url
-        if cfg.openai_base_url and "aihubmix.com" in cfg.openai_base_url:
-            call_kwargs["extra_headers"] = {"APP-Code": "GPIJ3886"}
+        max_tokens=1024,
+        timeout=VISION_API_TIMEOUT,
+    )
 
     if getattr(litellm, "completion", None) is None:
         import litellm as litellm_module
@@ -313,18 +283,15 @@ def extract_stock_codes_from_image(
     _verify_image_magic_bytes(image_bytes, mime_type)
 
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
-    model = _resolve_vision_model()
-    keys = _get_api_keys_for_model(model, get_config())
 
     last_error: Optional[Exception] = None
     for attempt in range(3):
         try:
-            key = random.choice(keys) if keys else None
-            raw = _call_litellm_vision(image_b64, mime_type, api_key=key)
+            raw = _call_litellm_vision(image_b64, mime_type)
             logger.debug("[ImageExtractor] raw LLM response:\n%s", raw)
             items = _parse_items_from_text(raw)
             logger.info(
-                f"[ImageExtractor] {model} 提取 {len(items)} 个: "
+                f"[ImageExtractor] {_resolve_vision_model()} 提取 {len(items)} 个: "
                 f"{[(i[0], i[1]) for i in items[:5]]}{'...' if len(items) > 5 else ''}"
             )
             return items, raw
