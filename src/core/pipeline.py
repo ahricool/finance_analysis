@@ -1455,6 +1455,174 @@ class StockAnalysisPipeline(AgentResultMixin):
         except Exception as e:
             logger.exception(f"保存本地报告失败: {e}")
 
+    def _md2img_install_hint(self) -> str:
+        try:
+            engine = getattr(get_config(), "md2img_engine", "wkhtmltoimage")
+        except Exception:
+            engine = "wkhtmltoimage"
+        return (
+            "npm i -g markdown-to-file" if engine == "markdown-to-file"
+            else "wkhtmltopdf (apt install wkhtmltopdf / brew install wkhtmltopdf)"
+        )
+
+    def _send_notification_channel_safely(
+        self,
+        channel_label: str,
+        send_func: Callable[[], bool],
+    ) -> bool:
+        try:
+            return bool(send_func())
+        except Exception as e:
+            logger.exception(
+                "通知渠道 %s 推送异常，继续尝试其他渠道: %s",
+                channel_label,
+                e,
+            )
+            return False
+
+    def _prepare_aggregate_image_bytes(
+        self,
+        report: str,
+        channels_needing_image: set,
+    ) -> Optional[bytes]:
+        from src.md2img import markdown_to_image
+
+        if not channels_needing_image:
+            return None
+
+        image_bytes = markdown_to_image(
+            report, max_chars=self.notifier._markdown_to_image_max_chars
+        )
+        if image_bytes:
+            logger.info(
+                "Markdown 已转换为图片，将向 %s 发送图片",
+                [ch.value for ch in channels_needing_image],
+            )
+            return image_bytes
+
+        logger.warning(
+            "Markdown 转图片失败，将回退为文本发送。请检查 MARKDOWN_TO_IMAGE_CHANNELS 配置并安装 %s",
+            self._md2img_install_hint(),
+        )
+        return None
+
+    def _send_grouped_email_notifications(
+        self,
+        channel: NotificationChannel,
+        report: str,
+        image_bytes: Optional[bytes],
+        results: List[AnalysisResult],
+        report_type: ReportType,
+    ) -> bool:
+        from src.md2img import markdown_to_image
+
+        stock_email_groups = getattr(self.config, "stock_email_groups", []) or []
+        code_to_emails: Dict[str, Optional[List[str]]] = {}
+        for result in results:
+            if result.code not in code_to_emails:
+                canonical = normalize_stock_code(result.code)
+                emails = []
+                for stocks, emails_list in stock_email_groups:
+                    if canonical in stocks:
+                        emails.extend(emails_list)
+                code_to_emails[result.code] = list(dict.fromkeys(emails)) if emails else None
+
+        emails_to_results: Dict[Optional[Tuple], List] = defaultdict(list)
+        for result in results:
+            receivers = code_to_emails.get(result.code)
+            key = tuple(receivers) if receivers else None
+            emails_to_results[key].append(result)
+
+        all_success = False
+        for key, group_results in emails_to_results.items():
+            receivers = list(key) if key is not None else None
+
+            def _send_email_group(
+                group_results=group_results,
+                receivers=receivers,
+            ) -> bool:
+                grp_report = self._generate_aggregate_report(group_results, report_type)
+                grp_image_bytes = None
+                if channel.value in self.notifier._markdown_to_image_channels:
+                    grp_image_bytes = markdown_to_image(
+                        grp_report,
+                        max_chars=self.notifier._markdown_to_image_max_chars,
+                    )
+                use_image = self.notifier._should_use_image_for_channel(channel, grp_image_bytes)
+                if use_image:
+                    return self.notifier._send_email_with_inline_image(
+                        grp_image_bytes, receivers=receivers
+                    )
+                return self.notifier.send_to_email(grp_report, receivers=receivers)
+
+            email_label = (
+                f"{channel.value}:{','.join(receivers)}"
+                if receivers else f"{channel.value}:default"
+            )
+            all_success = self._send_notification_channel_safely(
+                email_label,
+                _send_email_group,
+            ) or all_success
+        return all_success
+
+    def _send_aggregate_channel(
+        self,
+        channel: NotificationChannel,
+        report: str,
+        image_bytes: Optional[bytes],
+        results: List[AnalysisResult],
+        report_type: ReportType,
+    ) -> bool:
+        if channel == NotificationChannel.TELEGRAM:
+            def _send_telegram_report() -> bool:
+                use_image = self.notifier._should_use_image_for_channel(channel, image_bytes)
+                if use_image:
+                    return self.notifier._send_telegram_photo(image_bytes)
+                return self.notifier.send_to_telegram(report)
+
+            return self._send_notification_channel_safely(channel.value, _send_telegram_report)
+
+        if channel == NotificationChannel.EMAIL:
+            stock_email_groups = getattr(self.config, "stock_email_groups", []) or []
+            if stock_email_groups:
+                return self._send_grouped_email_notifications(
+                    channel, report, image_bytes, results, report_type
+                )
+
+            def _send_email_report() -> bool:
+                use_image = self.notifier._should_use_image_for_channel(channel, image_bytes)
+                if use_image:
+                    return self.notifier._send_email_with_inline_image(image_bytes)
+                return self.notifier.send_to_email(report)
+
+            return self._send_notification_channel_safely(channel.value, _send_email_report)
+
+        if channel == NotificationChannel.CUSTOM:
+            def _send_custom_report() -> bool:
+                use_image = self.notifier._should_use_image_for_channel(channel, image_bytes)
+                if use_image:
+                    return self.notifier._send_custom_webhook_image(
+                        image_bytes, fallback_content=report
+                    )
+                return self.notifier.send_to_custom(report)
+
+            return self._send_notification_channel_safely(channel.value, _send_custom_report)
+
+        if channel == NotificationChannel.NTFY:
+            return self._send_notification_channel_safely(
+                channel.value,
+                lambda: self.notifier.send_to_ntfy(report),
+            )
+
+        if channel == NotificationChannel.ASTRBOT:
+            return self._send_notification_channel_safely(
+                channel.value,
+                lambda: self.notifier.send_to_astrbot(report),
+            )
+
+        logger.warning(f"未知通知渠道: {channel}")
+        return False
+
     def _send_notifications(
         self,
         results: List[AnalysisResult],
@@ -1501,157 +1669,22 @@ class StockAnalysisPipeline(AgentResultMixin):
                         logger.info(noise_decision.message)
                         return
 
-                # Issue #455: Markdown 转图片（与 notification.send 逻辑一致）
-                from src.md2img import markdown_to_image
-
                 channels_needing_image = {
                     ch for ch in channels
                     if ch.value in self.notifier._markdown_to_image_channels
                     and ch != NotificationChannel.NTFY
                 }
-
-                def _get_md2img_hint() -> str:
-                    try:
-                        engine = getattr(get_config(), "md2img_engine", "wkhtmltoimage")
-                    except Exception:
-                        engine = "wkhtmltoimage"
-                    return (
-                        "npm i -g markdown-to-file" if engine == "markdown-to-file"
-                        else "wkhtmltopdf (apt install wkhtmltopdf / brew install wkhtmltopdf)"
-                    )
-
-                def _send_channel_safely(channel_label: str, send_func: Callable[[], bool]) -> bool:
-                    try:
-                        return bool(send_func())
-                    except Exception as e:
-                        logger.exception(
-                            "通知渠道 %s 推送异常，继续尝试其他渠道: %s",
-                            channel_label,
-                            e,
-                        )
-                        return False
-
-                image_bytes = None
-                if channels_needing_image:
-                    image_bytes = markdown_to_image(
-                        report, max_chars=self.notifier._markdown_to_image_max_chars
-                    )
-                    if image_bytes:
-                        logger.info(
-                            "Markdown 已转换为图片，将向 %s 发送图片",
-                            [ch.value for ch in channels_needing_image],
-                        )
-                    else:
-                        logger.warning(
-                            "Markdown 转图片失败，将回退为文本发送。请检查 MARKDOWN_TO_IMAGE_CHANNELS 配置并安装 %s",
-                            _get_md2img_hint(),
-                        )
+                image_bytes = self._prepare_aggregate_image_bytes(report, channels_needing_image)
 
                 all_channels_success = False
-                stock_email_groups = getattr(self.config, 'stock_email_groups', []) or []
                 for channel in channels:
-                    if channel == NotificationChannel.TELEGRAM:
-                        def _send_telegram_report() -> bool:
-                            use_image = self.notifier._should_use_image_for_channel(
-                                channel, image_bytes
-                            )
-                            if use_image:
-                                return self.notifier._send_telegram_photo(image_bytes)
-                            return self.notifier.send_to_telegram(report)
-
-                        all_channels_success = _send_channel_safely(
-                            channel.value,
-                            _send_telegram_report,
-                        ) or all_channels_success
-                    elif channel == NotificationChannel.EMAIL:
-                        if stock_email_groups:
-                            code_to_emails: Dict[str, Optional[List[str]]] = {}
-                            for r in results:
-                                if r.code not in code_to_emails:
-                                    canonical = normalize_stock_code(r.code)
-                                    emails = []
-                                    for stocks, emails_list in stock_email_groups:
-                                        if canonical in stocks:
-                                            emails.extend(emails_list)
-                                    code_to_emails[r.code] = list(dict.fromkeys(emails)) if emails else None
-                            emails_to_results: Dict[Optional[Tuple], List] = defaultdict(list)
-                            for r in results:
-                                recs = code_to_emails.get(r.code)
-                                key = tuple(recs) if recs else None
-                                emails_to_results[key].append(r)
-                            for key, group_results in emails_to_results.items():
-                                receivers = list(key) if key is not None else None
-
-                                def _send_email_group(
-                                    group_results=group_results,
-                                    receivers=receivers,
-                                ) -> bool:
-                                    grp_report = self._generate_aggregate_report(group_results, report_type)
-                                    grp_image_bytes = None
-                                    if channel.value in self.notifier._markdown_to_image_channels:
-                                        grp_image_bytes = markdown_to_image(
-                                            grp_report,
-                                            max_chars=self.notifier._markdown_to_image_max_chars,
-                                        )
-                                    use_image = self.notifier._should_use_image_for_channel(
-                                        channel, grp_image_bytes
-                                    )
-                                    if use_image:
-                                        return self.notifier._send_email_with_inline_image(
-                                            grp_image_bytes, receivers=receivers
-                                        )
-                                    return self.notifier.send_to_email(
-                                        grp_report, receivers=receivers
-                                    )
-
-                                email_label = (
-                                    f"{channel.value}:{','.join(receivers)}"
-                                    if receivers else f"{channel.value}:default"
-                                )
-                                all_channels_success = _send_channel_safely(
-                                    email_label,
-                                    _send_email_group,
-                                ) or all_channels_success
-                        else:
-                            def _send_email_report() -> bool:
-                                use_image = self.notifier._should_use_image_for_channel(
-                                    channel, image_bytes
-                                )
-                                if use_image:
-                                    return self.notifier._send_email_with_inline_image(image_bytes)
-                                return self.notifier.send_to_email(report)
-
-                            all_channels_success = _send_channel_safely(
-                                channel.value,
-                                _send_email_report,
-                            ) or all_channels_success
-                    elif channel == NotificationChannel.CUSTOM:
-                        def _send_custom_report() -> bool:
-                            use_image = self.notifier._should_use_image_for_channel(
-                                channel, image_bytes
-                            )
-                            if use_image:
-                                return self.notifier._send_custom_webhook_image(
-                                    image_bytes, fallback_content=report
-                                )
-                            return self.notifier.send_to_custom(report)
-
-                        all_channels_success = _send_channel_safely(
-                            channel.value,
-                            _send_custom_report,
-                        ) or all_channels_success
-                    elif channel == NotificationChannel.NTFY:
-                        all_channels_success = _send_channel_safely(
-                            channel.value,
-                            lambda: self.notifier.send_to_ntfy(report),
-                        ) or all_channels_success
-                    elif channel == NotificationChannel.ASTRBOT:
-                        all_channels_success = _send_channel_safely(
-                            channel.value,
-                            lambda: self.notifier.send_to_astrbot(report),
-                        ) or all_channels_success
-                    else:
-                        logger.warning(f"未知通知渠道: {channel}")
+                    all_channels_success = self._send_aggregate_channel(
+                        channel,
+                        report,
+                        image_bytes,
+                        results,
+                        report_type,
+                    ) or all_channels_success
 
                 success = all_channels_success
                 if (

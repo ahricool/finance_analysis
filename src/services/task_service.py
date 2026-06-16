@@ -17,10 +17,9 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, Dict, Any, List, Union
+from typing import Optional, Dict, Any, Union
 
 from src.enums import ReportType
-from src.storage import get_db
 from src.time_utils import utc_isoformat, utc_now
 from bot.models import BotMessage
 
@@ -117,26 +116,6 @@ class TaskService:
         """获取任务状态"""
         with self._tasks_lock:
             return self._tasks.get(task_id)
-
-    def list_tasks(self, limit: int = 20) -> List[Dict[str, Any]]:
-        """列出最近的任务"""
-        with self._tasks_lock:
-            tasks = list(self._tasks.values())
-        # 按开始时间倒序
-        tasks.sort(key=lambda x: x.get('start_time', ''), reverse=True)
-        return tasks[:limit]
-
-    def get_analysis_history(
-        self,
-        code: Optional[str] = None,
-        query_id: Optional[str] = None,
-        days: int = 30,
-        limit: int = 50
-    ) -> List[Dict[str, Any]]:
-        """获取分析历史记录"""
-        db = get_db()
-        records = db.get_analysis_history(code=code, query_id=query_id, days=days, limit=limit)
-        return [r.to_dict() for r in records]
 
     def _run_analysis(
         self,
