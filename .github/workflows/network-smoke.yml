@@ -21,20 +21,24 @@ jobs:
       - name: 🐍 Setup Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: '3.13'
+
+      - name: 📦 Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
 
       - name: 📦 Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest
+        run: uv sync --frozen --dev
 
       - name: 🌐 Run pytest network smoke (non-blocking)
         continue-on-error: true
         run: |
           set -o pipefail
-          python -m pytest -m network -q | tee pytest-network.log
+          uv run python -m pytest -m network -q | tee pytest-network.log
 
       - name: 🚀 Run quick smoke (non-blocking)
         continue-on-error: true
