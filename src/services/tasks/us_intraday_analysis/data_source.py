@@ -34,7 +34,7 @@ class IntradayDataSource:
         return symbol
 
     def fetch_1m_bars(self, symbol: str) -> List[Dict[str, Any]]:
-        bars = normalize_bars(self.longbridge.get_minute_candlesticks(symbol, interval=1, count=520))
+        bars = normalize_bars(self.longbridge.get_minute_candlesticks(symbol, interval=1, count=1000))  # 先获取最大的 K 线，后面慢慢筛选
         if bars:
             return bars
         logger.info("Longbridge 1m K线为空，使用 yfinance 兜底: %s", symbol)

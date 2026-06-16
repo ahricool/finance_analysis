@@ -5,16 +5,14 @@
 ===================================
 
 职责：
-1. POST /api/v1/stocks/extract-from-image 从图片提取股票代码
-2. POST /api/v1/stocks/parse-import 解析 CSV/Excel/剪贴板
-3. GET /api/v1/stocks/{code}/quote 实时行情接口
-4. GET /api/v1/stocks/{code}/history 历史行情接口
+1. POST /api/v1/stocks/parse-import 解析 CSV/Excel/剪贴板
+2. GET /api/v1/stocks/{code}/quote 实时行情接口
+3. GET /api/v1/stocks/{code}/history 历史行情接口
 """
 
 import logging
-from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from api.v1.schemas.stocks import (
     ExtractFromImageResponse,
@@ -24,11 +22,6 @@ from api.v1.schemas.stocks import (
     StockQuote,
 )
 from api.v1.schemas.common import ErrorResponse
-from src.services.image_stock_extractor import (
-    ALLOWED_MIME,
-    MAX_SIZE_BYTES,
-    extract_stock_codes_from_image,
-)
 from src.services.import_parser import (
     MAX_FILE_BYTES,
     parse_import_from_bytes,
@@ -39,86 +32,6 @@ from src.services.stock_service import StockService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# 须在 /{stock_code} 路由之前定义
-ALLOWED_MIME_STR = ", ".join(ALLOWED_MIME)
-
-
-@router.post(
-    "/extract-from-image",
-    response_model=ExtractFromImageResponse,
-    responses={
-        200: {"description": "提取的股票代码"},
-        400: {"description": "图片无效", "model": ErrorResponse},
-        500: {"description": "服务器错误", "model": ErrorResponse},
-    },
-    summary="从图片提取股票代码",
-    description="上传截图/图片，通过 Vision LLM 提取股票代码。支持 JPEG、PNG、WebP、GIF，最大 5MB。",
-)
-def extract_from_image(
-    file: Optional[UploadFile] = File(None, description="图片文件（表单字段名 file）"),
-    include_raw: bool = Query(False, description="是否在结果中包含原始 LLM 响应"),
-) -> ExtractFromImageResponse:
-    """
-    从上传的图片中提取股票代码（使用 Vision LLM）。
-
-    表单字段请使用 file 上传图片。优先级：Gemini / Anthropic / OpenAI（首个可用）。
-    """
-    if not file or not file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "bad_request", "message": "未提供文件，请使用表单字段 file 上传图片"},
-        )
-
-    content_type = (file.content_type or "").split(";")[0].strip().lower()
-    if content_type not in ALLOWED_MIME:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "unsupported_type",
-                "message": f"不支持的类型: {content_type}。允许: {ALLOWED_MIME_STR}",
-            },
-        )
-
-    try:
-        # 先读取限定大小，再检查是否还有剩余（语义清晰：超出则拒绝）
-        data = file.file.read(MAX_SIZE_BYTES)
-        if file.file.read(1):
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "file_too_large",
-                    "message": f"图片超过 {MAX_SIZE_BYTES // (1024 * 1024)}MB 限制",
-                },
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning(f"读取上传文件失败: {e}")
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "read_failed", "message": "读取上传文件失败"},
-        )
-
-    try:
-        items, raw_text = extract_stock_codes_from_image(data, content_type)
-        extract_items = [
-            ExtractItem(code=code, name=name, confidence=conf) for code, name, conf in items
-        ]
-        codes = [i.code for i in extract_items]
-        return ExtractFromImageResponse(
-            codes=codes,
-            items=extract_items,
-            raw_text=raw_text if include_raw else None,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail={"error": "extract_failed", "message": str(e)})
-    except Exception as e:
-        logger.exception(f"图片提取失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "internal_error", "message": "图片提取失败"},
-        )
 
 
 @router.post(

@@ -112,7 +112,7 @@ jobs:
           from src.storage import DatabaseManager; print('✅ storage')
           from src.notification import NotificationService; print('✅ notification')
           from data_provider import DataFetcherManager; print('✅ data_provider')
-          from src.analyzer import GeminiAnalyzer; print('✅ analyzer')
+          from src.analysis.stock_report_analyzer import StockReportAnalyzer; print('✅ analyzer')
           from src.patches.eastmoney_patch import eastmoney_patch; print('✅ patch')
           from bot.dispatcher import CommandDispatcher; print('✅ bot')
           from api.app import app; print('✅ api')

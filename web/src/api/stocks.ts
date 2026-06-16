@@ -13,28 +13,6 @@ export type ExtractFromImageResponse = {
 };
 
 export const stocksApi = {
-  async extractFromImage(file: File): Promise<ExtractFromImageResponse> {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const headers: { [key: string]: string | undefined } = { 'Content-Type': undefined };
-    const response = await apiClient.post(
-      '/api/v1/stocks/extract-from-image',
-      formData,
-      {
-        headers,
-        timeout: 60000, // Vision API can be slow; 60s
-      },
-    );
-
-    const data = response.data as { codes?: string[]; items?: ExtractItem[]; raw_text?: string };
-    return {
-      codes: data.codes ?? [],
-      items: data.items,
-      rawText: data.raw_text,
-    };
-  },
-
   async parseImport(file?: File, text?: string): Promise<ExtractFromImageResponse> {
     if (file) {
       const formData = new FormData();
