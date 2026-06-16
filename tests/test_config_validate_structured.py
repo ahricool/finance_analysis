@@ -4,8 +4,7 @@
 Covers:
 - ConfigIssue dataclass basics
 - validate_structured() severity classifications
-- LLM availability check honours all three config tiers (YAML / channels /
-  legacy keys) via llm_model_list
+- LLM availability check honours unified LLM_MODEL / LLM_API_KEY config
 - validate() backward-compat: still returns List[str] with the same messages
 """
 import pytest
@@ -29,13 +28,11 @@ def _make_config(**kwargs) -> Config:
     """
     defaults = dict(
         tushare_token=None,
-        # Populate llm_model_list as the three-tier signal
-        llm_model_list=[{"model_name": "gemini/gemini-2.0-flash", "litellm_params": {"model": "gemini/gemini-2.0-flash", "api_key": "sk-test"}}],
-        litellm_model="gemini/gemini-2.0-flash",
-        gemini_api_keys=[],
-        anthropic_api_keys=[],
-        openai_api_keys=[],
-        deepseek_api_keys=[],
+        llm_model="gemini/gemini-2.0-flash",
+        llm_base_url=None,
+        llm_api_key="sk-test-key",
+        llm_temperature=0.7,
+        llm_fallback_models=[],
         bocha_api_keys=[],
         tavily_api_keys=[],
         brave_api_keys=[],
@@ -55,13 +52,6 @@ def _make_config(**kwargs) -> Config:
         discord_main_channel_id=None,
         discord_webhook_url=None,
         discord_interactions_public_key=None,
-        llm_channels=[],
-        litellm_config_path=None,
-        gemini_api_key=None,
-        anthropic_api_key=None,
-        openai_api_key=None,
-        openai_base_url=None,
-        openai_vision_model=None,
         database_url="postgresql+psycopg2://test:test@127.0.0.1:5432/test_db",
     )
     defaults.update(kwargs)
@@ -172,143 +162,33 @@ class TestValidateStructuredWatchList:
 # ---------------------------------------------------------------------------
 
 class TestValidateStructuredLLM:
-    def test_no_llm_is_error(self):
-        """Empty llm_model_list must produce an error regardless of legacy keys."""
-        cfg = _make_config(llm_model_list=[])
+    def test_no_llm_model_is_error(self):
+        cfg = _make_config(llm_model="")
         issues = cfg.validate_structured()
-        assert any(i.severity == "error" and "AI 模型" in i.message for i in issues)
+        assert any(i.severity == "error" and i.field == "LLM_MODEL" for i in issues)
 
-    def test_llm_channels_only_no_error(self):
-        """LLM_CHANNELS populated via llm_model_list must NOT trigger an error.
+    def test_missing_api_key_is_error(self):
+        cfg = _make_config(llm_api_key="")
+        issues = cfg.validate_structured()
+        assert any(i.severity == "error" and i.field == "LLM_API_KEY" for i in issues)
 
-        This is the primary regression guard: a user who only configures
-        LLM_CHANNELS (no legacy *_API_KEY) should not see 'AI 功能不可用'.
-        """
-        channel_model_list = [
-            {"model_name": "openai/gpt-4o-mini", "litellm_params": {"api_key": "sk-chan", "api_base": "https://aihubmix.com/v1"}},
-        ]
+    def test_configured_llm_has_no_error(self):
         cfg = _make_config(
-            llm_model_list=channel_model_list,
-            litellm_model="openai/gpt-4o-mini",
-            gemini_api_keys=[],
-            anthropic_api_keys=[],
-            openai_api_keys=[],
-            deepseek_api_keys=[],
+            llm_model="openai/gpt-5.5",
+            llm_api_key="sk-test-key",
+            llm_base_url="https://proxy.example/v1",
         )
         issues = cfg.validate_structured()
-        assert not any(i.severity == "error" and "LLM" in i.message for i in issues)
+        assert not any(i.severity == "error" and i.field.startswith("LLM_") for i in issues)
 
-    def test_yaml_config_only_no_error(self):
-        """LITELLM_CONFIG (YAML) path: populated llm_model_list = no error."""
-        yaml_model_list = [
-            {"model_name": "gemini/gemini-2.5-flash", "litellm_params": {"api_key": "sk-yaml"}},
-        ]
+    def test_ollama_without_api_key_is_allowed(self):
         cfg = _make_config(
-            llm_model_list=yaml_model_list,
-            litellm_model="gemini/gemini-2.5-flash",
-            litellm_config_path="/tmp/litellm.yaml",
-            gemini_api_keys=[],
-            anthropic_api_keys=[],
-            openai_api_keys=[],
+            llm_model="ollama/qwen3:8b",
+            llm_api_key="",
+            llm_base_url="http://localhost:11434",
         )
         issues = cfg.validate_structured()
-        assert not any(i.severity == "error" and "LLM" in i.message for i in issues)
-
-    def test_legacy_gemini_key_no_error(self):
-        """Legacy GEMINI_API_KEY path: llm_model_list populated = no error."""
-        model_list = [
-            {"model_name": "__legacy_gemini__", "litellm_params": {"model": "__legacy_gemini__", "api_key": "sk-gem"}},
-        ]
-        cfg = _make_config(llm_model_list=model_list, gemini_api_keys=["sk-gem"])
-        issues = cfg.validate_structured()
-        assert not any(i.severity == "error" and "LLM" in i.message for i in issues)
-
-    def test_deepseek_only_no_error(self):
-        """DEEPSEEK_API_KEY path (was missing in old validate()): no error."""
-        model_list = [
-            {"model_name": "__legacy_deepseek__", "litellm_params": {"model": "__legacy_deepseek__", "api_key": "sk-ds"}},
-        ]
-        cfg = _make_config(
-            llm_model_list=model_list,
-            deepseek_api_keys=["sk-ds"],
-            gemini_api_keys=[],
-            anthropic_api_keys=[],
-            openai_api_keys=[],
-        )
-        issues = cfg.validate_structured()
-        assert not any(i.severity == "error" and "LLM" in i.message for i in issues)
-
-    def test_missing_litellm_model_is_info_not_error(self):
-        """llm_model_list present but litellm_model unset = info, not error."""
-        cfg = _make_config(litellm_model="")
-        issues = cfg.validate_structured()
-        llm_issues = [i for i in issues if "LITELLM_MODEL" in i.field]
-        assert llm_issues, "Expected an info issue about LITELLM_MODEL"
-        assert all(i.severity == "info" for i in llm_issues)
-        assert all("LITELLM_MODEL" not in i.message for i in llm_issues)
-        assert any("主模型" in i.message for i in llm_issues)
-
-    def test_direct_env_provider_model_without_model_list_no_error(self):
-        """Direct LiteLLM env providers should count as configured for runtime."""
-        cfg = _make_config(
-            llm_model_list=[],
-            litellm_model="cohere/command-r-plus",
-        )
-        issues = cfg.validate_structured()
-        assert not any(i.severity == "error" and "LLM" in i.message for i in issues)
-
-    def test_configured_primary_model_missing_from_channels_is_error(self):
-        cfg = _make_config(
-            llm_model_list=[
-                {"model_name": "openai/gpt-4o-mini", "litellm_params": {"model": "openai/gpt-4o-mini", "api_key": "sk-test"}},
-            ],
-            litellm_model="openai/gpt-4o",
-        )
-        issues = cfg.validate_structured()
-        matching_issues = [i for i in issues if i.severity == "error" and i.field == "LITELLM_MODEL"]
-        assert matching_issues
-        assert all("LITELLM_MODEL" not in i.message for i in matching_issues)
-        assert any("主模型" in i.message for i in matching_issues)
-
-    def test_configured_agent_primary_model_missing_from_channels_is_error(self):
-        cfg = _make_config(
-            llm_model_list=[
-                {"model_name": "openai/gpt-4o-mini", "litellm_params": {"model": "openai/gpt-4o-mini", "api_key": "sk-test"}},
-            ],
-            agent_litellm_model="openai/gpt-4o",
-        )
-        issues = cfg.validate_structured()
-        assert any(i.severity == "error" and i.field == "AGENT_LITELLM_MODEL" for i in issues)
-
-    def test_configured_agent_primary_model_without_runtime_source_is_error(self):
-        cfg = _make_config(
-            llm_model_list=[],
-            litellm_model="cohere/command-r-plus",
-            agent_litellm_model="openai/gpt-4o-mini",
-            openai_api_keys=[],
-        )
-        issues = cfg.validate_structured()
-        assert any(i.severity == "error" and i.field == "AGENT_LITELLM_MODEL" for i in issues)
-
-    def test_configured_agent_primary_model_matching_yaml_alias_is_allowed(self):
-        cfg = _make_config(
-            llm_model_list=[
-                {"model_name": "gpt4o", "litellm_params": {"model": "openai/gpt-4o-mini", "api_key": "sk-test"}},
-            ],
-            agent_litellm_model="gpt4o",
-        )
-        issues = cfg.validate_structured()
-        assert not any(i.severity == "error" and i.field == "AGENT_LITELLM_MODEL" for i in issues)
-
-    def test_configured_vision_model_missing_from_channels_is_warning(self):
-        cfg = _make_config(
-            llm_model_list=[
-                {"model_name": "openai/gpt-4o-mini", "litellm_params": {"model": "openai/gpt-4o-mini", "api_key": "sk-test"}},
-            ],
-            vision_model="openai/gpt-4o",
-        )
-        issues = cfg.validate_structured()
-        assert any(i.severity == "warning" and i.field == "VISION_MODEL" for i in issues)
+        assert not any(i.severity == "error" and i.field == "LLM_API_KEY" for i in issues)
 
 
 # ---------------------------------------------------------------------------
@@ -442,10 +322,7 @@ class TestVisionKeyValidation:
     def test_vision_model_set_no_key_is_warning(self):
         cfg = _make_config(
             vision_model="gemini/gemini-2.0-flash",
-            gemini_api_keys=[],
-            anthropic_api_keys=[],
-            openai_api_keys=[],
-            deepseek_api_keys=[],
+            llm_api_key="",
         )
         issues = cfg.validate_structured()
         warn = [i for i in issues if i.field == "VISION_MODEL"]
@@ -454,47 +331,16 @@ class TestVisionKeyValidation:
     def test_vision_model_set_with_key_no_warning(self):
         cfg = _make_config(
             vision_model="gemini/gemini-2.0-flash",
-            gemini_api_keys=["sk-gemini-testkey-1234"],
+            llm_api_key="sk-test-key",
         )
         issues = cfg.validate_structured()
         assert not any(
             i.field == "VISION_MODEL" and i.severity == "warning" for i in issues
         )
 
-    def test_vision_model_set_with_short_key_still_warns(self):
-        """Short keys (len < 8) are filtered at runtime; validation should warn."""
-        cfg = _make_config(
-            vision_model="gemini/gemini-2.0-flash",
-            gemini_api_keys=["x"],
-            anthropic_api_keys=[],
-            openai_api_keys=[],
-            deepseek_api_keys=[],
-        )
-        issues = cfg.validate_structured()
-        warn = [i for i in issues if i.field == "VISION_MODEL"]
-        assert warn and warn[0].severity == "warning"
-
-    def test_primary_provider_key_sufficient_even_if_not_in_priority(self):
-        """Primary model's provider key is checked even when absent from VISION_PROVIDER_PRIORITY."""
-        cfg = _make_config(
-            llm_model_list=[
-                {"model_name": "openai/gpt-4o", "litellm_params": {"model": "openai/gpt-4o", "api_key": "sk-test"}},
-            ],
-            litellm_model="openai/gpt-4o",
-            vision_model="openai/gpt-4o",
-            vision_provider_priority="gemini,anthropic",  # openai excluded from priority
-            openai_api_keys=["sk-openai-validkey-xyz"],
-            gemini_api_keys=[],
-            anthropic_api_keys=[],
-            deepseek_api_keys=[],
-        )
-        issues = cfg.validate_structured()
-        # Should NOT warn: primary model (openai) has a valid key
-        assert not any(i.field == "VISION_MODEL" and i.severity == "warning" for i in issues)
-
     def test_no_vision_model_no_warning(self):
         """When VISION_MODEL is not set, no Vision key warning is raised."""
-        cfg = _make_config(vision_model="", gemini_api_keys=[])
+        cfg = _make_config(vision_model="", llm_api_key="")
         issues = cfg.validate_structured()
         assert not any(i.field == "VISION_MODEL" for i in issues)
 
@@ -510,10 +356,10 @@ class TestValidateBackwardCompat:
         assert isinstance(result, list)
         assert all(isinstance(s, str) for s in result)
 
-    def test_empty_llm_model_list_message_in_validate(self):
-        cfg = _make_config(llm_model_list=[])
+    def test_empty_llm_model_message_in_validate(self):
+        cfg = _make_config(llm_model="")
         messages = cfg.validate()
-        assert any("AI 模型" in m for m in messages)
+        assert any("LLM_MODEL" in m for m in messages)
 
     def test_messages_match_validate_structured(self):
         """validate() strings must be the message field of each ConfigIssue."""

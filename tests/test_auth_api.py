@@ -350,7 +350,7 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_protected_api_returns_401_without_session(self) -> None:
-        request = self._middleware_request("/api/v1/system/config")
+        request = self._middleware_request("/api/v1/auth/profile")
         middleware = AuthMiddleware(app=MagicMock())
 
         response = asyncio.run(middleware.dispatch(request, AsyncMock(return_value=Response(status_code=200))))
@@ -379,7 +379,7 @@ class AuthApiTestCase(unittest.TestCase):
         call_next.assert_not_awaited()
 
     def test_protected_api_accessible_with_session(self) -> None:
-        request = self._middleware_request("/api/v1/system/config", cookie_value="test-session")
+        request = self._middleware_request("/api/v1/auth/profile", cookie_value="test-session")
         middleware = AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
@@ -392,7 +392,7 @@ class AuthApiTestCase(unittest.TestCase):
         call_next.assert_awaited_once()
 
     def test_protected_api_rejects_session_for_missing_user(self) -> None:
-        request = self._middleware_request("/api/v1/system/config", cookie_value="test-session")
+        request = self._middleware_request("/api/v1/auth/profile", cookie_value="test-session")
         middleware = AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 

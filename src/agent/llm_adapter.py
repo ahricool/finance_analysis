@@ -14,17 +14,14 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import litellm
-from litellm import Router
 
 from src.config import (
-    extra_litellm_params,
-    get_api_keys_for_model,
     get_config,
-    get_configured_llm_models,
     get_effective_agent_models_to_try,
     get_effective_agent_primary_model,
     normalize_litellm_temperature,
 )
+from src.llm import completion, is_llm_configured
 
 logger = logging.getLogger(__name__)
 
@@ -148,17 +145,14 @@ class LLMToolAdapter:
     """Unified adapter for tool-calling via LiteLLM.
 
     Supports all providers (Gemini, Anthropic, OpenAI, DeepSeek, etc.) through
-    a single litellm.completion() interface with optional Router for multi-key
+    the unified LiteLLM client with optional fallback routing for multi-key
     load balancing.
     """
 
     def __init__(self, config=None):
         config = config or get_config()
         self._config = config
-        self._router = None          # litellm Router (multi-key primary model)
-        self._litellm_available = False
         self._register_custom_model_pricing()
-        self._init_litellm()
 
     @staticmethod
     def _register_custom_model_pricing() -> None:
@@ -177,77 +171,10 @@ class LLMToolAdapter:
             except Exception as e:
                 logger.debug(f"Model {model_name} may already be registered or pricing error: {e}")
 
-    def _has_channel_config(self) -> bool:
-        """Check if multi-channel config (channels / YAML) is active."""
-        return bool(self._config.llm_model_list) and not all(
-            e.get('model_name', '').startswith('__legacy_') for e in self._config.llm_model_list
-        )
-
-    def _init_litellm(self) -> None:
-        """Initialize litellm Router from channels / YAML / legacy keys."""
-        config = self._config
-        litellm_model = get_effective_agent_primary_model(config)
-        if not litellm_model:
-            logger.warning("Agent LLM: no effective primary model configured")
-            return
-
-        self._litellm_available = True
-
-        # --- Channel / YAML path ---
-        if self._has_channel_config():
-            model_list = config.llm_model_list
-            self._router = Router(
-                model_list=model_list,
-                routing_strategy="simple-shuffle",
-                num_retries=2,
-            )
-            unique_models = list(dict.fromkeys(
-                e['litellm_params']['model'] for e in model_list
-            ))
-            logger.info(
-                f"Agent LLM: Router initialized from channels/YAML — "
-                f"{len(model_list)} deployment(s), models: {unique_models}"
-            )
-            return
-
-        # --- Legacy path ---
-        keys = get_api_keys_for_model(litellm_model, config)
-        if not keys:
-            logger.info(
-                f"Agent LLM: litellm initialized (model={litellm_model}, "
-                f"API key from environment)"
-            )
-            return
-
-        if len(keys) > 1:
-            ep = extra_litellm_params(litellm_model, config)
-            legacy_model_list = [
-                {
-                    "model_name": litellm_model,
-                    "litellm_params": {
-                        "model": litellm_model,
-                        "api_key": k,
-                        **ep,
-                    },
-                }
-                for k in keys
-            ]
-            self._router = Router(
-                model_list=legacy_model_list,
-                routing_strategy="simple-shuffle",
-                num_retries=2,
-            )
-            logger.info(
-                f"Agent LLM: Legacy Router initialized with {len(keys)} keys "
-                f"for {litellm_model}"
-            )
-        else:
-            logger.info(f"Agent LLM: litellm initialized (model={litellm_model})")
-
     @property
     def is_available(self) -> bool:
-        """True if litellm is configured and at least one API key is present."""
-        return self._router is not None or self._litellm_available
+        """True if litellm is configured."""
+        return is_llm_configured(self._config)
 
     @property
     def primary_provider(self) -> str:
@@ -315,8 +242,7 @@ class LLMToolAdapter:
         models_to_try = get_effective_agent_models_to_try(config)
         if not models_to_try:
             error_msg = (
-                "No LLM configured. Please set LITELLM_MODEL, LLM_CHANNELS, "
-                "or provider API keys before using Agent."
+                "No LLM configured. Please set LLM_MODEL and LLM_API_KEY before using Agent."
             )
             logger.error(error_msg)
             return LLMResponse(content=error_msg, provider="error")
@@ -397,17 +323,27 @@ class LLMToolAdapter:
         """Call a specific litellm model with OpenAI-format messages and tools."""
         openai_messages = self._convert_messages(messages)
 
-        # Use short model name (without provider prefix) for thinking model lookup
-        model_short = model.split("/")[-1] if "/" in model else model
-        extra = get_thinking_extra_body(model_short)
+        model_for_rules = model
+        configured_extra: Optional[dict] = None
+        for entry in getattr(self._config, "llm_model_list", []) or []:
+            if not isinstance(entry, dict) or entry.get("model_name") != model:
+                continue
+            params = entry.get("litellm_params") if isinstance(entry.get("litellm_params"), dict) else {}
+            model_for_rules = params.get("model") or model
+            configured_extra = params.get("extra_body") if isinstance(params.get("extra_body"), dict) else None
+            break
+
+        # Use short model name (without provider prefix) for thinking model lookup.
+        model_short = model_for_rules.split("/")[-1] if "/" in model_for_rules else model_for_rules
+        extra = configured_extra if configured_extra is not None else get_thinking_extra_body(model_short)
 
         call_kwargs: Dict[str, Any] = {
             "model": model,
             "messages": openai_messages,
             "temperature": normalize_litellm_temperature(
-                model,
+                model_for_rules,
                 self._get_temperature() if temperature is None else temperature,
-                model_list=self._config.llm_model_list,
+                model_list=None,
                 request_overrides={"extra_body": extra} if extra else None,
             ),
         }
@@ -422,25 +358,16 @@ class LLMToolAdapter:
         if tools:
             call_kwargs["tools"] = tools
 
-        # Use Router for primary model (multi-key), direct litellm for others
-        use_channel_router = self._has_channel_config()
-        _router_model_names = set(get_configured_llm_models(self._config.llm_model_list))
-        agent_primary_model = get_effective_agent_primary_model(self._config)
-        if use_channel_router and self._router and model in _router_model_names:
-            # Channel / YAML path: Router manages all models in its model_list
-            response = self._router.completion(**call_kwargs)
-        elif self._router and model == agent_primary_model and not use_channel_router:
-            # Legacy path: Router for primary model multi-key
-            response = self._router.completion(**call_kwargs)
-        else:
-            # Legacy/direct-env path: direct call (also handles direct-env
-            # providers like groq/ or bedrock/ that are not in the Router
-            # model_list even when channel mode is active)
-            keys = get_api_keys_for_model(model, self._config)
-            if keys:
-                call_kwargs["api_key"] = keys[0]
-            call_kwargs.update(extra_litellm_params(model, self._config))
-            response = litellm.completion(**call_kwargs)
+        response = completion(
+            self._config,
+            model,
+            openai_messages,
+            temperature=call_kwargs.get("temperature"),
+            max_tokens=call_kwargs.get("max_tokens"),
+            timeout=call_kwargs.get("timeout"),
+            tools=call_kwargs.get("tools"),
+            extra_body=call_kwargs.get("extra_body"),
+        )
 
         return self._parse_litellm_response(response, model)
 

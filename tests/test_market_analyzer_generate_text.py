@@ -27,21 +27,16 @@ from unittest.mock import PropertyMock
 
 class TestAnalyzerGenerateText:
     def _make_analyzer(self):
-        """Return a minimally configured GeminiAnalyzer with _call_litellm mocked."""
-        with patch("src.analyzer.get_config") as mock_cfg:
+        """Return a minimally configured StockReportAnalyzer with _call_litellm mocked."""
+        with patch("src.analysis.stock_report_analyzer.get_config") as mock_cfg:
             cfg = MagicMock()
-            cfg.litellm_model = "gemini/gemini-2.0-flash"
-            cfg.litellm_fallback_models = []
-            cfg.gemini_api_keys = ["sk-gemini-testkey-1234"]
-            cfg.anthropic_api_keys = []
-            cfg.openai_api_keys = []
-            cfg.deepseek_api_keys = []
-            cfg.llm_model_list = []
-            cfg.openai_base_url = None
+            cfg.llm_model = "gemini/gemini-2.0-flash"
+            cfg.llm_fallback_models = []
+            cfg.llm_api_key = "sk-gemini-testkey-1234"
+            cfg.llm_base_url = None
             mock_cfg.return_value = cfg
-            from src.analyzer import GeminiAnalyzer
-            analyzer = GeminiAnalyzer.__new__(GeminiAnalyzer)
-            analyzer._router = None
+            from src.analysis.stock_report_analyzer import StockReportAnalyzer
+            analyzer = StockReportAnalyzer.__new__(StockReportAnalyzer)
             return analyzer
 
     def test_generate_text_returns_llm_response(self):
@@ -72,9 +67,9 @@ class TestAnalyzerGenerateText:
     def test_call_litellm_stream_aggregates_chunks_and_reports_progress(self):
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
-            litellm_model="gemini/gemini-2.0-flash",
-            litellm_fallback_models=[],
-            llm_model_list=[],
+            llm_model="gemini/gemini-2.0-flash",
+            llm_fallback_models=[],
+            llm_api_key="sk-test-key",
         )
 
         def stream_response():
@@ -105,9 +100,9 @@ class TestAnalyzerGenerateText:
     def test_call_litellm_stream_falls_back_to_non_stream_before_first_chunk(self):
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
-            litellm_model="gemini/gemini-2.0-flash",
-            litellm_fallback_models=[],
-            llm_model_list=[],
+            llm_model="gemini/gemini-2.0-flash",
+            llm_fallback_models=[],
+            llm_api_key="sk-test-key",
         )
 
         def broken_stream():
@@ -144,9 +139,9 @@ class TestAnalyzerGenerateText:
     def test_call_litellm_normalizes_kimi_k26_temperature(self):
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
-            litellm_model="openai/kimi-k2.6",
-            litellm_fallback_models=[],
-            llm_model_list=[],
+            llm_model="openai/kimi-k2.6",
+            llm_fallback_models=[],
+            llm_api_key="sk-test-key",
         )
         response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
@@ -168,14 +163,9 @@ class TestAnalyzerGenerateText:
     def test_call_litellm_normalizes_kimi_k26_temperature_for_yaml_alias(self):
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
-            litellm_model="kimi_router",
-            litellm_fallback_models=[],
-            llm_model_list=[
-                {
-                    "model_name": "kimi_router",
-                    "litellm_params": {"model": "openai/kimi-k2.6"},
-                }
-            ],
+            llm_model="openai/kimi-k2.6",
+            llm_fallback_models=[],
+            llm_api_key="sk-test-key",
         )
         response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
@@ -189,25 +179,17 @@ class TestAnalyzerGenerateText:
             )
 
         assert text == "ok"
-        assert model_used == "kimi_router"
+        assert model_used == "openai/kimi-k2.6"
         assert usage == {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
         call_kwargs = mock_dispatch.call_args.args[1]
         assert call_kwargs["temperature"] == 1.0
 
-    def test_call_litellm_normalizes_kimi_k26_temperature_for_non_thinking_yaml_alias(self):
+    def test_call_litellm_normalizes_kimi_k26_temperature_for_non_thinking_alias(self):
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
-            litellm_model="kimi_router",
-            litellm_fallback_models=[],
-            llm_model_list=[
-                {
-                    "model_name": "kimi_router",
-                    "litellm_params": {
-                        "model": "openai/kimi-k2.6",
-                        "extra_body": {"thinking": {"type": "disabled"}},
-                    },
-                }
-            ],
+            llm_model="openai/kimi-k2.6",
+            llm_fallback_models=[],
+            llm_api_key="sk-test-key",
         )
         response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
@@ -217,11 +199,11 @@ class TestAnalyzerGenerateText:
         with patch.object(analyzer, "_dispatch_litellm_completion", return_value=response) as mock_dispatch:
             text, model_used, usage = analyzer._call_litellm(
                 "prompt",
-                {"max_tokens": 128, "temperature": 0.2},
+                {"max_tokens": 128, "temperature": 0.2, "extra_body": {"thinking": {"type": "disabled"}}},
             )
 
         assert text == "ok"
-        assert model_used == "kimi_router"
+        assert model_used == "openai/kimi-k2.6"
         assert usage == {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
         call_kwargs = mock_dispatch.call_args.args[1]
         assert call_kwargs["temperature"] == 0.6
@@ -229,9 +211,9 @@ class TestAnalyzerGenerateText:
     def test_call_litellm_keeps_user_temperature_for_non_kimi_fallback(self):
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
-            litellm_model="openai/kimi-k2.6",
-            litellm_fallback_models=["openai/gpt-4o-mini"],
-            llm_model_list=[],
+            llm_model="openai/kimi-k2.6",
+            llm_fallback_models=["openai/gpt-4o-mini"],
+            llm_api_key="sk-test-key",
         )
         response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="fallback ok"))],
@@ -262,9 +244,9 @@ class TestAnalyzerGenerateText:
     def test_call_litellm_stream_falls_back_to_non_stream_after_partial_and_falls_back_model(self):
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
-            litellm_model="provider/bad-model",
-            litellm_fallback_models=["provider/good-model"],
-            llm_model_list=[],
+            llm_model="provider/bad-model",
+            llm_fallback_models=["provider/good-model"],
+            llm_api_key="sk-test-key",
         )
 
         def partial_then_broken_stream():
@@ -316,15 +298,15 @@ class TestAnalyzerGenerateText:
     def test_analyze_integrity_retry_keeps_progress_monotonic(self):
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
-            gemini_request_delay=0,
+            llm_request_delay=0,
             report_language="zh",
-            litellm_model="gemini/gemini-2.0-flash",
+            llm_model="gemini/gemini-2.0-flash",
             llm_temperature=0.2,
             report_integrity_enabled=True,
             report_integrity_retry=1,
         )
 
-        from src.analyzer import AnalysisResult
+        from src.analysis.stock_report_analyzer import AnalysisResult
 
         progress_updates = []
         first_result = AnalysisResult(
@@ -363,7 +345,7 @@ class TestAnalyzerGenerateText:
                  side_effect=[(False, ["analysis_summary"]), (True, [])],
              ), \
              patch.object(analyzer, "_build_integrity_retry_prompt", return_value="retry prompt"), \
-             patch("src.analyzer.persist_llm_usage"):
+             patch("src.analysis.stock_report_analyzer.persist_llm_usage"):
             result = analyzer.analyze(
                 {"code": "600519", "stock_name": "贵州茅台"},
                 progress_callback=lambda progress, message: progress_updates.append((progress, message)),
@@ -379,9 +361,9 @@ class TestAnalyzerGenerateText:
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(report_language="zh")
 
-        from src.analyzer import GeminiAnalyzer
+        from src.analysis.stock_report_analyzer import StockReportAnalyzer
 
-        result = GeminiAnalyzer._parse_response(analyzer, "这是一段纯文本分析，没有 JSON。", "600519", "贵州茅台")
+        result = StockReportAnalyzer._parse_response(analyzer, "这是一段纯文本分析，没有 JSON。", "600519", "贵州茅台")
         assert result.success is False
         assert result.error_message is not None
         assert result.code == "600519"
@@ -391,10 +373,10 @@ class TestAnalyzerGenerateText:
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(report_language="zh")
 
-        from src.analyzer import GeminiAnalyzer
+        from src.analysis.stock_report_analyzer import StockReportAnalyzer
 
         malformed = "Here is the analysis: {broken json content without closing"
-        result = GeminiAnalyzer._parse_response(analyzer, malformed, "AAPL", "Apple")
+        result = StockReportAnalyzer._parse_response(analyzer, malformed, "AAPL", "Apple")
         assert result.success is False
         assert result.error_message is not None
 
@@ -403,7 +385,7 @@ class TestAnalyzerGenerateText:
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(report_language="zh")
 
-        from src.analyzer import GeminiAnalyzer
+        from src.analysis.stock_report_analyzer import StockReportAnalyzer
         import json
 
         valid_response = json.dumps({
@@ -412,7 +394,7 @@ class TestAnalyzerGenerateText:
             "operation_advice": "持有",
             "analysis_summary": "测试分析",
         })
-        result = GeminiAnalyzer._parse_response(analyzer, valid_response, "600519", "贵州茅台")
+        result = StockReportAnalyzer._parse_response(analyzer, valid_response, "600519", "贵州茅台")
         assert result.success is True
         assert result.error_message is None
 
@@ -420,9 +402,9 @@ class TestAnalyzerGenerateText:
         """When the primary model returns non-JSON, _call_litellm must try the fallback model."""
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
-            litellm_model="provider/primary-model",
-            litellm_fallback_models=["provider/fallback-model"],
-            llm_model_list=[],
+            llm_model="provider/primary-model",
+            llm_fallback_models=["provider/fallback-model"],
+            llm_api_key="sk-test-key",
         )
 
         import json as _json
@@ -457,12 +439,12 @@ class TestAnalyzerGenerateText:
         """When all models return non-JSON, _AllModelsFailedError is raised with last_response_text."""
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
-            litellm_model="provider/primary-model",
-            litellm_fallback_models=["provider/fallback-model"],
-            llm_model_list=[],
+            llm_model="provider/primary-model",
+            llm_fallback_models=["provider/fallback-model"],
+            llm_api_key="sk-test-key",
         )
 
-        from src.analyzer import _AllModelsFailedError
+        from src.analysis.stock_report_analyzer import _AllModelsFailedError
 
         def fake_dispatch(model, call_kwargs, **kwargs):
             return SimpleNamespace(
@@ -488,16 +470,16 @@ class TestAnalyzerGenerateText:
         with complement instructions); when that also yields invalid JSON the
         exhausted-retries path fires placeholder fill.
         """
-        from src.analyzer import AnalysisResult, _AllModelsFailedError
+        from src.analysis.stock_report_analyzer import AnalysisResult, _AllModelsFailedError
 
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
-            gemini_request_delay=0,
+            llm_request_delay=0,
             report_language="zh",
-            litellm_model="provider/primary-model",
-            litellm_fallback_models=["provider/fallback-model"],
+            llm_model="provider/primary-model",
+            llm_fallback_models=["provider/fallback-model"],
             llm_temperature=0.7,
-            llm_model_list=[],
+            llm_api_key="sk-test-key",
             report_integrity_enabled=True,
             report_integrity_retry=1,
         )
@@ -534,7 +516,7 @@ class TestAnalyzerGenerateText:
              patch.object(analyzer, "_check_content_integrity", return_value=(False, ["dashboard.core_conclusion.one_sentence"])), \
              patch.object(analyzer, "_build_integrity_retry_prompt", return_value="retry prompt"), \
              patch.object(analyzer, "_apply_placeholder_fill") as mock_fill, \
-             patch("src.analyzer.persist_llm_usage") as mock_usage:
+             patch("src.analysis.stock_report_analyzer.persist_llm_usage") as mock_usage:
 
             result = analyzer.analyze(
                 {"code": "600519", "stock_name": "贵州茅台"},
@@ -576,11 +558,11 @@ class TestMarketAnalyzerBypassFix:
         from src.core.market_profile import CN_PROFILE
         from src.core.market_strategy import get_market_strategy_blueprint
 
-        with patch("src.analyzer.get_config") as mock_cfg, \
+        with patch("src.analysis.stock_report_analyzer.get_config") as mock_cfg, \
              patch("src.market_analyzer.get_config") as mock_cfg2:
             cfg = MagicMock()
-            cfg.litellm_model = "gemini/gemini-2.0-flash"
-            cfg.litellm_fallback_models = []
+            cfg.llm_model = "gemini/gemini-2.0-flash"
+            cfg.llm_fallback_models = []
             cfg.gemini_api_keys = ["sk-gemini-testkey-1234"]
             cfg.anthropic_api_keys = []
             cfg.openai_api_keys = []
@@ -592,10 +574,10 @@ class TestMarketAnalyzerBypassFix:
             mock_cfg.return_value = cfg
             mock_cfg2.return_value = cfg
 
-            from src.analyzer import GeminiAnalyzer
+            from src.analysis.stock_report_analyzer import StockReportAnalyzer
             from src.market_analyzer import MarketAnalyzer
 
-            analyzer = GeminiAnalyzer.__new__(GeminiAnalyzer)
+            analyzer = StockReportAnalyzer.__new__(StockReportAnalyzer)
             analyzer._router = None
             analyzer._litellm_available = True
             analyzer.generate_text = MagicMock(return_value=return_value)

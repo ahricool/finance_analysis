@@ -14,7 +14,7 @@ from src.config import get_config
 from src.core.backtest_engine import OVERALL_SENTINEL_CODE, BacktestEngine, EvaluationConfig
 from src.repositories.backtest_repo import BacktestRepository
 from src.repositories.stock_repo import StockRepository
-from src.storage import BacktestResult, BacktestSummary, DatabaseManager, utc_now
+from src.storage import BacktestResult, BacktestSummary, DatabaseManager, AnalysisHistory, utc_now
 from src.time_utils import utc_isoformat
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ class BacktestService:
         eval_window_days: Optional[int] = None,
         min_age_days: Optional[int] = None,
         limit: int = 200,
+        uid: Optional[int] = None,
     ) -> Dict[str, Any]:
         config = get_config()
 
@@ -62,6 +63,7 @@ class BacktestService:
             eval_window_days=int(eval_window_days),
             engine_version=str(engine_version),
             force=force,
+            uid=uid,
         )
 
         processed = 0
@@ -181,7 +183,7 @@ class BacktestService:
 
             except Exception as exc:
                 errors += 1
-                logger.error(f"回测失败: {analysis.code}#{analysis.id}: {exc}")
+                logger.exception(f"回测失败: {analysis.code}#{analysis.id}: {exc}")
                 results_to_save.append(
                     BacktestResult(
                         analysis_history_id=analysis.id,
@@ -204,6 +206,7 @@ class BacktestService:
                 touched_codes=sorted(touched_codes),
                 eval_window_days=int(eval_window_days),
                 engine_version=str(engine_version),
+                uid=uid,
             )
 
         return {
@@ -223,6 +226,7 @@ class BacktestService:
         page: int = 1,
         analysis_date_from: Optional[date] = None,
         analysis_date_to: Optional[date] = None,
+        uid: Optional[int] = None,
     ) -> Dict[str, Any]:
         config = get_config()
         engine_version = str(getattr(config, "backtest_engine_version", "v1"))
@@ -235,6 +239,7 @@ class BacktestService:
                 engine_version=engine_version,
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
+                uid=uid,
             )
             if windows:
                 eval_window_days = windows[0]
@@ -249,6 +254,7 @@ class BacktestService:
             days=None,
             offset=offset,
             limit=limit,
+            uid=uid,
         )
         items = [self._result_to_dict(result, stock_name, trend_prediction) for result, stock_name, trend_prediction, _ in rows]
         return {"total": total, "page": page, "limit": limit, "items": items}
@@ -261,6 +267,7 @@ class BacktestService:
         eval_window_days: Optional[int] = None,
         analysis_date_from: Optional[date] = None,
         analysis_date_to: Optional[date] = None,
+        uid: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         config = get_config()
         engine_version = str(getattr(config, "backtest_engine_version", "v1"))
@@ -274,6 +281,7 @@ class BacktestService:
                 engine_version=engine_version,
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
+                uid=uid,
             )
             if count > self.MAX_DYNAMIC_SUMMARY_ROWS:
                 raise ValueError(
@@ -285,6 +293,7 @@ class BacktestService:
                 engine_version=engine_version,
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
+                uid=uid,
             )
             return self._build_dynamic_summary(
                 rows=rows,
@@ -300,6 +309,7 @@ class BacktestService:
             code=lookup_code,
             eval_window_days=eval_window_days,
             engine_version=engine_version,
+            uid=uid,
         )
         if summary is None:
             return None
@@ -364,17 +374,26 @@ class BacktestService:
         except Exception as exc:
             logger.warning(f"补全日线数据失败({code}): {exc}")
 
-    def _recompute_summaries(self, *, touched_codes: List[str], eval_window_days: int, engine_version: str) -> None:
+    def _recompute_summaries(
+        self,
+        *,
+        touched_codes: List[str],
+        eval_window_days: int,
+        engine_version: str,
+        uid: Optional[int] = None,
+    ) -> None:
         with self.db.get_session() as session:
-            # overall
-            overall_rows = session.execute(
-                select(BacktestResult).where(
-                    and_(
-                        BacktestResult.eval_window_days == eval_window_days,
-                        BacktestResult.engine_version == engine_version,
-                    )
-                )
-            ).scalars().all()
+            overall_conditions = [
+                BacktestResult.eval_window_days == eval_window_days,
+                BacktestResult.engine_version == engine_version,
+            ]
+            overall_query = select(BacktestResult).where(and_(*overall_conditions))
+            if uid is not None:
+                overall_query = overall_query.join(
+                    AnalysisHistory,
+                    AnalysisHistory.id == BacktestResult.analysis_history_id,
+                ).where(AnalysisHistory.uid == uid)
+            overall_rows = session.execute(overall_query).scalars().all()
             overall_data = BacktestEngine.compute_summary(
                 results=overall_rows,
                 scope="overall",
@@ -382,19 +401,22 @@ class BacktestService:
                 eval_window_days=eval_window_days,
                 engine_version=engine_version,
             )
-            overall_summary = self._build_summary_model(overall_data)
+            overall_summary = self._build_summary_model(overall_data, uid=uid)
             self.repo.upsert_summary(overall_summary)
 
             for code in touched_codes:
-                rows = session.execute(
-                    select(BacktestResult).where(
-                        and_(
-                            BacktestResult.code == code,
-                            BacktestResult.eval_window_days == eval_window_days,
-                            BacktestResult.engine_version == engine_version,
-                        )
-                    )
-                ).scalars().all()
+                stock_conditions = [
+                    BacktestResult.code == code,
+                    BacktestResult.eval_window_days == eval_window_days,
+                    BacktestResult.engine_version == engine_version,
+                ]
+                stock_query = select(BacktestResult).where(and_(*stock_conditions))
+                if uid is not None:
+                    stock_query = stock_query.join(
+                        AnalysisHistory,
+                        AnalysisHistory.id == BacktestResult.analysis_history_id,
+                    ).where(AnalysisHistory.uid == uid)
+                rows = session.execute(stock_query).scalars().all()
                 data = BacktestEngine.compute_summary(
                     results=rows,
                     scope="stock",
@@ -402,12 +424,13 @@ class BacktestService:
                     eval_window_days=eval_window_days,
                     engine_version=engine_version,
                 )
-                summary = self._build_summary_model(data)
+                summary = self._build_summary_model(data, uid=uid)
                 self.repo.upsert_summary(summary)
 
     @staticmethod
-    def _build_summary_model(summary_data: Dict[str, Any]) -> BacktestSummary:
+    def _build_summary_model(summary_data: Dict[str, Any], uid: Optional[int] = None) -> BacktestSummary:
         return BacktestSummary(
+            uid=uid,
             scope=summary_data.get("scope"),
             code=summary_data.get("code"),
             eval_window_days=summary_data.get("eval_window_days"),

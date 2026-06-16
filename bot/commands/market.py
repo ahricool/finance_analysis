@@ -62,7 +62,7 @@ class MarketCommand(BotCommand):
         try:
             thread.start()
         except Exception as exc:
-            logger.error(
+            logger.exception(
                 "[MarketCommand] 大盘复盘后台线程启动失败: %s",
                 exc,
             )
@@ -152,7 +152,7 @@ class MarketCommand(BotCommand):
             else:
                 logger.warning("[MarketCommand] 大盘复盘返回空结果")
         except Exception as e:
-            logger.error("[MarketCommand] 大盘复盘失败: %s", e)
+            logger.exception("[MarketCommand] 大盘复盘失败: %s", e)
             logger.exception(e)
         finally:
             self._release_market_review_lock(lock_token)

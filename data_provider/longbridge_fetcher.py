@@ -32,6 +32,7 @@ import pandas as pd
 from .base import BaseFetcher, STANDARD_COLUMNS
 from .realtime_types import UnifiedRealtimeQuote, RealtimeSource, safe_float
 from .us_index_mapping import is_us_stock_code, is_us_index_code
+from src.logging_config import log_external_call_exception
 
 logger = logging.getLogger(__name__)
 
@@ -425,7 +426,13 @@ class LongbridgeFetcher(BaseFetcher):
                 logger.info("[Longbridge] QuoteContext 初始化成功")
                 return self._ctx
             except Exception as e:
-                logger.warning("[Longbridge] QuoteContext 初始化失败: %s", e)
+                log_external_call_exception(
+                    logger,
+                    provider="longbridge",
+                    operation="QuoteContext",
+                    exc=e,
+                    params={"region": os.getenv("LONGBRIDGE_REGION") or os.getenv("LONGPORT_REGION")},
+                )
                 self._available = False
                 return None
 
@@ -446,6 +453,7 @@ class LongbridgeFetcher(BaseFetcher):
         ctx = self._get_ctx()
         if ctx is None:
             return None
+        api_start = time.time()
         try:
             infos = ctx.static_info([symbol])
             if infos:
@@ -455,7 +463,15 @@ class LongbridgeFetcher(BaseFetcher):
                         self._static_cache[symbol] = (info, now)
                 return info
         except Exception as e:
-            logger.debug(f"[Longbridge] static_info({symbol}) 失败: {e}")
+            log_external_call_exception(
+                logger,
+                provider="longbridge",
+                operation="static_info",
+                exc=e,
+                symbol=symbol,
+                params={"symbols": [symbol]},
+                elapsed=time.time() - api_start,
+            )
             if self._is_connection_error(e):
                 self._mark_connection_cooldown(e)
         return None
@@ -500,6 +516,7 @@ class LongbridgeFetcher(BaseFetcher):
         ctx = self._get_ctx()
         if ctx is None:
             return None
+        api_start = time.time()
         try:
             from longbridge.openapi import Period, AdjustType
 
@@ -530,7 +547,15 @@ class LongbridgeFetcher(BaseFetcher):
 
             return round(today_volume / avg_vol, 2)
         except Exception as e:
-            logger.debug(f"[Longbridge] 计算量比失败({symbol}): {e}")
+            log_external_call_exception(
+                logger,
+                provider="longbridge",
+                operation="history_candlesticks_by_offset",
+                exc=e,
+                symbol=symbol,
+                params={"period": "Day", "count": 6, "today_volume": today_volume},
+                elapsed=time.time() - api_start,
+            )
             return None
 
     # ------------------------------------------------------------------
@@ -585,6 +610,7 @@ class LongbridgeFetcher(BaseFetcher):
         if ctx is None:
             return []
 
+        api_start = time.time()
         try:
             from longbridge.openapi import AdjustType, Period, TradeSessions
 
@@ -603,7 +629,15 @@ class LongbridgeFetcher(BaseFetcher):
             )
             return [self._candle_to_dict(candle) for candle in sorted(candles, key=self._ts_sort_key)]
         except Exception as e:
-            logger.exception("[Longbridge] candlesticks(%s, %sm) 失败: %s", symbol, interval, e)
+            log_external_call_exception(
+                logger,
+                provider="longbridge",
+                operation="candlesticks",
+                exc=e,
+                symbol=symbol,
+                params={"interval": interval, "count": count, "include_extended": include_extended},
+                elapsed=time.time() - api_start,
+            )
             if self._is_connection_error(e):
                 self._mark_connection_cooldown(e)
             return []
@@ -626,13 +660,22 @@ class LongbridgeFetcher(BaseFetcher):
         if ctx is None:
             return None
 
+        api_start = time.time()
         try:
             quotes = ctx.quote([symbol])
             if not quotes:
                 return None
             q = quotes[0]
         except Exception as e:
-            logger.info(f"[Longbridge] quote({symbol}) 失败: {e}")
+            log_external_call_exception(
+                logger,
+                provider="longbridge",
+                operation="quote",
+                exc=e,
+                symbol=symbol,
+                params={"symbols": [symbol]},
+                elapsed=time.time() - api_start,
+            )
             if self._is_connection_error(e):
                 self._mark_connection_cooldown(e)
             return None
@@ -757,6 +800,7 @@ class LongbridgeFetcher(BaseFetcher):
         start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
         end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
 
+        api_start = time.time()
         try:
             candles = ctx.history_candlesticks_by_date(
                 symbol,
@@ -766,6 +810,20 @@ class LongbridgeFetcher(BaseFetcher):
                 end_dt,
             )
         except Exception as e:
+            log_external_call_exception(
+                logger,
+                provider="longbridge",
+                operation="history_candlesticks_by_date",
+                exc=e,
+                symbol=symbol,
+                params={
+                    "period": "Day",
+                    "adjust_type": "ForwardAdjust",
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
+                elapsed=time.time() - api_start,
+            )
             if self._is_connection_error(e):
                 self._mark_connection_cooldown(e)
             raise

@@ -15,9 +15,8 @@ on:
       - 'README.md'
       - 'AGENTS.md'
       - 'web/**'
-      - 'requirements.txt'
-      - '.github/requirements-ci.txt'
       - 'pyproject.toml'
+      - 'uv.lock'
       - 'setup.cfg'
       - '.github/PULL_REQUEST_TEMPLATE.md'
       - '.github/workflows/**'
@@ -103,20 +102,25 @@ jobs:
       - name: 🐍 设置 Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: '3.13'
+
+      - name: 📦 安装 uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
       
       - name: 📦 安装依赖
-        run: |
-          pip install --upgrade pip
-          pip install flake8
+        run: uv sync --frozen --dev
       
       - name: 📋 检查变更文件
         id: check_files
         run: |
           BASE_REF="${{ github.base_ref || 'main' }}"
           CHANGED_FILES=$(git diff --name-only origin/$BASE_REF...HEAD -- '*.py' 2>/dev/null || echo "")
-          REVIEWABLE_FILES=$(git diff --name-only origin/$BASE_REF...HEAD -- '*.py' '*.md' 'docs/**' 'README.md' 'AGENTS.md' 'requirements.txt' '.github/requirements-ci.txt' 'pyproject.toml' 'setup.cfg' '.github/PULL_REQUEST_TEMPLATE.md' '.github/workflows/**' '.github/scripts/**' 2>/dev/null || echo "")
+          REVIEWABLE_FILES=$(git diff --name-only origin/$BASE_REF...HEAD -- '*.py' '*.md' 'docs/**' 'README.md' 'AGENTS.md' 'pyproject.toml' 'uv.lock' 'setup.cfg' '.github/PULL_REQUEST_TEMPLATE.md' '.github/workflows/**' '.github/scripts/**' 2>/dev/null || echo "")
 
           if [ -z "$REVIEWABLE_FILES" ]; then
             echo "has_reviewable_changes=false" >> $GITHUB_OUTPUT
@@ -165,7 +169,7 @@ jobs:
         if: steps.check_files.outputs.has_py_changes == 'true'
         run: |
           echo "## 🔎 代码质量检查" >> $GITHUB_STEP_SUMMARY
-          RESULT=$(flake8 $CHANGED_FILES --select=E9,F63,F7,F82 --format='%(path)s:%(row)d: %(code)s %(text)s' 2>/dev/null || true)
+          RESULT=$(uv run flake8 $CHANGED_FILES --select=E9,F63,F7,F82 --format='%(path)s:%(row)d: %(code)s %(text)s' 2>/dev/null || true)
           if [ -n "$RESULT" ]; then
             echo "⚠️ 发现以下问题：" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
@@ -221,7 +225,7 @@ jobs:
       - name: 🐍 设置 Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       
       - name: 📦 安装依赖
         run: pip install google-genai openai httpx

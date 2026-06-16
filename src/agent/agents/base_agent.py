@@ -141,7 +141,7 @@ class BaseAgent(ABC):
             result.status = StageStatus.COMPLETED
 
         except Exception as exc:
-            logger.error("[%s] execution failed: %s", self.agent_name, exc, exc_info=True)
+            logger.exception("[%s] execution failed: %s", self.agent_name, exc, exc_info=True)
             result.status = StageStatus.FAILED
             result.error = str(exc)
         finally:

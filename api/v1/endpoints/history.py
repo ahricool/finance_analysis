@@ -12,9 +12,9 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Depends, Body
+from fastapi import APIRouter, HTTPException, Query, Depends, Body, Request
 
-from api.deps import get_database_manager
+from api.deps import get_database_manager, get_effective_uid
 from api.v1.schemas.history import (
     HistoryListResponse,
     HistoryItem,
@@ -62,6 +62,7 @@ router = APIRouter()
     description="分页获取历史分析记录摘要，支持按股票代码和日期范围筛选"
 )
 def get_history_list(
+    http_request: Request,
     stock_code: Optional[str] = Query(None, description="股票代码筛选"),
     start_date: Optional[str] = Query(None, description="开始日期 (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="结束日期 (YYYY-MM-DD)"),
@@ -71,7 +72,7 @@ def get_history_list(
     ),
     page: int = Query(1, ge=1, description="页码（从 1 开始）"),
     limit: int = Query(20, ge=1, le=100, description="每页数量"),
-    db_manager: DatabaseManager = Depends(get_database_manager)
+    db_manager: DatabaseManager = Depends(get_database_manager),
 ) -> HistoryListResponse:
     """
     获取历史分析列表
@@ -98,7 +99,8 @@ def get_history_list(
                 detail={"error": "invalid_timezone", "message": str(exc)},
             ) from exc
         service = HistoryService(db_manager)
-        
+        uid = get_effective_uid(http_request)
+
         # 使用 def 而非 async def，FastAPI 自动在线程池中执行
         result = service.get_history_list(
             stock_code=stock_code,
@@ -106,7 +108,8 @@ def get_history_list(
             end_date=end_date,
             timezone_name=timezone_name,
             page=page,
-            limit=limit
+            limit=limit,
+            uid=uid,
         )
         
         # 转换为响应模型
@@ -134,7 +137,7 @@ def get_history_list(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"查询历史列表失败: {e}", exc_info=True)
+        logger.exception(f"查询历史列表失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -156,8 +159,9 @@ def get_history_list(
     description="按历史记录主键 ID 批量删除分析历史"
 )
 def delete_history_records(
+    http_request: Request,
     request: DeleteHistoryRequest = Body(...),
-    db_manager: DatabaseManager = Depends(get_database_manager)
+    db_manager: DatabaseManager = Depends(get_database_manager),
 ) -> DeleteHistoryResponse:
     """
     按主键 ID 批量删除历史分析记录。
@@ -174,12 +178,13 @@ def delete_history_records(
 
     try:
         service = HistoryService(db_manager)
-        deleted = service.delete_history_records(record_ids)
+        uid = get_effective_uid(http_request)
+        deleted = service.delete_history_records(record_ids, uid=uid)
         return DeleteHistoryResponse(deleted=deleted)
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"删除历史记录失败: {e}", exc_info=True)
+        logger.exception(f"删除历史记录失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -202,7 +207,8 @@ def delete_history_records(
 )
 def get_history_detail(
     record_id: str,
-    db_manager: DatabaseManager = Depends(get_database_manager)
+    http_request: Request,
+    db_manager: DatabaseManager = Depends(get_database_manager),
 ) -> AnalysisReport:
     """
     获取历史报告详情
@@ -222,9 +228,10 @@ def get_history_detail(
     """
     try:
         service = HistoryService(db_manager)
-        
+        uid = get_effective_uid(http_request)
+
         # Try integer ID first, fall back to query_id string lookup
-        result = service.resolve_and_get_detail(record_id)
+        result = service.resolve_and_get_detail(record_id, uid=uid)
         
         if result is None:
             raise HTTPException(
@@ -349,7 +356,7 @@ def get_history_detail(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"查询历史详情失败: {e}", exc_info=True)
+        logger.exception(f"查询历史详情失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -371,8 +378,9 @@ def get_history_detail(
 )
 def get_history_news(
     record_id: str,
+    http_request: Request,
     limit: int = Query(20, ge=1, le=100, description="返回数量限制"),
-    db_manager: DatabaseManager = Depends(get_database_manager)
+    db_manager: DatabaseManager = Depends(get_database_manager),
 ) -> NewsIntelResponse:
     """
     获取历史报告关联新闻
@@ -390,7 +398,8 @@ def get_history_news(
     """
     try:
         service = HistoryService(db_manager)
-        items = service.resolve_and_get_news(record_id=record_id, limit=limit)
+        uid = get_effective_uid(http_request)
+        items = service.resolve_and_get_news(record_id=record_id, limit=limit, uid=uid)
 
         response_items = [
             NewsIntelItem(
@@ -407,7 +416,7 @@ def get_history_news(
         )
 
     except Exception as e:
-        logger.error(f"查询新闻情报失败: {e}", exc_info=True)
+        logger.exception(f"查询新闻情报失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -430,7 +439,8 @@ def get_history_news(
 )
 def get_history_markdown(
     record_id: str,
-    db_manager: DatabaseManager = Depends(get_database_manager)
+    http_request: Request,
+    db_manager: DatabaseManager = Depends(get_database_manager),
 ) -> MarkdownReportResponse:
     """
     获取历史报告的 Markdown 格式内容
@@ -449,9 +459,10 @@ def get_history_markdown(
         HTTPException: 500 - 报告生成失败（服务器内部错误）
     """
     service = HistoryService(db_manager)
+    uid = get_effective_uid(http_request)
 
     try:
-        markdown_content = service.get_markdown_report(record_id)
+        markdown_content = service.get_markdown_report(record_id, uid=uid)
     except MarkdownReportGenerationError as e:
         logger.error(f"Markdown report generation failed for {record_id}: {e.message}")
         raise HTTPException(
@@ -462,7 +473,7 @@ def get_history_markdown(
             }
         )
     except Exception as e:
-        logger.error(f"获取 Markdown 报告失败: {e}", exc_info=True)
+        logger.exception(f"获取 Markdown 报告失败: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={

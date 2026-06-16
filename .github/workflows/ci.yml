@@ -70,12 +70,12 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: |
-            requirements.txt
-            .github/requirements-ci.txt
+            uv.lock
+            pyproject.toml
       - name: 📦 Install dependencies
         run: |
           for attempt in 1 2 3; do
-            if uv pip install --system -r .github/requirements-ci.txt; then
+            if uv sync --frozen --dev; then
               break
             fi
             if [ "$attempt" -eq 3 ]; then
@@ -86,13 +86,13 @@ jobs:
             sleep 15
           done
       - name: ✅ Python syntax check
-        run: ./scripts/ci_gate.sh syntax
+        run: uv run ./scripts/ci_gate.sh syntax
       - name: ✅ Flake8 critical checks
-        run: ./scripts/ci_gate.sh flake8
+        run: uv run ./scripts/ci_gate.sh flake8
       - name: ✅ Local deterministic checks
-        run: ./scripts/ci_gate.sh deterministic
+        run: uv run ./scripts/ci_gate.sh deterministic
       - name: ✅ Offline test suite
-        run: ./scripts/ci_gate.sh offline-tests
+        run: uv run ./scripts/ci_gate.sh offline-tests
 
   docker-build:
     name: docker-build

@@ -23,11 +23,11 @@ def main() -> int:
     try:
         import uvicorn
         from src.config import get_config, setup_env
-        from src.logging_config import setup_logging
+        from src.logging_config import setup_backend_logging
 
         args = _parse_args()
         setup_env()
-        setup_logging(log_prefix="web_server")
+        setup_backend_logging(service="server", log_prefix="web_server")
         config = get_config()
         host = args.host or config.webui_host
         port = args.port or config.webui_port

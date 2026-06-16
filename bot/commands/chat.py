@@ -102,6 +102,6 @@ class ChatCommand(BotCommand):
                 return BotResponse.text_response(f"⚠️ 对话失败: {result.error}")
                 
         except Exception as e:
-            logger.error(f"Chat command failed: {e}")
+            logger.exception(f"Chat command failed: {e}")
             logger.exception("Chat error details:")
             return BotResponse.text_response(f"⚠️ 对话执行出错: {str(e)}")

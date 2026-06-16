@@ -7,6 +7,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
+from src.llm import LLMClient, LLMRequest
+
 from .bars import aggregate_bars
 
 logger = logging.getLogger(__name__)
@@ -176,7 +178,7 @@ def truthy(value: Any) -> bool:
 
 
 class IntradayLLMJudge:
-    """Wraps the configured analyzer to score signal candidates."""
+    """Uses the configured LLM client to score a single signal candidate."""
 
     def __init__(self, config: Any) -> None:
         self.config = config
@@ -254,10 +256,8 @@ class IntradayLLMJudge:
     ) -> Optional[Dict[str, Any]]:
         """Return the parsed LLM verdict, or ``None`` when unavailable/invalid."""
         try:
-            from src.analyzer import GeminiAnalyzer
-
-            analyzer = GeminiAnalyzer(self.config)
-            if not analyzer.is_available():
+            client = LLMClient(config=self.config)
+            if not client.is_available():
                 logger.warning("LLM 未配置，跳过美股盘中候选信号判定: %s %s", symbol, signal_type)
                 return None
             prompt = build_intraday_llm_prompt(
@@ -271,8 +271,19 @@ class IntradayLLMJudge:
                     "market_context": market_context,
                 },
             )
-            text = analyzer.generate_text(prompt, max_tokens=1200, temperature=0.2)
-            parsed = parse_llm_json_response(text)
+            result = client.complete_json(
+                LLMRequest(
+                    messages=[
+                        {"role": "system", "content": "你是美股盘中异动提醒系统的 JSON 判定器，只输出 JSON。"},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.2,
+                    max_tokens=1200,
+                    call_type="intraday_judge",
+                    stock_code=symbol,
+                )
+            )
+            parsed = parse_llm_json_response(result.text)
             if parsed is None:
                 logger.warning("美股盘中 LLM 返回无法解析: %s %s", symbol, signal_type)
                 return None

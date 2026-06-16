@@ -7,9 +7,9 @@ import logging
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from api.deps import get_database_manager
+from api.deps import get_database_manager, get_effective_uid
 from api.v1.schemas.backtest import (
     BacktestRunRequest,
     BacktestRunResponse,
@@ -52,20 +52,23 @@ def _validate_analysis_date_range(
 )
 def run_backtest(
     request: BacktestRunRequest,
+    http_request: Request,
     db_manager: DatabaseManager = Depends(get_database_manager),
 ) -> BacktestRunResponse:
     try:
         service = BacktestService(db_manager)
+        uid = get_effective_uid(http_request)
         stats = service.run_backtest(
             code=request.code,
             force=request.force,
             eval_window_days=request.eval_window_days,
             min_age_days=request.min_age_days,
             limit=request.limit,
+            uid=uid,
         )
         return BacktestRunResponse(**stats)
     except Exception as exc:
-        logger.error(f"回测执行失败: {exc}", exc_info=True)
+        logger.exception(f"回测执行失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={"error": "internal_error", "message": f"回测执行失败: {str(exc)}"},
@@ -83,6 +86,7 @@ def run_backtest(
     description="分页获取回测结果，支持按股票代码过滤",
 )
 def get_backtest_results(
+    http_request: Request,
     code: Optional[str] = Query(None, description="股票代码筛选"),
     eval_window_days: Optional[int] = Query(None, ge=1, le=120, description="评估窗口过滤"),
     analysis_date_from: Optional[date] = Query(None, description="分析日期起始（含）"),
@@ -94,6 +98,7 @@ def get_backtest_results(
     try:
         _validate_analysis_date_range(analysis_date_from, analysis_date_to)
         service = BacktestService(db_manager)
+        uid = get_effective_uid(http_request)
         data = service.get_recent_evaluations(
             code=code,
             eval_window_days=eval_window_days,
@@ -101,6 +106,7 @@ def get_backtest_results(
             page=page,
             analysis_date_from=analysis_date_from,
             analysis_date_to=analysis_date_to,
+            uid=uid,
         )
         items = [BacktestResultItem(**item) for item in data.get("items", [])]
         return BacktestResultsResponse(
@@ -112,7 +118,7 @@ def get_backtest_results(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"查询回测结果失败: {exc}", exc_info=True)
+        logger.exception(f"查询回测结果失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={"error": "internal_error", "message": f"查询回测结果失败: {str(exc)}"},
@@ -130,6 +136,7 @@ def get_backtest_results(
     summary="获取整体回测表现",
 )
 def get_overall_performance(
+    http_request: Request,
     eval_window_days: Optional[int] = Query(None, ge=1, le=120, description="评估窗口过滤"),
     analysis_date_from: Optional[date] = Query(None, description="分析日期起始（含）"),
     analysis_date_to: Optional[date] = Query(None, description="分析日期结束（含）"),
@@ -138,12 +145,14 @@ def get_overall_performance(
     try:
         _validate_analysis_date_range(analysis_date_from, analysis_date_to)
         service = BacktestService(db_manager)
+        uid = get_effective_uid(http_request)
         summary = service.get_summary(
             scope="overall",
             code=None,
             eval_window_days=eval_window_days,
             analysis_date_from=analysis_date_from,
             analysis_date_to=analysis_date_to,
+            uid=uid,
         )
         if summary is None:
             raise HTTPException(
@@ -159,7 +168,7 @@ def get_overall_performance(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"查询整体表现失败: {exc}", exc_info=True)
+        logger.exception(f"查询整体表现失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={"error": "internal_error", "message": f"查询整体表现失败: {str(exc)}"},
@@ -178,6 +187,7 @@ def get_overall_performance(
 )
 def get_stock_performance(
     code: str,
+    http_request: Request,
     eval_window_days: Optional[int] = Query(None, ge=1, le=120, description="评估窗口过滤"),
     analysis_date_from: Optional[date] = Query(None, description="分析日期起始（含）"),
     analysis_date_to: Optional[date] = Query(None, description="分析日期结束（含）"),
@@ -186,12 +196,14 @@ def get_stock_performance(
     try:
         _validate_analysis_date_range(analysis_date_from, analysis_date_to)
         service = BacktestService(db_manager)
+        uid = get_effective_uid(http_request)
         summary = service.get_summary(
             scope="stock",
             code=code,
             eval_window_days=eval_window_days,
             analysis_date_from=analysis_date_from,
             analysis_date_to=analysis_date_to,
+            uid=uid,
         )
         if summary is None:
             raise HTTPException(
@@ -207,7 +219,7 @@ def get_stock_performance(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"查询单股表现失败: {exc}", exc_info=True)
+        logger.exception(f"查询单股表现失败: {exc}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={"error": "internal_error", "message": f"查询单股表现失败: {str(exc)}"},

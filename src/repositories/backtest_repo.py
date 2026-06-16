@@ -33,6 +33,7 @@ class BacktestRepository:
         eval_window_days: int,
         engine_version: str,
         force: bool,
+        uid: Optional[int] = None,
     ) -> List[AnalysisHistory]:
         """Return AnalysisHistory rows eligible for backtest."""
         cutoff_dt = utc_now() - timedelta(days=min_age_days)
@@ -41,6 +42,8 @@ class BacktestRepository:
             conditions = [AnalysisHistory.created_at <= cutoff_dt]
             if code:
                 conditions.append(AnalysisHistory.code == code)
+            if uid is not None:
+                conditions.append(AnalysisHistory.uid == uid)
 
             query = select(AnalysisHistory).where(and_(*conditions))
 
@@ -89,7 +92,7 @@ class BacktestRepository:
                 return len(results)
             except Exception as exc:
                 session.rollback()
-                logger.error(f"批量保存回测结果失败: {exc}")
+                logger.exception(f"批量保存回测结果失败: {exc}")
                 raise
 
     def get_results_paginated(
@@ -103,6 +106,7 @@ class BacktestRepository:
         days: Optional[int],
         offset: int,
         limit: int,
+        uid: Optional[int] = None,
     ) -> Tuple[List[Tuple[BacktestResult, Optional[str], Optional[str], Optional[datetime]]], int]:
         with self.db.get_session() as session:
             conditions = self._build_result_conditions(
@@ -112,6 +116,7 @@ class BacktestRepository:
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
                 days=days,
+                uid=uid,
             )
 
             where_clause = and_(*conditions) if conditions else True
@@ -146,6 +151,7 @@ class BacktestRepository:
         analysis_date_from: Optional[date] = None,
         analysis_date_to: Optional[date] = None,
         days: Optional[int] = None,
+        uid: Optional[int] = None,
     ) -> int:
         """Return the number of matching BacktestResult rows without loading them."""
         with self.db.get_session() as session:
@@ -156,13 +162,16 @@ class BacktestRepository:
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
                 days=days,
+                uid=uid,
             )
             where_clause = and_(*conditions) if conditions else True
-            count = session.execute(
-                select(func.count(BacktestResult.id))
-                .select_from(BacktestResult)
-                .where(where_clause)
-            ).scalar() or 0
+            query = select(func.count(BacktestResult.id)).select_from(BacktestResult)
+            if uid is not None:
+                query = query.join(
+                    AnalysisHistory,
+                    AnalysisHistory.id == BacktestResult.analysis_history_id,
+                )
+            count = session.execute(query.where(where_clause)).scalar() or 0
             return int(count)
 
     def list_results(
@@ -175,6 +184,7 @@ class BacktestRepository:
         analysis_date_to: Optional[date] = None,
         days: Optional[int] = None,
         limit: Optional[int] = None,
+        uid: Optional[int] = None,
     ) -> List[BacktestResult]:
         with self.db.get_session() as session:
             conditions = self._build_result_conditions(
@@ -184,12 +194,17 @@ class BacktestRepository:
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
                 days=days,
+                uid=uid,
             )
             where_clause = and_(*conditions) if conditions else True
-            query = (
-                select(BacktestResult)
-                .where(where_clause)
-                .order_by(desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at))
+            query = select(BacktestResult)
+            if uid is not None:
+                query = query.join(
+                    AnalysisHistory,
+                    AnalysisHistory.id == BacktestResult.analysis_history_id,
+                )
+            query = query.where(where_clause).order_by(
+                desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at)
             )
             if limit is not None:
                 query = query.limit(limit)
@@ -203,6 +218,7 @@ class BacktestRepository:
                 select(BacktestSummary)
                 .where(
                     and_(
+                        BacktestSummary.uid == summary.uid,
                         BacktestSummary.scope == summary.scope,
                         BacktestSummary.code == summary.code,
                         BacktestSummary.eval_window_days == summary.eval_window_days,
@@ -249,6 +265,7 @@ class BacktestRepository:
         code: Optional[str],
         eval_window_days: Optional[int] = None,
         engine_version: str,
+        uid: Optional[int] = None,
     ) -> Optional[BacktestSummary]:
         with self.db.get_session() as session:
             conditions = [
@@ -256,6 +273,8 @@ class BacktestRepository:
                 BacktestSummary.code == code,
                 BacktestSummary.engine_version == engine_version,
             ]
+            if uid is not None:
+                conditions.append(BacktestSummary.uid == uid)
             if eval_window_days is not None:
                 conditions.append(BacktestSummary.eval_window_days == eval_window_days)
 
@@ -300,6 +319,7 @@ class BacktestRepository:
         engine_version: Optional[str] = None,
         analysis_date_from: Optional[date] = None,
         analysis_date_to: Optional[date] = None,
+        uid: Optional[int] = None,
     ) -> List[int]:
         """Return sorted distinct eval_window_days for matching results."""
         with self.db.get_session() as session:
@@ -310,13 +330,17 @@ class BacktestRepository:
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
                 days=None,
+                uid=uid,
             )
             where_clause = and_(*conditions) if conditions else True
+            query = select(BacktestResult.eval_window_days)
+            if uid is not None:
+                query = query.join(
+                    AnalysisHistory,
+                    AnalysisHistory.id == BacktestResult.analysis_history_id,
+                )
             rows = session.execute(
-                select(BacktestResult.eval_window_days)
-                .where(where_clause)
-                .distinct()
-                .order_by(BacktestResult.eval_window_days)
+                query.where(where_clause).distinct().order_by(BacktestResult.eval_window_days)
             ).scalars().all()
             return [int(w) for w in rows if w is not None]
 
@@ -329,6 +353,7 @@ class BacktestRepository:
         analysis_date_from: Optional[date],
         analysis_date_to: Optional[date],
         days: Optional[int],
+        uid: Optional[int] = None,
     ) -> List[object]:
         conditions = []
         if code:
@@ -344,4 +369,6 @@ class BacktestRepository:
         if days:
             cutoff = utc_now() - timedelta(days=int(days))
             conditions.append(BacktestResult.evaluated_at >= cutoff)
+        if uid is not None:
+            conditions.append(AnalysisHistory.uid == uid)
         return conditions

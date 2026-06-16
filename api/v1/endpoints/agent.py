@@ -189,7 +189,7 @@ async def agent_chat(http_request: Request, body: ChatRequest):
         )
 
     except Exception as e:
-        logger.error(f"Agent chat API failed: {e}")
+        logger.exception(f"Agent chat API failed: {e}")
         logger.exception("Agent chat error details:")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -376,7 +376,7 @@ async def agent_research(request: ResearchRequest):
             error=result.error if not result.success else None,
         )
     except Exception as e:
-        logger.error("Agent research API failed: %s", e)
+        logger.exception("Agent research API failed: %s", e)
         logger.exception("Agent research error details:")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -437,7 +437,7 @@ async def agent_chat_stream(http_request: Request, body: ChatRequest):
                 loop,
             )
         except Exception as exc:
-            logger.error(f"Agent stream error: {exc}")
+            logger.exception(f"Agent stream error: {exc}")
             asyncio.run_coroutine_threadsafe(
                 queue.put({"type": "error", "message": str(exc)}),
                 loop,

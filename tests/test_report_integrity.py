@@ -17,7 +17,7 @@ try:
 except ModuleNotFoundError:
     sys.modules["litellm"] = MagicMock()
 
-from src.analyzer import AnalysisResult, GeminiAnalyzer, check_content_integrity, apply_placeholder_fill
+from src.analysis.stock_report_analyzer import AnalysisResult, StockReportAnalyzer, check_content_integrity, apply_placeholder_fill
 
 
 class TestCheckContentIntegrity(unittest.TestCase):
@@ -430,8 +430,8 @@ class TestIntegrityRetryPrompt(unittest.TestCase):
 
     def test_retry_prompt_includes_previous_response(self) -> None:
         """Retry prompt should carry previous response so补全是增量的。"""
-        with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
-            analyzer = GeminiAnalyzer()
+        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+            analyzer = StockReportAnalyzer()
         prompt = analyzer._build_integrity_retry_prompt(
             "原始提示",
             '{"analysis_summary": "已有内容"}',

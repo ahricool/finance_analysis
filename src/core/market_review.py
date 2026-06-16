@@ -12,17 +12,27 @@ Finance Analysis - 大盘复盘模块（支持 A 股 / 港股 / 美股）
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Protocol
 
 from src.config import get_config
 from src.notification import NotificationService
 from src.market_analyzer import MarketAnalyzer
 from src.report_language import normalize_report_language
 from src.search_service import SearchService
-from src.analyzer import GeminiAnalyzer
 
 
 logger = logging.getLogger(__name__)
+
+
+class TextGenerator(Protocol):
+    def is_available(self) -> bool: ...
+
+    def generate_text(
+        self,
+        prompt: str,
+        max_tokens: int = 2048,
+        temperature: float = 0.7,
+    ) -> str | None: ...
 
 
 def _get_market_review_text(language: str) -> dict[str, str]:
@@ -48,7 +58,7 @@ def _get_market_review_text(language: str) -> dict[str, str]:
 
 def run_market_review(
     notifier: NotificationService,
-    analyzer: Optional[GeminiAnalyzer] = None,
+    analyzer: Optional[TextGenerator] = None,
     search_service: Optional[SearchService] = None,
     send_notification: bool = True,
     merge_notification: bool = False,
@@ -144,6 +154,6 @@ def run_market_review(
             return review_report
         
     except Exception as e:
-        logger.error(f"大盘复盘分析失败: {e}")
+        logger.exception(f"大盘复盘分析失败: {e}")
     
     return None

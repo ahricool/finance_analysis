@@ -53,7 +53,9 @@ except (ValueError, TypeError):
 
 from src.patches.eastmoney_patch import eastmoney_patch
 from src.config import get_config
+from src.logging_config import log_external_call_exception
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS,is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code, _is_hk_market
+from .codes import _is_etf_code, _is_us_code
 from .realtime_types import (
     UnifiedRealtimeQuote, RealtimeSource,
     get_realtime_circuit_breaker,
@@ -133,36 +135,6 @@ _etf_realtime_cache: Dict[str, Any] = {
     'timestamp': 0,
     'ttl': 600  # 10分钟缓存有效期
 }
-
-
-def _is_etf_code(stock_code: str) -> bool:
-    """
-    判断代码是否为 ETF 基金
-    
-    ETF 代码规则：
-    - 上交所 ETF: 51xxxx, 52xxxx, 56xxxx, 58xxxx
-    - 深交所 ETF: 15xxxx, 16xxxx, 18xxxx
-    
-    Args:
-        stock_code: 股票/基金代码
-        
-    Returns:
-        True 表示是 ETF 代码，False 表示是普通股票代码
-    """
-    etf_prefixes = ('51', '52', '56', '58', '15', '16', '18')
-    return stock_code.startswith(etf_prefixes) and len(stock_code) == 6
-
-
-def _is_us_code(stock_code: str) -> bool:
-    """
-    判断代码是否为美股
-    
-    美股代码规则：
-    - 1-5个大写字母，如 'AAPL', 'TSLA'
-    - 可能包含 '.'，如 'BRK.B'
-    """
-    code = stock_code.strip().upper()
-    return bool(re.match(r'^[A-Z]{1,5}(\.[A-Z])?$', code))
 
 
 def _ef_call_with_timeout(func, *args, timeout=None, **kwargs):
@@ -445,7 +417,16 @@ class EfinanceFetcher(BaseFetcher):
                 logger.warning(failure_message)
                 raise RateLimitError(f"efinance 可能被限流: {failure_message}") from e
 
-            logger.error(failure_message)
+            log_external_call_exception(
+                logger,
+                provider="efinance",
+                operation="stock.get_quote_history",
+                exc=e,
+                symbol=stock_code,
+                params={"stock_codes": stock_code, "beg": beg_date, "end": end_date_fmt, "klt": 101, "fqt": 1},
+                elapsed=api_elapsed,
+                extra={"failure_message": failure_message},
+            )
             raise DataFetchError(f"efinance 获取数据失败: {failure_message}") from e
     
     def _fetch_etf_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -533,7 +514,23 @@ class EfinanceFetcher(BaseFetcher):
                 logger.warning(failure_message)
                 raise RateLimitError(f"efinance 可能被限流: {failure_message}") from e
 
-            logger.error(failure_message)
+            log_external_call_exception(
+                logger,
+                provider="efinance",
+                operation="stock.get_quote_history",
+                exc=e,
+                symbol=stock_code,
+                params={
+                    "stock_codes": stock_code,
+                    "beg": beg_date,
+                    "end": end_date_fmt,
+                    "klt": 101,
+                    "fqt": 1,
+                    "asset": "ETF",
+                },
+                elapsed=api_elapsed,
+                extra={"failure_message": failure_message},
+            )
             raise DataFetchError(f"efinance 获取 ETF 数据失败: {failure_message}") from e
     
     def _normalize_data(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
@@ -614,7 +611,8 @@ class EfinanceFetcher(BaseFetcher):
         if not circuit_breaker.is_available(source_key):
             logger.info(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
             return None
-        
+
+        api_start = time.time()
         try:
             # 检查缓存
             current_time = time.time()
@@ -704,7 +702,15 @@ class EfinanceFetcher(BaseFetcher):
             circuit_breaker.record_failure(source_key, "timeout")
             return None
         except Exception as e:
-            logger.info(f"[API错误] 获取 {stock_code} 实时行情(efinance)失败: {e}")
+            log_external_call_exception(
+                logger,
+                provider="efinance",
+                operation="stock.get_realtime_quotes",
+                exc=e,
+                symbol=stock_code,
+                params={"stock_code": stock_code, "source_key": source_key},
+                elapsed=time.time() - api_start,
+            )
             circuit_breaker.record_failure(source_key, str(e))
             return None
 
@@ -722,6 +728,7 @@ class EfinanceFetcher(BaseFetcher):
             logger.info(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
             return None
 
+        api_start = time.time()
         try:
             current_time = time.time()
             if (
@@ -798,7 +805,15 @@ class EfinanceFetcher(BaseFetcher):
             )
             return quote
         except Exception as e:
-            logger.info(f"[API错误] 获取 ETF {stock_code} 实时行情(efinance)失败: {e}")
+            log_external_call_exception(
+                logger,
+                provider="efinance",
+                operation="stock.get_realtime_quotes",
+                exc=e,
+                symbol=stock_code,
+                params={"stock_code": stock_code, "asset": "ETF", "source_key": source_key},
+                elapsed=time.time() - api_start,
+            )
             circuit_breaker.record_failure(source_key, str(e))
             return None
 
@@ -819,6 +834,7 @@ class EfinanceFetcher(BaseFetcher):
             '000300': ('沪深300', 'sh000300'),
         }
 
+        api_start = time.time()
         try:
             self._set_random_user_agent()
             self._enforce_rate_limit()
@@ -884,7 +900,14 @@ class EfinanceFetcher(BaseFetcher):
                 logger.info(f"[efinance] 获取到 {len(results)} 个指数行情")
             return results if results else None
         except Exception as e:
-            logger.error(f"[efinance] 获取指数行情失败: {e}")
+            log_external_call_exception(
+                logger,
+                provider="efinance",
+                operation="stock.get_realtime_quotes",
+                exc=e,
+                params={"region": region},
+                elapsed=time.time() - api_start,
+            )
             return None
 
     def get_market_stats(self) -> Optional[Dict[str, Any]]:
@@ -893,6 +916,7 @@ class EfinanceFetcher(BaseFetcher):
         """
         import efinance as ef
 
+        api_start = time.time()
         try:
             self._set_random_user_agent()
             self._enforce_rate_limit()
@@ -915,7 +939,14 @@ class EfinanceFetcher(BaseFetcher):
 
             return self._calc_market_stats(df)
         except Exception as e:
-            logger.error(f"[efinance] 获取市场统计失败: {e}")
+            log_external_call_exception(
+                logger,
+                provider="efinance",
+                operation="stock.get_realtime_quotes",
+                exc=e,
+                params={"purpose": "market_stats"},
+                elapsed=time.time() - api_start,
+            )
             return None
         
     def _calc_market_stats(
@@ -1013,6 +1044,7 @@ class EfinanceFetcher(BaseFetcher):
         """
         import efinance as ef
 
+        api_start = time.time()
         try:
             self._set_random_user_agent()
             self._enforce_rate_limit()
@@ -1043,7 +1075,14 @@ class EfinanceFetcher(BaseFetcher):
             ]
             return top_sectors, bottom_sectors
         except Exception as e:
-            logger.error(f"[efinance] 获取板块排行失败: {e}")
+            log_external_call_exception(
+                logger,
+                provider="efinance",
+                operation="stock.get_realtime_quotes",
+                exc=e,
+                params={"category": "行业板块", "n": n},
+                elapsed=time.time() - api_start,
+            )
             return None
     
     def get_base_info(self, stock_code: str) -> Optional[Dict[str, Any]]:
@@ -1061,6 +1100,7 @@ class EfinanceFetcher(BaseFetcher):
         """
         import efinance as ef
         
+        api_start = time.time()
         try:
             # 防封禁策略
             self._set_random_user_agent()
@@ -1089,7 +1129,15 @@ class EfinanceFetcher(BaseFetcher):
             return None
             
         except Exception as e:
-            logger.error(f"[API错误] 获取 {stock_code} 基本信息失败: {e}")
+            log_external_call_exception(
+                logger,
+                provider="efinance",
+                operation="stock.get_base_info",
+                exc=e,
+                symbol=stock_code,
+                params={"stock_codes": stock_code},
+                elapsed=time.time() - api_start,
+            )
             return None
     
     def get_belong_board(self, stock_code: str) -> Optional[pd.DataFrame]:
@@ -1106,6 +1154,7 @@ class EfinanceFetcher(BaseFetcher):
         """
         import efinance as ef
         
+        api_start = time.time()
         try:
             # 防封禁策略
             self._set_random_user_agent()
@@ -1130,7 +1179,15 @@ class EfinanceFetcher(BaseFetcher):
             logger.warning(f"[超时] ef.stock.get_belong_board({stock_code}) 超过 {_EF_CALL_TIMEOUT}s，跳过")
             return None
         except Exception as e:
-            logger.error(f"[API错误] 获取 {stock_code} 所属板块失败: {e}")
+            log_external_call_exception(
+                logger,
+                provider="efinance",
+                operation="stock.get_belong_board",
+                exc=e,
+                symbol=stock_code,
+                params={"stock_code": stock_code},
+                elapsed=time.time() - api_start,
+            )
             return None
     
     def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
@@ -1157,7 +1214,7 @@ class EfinanceFetcher(BaseFetcher):
             df = self.get_daily_data(stock_code, days=days)
             result['daily_data'] = df
         except Exception as e:
-            logger.error(f"获取 {stock_code} 日线数据失败: {e}")
+            logger.exception("获取 %s 日线数据失败: %s", stock_code, e)
         
         # 获取实时行情
         result['realtime_quote'] = self.get_realtime_quote(stock_code)

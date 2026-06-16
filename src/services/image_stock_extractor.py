@@ -5,7 +5,7 @@
 ===================================
 
 从截图/图片中提取股票代码，使用 Vision LLM。
-优先级：Gemini -> Anthropic -> OpenAI（首个可用）。
+通过 LiteLLM 调用配置的 Vision 模型。
 """
 
 from __future__ import annotations
@@ -13,25 +13,15 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import random
 import re
-import sys
 import time
 from typing import List, Optional, Tuple
 
-from src.config import Config, get_config
+from src.config import get_config
+from src.llm import LLMClient, LLMRequest
 
 logger = logging.getLogger(__name__)
 
-
-class _LiteLLMPlaceholder:
-    """Provide a patchable placeholder before litellm is imported."""
-
-    completion = None
-
-
-# Keep a patchable module attribute while still avoiding a hard import at module load.
-litellm = sys.modules.get("litellm") or _LiteLLMPlaceholder()
 
 EXTRACT_PROMPT = """请分析这张股票市场截图或图片，提取其中所有可见的股票代码及名称。
 
@@ -208,76 +198,39 @@ def _parse_items_from_text(text: str) -> List[Tuple[str, Optional[str], str]]:
 
 
 def _resolve_vision_model() -> str:
-    """Determine the litellm model to use for vision."""
+    """Determine the LiteLLM model to use for vision."""
     cfg = get_config()
-    # Prefer explicit vision model, then OPENAI_VISION_MODEL alias, then primary litellm model
-    model = (cfg.vision_model or cfg.openai_vision_model or cfg.litellm_model or "").strip()
-    if not model:
-        # Fallback: infer from available keys
-        if cfg.gemini_api_keys:
-            model_name = cfg.gemini_model or "gemini-3.1-pro-preview"
-            model = model_name if "/" in model_name else f"gemini/{model_name}"
-        elif cfg.anthropic_api_keys:
-            model = f"anthropic/{cfg.anthropic_model or 'claude-sonnet-4-6'}"
-        elif cfg.openai_api_keys:
-            model = f"openai/{cfg.openai_model or 'gpt-5.5'}"
-        else:
-            return ""
-    return model
+    return (cfg.vision_model or cfg.llm_model or "").strip()
 
 
-def _get_api_keys_for_model(model: str, cfg: Config) -> List[str]:
-    """Return available API keys for the given litellm model."""
-    if model.startswith("gemini/") or model.startswith("vertex_ai/"):
-        return [k for k in cfg.gemini_api_keys if k and len(k) >= 8]
-    if model.startswith("anthropic/"):
-        return [k for k in cfg.anthropic_api_keys if k and len(k) >= 8]
-    return [k for k in cfg.openai_api_keys if k and len(k) >= 8]
-
-
-def _call_litellm_vision(image_b64: str, mime_type: str, api_key: Optional[str] = None) -> str:
-    """Extract stock codes from an image using litellm (all providers via OpenAI vision format)."""
-    global litellm
+def _call_litellm_vision(image_b64: str, mime_type: str) -> str:
+    """Extract stock codes from an image using the unified LLM client."""
     cfg = get_config()
     model = _resolve_vision_model()
     if not model:
-        raise ValueError("未配置 Vision API。请设置 LITELLM_MODEL 或相关 API Key。")
-
-    keys = _get_api_keys_for_model(model, cfg)
-    if not keys:
-        raise ValueError(f"No API key found for vision model {model}")
-    key = api_key if api_key and api_key in keys else random.choice(keys)
+        raise ValueError("未配置 Vision 模型。请设置 VISION_MODEL 或 LLM_MODEL。")
 
     data_url = f"data:{mime_type};base64,{image_b64}"
-    call_kwargs: dict = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": EXTRACT_PROMPT},
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                ],
-            }
-        ],
-        "max_tokens": 1024,
-        "api_key": key,
-        "timeout": VISION_API_TIMEOUT,
-    }
-    # Add api_base and custom headers for OpenAI-compatible providers
-    if not model.startswith("gemini/") and not model.startswith("anthropic/") and not model.startswith("vertex_ai/"):
-        if cfg.openai_base_url:
-            call_kwargs["api_base"] = cfg.openai_base_url
-        if cfg.openai_base_url and "aihubmix.com" in cfg.openai_base_url:
-            call_kwargs["extra_headers"] = {"APP-Code": "GPIJ3886"}
-
-    if getattr(litellm, "completion", None) is None:
-        import litellm as litellm_module
-        litellm = litellm_module
-    response = litellm.completion(**call_kwargs)
-    if response and response.choices and response.choices[0].message.content:
-        return response.choices[0].message.content
-    raise ValueError("LiteLLM vision returned empty response")
+    client = LLMClient(config=cfg, models_to_try=[model])
+    result = client.complete_vision(
+        LLMRequest(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": EXTRACT_PROMPT},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                }
+            ],
+            max_tokens=1024,
+            timeout=VISION_API_TIMEOUT,
+            call_type="vision_stock_extraction",
+        )
+    )
+    if result.text:
+        return result.text
+    raise ValueError("Vision LLM returned empty response")
 
 
 def extract_stock_codes_from_image(
@@ -287,8 +240,7 @@ def extract_stock_codes_from_image(
     """
     从图片中提取股票代码及名称（使用 Vision LLM）。
 
-    优先级：Gemini -> Anthropic -> OpenAI（首个可用）。
-    支持多 Key 轮询与重试（最多 3 次，指数退避）。
+    通过 LiteLLM 调用配置的 Vision 模型，最多重试 3 次。
 
     Args:
         image_bytes: 原始图片字节
@@ -313,18 +265,15 @@ def extract_stock_codes_from_image(
     _verify_image_magic_bytes(image_bytes, mime_type)
 
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
-    model = _resolve_vision_model()
-    keys = _get_api_keys_for_model(model, get_config())
 
     last_error: Optional[Exception] = None
     for attempt in range(3):
         try:
-            key = random.choice(keys) if keys else None
-            raw = _call_litellm_vision(image_b64, mime_type, api_key=key)
+            raw = _call_litellm_vision(image_b64, mime_type)
             logger.debug("[ImageExtractor] raw LLM response:\n%s", raw)
             items = _parse_items_from_text(raw)
             logger.info(
-                f"[ImageExtractor] {model} 提取 {len(items)} 个: "
+                f"[ImageExtractor] {_resolve_vision_model()} 提取 {len(items)} 个: "
                 f"{[(i[0], i[1]) for i in items[:5]]}{'...' if len(items) > 5 else ''}"
             )
             return items, raw

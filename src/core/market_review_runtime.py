@@ -10,35 +10,14 @@ import logging
 from typing import Any, Optional, Tuple
 
 from src.config import Config
+from src.llm_client import is_llm_configured
 
 logger = logging.getLogger(__name__)
 
 
 def has_configured_llm_runtime(config: Config) -> bool:
-    """Return whether any LLM model configuration is available."""
-    if (getattr(config, "litellm_model", "") or "").strip():
-        return True
-    if getattr(config, "llm_model_list", None):
-        return True
-
-    for field in (
-        "gemini_api_key",
-        "gemini_api_keys",
-        "anthropic_api_key",
-        "anthropic_api_keys",
-        "deepseek_api_key",
-        "deepseek_api_keys",
-        "openai_api_key",
-        "openai_api_keys",
-    ):
-        value = getattr(config, field, None)
-        if isinstance(value, str):
-            if value.strip():
-                return True
-        elif value:
-            return True
-
-    return False
+    """Return whether unified LLM configuration is available."""
+    return is_llm_configured(config)
 
 
 def build_market_review_runtime(
@@ -46,9 +25,9 @@ def build_market_review_runtime(
     source_message: Optional[Any] = None,
 ) -> Tuple[Any, Any, Any]:
     """
-    Build shared NotificationService, GeminiAnalyzer and SearchService instances.
+    Build shared NotificationService, StockReportAnalyzer and SearchService instances.
     """
-    from src.analyzer import GeminiAnalyzer
+    from src.analysis.stock_report_analyzer import StockReportAnalyzer
     from src.notification import NotificationService
     from src.search_service import SearchService
 
@@ -76,11 +55,8 @@ def build_market_review_runtime(
 
     analyzer = None
     if has_configured_llm_runtime(config):
-        analyzer = GeminiAnalyzer(config=config)
+        analyzer = StockReportAnalyzer(config=config)
         if not analyzer.is_available():
-            logger.warning("AI 分析器初始化后不可用，请检查 LLM 配置")
-            analyzer = None
-    else:
-        logger.warning("未检测到 LLM 模型配置，将仅使用模板生成报告")
+            logger.warning("LLM analyzer initialized but not available (check LLM_MODEL / LLM_API_KEY)")
 
     return notifier, analyzer, search_service

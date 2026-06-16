@@ -32,44 +32,14 @@ from tenacity import (
 )
 
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS,is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code, _is_hk_market
+from .codes import _is_etf_code, _is_us_code
 from .realtime_types import UnifiedRealtimeQuote, ChipDistribution
 from src.config import get_config
+from src.logging_config import log_external_call_exception
 import os
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
-
-
-# ETF code prefixes by exchange
-# Shanghai: 51xxxx, 52xxxx, 56xxxx, 58xxxx
-# Shenzhen: 15xxxx, 16xxxx, 18xxxx
-_ETF_SH_PREFIXES = ('51', '52', '56', '58')
-_ETF_SZ_PREFIXES = ('15', '16', '18')
-_ETF_ALL_PREFIXES = _ETF_SH_PREFIXES + _ETF_SZ_PREFIXES
-
-
-def _is_etf_code(stock_code: str) -> bool:
-    """
-    Check if the code is an ETF fund code.
-
-    ETF code ranges:
-    - Shanghai ETF: 51xxxx, 52xxxx, 56xxxx, 58xxxx
-    - Shenzhen ETF: 15xxxx, 16xxxx, 18xxxx
-    """
-    code = stock_code.strip().split('.')[0]
-    return code.startswith(_ETF_ALL_PREFIXES) and len(code) == 6
-
-
-def _is_us_code(stock_code: str) -> bool:
-    """
-    判断代码是否为美股
-    
-    美股代码规则：
-    - 1-5个大写字母，如 'AAPL', 'TSLA'
-    - 可能包含 '.'，如 'BRK.B'
-    """
-    code = stock_code.strip().upper()
-    return bool(re.match(r'^[A-Z]{1,5}(\.[A-Z])?$', code))
 
 
 class _TushareHttpClient:
@@ -81,24 +51,43 @@ class _TushareHttpClient:
         self._api_url = api_url
 
     def query(self, api_name: str, fields: str = "", **kwargs) -> pd.DataFrame:
+        start = time.time()
         req_params = {
             "api_name": api_name,
             "token": self._token,
             "params": kwargs,
             "fields": fields,
         }
-        res = requests.post(self._api_url, json=req_params, timeout=self._timeout)
-        if res.status_code != 200:
-            raise Exception(f"Tushare API HTTP {res.status_code}")
+        try:
+            res = requests.post(self._api_url, json=req_params, timeout=self._timeout)
+            if res.status_code != 200:
+                http_error = requests.HTTPError(f"Tushare API HTTP {res.status_code}", response=res)
+                raise http_error
 
-        result = _json.loads(res.text)
-        if result.get("code") != 0:
-            raise Exception(result.get("msg") or f"Tushare API error code {result.get('code')}")
+            result = _json.loads(res.text)
+            if result.get("code") != 0:
+                raise RuntimeError(result.get("msg") or f"Tushare API error code {result.get('code')}")
 
-        data = result.get("data") or {}
-        columns = data.get("fields") or []
-        items = data.get("items") or []
-        return pd.DataFrame(items, columns=columns)
+            data = result.get("data") or {}
+            columns = data.get("fields") or []
+            items = data.get("items") or []
+            return pd.DataFrame(items, columns=columns)
+        except Exception as exc:
+            log_external_call_exception(
+                logger,
+                provider="tushare",
+                operation=api_name,
+                exc=exc,
+                params={
+                    "api_name": api_name,
+                    "fields": fields,
+                    "params": kwargs,
+                    "url": self._api_url,
+                    "method": "POST",
+                },
+                elapsed=time.time() - start,
+            )
+            raise
 
     def __getattr__(self, api_name: str):
         if api_name.startswith("_"):
@@ -168,7 +157,7 @@ class TushareFetcher(BaseFetcher):
             self._api = self._build_api_client(config.tushare_token)
             logger.info("Tushare API 初始化成功")
         except Exception as e:
-            logger.error(f"Tushare API 初始化失败: {e}")
+            logger.exception("Tushare API 初始化失败: %s", e)
             self._api = None
 
     def _build_api_client(self, token: str) -> _TushareHttpClient:
@@ -382,9 +371,9 @@ class TushareFetcher(BaseFetcher):
             return f"{code}.BJ"
 
         # ETF: determine exchange by prefix
-        if code.startswith(_ETF_SH_PREFIXES) and len(code) == 6:
-            return f"{code}.SH"
-        if code.startswith(_ETF_SZ_PREFIXES) and len(code) == 6:
+        if _is_etf_code(code):
+            if code.startswith(("51", "52", "56", "58")):
+                return f"{code}.SH"
             return f"{code}.SZ"
         
         # BSE (Beijing Stock Exchange): 8xxxxx, 4xxxxx, 920xxx
@@ -836,7 +825,7 @@ class TushareFetcher(BaseFetcher):
                 logger.warning("[Tushare] 未获取到指数行情数据")
 
         except Exception as e:
-            logger.error(f"[Tushare] 获取指数行情失败: {e}")
+            logger.exception(f"[Tushare] 获取指数行情失败: {e}")
 
         return None
 
@@ -877,7 +866,7 @@ class TushareFetcher(BaseFetcher):
                         return self._calc_market_stats(df)
                     
                 except Exception as e:
-                    logger.error(f"[Tushare] ts.pro_api().rt_k 尝试获取实时数据失败: {e}")
+                    logger.exception(f"[Tushare] ts.pro_api().rt_k 尝试获取实时数据失败: {e}")
                     return None
             else:
 
@@ -912,12 +901,12 @@ class TushareFetcher(BaseFetcher):
                     if df is not None and not df.empty:
                         return self._calc_market_stats(df)
                 except Exception as e:
-                    logger.error(f"[Tushare] ts.pro_api().daily 获取数据失败: {e}")
+                    logger.exception(f"[Tushare] ts.pro_api().daily 获取数据失败: {e}")
                     
 
             
         except Exception as e:
-            logger.error(f"[Tushare] 获取市场统计失败: {e}")
+            logger.exception(f"[Tushare] 获取市场统计失败: {e}")
 
         return None
     

@@ -12,7 +12,6 @@
 
 import logging
 import time
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -24,73 +23,14 @@ from src.search_service import SearchService
 from src.core.market_profile import get_profile, MarketProfile
 from src.core.market_strategy import get_market_strategy_blueprint
 from data_provider.base import DataFetcherManager
+from src.market_review_models import (
+    _CHINESE_SECTION_PATTERNS,
+    _ENGLISH_SECTION_PATTERNS,
+    MarketIndex,
+    MarketOverview,
+)
 
 logger = logging.getLogger(__name__)
-
-
-_ENGLISH_SECTION_PATTERNS = {
-    "market_summary": r"###\s*(?:1\.\s*)?Market Summary",
-    "index_commentary": r"###\s*(?:2\.\s*)?(?:Index Commentary|Major Indices)",
-    "sector_highlights": r"###\s*(?:4\.\s*)?(?:Sector Highlights|Sector/Theme Highlights)",
-}
-
-_CHINESE_SECTION_PATTERNS = {
-    "market_summary": r"###\s*一、(?:盘面总览|市场总结)",
-    "index_commentary": r"###\s*二、(?:指数结构|指数点评|主要指数)",
-    "sector_highlights": r"###\s*三、(?:板块主线|热点解读|板块表现)",
-    "funds_sentiment": r"###\s*四、(?:资金与情绪|资金动向)",
-    "news_catalysts": r"###\s*五、(?:消息催化|后市展望)",
-}
-
-
-@dataclass
-class MarketIndex:
-    """大盘指数数据"""
-    code: str                    # 指数代码
-    name: str                    # 指数名称
-    current: float = 0.0         # 当前点位
-    change: float = 0.0          # 涨跌点数
-    change_pct: float = 0.0      # 涨跌幅(%)
-    open: float = 0.0            # 开盘点位
-    high: float = 0.0            # 最高点位
-    low: float = 0.0             # 最低点位
-    prev_close: float = 0.0      # 昨收点位
-    volume: float = 0.0          # 成交量（手）
-    amount: float = 0.0          # 成交额（元）
-    amplitude: float = 0.0       # 振幅(%)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'code': self.code,
-            'name': self.name,
-            'current': self.current,
-            'change': self.change,
-            'change_pct': self.change_pct,
-            'open': self.open,
-            'high': self.high,
-            'low': self.low,
-            'volume': self.volume,
-            'amount': self.amount,
-            'amplitude': self.amplitude,
-        }
-
-
-@dataclass
-class MarketOverview:
-    """市场概览数据"""
-    date: str                           # 日期
-    indices: List[MarketIndex] = field(default_factory=list)  # 主要指数
-    up_count: int = 0                   # 上涨家数
-    down_count: int = 0                 # 下跌家数
-    flat_count: int = 0                 # 平盘家数
-    limit_up_count: int = 0             # 涨停家数
-    limit_down_count: int = 0           # 跌停家数
-    total_amount: float = 0.0           # 两市成交额（亿元）
-    # north_flow: float = 0.0           # 北向资金净流入（亿元）- 已废弃，接口不可用
-    
-    # 板块涨幅榜
-    top_sectors: List[Dict] = field(default_factory=list)     # 涨幅前5板块
-    bottom_sectors: List[Dict] = field(default_factory=list)  # 跌幅前5板块
 
 
 class MarketAnalyzer:
@@ -338,7 +278,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 logger.info(f"[大盘] 获取到 {len(indices)} 个指数行情")
 
         except Exception as e:
-            logger.error(f"[大盘] 获取指数行情失败: {e}")
+            logger.exception(f"[大盘] 获取指数行情失败: {e}")
 
         return indices
 
@@ -362,7 +302,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                           f"成交额:{overview.total_amount:.0f}亿")
 
         except Exception as e:
-            logger.error(f"[大盘] 获取涨跌统计失败: {e}")
+            logger.exception(f"[大盘] 获取涨跌统计失败: {e}")
 
     def _get_sector_rankings(self, overview: MarketOverview):
         """获取板块涨跌榜"""
@@ -379,7 +319,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 logger.info(f"[大盘] 领跌板块: {[s['name'] for s in overview.bottom_sectors]}")
 
         except Exception as e:
-            logger.error(f"[大盘] 获取板块涨跌榜失败: {e}")
+            logger.exception(f"[大盘] 获取板块涨跌榜失败: {e}")
     
     # def _get_north_flow(self, overview: MarketOverview):
     #     """获取北向资金流入"""
@@ -438,7 +378,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
             logger.info(f"[大盘] 共获取 {len(all_news)} 条市场新闻")
             
         except Exception as e:
-            logger.error(f"[大盘] 搜索市场新闻失败: {e}")
+            logger.exception(f"[大盘] 搜索市场新闻失败: {e}")
         
         return all_news
     
@@ -453,7 +393,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         Returns:
             大盘复盘报告文本
         """
-        if not self.analyzer or not self.analyzer.is_available():
+        if not self.analyzer or not callable(getattr(self.analyzer, "generate_text", None)):
             logger.warning("[大盘] AI分析器未配置或不可用，使用模板生成报告")
             return self._generate_template_review(overview, news)
         

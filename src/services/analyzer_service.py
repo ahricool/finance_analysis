@@ -14,7 +14,7 @@ Finance Analysis - 分析服务层
 import uuid
 from typing import List, Optional
 
-from src.analyzer import AnalysisResult
+from src.analysis.stock_report_analyzer import AnalysisResult
 from src.core.market_review import run_market_review
 from src.core.pipeline import StockAnalysisPipeline
 from src.config import Config, get_config

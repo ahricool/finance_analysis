@@ -32,7 +32,7 @@ from src.storage import DatabaseManager
 from src.utils.data_processing import normalize_model_used, parse_json_field
 
 if TYPE_CHECKING:
-    from src.analyzer import AnalysisResult
+    from src.analysis.stock_report_analyzer import AnalysisResult
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,8 @@ class HistoryService:
         end_date: Optional[str] = None,
         timezone_name: str = "Asia/Shanghai",
         page: int = 1,
-        limit: int = 20
+        limit: int = 20,
+        uid: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Get history analysis list.
@@ -111,7 +112,8 @@ class HistoryService:
                 end_date=end_dt,
                 timezone_name=timezone_name,
                 offset=offset,
-                limit=limit
+                limit=limit,
+                uid=uid,
             )
             
             # Convert to response format
@@ -134,10 +136,10 @@ class HistoryService:
             }
             
         except Exception as e:
-            logger.error(f"查询历史列表失败: {e}", exc_info=True)
+            logger.exception(f"查询历史列表失败: {e}", exc_info=True)
             return {"total": 0, "items": []}
 
-    def _resolve_record(self, record_id: str):
+    def _resolve_record(self, record_id: str, uid: Optional[int] = None):
         """
         Resolve a record_id parameter to an AnalysisHistory object.
 
@@ -152,15 +154,15 @@ class HistoryService:
         """
         try:
             int_id = int(record_id)
-            record = self.db.get_analysis_history_by_id(int_id)
+            record = self.db.get_analysis_history_by_id(int_id, uid=uid)
             if record:
                 return record
         except (ValueError, TypeError):
             pass
         # Fall back to query_id lookup
-        return self.db.get_latest_analysis_by_query_id(record_id)
+        return self.db.get_latest_analysis_by_query_id(record_id, uid=uid)
 
-    def resolve_and_get_detail(self, record_id: str) -> Optional[Dict[str, Any]]:
+    def resolve_and_get_detail(self, record_id: str, uid: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         Resolve record_id (int PK or query_id string) and return history detail.
 
@@ -171,15 +173,17 @@ class HistoryService:
             Complete analysis report dict, or None
         """
         try:
-            record = self._resolve_record(record_id)
+            record = self._resolve_record(record_id, uid=uid)
             if not record:
                 return None
             return self._record_to_detail_dict(record)
         except Exception as e:
-            logger.error(f"resolve_and_get_detail failed for {record_id}: {e}", exc_info=True)
+            logger.exception(f"resolve_and_get_detail failed for {record_id}: {e}", exc_info=True)
             return None
 
-    def resolve_and_get_news(self, record_id: str, limit: int = 20) -> List[Dict[str, str]]:
+    def resolve_and_get_news(
+        self, record_id: str, limit: int = 20, uid: Optional[int] = None
+    ) -> List[Dict[str, str]]:
         """
         Resolve record_id (int PK or query_id string) and return associated news.
 
@@ -191,16 +195,18 @@ class HistoryService:
             List of news intel dicts
         """
         try:
-            record = self._resolve_record(record_id)
+            record = self._resolve_record(record_id, uid=uid)
             if not record:
                 logger.warning(f"resolve_and_get_news: record not found for {record_id}")
                 return []
             return self.get_news_intel(query_id=record.query_id, limit=limit)
         except Exception as e:
-            logger.error(f"resolve_and_get_news failed for {record_id}: {e}", exc_info=True)
+            logger.exception(f"resolve_and_get_news failed for {record_id}: {e}", exc_info=True)
             return []
 
-    def get_history_detail_by_id(self, record_id: int) -> Optional[Dict[str, Any]]:
+    def get_history_detail_by_id(
+        self, record_id: int, uid: Optional[int] = None
+    ) -> Optional[Dict[str, Any]]:
         """
         Get history report detail.
 
@@ -214,12 +220,12 @@ class HistoryService:
             Complete analysis report dictionary, or None if not exists
         """
         try:
-            record = self.db.get_analysis_history_by_id(record_id)
+            record = self.db.get_analysis_history_by_id(record_id, uid=uid)
             if not record:
                 return None
             return self._record_to_detail_dict(record)
         except Exception as e:
-            logger.error(f"根据 ID 查询历史详情失败: {e}", exc_info=True)
+            logger.exception(f"根据 ID 查询历史详情失败: {e}", exc_info=True)
             return None
 
     @staticmethod
@@ -292,7 +298,7 @@ class HistoryService:
             "context_snapshot": context_snapshot,
         }
 
-    def delete_history_records(self, record_ids: List[int]) -> int:
+    def delete_history_records(self, record_ids: List[int], uid: Optional[int] = None) -> int:
         """
         Delete specified analysis history records.
 
@@ -306,7 +312,7 @@ class HistoryService:
             Exception: Re-raises any storage-layer exception so the API caller
                        receives a proper 500 error instead of a silent success.
         """
-        return self.db.delete_analysis_history_records(record_ids)
+        return self.db.delete_analysis_history_records(record_ids, uid=uid)
 
     def get_news_intel(self, query_id: str, limit: int = 20) -> List[Dict[str, str]]:
         """
@@ -339,7 +345,7 @@ class HistoryService:
             return items
 
         except Exception as e:
-            logger.error(f"查询新闻情报失败: {e}", exc_info=True)
+            logger.exception(f"查询新闻情报失败: {e}", exc_info=True)
             return []
 
     def get_news_intel_by_record_id(self, record_id: int, limit: int = 20) -> List[Dict[str, str]]:
@@ -366,7 +372,7 @@ class HistoryService:
             return self.get_news_intel(query_id=record.query_id, limit=limit)
 
         except Exception as e:
-            logger.error(f"根据 record_id 查询新闻情报失败: {e}", exc_info=True)
+            logger.exception(f"根据 record_id 查询新闻情报失败: {e}", exc_info=True)
             return []
 
     def _fallback_news_by_analysis_context(self, query_id: str, limit: int) -> List[Any]:
@@ -443,7 +449,7 @@ class HistoryService:
         else:
             return "极度悲观"
 
-    def get_markdown_report(self, record_id: str) -> Optional[str]:
+    def get_markdown_report(self, record_id: str, uid: Optional[int] = None) -> Optional[str]:
         """
         Generate a Markdown report for a single analysis history record.
 
@@ -459,7 +465,7 @@ class HistoryService:
         Raises:
             MarkdownReportGenerationError: If report generation fails due to internal errors
         """
-        record = self._resolve_record(record_id)
+        record = self._resolve_record(record_id, uid=uid)
         if not record:
             logger.warning(f"get_markdown_report: record not found for {record_id}")
             return None
@@ -476,7 +482,7 @@ class HistoryService:
         try:
             result = self._rebuild_analysis_result(raw_result, record)
         except Exception as e:
-            logger.error(f"get_markdown_report: failed to rebuild AnalysisResult for {record_id}: {e}", exc_info=True)
+            logger.exception(f"get_markdown_report: failed to rebuild AnalysisResult for {record_id}: {e}", exc_info=True)
             raise MarkdownReportGenerationError(
                 f"Failed to rebuild AnalysisResult: {str(e)}",
                 record_id=record_id
@@ -493,7 +499,7 @@ class HistoryService:
         try:
             return self._generate_single_stock_markdown(result, record)
         except Exception as e:
-            logger.error(f"get_markdown_report: failed to generate markdown for {record_id}: {e}", exc_info=True)
+            logger.exception(f"get_markdown_report: failed to generate markdown for {record_id}: {e}", exc_info=True)
             raise MarkdownReportGenerationError(
                 f"Failed to generate markdown report: {str(e)}",
                 record_id=record_id
@@ -515,7 +521,7 @@ class HistoryService:
             AnalysisResult object or None
         """
         try:
-            from src.analyzer import AnalysisResult
+            from src.analysis.stock_report_analyzer import AnalysisResult
             # Extract dashboard data if available
             dashboard = raw_result.get("dashboard", {})
 
@@ -557,7 +563,7 @@ class HistoryService:
                 model_used=raw_result.get("model_used"),
             )
         except Exception as e:
-            logger.error(f"Failed to rebuild AnalysisResult: {e}", exc_info=True)
+            logger.exception(f"Failed to rebuild AnalysisResult: {e}", exc_info=True)
             return None
 
     def _generate_single_stock_markdown(
