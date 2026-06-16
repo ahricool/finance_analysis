@@ -38,7 +38,6 @@ except Exception:  # pragma: no cover - optional dependency environments
 
 from src.enums import ReportType
 from src.services.analysis_service import AnalysisService
-from src.services.image_stock_extractor import _call_litellm_vision
 from src.services.task_queue import AnalysisTaskQueue, TaskStatus
 
 
@@ -1561,25 +1560,6 @@ class BatchTaskQueueContractTestCase(unittest.TestCase):
         self.assertEqual(updated.progress, 62)
         self.assertEqual(updated.message, "LLM 正在生成分析结果")
         self.assertEqual(events, [("task_progress", updated.to_dict())])
-
-
-class ImageStockExtractorContractTestCase(unittest.TestCase):
-    def test_litellm_completion_patch_target_remains_available(self) -> None:
-        cfg = SimpleNamespace(
-            vision_model="openai/gpt-4o",
-            llm_model="openai/gpt-5.5",
-            llm_api_key="sk-test-key",
-            llm_base_url=None,
-        )
-        response = MagicMock(text='["600519"]')
-
-        with patch("src.services.image_stock_extractor.get_config", return_value=cfg), \
-             patch("src.services.image_stock_extractor.LLMClient") as client_cls:
-            client_cls.return_value.complete_vision.return_value = response
-            result = _call_litellm_vision("base64data", "image/jpeg")
-
-        self.assertEqual(result, '["600519"]')
-        client_cls.return_value.complete_vision.assert_called_once()
 
 
 if __name__ == "__main__":

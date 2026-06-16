@@ -228,9 +228,6 @@ class LLMClient:
         request.stream = True
         return self._complete(request, stream_progress_callback=progress_callback)
 
-    def complete_vision(self, request: LLMRequest) -> LLMResult:
-        return self._complete(request)
-
     def complete_with_tools(self, request: LLMRequest) -> LLMResult:
         return self._complete(request)
 

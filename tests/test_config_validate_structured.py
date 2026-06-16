@@ -283,69 +283,6 @@ class TestValidateStructuredNotification:
 
 
 # ---------------------------------------------------------------------------
-# Deprecated field migration hints
-# ---------------------------------------------------------------------------
-
-class TestDeprecatedFieldHints:
-    def test_openai_vision_model_deprecation_when_env_set(self):
-        """When OPENAI_VISION_MODEL is in env, validate_structured reports deprecation hint."""
-        cfg = _make_config()
-        with patch.dict("os.environ", {"OPENAI_VISION_MODEL": "openai/gpt-4o"}, clear=False):
-            issues = cfg.validate_structured()
-        deprec = [i for i in issues if i.field == "OPENAI_VISION_MODEL"]
-        assert deprec, "Expected deprecation hint when OPENAI_VISION_MODEL is set"
-        assert deprec[0].severity == "info"
-        assert "VISION_MODEL" in deprec[0].message
-
-    def test_no_deprecation_when_openai_vision_model_not_in_env(self):
-        """When OPENAI_VISION_MODEL is not in env, no deprecation hint."""
-        import os
-        cfg = _make_config()
-        real_getenv = os.getenv
-
-        def mock_getenv(key, default=None):
-            if key == "OPENAI_VISION_MODEL":
-                return None
-            return real_getenv(key, default)
-
-        with patch("src.config.os.getenv", side_effect=mock_getenv):
-            issues = cfg.validate_structured()
-        deprec = [i for i in issues if i.field == "OPENAI_VISION_MODEL"]
-        assert not deprec, "Should not report deprecation when OPENAI_VISION_MODEL is unset"
-
-
-# ---------------------------------------------------------------------------
-# Vision key validation
-# ---------------------------------------------------------------------------
-
-class TestVisionKeyValidation:
-    def test_vision_model_set_no_key_is_warning(self):
-        cfg = _make_config(
-            vision_model="gemini/gemini-2.0-flash",
-            llm_api_key="",
-        )
-        issues = cfg.validate_structured()
-        warn = [i for i in issues if i.field == "VISION_MODEL"]
-        assert warn and warn[0].severity == "warning"
-
-    def test_vision_model_set_with_key_no_warning(self):
-        cfg = _make_config(
-            vision_model="gemini/gemini-2.0-flash",
-            llm_api_key="sk-test-key",
-        )
-        issues = cfg.validate_structured()
-        assert not any(
-            i.field == "VISION_MODEL" and i.severity == "warning" for i in issues
-        )
-
-    def test_no_vision_model_no_warning(self):
-        """When VISION_MODEL is not set, no Vision key warning is raised."""
-        cfg = _make_config(vision_model="", llm_api_key="")
-        issues = cfg.validate_structured()
-        assert not any(i.field == "VISION_MODEL" for i in issues)
-
-
-# ---------------------------------------------------------------------------
 # validate() backward compatibility
 # ---------------------------------------------------------------------------
 

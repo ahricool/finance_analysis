@@ -198,10 +198,8 @@ class IntradayLLMJudge:
         if not candidates:
             return {}
         try:
-            from src.analyzer import GeminiAnalyzer
-
-            analyzer = GeminiAnalyzer(self.config)
-            if not analyzer.is_available():
+            client = LLMClient(config=self.config)
+            if not client.is_available():
                 logger.warning("LLM 未配置，跳过美股盘中候选信号批量判定（%s 个）", len(candidates))
                 return {}
 
@@ -217,9 +215,19 @@ class IntradayLLMJudge:
             ]
             prompt = build_intraday_batch_llm_prompt(prompt_items, market_context)
             max_tokens = min(8000, 700 * len(candidates) + 300)
-            text = analyzer.generate_text(prompt, max_tokens=max_tokens, temperature=0.2)
+            result = client.complete_json(
+                LLMRequest(
+                    messages=[
+                        {"role": "system", "content": "你是美股盘中异动提醒系统的 JSON 判定器，只输出 JSON。"},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.2,
+                    max_tokens=max_tokens,
+                    call_type="intraday_judge",
+                )
+            )
 
-            results = parse_llm_batch_results(text)
+            results = parse_llm_batch_results(result.text)
             if not results:
                 logger.warning("美股盘中 LLM 批量返回无法解析（%s 个候选）", len(candidates))
                 return {}

@@ -618,20 +618,6 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "validation": {},
         "display_order": 60,
     },
-    "OPENAI_VISION_MODEL": {
-        "title": "OpenAI Vision Model",
-        "description": "Model for image extraction (some APIs e.g. DeepSeek lack vision). Leave empty to use OPENAI_MODEL.",
-        "category": "ai_model",
-        "data_type": "string",
-        "ui_control": "text",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": None,
-        "options": [],
-        "validation": {},
-        "display_order": 61,
-    },
     "OPENAI_TEMPERATURE": {
         "title": "OpenAI Temperature",
         "description": "Temperature for OpenAI-compatible models in range [0.0, 2.0].",
@@ -1772,7 +1758,7 @@ def _is_sensitive_key(key: str) -> bool:
 def _infer_category(key: str) -> str:
     if key.startswith("BACKTEST_"):
         return "backtest"
-    if key.startswith(("LLM_", "AGENT_LITELLM_", "VISION_MODEL")):
+    if key.startswith(("LLM_", "AGENT_LITELLM_")):
         return "ai_model"
     if key.endswith("_PRIORITY") or key.startswith(
         (

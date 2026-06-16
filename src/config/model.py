@@ -139,9 +139,6 @@ class Config:
     llm_max_retries: int = 5
     llm_retry_delay: float = 5.0
 
-    # === Vision 配置 ===
-    vision_model: str = ""
-
     # === 搜索引擎配置（支持多 Key 负载均衡）===
     anspire_api_keys: List[str] = field(default_factory=list)  # Anspire Search API Keys
     bocha_api_keys: List[str] = field(default_factory=list)  # Bocha API Keys
@@ -571,11 +568,6 @@ class Config:
             llm_request_delay=parse_env_float(os.getenv('LLM_REQUEST_DELAY'), 2.0, field_name='LLM_REQUEST_DELAY', minimum=0.0),
             llm_max_retries=parse_env_int(os.getenv('LLM_MAX_RETRIES'), 5, field_name='LLM_MAX_RETRIES', minimum=0),
             llm_retry_delay=parse_env_float(os.getenv('LLM_RETRY_DELAY'), 5.0, field_name='LLM_RETRY_DELAY', minimum=0.0),
-            vision_model=(
-                os.getenv('VISION_MODEL')
-                or os.getenv('OPENAI_VISION_MODEL')
-                or ""
-            ),
             anspire_api_keys=anspire_api_keys,
             bocha_api_keys=bocha_api_keys,
             minimax_api_keys=minimax_api_keys,
@@ -1274,28 +1266,6 @@ class Config:
                     "P4 不会发送每日摘要或持久化摘要内容。"
                 ),
                 field="NOTIFICATION_DAILY_DIGEST_ENABLED",
-            ))
-
-        # --- Deprecated field migration hints ---
-        if os.getenv("OPENAI_VISION_MODEL"):
-            issues.append(ConfigIssue(
-                severity="info",
-                message=(
-                    "OPENAI_VISION_MODEL 已废弃，请改用 VISION_MODEL。"
-                    "当前值已自动迁移，建议更新配置文件以消除此提示。"
-                ),
-                field="OPENAI_VISION_MODEL",
-            ))
-
-        # --- Vision key availability ---
-        if self.vision_model and not (self.llm_api_key or "").strip():
-            issues.append(ConfigIssue(
-                severity="warning",
-                message=(
-                    "VISION_MODEL 已配置，但未设置 LLM_API_KEY。"
-                    "图片股票代码提取功能将不可用，请配置 LLM_API_KEY。"
-                ),
-                field="VISION_MODEL",
             ))
 
         return issues
