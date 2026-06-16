@@ -85,6 +85,7 @@ class StockAnalysisPipeline(AgentResultMixin):
         query_source: Optional[str] = None,
         save_context_snapshot: Optional[bool] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
+        owner_uid: Optional[int] = None,
     ):
         """
         初始化调度器
@@ -102,6 +103,9 @@ class StockAnalysisPipeline(AgentResultMixin):
             self.config.save_context_snapshot if save_context_snapshot is None else save_context_snapshot
         )
         self.progress_callback = progress_callback
+        from src.utils.owner_uid import resolve_owner_uid
+
+        self.owner_uid = resolve_owner_uid(owner_uid)
         
         # 初始化各模块
         self.db = get_db()
@@ -347,6 +351,7 @@ class StockAnalysisPipeline(AgentResultMixin):
                     payload=fundamental_context,
                     source_chain=fundamental_context.get("source_chain", []),
                     coverage=fundamental_context.get("coverage", {}),
+                    uid=self.owner_uid,
                 )
             except Exception as e:
                 logger.debug(f"{stock_name}({code}) 基本面快照写入失败: {e}")
@@ -520,7 +525,8 @@ class StockAnalysisPipeline(AgentResultMixin):
                         report_type=report_type.value,
                         news_content=news_context,
                         context_snapshot=context_snapshot,
-                        save_snapshot=self.save_context_snapshot
+                        save_snapshot=self.save_context_snapshot,
+                        uid=self.owner_uid,
                     )
                 except Exception as e:
                     logger.warning(f"{stock_name}({code}) 保存分析历史失败: {e}")
@@ -902,7 +908,8 @@ class StockAnalysisPipeline(AgentResultMixin):
                         report_type=report_type.value,
                         news_content=None,
                         context_snapshot=initial_context,
-                        save_snapshot=self.save_context_snapshot
+                        save_snapshot=self.save_context_snapshot,
+                        uid=self.owner_uid,
                     )
                 except Exception as e:
                     logger.warning(f"[{code}] 保存 Agent 分析历史失败: {e}")
@@ -1124,6 +1131,7 @@ class StockAnalysisPipeline(AgentResultMixin):
         context: Dict[str, str] = {
             "query_id": effective_query_id,
             "query_source": self.query_source or "",
+            "uid": str(self.owner_uid),
         }
 
         if self.source_message:

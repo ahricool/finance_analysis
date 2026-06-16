@@ -25,8 +25,8 @@ import {
 import type { ChatFollowUpContext } from '@/utils/chatFollowUp';
 import { isNearBottom } from '@/utils/chatScroll';
 import { getReportText } from '@/utils/reportLanguage';
+import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 import { useAgentChatStore, type Message, type ProgressStep } from '@/stores/agentChatStore';
-import { marked } from 'marked';
 import { computed, nextTick, onMounted, onUnmounted, ref, unref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -54,11 +54,7 @@ function getMessageSkillLabel(msg: Message): string {
 }
 
 function renderMd(content: string): string {
-  try {
-    return marked.parse(content, { async: false, gfm: true }) as string;
-  } catch {
-    return '';
-  }
+  return renderMarkdownToHtml(content);
 }
 
 const route = useRoute();

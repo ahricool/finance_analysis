@@ -4,8 +4,8 @@ import Tooltip from '@/components/common/Tooltip.vue';
 import { historyApi } from '@/api/history';
 import type { ReportLanguage } from '@/types/analysis';
 import { markdownToPlainText } from '@/utils/markdown';
+import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
-import { marked } from 'marked';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 let fetchActive = true;
@@ -72,14 +72,7 @@ async function handleCopyPlainText() {
   }
 }
 
-const htmlContent = computed(() => {
-  if (!content.value) return '';
-  try {
-    return marked.parse(content.value, { async: false, gfm: true }) as string;
-  } catch {
-    return '';
-  }
-});
+const htmlContent = computed(() => renderMarkdownToHtml(content.value));
 
 onMounted(() => {
   isLoading.value = true;

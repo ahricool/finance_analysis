@@ -4,8 +4,8 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import { useTimezoneStore } from '@/stores/timezoneStore';
 import { formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/utils/format';
+import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-vue-next';
-import { marked } from 'marked';
 import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 
@@ -99,11 +99,7 @@ function entryTypeLabel(type: string | null): string {
 
 function renderMarkdown(content: string | null): string {
   if (!content) return '';
-  try {
-    return marked.parse(content, { async: false, gfm: true }) as string;
-  } catch {
-    return content;
-  }
+  return renderMarkdownToHtml(content);
 }
 
 onMounted(loadEntries);

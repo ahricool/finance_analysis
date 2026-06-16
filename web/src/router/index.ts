@@ -1,16 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import Shell from '@/components/layout/Shell.vue';
-import HomePage from '@/pages/HomePage.vue';
-import ChatPage from '@/pages/ChatPage.vue';
-import PortfolioPage from '@/pages/PortfolioPage.vue';
-import BacktestPage from '@/pages/BacktestPage.vue';
-import WatchListPage from '@/pages/WatchListPage.vue';
-import StockListPage from '@/pages/StockListPage.vue';
-import LoginPage from '@/pages/LoginPage.vue';
-import CalendarPage from '@/pages/CalendarPage.vue';
-import ProfilePage from '@/pages/ProfilePage.vue';
-import NotFoundPage from '@/pages/NotFoundPage.vue';
 import { useAuthStore } from '@/stores/authStore';
+
+const HomePage = () => import('@/pages/HomePage.vue');
+const ChatPage = () => import('@/pages/ChatPage.vue');
+const PortfolioPage = () => import('@/pages/PortfolioPage.vue');
+const BacktestPage = () => import('@/pages/BacktestPage.vue');
+const WatchListPage = () => import('@/pages/WatchListPage.vue');
+const StockListPage = () => import('@/pages/StockListPage.vue');
+const LoginPage = () => import('@/pages/LoginPage.vue');
+const CalendarPage = () => import('@/pages/CalendarPage.vue');
+const ProfilePage = () => import('@/pages/ProfilePage.vue');
+const NotFoundPage = () => import('@/pages/NotFoundPage.vue');
 
 const router = createRouter({
   history: createWebHistory(),

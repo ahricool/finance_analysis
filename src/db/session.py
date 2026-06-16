@@ -324,6 +324,13 @@ class DatabaseManager(ConversationUsageMixin):
         saved_count = 0
         query_ctx = query_context or {}
         current_query_id = (query_ctx.get("query_id") or "").strip()
+        owner_uid = None
+        raw_uid = query_ctx.get("uid")
+        if raw_uid is not None and str(raw_uid).strip():
+            try:
+                owner_uid = int(raw_uid)
+            except (TypeError, ValueError):
+                owner_uid = None
 
         def _write(session: Session) -> int:
             local_saved_count = 0
@@ -351,6 +358,8 @@ class DatabaseManager(ConversationUsageMixin):
 
                 if existing:
                     existing.name = name or existing.name
+                    if owner_uid is not None and existing.uid is None:
+                        existing.uid = owner_uid
                     existing.dimension = dimension or existing.dimension
                     existing.query = query or existing.query
                     existing.provider = response.provider or existing.provider
@@ -388,6 +397,7 @@ class DatabaseManager(ConversationUsageMixin):
                 try:
                     with session.begin_nested():
                         record = NewsIntel(
+                            uid=owner_uid,
                             code=code,
                             name=name,
                             dimension=dimension,
@@ -435,6 +445,7 @@ class DatabaseManager(ConversationUsageMixin):
         payload: Optional[Dict[str, Any]],
         source_chain: Optional[Any] = None,
         coverage: Optional[Any] = None,
+        uid: Optional[int] = None,
     ) -> int:
         """
         保存基本面快照（P0 write-only）。失败不抛异常，返回写入条数 0/1。
@@ -442,10 +453,15 @@ class DatabaseManager(ConversationUsageMixin):
         if not query_id or not code or payload is None:
             return 0
 
+        from src.utils.owner_uid import resolve_owner_uid
+
+        owner_uid = resolve_owner_uid(uid)
+
         try:
             def _write(session: Session) -> int:
                 session.add(
                     FundamentalSnapshot(
+                        uid=owner_uid,
                         query_id=query_id,
                         code=code,
                         payload=self._safe_json_dumps(payload),
@@ -564,7 +580,8 @@ class DatabaseManager(ConversationUsageMixin):
         report_type: str,
         news_content: Optional[str],
         context_snapshot: Optional[Dict[str, Any]] = None,
-        save_snapshot: bool = True
+        save_snapshot: bool = True,
+        uid: Optional[int] = None,
     ) -> int:
         """
         保存分析结果历史记录
@@ -578,10 +595,15 @@ class DatabaseManager(ConversationUsageMixin):
         if save_snapshot and context_snapshot is not None:
             context_text = self._safe_json_dumps(context_snapshot)
 
+        from src.utils.owner_uid import resolve_owner_uid
+
+        owner_uid = resolve_owner_uid(uid)
+
         try:
             def _write(session: Session) -> int:
                 session.add(
                     AnalysisHistory(
+                        uid=owner_uid,
                         query_id=query_id,
                         code=result.code,
                         name=result.name,
@@ -616,6 +638,7 @@ class DatabaseManager(ConversationUsageMixin):
         days: int = 30,
         limit: int = 50,
         exclude_query_id: Optional[str] = None,
+        uid: Optional[int] = None,
     ) -> List[AnalysisHistory]:
         """
         Query analysis history records.
@@ -629,6 +652,9 @@ class DatabaseManager(ConversationUsageMixin):
 
         with self.get_session() as session:
             conditions = []
+
+            if uid is not None:
+                conditions.append(AnalysisHistory.uid == uid)
 
             if query_id:
                 conditions.append(AnalysisHistory.query_id == query_id)
@@ -658,7 +684,8 @@ class DatabaseManager(ConversationUsageMixin):
         end_date: Optional[date] = None,
         timezone_name: str = "Asia/Shanghai",
         offset: int = 0,
-        limit: int = 20
+        limit: int = 20,
+        uid: Optional[int] = None,
     ) -> Tuple[List[AnalysisHistory], int]:
         """
         分页查询分析历史记录（带总数）
@@ -677,6 +704,9 @@ class DatabaseManager(ConversationUsageMixin):
 
         with self.get_session() as session:
             conditions = []
+
+            if uid is not None:
+                conditions.append(AnalysisHistory.uid == uid)
 
             if code:
                 conditions.append(AnalysisHistory.code == code)
@@ -705,7 +735,9 @@ class DatabaseManager(ConversationUsageMixin):
 
             return list(results), total
 
-    def get_analysis_history_by_id(self, record_id: int) -> Optional[AnalysisHistory]:
+    def get_analysis_history_by_id(
+        self, record_id: int, uid: Optional[int] = None
+    ) -> Optional[AnalysisHistory]:
         """
         根据数据库主键 ID 查询单条分析历史记录
 
@@ -719,12 +751,17 @@ class DatabaseManager(ConversationUsageMixin):
             AnalysisHistory 对象，不存在返回 None
         """
         with self.get_session() as session:
+            conditions = [AnalysisHistory.id == record_id]
+            if uid is not None:
+                conditions.append(AnalysisHistory.uid == uid)
             result = session.execute(
-                select(AnalysisHistory).where(AnalysisHistory.id == record_id)
+                select(AnalysisHistory).where(and_(*conditions))
             ).scalars().first()
             return result
 
-    def delete_analysis_history_records(self, record_ids: List[int]) -> int:
+    def delete_analysis_history_records(
+        self, record_ids: List[int], uid: Optional[int] = None
+    ) -> int:
         """
         删除指定的分析历史记录。
 
@@ -741,15 +778,28 @@ class DatabaseManager(ConversationUsageMixin):
             return 0
 
         with self.session_scope() as session:
+            delete_conditions = [AnalysisHistory.id.in_(ids)]
+            if uid is not None:
+                delete_conditions.append(AnalysisHistory.uid == uid)
+
+            owned_ids = session.execute(
+                select(AnalysisHistory.id).where(and_(*delete_conditions))
+            ).scalars().all()
+            owned_ids = sorted({int(record_id) for record_id in owned_ids})
+            if not owned_ids:
+                return 0
+
             session.execute(
-                delete(BacktestResult).where(BacktestResult.analysis_history_id.in_(ids))
+                delete(BacktestResult).where(BacktestResult.analysis_history_id.in_(owned_ids))
             )
             result = session.execute(
-                delete(AnalysisHistory).where(AnalysisHistory.id.in_(ids))
+                delete(AnalysisHistory).where(AnalysisHistory.id.in_(owned_ids))
             )
             return result.rowcount or 0
 
-    def get_latest_analysis_by_query_id(self, query_id: str) -> Optional[AnalysisHistory]:
+    def get_latest_analysis_by_query_id(
+        self, query_id: str, uid: Optional[int] = None
+    ) -> Optional[AnalysisHistory]:
         """
         根据 query_id 查询最新一条分析历史记录
 
@@ -762,9 +812,12 @@ class DatabaseManager(ConversationUsageMixin):
             AnalysisHistory 对象，不存在返回 None
         """
         with self.get_session() as session:
+            conditions = [AnalysisHistory.query_id == query_id]
+            if uid is not None:
+                conditions.append(AnalysisHistory.uid == uid)
             result = session.execute(
                 select(AnalysisHistory)
-                .where(AnalysisHistory.query_id == query_id)
+                .where(and_(*conditions))
                 .order_by(desc(AnalysisHistory.created_at))
                 .limit(1)
             ).scalars().first()
