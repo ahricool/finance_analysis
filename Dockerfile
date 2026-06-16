@@ -103,8 +103,7 @@ VOLUME ["/workspace/data", "/workspace/logs", "/workspace/reports"]
 
 # 健康检查（FastAPI 模式）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD sh -c 'curl -f "$HEALTHCHECK_URL" || curl -f "$HEALTHCHECK_FALLBACK_URL"' \
-    || python -c "import sys; sys.exit(0)"
+    CMD sh -c 'curl -f "$HEALTHCHECK_URL" || curl -f "$HEALTHCHECK_FALLBACK_URL"'
 
 
 # 默认命令（可被覆盖）

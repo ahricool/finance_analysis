@@ -17,6 +17,8 @@ class NewsIntel(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
+    uid = Column(Integer, nullable=True, index=True)
+
     # 关联用户查询操作
     query_id = Column(String(64), index=True)
 
@@ -64,6 +66,7 @@ class FundamentalSnapshot(Base):
     __tablename__ = 'fundamental_snapshot'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    uid = Column(Integer, nullable=True, index=True)
     query_id = Column(String(64), nullable=False, index=True)
     code = Column(String(10), nullable=False, index=True)
     payload = Column(Text, nullable=False)

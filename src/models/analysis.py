@@ -19,6 +19,9 @@ class AnalysisHistory(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
+    # 所属用户（系统/定时任务使用默认管理员）
+    uid = Column(Integer, nullable=True, index=True)
+
     # 关联查询链路
     query_id = Column(String(64), index=True)
 
@@ -54,6 +57,7 @@ class AnalysisHistory(Base):
         """转换为字典"""
         return {
             'id': self.id,
+            'uid': self.uid,
             'query_id': self.query_id,
             'code': self.code,
             'name': self.name,
@@ -143,6 +147,8 @@ class BacktestSummary(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
+    uid = Column(Integer, nullable=True, index=True)
+
     scope = Column(String(16), nullable=False, index=True)  # overall/stock
     code = Column(String(16), index=True)
 
@@ -182,10 +188,11 @@ class BacktestSummary(Base):
 
     __table_args__ = (
         UniqueConstraint(
+            'uid',
             'scope',
             'code',
             'eval_window_days',
             'engine_version',
-            name='uix_backtest_summary_scope_code_window_version',
+            name='uix_backtest_summary_uid_scope_code_window_version',
         ),
     )
