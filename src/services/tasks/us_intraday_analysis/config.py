@@ -15,6 +15,12 @@ US_EASTERN = ZoneInfo("America/New_York")
 # one LLM call per stock and amortizes latency/cost across the watch list.
 LLM_BATCH_SIZE = 10
 
+# Longbridge news items fetched per symbol for intraday LLM context.
+INTRADAY_NEWS_LIMIT = 5
+
+# Broad-market symbol used for macro news context.
+MARKET_NEWS_SYMBOL = "QQQ"
+
 # Market / sector ETFs used as relative-strength benchmarks. QQQ is treated as
 # the broad-market benchmark; the rest are sector references.
 MARKET_ETFS = {

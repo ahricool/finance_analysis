@@ -15,9 +15,10 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence
 
 from data_provider.longbridge_fetcher import LongbridgeFetcher
+from data_provider.longbridge_news_fetcher import LongbridgeNewsFetcher
 from data_provider.yfinance_fetcher import YfinanceFetcher
 
-from .config import LLM_BATCH_SIZE, MARKET_ETFS
+from .config import INTRADAY_NEWS_LIMIT, LLM_BATCH_SIZE, MARKET_ETFS, MARKET_NEWS_SYMBOL
 from .data_source import IntradayDataSource
 from .llm import IntradayLLMJudge, candidate_id, truthy
 from .metrics import compute_intraday_metrics
@@ -41,20 +42,30 @@ class USIntradayAnalysisService:
         config: Any,
         longbridge_fetcher: Optional[LongbridgeFetcher] = None,
         yfinance_fetcher: Optional[YfinanceFetcher] = None,
+        news_fetcher: Optional[LongbridgeNewsFetcher] = None,
         rules: Optional[Sequence[RulePredicate]] = None,
     ) -> None:
         self.config = config
-        self.data_source = IntradayDataSource(longbridge_fetcher, yfinance_fetcher)
+        self.longbridge_fetcher = longbridge_fetcher or LongbridgeFetcher()
+        self.data_source = IntradayDataSource(self.longbridge_fetcher, yfinance_fetcher)
+        self.news_fetcher = news_fetcher or LongbridgeNewsFetcher(self.longbridge_fetcher)
         self.llm_judge = IntradayLLMJudge(config)
         self.reporter = SignalReporter()
         self.rules: Sequence[RulePredicate] = rules if rules is not None else DEFAULT_INTRADAY_SIGNAL_RULES
+        self._news_cache: Dict[str, List[Dict[str, Any]]] = {}
+        self._run_query_id = ""
 
     def run(self, stock_codes: Sequence[str], now: Optional[datetime] = None) -> IntradayTaskSummary:
         # if not is_us_market_open(now):
         #     return IntradayTaskSummary(market_open=False, total_symbols=len(stock_codes))
 
+        run_time = now or datetime.now()
+        self._run_query_id = f"us_intraday_{run_time.strftime('%Y%m%d_%H%M%S')}"
+        self._news_cache = {}
+
         summary = IntradayTaskSummary(market_open=True, total_symbols=len(stock_codes))
         market_context = self._load_market_context()
+        market_context["market_news"] = self._get_symbol_news(MARKET_NEWS_SYMBOL, dimension="market_news")
         qqq_metrics = market_context.get("QQQ", {})
         sector_metrics = {symbol: metrics for symbol, metrics in market_context.items() if symbol != "QQQ"}
 
@@ -113,6 +124,8 @@ class USIntradayAnalysisService:
         """Judge candidates in groups of ``LLM_BATCH_SIZE`` with one call each."""
         for start in range(0, len(candidates), LLM_BATCH_SIZE):
             batch = candidates[start:start + LLM_BATCH_SIZE]
+            for candidate in batch:
+                candidate["news"] = self._get_symbol_news(candidate["symbol"])
             verdicts = self.llm_judge.judge_batch(batch, market_context)
             for candidate in batch:
                 verdict = verdicts.get(candidate_id(candidate["symbol"], candidate["signal_type"]))
@@ -134,6 +147,32 @@ class USIntradayAnalysisService:
             quote = self.data_source.fetch_quote(symbol)
             context[symbol] = compute_intraday_metrics(symbol, bars_1m, quote)
         return context
+
+    def _get_symbol_news(
+        self,
+        symbol: str,
+        *,
+        dimension: str = "intraday_news",
+    ) -> List[Dict[str, Any]]:
+        cached = self._news_cache.get(symbol)
+        if cached is not None:
+            return cached
+
+        if not self.news_fetcher.is_available():
+            self._news_cache[symbol] = []
+            return []
+
+        stock_name = self.longbridge_fetcher.get_stock_name(symbol) or ""
+        records = self.news_fetcher.fetch_and_save_news(
+            symbol,
+            name=stock_name,
+            dimension=dimension,
+            query_id=self._run_query_id,
+            limit=INTRADAY_NEWS_LIMIT,
+        )
+        news_context = LongbridgeNewsFetcher.to_llm_context(records)
+        self._news_cache[symbol] = news_context
+        return news_context
 
     def _build_signal(
         self,
