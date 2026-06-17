@@ -184,16 +184,9 @@ class TestAnspireSearchProvider(unittest.TestCase):
             result = AnspireSearchProvider._extract_domain(url)
             self.assertEqual(result, expected, f"Failed for URL: {url}")
     
-    @patch('src.search_service.requests')
-    def test_search_success_response(self, mock_requests):
+    @patch('src.search.providers.anspire._get_with_retry')
+    def test_search_success_response(self, mock_get):
         """测试成功响应处理"""
-        # 设置 mock exceptions
-        try:
-            import requests as real_requests
-            mock_requests.exceptions = real_requests.exceptions
-        except ImportError:
-            pass
-        
         fake_response = _FakeResponse(
             status_code=200,
             json_data={
@@ -214,7 +207,7 @@ class TestAnspireSearchProvider(unittest.TestCase):
             }
         )
         
-        mock_requests.get = MagicMock(return_value=fake_response)
+        mock_get.return_value = fake_response
         
         response = self.provider.search("贵州茅台 股票新闻", max_results=5, days=7)
         
@@ -227,8 +220,8 @@ class TestAnspireSearchProvider(unittest.TestCase):
         self.assertEqual(response.results[0].source, "finance.sina.com.cn")
         
         # 验证 API 调用参数
-        mock_requests.get.assert_called_once()
-        call_args = mock_requests.get.call_args
+        mock_get.assert_called_once()
+        call_args = mock_get.call_args
         # 检查 URL 是否包含 anspire 相关域名 (具体 URL 需根据实际实现调整)
         # self.assertIn("plugin.anspire.cn", call_args[0][0]) 
         self.assertIn("Authorization", call_args[1]["headers"])
@@ -236,22 +229,16 @@ class TestAnspireSearchProvider(unittest.TestCase):
         self.assertIn("params", call_args[1])
         self.assertNotIn("json", call_args[1])
     
-    @patch('src.search_service.requests')
-    def test_search_invalid_api_key(self, mock_requests):
+    @patch('src.search.providers.anspire._get_with_retry')
+    def test_search_invalid_api_key(self, mock_get):
         """测试无效 API Key 的错误处理"""
-        try:
-            import requests as real_requests
-            mock_requests.exceptions = real_requests.exceptions
-        except ImportError:
-            pass
-        
         fake_response = _FakeResponse(
             status_code=401,
             json_data={"message": "Invalid API key"},
             text="Unauthorized"
         )
         
-        mock_requests.get = MagicMock(return_value=fake_response)
+        mock_get.return_value = fake_response
         
         response = self.provider.search("测试查询", max_results=3)
         
@@ -261,19 +248,13 @@ class TestAnspireSearchProvider(unittest.TestCase):
         # 错误消息可能因实现而异，这里做宽松检查
         self.assertTrue("API" in response.error_message or "KEY" in response.error_message or "无效" in response.error_message)
     
-    @patch('src.search_service.requests')
-    def test_search_timeout_error(self, mock_requests):
+    @patch('src.search.providers.anspire._get_with_retry')
+    def test_search_timeout_error(self, mock_get):
         """测试超时错误处理"""
-        try:
-            import requests as real_requests
-            mock_requests.exceptions = real_requests.exceptions
-            timeout_exc = mock_requests.exceptions.Timeout
-        except ImportError:
-            mock_requests.exceptions = MagicMock()
-            timeout_exc = Exception
-            
-        mock_requests.get = MagicMock(side_effect=timeout_exc())
-        
+        import requests as real_requests
+
+        mock_get.side_effect = real_requests.exceptions.Timeout()
+
         response = self.provider.search("测试查询", max_results=3)
         
         self.assertFalse(response.success)
@@ -282,19 +263,13 @@ class TestAnspireSearchProvider(unittest.TestCase):
         # 错误消息检查
         self.assertTrue("超时" in response.error_message or "Timeout" in response.error_message)
     
-    @patch('src.search_service.requests')
-    def test_search_network_error(self, mock_requests):
+    @patch('src.search.providers.anspire._get_with_retry')
+    def test_search_network_error(self, mock_get):
         """测试网络错误处理"""
-        try:
-            import requests as real_requests
-            mock_requests.exceptions = real_requests.exceptions
-            conn_exc = mock_requests.exceptions.ConnectionError
-        except ImportError:
-            mock_requests.exceptions = MagicMock()
-            conn_exc = Exception
+        import requests as real_requests
 
-        mock_requests.get = MagicMock(side_effect=conn_exc())
-        
+        mock_get.side_effect = real_requests.exceptions.ConnectionError()
+
         response = self.provider.search("测试查询", max_results=3)
         
         self.assertFalse(response.success)
@@ -302,21 +277,15 @@ class TestAnspireSearchProvider(unittest.TestCase):
         self.assertEqual(len(response.results), 0)
         self.assertTrue("网络" in response.error_message or "Connection" in response.error_message)
     
-    @patch('src.search_service.requests')
-    def test_search_empty_results(self, mock_requests):
+    @patch('src.search.providers.anspire._get_with_retry')
+    def test_search_empty_results(self, mock_get):
         """测试空结果处理"""
-        try:
-            import requests as real_requests
-            mock_requests.exceptions = real_requests.exceptions
-        except ImportError:
-            mock_requests.exceptions = MagicMock()
-        
         fake_response = _FakeResponse(
             status_code=200,
             json_data={"code": 200, "msg": "success", "results": []}
         )
         
-        mock_requests.get = MagicMock(return_value=fake_response)
+        mock_get.return_value = fake_response
         
         response = self.provider.search("不存在的股票 XYZ", max_results=5)
         
@@ -324,17 +293,11 @@ class TestAnspireSearchProvider(unittest.TestCase):
         self.assertEqual(response.provider, "Anspire")
         self.assertEqual(len(response.results), 0)
     
-    @patch('src.search_service.requests')
-    def test_search_content_truncation(self, mock_requests):
+    @patch('src.search.providers.anspire._get_with_retry')
+    def test_search_content_truncation(self, mock_get):
         """测试长内容截断功能"""
-        try:
-            import requests as real_requests
-            mock_requests.exceptions = real_requests.exceptions
-        except ImportError:
-            mock_requests.exceptions = MagicMock()
-        
         long_content = "这是一段非常长的内容，" * 100  # 超过 500 字符
-        
+
         fake_response = _FakeResponse(
             status_code=200,
             json_data={
@@ -348,7 +311,7 @@ class TestAnspireSearchProvider(unittest.TestCase):
             }
         )
         
-        mock_requests.get = MagicMock(return_value=fake_response)
+        mock_get.return_value = fake_response
         
         response = self.provider.search("测试", max_results=1)
         
@@ -359,23 +322,17 @@ class TestAnspireSearchProvider(unittest.TestCase):
             self.assertLessEqual(len(response.results[0].snippet), 503)  # 500 + "..."
             self.assertTrue(response.results[0].snippet.endswith("..."))
     
-    @patch('src.search_service.requests')
-    def test_search_time_range(self, mock_requests):
+    @patch('src.search.providers.anspire._get_with_retry')
+    def test_search_time_range(self, mock_get):
         """测试时间范围参数"""
-        try:
-            import requests as real_requests
-            mock_requests.exceptions = real_requests.exceptions
-        except ImportError:
-            mock_requests.exceptions = MagicMock()
-        
         fake_response = _FakeResponse(status_code=200, json_data={"code": 200, "results": []})
-        mock_requests.get = MagicMock(return_value=fake_response)
+        mock_get.return_value = fake_response
         
         # 测试 7 天范围
         self.provider.search("测试", max_results=3, days=7)
         
         # 验证时间参数
-        call_args = mock_requests.get.call_args
+        call_args = mock_get.call_args
         if call_args and len(call_args) > 1 and 'params' in call_args[1]:
             params = call_args[1]["params"]
                 

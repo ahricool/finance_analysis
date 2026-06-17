@@ -32,37 +32,6 @@ def _record_to_signal(record: Any) -> Optional[Dict[str, Any]]:
         return None
 
 
-def get_signal_changes(
-    code: str,
-    limit: int = 5,
-    exclude_query_id: Optional[str] = None,
-) -> List[Dict[str, Any]]:
-    """
-    Get recent signal changes for a single stock.
-
-    Args:
-        code: Stock code
-        limit: Max records to return
-        exclude_query_id: Exclude record with this query_id (e.g. current run)
-
-    Returns:
-        List of signal dicts (created_at, sentiment_score, operation_advice, trend_prediction)
-    """
-    db = DatabaseManager.get_instance()
-    records = db.get_analysis_history(
-        code=code,
-        days=90,
-        limit=limit,
-        exclude_query_id=exclude_query_id,
-    )
-    out = []
-    for r in records:
-        sig = _record_to_signal(r)
-        if sig:
-            out.append(sig)
-    return out
-
-
 def get_signal_changes_batch(
     codes: List[str],
     limit: int = 5,

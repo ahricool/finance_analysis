@@ -1,30 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Tests for ``scripts/check_static_assets.py`` and the equivalent
-backend startup self-check in ``api.app``.
+"""Tests for backend startup static asset self-check in ``api.app``.
 
-Both code paths target the blank-page / "Preparing backend..." regression
-captured in GitHub issues #1064, #1065 and #1050: vite produces a fresh
-``index.html`` that references ``/assets/index-<hash>.js``, but the
-packaging step copies a stale ``static/assets`` directory, so the bundle
-referenced by ``index.html`` does not exist on disk.
+Targets the blank-page / "Preparing backend..." regression captured in
+GitHub issues #1064, #1065 and #1050: vite produces a fresh ``index.html``
+that references ``/assets/index-<hash>.js``, but the packaging step copies a
+stale ``static/assets`` directory, so the bundle referenced by ``index.html``
+does not exist on disk.
 """
 
 from __future__ import annotations
 
-import importlib
 import logging
-import sys
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-
-
-SCRIPT_DIR = Path(__file__).resolve().parent.parent / "scripts"
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
-
-check_static_assets = importlib.import_module("check_static_assets")
 
 
 def _write_index(static_dir: Path, body: str) -> None:
@@ -41,7 +31,9 @@ def _vite_index(js_name: str, css_name: str) -> str:
     )
 
 
-def test_check_static_dir_passes_when_assets_match(tmp_path: Path) -> None:
+def test_backend_asset_check_passes_when_assets_match(tmp_path: Path) -> None:
+    from api import app as app_module
+
     static_dir = tmp_path / "static"
     assets_dir = static_dir / "assets"
     assets_dir.mkdir(parents=True)
@@ -49,59 +41,35 @@ def test_check_static_dir_passes_when_assets_match(tmp_path: Path) -> None:
     (assets_dir / "index-abc.css").write_text("/* css */", encoding="utf-8")
     _write_index(static_dir, _vite_index("index-abc.js", "index-abc.css"))
 
-    referenced, missing = check_static_assets.check_static_dir(static_dir)
+    missing = app_module._check_frontend_assets_consistency(static_dir)
 
-    assert sorted(referenced) == ["/assets/index-abc.css", "/assets/index-abc.js"]
     assert missing == []
 
 
-def test_check_static_dir_detects_stale_bundle(tmp_path: Path) -> None:
-    """index.html references new hash but assets/ holds an old hash."""
+def test_backend_asset_check_detects_stale_bundle(tmp_path: Path) -> None:
+    from api import app as app_module
+
     static_dir = tmp_path / "static"
     assets_dir = static_dir / "assets"
     assets_dir.mkdir(parents=True)
-    # Stale on-disk bundle.
     (assets_dir / "index-OLD.js").write_text("// old", encoding="utf-8")
     (assets_dir / "index-OLD.css").write_text("/* old */", encoding="utf-8")
-    # Fresh index.html points to a different hash.
     _write_index(static_dir, _vite_index("index-NEW.js", "index-NEW.css"))
 
-    referenced, missing = check_static_assets.check_static_dir(static_dir)
+    missing = app_module._check_frontend_assets_consistency(static_dir)
 
-    assert "/assets/index-NEW.js" in referenced
     assert sorted(missing) == ["/assets/index-NEW.css", "/assets/index-NEW.js"]
 
 
-def test_check_static_dir_raises_when_index_missing(tmp_path: Path) -> None:
+def test_backend_asset_check_returns_empty_when_index_missing(tmp_path: Path) -> None:
+    from api import app as app_module
+
     static_dir = tmp_path / "static"
     static_dir.mkdir()
-    with pytest.raises(FileNotFoundError):
-        check_static_assets.check_static_dir(static_dir)
 
+    missing = app_module._check_frontend_assets_consistency(static_dir)
 
-def test_main_returns_nonzero_when_assets_missing(tmp_path: Path, capsys) -> None:
-    static_dir = tmp_path / "static"
-    (static_dir / "assets").mkdir(parents=True)
-    _write_index(static_dir, _vite_index("index-MISSING.js", "index-MISSING.css"))
-
-    rc = check_static_assets.main(["check_static_assets.py", str(static_dir)])
-
-    captured = capsys.readouterr()
-    assert rc == 1
-    assert "ERROR" in captured.err
-    assert "/assets/index-MISSING.js" in captured.err
-
-
-def test_main_returns_zero_when_consistent(tmp_path: Path) -> None:
-    static_dir = tmp_path / "static"
-    assets = static_dir / "assets"
-    assets.mkdir(parents=True)
-    (assets / "main.js").write_text("// ok", encoding="utf-8")
-    (assets / "main.css").write_text("/* ok */", encoding="utf-8")
-    _write_index(static_dir, _vite_index("main.js", "main.css"))
-
-    rc = check_static_assets.main(["check_static_assets.py", str(static_dir)])
-    assert rc == 0
+    assert missing == []
 
 
 def test_backend_startup_check_logs_when_bundle_inconsistent(
