@@ -31,15 +31,17 @@ def build_intraday_llm_prompt(
         "signal_type": signal_type,
         "metrics": metrics,
         "raw_context": raw_context,
+        "recent_news": raw_context.get("recent_news", []),
     }
     return (
         "你是美股盘中异动提醒系统的分析员。请基于输入的实时行情、1分钟K线聚合指标、"
-        "相对 QQQ/SOXX/UFO 的强弱关系，判断这个信号是否真的值得关注。\n\n"
+        "相对 QQQ/SOXX/UFO 的强弱关系，以及最新新闻/公告，判断这个信号是否真的值得关注。\n\n"
         "重点回答：\n"
         "1. 这个信号是真突破/反转/失效，还是普通波动？\n"
         "2. 是个股自身强，还是被 QQQ、SOXX、UFO 等板块/大盘带动？\n"
-        "3. 当前追高或追空风险大不大？\n"
-        "4. 是否值得发通知？\n\n"
+        "3. 当前是否有明显新闻催化，或新闻与价格行为是否一致？\n"
+        "4. 当前追高或追空风险大不大？\n"
+        "5. 是否值得发通知？\n\n"
         "只输出一个 JSON object，不要 markdown，不要解释 JSON 之外的文字。格式如下：\n"
         "{\n"
         '  "final_decision": "watch|ignore|risk",\n'
@@ -67,6 +69,7 @@ def build_intraday_batch_llm_prompt(
     """
     payload = {
         "market_context": market_context,
+        "market_news": market_context.get("market_news", []),
         "candidates": [
             {
                 "id": item["id"],
@@ -74,18 +77,21 @@ def build_intraday_batch_llm_prompt(
                 "signal_type": item["signal_type"],
                 "metrics": item["metrics"],
                 "raw_context": item["raw_context"],
+                "recent_news": item.get("recent_news", []),
             }
             for item in candidates
         ],
     }
     return (
         "你是美股盘中异动提醒系统的分析员。下面是一批候选异动信号，每个信号包含实时行情、"
-        "1分钟K线聚合指标，以及相对 QQQ/SOXX/UFO 等板块的强弱关系。请逐个判断每个信号是否真的值得关注。\n\n"
+        "1分钟K线聚合指标，相对 QQQ/SOXX/UFO 等板块的强弱关系，以及个股/大盘最新新闻。"
+        "请逐个判断每个信号是否真的值得关注。\n\n"
         "对每个候选信号回答：\n"
         "1. 这个信号是真突破/反转/失效，还是普通波动？\n"
         "2. 是个股自身强，还是被 QQQ、SOXX、UFO 等板块/大盘带动？\n"
-        "3. 当前追高或追空风险大不大？\n"
-        "4. 是否值得发通知？\n\n"
+        "3. 当前是否有明显新闻催化，或新闻与价格行为是否一致？\n"
+        "4. 当前追高或追空风险大不大？\n"
+        "5. 是否值得发通知？\n\n"
         "只输出一个 JSON object，不要 markdown，不要解释 JSON 之外的文字。\n"
         "顶层是 results 数组，数组每个元素对应一个候选信号，必须原样回传输入里的 id 字段。格式如下：\n"
         "{\n"
@@ -210,6 +216,7 @@ class IntradayLLMJudge:
                     "signal_type": item["signal_type"],
                     "metrics": item["metrics"],
                     "raw_context": self._build_raw_context(item["bars_1m"]),
+                    "recent_news": item.get("news") or [],
                 }
                 for item in candidates
             ]
