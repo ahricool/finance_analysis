@@ -7,6 +7,7 @@
 将定时任务**写死在代码中**，不再从环境变量或外部配置读取调度参数：
 
 - 每日 :data:`DAILY_SCHEDULE_HOUR` : :data:`DAILY_SCHEDULE_MINUTE` 执行一次全量分析。
+- 北京时间 20:00 执行美股盘前新闻情报，拉取关注股票和 Nasdaq-100 前 20 新闻。
 - 北京时间 21:00 执行美股盘前分析，仅分析自选股中标记为美股的股票。
 - 每 15 分钟执行一次美股盘中分析（当前任务流程为空）。
 - 每 15 分钟执行一次 A 股盘中分析（当前任务流程为空）。
@@ -35,6 +36,8 @@ F = TypeVar("F", bound=Callable[..., Any])
 # === 调度参数（修改后需重启进程）===
 DAILY_SCHEDULE_HOUR = 18
 DAILY_SCHEDULE_MINUTE = 0
+US_PREMARKET_NEWS_SCHEDULE_HOUR = 20
+US_PREMARKET_NEWS_SCHEDULE_MINUTE = 0
 US_PREMARKET_SCHEDULE_HOUR = 21
 US_PREMARKET_SCHEDULE_MINUTE = 0
 INTRADAY_ANALYSIS_INTERVAL_MINUTES = 15
@@ -42,6 +45,7 @@ SCHEDULE_TIMEZONE = "Asia/Shanghai"
 RUN_IMMEDIATELY_ON_STARTUP = True
 
 _JOB_DAILY_ANALYSIS = "analysis_daily"
+_JOB_US_PREMARKET_NEWS = "analysis_us_premarket_news"
 _JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
 _JOB_US_INTRADAY_ANALYSIS = "analysis_us_intraday"
 _JOB_A_SHARE_INTRADAY_ANALYSIS = "analysis_a_share_intraday"
@@ -302,6 +306,43 @@ def _us_premarket_analysis_task() -> None:
         )
 
 
+@_with_task_logging(_JOB_US_PREMARKET_NEWS)
+def _us_premarket_news_task() -> None:
+    """美股盘前新闻情报任务：每天运行，抓取自选股和 Nasdaq-100 前 20 新闻。"""
+    task_name = "美股盘前新闻情报"
+    started_at = _scheduled_now()
+    logger.info("=" * 50)
+    logger.info("美股盘前新闻情报任务开始执行 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
+    logger.info("=" * 50)
+    total_count = 0
+    try:
+        from src.config import get_config
+        from src.repositories.watch_list_repo import get_watch_list_codes_by_market
+        from src.services.tasks.us_premarket_news.service import USPremarketNewsService
+
+        watch_symbols = get_watch_list_codes_by_market("US")
+        service = USPremarketNewsService(config=get_config())
+        summary = service.run(watch_symbols, now=started_at)
+        total_count = summary.symbols_count
+    except Exception as exc:
+        finished_at = _scheduled_now()
+        logger.exception("美股盘前新闻情报任务执行失败: %s", exc)
+        _safe_record_scheduled_task_result(
+            task_name=task_name,
+            type="scheduled_us_premarket_news",
+            started_at=started_at,
+            finished_at=finished_at,
+            total_count=total_count,
+            results=[],
+            error=str(exc),
+        )
+    else:
+        logger.info(
+            "美股盘前新闻情报任务执行完成 - %s",
+            _scheduled_now().strftime("%Y-%m-%d %H:%M:%S"),
+        )
+
+
 @_with_task_logging(_JOB_US_INTRADAY_ANALYSIS)
 def _us_intraday_analysis_task() -> None:
     """美股盘中定时任务：检测自选美股的盘中异动并按需提醒。"""
@@ -368,6 +409,18 @@ def start_embedded_analysis_scheduler():
         coalesce=True,
     )
     scheduler.add_job(
+        _us_premarket_news_task,
+        CronTrigger(
+            hour=US_PREMARKET_NEWS_SCHEDULE_HOUR,
+            minute=US_PREMARKET_NEWS_SCHEDULE_MINUTE,
+            timezone=SCHEDULE_TIMEZONE,
+        ),
+        id=_JOB_US_PREMARKET_NEWS,
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         _us_premarket_analysis_task,
         CronTrigger(
             hour=US_PREMARKET_SCHEDULE_HOUR,
@@ -397,10 +450,13 @@ def start_embedded_analysis_scheduler():
     )
     scheduler.start()
     logger.info(
-        "APScheduler 已启动，每日定时任务: %02d:%02d，美股盘前分析: %02d:%02d，"
+        "APScheduler 已启动，每日定时任务: %02d:%02d，美股盘前新闻: %02d:%02d，"
+        "美股盘前分析: %02d:%02d，"
         "美股盘中分析/A股盘中分析: 每 %d 分钟一次 (%s)",
         DAILY_SCHEDULE_HOUR,
         DAILY_SCHEDULE_MINUTE,
+        US_PREMARKET_NEWS_SCHEDULE_HOUR,
+        US_PREMARKET_NEWS_SCHEDULE_MINUTE,
         US_PREMARKET_SCHEDULE_HOUR,
         US_PREMARKET_SCHEDULE_MINUTE,
         INTRADAY_ANALYSIS_INTERVAL_MINUTES,

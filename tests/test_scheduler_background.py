@@ -67,10 +67,15 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
             returned = scheduler_module.start_embedded_analysis_scheduler()
 
         self.assertIs(returned, scheduler_instance)
-        self.assertEqual(self.cron_trigger_cls.call_count, 4)
+        self.assertEqual(self.cron_trigger_cls.call_count, 5)
         self.cron_trigger_cls.assert_any_call(
             hour=scheduler_module.DAILY_SCHEDULE_HOUR,
             minute=scheduler_module.DAILY_SCHEDULE_MINUTE,
+            timezone=scheduler_module.SCHEDULE_TIMEZONE,
+        )
+        self.cron_trigger_cls.assert_any_call(
+            hour=scheduler_module.US_PREMARKET_NEWS_SCHEDULE_HOUR,
+            minute=scheduler_module.US_PREMARKET_NEWS_SCHEDULE_MINUTE,
             timezone=scheduler_module.SCHEDULE_TIMEZONE,
         )
         self.cron_trigger_cls.assert_any_call(
@@ -82,28 +87,47 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
             minute=f"*/{scheduler_module.INTRADAY_ANALYSIS_INTERVAL_MINUTES}",
             timezone=scheduler_module.SCHEDULE_TIMEZONE,
         )
-        self.assertEqual(scheduler_instance.add_job.call_count, 4)
+        self.assertEqual(scheduler_instance.add_job.call_count, 5)
         add_job_kwargs = scheduler_instance.add_job.call_args_list[0].kwargs
         self.assertEqual(add_job_kwargs["id"], "analysis_daily")
         self.assertTrue(add_job_kwargs["replace_existing"])
         self.assertEqual(add_job_kwargs["max_instances"], 1)
         self.assertTrue(add_job_kwargs["coalesce"])
         us_add_job_kwargs = scheduler_instance.add_job.call_args_list[1].kwargs
-        self.assertEqual(us_add_job_kwargs["id"], "analysis_us_premarket")
+        self.assertEqual(us_add_job_kwargs["id"], "analysis_us_premarket_news")
         self.assertTrue(us_add_job_kwargs["replace_existing"])
         self.assertEqual(us_add_job_kwargs["max_instances"], 1)
         self.assertTrue(us_add_job_kwargs["coalesce"])
-        us_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[2].kwargs
+        us_analysis_add_job_kwargs = scheduler_instance.add_job.call_args_list[2].kwargs
+        self.assertEqual(us_analysis_add_job_kwargs["id"], "analysis_us_premarket")
+        self.assertTrue(us_analysis_add_job_kwargs["replace_existing"])
+        self.assertEqual(us_analysis_add_job_kwargs["max_instances"], 1)
+        self.assertTrue(us_analysis_add_job_kwargs["coalesce"])
+        us_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[3].kwargs
         self.assertEqual(us_intraday_add_job_kwargs["id"], "analysis_us_intraday")
         self.assertTrue(us_intraday_add_job_kwargs["replace_existing"])
         self.assertEqual(us_intraday_add_job_kwargs["max_instances"], 1)
         self.assertTrue(us_intraday_add_job_kwargs["coalesce"])
-        a_share_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[3].kwargs
+        a_share_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[4].kwargs
         self.assertEqual(a_share_intraday_add_job_kwargs["id"], "analysis_a_share_intraday")
         self.assertTrue(a_share_intraday_add_job_kwargs["replace_existing"])
         self.assertEqual(a_share_intraday_add_job_kwargs["max_instances"], 1)
         self.assertTrue(a_share_intraday_add_job_kwargs["coalesce"])
         scheduler_instance.start.assert_called_once()
+
+    def test_start_registers_premarket_analysis_without_changing_job_options(self) -> None:
+        scheduler_instance = MagicMock()
+        scheduler_instance.get_job.return_value = MagicMock(next_run_time=None)
+        self.background_scheduler_cls.return_value = scheduler_instance
+
+        with patch.object(scheduler_module, "RUN_IMMEDIATELY_ON_STARTUP", False):
+            scheduler_module.start_embedded_analysis_scheduler()
+
+        us_add_job_kwargs = scheduler_instance.add_job.call_args_list[2].kwargs
+        self.assertEqual(us_add_job_kwargs["id"], "analysis_us_premarket")
+        self.assertTrue(us_add_job_kwargs["replace_existing"])
+        self.assertEqual(us_add_job_kwargs["max_instances"], 1)
+        self.assertTrue(us_add_job_kwargs["coalesce"])
 
     def test_start_runs_task_immediately_when_flag_enabled(self) -> None:
         scheduler_instance = MagicMock()
@@ -197,6 +221,34 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         pipeline_cls.assert_not_called()
         pipeline_instance.run.assert_not_called()
         record_mock.assert_called_once()
+
+    def test_us_premarket_news_task_runs_service_for_us_watch_list(self) -> None:
+        fake_repo_module = types.ModuleType("src.repositories.watch_list_repo")
+        fake_repo_module.get_watch_list_codes_by_market = MagicMock(return_value=["AAPL", "TSLA"])
+        fake_config_module = types.ModuleType("src.config")
+        fake_config_module.get_config = MagicMock(return_value=MagicMock(name="config"))
+        fake_service_module = types.ModuleType("src.services.tasks.us_premarket_news.service")
+        service_instance = MagicMock()
+        service_instance.run.return_value = MagicMock(symbols_count=22)
+        fake_service_module.USPremarketNewsService = MagicMock(return_value=service_instance)
+
+        stubs = {
+            "src.repositories.watch_list_repo": fake_repo_module,
+            "src.config": fake_config_module,
+            "src.services.tasks.us_premarket_news.service": fake_service_module,
+        }
+        with patch.dict(sys.modules, stubs), patch.object(
+            scheduler_module, "_safe_record_scheduled_task_result"
+        ) as record_mock:
+            scheduler_module._us_premarket_news_task()
+
+        fake_repo_module.get_watch_list_codes_by_market.assert_called_once_with("US")
+        fake_service_module.USPremarketNewsService.assert_called_once_with(
+            config=fake_config_module.get_config.return_value
+        )
+        service_instance.run.assert_called_once()
+        self.assertEqual(service_instance.run.call_args.args[0], ["AAPL", "TSLA"])
+        record_mock.assert_not_called()
 
 
 if __name__ == "__main__":
