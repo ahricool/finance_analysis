@@ -4,7 +4,6 @@ import { useAuthStore } from '@/stores/authStore';
 
 const HomePage = () => import('@/pages/HomePage.vue');
 const ChatPage = () => import('@/pages/ChatPage.vue');
-const PortfolioPage = () => import('@/pages/PortfolioPage.vue');
 const BacktestPage = () => import('@/pages/BacktestPage.vue');
 const WatchListPage = () => import('@/pages/WatchListPage.vue');
 const StockListPage = () => import('@/pages/StockListPage.vue');
@@ -24,7 +23,6 @@ const router = createRouter({
         { path: 'chat', name: 'chat', component: ChatPage },
         { path: 'watch-list', name: 'watch-list', component: WatchListPage },
         { path: 'stock-list', name: 'stock-list', component: StockListPage },
-        { path: 'portfolio', name: 'portfolio', component: PortfolioPage },
         { path: 'backtest', name: 'backtest', component: BacktestPage },
         { path: 'calendar', name: 'calendar', component: CalendarPage },
         { path: 'profile', name: 'profile', component: ProfilePage },

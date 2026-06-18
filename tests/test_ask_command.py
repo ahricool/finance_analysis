@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """Tests for AskCommand skill selection and multi-stock support."""
 
-import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 try:
     import litellm  # noqa: F401
@@ -105,7 +104,7 @@ class TestAskCommandMultiStock(unittest.TestCase):
             },
         }
 
-    def test_analyze_multi_includes_portfolio_overlay(self):
+    def test_analyze_multi_includes_comparison_table(self):
         command = AskCommand()
         config = SimpleNamespace()
         message = self._message()
@@ -119,13 +118,12 @@ class TestAskCommandMultiStock(unittest.TestCase):
                     dashboard=TestAskCommandMultiStock._dashboard(code),
                 )
 
-        with patch("src.agent.factory.build_agent_executor", return_value=FakeExecutor()):
-            with patch.object(command, "_build_portfolio_section", return_value="## 组合视角\n组合摘要"):
+        with patch("bot.commands.ask.get_db"):
+            with patch("src.agent.factory.build_agent_executor", return_value=FakeExecutor()):
                 with patch("src.agent.conversation.conversation_manager"):
                     response = command._analyze_multi(config, message, ["600519", "000858"], None, "")
 
         self.assertTrue(response.markdown)
-        self.assertIn("## 组合视角", response.text)
         self.assertIn("| 600519 | buy | 72% |", response.text)
         self.assertIn("### 000858", response.text)
 
@@ -146,87 +144,6 @@ class TestAskCommandMultiStock(unittest.TestCase):
         self.assertEqual(raw_code_str, "600519,000858")
         self.assertEqual(remaining_args, ["波浪理论"])
 
-    def test_build_portfolio_section_reads_assessment(self):
-        command = AskCommand()
-        results = {
-            "600519": {
-                "signal": "buy",
-                "confidence": 0.8,
-                "summary": "茅台 summary",
-                "stock_name": "贵州茅台",
-                "risk_flags": [{"category": "portfolio_input", "description": "估值偏高", "severity": "medium"}],
-            },
-            "000858": {
-                "signal": "hold",
-                "confidence": 0.6,
-                "summary": "五粮液 summary",
-                "stock_name": "五粮液",
-                "risk_flags": [],
-            },
-        }
-
-        def fake_run(self, ctx, progress_callback=None):
-            ctx.data["portfolio_assessment"] = {
-                "summary": "组合偏消费集中，建议控制仓位。",
-                "portfolio_risk_score": 7,
-                "sector_warnings": ["白酒板块集中度过高"],
-                "correlation_warnings": ["600519 与 000858 相关性偏高"],
-                "rebalance_suggestions": ["降低单一行业暴露"],
-                "positions": [
-                    {"code": "600519", "suggested_weight": 0.4, "signal": "buy"},
-                    {"code": "000858", "suggested_weight": 0.2, "signal": "hold"},
-                ],
-            }
-            return SimpleNamespace(success=True)
-
-        with patch("src.agent.factory.get_tool_registry", return_value=MagicMock()):
-            with patch("src.agent.llm_adapter.LLMToolAdapter", return_value=MagicMock()):
-                with patch("src.agent.agents.portfolio_agent.PortfolioAgent.run", new=fake_run):
-                    text = command._build_portfolio_section(SimpleNamespace(), ["600519", "000858"], results)
-
-        self.assertIn("## 组合视角", text)
-        self.assertIn("组合偏消费集中", text)
-        self.assertIn("建议仓位", text)
-
-    def test_build_portfolio_section_returns_quickly_on_timeout(self):
-        command = AskCommand()
-        results = {
-            "600519": {
-                "signal": "buy",
-                "confidence": 0.8,
-                "summary": "茅台 summary",
-                "stock_name": "贵州茅台",
-                "risk_flags": [],
-            },
-            "000858": {
-                "signal": "hold",
-                "confidence": 0.6,
-                "summary": "五粮液 summary",
-                "stock_name": "五粮液",
-                "risk_flags": [],
-            },
-        }
-
-        def slow_run(self, ctx, progress_callback=None):
-            time.sleep(0.1)
-            ctx.data["portfolio_assessment"] = {"summary": "late summary"}
-            return SimpleNamespace(success=True)
-
-        started_at = time.monotonic()
-        with patch("src.agent.factory.get_tool_registry", return_value=MagicMock()):
-            with patch("src.agent.llm_adapter.LLMToolAdapter", return_value=MagicMock()):
-                with patch("src.agent.agents.portfolio_agent.PortfolioAgent.run", new=slow_run):
-                    text = command._build_portfolio_section(
-                        SimpleNamespace(),
-                        ["600519", "000858"],
-                        results,
-                        timeout_s=0.01,
-                    )
-
-        elapsed_s = time.monotonic() - started_at
-        self.assertEqual(text, "")
-        self.assertLess(elapsed_s, 0.08)
-
     def test_analyze_multi_falls_back_to_text_when_dashboard_parse_fails(self):
         command = AskCommand()
         config = SimpleNamespace()
@@ -242,8 +159,8 @@ class TestAskCommandMultiStock(unittest.TestCase):
                     error="Failed to parse dashboard JSON from agent response",
                 )
 
-        with patch("src.agent.factory.build_agent_executor", return_value=FakeExecutor()):
-            with patch.object(command, "_build_portfolio_section", return_value=""):
+        with patch("bot.commands.ask.get_db"):
+            with patch("src.agent.factory.build_agent_executor", return_value=FakeExecutor()):
                 with patch("src.agent.conversation.conversation_manager"):
                     response = command._analyze_multi(config, message, ["600519", "000858"], None, "")
 
@@ -264,8 +181,8 @@ class TestAskCommandMultiStock(unittest.TestCase):
                     dashboard=TestAskCommandMultiStock._dashboard(code),
                 )
 
-        with patch("src.agent.factory.build_agent_executor", return_value=FakeExecutor()):
-            with patch.object(command, "_build_portfolio_section", return_value=""):
+        with patch("bot.commands.ask.get_db"):
+            with patch("src.agent.factory.build_agent_executor", return_value=FakeExecutor()):
                 with patch("src.agent.conversation.conversation_manager") as mock_cm:
                     command._analyze_multi(config, message, ["600519", "000858"], None, "")
 
@@ -295,10 +212,9 @@ class TestAskCommandMultiStock(unittest.TestCase):
 
         with patch("bot.commands.ask.get_db", side_effect=lambda: call_order.append("db")) as mock_get_db:
             with patch("src.agent.factory.build_agent_executor", return_value=FakeExecutor()):
-                with patch.object(command, "_build_portfolio_section", return_value=""):
-                    with patch("src.agent.conversation.conversation_manager") as mock_cm:
-                        mock_cm.add_message.side_effect = lambda *args, **kwargs: call_order.append("history")
-                        command._analyze_multi(config, message, ["600519", "000858"], None, "")
+                with patch("src.agent.conversation.conversation_manager") as mock_cm:
+                    mock_cm.add_message.side_effect = lambda *args, **kwargs: call_order.append("history")
+                    command._analyze_multi(config, message, ["600519", "000858"], None, "")
 
         mock_get_db.assert_called_once_with()
         self.assertTrue(call_order)

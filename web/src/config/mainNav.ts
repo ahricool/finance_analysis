@@ -1,7 +1,6 @@
 import type { Component } from 'vue';
 import {
   BarChart3,
-  BriefcaseBusiness,
   CalendarDays,
   Home,
   MessageSquareQuote,
@@ -25,6 +24,5 @@ export const mainNavItems: MainNavItem[] = [
   { key: 'watch-list', label: '自选股', to: '/watch-list', icon: Star },
   { key: 'stock-list', label: '持仓股', to: '/stock-list', icon: Wallet },
   { key: 'chat', label: '问股', to: '/chat', icon: MessageSquareQuote, badge: 'completion' },
-  { key: 'portfolio', label: '投资组合', to: '/portfolio', icon: BriefcaseBusiness },
   { key: 'backtest', label: '回测', to: '/backtest', icon: BarChart3 },
 ];
