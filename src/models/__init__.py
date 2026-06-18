@@ -4,6 +4,7 @@
 from src.models.analysis import AnalysisHistory, BacktestResult, BacktestSummary
 from src.models.calendar import CalendarEntry
 from src.models.conversation import ConversationMessage, LLMUsage
+from src.models.market_calendar import FinanceEvent
 from src.models.news import FundamentalSnapshot, NewsIntel
 from src.models.portfolio import (
     PortfolioAccount,
@@ -25,6 +26,7 @@ __all__ = [
     "BacktestSummary",
     "CalendarEntry",
     "ConversationMessage",
+    "FinanceEvent",
     "FundamentalSnapshot",
     "LLMUsage",
     "NewsIntel",

@@ -8,6 +8,7 @@
 
 - 每日 :data:`DAILY_SCHEDULE_HOUR` : :data:`DAILY_SCHEDULE_MINUTE` 执行一次全量分析。
 - 北京时间 20:00 执行美股盘前新闻情报，拉取关注股票和 Nasdaq-100 前 20 新闻。
+- 北京时间 19:00 执行美股财经日历同步。
 - 北京时间 21:00 执行美股盘前分析，仅分析自选股中标记为美股的股票。
 - 每 15 分钟执行一次美股盘中分析（当前任务流程为空）。
 - 每 15 分钟执行一次 A 股盘中分析（当前任务流程为空）。
@@ -38,6 +39,8 @@ DAILY_SCHEDULE_HOUR = 18
 DAILY_SCHEDULE_MINUTE = 0
 US_PREMARKET_NEWS_SCHEDULE_HOUR = 20
 US_PREMARKET_NEWS_SCHEDULE_MINUTE = 0
+MARKET_CALENDAR_SCHEDULE_HOUR = 19
+MARKET_CALENDAR_SCHEDULE_MINUTE = 0
 US_PREMARKET_SCHEDULE_HOUR = 21
 US_PREMARKET_SCHEDULE_MINUTE = 0
 INTRADAY_ANALYSIS_INTERVAL_MINUTES = 15
@@ -45,6 +48,7 @@ SCHEDULE_TIMEZONE = "Asia/Shanghai"
 RUN_IMMEDIATELY_ON_STARTUP = True
 
 _JOB_DAILY_ANALYSIS = "analysis_daily"
+_JOB_MARKET_CALENDAR = "market_calendar"
 _JOB_US_PREMARKET_NEWS = "analysis_us_premarket_news"
 _JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
 _JOB_US_INTRADAY_ANALYSIS = "analysis_us_intraday"
@@ -343,6 +347,32 @@ def _us_premarket_news_task() -> None:
         )
 
 
+@_with_task_logging(_JOB_MARKET_CALENDAR)
+def _market_calendar_task() -> None:
+    """美股财经日历定时任务：每天同步未来财经事件。"""
+    started_at = _scheduled_now()
+    logger.info("=" * 50)
+    logger.info("美股财经日历任务开始执行 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
+    logger.info("=" * 50)
+    try:
+        from src.services.tasks.market_calendar_sync import MarketCalendarSyncService
+
+        summary = MarketCalendarSyncService().run(now=started_at)
+        if summary.all_interfaces_failed:
+            logger.error("美股财经日历任务失败：所有接口均失败 errors=%s", summary.errors)
+        else:
+            logger.info(
+                "美股财经日历任务完成: fetched=%s inserted=%s updated=%s duplicate=%s notify=%s",
+                summary.fetched_count_by_type,
+                summary.inserted_count,
+                summary.updated_count,
+                summary.skipped_duplicate_count,
+                summary.notification_sent_count,
+            )
+    except Exception as exc:
+        logger.exception("美股财经日历任务执行失败: %s", exc)
+
+
 @_with_task_logging(_JOB_US_INTRADAY_ANALYSIS)
 def _us_intraday_analysis_task() -> None:
     """美股盘中定时任务：检测自选美股的盘中异动并按需提醒。"""
@@ -409,6 +439,18 @@ def start_embedded_analysis_scheduler():
         coalesce=True,
     )
     scheduler.add_job(
+        _market_calendar_task,
+        CronTrigger(
+            hour=MARKET_CALENDAR_SCHEDULE_HOUR,
+            minute=MARKET_CALENDAR_SCHEDULE_MINUTE,
+            timezone=SCHEDULE_TIMEZONE,
+        ),
+        id=_JOB_MARKET_CALENDAR,
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         _us_premarket_news_task,
         CronTrigger(
             hour=US_PREMARKET_NEWS_SCHEDULE_HOUR,
@@ -450,11 +492,14 @@ def start_embedded_analysis_scheduler():
     )
     scheduler.start()
     logger.info(
-        "APScheduler 已启动，每日定时任务: %02d:%02d，美股盘前新闻: %02d:%02d，"
+        "APScheduler 已启动，每日定时任务: %02d:%02d，财经日历: %02d:%02d，"
+        "美股盘前新闻: %02d:%02d，"
         "美股盘前分析: %02d:%02d，"
         "美股盘中分析/A股盘中分析: 每 %d 分钟一次 (%s)",
         DAILY_SCHEDULE_HOUR,
         DAILY_SCHEDULE_MINUTE,
+        MARKET_CALENDAR_SCHEDULE_HOUR,
+        MARKET_CALENDAR_SCHEDULE_MINUTE,
         US_PREMARKET_NEWS_SCHEDULE_HOUR,
         US_PREMARKET_NEWS_SCHEDULE_MINUTE,
         US_PREMARKET_SCHEDULE_HOUR,
@@ -465,6 +510,12 @@ def start_embedded_analysis_scheduler():
     job = scheduler.get_job(_JOB_DAILY_ANALYSIS)
     if job is not None and job.next_run_time is not None:
         logger.info("下次执行时间: %s", job.next_run_time.strftime("%Y-%m-%d %H:%M:%S"))
+    market_calendar_job = scheduler.get_job(_JOB_MARKET_CALENDAR)
+    if market_calendar_job is not None and market_calendar_job.next_run_time is not None:
+        logger.info(
+            "财经日历任务下次执行时间: %s",
+            market_calendar_job.next_run_time.strftime("%Y-%m-%d %H:%M:%S"),
+        )
 
     if RUN_IMMEDIATELY_ON_STARTUP:
         logger.info("启动时立即执行一次定时任务...")
