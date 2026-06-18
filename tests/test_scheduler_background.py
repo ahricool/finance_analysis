@@ -67,10 +67,15 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
             returned = scheduler_module.start_embedded_analysis_scheduler()
 
         self.assertIs(returned, scheduler_instance)
-        self.assertEqual(self.cron_trigger_cls.call_count, 5)
+        self.assertEqual(self.cron_trigger_cls.call_count, 6)
         self.cron_trigger_cls.assert_any_call(
             hour=scheduler_module.DAILY_SCHEDULE_HOUR,
             minute=scheduler_module.DAILY_SCHEDULE_MINUTE,
+            timezone=scheduler_module.SCHEDULE_TIMEZONE,
+        )
+        self.cron_trigger_cls.assert_any_call(
+            hour=scheduler_module.MARKET_CALENDAR_SCHEDULE_HOUR,
+            minute=scheduler_module.MARKET_CALENDAR_SCHEDULE_MINUTE,
             timezone=scheduler_module.SCHEDULE_TIMEZONE,
         )
         self.cron_trigger_cls.assert_any_call(
@@ -87,28 +92,33 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
             minute=f"*/{scheduler_module.INTRADAY_ANALYSIS_INTERVAL_MINUTES}",
             timezone=scheduler_module.SCHEDULE_TIMEZONE,
         )
-        self.assertEqual(scheduler_instance.add_job.call_count, 5)
+        self.assertEqual(scheduler_instance.add_job.call_count, 6)
         add_job_kwargs = scheduler_instance.add_job.call_args_list[0].kwargs
         self.assertEqual(add_job_kwargs["id"], "analysis_daily")
         self.assertTrue(add_job_kwargs["replace_existing"])
         self.assertEqual(add_job_kwargs["max_instances"], 1)
         self.assertTrue(add_job_kwargs["coalesce"])
         us_add_job_kwargs = scheduler_instance.add_job.call_args_list[1].kwargs
+        self.assertEqual(us_add_job_kwargs["id"], "market_calendar")
+        self.assertTrue(us_add_job_kwargs["replace_existing"])
+        self.assertEqual(us_add_job_kwargs["max_instances"], 1)
+        self.assertTrue(us_add_job_kwargs["coalesce"])
+        us_add_job_kwargs = scheduler_instance.add_job.call_args_list[2].kwargs
         self.assertEqual(us_add_job_kwargs["id"], "analysis_us_premarket_news")
         self.assertTrue(us_add_job_kwargs["replace_existing"])
         self.assertEqual(us_add_job_kwargs["max_instances"], 1)
         self.assertTrue(us_add_job_kwargs["coalesce"])
-        us_analysis_add_job_kwargs = scheduler_instance.add_job.call_args_list[2].kwargs
+        us_analysis_add_job_kwargs = scheduler_instance.add_job.call_args_list[3].kwargs
         self.assertEqual(us_analysis_add_job_kwargs["id"], "analysis_us_premarket")
         self.assertTrue(us_analysis_add_job_kwargs["replace_existing"])
         self.assertEqual(us_analysis_add_job_kwargs["max_instances"], 1)
         self.assertTrue(us_analysis_add_job_kwargs["coalesce"])
-        us_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[3].kwargs
+        us_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[4].kwargs
         self.assertEqual(us_intraday_add_job_kwargs["id"], "analysis_us_intraday")
         self.assertTrue(us_intraday_add_job_kwargs["replace_existing"])
         self.assertEqual(us_intraday_add_job_kwargs["max_instances"], 1)
         self.assertTrue(us_intraday_add_job_kwargs["coalesce"])
-        a_share_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[4].kwargs
+        a_share_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[5].kwargs
         self.assertEqual(a_share_intraday_add_job_kwargs["id"], "analysis_a_share_intraday")
         self.assertTrue(a_share_intraday_add_job_kwargs["replace_existing"])
         self.assertEqual(a_share_intraday_add_job_kwargs["max_instances"], 1)
@@ -123,7 +133,7 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         with patch.object(scheduler_module, "RUN_IMMEDIATELY_ON_STARTUP", False):
             scheduler_module.start_embedded_analysis_scheduler()
 
-        us_add_job_kwargs = scheduler_instance.add_job.call_args_list[2].kwargs
+        us_add_job_kwargs = scheduler_instance.add_job.call_args_list[3].kwargs
         self.assertEqual(us_add_job_kwargs["id"], "analysis_us_premarket")
         self.assertTrue(us_add_job_kwargs["replace_existing"])
         self.assertEqual(us_add_job_kwargs["max_instances"], 1)
@@ -135,10 +145,12 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         self.background_scheduler_cls.return_value = scheduler_instance
 
         with patch.object(scheduler_module, "RUN_IMMEDIATELY_ON_STARTUP", True), \
-             patch.object(scheduler_module, "_daily_analysis_task") as task_mock:
+             patch.object(scheduler_module, "_daily_analysis_task") as task_mock, \
+             patch.object(scheduler_module, "_market_calendar_task") as market_calendar_task_mock:
             scheduler_module.start_embedded_analysis_scheduler()
 
         task_mock.assert_called_once()
+        market_calendar_task_mock.assert_not_called()
 
     def test_shutdown_waits_for_running_jobs(self) -> None:
         scheduler_instance = MagicMock()
@@ -249,6 +261,25 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         service_instance.run.assert_called_once()
         self.assertEqual(service_instance.run.call_args.args[0], ["AAPL", "TSLA"])
         record_mock.assert_not_called()
+
+    def test_market_calendar_task_runs_service(self) -> None:
+        fake_service_module = types.ModuleType("src.services.tasks.market_calendar_sync")
+        service_instance = MagicMock()
+        service_instance.run.return_value = MagicMock(
+            all_interfaces_failed=False,
+            fetched_count_by_type={"earnings": 1},
+            inserted_count=1,
+            updated_count=0,
+            skipped_duplicate_count=0,
+            notification_sent_count=1,
+        )
+        fake_service_module.MarketCalendarSyncService = MagicMock(return_value=service_instance)
+
+        with patch.dict(sys.modules, {"src.services.tasks.market_calendar_sync": fake_service_module}):
+            scheduler_module._market_calendar_task()
+
+        fake_service_module.MarketCalendarSyncService.assert_called_once_with()
+        service_instance.run.assert_called_once()
 
 
 if __name__ == "__main__":

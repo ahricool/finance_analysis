@@ -93,7 +93,9 @@ function toggleEntry(item: CalendarEntryItem) {
 
 function entryTypeLabel(type: string | null): string {
   if (type === 'scheduled_daily') return '定时全量';
+  if (type === 'scheduled_market_calendar') return '财经日历';
   if (type === 'scheduled_us_premarket') return '美股盘前';
+  if (type === 'scheduled_us_premarket_news') return '盘前新闻';
   return type || '日历记录';
 }
 
