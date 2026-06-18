@@ -6,16 +6,6 @@ from src.models.calendar import CalendarEntry
 from src.models.conversation import ConversationMessage, LLMUsage
 from src.models.market_calendar import FinanceEvent
 from src.models.news import FundamentalSnapshot, NewsIntel
-from src.models.portfolio import (
-    PortfolioAccount,
-    PortfolioCashLedger,
-    PortfolioCorporateAction,
-    PortfolioDailySnapshot,
-    PortfolioFxRate,
-    PortfolioPosition,
-    PortfolioPositionLot,
-    PortfolioTrade,
-)
 from src.models.stock import StockDaily
 from src.models.user import User
 from src.models.watch_list import StockHolding, WatchListItem
@@ -30,14 +20,6 @@ __all__ = [
     "FundamentalSnapshot",
     "LLMUsage",
     "NewsIntel",
-    "PortfolioAccount",
-    "PortfolioCashLedger",
-    "PortfolioCorporateAction",
-    "PortfolioDailySnapshot",
-    "PortfolioFxRate",
-    "PortfolioPosition",
-    "PortfolioPositionLot",
-    "PortfolioTrade",
     "StockDaily",
     "StockHolding",
     "User",

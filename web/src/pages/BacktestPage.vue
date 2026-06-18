@@ -374,7 +374,7 @@ function onCodeInput(e: Event) {
         <EmptyState
           v-else
           title="No Metrics Yet"
-          description="Run a backtest to generate portfolio-level performance metrics."
+          description="Run a backtest to generate aggregate performance metrics."
           class="h-full min-h-[12rem] border-dashed bg-card/45 shadow-none"
         />
 
