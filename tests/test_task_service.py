@@ -1,13 +1,9 @@
 # -*- coding: utf-8 -*-
-"""
-Regression tests for TaskService failure handling.
-"""
+"""Regression tests for Celery-backed task failure handling."""
 
 import os
 import sys
 import unittest
-import threading
-from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -16,56 +12,40 @@ from tests.litellm_stub import ensure_litellm_stub
 
 ensure_litellm_stub()
 
-from src.analysis.stock_report_analyzer import AnalysisResult
-from src.services.task_service import TaskService
+from src.celery_app.tasks.analysis import run_stock_analysis
+from src.tasks.queue import TaskStatus, get_task_queue, reset_task_state_for_tests
 
 
-def _make_failed_result(code: str) -> AnalysisResult:
-    return AnalysisResult(
-        code=code,
-        name=f"股票{code}",
-        sentiment_score=80,
-        trend_prediction="看多",
-        operation_advice="持有",
-        analysis_summary="解析失败",
-        success=False,
-        error_message="JSON 解析失败",
-    )
+class TestCeleryTaskService(unittest.TestCase):
+    def setUp(self) -> None:
+        reset_task_state_for_tests()
 
+    def tearDown(self) -> None:
+        reset_task_state_for_tests()
 
-class _FakePipeline:
-    def __init__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
+    def test_run_stock_analysis_marks_failed_for_unsuccessful_result(self):
+        queue = get_task_queue()
+        with patch.object(run_stock_analysis, "apply_async"):
+            accepted, _duplicates = queue.submit_tasks_batch(["600519"], report_type="detailed")
 
-    def process_single_stock(self, *args, **kwargs):
-        return _make_failed_result(kwargs["code"])
-
-
-class TestTaskService(unittest.TestCase):
-    def test_run_analysis_marks_failed_for_unsuccessful_result(self):
-        service = TaskService()
-        service._tasks = {}
-        service._tasks_lock = threading.Lock()
-
-        fake_main = ModuleType("main")
-        fake_main.StockAnalysisPipeline = _FakePipeline
-
-        with patch.dict("sys.modules", {"main": fake_main}), patch(
-            "src.config.get_config", return_value=SimpleNamespace()
+        task = accepted[0]
+        with patch(
+            "src.celery_app.tasks.analysis._run_api_stock_analysis",
+            side_effect=RuntimeError("JSON 解析失败"),
         ):
-            result = service._run_analysis(code="600519", task_id="task-1")
+            result = run_stock_analysis(
+                task_id=task.task_id,
+                stock_code="600519",
+                report_type="detailed",
+            )
 
-        self.assertFalse(result["success"])
-        self.assertEqual(result["error"], "JSON 解析失败")
-        task = service.get_task_status("task-1")
-        self.assertIsNotNone(task)
-        self.assertEqual(task["status"], "failed")
-        self.assertEqual(task["error"], "JSON 解析失败")
-        self.assertIsNone(task["result"])
+        self.assertIsNone(result)
+        task_info = queue.get_task(task.task_id)
+        self.assertIsNotNone(task_info)
+        self.assertEqual(task_info.status, TaskStatus.FAILED)
+        self.assertEqual(task_info.error, "JSON 解析失败")
+        self.assertIsNone(task_info.result)
 
 
 if __name__ == "__main__":
-    import unittest
-
     unittest.main()

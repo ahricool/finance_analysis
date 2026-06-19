@@ -86,7 +86,10 @@ def create_celery_app() -> Celery:
         CELERY_APP_NAME,
         broker=config.redis_url,
         backend=config.redis_url,
-        include=["src.celery_app.tasks.demo"],
+        include=[
+            "src.celery_app.tasks.demo",
+            "src.celery_app.tasks.analysis",
+        ],
     )
     app.conf.update(
         task_serializer="json",

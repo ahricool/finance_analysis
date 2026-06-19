@@ -76,31 +76,26 @@ class AnalyzeCommand(BotCommand):
         logger.info(f"[AnalyzeCommand] 分析股票: {code}, 报告类型: {report_type}")
         
         try:
-            # 调用分析服务
-            from src.services.task_service import get_task_service
             from src.enums import ReportType
-            
-            service = get_task_service()
+            from src.tasks.bot_payload import bot_message_to_payload
+            from src.tasks.queue import DuplicateTaskError, get_task_queue
             
             # 提交异步分析任务
-            result = service.submit_analysis(
-                code=code,
-                report_type=ReportType.from_str(report_type),
-                source_message=message
+            task = get_task_queue().submit_bot_analysis(
+                stock_code=code,
+                report_type=ReportType.from_str(report_type).value,
+                bot_message=bot_message_to_payload(message),
             )
-            
-            if result.get("success"):
-                task_id = result.get("task_id", "")
-                return BotResponse.markdown_response(
-                    f"✅ **分析任务已提交**\n\n"
-                    f"• 股票代码: `{code}`\n"
-                    f"• 报告类型: {ReportType.from_str(report_type).display_name}\n"
-                    f"• 任务 ID: `{task_id[:20]}...`\n\n"
-                    f"分析完成后将自动推送结果。"
-                )
-            else:
-                error = result.get("error", "未知错误")
-                return BotResponse.error_response(f"提交分析任务失败: {error}")
+
+            return BotResponse.markdown_response(
+                f"✅ **分析任务已提交**\n\n"
+                f"• 股票代码: `{code}`\n"
+                f"• 报告类型: {ReportType.from_str(report_type).display_name}\n"
+                f"• 任务 ID: `{task.task_id[:20]}...`\n\n"
+                f"分析完成后将自动推送结果。"
+            )
+        except DuplicateTaskError as e:
+            return BotResponse.error_response(str(e))
                 
         except Exception as e:
             logger.exception(f"[AnalyzeCommand] 执行失败: {e}")

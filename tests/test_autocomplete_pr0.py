@@ -13,7 +13,13 @@ Test backend data contract extensions:
 
 from api.v1.schemas.analysis import AnalyzeRequest
 from concurrent.futures import Future
-from src.services.task_queue import TaskInfo, get_task_queue, DuplicateTaskError, AnalysisTaskQueue
+from src.tasks.queue import (
+    TaskInfo,
+    get_task_queue,
+    DuplicateTaskError,
+    AnalysisTaskQueue,
+    reset_task_state_for_tests,
+)
 
 
 class TestAnalyzeRequest:
@@ -116,14 +122,10 @@ class TestTaskQueue:
 
     def setup_method(self):
         self._original_instance = AnalysisTaskQueue._instance
-        AnalysisTaskQueue._instance = None
+        reset_task_state_for_tests()
 
     def teardown_method(self):
-        queue = AnalysisTaskQueue._instance
-        if queue is not None and queue is not self._original_instance:
-            executor = getattr(queue, "_executor", None)
-            if executor is not None and hasattr(executor, "shutdown"):
-                executor.shutdown(wait=False, cancel_futures=True)
+        reset_task_state_for_tests()
         AnalysisTaskQueue._instance = self._original_instance
 
     @staticmethod
@@ -203,14 +205,10 @@ class TestIntegration:
 
     def setup_method(self):
         self._original_instance = AnalysisTaskQueue._instance
-        AnalysisTaskQueue._instance = None
+        reset_task_state_for_tests()
 
     def teardown_method(self):
-        queue = AnalysisTaskQueue._instance
-        if queue is not None and queue is not self._original_instance:
-            executor = getattr(queue, "_executor", None)
-            if executor is not None and hasattr(executor, "shutdown"):
-                executor.shutdown(wait=False, cancel_futures=True)
+        reset_task_state_for_tests()
         AnalysisTaskQueue._instance = self._original_instance
 
     def test_end_to_end_flow_with_autocomplete(self):

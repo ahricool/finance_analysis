@@ -15,7 +15,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from api.app import create_app
-from src.services.task_queue import AnalysisTaskQueue, TaskStatus
+from src.tasks.queue import AnalysisTaskQueue, TaskStatus
 from src.config import Config
 
 @pytest.fixture
@@ -30,7 +30,8 @@ def disable_auth():
     async def passthrough(self, request, call_next):
         return await call_next(request)
 
-    with patch("api.middlewares.auth.AuthMiddleware.dispatch", passthrough):
+    with patch("api.middlewares.auth.AuthMiddleware.dispatch", passthrough), \
+         patch("api.v1.endpoints.analysis.get_effective_uid", return_value=1):
         yield
 
 @pytest.fixture
