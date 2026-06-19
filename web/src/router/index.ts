@@ -10,6 +10,7 @@ const StockListPage = () => import('@/pages/StockListPage.vue');
 const LoginPage = () => import('@/pages/LoginPage.vue');
 const CalendarPage = () => import('@/pages/CalendarPage.vue');
 const ProfilePage = () => import('@/pages/ProfilePage.vue');
+const TasksPage = () => import('@/pages/TasksPage.vue');
 const NotFoundPage = () => import('@/pages/NotFoundPage.vue');
 
 const router = createRouter({
@@ -26,6 +27,9 @@ const router = createRouter({
         { path: 'backtest', name: 'backtest', component: BacktestPage },
         { path: 'calendar', name: 'calendar', component: CalendarPage },
         { path: 'profile', name: 'profile', component: ProfilePage },
+        { path: 'tasks', name: 'tasks', component: TasksPage },
+        { path: 'tasks/scheduled', name: 'tasks-scheduled', component: TasksPage },
+        { path: 'tasks/runs', name: 'tasks-runs', component: TasksPage },
         { path: ':pathMatch(.*)*', name: 'not-found', component: NotFoundPage },
       ],
     },

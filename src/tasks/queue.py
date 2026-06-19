@@ -75,6 +75,7 @@ class TaskInfo:
     owner_uid: Optional[int] = None
     task_type: Optional[str] = None
     source: Optional[str] = None
+    trigger_source: Optional[str] = None
     dedupe_key: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -154,7 +155,12 @@ class AnalysisTaskQueue:
     def max_workers(self) -> int:
         return self._max_workers
 
-    def sync_max_workers(self, max_workers: int, *, log: bool = True) -> Literal["applied", "unchanged", "deferred_busy"]:
+    def sync_max_workers(
+        self,
+        max_workers: int,
+        *,
+        log: bool = True,
+    ) -> Literal["applied", "unchanged", "deferred_busy"]:
         try:
             target = max(1, int(max_workers))
         except (TypeError, ValueError):
@@ -245,6 +251,7 @@ class AnalysisTaskQueue:
                 owner_uid=owner_uid,
                 task_type="stock_analysis",
                 source="celery_manual",
+                trigger_source="api",
                 dedupe_key=_dedupe_key_for_task("stock_analysis", stock_code),
             )
             created = self._create_pending_record(task, payload)
@@ -295,9 +302,13 @@ class AnalysisTaskQueue:
             report_type=report_type,
             task_type="stock_analysis",
             source="celery_manual",
+            trigger_source="bot",
             dedupe_key=_dedupe_key_for_task("stock_analysis", stock_code),
         )
-        if not self._create_pending_record(task, {"stock_code": stock_code, "report_type": report_type, "task_source": "bot"}):
+        if not self._create_pending_record(
+            task,
+            {"stock_code": stock_code, "report_type": report_type, "task_source": "bot"},
+        ):
             raise DuplicateTaskError(stock_code, task.task_id)
         try:
             self._apply_celery_task(
@@ -338,6 +349,7 @@ class AnalysisTaskQueue:
             report_type="detailed",
             task_type="market_review",
             source="celery_manual",
+            trigger_source="bot" if bot_message else "api",
             dedupe_key=_dedupe_key_for_task("market_review", "market_review"),
         )
         if not self._create_pending_record(
@@ -378,6 +390,7 @@ class AnalysisTaskQueue:
             report_type="simple",
             task_type="batch_analysis",
             source="celery_manual",
+            trigger_source="bot",
             dedupe_key=_dedupe_key_for_task("batch_analysis", "batch_analysis"),
         )
         if not self._create_pending_record(task, {"stock_codes": stock_codes, "task_source": "bot"}):
@@ -403,6 +416,7 @@ class AnalysisTaskQueue:
             task_name=task.stock_name or self._infer_task_name(task.stock_code, task.task_type or ""),
             source=task.source or "celery_manual",
             uid=task.owner_uid,
+            trigger_source=task.trigger_source,
         )
 
     @staticmethod
@@ -428,6 +442,7 @@ class AnalysisTaskQueue:
             task_name=task.stock_name or self._infer_task_name(task.stock_code, task.task_type or ""),
             uid=task.owner_uid,
             source=task.source or "celery_manual",
+            trigger_source=task.trigger_source,
             dedupe_key=task.dedupe_key,
             payload=_json_summary(payload, limit=MAX_PAYLOAD_CHARS),
             message=task.message,
@@ -482,7 +497,13 @@ class AnalysisTaskQueue:
         get_task_lifecycle_service().mark_progress(task_id=task_id, progress=progress, message=message)
         return self.get_task(task_id)
 
-    def mark_task_started(self, task_id: str, message: str = "正在分析中...", *, task_log: Optional[str] = None) -> Optional[TaskInfo]:
+    def mark_task_started(
+        self,
+        task_id: str,
+        message: str = "正在分析中...",
+        *,
+        task_log: Optional[str] = None,
+    ) -> Optional[TaskInfo]:
         task = self.get_task(task_id)
         if task:
             get_task_lifecycle_service().mark_processing(
@@ -560,6 +581,7 @@ def _task_info_from_record(record: Any) -> TaskInfo:
         owner_uid=record.uid,
         task_type=record.task_type,
         source=record.source,
+        trigger_source=getattr(record, "trigger_source", None),
         dedupe_key=getattr(record, "dedupe_key", None),
     )
 

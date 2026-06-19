@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -40,6 +40,8 @@ class TaskRecordRepository:
         retry_count: Optional[int] = None,
         scheduler_job_id: Optional[str] = None,
         dedupe_key: Optional[str] = None,
+        trigger_source: Optional[str] = None,
+        triggered_by_uid: Optional[int] = None,
     ) -> TaskRecord:
         """Create a record if absent, otherwise fill missing metadata and update status."""
 
@@ -61,6 +63,8 @@ class TaskRecordRepository:
                     retry_count=retry_count,
                     scheduler_job_id=scheduler_job_id,
                     dedupe_key=dedupe_key,
+                    trigger_source=trigger_source,
+                    triggered_by_uid=triggered_by_uid,
                 )
                 if self._can_apply_status(existing.status, status):
                     existing.status = status
@@ -83,6 +87,8 @@ class TaskRecordRepository:
                 retry_count=0 if retry_count is None else retry_count,
                 scheduler_job_id=scheduler_job_id,
                 dedupe_key=dedupe_key,
+                trigger_source=trigger_source,
+                triggered_by_uid=triggered_by_uid,
                 created_at=now,
                 updated_at=now,
             )
@@ -106,6 +112,8 @@ class TaskRecordRepository:
                     retry_count=retry_count,
                     scheduler_job_id=scheduler_job_id,
                     dedupe_key=dedupe_key,
+                    trigger_source=trigger_source,
+                    triggered_by_uid=triggered_by_uid,
                 )
             return self._detach(session, record)
 
@@ -125,6 +133,8 @@ class TaskRecordRepository:
         parent_task_id: Optional[str] = None,
         retry_count: int = 0,
         scheduler_job_id: Optional[str] = None,
+        trigger_source: Optional[str] = None,
+        triggered_by_uid: Optional[int] = None,
     ) -> Tuple[TaskRecord, bool]:
         """
         Create a pending task record.
@@ -151,6 +161,8 @@ class TaskRecordRepository:
                 retry_count=retry_count,
                 scheduler_job_id=scheduler_job_id,
                 dedupe_key=dedupe_key,
+                trigger_source=trigger_source,
+                triggered_by_uid=triggered_by_uid,
                 created_at=now,
                 updated_at=now,
             )
@@ -176,6 +188,8 @@ class TaskRecordRepository:
                         retry_count=retry_count,
                         scheduler_job_id=scheduler_job_id,
                         dedupe_key=dedupe_key,
+                        trigger_source=trigger_source,
+                        triggered_by_uid=triggered_by_uid,
                     )
                     return existing, True
                 return existing, False
@@ -202,6 +216,8 @@ class TaskRecordRepository:
         retry_count: Optional[int] = None,
         scheduler_job_id: Optional[str] = None,
         dedupe_key: Optional[str] = None,
+        trigger_source: Optional[str] = None,
+        triggered_by_uid: Optional[int] = None,
     ) -> Optional[TaskRecord]:
         """Idempotently update task status and selected fields."""
 
@@ -230,6 +246,8 @@ class TaskRecordRepository:
                     retry_count=0 if retry_count is None else retry_count,
                     scheduler_job_id=scheduler_job_id,
                     dedupe_key=dedupe_key,
+                    trigger_source=trigger_source,
+                    triggered_by_uid=triggered_by_uid,
                     created_at=now,
                     updated_at=now,
                 )
@@ -257,6 +275,8 @@ class TaskRecordRepository:
                         retry_count=retry_count,
                         scheduler_job_id=scheduler_job_id,
                         dedupe_key=dedupe_key,
+                        trigger_source=trigger_source,
+                        triggered_by_uid=triggered_by_uid,
                     )
 
             self._apply_metadata(
@@ -273,6 +293,8 @@ class TaskRecordRepository:
                 retry_count=retry_count,
                 scheduler_job_id=scheduler_job_id,
                 dedupe_key=dedupe_key,
+                trigger_source=trigger_source,
+                triggered_by_uid=triggered_by_uid,
             )
             if self._can_apply_status(record.status, status):
                 record.status = status
@@ -308,6 +330,36 @@ class TaskRecordRepository:
             ).scalar_one_or_none()
             return self._detach(session, record) if record is not None else None
 
+    def get_active_by_scheduler_job_id(self, scheduler_job_id: str) -> Optional[TaskRecord]:
+        with self.db.get_session() as session:
+            record = session.execute(
+                select(TaskRecord)
+                .where(
+                    TaskRecord.scheduler_job_id == scheduler_job_id,
+                    TaskRecord.status.in_(self.ACTIVE_STATUSES),
+                )
+                .order_by(desc(TaskRecord.created_at))
+                .limit(1)
+            ).scalar_one_or_none()
+            return self._detach(session, record) if record is not None else None
+
+    def get_latest_by_scheduler_job_ids(self, scheduler_job_ids: Iterable[str]) -> Dict[str, TaskRecord]:
+        job_ids = [str(job_id) for job_id in scheduler_job_ids if str(job_id)]
+        if not job_ids:
+            return {}
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(TaskRecord)
+                .where(TaskRecord.scheduler_job_id.in_(job_ids))
+                .order_by(TaskRecord.scheduler_job_id.asc(), desc(TaskRecord.created_at))
+            ).scalars().all()
+            latest: Dict[str, TaskRecord] = {}
+            for row in rows:
+                if row.scheduler_job_id in latest:
+                    continue
+                latest[row.scheduler_job_id] = self._detach(session, row)
+            return latest
+
     def list_recent(
         self,
         *,
@@ -338,8 +390,13 @@ class TaskRecordRepository:
         uid: Optional[int] = None,
         task_type: Optional[str] = None,
         source: Optional[str] = None,
+        trigger_source: Optional[str] = None,
+        scheduler_job_id: Optional[str] = None,
+        keyword: Optional[str] = None,
         created_from: Optional[datetime] = None,
         created_to: Optional[datetime] = None,
+        started_from: Optional[datetime] = None,
+        started_to: Optional[datetime] = None,
     ) -> List[TaskRecord]:
         with self.db.get_session() as session:
             query = select(TaskRecord)
@@ -348,8 +405,13 @@ class TaskRecordRepository:
                 uid=uid,
                 task_type=task_type,
                 source=source,
+                trigger_source=trigger_source,
+                scheduler_job_id=scheduler_job_id,
+                keyword=keyword,
                 created_from=created_from,
                 created_to=created_to,
+                started_from=started_from,
+                started_to=started_to,
             )
             if conditions:
                 query = query.where(*conditions)
@@ -365,8 +427,13 @@ class TaskRecordRepository:
         uid: Optional[int] = None,
         task_type: Optional[str] = None,
         source: Optional[str] = None,
+        trigger_source: Optional[str] = None,
+        scheduler_job_id: Optional[str] = None,
+        keyword: Optional[str] = None,
         created_from: Optional[datetime] = None,
         created_to: Optional[datetime] = None,
+        started_from: Optional[datetime] = None,
+        started_to: Optional[datetime] = None,
     ) -> int:
         with self.db.get_session() as session:
             query = select(func.count()).select_from(TaskRecord)
@@ -375,8 +442,13 @@ class TaskRecordRepository:
                 uid=uid,
                 task_type=task_type,
                 source=source,
+                trigger_source=trigger_source,
+                scheduler_job_id=scheduler_job_id,
+                keyword=keyword,
                 created_from=created_from,
                 created_to=created_to,
+                started_from=started_from,
+                started_to=started_to,
             )
             if conditions:
                 query = query.where(*conditions)
@@ -388,8 +460,13 @@ class TaskRecordRepository:
         uid: Optional[int] = None,
         task_type: Optional[str] = None,
         source: Optional[str] = None,
+        trigger_source: Optional[str] = None,
+        scheduler_job_id: Optional[str] = None,
+        keyword: Optional[str] = None,
         created_from: Optional[datetime] = None,
         created_to: Optional[datetime] = None,
+        started_from: Optional[datetime] = None,
+        started_to: Optional[datetime] = None,
     ) -> Dict[str, int]:
         with self.db.get_session() as session:
             query = select(TaskRecord.status, func.count()).group_by(TaskRecord.status)
@@ -398,8 +475,13 @@ class TaskRecordRepository:
                 uid=uid,
                 task_type=task_type,
                 source=source,
+                trigger_source=trigger_source,
+                scheduler_job_id=scheduler_job_id,
+                keyword=keyword,
                 created_from=created_from,
                 created_to=created_to,
+                started_from=started_from,
+                started_to=started_to,
             )
             if conditions:
                 query = query.where(*conditions)
@@ -414,6 +496,8 @@ class TaskRecordRepository:
             "task_name": record.task_name,
             "uid": record.uid,
             "source": record.source,
+            "trigger_source": record.trigger_source,
+            "triggered_by_uid": record.triggered_by_uid,
             "status": record.status,
             "progress": record.progress,
             "message": record.message,
@@ -467,8 +551,13 @@ class TaskRecordRepository:
         uid: Optional[int],
         task_type: Optional[str],
         source: Optional[str],
+        trigger_source: Optional[str],
+        scheduler_job_id: Optional[str],
+        keyword: Optional[str],
         created_from: Optional[datetime],
         created_to: Optional[datetime],
+        started_from: Optional[datetime],
+        started_to: Optional[datetime],
     ) -> List[Any]:
         conditions: List[Any] = []
         status_list = [str(status).strip().lower() for status in statuses or [] if str(status).strip()]
@@ -480,8 +569,27 @@ class TaskRecordRepository:
             conditions.append(TaskRecord.task_type == task_type)
         if source:
             conditions.append(TaskRecord.source == source)
+        if trigger_source:
+            conditions.append(TaskRecord.trigger_source == trigger_source)
+        if scheduler_job_id:
+            conditions.append(TaskRecord.scheduler_job_id == scheduler_job_id)
+        if keyword:
+            pattern = f"%{keyword.strip()}%"
+            conditions.append(
+                or_(
+                    TaskRecord.task_id.ilike(pattern),
+                    TaskRecord.task_name.ilike(pattern),
+                    TaskRecord.task_type.ilike(pattern),
+                    TaskRecord.message.ilike(pattern),
+                    TaskRecord.scheduler_job_id.ilike(pattern),
+                )
+            )
         if created_from is not None:
             conditions.append(TaskRecord.created_at >= created_from)
         if created_to is not None:
             conditions.append(TaskRecord.created_at <= created_to)
+        if started_from is not None:
+            conditions.append(TaskRecord.started_at >= started_from)
+        if started_to is not None:
+            conditions.append(TaskRecord.started_at <= started_to)
         return conditions

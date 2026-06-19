@@ -67,8 +67,10 @@ describe('Shell user menu', () => {
     expect(popup.text().indexOf('性别')).toBeLessThan(popup.text().indexOf('角色'));
     expect(popup.text().indexOf('角色')).toBeLessThan(popup.text().indexOf('邮箱'));
     expect(popup.text().indexOf('邮箱')).toBeLessThan(popup.text().indexOf('个人中心'));
-    expect(popup.text().indexOf('个人中心')).toBeLessThan(popup.text().indexOf('退出'));
+    expect(popup.text().indexOf('个人中心')).toBeLessThan(popup.text().indexOf('任务中心'));
+    expect(popup.text().indexOf('任务中心')).toBeLessThan(popup.text().indexOf('退出'));
     expect(popup.find('.lucide-chevron-right').exists()).toBe(true);
+    expect(popup.find('a[href="/tasks"]').text()).toContain('任务中心');
     expect(popup.get('button').text()).toBe('退出');
   });
 });

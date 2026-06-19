@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, List, Optional, Sequence, TypeVar
 from zoneinfo import ZoneInfo
@@ -52,6 +53,20 @@ _JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
 _JOB_US_INTRADAY_ANALYSIS = "analysis_us_intraday"
 _JOB_A_SHARE_INTRADAY_ANALYSIS = "analysis_a_share_intraday"
 
+_EMBEDDED_SCHEDULER: Optional[Any] = None
+
+
+@dataclass(frozen=True)
+class ScheduledTaskDefinition:
+    job_id: str
+    name: str
+    description: str
+    task_type: str
+    schedule: str
+    timezone: str
+    allow_manual_run: bool
+    func: Callable[..., Any]
+
 
 def _with_task_tracking(task_type: str, task_name: str, scheduler_job_id: str) -> Callable[[F], F]:
     """Track one APScheduler execution instance in logs and the task table."""
@@ -59,9 +74,14 @@ def _with_task_tracking(task_type: str, task_name: str, scheduler_job_id: str) -
         task_type=task_type,
         task_name=task_name,
         source="apscheduler",
+        trigger_source="scheduler",
+        task_id_getter=lambda **kwargs: kwargs.get("task_id"),
+        trigger_source_getter=lambda **kwargs: kwargs.get("_trigger_source") or "scheduler",
+        triggered_by_uid_getter=lambda **kwargs: kwargs.get("_triggered_by_uid"),
         scheduler_job_id=scheduler_job_id,
         record_result=True,
         success_message="定时任务执行完成",
+        strip_lifecycle_kwargs=True,
     )
 
 
@@ -437,6 +457,82 @@ def _a_share_intraday_analysis_task() -> None:
     raise TaskSkipped("A股盘中分析任务流程暂为空，本次执行已跳过")
 
 
+def get_scheduled_task_definitions() -> List[ScheduledTaskDefinition]:
+    """Return code-defined APScheduler jobs and their display metadata."""
+    return [
+        ScheduledTaskDefinition(
+            job_id=_JOB_DAILY_ANALYSIS,
+            name="每日全量分析",
+            description="分析自选股中的全部股票并生成汇总报告",
+            task_type="scheduled_daily",
+            schedule=f"每天 {DAILY_SCHEDULE_HOUR:02d}:{DAILY_SCHEDULE_MINUTE:02d}",
+            timezone=SCHEDULE_TIMEZONE,
+            allow_manual_run=True,
+            func=_daily_analysis_task,
+        ),
+        ScheduledTaskDefinition(
+            job_id=_JOB_MARKET_CALENDAR,
+            name="美股财经日历同步",
+            description="同步未来美股财经事件并更新事件日历",
+            task_type="scheduled_market_calendar",
+            schedule=f"每天 {MARKET_CALENDAR_SCHEDULE_HOUR:02d}:{MARKET_CALENDAR_SCHEDULE_MINUTE:02d}",
+            timezone=SCHEDULE_TIMEZONE,
+            allow_manual_run=True,
+            func=_market_calendar_task,
+        ),
+        ScheduledTaskDefinition(
+            job_id=_JOB_US_PREMARKET_NEWS,
+            name="美股盘前新闻情报",
+            description="抓取自选股和 Nasdaq-100 前 20 新闻并生成盘前情报",
+            task_type="scheduled_us_premarket_news",
+            schedule=f"每天 {US_PREMARKET_NEWS_SCHEDULE_HOUR:02d}:{US_PREMARKET_NEWS_SCHEDULE_MINUTE:02d}",
+            timezone=SCHEDULE_TIMEZONE,
+            allow_manual_run=True,
+            func=_us_premarket_news_task,
+        ),
+        ScheduledTaskDefinition(
+            job_id=_JOB_US_PREMARKET_ANALYSIS,
+            name="美股盘前分析",
+            description="分析自选股中的美股并生成盘前报告",
+            task_type="scheduled_us_premarket",
+            schedule=f"每天 {US_PREMARKET_SCHEDULE_HOUR:02d}:{US_PREMARKET_SCHEDULE_MINUTE:02d}",
+            timezone=SCHEDULE_TIMEZONE,
+            allow_manual_run=True,
+            func=_us_premarket_analysis_task,
+        ),
+        ScheduledTaskDefinition(
+            job_id=_JOB_US_INTRADAY_ANALYSIS,
+            name="美股盘中分析",
+            description="检测自选美股盘中异动并按需提醒",
+            task_type="scheduled_us_intraday",
+            schedule=f"每 {INTRADAY_ANALYSIS_INTERVAL_MINUTES} 分钟",
+            timezone=SCHEDULE_TIMEZONE,
+            allow_manual_run=True,
+            func=_us_intraday_analysis_task,
+        ),
+        ScheduledTaskDefinition(
+            job_id=_JOB_A_SHARE_INTRADAY_ANALYSIS,
+            name="A股盘中分析",
+            description="A 股盘中分析任务占位流程，当前执行后会记录为跳过",
+            task_type="scheduled_a_share_intraday",
+            schedule=f"每 {INTRADAY_ANALYSIS_INTERVAL_MINUTES} 分钟",
+            timezone=SCHEDULE_TIMEZONE,
+            allow_manual_run=False,
+            func=_a_share_intraday_analysis_task,
+        ),
+    ]
+
+
+def get_scheduled_task_definition(job_id: str) -> Optional[ScheduledTaskDefinition]:
+    definitions = {item.job_id: item for item in get_scheduled_task_definitions()}
+    return definitions.get(job_id)
+
+
+def get_embedded_analysis_scheduler() -> Optional[Any]:
+    """Return the scheduler instance started by FastAPI lifespan, if available."""
+    return _EMBEDDED_SCHEDULER
+
+
 def start_embedded_analysis_scheduler():
     """启动 APScheduler，注册每日分析 Cron 任务。
 
@@ -449,6 +545,8 @@ def start_embedded_analysis_scheduler():
     except ImportError as exc:  # pragma: no cover - import guard
         logger.error("apscheduler 未安装，请执行: pip install apscheduler")
         raise ImportError("请安装 apscheduler 库: pip install apscheduler") from exc
+
+    global _EMBEDDED_SCHEDULER
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(
@@ -512,6 +610,7 @@ def start_embedded_analysis_scheduler():
         coalesce=True,
     )
     scheduler.start()
+    _EMBEDDED_SCHEDULER = scheduler
     logger.info(
         "APScheduler 已启动，每日定时任务: %02d:%02d，财经日历: %02d:%02d，"
         "美股盘前新闻: %02d:%02d，"
@@ -550,9 +649,12 @@ def start_embedded_analysis_scheduler():
 
 def shutdown_embedded_analysis_scheduler(scheduler) -> None:
     """停机时调用：等待运行中的任务完成后停止调度器。"""
+    global _EMBEDDED_SCHEDULER
     if scheduler is None:
         return
     try:
         scheduler.shutdown(wait=True)
     finally:
+        if _EMBEDDED_SCHEDULER is scheduler:
+            _EMBEDDED_SCHEDULER = None
         logger.info("APScheduler 已停止")

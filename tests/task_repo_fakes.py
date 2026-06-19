@@ -24,6 +24,8 @@ class FakeTaskRecordRepository:
             task_name=kwargs.get("task_name"),
             uid=kwargs.get("uid"),
             source=kwargs["source"],
+            trigger_source=kwargs.get("trigger_source"),
+            triggered_by_uid=kwargs.get("triggered_by_uid"),
             status="pending",
             progress=kwargs.get("progress", 0),
             message=kwargs.get("message"),

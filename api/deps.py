@@ -15,6 +15,7 @@ from typing import Generator, Optional
 from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
+from src.models.user import User
 from src.storage import DatabaseManager
 from src.config import get_config, Config
 from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL
@@ -23,12 +24,12 @@ from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL
 def get_db() -> Generator[Session, None, None]:
     """
     获取数据库 Session 依赖
-    
+
     使用 FastAPI 依赖注入机制，确保请求结束后自动关闭 Session
-    
+
     Yields:
         Session: SQLAlchemy Session 对象
-        
+
     Example:
         @router.get("/items")
         async def get_items(db: Session = Depends(get_db)):
@@ -45,7 +46,7 @@ def get_db() -> Generator[Session, None, None]:
 def get_config_dep() -> Config:
     """
     获取配置依赖
-    
+
     Returns:
         Config: 配置单例对象
     """
@@ -55,7 +56,7 @@ def get_config_dep() -> Config:
 def get_database_manager() -> DatabaseManager:
     """
     获取数据库管理器依赖
-    
+
     Returns:
         DatabaseManager: 数据库管理器单例对象
     """
@@ -78,3 +79,24 @@ def get_effective_uid(request: Request) -> int:
     if u is None:
         raise HTTPException(status_code=500, detail="用户系统未初始化")
     return u.id
+
+
+def require_current_user(request: Request) -> User:
+    """Return the authenticated user for protected API endpoints."""
+    uid = get_scoped_uid(request)
+    if uid is None:
+        raise HTTPException(status_code=401, detail="Login required")
+    from src.repositories.user_repo import UserRepository
+
+    user = UserRepository().get_by_uid(uid)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login required")
+    return user
+
+
+def require_admin(request: Request) -> User:
+    """Require an authenticated administrator."""
+    user = require_current_user(request)
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin permission required")
+    return user
