@@ -103,6 +103,7 @@ class DatabaseManager(ConversationUsageMixin):
             bind=self._engine,
             autocommit=False,
             autoflush=False,
+            expire_on_commit=False,
         )
 
         # 数据库结构：Alembic 迁移（替代 create_all）+ 启动初始化
