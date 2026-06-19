@@ -21,6 +21,7 @@ from data_provider.yfinance_fetcher import YfinanceFetcher
 from .config import INTRADAY_NEWS_LIMIT, LLM_BATCH_SIZE, MARKET_ETFS, MARKET_NEWS_SYMBOL
 from .data_source import IntradayDataSource
 from .llm import IntradayLLMJudge, candidate_id, truthy
+from .market_calendar import is_us_market_open
 from .metrics import compute_intraday_metrics
 from .models import IntradaySignalResult, IntradayTaskSummary
 from .notifications import SignalReporter
@@ -56,8 +57,9 @@ class USIntradayAnalysisService:
         self._run_query_id = ""
 
     def run(self, stock_codes: Sequence[str], now: Optional[datetime] = None) -> IntradayTaskSummary:
-        # if not is_us_market_open(now):
-        #     return IntradayTaskSummary(market_open=False, total_symbols=len(stock_codes))
+        if not is_us_market_open(now):
+            return IntradayTaskSummary(market_open=False, total_symbols=len(stock_codes))
+       
 
         run_time = now or datetime.now()
         self._run_query_id = f"us_intraday_{run_time.strftime('%Y%m%d_%H%M%S')}"
