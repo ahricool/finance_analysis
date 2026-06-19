@@ -2,6 +2,7 @@
 import SuggestionsList from '@/components/StockAutocomplete/SuggestionsList.vue';
 import { useAutocomplete } from '@/composables/useAutocomplete';
 import { useStockIndex } from '@/composables/useStockIndex';
+import type { Market } from '@/types/stockIndex';
 import { cn } from '@/utils/cn';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 
@@ -24,7 +25,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
-  submit: [code: string, name?: string, source?: 'manual' | 'autocomplete'];
+  submit: [code: string, name?: string, source?: 'manual' | 'autocomplete', market?: Market];
 }>();
 
 const { index, loading, fallback } = useStockIndex();
@@ -161,7 +162,7 @@ function onKeyDown(e: KeyboardEvent) {
         const selected = suggestions.value[highlightedIndex.value]!;
         emit('update:modelValue', selected.displayCode);
         closeSuggestions();
-        emit('submit', selected.canonicalCode, selected.nameZh, 'autocomplete');
+        emit('submit', selected.canonicalCode, selected.nameZh, 'autocomplete', selected.market);
       } else {
         emit('submit', props.modelValue, undefined, 'manual');
       }
@@ -187,7 +188,7 @@ function onBlur() {
 function onSelectSuggestion(s: (typeof suggestions.value)[number]) {
   emit('update:modelValue', s.displayCode);
   closeSuggestions();
-  emit('submit', s.canonicalCode, s.nameZh, 'autocomplete');
+  emit('submit', s.canonicalCode, s.nameZh, 'autocomplete', s.market);
 }
 
 function onFocus() {

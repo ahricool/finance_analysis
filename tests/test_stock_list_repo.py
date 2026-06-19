@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Tests for watch list repository field handling."""
+"""Tests for stock list repository field handling."""
 
-from src.repositories.watch_list_repo import WatchListRepo
+from src.repositories.stock_list_repo import StockListRepo
 
 
 class _FakeSession:
@@ -17,9 +17,6 @@ class _FakeSession:
     def refresh(self, item):
         pass
 
-    def expunge(self, item):
-        pass
-
     def get(self, model, item_id):
         return self.item
 
@@ -32,36 +29,38 @@ class _FakeDB:
         return write_operation(self.session)
 
 
-def test_watch_list_create_accepts_market_type_and_favorite_flag():
-    repo = WatchListRepo(db=_FakeDB())
+def test_stock_list_create_accepts_market_type_quantity_and_notes():
+    repo = StockListRepo(db=_FakeDB())
 
     item = repo.create(
         uid=1,
         code=" aapl ",
         name=" Apple ",
-        notes=" important ",
+        quantity=12,
         market_type="US",
-        is_favorite=True,
+        notes=" core ",
     )
 
     assert item.code == "AAPL"
     assert item.name == "Apple"
-    assert item.notes == "important"
+    assert item.quantity == 12
     assert item.market_type == "US"
-    assert item.is_favorite is True
+    assert item.notes == "core"
 
 
-def test_watch_list_update_accepts_market_type_and_favorite_flag():
-    repo = WatchListRepo(db=_FakeDB())
-    item = repo.create(uid=1, code="600519", market_type="CN", is_favorite=True)
+def test_stock_list_update_accepts_market_type_quantity_and_notes():
+    repo = StockListRepo(db=_FakeDB())
+    item = repo.create(uid=1, code="600519", market_type="CN", quantity=10)
 
-    updated = WatchListRepo(db=_FakeDB(item)).update(
+    updated = StockListRepo(db=_FakeDB(item)).update(
         item.id or 1,
         uid=1,
         market_type="HK",
-        is_favorite=False,
+        quantity=0,
+        notes=" observe ",
     )
 
     assert updated is item
     assert updated.market_type == "HK"
-    assert updated.is_favorite is False
+    assert updated.quantity == 0
+    assert updated.notes == "observe"

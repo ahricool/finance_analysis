@@ -116,6 +116,8 @@ def _relative_to_sectors(
 ) -> Dict[str, Optional[float]]:
     relative: Dict[str, Optional[float]] = {}
     for sector_symbol, metrics in sector_metrics.items():
+        if not isinstance(metrics, dict):
+            continue
         sector_change = safe_float(metrics.get("change_15m"))
         relative[sector_symbol] = (
             round(change_15m - sector_change, 4)
