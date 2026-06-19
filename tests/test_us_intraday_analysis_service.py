@@ -84,6 +84,21 @@ def test_compute_intraday_metrics_relative_strength_and_vwap():
     assert metrics["volume_ratio_5m"] > 1
 
 
+def test_relative_to_sectors_ignores_non_metric_entries():
+    from src.services.tasks.us_intraday_analysis.metrics import _relative_to_sectors
+
+    relative = _relative_to_sectors(
+        1.5,
+        {
+            "SOXX": {"change_15m": 0.4},
+            "market_news": [{"title": "headline"}],
+        },
+    )
+
+    assert relative == {"SOXX": 1.1}
+    assert "market_news" not in relative
+
+
 def test_parse_llm_json_response_repairs_fenced_json():
     parsed = parse_llm_json_response(
         """```json

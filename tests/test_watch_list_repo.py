@@ -17,6 +17,9 @@ class _FakeSession:
     def refresh(self, item):
         pass
 
+    def expunge(self, item):
+        pass
+
     def get(self, model, item_id):
         return self.item
 

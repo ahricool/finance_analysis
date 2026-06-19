@@ -117,4 +117,32 @@ describe('StockAutocomplete', () => {
     expect((list as HTMLElement).style.left).toBe('24px');
     expect((list as HTMLElement).style.width).toBe('900px');
   });
+
+  it('emits the matched market when selecting an autocomplete suggestion', async () => {
+    stockIndexState.index = ref<StockIndexItem[]>([moutai]);
+    stockIndexState.loading = ref(false);
+
+    const wrapper = mount(StockAutocomplete, {
+      attachTo: document.body,
+      props: {
+        modelValue: '',
+      },
+    });
+
+    await wrapper.find('input[role="combobox"]').setValue('贵州');
+    await vi.advanceTimersByTimeAsync(250);
+    await nextTick();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const option = document.querySelector('#suggestions-list li');
+    expect(option).not.toBeNull();
+    await (option as HTMLElement).click();
+
+    expect(wrapper.emitted('submit')?.[0]).toEqual([
+      '600519.SH',
+      '贵州茅台',
+      'autocomplete',
+      'CN',
+    ]);
+  });
 });

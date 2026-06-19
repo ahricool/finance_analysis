@@ -82,6 +82,7 @@ class WatchListRepo:
             session.add(item)
             session.flush()
             session.refresh(item)
+            session.expunge(item)
             return item
 
         return self.db._run_write_transaction("watch_list.create", _write)
@@ -113,6 +114,7 @@ class WatchListRepo:
             obj.updated_at = utc_now()
             session.flush()
             session.refresh(obj)
+            session.expunge(obj)
             return obj
 
         return self.db._run_write_transaction("watch_list.update", _write)

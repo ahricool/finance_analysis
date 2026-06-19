@@ -67,7 +67,11 @@ class USIntradayAnalysisService:
         market_context = self._load_market_context()
         market_context["market_news"] = self._get_symbol_news(MARKET_NEWS_SYMBOL, dimension="market_news")
         qqq_metrics = market_context.get("QQQ", {})
-        sector_metrics = {symbol: metrics for symbol, metrics in market_context.items() if symbol != "QQQ"}
+        sector_metrics = {
+            symbol: market_context[symbol]
+            for symbol in MARKET_ETFS
+            if symbol != "QQQ" and symbol in market_context
+        }
 
         candidates: List[Dict[str, Any]] = []
         for raw_code in stock_codes:

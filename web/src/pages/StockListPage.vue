@@ -5,6 +5,7 @@ import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
+import type { Market } from '@/types/stockIndex';
 import { looksLikeStockCode } from '@/utils/validation';
 import { Briefcase, Pencil, Plus, Trash2, X } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -41,6 +42,16 @@ const marketOptions: { value: MarketType; label: string }[] = [
 
 function marketLabel(value: MarketType): string {
   return marketOptions.find((option) => option.value === value)?.label ?? 'A股';
+}
+
+function marketToMarketType(market?: Market): MarketType | null {
+  if (market === 'CN' || market === 'US' || market === 'HK') {
+    return market;
+  }
+  if (market === 'BSE') {
+    return 'CN';
+  }
+  return null;
 }
 
 function formatStockQuery(code: string, name?: string | null): string {
@@ -161,10 +172,16 @@ function closeDialog() {
   editingId.value = null;
 }
 
-function handleStockAutocompleteSubmit(code: string, name?: string) {
+function handleStockAutocompleteSubmit(
+  code: string,
+  name?: string,
+  _source?: 'manual' | 'autocomplete',
+  market?: Market,
+) {
   formCode.value = code;
   formName.value = name ?? '';
   formStockQuery.value = formatStockQuery(code, name);
+  formMarketType.value = marketToMarketType(market) ?? formMarketType.value;
 }
 
 function openDelete(item: StockHolding) {
