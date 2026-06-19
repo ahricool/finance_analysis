@@ -77,7 +77,7 @@ function togglePassword() {
 </script>
 
 <template>
-  <div class="flex flex-col">
+  <div :class="cn('flex flex-col', props.class)">
     <label
       v-if="label"
       :for="inputId"
@@ -139,7 +139,6 @@ function togglePassword() {
             iconType !== 'none' ? 'pl-10' : '',
             (isPasswordInput && allowTogglePassword) || $slots.trailing ? 'pr-12' : '',
             'disabled:cursor-not-allowed disabled:opacity-60',
-            props.class,
           )
         "
       />

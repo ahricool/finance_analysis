@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { LogOut, User, UserRound } from 'lucide-vue-next';
-import { ref } from 'vue';
+import { ChevronRight, LogOut, User, UserRound } from 'lucide-vue-next';
+import { computed, ref } from 'vue';
 import { RouterLink, RouterView } from 'vue-router';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import StatusDot from '@/components/common/StatusDot.vue';
@@ -18,6 +18,28 @@ const { currentUser } = storeToRefs(authStore);
 const { logout } = useAuth();
 const completionBadge = useAgentChatStore((s) => s.completionBadge);
 const showLogoutConfirm = ref(false);
+
+const genderLabel = computed(() => {
+  switch (currentUser.value?.extra?.gender) {
+    case 'female':
+      return '女';
+    case 'male':
+      return '男';
+    default:
+      return '未知';
+  }
+});
+
+const roleLabel = computed(() => {
+  switch (currentUser.value?.role) {
+    case 'admin':
+      return '女王';
+    case 'user':
+      return '华尔街韭菜';
+    default:
+      return '未知领域';
+  }
+});
 
 async function onLogoutConfirm() {
   showLogoutConfirm.value = false;
@@ -110,31 +132,33 @@ async function onLogoutConfirm() {
             <div
               class="invisible absolute right-0 top-full z-50 w-72 pt-2 opacity-0 transition duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
             >
-              <div class="rounded-2xl border border-border/70 bg-card p-4 text-sm shadow-soft-card-strong">
-                <div class="truncate text-center text-base font-semibold text-foreground">
-                  {{ currentUser.username }}
-                </div>
-                <div class="mt-4 space-y-2 text-secondary-text">
-                  <div class="flex min-w-0 items-start gap-2">
-                    <span class="shrink-0 text-foreground">邮箱：</span>
-                    <span class="min-w-0 flex-1 break-all">{{ currentUser.email }}</span>
+              <div class="overflow-hidden rounded-2xl border border-border/70 bg-card p-2 text-sm shadow-soft-card-strong">
+                <div class="space-y-1 px-2 py-2 text-secondary-text">
+                  <div class="flex min-w-0 items-center justify-between gap-3 rounded-xl px-2 py-2">
+                    <span class="shrink-0 text-foreground">性别</span>
+                    <span class="min-w-0 flex-1 truncate text-right">{{ genderLabel }}</span>
                   </div>
-                  <div class="flex min-w-0 items-center gap-2">
-                    <span class="shrink-0 text-foreground">角色：</span>
-                    <span class="min-w-0 flex-1 truncate">{{ currentUser.role }}</span>
+                  <div class="flex min-w-0 items-center justify-between gap-3 rounded-xl px-2 py-2">
+                    <span class="shrink-0 text-foreground">角色</span>
+                    <span class="min-w-0 flex-1 truncate text-right">{{ roleLabel }}</span>
+                  </div>
+                  <div class="flex min-w-0 items-start justify-between gap-3 rounded-xl px-2 py-2">
+                    <span class="shrink-0 text-foreground">邮箱</span>
+                    <span class="min-w-0 flex-1 break-all text-right">{{ currentUser.email }}</span>
                   </div>
                 </div>
-                <div class="mt-4 flex flex-wrap justify-center gap-2">
+                <div class="border-t border-border/70 py-1">
                   <RouterLink
                     to="/profile"
-                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
+                    class="flex h-11 w-full items-center gap-2 rounded-xl px-4 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
                   >
                     <UserRound class="h-4 w-4" />
                     <span>个人中心</span>
+                    <ChevronRight class="ml-auto h-4 w-4 text-muted-text" />
                   </RouterLink>
                   <button
                     type="button"
-                    class="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
+                    class="flex h-11 w-full items-center gap-2 rounded-xl px-4 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
                     @click="showLogoutConfirm = true"
                   >
                     <LogOut class="h-4 w-4" />

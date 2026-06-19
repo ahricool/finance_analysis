@@ -119,6 +119,9 @@ class FakeUserRepository:
             "email": user.email,
             "avatarUrl": user.avatar_url,
             "role": user.role,
+            "extra": {
+                "gender": self._normalized_extra(user.extra)["gender"],
+            },
         }
 
     def to_profile_dict(self, user: FakeUser):
@@ -216,6 +219,18 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertEqual(set(data.keys()), {"loggedIn", "user"})
         self.assertFalse(data["loggedIn"])
         self.assertIsNone(data["user"])
+
+    def test_auth_status_returns_public_gender_for_logged_in_user(self) -> None:
+        user = FakeUserRepository.users[DEFAULT_ADMIN_EMAIL]
+        user.password_hash = "mypass456"
+        user.extra = {"gender": "female"}
+
+        with patch.object(auth_endpoint, "parse_session_uid", return_value=user.id):
+            data = asyncio.run(auth_endpoint.auth_status(self._build_request(cookies={auth.COOKIE_NAME: "test-session"})))
+
+        self.assertTrue(data["loggedIn"])
+        self.assertEqual(data["user"]["extra"]["gender"], "female")
+        self.assertNotIn("notification", data["user"]["extra"])
 
     def test_lookup_unknown_email(self) -> None:
         response = asyncio.run(

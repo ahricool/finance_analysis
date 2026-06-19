@@ -8,6 +8,9 @@ export type AuthStatusResponse = {
     email: string;
     avatarUrl: string | null;
     role: string;
+    extra?: {
+      gender: UserGender;
+    };
   } | null;
 };
 
