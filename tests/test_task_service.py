@@ -33,13 +33,13 @@ class TestCeleryTaskService(unittest.TestCase):
             "src.celery_app.tasks.analysis._run_api_stock_analysis",
             side_effect=RuntimeError("JSON 解析失败"),
         ):
-            result = run_stock_analysis(
-                task_id=task.task_id,
-                stock_code="600519",
-                report_type="detailed",
-            )
+            with self.assertRaisesRegex(RuntimeError, "JSON 解析失败"):
+                run_stock_analysis(
+                    task_id=task.task_id,
+                    stock_code="600519",
+                    report_type="detailed",
+                )
 
-        self.assertIsNone(result)
         task_info = queue.get_task(task.task_id)
         self.assertIsNotNone(task_info)
         self.assertEqual(task_info.status, TaskStatus.FAILED)

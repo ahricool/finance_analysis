@@ -62,6 +62,7 @@ from src.tasks.queue import (
     DuplicateTaskError,
     TaskStatus as TaskStatusEnum,
 )
+from src.repositories.task_record_repo import TaskRecordRepository
 from src.utils.data_processing import (
     normalize_model_used,
     parse_json_field,
@@ -523,36 +524,37 @@ def get_task_list(
     """
     task_queue = get_task_queue()
     
-    # 获取所有任务
+    # 获取实时任务；Redis/内存中没有足够历史时回退持久化 Task 表。
     all_tasks = task_queue.list_all_tasks(limit=limit)
+    status_list = [s.strip().lower() for s in status.split(",")] if status else []
+    task_infos = [_queue_task_to_schema(t) for t in all_tasks]
+    seen_task_ids = {t.task_id for t in all_tasks}
+
+    if len(task_infos) < limit:
+        try:
+            records = TaskRecordRepository().list_recent(
+                limit=limit,
+                statuses=status_list or None,
+            )
+            for record in records:
+                if record.task_id in seen_task_ids:
+                    continue
+                task_infos.append(_task_record_to_task_info(record))
+                seen_task_ids.add(record.task_id)
+                if len(task_infos) >= limit:
+                    break
+        except Exception as exc:
+            logger.debug("读取持久化任务列表失败，使用实时任务列表: %s", exc)
     
+    # 统计信息保持为筛选前的整体任务概览，兼容旧接口行为。
+    stats = _task_stats_from_schemas(task_infos)
+
     # 状态筛选
-    if status:
-        status_list = [s.strip().lower() for s in status.split(",")]
-        all_tasks = [t for t in all_tasks if t.status.value in status_list]
-    
-    # 统计信息
-    stats = task_queue.get_task_stats()
-    
-    # 转换为 Schema
-    task_infos = [
-        TaskInfo(
-            task_id=t.task_id,
-            stock_code=t.stock_code,
-            stock_name=t.stock_name,
-            status=t.status.value,
-            progress=t.progress,
-            message=t.message,
-            report_type=t.report_type,
-            created_at=utc_isoformat(t.created_at),
-            started_at=utc_isoformat(t.started_at),
-            completed_at=utc_isoformat(t.completed_at),
-            error=t.error,
-            original_query=t.original_query,
-            selection_source=t.selection_source,
-        )
-        for t in all_tasks
-    ]
+    if status_list:
+        task_infos = [
+            t for t in task_infos
+            if str(t.status.value if hasattr(t.status, "value") else t.status) in status_list
+        ]
     
     return TaskListResponse(
         total=stats["total"],
@@ -560,6 +562,61 @@ def get_task_list(
         processing=stats["processing"],
         tasks=task_infos,
     )
+
+
+def _queue_task_to_schema(task: Any) -> TaskInfo:
+    return TaskInfo(
+        task_id=task.task_id,
+        stock_code=task.stock_code,
+        stock_name=task.stock_name,
+        status=task.status.value,
+        progress=task.progress,
+        message=task.message,
+        report_type=task.report_type,
+        created_at=utc_isoformat(task.created_at),
+        started_at=utc_isoformat(task.started_at),
+        completed_at=utc_isoformat(task.completed_at),
+        error=task.error,
+        original_query=task.original_query,
+        selection_source=task.selection_source,
+    )
+
+
+def _task_record_to_task_info(record: Any) -> TaskInfo:
+    payload = parse_json_field(getattr(record, "payload", None)) or {}
+    kwargs = payload.get("kwargs") if isinstance(payload, dict) else {}
+    if not isinstance(kwargs, dict):
+        kwargs = {}
+    stock_code = (
+        kwargs.get("stock_code")
+        or ("market_review" if record.task_type == "market_review" else None)
+        or ("batch_analysis" if record.task_type == "batch_analysis" else None)
+        or record.task_type
+    )
+    completed_at = getattr(record, "finished_at", None)
+    return TaskInfo(
+        task_id=record.task_id,
+        stock_code=str(stock_code or record.task_type),
+        stock_name=record.task_name,
+        status=record.status,
+        progress=int(record.progress or 0),
+        message=record.message,
+        report_type=str(kwargs.get("report_type") or "detailed"),
+        created_at=utc_isoformat(record.created_at) or utc_isoformat(utc_now()),
+        started_at=utc_isoformat(record.started_at),
+        completed_at=utc_isoformat(completed_at),
+        error=(record.error[:200] if record.error else None),
+        original_query=kwargs.get("original_query"),
+        selection_source=kwargs.get("selection_source"),
+    )
+
+
+def _task_stats_from_schemas(tasks: list[TaskInfo]) -> Dict[str, int]:
+    stats = {"total": len(tasks), "pending": 0, "processing": 0, "completed": 0, "failed": 0}
+    for task in tasks:
+        status_value = task.status.value if hasattr(task.status, "value") else str(task.status)
+        stats[status_value] = stats.get(status_value, 0) + 1
+    return stats
 
 
 # ============================================================
@@ -771,6 +828,24 @@ def get_analysis_status(task_id: str, http_request: Request = None) -> TaskStatu
                     created_at=utc_isoformat(record.created_at) or utc_isoformat(utc_now())
                 ),
                 error=None
+            )
+
+        task_record = TaskRecordRepository().get_by_task_id(task_id)
+        if task_record is not None:
+            result_payload = parse_json_field(getattr(task_record, "result", None))
+            market_review_report = None
+            if task_record.task_type == "market_review" and isinstance(result_payload, dict):
+                report_text = result_payload.get("result")
+                if isinstance(report_text, str) and report_text.strip():
+                    market_review_report = report_text
+            return TaskStatus(
+                task_id=task_id,
+                status=task_record.status,
+                progress=int(task_record.progress or 0),
+                result=None,
+                market_review_report=market_review_report,
+                error=(task_record.error[:200] if task_record.error else None),
+                stock_name=task_record.task_name,
             )
 
     except Exception as e:

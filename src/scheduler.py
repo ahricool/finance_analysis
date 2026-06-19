@@ -23,13 +23,11 @@
 from __future__ import annotations
 
 import logging
-import uuid
-from functools import wraps
 from datetime import datetime
 from typing import Any, Callable, List, Optional, Sequence, TypeVar
 from zoneinfo import ZoneInfo
 
-from src.logging_config import task_logging_context
+from src.tasks.lifecycle import TaskSkipped, track_task
 
 logger = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
@@ -55,18 +53,16 @@ _JOB_US_INTRADAY_ANALYSIS = "analysis_us_intraday"
 _JOB_A_SHARE_INTRADAY_ANALYSIS = "analysis_a_share_intraday"
 
 
-def _with_task_logging(task_log_name: str) -> Callable[[F], F]:
-    """Write scheduled task logs to the shared service log and a task-specific file."""
-    def decorator(func: F) -> F:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            task_id = uuid.uuid4().hex
-            with task_logging_context(task_log_name, task_id=task_id):
-                return func(*args, **kwargs)
-
-        return wrapper  # type: ignore[return-value]
-
-    return decorator
+def _with_task_tracking(task_type: str, task_name: str, scheduler_job_id: str) -> Callable[[F], F]:
+    """Track one APScheduler execution instance in logs and the task table."""
+    return track_task(
+        task_type=task_type,
+        task_name=task_name,
+        source="apscheduler",
+        scheduler_job_id=scheduler_job_id,
+        record_result=True,
+        success_message="定时任务执行完成",
+    )
 
 
 def _scheduled_now() -> datetime:
@@ -188,7 +184,7 @@ def _safe_record_scheduled_task_result(**kwargs: Any) -> None:
         logger.warning("写入定时任务日历记录失败: %s", exc, exc_info=True)
 
 
-@_with_task_logging(_JOB_DAILY_ANALYSIS)
+@_with_task_tracking("scheduled_daily", "每日全量分析", _JOB_DAILY_ANALYSIS)
 def _daily_analysis_task() -> None:
     """每日定时任务：执行一次完整的股票分析流水线。"""
     task_name = "每日全量分析"
@@ -211,6 +207,8 @@ def _daily_analysis_task() -> None:
         results = pipeline.run(stock_codes=stock_codes)
         if results:
             report = pipeline._generate_aggregate_report(results, _resolve_report_type(config))
+    except TaskSkipped:
+        raise
     except Exception as exc:
         finished_at = _scheduled_now()
         logger.exception("定时任务执行失败: %s", exc)
@@ -224,6 +222,7 @@ def _daily_analysis_task() -> None:
             report=report,
             error=str(exc),
         )
+        raise
     else:
         finished_at = _scheduled_now()
         _safe_record_scheduled_task_result(
@@ -242,7 +241,7 @@ def _daily_analysis_task() -> None:
         )
 
 
-@_with_task_logging(_JOB_US_PREMARKET_ANALYSIS)
+@_with_task_tracking("scheduled_us_premarket", "美股盘前分析", _JOB_US_PREMARKET_ANALYSIS)
 def _us_premarket_analysis_task() -> None:
     """美股盘前定时任务：仅分析自选股中标记为美股的股票。"""
     task_name = "美股盘前分析"
@@ -272,13 +271,15 @@ def _us_premarket_analysis_task() -> None:
                 results=[],
                 note="未配置美股自选股，本次定时任务已跳过。",
             )
-            return
+            raise TaskSkipped("未配置美股自选股，本次定时任务已跳过")
 
         config = get_config()
         pipeline = StockAnalysisPipeline(config=config)
         results = pipeline.run(stock_codes=stock_codes)
         if results:
             report = pipeline._generate_aggregate_report(results, _resolve_report_type(config))
+    except TaskSkipped:
+        raise
     except Exception as exc:
         finished_at = _scheduled_now()
         logger.exception("美股盘前分析任务执行失败: %s", exc)
@@ -292,6 +293,7 @@ def _us_premarket_analysis_task() -> None:
             report=report,
             error=str(exc),
         )
+        raise
     else:
         finished_at = _scheduled_now()
         _safe_record_scheduled_task_result(
@@ -310,7 +312,7 @@ def _us_premarket_analysis_task() -> None:
         )
 
 
-@_with_task_logging(_JOB_US_PREMARKET_NEWS)
+@_with_task_tracking("scheduled_us_premarket_news", "美股盘前新闻情报", _JOB_US_PREMARKET_NEWS)
 def _us_premarket_news_task() -> None:
     """美股盘前新闻情报任务：每天运行，抓取自选股和 Nasdaq-100 前 20 新闻。"""
     task_name = "美股盘前新闻情报"
@@ -340,6 +342,7 @@ def _us_premarket_news_task() -> None:
             results=[],
             error=str(exc),
         )
+        raise
     else:
         logger.info(
             "美股盘前新闻情报任务执行完成 - %s",
@@ -347,7 +350,7 @@ def _us_premarket_news_task() -> None:
         )
 
 
-@_with_task_logging(_JOB_MARKET_CALENDAR)
+@_with_task_tracking("scheduled_market_calendar", "美股财经日历同步", _JOB_MARKET_CALENDAR)
 def _market_calendar_task() -> None:
     """美股财经日历定时任务：每天同步未来财经事件。"""
     started_at = _scheduled_now()
@@ -360,6 +363,7 @@ def _market_calendar_task() -> None:
         summary = MarketCalendarSyncService().run(now=started_at)
         if summary.all_interfaces_failed:
             logger.error("美股财经日历任务失败：所有接口均失败 errors=%s", summary.errors)
+            raise RuntimeError(f"美股财经日历任务失败：所有接口均失败 errors={summary.errors}")
         else:
             logger.info(
                 "美股财经日历任务完成: fetched=%s inserted=%s updated=%s duplicate=%s notify=%s",
@@ -371,9 +375,10 @@ def _market_calendar_task() -> None:
             )
     except Exception as exc:
         logger.exception("美股财经日历任务执行失败: %s", exc)
+        raise
 
 
-@_with_task_logging(_JOB_US_INTRADAY_ANALYSIS)
+@_with_task_tracking("scheduled_us_intraday", "美股盘中分析", _JOB_US_INTRADAY_ANALYSIS)
 def _us_intraday_analysis_task() -> None:
     """美股盘中定时任务：检测自选美股的盘中异动并按需提醒。"""
     started_at = _scheduled_now()
@@ -386,13 +391,13 @@ def _us_intraday_analysis_task() -> None:
         stock_codes = get_watch_list_codes_by_market("US")
         if not stock_codes:
             logger.info("未配置美股自选股，跳过美股盘中分析任务")
-            return
+            raise TaskSkipped("未配置美股自选股，跳过美股盘中分析任务")
 
         service = USIntradayAnalysisService(config=get_config())
         summary = service.run(stock_codes)
         if not summary.market_open:
             logger.info("当前不是美股盘中交易时段，跳过美股盘中分析任务")
-            return
+            raise TaskSkipped("当前不是美股盘中交易时段，跳过美股盘中分析任务")
 
         logger.info(
             "美股盘中分析完成: total=%s processed=%s skipped=%s candidates=%s signals=%s errors=%s",
@@ -403,11 +408,14 @@ def _us_intraday_analysis_task() -> None:
             len(summary.signal_results),
             len(summary.errors),
         )
+    except TaskSkipped:
+        raise
     except Exception as exc:
         logger.exception("美股盘中分析任务执行失败: %s", exc)
+        raise
 
 
-@_with_task_logging(_JOB_A_SHARE_INTRADAY_ANALYSIS)
+@_with_task_tracking("scheduled_a_share_intraday", "A股盘中分析", _JOB_A_SHARE_INTRADAY_ANALYSIS)
 def _a_share_intraday_analysis_task() -> None:
     """A 股盘中定时任务：任务流程暂为空。"""
     logger.info(
@@ -519,7 +527,10 @@ def start_embedded_analysis_scheduler():
 
     if RUN_IMMEDIATELY_ON_STARTUP:
         logger.info("启动时立即执行一次定时任务...")
-        _daily_analysis_task()
+        try:
+            _daily_analysis_task()
+        except Exception as exc:
+            logger.warning("启动立即执行的定时任务失败，服务继续启动: %s", exc, exc_info=True)
 
     return scheduler
 

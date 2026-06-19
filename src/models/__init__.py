@@ -7,6 +7,7 @@ from src.models.conversation import ConversationMessage, LLMUsage
 from src.models.market_calendar import FinanceEvent
 from src.models.news import FundamentalSnapshot, NewsIntel
 from src.models.stock import StockDaily
+from src.models.task import TaskRecord
 from src.models.user import User
 from src.models.watch_list import StockHolding, WatchListItem
 
@@ -22,6 +23,7 @@ __all__ = [
     "NewsIntel",
     "StockDaily",
     "StockHolding",
+    "TaskRecord",
     "User",
     "WatchListItem",
 ]

@@ -20,6 +20,7 @@ from src.models import (
     NewsIntel,
     StockDaily,
     StockHolding,
+    TaskRecord,
     User,
     WatchListItem,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "NewsIntel",
     "StockDaily",
     "StockHolding",
+    "TaskRecord",
     "User",
     "WatchListItem",
     "date_range_bounds_utc",

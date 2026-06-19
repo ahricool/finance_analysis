@@ -190,7 +190,7 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         pipeline_instance.run.assert_called_once_with(stock_codes=["600519"])
         record_mock.assert_called_once()
 
-    def test_daily_task_swallows_pipeline_exception(self) -> None:
+    def test_daily_task_raises_pipeline_exception_after_recording(self) -> None:
         pipeline_instance = MagicMock()
         pipeline_instance.run.side_effect = RuntimeError("boom")
         pipeline_cls = MagicMock(return_value=pipeline_instance)
@@ -199,7 +199,8 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         with patch.dict(sys.modules, stubs), patch.object(
             scheduler_module, "_safe_record_scheduled_task_result"
         ):
-            scheduler_module._daily_analysis_task()
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                scheduler_module._daily_analysis_task()
 
     def test_us_premarket_task_runs_pipeline_for_us_watch_list(self) -> None:
         pipeline_instance = MagicMock()
