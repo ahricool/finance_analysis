@@ -38,6 +38,9 @@ describe('Shell user menu', () => {
       email: 'alice@example.com',
       avatarUrl: null,
       role: 'admin',
+      extra: {
+        gender: 'female',
+      },
     };
 
     const router = createTestRouter();
@@ -55,11 +58,17 @@ describe('Shell user menu', () => {
 
     const popup = wrapper.get('[aria-label="当前登录用户"] .absolute');
     expect(popup.classes()).toContain('group-hover:visible');
-    expect(popup.text()).toContain('Alice');
-    expect(popup.text()).toContain('邮箱：');
+    expect(popup.text()).toContain('性别');
+    expect(popup.text()).toContain('女');
+    expect(popup.text()).toContain('角色');
+    expect(popup.text()).toContain('女王');
+    expect(popup.text()).toContain('邮箱');
     expect(popup.text()).toContain('alice@example.com');
-    expect(popup.text()).toContain('角色：');
-    expect(popup.text()).toContain('admin');
+    expect(popup.text().indexOf('性别')).toBeLessThan(popup.text().indexOf('角色'));
+    expect(popup.text().indexOf('角色')).toBeLessThan(popup.text().indexOf('邮箱'));
+    expect(popup.text().indexOf('邮箱')).toBeLessThan(popup.text().indexOf('个人中心'));
+    expect(popup.text().indexOf('个人中心')).toBeLessThan(popup.text().indexOf('退出'));
+    expect(popup.find('.lucide-chevron-right').exists()).toBe(true);
     expect(popup.get('button').text()).toBe('退出');
   });
 });

@@ -289,6 +289,9 @@ class UserRepository:
             "email": user.email,
             "avatarUrl": user.avatar_url,
             "role": user.role,
+            "extra": {
+                "gender": normalize_user_extra(user.extra)["gender"],
+            },
         }
 
     def to_profile_dict(self, user: User) -> Dict[str, Any]:
