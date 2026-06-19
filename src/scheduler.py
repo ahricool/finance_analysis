@@ -12,7 +12,6 @@
 - 北京时间 21:00 执行美股盘前分析，仅分析自选股中标记为美股的股票。
 - 每 15 分钟执行一次美股盘中分析（当前任务流程为空）。
 - 每 15 分钟执行一次 A 股盘中分析（当前任务流程为空）。
-- 进程启动时如 :data:`RUN_IMMEDIATELY_ON_STARTUP` 为 ``True``，会立即执行一次。
 
 如需修改调度策略，请直接修改本文件中的常量或 ``_daily_analysis_task``，
 然后重启进程。
@@ -44,7 +43,6 @@ US_PREMARKET_SCHEDULE_HOUR = 21
 US_PREMARKET_SCHEDULE_MINUTE = 0
 INTRADAY_ANALYSIS_INTERVAL_MINUTES = 15
 SCHEDULE_TIMEZONE = "Asia/Shanghai"
-RUN_IMMEDIATELY_ON_STARTUP = True
 
 _JOB_DAILY_ANALYSIS = "analysis_daily"
 _JOB_MARKET_CALENDAR = "market_calendar"
@@ -636,13 +634,6 @@ def start_embedded_analysis_scheduler():
             "财经日历任务下次执行时间: %s",
             market_calendar_job.next_run_time.strftime("%Y-%m-%d %H:%M:%S"),
         )
-
-    if RUN_IMMEDIATELY_ON_STARTUP:
-        logger.info("启动时立即执行一次定时任务...")
-        try:
-            _daily_analysis_task()
-        except Exception as exc:
-            logger.warning("启动立即执行的定时任务失败，服务继续启动: %s", exc, exc_info=True)
 
     return scheduler
 
