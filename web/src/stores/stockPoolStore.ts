@@ -3,7 +3,7 @@ import { analysisApi, DuplicateTaskError } from '../api/analysis';
 import type { ParsedApiError } from '../api/error';
 import { getParsedApiError } from '../api/error';
 import { historyApi } from '../api/history';
-import type { AnalysisReport, HistoryItem, HistoryListResponse, TaskInfo } from '../types/analysis';
+import type { AnalysisReport, HistoryItem, HistoryListResponse } from '../types/analysis';
 import { getRecentStartDate, getTodayInShanghai } from '../utils/format';
 import { isObviouslyInvalidStockQuery, looksLikeStockCode, validateStockCode } from '../utils/validation';
 
@@ -29,7 +29,6 @@ type SubmitAnalysisOptions = {
 let reportRequestSeq = 0;
 let analyzeRequestSeq = 0;
 let historyRequestSeq = 0;
-const dismissedTaskIds = new Set<string>();
 
 export interface StockPoolState {
   query: string;
@@ -48,7 +47,6 @@ export interface StockPoolState {
   currentPage: number;
   selectedReport: AnalysisReport | null;
   isLoadingReport: boolean;
-  activeTasks: TaskInfo[];
   markdownDrawerOpen: boolean;
   setQuery: (query: string) => void;
   clearError: () => void;
@@ -64,10 +62,6 @@ export interface StockPoolState {
   deleteSelectedHistory: () => Promise<void>;
   submitAnalysis: (options?: SubmitAnalysisOptions) => Promise<void>;
   setNotify: (notify: boolean) => void;
-  syncTaskCreated: (task: TaskInfo) => void;
-  syncTaskUpdated: (task: TaskInfo) => void;
-  syncTaskFailed: (task: TaskInfo) => void;
-  removeTask: (taskId: string) => void;
   resetDashboardState: () => void;
 }
 
@@ -88,7 +82,6 @@ const initialState = {
   currentPage: 1,
   selectedReport: null as AnalysisReport | null,
   isLoadingReport: false,
-  activeTasks: [] as TaskInfo[],
   markdownDrawerOpen: false,
 };
 
@@ -378,43 +371,10 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
     }
   },
 
-  syncTaskCreated: (task) => {
-    if (dismissedTaskIds.has(task.taskId)) {
-      return;
-    }
-    if (get().activeTasks.some((item) => item.taskId === task.taskId)) {
-      return;
-    }
-    set({ activeTasks: [...get().activeTasks, task] });
-  },
-
-  syncTaskUpdated: (task) => {
-    if (dismissedTaskIds.has(task.taskId)) {
-      return;
-    }
-    const nextTasks = [...get().activeTasks];
-    const index = nextTasks.findIndex((item) => item.taskId === task.taskId);
-    if (index >= 0) {
-      nextTasks[index] = task;
-      set({ activeTasks: nextTasks });
-    }
-  },
-
-  syncTaskFailed: (task) => {
-    get().syncTaskUpdated(task);
-    set({ error: getParsedApiError(task.error || '分析失败') });
-  },
-
-  removeTask: (taskId) => {
-    dismissedTaskIds.add(taskId);
-    set({ activeTasks: get().activeTasks.filter((task) => task.taskId !== taskId) });
-  },
-
   resetDashboardState: () => {
     historyRequestSeq += 1;
     reportRequestSeq = 0;
     analyzeRequestSeq = 0;
-    dismissedTaskIds.clear();
     set({ ...initialState });
   },
 }));

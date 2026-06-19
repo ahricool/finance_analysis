@@ -1,3 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Legacy in-process task implementations kept only for migration reference."""
+"""Task service package.
 
+Runtime task submission lives in :mod:`src.tasks.queue`; task state is persisted
+in PostgreSQL through :mod:`src.tasks.lifecycle`.
+"""

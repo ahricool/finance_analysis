@@ -95,13 +95,12 @@ def _run_api_stock_analysis(
     owner_uid: Optional[int],
 ) -> Optional[Dict[str, Any]]:
     from src.services.analysis_service import AnalysisService
-    from src.tasks.queue import get_task_queue
+    from src.tasks.lifecycle import get_task_lifecycle_service
 
-    queue = get_task_queue()
     service = AnalysisService()
 
     def _on_progress(progress: int, message: str) -> None:
-        queue.update_task_progress(task_id, progress, message)
+        get_task_lifecycle_service().mark_progress(task_id=task_id, progress=progress, message=message)
 
     result = service.analyze_stock(
         stock_code=stock_code,

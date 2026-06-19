@@ -11,14 +11,13 @@ import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.
 import HistoryList from '@/components/history/HistoryList.vue';
 import ReportMarkdown from '@/components/report/ReportMarkdown.vue';
 import ReportSummary from '@/components/report/ReportSummary.vue';
-import TaskPanel from '@/components/tasks/TaskPanel.vue';
 import { useDashboardLifecycle } from '@/composables/useDashboardLifecycle';
 import { useHomeDashboardState } from '@/composables/useHomeDashboardState';
 import { formatDocumentTitle } from '@/config/app';
 import { useTimezoneStore } from '@/stores/timezoneStore';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { BarChart3 } from 'lucide-vue-next';
-import { computed, onMounted, onUnmounted, ref, unref, watch } from 'vue';
+import { computed, onMounted, ref, unref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 
@@ -36,9 +35,6 @@ const showDeleteConfirm = ref(false);
 const isSubmittingMarketReview = ref(false);
 const marketReviewNotice = ref<MarketReviewNotice>(null);
 const marketReviewError = ref<ParsedApiError | null>(null);
-const marketReviewReport = ref<string | null>(null);
-const marketReviewReportCopied = ref(false);
-const marketReviewPollTimer = ref<number | null>(null);
 const dashboardScrollRef = ref<HTMLElement | null>(null);
 
 const {
@@ -55,7 +51,6 @@ const {
   hasMore,
   selectedReport,
   isLoadingReport,
-  activeTasks,
   markdownDrawerOpen,
   selectedIds,
   setQuery,
@@ -70,10 +65,6 @@ const {
   submitAnalysis,
   notify,
   setNotify,
-  syncTaskCreated,
-  syncTaskUpdated,
-  syncTaskFailed,
-  removeTask,
   openMarkdownDrawer,
   closeMarkdownDrawer,
 } = useHomeDashboardState();
@@ -94,18 +85,7 @@ useDashboardLifecycle({
   refreshHistory: async (silent) => {
     await unref(refreshHistory)(silent);
   },
-  syncTaskCreated: (task) => unref(syncTaskCreated)(task),
-  syncTaskUpdated: (task) => unref(syncTaskUpdated)(task),
-  syncTaskFailed: (task) => unref(syncTaskFailed)(task),
-  removeTask: (taskId) => unref(removeTask)(taskId),
 });
-
-function stopMarketReviewPolling() {
-  if (marketReviewPollTimer.value !== null) {
-    window.clearInterval(marketReviewPollTimer.value);
-    marketReviewPollTimer.value = null;
-  }
-}
 
 function scrollMarketReviewFeedbackIntoView() {
   const scrollContainer = dashboardScrollRef.value;
@@ -119,10 +99,6 @@ function scrollMarketReviewFeedbackIntoView() {
 
 onMounted(() => {
   document.title = formatDocumentTitle();
-});
-
-onUnmounted(() => {
-  stopMarketReviewPolling();
 });
 
 watch(displayTimezone, () => {
@@ -176,128 +152,20 @@ function handleReanalyze() {
   });
 }
 
-async function pollMarketReviewStatus(taskId: string) {
-  stopMarketReviewPolling();
-
-  const maxAttempts = 120;
-  const intervalMs = 2000;
-  let attempts = 0;
-
-  const poll = async (): Promise<boolean> => {
-    if (attempts >= maxAttempts) {
-      stopMarketReviewPolling();
-      marketReviewReport.value = null;
-      marketReviewNotice.value = {
-        variant: 'danger',
-        title: '大盘复盘已超时',
-        message: '任务长时间未返回最终结果，请在任务列表/历史中查看。',
-      };
-      scrollMarketReviewFeedbackIntoView();
-      return false;
-    }
-
-    attempts += 1;
-
-    try {
-      const status = await analysisApi.getStatus(taskId);
-      if (status.status === 'pending' || status.status === 'processing') {
-        marketReviewReport.value = null;
-        const progress =
-          typeof status.progress === 'number' ? `${status.progress}%` : '进行中';
-        marketReviewNotice.value = {
-          variant: 'warning',
-          title: '大盘复盘进行中',
-          message: `任务状态：${status.status}（${progress}）`,
-        };
-        return true;
-      }
-
-      if (status.status === 'completed') {
-        stopMarketReviewPolling();
-        const marketReviewText =
-          typeof status.marketReviewReport === 'string' ? status.marketReviewReport : '';
-        marketReviewReport.value = marketReviewText ? marketReviewText.trim() : null;
-        marketReviewNotice.value = {
-          variant: 'success',
-          title: '大盘复盘已完成',
-          message: marketReviewText
-            ? '大盘复盘任务已完成，结果如下：'
-            : '大盘复盘任务已完成，结果已生成并按配置推送。',
-        };
-        marketReviewError.value = null;
-        scrollMarketReviewFeedbackIntoView();
-        return false;
-      }
-
-      if (status.status === 'failed') {
-        stopMarketReviewPolling();
-        marketReviewReport.value = null;
-        marketReviewError.value = getParsedApiError({
-          response: {
-            status: 500,
-            data: {
-              error: 'market_review_failed',
-              message: status.error || '大盘复盘执行失败。',
-            },
-          },
-        });
-        marketReviewNotice.value = null;
-        scrollMarketReviewFeedbackIntoView();
-        return false;
-      }
-
-      stopMarketReviewPolling();
-      marketReviewReport.value = null;
-      marketReviewNotice.value = {
-        variant: 'danger',
-        title: '大盘复盘状态异常',
-        message: `收到未知任务状态：${status.status}`,
-      };
-      scrollMarketReviewFeedbackIntoView();
-      return false;
-    } catch (err: unknown) {
-      const parsed = getParsedApiError(err);
-      if (attempts >= maxAttempts) {
-        stopMarketReviewPolling();
-        marketReviewReport.value = null;
-        marketReviewError.value = parsed;
-        marketReviewNotice.value = null;
-        scrollMarketReviewFeedbackIntoView();
-        return false;
-      }
-      return true;
-    }
-  };
-
-  if (await poll()) {
-    marketReviewPollTimer.value = window.setInterval(() => {
-      void poll().then((shouldContinue) => {
-        if (!shouldContinue) {
-          stopMarketReviewPolling();
-        }
-      });
-    }, intervalMs);
-  }
-}
-
 async function handleTriggerMarketReview() {
   isSubmittingMarketReview.value = true;
   marketReviewNotice.value = null;
   marketReviewError.value = null;
-  marketReviewReport.value = null;
   scrollMarketReviewFeedbackIntoView();
   try {
     const result = await analysisApi.triggerMarketReview({ sendNotification: unref(notify) });
+    const taskSuffix = result.taskId ? `（任务 ID：${result.taskId}）` : '';
     marketReviewNotice.value = {
       variant: 'success',
       title: '大盘复盘已提交',
-      message: result.message,
+      message: `${result.message || '任务已提交，执行结果可稍后在任务记录或日历中查看。'}${taskSuffix}`,
     };
     scrollMarketReviewFeedbackIntoView();
-
-    if (result.taskId) {
-      await pollMarketReviewStatus(result.taskId);
-    }
   } catch (err: unknown) {
     marketReviewError.value = getParsedApiError(err);
     marketReviewNotice.value = null;
@@ -305,21 +173,6 @@ async function handleTriggerMarketReview() {
   } finally {
     isSubmittingMarketReview.value = false;
   }
-}
-
-function handleCopyMarketReviewReport() {
-  if (!marketReviewReport.value) return;
-  void navigator.clipboard.writeText(marketReviewReport.value).then(
-    () => {
-      marketReviewReportCopied.value = true;
-      window.setTimeout(() => {
-        marketReviewReportCopied.value = false;
-      }, 2000);
-    },
-    (err) => {
-      console.error('复制失败:', err);
-    },
-  );
 }
 
 function handleDeleteSelectedHistory() {
@@ -427,7 +280,6 @@ function handleDeleteSelectedHistory() {
       <div class="flex min-h-0 flex-1 overflow-hidden">
         <div class="hidden min-h-0 w-64 shrink-0 flex-col overflow-hidden pb-4 pl-4 md:flex lg:w-72">
           <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
-            <TaskPanel :tasks="activeTasks" />
             <HistoryList
               :items="historyItems"
               :is-loading="isLoadingHistory"
@@ -457,7 +309,6 @@ function handleDeleteSelectedHistory() {
             @click.stop
           >
             <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
-              <TaskPanel :tasks="activeTasks" />
               <HistoryList
                 :items="historyItems"
                 :is-loading="isLoadingHistory"
@@ -498,27 +349,6 @@ function handleDeleteSelectedHistory() {
               class="mb-1"
               @dismiss="marketReviewError = null"
             />
-          </div>
-
-          <div
-            v-if="marketReviewReport"
-            class="mb-3 rounded-xl border border-subtle bg-surface/70 px-3 py-3 text-xs text-secondary-text shadow-sm"
-          >
-            <div class="mb-2 flex items-center justify-between gap-2">
-              <p class="font-semibold text-foreground">大盘复盘报告</p>
-              <button
-                type="button"
-                class="home-surface-button h-7 rounded-md px-3 py-1 text-xs text-foreground"
-                :disabled="marketReviewReportCopied"
-                @click="handleCopyMarketReviewReport"
-              >
-                {{ marketReviewReportCopied ? '已复制' : '复制' }}
-              </button>
-            </div>
-            <pre
-              data-testid="market-review-report"
-              class="overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-background px-3 py-2 leading-relaxed"
-            >{{ marketReviewReport }}</pre>
           </div>
 
           <ApiErrorAlert v-if="error" :error="error" class="mb-3" @dismiss="() => unref(clearError)()" />

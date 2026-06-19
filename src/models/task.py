@@ -26,6 +26,7 @@ class TaskRecord(Base):
     error = Column(Text, nullable=True)
     task_log = Column(String(255), nullable=True)
     parent_task_id = Column(String(64), nullable=True, index=True)
+    dedupe_key = Column(String(160), nullable=True, index=True)
     retry_count = Column(Integer, nullable=False, default=0)
     scheduler_job_id = Column(String(96), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
@@ -38,4 +39,5 @@ class TaskRecord(Base):
         Index("ix_task_type_created_at", "task_type", "created_at"),
         Index("ix_task_status_created_at", "status", "created_at"),
         Index("ix_task_uid_created_at", "uid", "created_at"),
+        Index("ix_task_dedupe_status", "dedupe_key", "status"),
     )

@@ -12,14 +12,13 @@ Test backend data contract extensions:
 """
 
 from api.v1.schemas.analysis import AnalyzeRequest
-from concurrent.futures import Future
 from src.tasks.queue import (
     TaskInfo,
-    get_task_queue,
     DuplicateTaskError,
     AnalysisTaskQueue,
     reset_task_state_for_tests,
 )
+from tests.task_repo_fakes import FakeTaskRecordRepository
 
 
 class TestAnalyzeRequest:
@@ -130,9 +129,7 @@ class TestTaskQueue:
 
     @staticmethod
     def _build_queue():
-        queue = AnalysisTaskQueue(max_workers=1)
-        queue._executor = type("ExecutorStub", (), {"submit": lambda self, *args, **kwargs: Future()})()
-        return queue
+        return AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
 
     def test_task_queue_accepts_new_fields(self):
         """Test task queue accepts new fields"""
@@ -224,8 +221,7 @@ class TestIntegration:
         )
 
         # Submit to task queue
-        queue = get_task_queue()
-        queue._executor = type("ExecutorStub", (), {"submit": lambda self, *args, **kwargs: Future()})()
+        queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
         tasks, _duplicates = queue.submit_tasks_batch(
             stock_codes=[request.stock_code],
             stock_name=request.stock_name,
@@ -252,8 +248,7 @@ class TestIntegration:
         )
 
         # Submit to task queue
-        queue = get_task_queue()
-        queue._executor = type("ExecutorStub", (), {"submit": lambda self, *args, **kwargs: Future()})()
+        queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
         tasks, _duplicates = queue.submit_tasks_batch(
             stock_codes=[request.stock_code],
             selection_source=request.selection_source,

@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,8 @@ from src.time_utils import utc_now
 
 class TaskRecordRepository:
     """Small data-access layer around the task execution history table."""
+
+    ACTIVE_STATUSES = ("pending", "processing", "retrying")
 
     def __init__(self, db_manager: Optional[DatabaseManager] = None):
         self.db = db_manager or DatabaseManager.get_instance()
@@ -37,6 +39,7 @@ class TaskRecordRepository:
         parent_task_id: Optional[str] = None,
         retry_count: Optional[int] = None,
         scheduler_job_id: Optional[str] = None,
+        dedupe_key: Optional[str] = None,
     ) -> TaskRecord:
         """Create a record if absent, otherwise fill missing metadata and update status."""
 
@@ -57,6 +60,7 @@ class TaskRecordRepository:
                     parent_task_id=parent_task_id,
                     retry_count=retry_count,
                     scheduler_job_id=scheduler_job_id,
+                    dedupe_key=dedupe_key,
                 )
                 if self._can_apply_status(existing.status, status):
                     existing.status = status
@@ -78,6 +82,7 @@ class TaskRecordRepository:
                 parent_task_id=parent_task_id,
                 retry_count=0 if retry_count is None else retry_count,
                 scheduler_job_id=scheduler_job_id,
+                dedupe_key=dedupe_key,
                 created_at=now,
                 updated_at=now,
             )
@@ -100,8 +105,81 @@ class TaskRecordRepository:
                     parent_task_id=parent_task_id,
                     retry_count=retry_count,
                     scheduler_job_id=scheduler_job_id,
+                    dedupe_key=dedupe_key,
                 )
             return self._detach(session, record)
+
+    def create_pending_or_get_duplicate(
+        self,
+        *,
+        task_id: str,
+        task_type: str,
+        source: str,
+        dedupe_key: Optional[str],
+        task_name: Optional[str] = None,
+        uid: Optional[int] = None,
+        payload: Optional[str] = None,
+        message: Optional[str] = None,
+        progress: int = 0,
+        task_log: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
+        retry_count: int = 0,
+        scheduler_job_id: Optional[str] = None,
+    ) -> Tuple[TaskRecord, bool]:
+        """
+        Create a pending task record.
+
+        Returns ``(record, created)``. If a database uniqueness constraint finds
+        another in-flight row with the same dedupe key, returns that existing row
+        with ``created=False``.
+        """
+
+        now = utc_now()
+        with self.db.session_scope() as session:
+            record = TaskRecord(
+                task_id=task_id,
+                task_type=task_type,
+                task_name=task_name,
+                uid=uid,
+                source=source,
+                status="pending",
+                progress=max(0, min(100, int(progress))),
+                message=message,
+                payload=payload,
+                task_log=task_log,
+                parent_task_id=parent_task_id,
+                retry_count=retry_count,
+                scheduler_job_id=scheduler_job_id,
+                dedupe_key=dedupe_key,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(record)
+            try:
+                session.flush()
+            except IntegrityError:
+                session.rollback()
+                existing = self.get_active_by_dedupe_key(dedupe_key) if dedupe_key else self.get_by_task_id(task_id)
+                if existing is None:
+                    existing = self.ensure_record(
+                        task_id=task_id,
+                        task_type=task_type,
+                        source=source,
+                        status="pending",
+                        task_name=task_name,
+                        uid=uid,
+                        payload=payload,
+                        message=message,
+                        progress=progress,
+                        task_log=task_log,
+                        parent_task_id=parent_task_id,
+                        retry_count=retry_count,
+                        scheduler_job_id=scheduler_job_id,
+                        dedupe_key=dedupe_key,
+                    )
+                    return existing, True
+                return existing, False
+            return self._detach(session, record), True
 
     def update_status(
         self,
@@ -123,6 +201,7 @@ class TaskRecordRepository:
         parent_task_id: Optional[str] = None,
         retry_count: Optional[int] = None,
         scheduler_job_id: Optional[str] = None,
+        dedupe_key: Optional[str] = None,
     ) -> Optional[TaskRecord]:
         """Idempotently update task status and selected fields."""
 
@@ -139,7 +218,18 @@ class TaskRecordRepository:
                     uid=uid,
                     source=source,
                     status=status,
-                    progress=0,
+                    progress=0 if progress is None else max(0, min(100, int(progress))),
+                    message=message,
+                    payload=payload,
+                    result=result,
+                    error=error,
+                    task_log=task_log,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    parent_task_id=parent_task_id,
+                    retry_count=0 if retry_count is None else retry_count,
+                    scheduler_job_id=scheduler_job_id,
+                    dedupe_key=dedupe_key,
                     created_at=now,
                     updated_at=now,
                 )
@@ -166,6 +256,7 @@ class TaskRecordRepository:
                         parent_task_id=parent_task_id,
                         retry_count=retry_count,
                         scheduler_job_id=scheduler_job_id,
+                        dedupe_key=dedupe_key,
                     )
 
             self._apply_metadata(
@@ -181,6 +272,7 @@ class TaskRecordRepository:
                 parent_task_id=parent_task_id,
                 retry_count=retry_count,
                 scheduler_job_id=scheduler_job_id,
+                dedupe_key=dedupe_key,
             )
             if self._can_apply_status(record.status, status):
                 record.status = status
@@ -199,6 +291,21 @@ class TaskRecordRepository:
     def get_by_task_id(self, task_id: str) -> Optional[TaskRecord]:
         with self.db.get_session() as session:
             record = session.execute(select(TaskRecord).where(TaskRecord.task_id == task_id)).scalar_one_or_none()
+            return self._detach(session, record) if record is not None else None
+
+    def get_active_by_dedupe_key(self, dedupe_key: Optional[str]) -> Optional[TaskRecord]:
+        if not dedupe_key:
+            return None
+        with self.db.get_session() as session:
+            record = session.execute(
+                select(TaskRecord)
+                .where(
+                    TaskRecord.dedupe_key == dedupe_key,
+                    TaskRecord.status.in_(self.ACTIVE_STATUSES),
+                )
+                .order_by(desc(TaskRecord.created_at))
+                .limit(1)
+            ).scalar_one_or_none()
             return self._detach(session, record) if record is not None else None
 
     def list_recent(
@@ -222,6 +329,82 @@ class TaskRecordRepository:
             ).scalars().all()
             return [self._detach(session, row) for row in rows]
 
+    def list_tasks(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        statuses: Optional[Iterable[str]] = None,
+        uid: Optional[int] = None,
+        task_type: Optional[str] = None,
+        source: Optional[str] = None,
+        created_from: Optional[datetime] = None,
+        created_to: Optional[datetime] = None,
+    ) -> List[TaskRecord]:
+        with self.db.get_session() as session:
+            query = select(TaskRecord)
+            conditions = self._build_filters(
+                statuses=statuses,
+                uid=uid,
+                task_type=task_type,
+                source=source,
+                created_from=created_from,
+                created_to=created_to,
+            )
+            if conditions:
+                query = query.where(*conditions)
+            rows = session.execute(
+                query.order_by(desc(TaskRecord.created_at)).offset(max(0, offset)).limit(max(1, limit))
+            ).scalars().all()
+            return [self._detach(session, row) for row in rows]
+
+    def count_tasks(
+        self,
+        *,
+        statuses: Optional[Iterable[str]] = None,
+        uid: Optional[int] = None,
+        task_type: Optional[str] = None,
+        source: Optional[str] = None,
+        created_from: Optional[datetime] = None,
+        created_to: Optional[datetime] = None,
+    ) -> int:
+        with self.db.get_session() as session:
+            query = select(func.count()).select_from(TaskRecord)
+            conditions = self._build_filters(
+                statuses=statuses,
+                uid=uid,
+                task_type=task_type,
+                source=source,
+                created_from=created_from,
+                created_to=created_to,
+            )
+            if conditions:
+                query = query.where(*conditions)
+            return int(session.execute(query).scalar_one() or 0)
+
+    def count_by_status(
+        self,
+        *,
+        uid: Optional[int] = None,
+        task_type: Optional[str] = None,
+        source: Optional[str] = None,
+        created_from: Optional[datetime] = None,
+        created_to: Optional[datetime] = None,
+    ) -> Dict[str, int]:
+        with self.db.get_session() as session:
+            query = select(TaskRecord.status, func.count()).group_by(TaskRecord.status)
+            conditions = self._build_filters(
+                statuses=None,
+                uid=uid,
+                task_type=task_type,
+                source=source,
+                created_from=created_from,
+                created_to=created_to,
+            )
+            if conditions:
+                query = query.where(*conditions)
+            return {str(status): int(count or 0) for status, count in session.execute(query).all()}
+
     @staticmethod
     def to_dict(record: TaskRecord) -> Dict[str, Any]:
         return {
@@ -239,6 +422,7 @@ class TaskRecordRepository:
             "error": record.error,
             "task_log": record.task_log,
             "parent_task_id": record.parent_task_id,
+            "dedupe_key": record.dedupe_key,
             "retry_count": record.retry_count,
             "scheduler_job_id": record.scheduler_job_id,
             "created_at": record.created_at,
@@ -275,3 +459,29 @@ class TaskRecordRepository:
         if current in terminal and new not in terminal:
             return False
         return True
+
+    @staticmethod
+    def _build_filters(
+        *,
+        statuses: Optional[Iterable[str]],
+        uid: Optional[int],
+        task_type: Optional[str],
+        source: Optional[str],
+        created_from: Optional[datetime],
+        created_to: Optional[datetime],
+    ) -> List[Any]:
+        conditions: List[Any] = []
+        status_list = [str(status).strip().lower() for status in statuses or [] if str(status).strip()]
+        if status_list:
+            conditions.append(TaskRecord.status.in_(status_list))
+        if uid is not None:
+            conditions.append(TaskRecord.uid == uid)
+        if task_type:
+            conditions.append(TaskRecord.task_type == task_type)
+        if source:
+            conditions.append(TaskRecord.source == source)
+        if created_from is not None:
+            conditions.append(TaskRecord.created_at >= created_from)
+        if created_to is not None:
+            conditions.append(TaskRecord.created_at <= created_to)
+        return conditions
