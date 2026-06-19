@@ -38,24 +38,25 @@ except Exception:  # pragma: no cover - optional dependency environments
 
 from src.enums import ReportType
 from src.services.analysis_service import AnalysisService
-from src.services.task_queue import AnalysisTaskQueue, TaskStatus
+from src.tasks.queue import AnalysisTaskQueue, DuplicateTaskError, TaskStatus, reset_task_state_for_tests
 
 
 class AnalysisApiContractTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        reset_task_state_for_tests()
+
+    def tearDown(self) -> None:
+        reset_task_state_for_tests()
+
     def test_trigger_market_review_accepts_background_task(self) -> None:
         if trigger_market_review is None or analysis_endpoint_module is None:
             self.skipTest("analysis endpoint helpers unavailable in this environment")
         task_queue = MagicMock()
-        task_queue.submit_background_task.return_value = SimpleNamespace(task_id="market-task-1")
+        task_queue.submit_market_review.return_value = SimpleNamespace(task_id="market-task-1")
         request = SimpleNamespace(send_notification=False)
         config = SimpleNamespace(trading_day_check_enabled=False)
-        lock_token = object()
 
         with patch.object(
-            analysis_endpoint_module,
-            "_try_acquire_market_review_lock",
-            return_value=lock_token,
-        ), patch.object(
             analysis_endpoint_module,
             "_compute_market_review_override_region",
             return_value=None,
@@ -68,26 +69,21 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         self.assertEqual(response.status, "accepted")
         self.assertFalse(response.send_notification)
         self.assertEqual(response.task_id, "market-task-1")
-        task_queue.submit_background_task.assert_called_once()
-        args, kwargs = task_queue.submit_background_task.call_args
-        self.assertTrue(callable(args[0]))
-        self.assertEqual(kwargs["stock_code"], "market_review")
-        self.assertEqual(kwargs["stock_name"], "大盘复盘")
-        self.assertEqual(kwargs["message"], "大盘复盘任务已提交")
+        task_queue.submit_market_review.assert_called_once_with(
+            send_notification=False,
+            override_region=None,
+        )
 
     def test_trigger_market_review_rejects_duplicate_submission(self) -> None:
         if trigger_market_review is None or analysis_endpoint_module is None:
             self.skipTest("analysis endpoint helpers unavailable in this environment")
 
         task_queue = MagicMock()
+        task_queue.submit_market_review.side_effect = DuplicateTaskError("market_review", "existing-task")
         request = SimpleNamespace(send_notification=True)
         config = SimpleNamespace(trading_day_check_enabled=False)
 
         with patch.object(
-            analysis_endpoint_module,
-            "_try_acquire_market_review_lock",
-            return_value=None,
-        ), patch.object(
             analysis_endpoint_module,
             "_compute_market_review_override_region",
             return_value=None,
@@ -99,42 +95,31 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                 )
 
         self.assertEqual(getattr(ctx.exception, "status_code", None), 409)
-        task_queue.submit_background_task.assert_not_called()
+        task_queue.submit_market_review.assert_called_once()
 
-    def test_trigger_market_review_rejects_when_shared_lock_is_held(self) -> None:
+    def test_trigger_market_review_submits_celery_even_when_file_lock_is_worker_owned(self) -> None:
         if trigger_market_review is None or analysis_endpoint_module is None:
             self.skipTest("analysis endpoint helpers unavailable in this environment")
-
-        from src.core.market_review_lock import (
-            release_market_review_lock,
-            try_acquire_market_review_lock,
-        )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             config = SimpleNamespace(
                 trading_day_check_enabled=False,
                 data_dir=temp_dir,
             )
-            lock_token = try_acquire_market_review_lock(config)
-            self.assertIsNotNone(lock_token)
-
             task_queue = MagicMock()
-            try:
-                with patch.object(
-                    analysis_endpoint_module,
-                    "_compute_market_review_override_region",
-                    return_value=None,
-                ), patch("api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
-                    with self.assertRaises(Exception) as ctx:
-                        trigger_market_review(
-                            request=SimpleNamespace(send_notification=True),
-                            config=config,
-                        )
-            finally:
-                release_market_review_lock(lock_token)
+            task_queue.submit_market_review.return_value = SimpleNamespace(task_id="market-task-1")
+            with patch.object(
+                analysis_endpoint_module,
+                "_compute_market_review_override_region",
+                return_value=None,
+            ), patch("api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
+                response = trigger_market_review(
+                    request=SimpleNamespace(send_notification=True),
+                    config=config,
+                )
 
-        self.assertEqual(getattr(ctx.exception, "status_code", None), 409)
-        task_queue.submit_background_task.assert_not_called()
+        self.assertEqual(response.task_id, "market-task-1")
+        task_queue.submit_market_review.assert_called_once()
 
     def test_trigger_market_review_skips_when_configured_markets_closed(self) -> None:
         if trigger_market_review is None or analysis_endpoint_module is None:
@@ -148,8 +133,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             analysis_endpoint_module,
             "_compute_market_review_override_region",
             return_value="",
-        ), patch.object(analysis_endpoint_module, "_try_acquire_market_review_lock") as acquire, \
-             patch("api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
+        ), patch("api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
             response = trigger_market_review(
                 request=request,
                 config=config,
@@ -157,102 +141,71 @@ class AnalysisApiContractTestCase(unittest.TestCase):
 
         self.assertEqual(response.status, "accepted")
         self.assertIn("非交易日", response.message)
-        acquire.assert_not_called()
-        task_queue.submit_background_task.assert_not_called()
+        task_queue.submit_market_review.assert_not_called()
 
-    def test_run_market_review_background_uses_configured_pipeline(self) -> None:
-        if analysis_endpoint_module is None:
-            self.skipTest("analysis endpoint helpers unavailable in this environment")
+    def test_market_review_celery_task_uses_configured_pipeline(self) -> None:
+        from src.celery_app.tasks.analysis import run_market_review
+        from src.tasks.queue import get_task_queue, reset_task_state_for_tests
 
-        config = SimpleNamespace(
-            has_search_capability_enabled=lambda: True,
-            bocha_api_keys=["bocha"],
-            tavily_api_keys=["tavily"],
-            anspire_api_keys=["anspire"],
-            brave_api_keys=["brave"],
-            serpapi_keys=["serpapi"],
-            minimax_api_keys=["minimax"],
-            searxng_base_urls=["http://searxng.local"],
-            searxng_public_instances_enabled=False,
-            news_max_age_days=5,
-            news_strategy_profile="balanced",
-            gemini_api_key="gemini-key",
-            openai_api_key=None,
-        )
+        reset_task_state_for_tests()
+        queue = get_task_queue()
+        with patch.object(run_market_review, "apply_async"):
+            task = queue.submit_market_review(send_notification=False, override_region="cn,us")
 
         runtime_notifier = MagicMock()
         runtime_search = MagicMock()
         runtime_analyzer = MagicMock()
-        with patch.object(
-            analysis_endpoint_module,
-            "_build_market_review_runtime",
-            return_value=(runtime_notifier, runtime_analyzer, runtime_search),
-        ), patch("src.core.market_review.run_market_review") as run_market_review:
-            analysis_endpoint_module._run_market_review_background(
+        lock_token = object()
+        with patch("src.core.market_review_lock.try_acquire_market_review_lock", return_value=lock_token), \
+             patch("src.core.market_review_lock.release_market_review_lock") as release_market_review_lock, \
+             patch("src.core.market_review_runtime.build_market_review_runtime", return_value=(runtime_notifier, runtime_analyzer, runtime_search)), \
+             patch("src.core.market_review.run_market_review", return_value="report") as run_market_review_pipeline:
+            result = run_market_review(
+                task_id=task.task_id,
                 send_notification=False,
                 override_region="cn,us",
-                lock_token=None,
-                config=config,
             )
 
-        run_market_review.assert_called_once_with(
+        self.assertEqual(result, {"result": "report"})
+        run_market_review_pipeline.assert_called_once_with(
             notifier=runtime_notifier,
             analyzer=runtime_analyzer,
             search_service=runtime_search,
             send_notification=False,
             override_region="cn,us",
         )
+        release_market_review_lock.assert_called_once_with(lock_token)
+        task_info = queue.get_task(task.task_id)
+        self.assertEqual(task_info.status, TaskStatus.COMPLETED)
+        self.assertEqual(task_info.result, {"result": "report"})
+        reset_task_state_for_tests()
 
-    def test_market_review_runtime_initializes_analyzer_for_litellm_provider(self) -> None:
-        if analysis_endpoint_module is None:
-            self.skipTest("analysis endpoint helpers unavailable in this environment")
+    def test_market_review_celery_task_marks_failed_when_report_is_empty(self) -> None:
+        from src.celery_app.tasks.analysis import run_market_review
+        from src.tasks.queue import get_task_queue, reset_task_state_for_tests
 
-        config = SimpleNamespace(
-            has_search_capability_enabled=lambda: False,
-            gemini_api_key=None,
-            openai_api_key=None,
-            litellm_model="anthropic/claude-sonnet-4-6",
-            llm_model_list=[],
-            anthropic_api_keys=["sk-ant-test-value"],
-        )
+        reset_task_state_for_tests()
+        queue = get_task_queue()
+        with patch.object(run_market_review, "apply_async"):
+            task = queue.submit_market_review(send_notification=False, override_region="cn")
 
-        with patch("src.notification.NotificationService"), \
-             patch("src.analysis.stock_report_analyzer.StockReportAnalyzer") as analyzer_cls:
-            analyzer_cls.return_value.is_available.return_value = True
-
-            _, analyzer, search_service = analysis_endpoint_module._build_market_review_runtime(config)
-
-        analyzer_cls.assert_called_once_with(config=config)
-        self.assertIs(analyzer, analyzer_cls.return_value)
-        self.assertIsNone(search_service)
-
-    def test_run_market_review_background_returns_non_empty_result_payload(self) -> None:
-        if analysis_endpoint_module is None:
-            self.skipTest("analysis endpoint helpers unavailable in this environment")
-
-        runtime_notifier = MagicMock()
-        runtime_search = MagicMock()
-        runtime_analyzer = MagicMock()
-        with patch.object(
-            analysis_endpoint_module,
-            "_build_market_review_runtime",
-            return_value=(runtime_notifier, runtime_analyzer, runtime_search),
-        ), patch("src.core.market_review.run_market_review", return_value="report") as run_market_review:
-            result = analysis_endpoint_module._run_market_review_background(
+        lock_token = object()
+        with patch("src.core.market_review_lock.try_acquire_market_review_lock", return_value=lock_token), \
+             patch("src.core.market_review_lock.release_market_review_lock") as release_market_review_lock, \
+             patch("src.core.market_review_runtime.build_market_review_runtime", return_value=(MagicMock(), MagicMock(), MagicMock())), \
+             patch("src.core.market_review.run_market_review", return_value=None):
+            result = run_market_review(
+                task_id=task.task_id,
                 send_notification=False,
                 override_region="cn",
-                lock_token=None,
-                config=SimpleNamespace(),
             )
 
-        self.assertEqual(result, {"result": "report"})
-        run_market_review.assert_called_once_with(
-            notifier=runtime_notifier,
-            analyzer=runtime_analyzer,
-            search_service=runtime_search,
-            send_notification=False,
-            override_region="cn",
-        )
+        self.assertIsNone(result)
+        release_market_review_lock.assert_called_once_with(lock_token)
+        task_info = queue.get_task(task.task_id)
+        self.assertEqual(task_info.status, TaskStatus.FAILED)
+        self.assertEqual(task_info.error, "大盘复盘未返回可持久化报告")
+        reset_task_state_for_tests()
 
     def test_get_analysis_status_returns_market_review_report_from_queue(self) -> None:
         if get_analysis_status is None or analysis_endpoint_module is None:
@@ -272,93 +225,11 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         )
 
         with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue):
-            status = get_analysis_status("market-task-1")
+            status = get_analysis_status("market-task-1", SimpleNamespace())
 
         self.assertEqual(status.status, "completed")
         self.assertEqual(status.market_review_report, "市场复盘报告示例文本")
         self.assertIsNone(status.result)
-
-    def test_run_market_review_background_raises_when_report_is_empty(self) -> None:
-        if analysis_endpoint_module is None:
-            self.skipTest("analysis endpoint helpers unavailable in this environment")
-
-        runtime_notifier = MagicMock()
-        runtime_search = MagicMock()
-        runtime_analyzer = MagicMock()
-        with patch.object(
-            analysis_endpoint_module,
-            "_build_market_review_runtime",
-            return_value=(runtime_notifier, runtime_analyzer, runtime_search),
-        ), patch("src.core.market_review.run_market_review", return_value=None):
-            with self.assertRaisesRegex(RuntimeError, "大盘复盘未返回可持久化报告"):
-                analysis_endpoint_module._run_market_review_background(
-                    send_notification=False,
-                    override_region="cn",
-                    lock_token=None,
-                    config=SimpleNamespace(),
-                )
-
-    def test_run_market_review_background_releases_lock_on_runtime_build_failure(self) -> None:
-        if analysis_endpoint_module is None:
-            self.skipTest("analysis endpoint helpers unavailable in this environment")
-
-        lock_token = object()
-        with patch.object(
-            analysis_endpoint_module,
-            "_build_market_review_runtime",
-            side_effect=RuntimeError("runtime init failed"),
-        ), patch.object(
-            analysis_endpoint_module,
-            "_release_market_review_lock",
-        ) as release_market_review_lock:
-            with self.assertRaises(RuntimeError):
-                analysis_endpoint_module._run_market_review_background(
-                    send_notification=False,
-                    override_region="cn",
-                    lock_token=lock_token,
-                    config=SimpleNamespace(),
-                )
-
-        release_market_review_lock.assert_called_once_with(lock_token)
-
-    def test_run_market_review_background_runtime_build_failure_marks_task_failed(self) -> None:
-        if analysis_endpoint_module is None:
-            self.skipTest("analysis endpoint helpers unavailable in this environment")
-
-        class _SyncExecutor:
-            def submit(self, fn, *args, **kwargs):
-                future = Future()
-                try:
-                    future.set_result(fn(*args, **kwargs))
-                except Exception as exc:  # pragma: no cover - exercised via assert below
-                    future.set_exception(exc)
-                return future
-
-        queue = AnalysisTaskQueue(max_workers=1)
-        queue._executor = _SyncExecutor()
-        with patch.object(
-            analysis_endpoint_module,
-            "_build_market_review_runtime",
-            side_effect=RuntimeError("runtime init failed"),
-        ), patch.object(analysis_endpoint_module, "_release_market_review_lock") as release_market_review_lock:
-            task = queue.submit_background_task(
-                lambda: analysis_endpoint_module._run_market_review_background(
-                    send_notification=False,
-                    override_region="cn",
-                    lock_token=object(),
-                    config=SimpleNamespace(),
-                ),
-                stock_code="market_review",
-                stock_name="大盘复盘",
-                message="大盘复盘任务已提交",
-            )
-
-        task_info = queue.get_task(task.task_id)
-        self.assertIsNotNone(task_info)
-        self.assertEqual(task_info.status, TaskStatus.FAILED)
-        self.assertEqual(task_info.error, "runtime init failed")
-        self.assertEqual(task_info.message, "任务失败: runtime init failed")
-        release_market_review_lock.assert_called_once()
 
     def test_get_analysis_status_completed_db_snapshot_preserves_zero_change_pct(self) -> None:
         if get_analysis_status is None:
@@ -510,7 +381,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         )
 
     def test_report_type_full_is_preserved_in_response_metadata(self) -> None:
-        service = AnalysisService()
+        service = object.__new__(AnalysisService)
+        service.last_error = None
         pipeline_instance = MagicMock()
         pipeline_instance.process_single_stock.return_value = SimpleNamespace(
             code="600519",
@@ -536,7 +408,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         self.assertEqual(result["report"]["meta"]["report_type"], "full")
 
     def test_analysis_service_returns_none_and_records_last_error_for_unsuccessful_pipeline_result(self) -> None:
-        service = AnalysisService()
+        service = object.__new__(AnalysisService)
+        service.last_error = None
         pipeline_instance = MagicMock()
         pipeline_instance.process_single_stock.return_value = SimpleNamespace(
             success=False,
@@ -579,7 +452,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         )
 
     def test_build_analysis_response_localizes_placeholder_stock_name_for_english(self) -> None:
-        service = AnalysisService()
+        service = object.__new__(AnalysisService)
         result = service._build_analysis_response(
             SimpleNamespace(
                 code="AAPL",
@@ -1422,65 +1295,45 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         except Exception:  # pragma: no cover - optional dependency environments
             self.skipTest("api.v1.endpoints.analysis not importable")
 
-        class _NeverQueue:
-            """Queue that never returns from get(), used to exercise cancellation."""
-            async def get(self):
-                await asyncio.sleep(3600)
-
-        never_queue = _NeverQueue()
         mock_task_queue = MagicMock()
         mock_task_queue.list_pending_tasks.return_value = []
 
+        async def cancelled_events(*args, **kwargs):
+            raise asyncio.CancelledError()
+            yield  # pragma: no cover
+
         async def run():
-            with patch("api.v1.endpoints.analysis.get_task_queue", return_value=mock_task_queue), \
-                 patch("asyncio.Queue", return_value=never_queue):
+            mock_task_queue.iter_events = cancelled_events
+            with patch("api.v1.endpoints.analysis.get_task_queue", return_value=mock_task_queue):
                 response = await task_stream()
                 gen = response.body_iterator
 
-                async def consume():
-                    async for _ in gen:
-                        pass
-
-                task = asyncio.create_task(consume())
-                await asyncio.sleep(0)  # let generator start and reach wait_for
-                task.cancel()
-                await task  # should re-raise CancelledError
+                self.assertIn("connected", await gen.__anext__())
+                await gen.__anext__()
 
         with self.assertRaises(asyncio.CancelledError):
             asyncio.run(run())
-
-        mock_task_queue.unsubscribe.assert_called_once_with(never_queue)
 
 
 class BatchTaskQueueContractTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self._original_instance = AnalysisTaskQueue._instance
-        AnalysisTaskQueue._instance = None
+        reset_task_state_for_tests()
 
     def tearDown(self) -> None:
-        queue = AnalysisTaskQueue._instance
-        if queue is not None and queue is not self._original_instance:
-            executor = getattr(queue, "_executor", None)
-            if executor is not None and hasattr(executor, "shutdown"):
-                executor.shutdown(wait=False, cancel_futures=True)
+        reset_task_state_for_tests()
         AnalysisTaskQueue._instance = self._original_instance
 
-    def test_batch_submit_rolls_back_when_executor_submit_fails(self) -> None:
-        class FailingExecutor:
-            def __init__(self) -> None:
-                self.submit_count = 0
-
-            def submit(self, *args, **kwargs):
-                self.submit_count += 1
-                if self.submit_count == 2:
-                    raise RuntimeError("executor down")
-                return Future()
-
+    def test_batch_submit_rolls_back_when_celery_submit_fails(self) -> None:
         queue = AnalysisTaskQueue(max_workers=1)
-        queue._executor = FailingExecutor()
 
-        with self.assertRaisesRegex(RuntimeError, "executor down"):
-            queue.submit_tasks_batch(["600519", "000858"], report_type="detailed")
+        def fail_on_second(*args, **kwargs):
+            if len(queue._tasks) == 2:
+                raise RuntimeError("celery down")
+
+        with patch.object(queue, "_apply_celery_task", side_effect=fail_on_second):
+            with self.assertRaisesRegex(RuntimeError, "celery down"):
+                queue.submit_tasks_batch(["600519", "000858"], report_type="detailed")
 
         self.assertEqual(queue._tasks, {})
         self.assertEqual(queue._analyzing_stocks, {})
@@ -1540,7 +1393,7 @@ class BatchTaskQueueContractTestCase(unittest.TestCase):
 
         self.assertEqual(len(accepted), 2)
         self.assertEqual(duplicates, [])
-        self.assertEqual(lock_states, [True, True])
+        self.assertEqual(lock_states, [False, False])
 
     def test_update_task_progress_broadcasts_task_progress_event(self) -> None:
         queue = AnalysisTaskQueue(max_workers=1)

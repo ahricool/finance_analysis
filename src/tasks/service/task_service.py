@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """
+LEGACY TASK SYSTEM - STOPPED USING.
+
+This module is retained only as migration reference for the former Bot
+ThreadPoolExecutor task service. Active business task submission now lives in
+``src.tasks.queue`` and execution is handled by Celery workers.
+
 ===================================
 异步任务服务层
 ===================================

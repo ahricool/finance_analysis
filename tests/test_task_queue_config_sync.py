@@ -25,7 +25,7 @@ if _orig_data_provider is None:
     pkg_mod.base = sys.modules["data_provider.base"]
     sys.modules["data_provider"] = pkg_mod
 
-from src.services.task_queue import AnalysisTaskQueue, get_task_queue, _dedupe_stock_code_key
+from src.tasks.queue import AnalysisTaskQueue, get_task_queue, reset_task_state_for_tests, _dedupe_stock_code_key
 
 if _orig_data_provider_base is None:
     sys.modules.pop("data_provider.base", None)
@@ -41,14 +41,10 @@ else:
 class TaskQueueConfigSyncTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self._original_instance = AnalysisTaskQueue._instance
-        AnalysisTaskQueue._instance = None
+        reset_task_state_for_tests()
 
     def tearDown(self) -> None:
-        queue = AnalysisTaskQueue._instance
-        if queue is not None and queue is not self._original_instance:
-            executor = getattr(queue, "_executor", None)
-            if executor is not None and hasattr(executor, "shutdown"):
-                executor.shutdown(wait=False)
+        reset_task_state_for_tests()
         AnalysisTaskQueue._instance = self._original_instance
 
     def test_sync_max_workers_applies_when_idle(self) -> None:

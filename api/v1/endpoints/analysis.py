@@ -52,18 +52,12 @@ from api.v1.schemas.history import (
 from data_provider.base import canonical_stock_code, normalize_stock_code
 from src.config import Config
 from src.core.market_review_lock import (
-    MarketReviewExecutionLock as _MarketReviewExecutionLock,
     market_review_lock_path,
-    release_market_review_lock as _release_market_review_lock,
-    try_acquire_market_review_lock as _try_acquire_market_review_lock,
-)
-from src.core.market_review_runtime import (
-    build_market_review_runtime as _runtime_build_market_review_runtime,
 )
 from src.report_language import get_localized_stock_name, normalize_report_language
 from src.services.name_to_code_resolver import resolve_name_to_code
 from src.services.stock_code_utils import is_code_like
-from src.services.task_queue import (
+from src.tasks.queue import (
     get_task_queue,
     DuplicateTaskError,
     TaskStatus as TaskStatusEnum,
@@ -105,36 +99,6 @@ def _compute_market_review_override_region(config: Config) -> Optional[str]:
     except Exception as exc:
         logger.warning("大盘复盘交易日过滤失败，按配置继续执行: %s", exc)
         return None
-
-
-def _build_market_review_runtime(config: Config, source_message: Optional[Any] = None) -> tuple[Any, Any, Any]:
-    return _runtime_build_market_review_runtime(config, source_message)
-
-
-def _run_market_review_background(
-    send_notification: bool,
-    override_region: Optional[str] = None,
-    lock_token: Optional[_MarketReviewExecutionLock] = None,
-    config: Optional[Config] = None,
-) -> None:
-    """Run market review after the API response has been accepted."""
-    from src.core.market_review import run_market_review
-
-    runtime_config = config or get_config_dep()
-    try:
-        notifier, analyzer, search_service = _build_market_review_runtime(runtime_config)
-        report = run_market_review(
-            notifier=notifier,
-            analyzer=analyzer,
-            search_service=search_service,
-            send_notification=send_notification,
-            override_region=override_region,
-        )
-        if not report:
-            raise RuntimeError("大盘复盘未返回可持久化报告")
-        return {"result": report}
-    finally:
-        _release_market_review_lock(lock_token)
 
 
 def _invalid_analysis_input_error() -> HTTPException:
@@ -207,7 +171,7 @@ def _resolve_and_normalize_input(raw_value: str) -> str:
 )
 def trigger_analysis(
         request: AnalyzeRequest,
-        http_request: Request,
+        http_request: Request = None,
         config: Config = Depends(get_config_dep)
 ) -> Union[AnalysisResultResponse, JSONResponse]:
     """
@@ -295,16 +259,24 @@ def trigger_analysis(
                     "message": "同步模式仅支持单只股票分析，请使用 async_mode=true 进行批量分析"
                 }
             )
-        return _handle_sync_analysis(stock_codes[0], request, get_effective_uid(http_request))
+        return _handle_sync_analysis(
+            stock_codes[0],
+            request,
+            get_effective_uid(http_request) if http_request is not None else None,
+        )
 
     # Async mode submits one task per stock.
-    return _handle_async_analysis_batch(stock_codes, request, get_effective_uid(http_request))
+    return _handle_async_analysis_batch(
+        stock_codes,
+        request,
+        get_effective_uid(http_request) if http_request is not None else None,
+    )
 
 
 def _handle_async_analysis_batch(
     stock_codes: list,
     request: AnalyzeRequest,
-    owner_uid: int,
+    owner_uid: Optional[int],
 ) -> JSONResponse:
     """
     Handle asynchronous analysis requests, including batch submission.
@@ -330,8 +302,9 @@ def _handle_async_analysis_batch(
         report_type=request.report_type,
         force_refresh=request.force_refresh,
         notify=notify,
-        owner_uid=owner_uid,
     )
+    if owner_uid is not None:
+        submit_kwargs["owner_uid"] = owner_uid
 
     accepted_tasks, duplicate_errors = task_queue.submit_tasks_batch(**submit_kwargs)
 
@@ -394,7 +367,7 @@ def _handle_async_analysis_batch(
 def _handle_sync_analysis(
     stock_code: str,
     request: AnalyzeRequest,
-    owner_uid: int,
+    owner_uid: Optional[int] = None,
 ) -> AnalysisResultResponse:
     """
     处理同步分析请求
@@ -494,8 +467,12 @@ def trigger_market_review(
             send_notification=request.send_notification,
         )
 
-    lock_token = _try_acquire_market_review_lock(config)
-    if lock_token is None:
+    try:
+        task = get_task_queue().submit_market_review(
+            send_notification=request.send_notification,
+            override_region=override_region,
+        )
+    except DuplicateTaskError:
         raise HTTPException(
             status_code=409,
             detail={
@@ -503,21 +480,7 @@ def trigger_market_review(
                 "message": "大盘复盘正在执行中，请稍后再试",
             },
         )
-
-    try:
-        task = get_task_queue().submit_background_task(
-            lambda: _run_market_review_background(
-                request.send_notification,
-                override_region=override_region,
-                lock_token=lock_token,
-                config=config,
-            ),
-            stock_code="market_review",
-            stock_name="大盘复盘",
-            message="大盘复盘任务已提交",
-        )
     except Exception:
-        _release_market_review_lock(lock_token)
         raise
 
     return MarketReviewAccepted(
@@ -629,8 +592,6 @@ async def task_stream():
     """
     async def event_generator():
         task_queue = get_task_queue()
-        event_queue: asyncio.Queue = asyncio.Queue()
-        
         # 发送连接成功事件
         yield _format_sse_event("connected", {"message": "Connected to task stream"})
         
@@ -639,25 +600,12 @@ async def task_stream():
         for task in pending_tasks:
             yield _format_sse_event("task_created", task.to_dict())
         
-        # 订阅任务事件
-        task_queue.subscribe(event_queue)
-        
         try:
-            while True:
-                try:
-                    # 等待事件，超时发送心跳
-                    event = await asyncio.wait_for(event_queue.get(), timeout=30)
-                    yield _format_sse_event(event["type"], event["data"])
-                except asyncio.TimeoutError:
-                    # 心跳
-                    yield _format_sse_event("heartbeat", {
-                        "timestamp": utc_isoformat(utc_now())
-                    })
+            async for event in task_queue.iter_events(heartbeat_seconds=30):
+                yield _format_sse_event(event["type"], event["data"])
         except asyncio.CancelledError:
             logger.debug("SSE client disconnected, cancelling event generator")
             raise
-        finally:
-            task_queue.unsubscribe(event_queue)
     
     return StreamingResponse(
         event_generator(),
@@ -698,7 +646,7 @@ def _format_sse_event(event_type: str, data: Dict[str, Any]) -> str:
     summary="查询分析任务状态",
     description="根据 task_id 查询单个任务的状态"
 )
-def get_analysis_status(task_id: str, http_request: Request) -> TaskStatus:
+def get_analysis_status(task_id: str, http_request: Request = None) -> TaskStatus:
     """
     查询分析任务状态
     
@@ -751,8 +699,10 @@ def get_analysis_status(task_id: str, http_request: Request) -> TaskStatus:
     try:
         from src.storage import DatabaseManager
         db = DatabaseManager.get_instance()
-        uid = get_effective_uid(http_request)
-        records = db.get_analysis_history(query_id=task_id, limit=1, uid=uid)
+        history_kwargs: Dict[str, Any] = {"query_id": task_id, "limit": 1}
+        if http_request is not None:
+            history_kwargs["uid"] = get_effective_uid(http_request)
+        records = db.get_analysis_history(**history_kwargs)
 
         if records:
             record = records[0]

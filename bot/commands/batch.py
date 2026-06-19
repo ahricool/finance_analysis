@@ -8,8 +8,6 @@
 """
 
 import logging
-import threading
-import uuid
 from typing import List
 
 from bot.commands.base import BotCommand
@@ -77,47 +75,25 @@ class BatchCommand(BotCommand):
         
         logger.info(f"[BatchCommand] 开始批量分析 {len(stock_list)} 只股票")
         
-        # 在后台线程中执行分析
-        thread = threading.Thread(
-            target=self._run_batch_analysis,
-            args=(stock_list, message),
-            daemon=True
-        )
-        thread.start()
-        
+        from src.tasks.bot_payload import bot_message_to_payload
+        from src.tasks.queue import DuplicateTaskError, get_task_queue
+
+        try:
+            task = get_task_queue().submit_bot_batch_analysis(
+                stock_codes=stock_list,
+                bot_message=bot_message_to_payload(message),
+            )
+        except DuplicateTaskError as exc:
+            return BotResponse.error_response(str(exc))
+        except Exception as exc:
+            logger.exception("[BatchCommand] 批量分析 Celery 任务提交失败: %s", exc)
+            return BotResponse.error_response("批量分析任务提交失败，请稍后重试")
+
         return BotResponse.markdown_response(
             f"✅ **批量分析任务已启动**\n\n"
+            f"• 任务 ID: `{task.task_id[:20]}...`\n"
             f"• 分析数量: {len(stock_list)} 只\n"
             f"• 股票列表: {', '.join(stock_list[:5])}"
             f"{'...' if len(stock_list) > 5 else ''}\n\n"
             f"分析完成后将自动推送汇总报告。"
         )
-    
-    def _run_batch_analysis(self, stock_list: List[str], message: BotMessage) -> None:
-        """后台执行批量分析"""
-        try:
-            from src.config import get_config
-            from src.core.pipeline import StockAnalysisPipeline
-            
-            config = get_config()
-            
-            # 创建分析管道
-            pipeline = StockAnalysisPipeline(
-                config=config,
-                source_message=message,
-                query_id=uuid.uuid4().hex,
-                query_source="bot"
-            )
-            
-            # 执行分析（会自动推送汇总报告）
-            results = pipeline.run(
-                stock_codes=stock_list,
-                dry_run=False,
-                send_notification=True
-            )
-            
-            logger.info(f"[BatchCommand] 批量分析完成，成功 {len(results)} 只")
-            
-        except Exception as e:
-            logger.exception(f"[BatchCommand] 批量分析失败: {e}")
-            logger.exception(e)

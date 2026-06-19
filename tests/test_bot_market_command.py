@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for bot MarketCommand trading-day region filtering."""
+"""Tests for bot MarketCommand Celery submission and trading-day filtering."""
 
 import sys
 import unittest
@@ -11,10 +11,12 @@ try:
     import litellm  # noqa: F401
 except ModuleNotFoundError:
     from tests.litellm_stub import ensure_litellm_stub
+
     ensure_litellm_stub()
 
 from bot.commands.market import MarketCommand
 from bot.models import BotMessage, ChatType
+from src.tasks.queue import DuplicateTaskError
 
 
 def _make_message() -> BotMessage:
@@ -43,199 +45,117 @@ class MarketCommandRegionFilterTestCase(unittest.TestCase):
         config = SimpleNamespace(
             market_review_region=market_review_region,
             trading_day_check_enabled=trading_day_check_enabled,
-            has_search_capability_enabled=lambda: False,
-            gemini_api_key=None,
-            openai_api_key=None,
         )
-        notifier = MagicMock()
-        notifier.is_available.return_value = True
-        notifier.send.return_value = True
-
-        notification_module = MagicMock()
-        notification_module.NotificationService.return_value = notifier
         config_module = MagicMock()
         config_module.get_config.return_value = config
-        runtime_module = MagicMock()
-        runtime_notifier = MagicMock()
-        runtime_analyzer = MagicMock()
-        runtime_search = MagicMock()
-        runtime_module.build_market_review_runtime.return_value = (
-            runtime_notifier,
-            runtime_analyzer,
-            runtime_search,
-        )
-        market_review_module = MagicMock()
-        market_review_module.run_market_review.return_value = "report"
-        search_module = MagicMock()
-        analyzer_module = MagicMock()
         trading_calendar_module = MagicMock()
         trading_calendar_module.get_open_markets_today.return_value = open_markets
-        # Re-export the real compute_effective_region semantics
+
         from src.core.trading_calendar import compute_effective_region
+
         trading_calendar_module.compute_effective_region.side_effect = compute_effective_region
 
-        patches = [
-            patch.dict(
-                sys.modules,
-                {
-                    "src.config": config_module,
-                    "src.notification": notification_module,
-                    "src.core.market_review": market_review_module,
-                    "src.core.market_review_runtime": runtime_module,
-                    "src.search_service": search_module,
-                    "src.analysis.stock_report_analyzer": analyzer_module,
-                    "src.core.trading_calendar": trading_calendar_module,
-                },
-            )
-        ]
-        for p in patches:
-            p.start()
-        self.addCleanup(lambda: [p.stop() for p in patches])
-        return (
-            config,
-            runtime_notifier,
-            runtime_analyzer,
-            runtime_search,
-            market_review_module,
-            runtime_module,
-            notifier,
+        patcher = patch.dict(
+            sys.modules,
+            {
+                "src.config": config_module,
+                "src.core.trading_calendar": trading_calendar_module,
+            },
         )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return config
 
-    def test_both_with_cn_us_open_passes_override_region_cn_us(self) -> None:
-        """MARKET_REVIEW_REGION=both + open markets {cn, us} -> override_region='cn,us'."""
+    def test_both_with_cn_us_open_submits_override_region_cn_us(self) -> None:
         message = _make_message()
-        config, notifier, runtime_analyzer, runtime_search, market_review_module, runtime_module, _ = self._patch_dependencies(
+        self._patch_dependencies(
             market_review_region="both",
             open_markets={"cn", "us"},
         )
+        task_queue = MagicMock()
+        task_queue.submit_market_review.return_value = SimpleNamespace(task_id="market-task-1234567890")
 
-        cmd = MarketCommand()
-        cmd._run_market_review(message, config, None)
+        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+            response = MarketCommand().execute(message, [])
 
-        runtime_module.build_market_review_runtime.assert_called_once_with(
-            config,
-            source_message=message,
-        )
-        market_review_module.run_market_review.assert_called_once_with(
-            notifier=notifier,
-            analyzer=runtime_analyzer,
-            search_service=runtime_search,
-            send_notification=True,
-            override_region="cn,us",
-        )
-        kwargs = market_review_module.run_market_review.call_args.kwargs
-        self.assertEqual(kwargs.get("override_region"), "cn,us")
+        self.assertIn("任务已启动", response.text)
+        task_queue.submit_market_review.assert_called_once()
+        kwargs = task_queue.submit_market_review.call_args.kwargs
+        self.assertTrue(kwargs["send_notification"])
+        self.assertEqual(kwargs["override_region"], "cn,us")
+        self.assertEqual(kwargs["bot_message"]["message_id"], "m1")
 
-    def test_both_with_cn_hk_open_passes_override_region_cn_hk(self) -> None:
-        """MARKET_REVIEW_REGION=both + open markets {cn, hk} -> override_region='cn,hk'."""
+    def test_both_with_cn_hk_open_submits_override_region_cn_hk(self) -> None:
         message = _make_message()
-        config, notifier, runtime_analyzer, runtime_search, market_review_module, runtime_module, _ = self._patch_dependencies(
+        self._patch_dependencies(
             market_review_region="both",
             open_markets={"cn", "hk"},
         )
+        task_queue = MagicMock()
+        task_queue.submit_market_review.return_value = SimpleNamespace(task_id="market-task-1234567890")
 
-        cmd = MarketCommand()
-        cmd._run_market_review(message, config, None)
+        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+            MarketCommand().execute(message, [])
 
-        runtime_module.build_market_review_runtime.assert_called_once_with(
-            config,
-            source_message=message,
-        )
-        market_review_module.run_market_review.assert_called_once_with(
-            notifier=notifier,
-            analyzer=runtime_analyzer,
-            search_service=runtime_search,
-            send_notification=True,
-            override_region="cn,hk",
-        )
-        market_review_module.run_market_review.assert_called_once()
-        kwargs = market_review_module.run_market_review.call_args.kwargs
-        self.assertEqual(kwargs.get("override_region"), "cn,hk")
+        self.assertEqual(task_queue.submit_market_review.call_args.kwargs["override_region"], "cn,hk")
 
     def test_all_relevant_markets_closed_skips_review(self) -> None:
-        """If compute_effective_region returns '', skip review and notify."""
         message = _make_message()
-        config, notifier, runtime_analyzer, runtime_search, market_review_module, runtime_module, notify_notifier = self._patch_dependencies(
+        self._patch_dependencies(
             market_review_region="cn",
             open_markets=set(),
         )
+        task_queue = MagicMock()
 
-        cmd = MarketCommand()
-        cmd._run_market_review(message, config, None)
+        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+            response = MarketCommand().execute(message, [])
 
-        market_review_module.run_market_review.assert_not_called()
-        runtime_module.build_market_review_runtime.assert_not_called()
-        notify_notifier.send.assert_called_once()
-        sent = notify_notifier.send.call_args.args[0]
-        self.assertIn("休市", sent)
-        self.assertEqual(notify_notifier.send.call_args.kwargs["route_type"], "report")
+        self.assertIn("休市", response.text)
+        task_queue.submit_market_review.assert_not_called()
 
     def test_trading_day_check_disabled_does_not_pass_override(self) -> None:
-        """When TRADING_DAY_CHECK_ENABLED=false, override_region stays None."""
         message = _make_message()
-        config, notifier, runtime_analyzer, runtime_search, market_review_module, runtime_module, _ = self._patch_dependencies(
+        self._patch_dependencies(
             market_review_region="both",
             open_markets={"cn"},
             trading_day_check_enabled=False,
         )
+        task_queue = MagicMock()
+        task_queue.submit_market_review.return_value = SimpleNamespace(task_id="market-task-1234567890")
 
-        cmd = MarketCommand()
-        cmd._run_market_review(message, config, None)
+        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+            MarketCommand().execute(message, [])
 
-        runtime_module.build_market_review_runtime.assert_called_once_with(
-            config,
-            source_message=message,
-        )
-        market_review_module.run_market_review.assert_called_once_with(
-            notifier=notifier,
-            analyzer=runtime_analyzer,
-            search_service=runtime_search,
-            send_notification=True,
-            override_region=None,
-        )
-        market_review_module.run_market_review.assert_called_once()
-        kwargs = market_review_module.run_market_review.call_args.kwargs
-        self.assertIsNone(kwargs.get("override_region"))
+        self.assertIsNone(task_queue.submit_market_review.call_args.kwargs["override_region"])
 
-    def test_build_market_review_runtime_failure_still_releases_lock(self) -> None:
-        """Runtime construction failure should still release the command-level lock token."""
+    def test_duplicate_market_review_submission_returns_busy_message(self) -> None:
         message = _make_message()
-        config, notifier, runtime_analyzer, runtime_search, market_review_module, runtime_module, _ = self._patch_dependencies(
+        self._patch_dependencies(
             market_review_region="cn",
             open_markets={"cn"},
         )
+        task_queue = MagicMock()
+        task_queue.submit_market_review.side_effect = DuplicateTaskError("market_review", "task-1")
 
-        cmd = MarketCommand()
-        lock_token = object()
-        runtime_module.build_market_review_runtime.side_effect = RuntimeError("runtime init failed")
-        with patch.object(cmd, "_release_market_review_lock") as release_market_review_lock:
-            cmd._run_market_review(message, config, lock_token)
+        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+            response = MarketCommand().execute(message, [])
 
-        release_market_review_lock.assert_called_once_with(lock_token)
-        market_review_module.run_market_review.assert_not_called()
-        self.assertIsNotNone(notifier)
+        self.assertIn("正在执行中", response.text)
 
-    def test_execute_releases_lock_when_thread_start_fails(self) -> None:
-        """Thread start failure in execute() should release lock and return an error."""
+    def test_submit_failure_returns_error_response(self) -> None:
         message = _make_message()
-        config, _, _, _, _, _, _ = self._patch_dependencies(
+        self._patch_dependencies(
             market_review_region="cn",
             open_markets={"cn"},
         )
+        task_queue = MagicMock()
+        task_queue.submit_market_review.side_effect = RuntimeError("broker unavailable")
 
-        cmd = MarketCommand()
-        lock_token = object()
-        fake_thread = MagicMock()
-        fake_thread.start.side_effect = RuntimeError("thread start failed")
+        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+            response = MarketCommand().execute(message, [])
 
-        with patch.object(cmd, "_try_acquire_market_review_lock", return_value=lock_token), \
-             patch.object(cmd, "_release_market_review_lock") as release_market_review_lock, \
-             patch("bot.commands.market.threading.Thread", return_value=fake_thread):
-            response = cmd.execute(message, [])
-
-        release_market_review_lock.assert_called_once_with(lock_token)
-        self.assertEqual(response.text, "❌ 错误：大盘复盘启动失败，已释放运行锁；请稍后重试")
-
+        self.assertFalse(response.markdown)
+        self.assertIn("大盘复盘启动失败", response.text)
 
 
 if __name__ == "__main__":
