@@ -7,6 +7,7 @@ import functools
 import json
 import logging
 import os
+import re
 import traceback
 import uuid
 from contextvars import ContextVar
@@ -26,6 +27,9 @@ F = TypeVar("F", bound=Callable[..., Any])
 MAX_PAYLOAD_CHARS = 8000
 MAX_RESULT_CHARS = 12000
 MAX_ERROR_CHARS = 24000
+MAX_JSON_DEPTH = 6
+MAX_JSON_ITEMS = 40
+MAX_STRING_CHARS = 1000
 SENSITIVE_KEY_TOKENS = ("token", "secret", "password", "authorization", "api_key", "apikey", "key")
 
 CURRENT_TASK_ID: ContextVar[Optional[str]] = ContextVar("task_lifecycle_task_id", default=None)
@@ -69,19 +73,42 @@ def _truncate_text(value: str, limit: int) -> str:
     return f"{value[:limit]}...<truncated {len(value) - limit} chars>"
 
 
-def _redact_value(value: Any) -> Any:
+def _redact_error_text(value: str) -> str:
+    text = value
+    for token in SENSITIVE_KEY_TOKENS:
+        text = re.sub(
+            rf"({re.escape(token)}\s*[=:]\s*)([^\s,;]+)",
+            rf"\1***",
+            text,
+            flags=re.IGNORECASE,
+        )
+    return _truncate_text(text, MAX_ERROR_CHARS)
+
+
+def _redact_value(value: Any, *, depth: int = 0) -> Any:
+    if depth >= MAX_JSON_DEPTH:
+        return {"truncated": True, "reason": "max_depth"}
     if isinstance(value, Mapping):
         redacted: Dict[str, Any] = {}
-        for key, nested in value.items():
+        items = list(value.items())
+        for key, nested in items[:MAX_JSON_ITEMS]:
             key_text = str(key)
             if any(token in key_text.lower() for token in SENSITIVE_KEY_TOKENS):
                 redacted[key_text] = "***"
             else:
-                redacted[key_text] = _redact_value(nested)
+                redacted[key_text] = _redact_value(nested, depth=depth + 1)
+        if len(items) > MAX_JSON_ITEMS:
+            redacted["_truncated_items"] = len(items) - MAX_JSON_ITEMS
         return redacted
     if isinstance(value, (list, tuple, set)):
-        return [_redact_value(item) for item in list(value)[:50]]
-    if isinstance(value, (str, int, float, bool)) or value is None:
+        values = list(value)
+        result = [_redact_value(item, depth=depth + 1) for item in values[:MAX_JSON_ITEMS]]
+        if len(values) > MAX_JSON_ITEMS:
+            result.append({"truncated": True, "remaining_items": len(values) - MAX_JSON_ITEMS})
+        return result
+    if isinstance(value, str):
+        return _truncate_text(value, MAX_STRING_CHARS)
+    if isinstance(value, (int, float, bool)) or value is None:
         return value
     return repr(value)
 
@@ -90,10 +117,22 @@ def _json_summary(value: Any, *, limit: int) -> Optional[str]:
     if value is None:
         return None
     try:
-        text = json.dumps(_redact_value(value), ensure_ascii=False, default=str)
+        redacted = _redact_value(value)
+        text = json.dumps(redacted, ensure_ascii=False, default=str)
     except Exception:
-        text = repr(value)
-    return _truncate_text(text, limit)
+        redacted = repr(value)
+        text = json.dumps(redacted, ensure_ascii=False)
+    if len(text) <= limit:
+        return text
+    preview_limit = max(200, limit - 120)
+    return json.dumps(
+        {
+            "truncated": True,
+            "preview": text[:preview_limit],
+            "original_size": len(text),
+        },
+        ensure_ascii=False,
+    )
 
 
 def _relative_task_log_path(task_name: str, task_id: str, *, celery: bool) -> str:
@@ -132,6 +171,7 @@ class TaskLifecycleService:
         progress: int = 0,
         task_log: Optional[str] = None,
         retry_count: int = 0,
+        dedupe_key: Optional[str] = None,
     ) -> None:
         self._safe_write(
             "create pending task record",
@@ -149,6 +189,7 @@ class TaskLifecycleService:
                 parent_task_id=metadata.parent_task_id,
                 retry_count=retry_count,
                 scheduler_job_id=metadata.scheduler_job_id,
+                dedupe_key=dedupe_key,
             ),
         )
 
@@ -294,7 +335,7 @@ class TaskLifecycleService:
                 status=TaskExecutionStatus.FAILED.value,
                 progress=100,
                 message=message,
-                error=_truncate_text(error_text, MAX_ERROR_CHARS),
+                error=_redact_error_text(error_text),
                 finished_at=utc_now(),
                 parent_task_id=metadata.parent_task_id,
                 scheduler_job_id=metadata.scheduler_job_id,
@@ -364,16 +405,14 @@ def track_task(
             service = get_task_lifecycle_service()
             token = CURRENT_TASK_ID.set(task_id)
             with task_logging_context(resolved_task_name, task_id=task_id, celery=celery):
-                queue_updated = _mark_queue_started(task_id, "任务执行中", task_log) if celery else False
-                if not queue_updated:
-                    service.mark_processing(
-                        task_id=task_id,
-                        metadata=metadata,
-                        payload=payload,
-                        message="任务执行中",
-                        task_log=task_log,
-                        retry_count=retry_count,
-                    )
+                service.mark_processing(
+                    task_id=task_id,
+                    metadata=metadata,
+                    payload=payload,
+                    message="任务执行中",
+                    task_log=task_log,
+                    retry_count=retry_count,
+                )
                 try:
                     result = func(*args, **kwargs)
                 except TaskSkipped as exc:
@@ -384,23 +423,15 @@ def track_task(
                     )
                     return None
                 except Exception as exc:
-                    if celery:
-                        _mark_queue_failed(task_id, str(exc), "任务失败")
                     service.mark_failed(task_id=task_id, metadata=metadata, error=exc, message=str(exc)[:200])
                     raise
                 else:
-                    completed_via_queue = (
-                        _mark_queue_completed(task_id, result if record_result else None, success_message)
-                        if celery
-                        else False
+                    service.mark_completed(
+                        task_id=task_id,
+                        metadata=metadata,
+                        result=result if record_result else None,
+                        message=success_message or "任务执行完成",
                     )
-                    if not completed_via_queue:
-                        service.mark_completed(
-                            task_id=task_id,
-                            metadata=metadata,
-                            result=result if record_result else None,
-                            message=success_message or "任务执行完成",
-                        )
                     return result
                 finally:
                     CURRENT_TASK_ID.reset(token)
@@ -472,44 +503,6 @@ def _resolve_retry_count() -> int:
         return int(getattr(getattr(current_task, "request", None), "retries", 0) or 0)
     except Exception:
         return 0
-
-
-def _mark_queue_started(task_id: str, message: str, task_log: Optional[str]) -> bool:
-    try:
-        from src.tasks.queue import get_task_queue
-
-        return get_task_queue().mark_task_started(task_id, message, task_log=task_log) is not None
-    except Exception:
-        logger.debug("Queue start update failed: task_id=%s", task_id, exc_info=True)
-        return False
-
-
-def _mark_queue_completed(task_id: str, result: Any, message: Optional[str]) -> bool:
-    try:
-        from src.tasks.queue import get_task_queue
-
-        stock_name = None
-        if isinstance(result, dict):
-            stock_name = result.get("stock_name") or result.get("name")
-        return get_task_queue().mark_task_completed(
-            task_id,
-            result if isinstance(result, dict) or result is None else {"result": result},
-            message=message or "任务执行完成",
-            stock_name=stock_name,
-        ) is not None
-    except Exception:
-        logger.debug("Queue completion update failed: task_id=%s", task_id, exc_info=True)
-        return False
-
-
-def _mark_queue_failed(task_id: str, error: str, message_prefix: str) -> bool:
-    try:
-        from src.tasks.queue import get_task_queue
-
-        return get_task_queue().mark_task_failed(task_id, error, message_prefix=message_prefix) is not None
-    except Exception:
-        logger.debug("Queue failure update failed: task_id=%s", task_id, exc_info=True)
-        return False
 
 
 def is_tracked_callable(value: Any) -> bool:

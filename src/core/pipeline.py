@@ -169,7 +169,7 @@ class StockAnalysisPipeline(AgentResultMixin):
             self.social_sentiment_service = None
 
     def _emit_progress(self, progress: int, message: str) -> None:
-        """Best-effort bridge from pipeline stages to task SSE progress."""
+        """Best-effort bridge from pipeline stages to persisted task progress."""
         callback = getattr(self, "progress_callback", None)
         if callback is None:
             return

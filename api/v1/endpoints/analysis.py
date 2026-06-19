@@ -8,23 +8,19 @@
 1. 提供 POST /api/v1/analysis/analyze 触发分析接口
 2. 提供 GET /api/v1/analysis/status/{task_id} 查询任务状态接口
 3. 提供 GET /api/v1/analysis/tasks 获取任务列表接口
-4. 提供 GET /api/v1/analysis/tasks/stream SSE 实时推送接口
 
 特性：
 - 异步任务队列：分析任务异步执行，不阻塞请求
 - 防重复提交：相同股票代码正在分析时返回 409
-- SSE 实时推送：任务状态变化实时通知前端
 """
 
-import asyncio
-import json
 import logging
 import re
 from pathlib import Path
 from typing import Optional, Union, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Body, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
 from api.deps import get_config_dep, get_effective_uid
 from api.v1.schemas.analysis import (
@@ -60,7 +56,6 @@ from src.services.stock_code_utils import is_code_like
 from src.tasks.queue import (
     get_task_queue,
     DuplicateTaskError,
-    TaskStatus as TaskStatusEnum,
 )
 from src.repositories.task_record_repo import TaskRecordRepository
 from src.utils.data_processing import (
@@ -522,63 +517,18 @@ def get_task_list(
     Returns:
         TaskListResponse: 任务列表响应
     """
-    task_queue = get_task_queue()
-    
-    # 获取实时任务；Redis/内存中没有足够历史时回退持久化 Task 表。
-    all_tasks = task_queue.list_all_tasks(limit=limit)
     status_list = [s.strip().lower() for s in status.split(",")] if status else []
-    task_infos = [_queue_task_to_schema(t) for t in all_tasks]
-    seen_task_ids = {t.task_id for t in all_tasks}
-
-    if len(task_infos) < limit:
-        try:
-            records = TaskRecordRepository().list_recent(
-                limit=limit,
-                statuses=status_list or None,
-            )
-            for record in records:
-                if record.task_id in seen_task_ids:
-                    continue
-                task_infos.append(_task_record_to_task_info(record))
-                seen_task_ids.add(record.task_id)
-                if len(task_infos) >= limit:
-                    break
-        except Exception as exc:
-            logger.debug("读取持久化任务列表失败，使用实时任务列表: %s", exc)
-    
-    # 统计信息保持为筛选前的整体任务概览，兼容旧接口行为。
-    stats = _task_stats_from_schemas(task_infos)
-
-    # 状态筛选
-    if status_list:
-        task_infos = [
-            t for t in task_infos
-            if str(t.status.value if hasattr(t.status, "value") else t.status) in status_list
-        ]
+    repository = TaskRecordRepository()
+    records = repository.list_tasks(limit=limit, statuses=status_list or None)
+    task_infos = [_task_record_to_task_info(record) for record in records]
+    stats = repository.count_by_status()
+    total = repository.count_tasks(statuses=status_list or None)
     
     return TaskListResponse(
-        total=stats["total"],
-        pending=stats["pending"],
-        processing=stats["processing"],
+        total=total,
+        pending=stats.get("pending", 0),
+        processing=stats.get("processing", 0),
         tasks=task_infos,
-    )
-
-
-def _queue_task_to_schema(task: Any) -> TaskInfo:
-    return TaskInfo(
-        task_id=task.task_id,
-        stock_code=task.stock_code,
-        stock_name=task.stock_name,
-        status=task.status.value,
-        progress=task.progress,
-        message=task.message,
-        report_type=task.report_type,
-        created_at=utc_isoformat(task.created_at),
-        started_at=utc_isoformat(task.started_at),
-        completed_at=utc_isoformat(task.completed_at),
-        error=task.error,
-        original_query=task.original_query,
-        selection_source=task.selection_source,
     )
 
 
@@ -611,84 +561,6 @@ def _task_record_to_task_info(record: Any) -> TaskInfo:
     )
 
 
-def _task_stats_from_schemas(tasks: list[TaskInfo]) -> Dict[str, int]:
-    stats = {"total": len(tasks), "pending": 0, "processing": 0, "completed": 0, "failed": 0}
-    for task in tasks:
-        status_value = task.status.value if hasattr(task.status, "value") else str(task.status)
-        stats[status_value] = stats.get(status_value, 0) + 1
-    return stats
-
-
-# ============================================================
-# GET /tasks/stream - SSE 实时推送
-# ============================================================
-
-@router.get(
-    "/tasks/stream",
-    responses={
-        200: {"description": "SSE 事件流", "content": {"text/event-stream": {}}},
-    },
-    summary="任务状态 SSE 流",
-    description="通过 Server-Sent Events 实时推送任务状态变化"
-)
-async def task_stream():
-    """
-    SSE 任务状态流
-    
-    事件类型：
-    - connected: 连接成功
-    - task_created: 新任务创建
-    - task_started: 任务开始执行
-    - task_progress: 任务阶段进度更新
-    - task_completed: 任务完成
-    - task_failed: 任务失败
-    - heartbeat: 心跳（每 30 秒）
-    
-    Returns:
-        StreamingResponse: SSE 事件流
-    """
-    async def event_generator():
-        task_queue = get_task_queue()
-        # 发送连接成功事件
-        yield _format_sse_event("connected", {"message": "Connected to task stream"})
-        
-        # 发送当前进行中的任务
-        pending_tasks = task_queue.list_pending_tasks()
-        for task in pending_tasks:
-            yield _format_sse_event("task_created", task.to_dict())
-        
-        try:
-            async for event in task_queue.iter_events(heartbeat_seconds=30):
-                yield _format_sse_event(event["type"], event["data"])
-        except asyncio.CancelledError:
-            logger.debug("SSE client disconnected, cancelling event generator")
-            raise
-    
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲
-        }
-    )
-
-
-def _format_sse_event(event_type: str, data: Dict[str, Any]) -> str:
-    """
-    格式化 SSE 事件
-    
-    Args:
-        event_type: 事件类型
-        data: 事件数据
-        
-    Returns:
-        SSE 格式字符串
-    """
-    return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
 # ============================================================
 # GET /status/{task_id} - 查询单个任务状态
 # ============================================================
@@ -707,7 +579,7 @@ def get_analysis_status(task_id: str, http_request: Request = None) -> TaskStatu
     """
     查询分析任务状态
     
-    优先从任务队列查询，如果不存在则从数据库查询历史记录
+    从 PostgreSQL 任务记录查询状态；完成的股票分析可继续回补分析历史报告。
     
     Args:
         task_id: 任务 ID
@@ -718,42 +590,17 @@ def get_analysis_status(task_id: str, http_request: Request = None) -> TaskStatu
     Raises:
         HTTPException: 404 - 任务不存在
     """
-    # 1. 先从任务队列查询
-    task_queue = get_task_queue()
-    task = task_queue.get_task(task_id)
-    
-    if task:
-        result: Optional[AnalysisResultResponse] = None
-        market_review_report = None
-
-        if task.status == TaskStatusEnum.COMPLETED and isinstance(task.result, dict):
-            if task.stock_code == "market_review":
-                report_text = task.result.get("result")
-                if isinstance(report_text, str) and report_text.strip():
-                    market_review_report = report_text
-            else:
-                try:
-                    result = AnalysisResultResponse.model_validate(task.result)
-                except Exception:
-                    logger.warning(
-                        "解析任务结果失败，回退为空返回: task_id=%s",
-                        task.task_id,
-                    )
-
-        return TaskStatus(
-            task_id=task.task_id,
-            status=task.status.value,
-            progress=task.progress,
-            result=result,
-            market_review_report=market_review_report,
-            error=task.error,
-            stock_name=task.stock_name,
-            original_query=task.original_query,
-            selection_source=task.selection_source,
-        )
-    
-    # 2. 从数据库查询已完成的记录
     try:
+        task_record = TaskRecordRepository().get_by_task_id(task_id)
+        if task_record is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "not_found",
+                    "message": f"任务 {task_id} 不存在",
+                },
+            )
+
         from src.storage import DatabaseManager
         db = DatabaseManager.get_instance()
         history_kwargs: Dict[str, Any] = {"query_id": task_id, "limit": 1}
@@ -816,9 +663,10 @@ def get_analysis_status(task_id: str, http_request: Request = None) -> TaskStatu
                     take_profit=_stringify_report_strategy_value(getattr(record, 'take_profit', None)),
                 ),
             ).model_dump()
+            task_status = task_record.status if isinstance(task_record.status, str) else "completed"
             return TaskStatus(
                 task_id=task_id,
-                status="completed",
+                status=task_status,
                 progress=100,
                 result=AnalysisResultResponse(
                     query_id=task_id,
@@ -830,24 +678,30 @@ def get_analysis_status(task_id: str, http_request: Request = None) -> TaskStatu
                 error=None
             )
 
-        task_record = TaskRecordRepository().get_by_task_id(task_id)
-        if task_record is not None:
-            result_payload = parse_json_field(getattr(task_record, "result", None))
-            market_review_report = None
-            if task_record.task_type == "market_review" and isinstance(result_payload, dict):
-                report_text = result_payload.get("result")
-                if isinstance(report_text, str) and report_text.strip():
-                    market_review_report = report_text
-            return TaskStatus(
-                task_id=task_id,
-                status=task_record.status,
-                progress=int(task_record.progress or 0),
-                result=None,
-                market_review_report=market_review_report,
-                error=(task_record.error[:200] if task_record.error else None),
-                stock_name=task_record.task_name,
-            )
+        result_payload = parse_json_field(getattr(task_record, "result", None))
+        payload = parse_json_field(getattr(task_record, "payload", None)) or {}
+        kwargs = payload.get("kwargs") if isinstance(payload, dict) else payload
+        if not isinstance(kwargs, dict):
+            kwargs = {}
+        market_review_report = None
+        if task_record.task_type == "market_review" and isinstance(result_payload, dict):
+            report_text = result_payload.get("result")
+            if isinstance(report_text, str) and report_text.strip():
+                market_review_report = report_text
+        return TaskStatus(
+            task_id=task_id,
+            status=task_record.status,
+            progress=int(task_record.progress or 0),
+            result=None,
+            market_review_report=market_review_report,
+            error=(task_record.error[:200] if task_record.error else None),
+            stock_name=task_record.task_name,
+            original_query=kwargs.get("original_query"),
+            selection_source=kwargs.get("selection_source"),
+        )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"查询任务状态失败: {e}", exc_info=True)
         raise HTTPException(
@@ -857,16 +711,6 @@ def get_analysis_status(task_id: str, http_request: Request = None) -> TaskStatu
                 "message": f"查询任务状态失败: {str(e)}"
             }
         )
-
-    # 3. 任务不存在
-    raise HTTPException(
-        status_code=404,
-        detail={
-            "error": "not_found",
-            "message": f"任务 {task_id} 不存在或已过期"
-        }
-    )
-
 
 # ============================================================
 # 辅助函数

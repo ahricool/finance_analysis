@@ -283,7 +283,7 @@ class TaskInfo(BaseModel):
     """
     Task details model
 
-    Used for task list and SSE event delivery
+    Used for task list responses
     """
     
     task_id: str = Field(..., description="任务 ID")

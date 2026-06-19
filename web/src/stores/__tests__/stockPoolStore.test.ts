@@ -254,117 +254,20 @@ describe('stockPoolStore', () => {
     expect(state.currentPage).toBe(1);
   });
 
-  it('tracks task lifecycle updates and resets all dashboard state', () => {
-    const pendingTask = {
-      taskId: 'task-1',
-      stockCode: '600519',
-      stockName: '贵州茅台',
-      status: 'pending' as const,
-      progress: 0,
-      reportType: 'detailed',
-      createdAt: '2026-03-18T08:00:00Z',
-    };
-
-    useStockPoolStore.getState().syncTaskCreated(pendingTask);
-    useStockPoolStore.getState().syncTaskUpdated({
-      ...pendingTask,
-      status: 'processing',
-      progress: 60,
-    });
-
-    let state = useStockPoolStore.getState();
-    expect(state.activeTasks).toHaveLength(1);
-    expect(state.activeTasks[0].status).toBe('processing');
-
-    useStockPoolStore.getState().removeTask('task-1');
-    state = useStockPoolStore.getState();
-    expect(state.activeTasks).toHaveLength(0);
-
+  it('resets dashboard state', () => {
     useStockPoolStore.setState({
       query: 'AAPL',
       selectedHistoryIds: [1],
       selectedReport: historyReport,
       markdownDrawerOpen: true,
-      activeTasks: [
-        {
-          ...pendingTask,
-          taskId: 'task-2',
-          status: 'processing',
-          progress: 80,
-        },
-      ],
     });
 
     useStockPoolStore.getState().resetDashboardState();
-    state = useStockPoolStore.getState();
-    expect(state.activeTasks).toHaveLength(0);
+    const state = useStockPoolStore.getState();
     expect(state.query).toBe('');
     expect(state.selectedHistoryIds).toHaveLength(0);
     expect(state.selectedReport).toBeNull();
     expect(state.markdownDrawerOpen).toBe(false);
-  });
-
-  it('ignores late task updates after a task has been removed', () => {
-    const pendingTask = {
-      taskId: 'task-1',
-      stockCode: '600519',
-      stockName: '贵州茅台',
-      status: 'pending' as const,
-      progress: 0,
-      reportType: 'detailed',
-      createdAt: '2026-03-18T08:00:00Z',
-    };
-
-    useStockPoolStore.getState().syncTaskCreated(pendingTask);
-    useStockPoolStore.getState().removeTask('task-1');
-    useStockPoolStore.getState().syncTaskUpdated({
-      ...pendingTask,
-      status: 'processing',
-      progress: 35,
-    });
-    useStockPoolStore.getState().syncTaskCreated(pendingTask);
-
-    expect(useStockPoolStore.getState().activeTasks).toHaveLength(0);
-  });
-
-  it('ignores unknown task updates after dashboard reset', () => {
-    const pendingTask = {
-      taskId: 'task-1',
-      stockCode: '600519',
-      stockName: '贵州茅台',
-      status: 'pending' as const,
-      progress: 0,
-      reportType: 'detailed',
-      createdAt: '2026-03-18T08:00:00Z',
-    };
-
-    useStockPoolStore.getState().syncTaskCreated(pendingTask);
-    useStockPoolStore.getState().resetDashboardState();
-    useStockPoolStore.getState().syncTaskUpdated({
-      ...pendingTask,
-      status: 'processing',
-      progress: 35,
-    });
-
-    const state = useStockPoolStore.getState();
-    expect(state.activeTasks).toHaveLength(0);
-  });
-
-  it('does not backfill unknown failed tasks from SSE updates', () => {
-    useStockPoolStore.getState().syncTaskFailed({
-      taskId: 'task-404',
-      stockCode: 'AAPL',
-      stockName: 'Apple',
-      status: 'failed',
-      progress: 100,
-      reportType: 'detailed',
-      createdAt: '2026-03-18T08:00:00Z',
-      error: '分析失败',
-    });
-
-    const state = useStockPoolStore.getState();
-    expect(state.activeTasks).toHaveLength(0);
-    expect(state.error).toBeTruthy();
   });
 
   it('triggers an analysis with the forceRefresh flag', async () => {

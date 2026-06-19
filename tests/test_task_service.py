@@ -13,7 +13,40 @@ from tests.litellm_stub import ensure_litellm_stub
 ensure_litellm_stub()
 
 from src.celery_app.tasks.analysis import run_stock_analysis
-from src.tasks.queue import TaskStatus, get_task_queue, reset_task_state_for_tests
+from src.tasks.queue import AnalysisTaskQueue, TaskStatus, reset_task_state_for_tests
+from tests.task_repo_fakes import FakeTaskRecordRepository
+
+
+class _FakeLifecycleService:
+    def __init__(self, repository: FakeTaskRecordRepository) -> None:
+        self.repository = repository
+
+    def mark_processing(self, *, task_id, metadata, payload=None, message=None, progress=10, task_log=None, retry_count=0):
+        record = self.repository.get_by_task_id(task_id)
+        record.status = "processing"
+        record.progress = progress
+        record.message = message
+        record.started_at = record.started_at or record.updated_at
+
+    def mark_completed(self, *, task_id, metadata, result=None, message=None, progress=100):
+        record = self.repository.get_by_task_id(task_id)
+        record.status = "completed"
+        record.progress = progress
+        record.message = message
+        record.result = result
+
+    def mark_failed(self, *, task_id, metadata, error, message=None):
+        record = self.repository.get_by_task_id(task_id)
+        record.status = "failed"
+        record.progress = 100
+        record.message = message
+        record.error = str(error)
+
+    def mark_skipped(self, *, task_id, metadata, message=None, result=None):
+        record = self.repository.get_by_task_id(task_id)
+        record.status = "skipped"
+        record.progress = 100
+        record.message = message
 
 
 class TestCeleryTaskService(unittest.TestCase):
@@ -24,15 +57,15 @@ class TestCeleryTaskService(unittest.TestCase):
         reset_task_state_for_tests()
 
     def test_run_stock_analysis_marks_failed_for_unsuccessful_result(self):
-        queue = get_task_queue()
-        with patch.object(run_stock_analysis, "apply_async"):
-            accepted, _duplicates = queue.submit_tasks_batch(["600519"], report_type="detailed")
+        repository = FakeTaskRecordRepository()
+        queue = AnalysisTaskQueue(max_workers=1, repository=repository)
+        accepted, _duplicates = queue.submit_tasks_batch(["600519"], report_type="detailed")
 
         task = accepted[0]
         with patch(
             "src.celery_app.tasks.analysis._run_api_stock_analysis",
             side_effect=RuntimeError("JSON 解析失败"),
-        ):
+        ), patch("src.tasks.lifecycle.get_task_lifecycle_service", return_value=_FakeLifecycleService(repository)):
             with self.assertRaisesRegex(RuntimeError, "JSON 解析失败"):
                 run_stock_analysis(
                     task_id=task.task_id,

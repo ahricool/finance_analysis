@@ -19,7 +19,6 @@ export function useHomeDashboardState() {
     hasMore: state.hasMore,
     selectedReport: state.selectedReport,
     isLoadingReport: state.isLoadingReport,
-    activeTasks: state.activeTasks,
     markdownDrawerOpen: state.markdownDrawerOpen,
     notify: state.notify,
     setQuery: state.setQuery,
@@ -33,10 +32,6 @@ export function useHomeDashboardState() {
     toggleSelectAllVisible: state.toggleSelectAllVisible,
     deleteSelectedHistory: state.deleteSelectedHistory,
     submitAnalysis: state.submitAnalysis,
-    syncTaskCreated: state.syncTaskCreated,
-    syncTaskUpdated: state.syncTaskUpdated,
-    syncTaskFailed: state.syncTaskFailed,
-    removeTask: state.removeTask,
     openMarkdownDrawer: state.openMarkdownDrawer,
     closeMarkdownDrawer: state.closeMarkdownDrawer,
   }));

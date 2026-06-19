@@ -73,12 +73,15 @@ services:
     restart: unless-stopped
     command: ["celery", "-A", "src.celery_app.app", "worker"]
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     env_file:
       - .env
     environment:
       TZ: Asia/Shanghai
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./data:/workspace/data

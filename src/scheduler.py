@@ -203,6 +203,18 @@ def _daily_analysis_task() -> None:
         config = get_config()
         stock_codes = get_watch_list_codes()
         total_count = len(stock_codes)
+        if not stock_codes:
+            finished_at = _scheduled_now()
+            _safe_record_scheduled_task_result(
+                task_name=task_name,
+                type="scheduled_daily",
+                started_at=started_at,
+                finished_at=finished_at,
+                total_count=0,
+                results=[],
+                note="未配置自选股，本次每日全量分析已跳过。",
+            )
+            raise TaskSkipped("未配置自选股，本次每日全量分析已跳过")
         pipeline = StockAnalysisPipeline(config=config)
         results = pipeline.run(stock_codes=stock_codes)
         if results:
@@ -422,6 +434,7 @@ def _a_share_intraday_analysis_task() -> None:
         "A股盘中分析任务触发 - %s（任务流程暂为空）",
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     )
+    raise TaskSkipped("A股盘中分析任务流程暂为空，本次执行已跳过")
 
 
 def start_embedded_analysis_scheduler():

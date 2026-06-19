@@ -4,13 +4,15 @@
 from __future__ import annotations
 
 import os
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.tasks.lifecycle import TaskSkipped, track_task
-from src.tasks.queue import get_task_queue, reset_task_state_for_tests
+from src.tasks.lifecycle import _json_summary, TaskSkipped, track_task
+from src.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
+from tests.task_repo_fakes import FakeTaskRecordRepository
 
 
 class _RecordingLifecycleService:
@@ -103,6 +105,21 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
 
         self.assertEqual([event[0] for event in service.events], ["processing", "skipped"])
 
+    def test_json_summary_is_valid_json_after_truncation_and_redaction(self) -> None:
+        summary = _json_summary(
+            {
+                "api_key": "secret-value",
+                "items": [{"text": "x" * 5000} for _ in range(10)],
+            },
+            limit=800,
+        )
+
+        parsed = json.loads(summary or "")
+        self.assertIsInstance(parsed, dict)
+        self.assertTrue(parsed.get("truncated"))
+        self.assertIn("***", parsed.get("preview", ""))
+        self.assertNotIn("secret-value", summary or "")
+
 
 class TaskQueueLifecycleIntegrationTestCase(unittest.TestCase):
     def setUp(self) -> None:
@@ -112,20 +129,18 @@ class TaskQueueLifecycleIntegrationTestCase(unittest.TestCase):
         reset_task_state_for_tests()
 
     def test_submit_creates_pending_record_with_same_task_id_as_redis_state(self) -> None:
-        service = _RecordingLifecycleService()
-        queue = get_task_queue()
+        repository = FakeTaskRecordRepository()
+        queue = AnalysisTaskQueue(max_workers=1, repository=repository)
 
         from src.celery_app.tasks.analysis import run_stock_analysis
 
-        with patch("src.tasks.queue.get_task_lifecycle_service", return_value=service), \
-             patch.object(run_stock_analysis, "apply_async"):
+        with patch.object(run_stock_analysis, "apply_async"):
             accepted, duplicates = queue.submit_tasks_batch(["600519"], report_type="detailed")
 
         self.assertEqual(duplicates, [])
         task = accepted[0]
         self.assertEqual(queue.get_task(task.task_id).task_id, task.task_id)
-        self.assertEqual(service.events[0][0], "pending")
-        self.assertEqual(service.events[0][1]["task_id"], task.task_id)
+        self.assertEqual(repository.get_by_task_id(task.task_id).status, "pending")
 
 
 if __name__ == "__main__":

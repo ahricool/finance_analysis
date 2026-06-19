@@ -155,7 +155,7 @@ export type AnalyzeResponse = AnalysisResult | AnalyzeAsyncResponse;
 /** Task status */
 export interface TaskStatus {
   taskId: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'skipped' | 'retrying' | 'cancelled';
   progress?: number;
   result?: AnalysisResult;
   marketReviewReport?: string;
@@ -165,12 +165,12 @@ export interface TaskStatus {
   selectionSource?: string;
 }
 
-/** Task details used by task list and SSE events */
+/** Task details used by task list responses */
 export interface TaskInfo {
   taskId: string;
   stockCode: string;
   stockName?: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'skipped' | 'retrying' | 'cancelled';
   progress: number;
   message?: string;
   reportType: string;

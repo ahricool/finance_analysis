@@ -154,14 +154,6 @@ export const analysisApi = {
     return data;
   },
 
-  /**
-   * Get the SSE stream URL.
-   */
-  getTaskStreamUrl: (): string => {
-    // Read API base URL from the shared client.
-    const baseUrl = apiClient.defaults.baseURL || '';
-    return `${baseUrl}/api/v1/analysis/tasks/stream`;
-  },
 };
 
 // ============ Custom Error Classes ============

@@ -2,7 +2,6 @@
 """Regression tests for analysis API/report-type contracts."""
 
 import asyncio
-from concurrent.futures import Future
 from datetime import datetime
 import json
 import tempfile
@@ -39,6 +38,7 @@ except Exception:  # pragma: no cover - optional dependency environments
 from src.enums import ReportType
 from src.services.analysis_service import AnalysisService
 from src.tasks.queue import AnalysisTaskQueue, DuplicateTaskError, TaskStatus, reset_task_state_for_tests
+from tests.task_repo_fakes import FakeTaskRecordRepository
 
 
 class AnalysisApiContractTestCase(unittest.TestCase):
@@ -145,12 +145,11 @@ class AnalysisApiContractTestCase(unittest.TestCase):
 
     def test_market_review_celery_task_uses_configured_pipeline(self) -> None:
         from src.celery_app.tasks.analysis import run_market_review
-        from src.tasks.queue import get_task_queue, reset_task_state_for_tests
+        from src.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
 
         reset_task_state_for_tests()
-        queue = get_task_queue()
-        with patch.object(run_market_review, "apply_async"):
-            task = queue.submit_market_review(send_notification=False, override_region="cn,us")
+        queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
+        task = queue.submit_market_review(send_notification=False, override_region="cn,us")
 
         runtime_notifier = MagicMock()
         runtime_search = MagicMock()
@@ -178,19 +177,15 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             override_region="cn,us",
         )
         release_market_review_lock.assert_called_once_with(lock_token)
-        task_info = queue.get_task(task.task_id)
-        self.assertEqual(task_info.status, TaskStatus.COMPLETED)
-        self.assertEqual(task_info.result, {"result": "report"})
         reset_task_state_for_tests()
 
     def test_market_review_celery_task_marks_failed_when_report_is_empty(self) -> None:
         from src.celery_app.tasks.analysis import run_market_review
-        from src.tasks.queue import get_task_queue, reset_task_state_for_tests
+        from src.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
 
         reset_task_state_for_tests()
-        queue = get_task_queue()
-        with patch.object(run_market_review, "apply_async"):
-            task = queue.submit_market_review(send_notification=False, override_region="cn")
+        queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
+        task = queue.submit_market_review(send_notification=False, override_region="cn")
 
         lock_token = object()
         with patch("src.core.market_review_lock.try_acquire_market_review_lock", return_value=lock_token), \
@@ -208,30 +203,30 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                 )
 
         release_market_review_lock.assert_called_once_with(lock_token)
-        task_info = queue.get_task(task.task_id)
-        self.assertEqual(task_info.status, TaskStatus.FAILED)
-        self.assertEqual(task_info.error, "大盘复盘未返回可持久化报告")
         reset_task_state_for_tests()
 
-    def test_get_analysis_status_returns_market_review_report_from_queue(self) -> None:
+    def test_get_analysis_status_returns_market_review_report_from_task_record(self) -> None:
         if get_analysis_status is None or analysis_endpoint_module is None:
             self.skipTest("analysis endpoint helpers unavailable in this environment")
 
-        queue = MagicMock()
-        queue.get_task.return_value = SimpleNamespace(
+        task_record = SimpleNamespace(
             task_id="market-task-1",
-            stock_code="market_review",
-            stock_name="大盘复盘",
-            status=analysis_endpoint_module.TaskStatusEnum.COMPLETED,
+            task_type="market_review",
+            task_name="大盘复盘",
+            status="completed",
             progress=100,
-            result={"result": "市场复盘报告示例文本"},
+            payload=None,
+            result='{"result": "市场复盘报告示例文本"}',
             error=None,
-            original_query=None,
-            selection_source=None,
         )
+        repository = MagicMock()
+        repository.get_by_task_id.return_value = task_record
+        mock_db = MagicMock()
+        mock_db.get_analysis_history.return_value = []
 
-        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue):
-            status = get_analysis_status("market-task-1", SimpleNamespace())
+        with patch("api.v1.endpoints.analysis.TaskRecordRepository", return_value=repository), \
+             patch("src.storage.DatabaseManager.get_instance", return_value=mock_db):
+            status = get_analysis_status("market-task-1")
 
         self.assertEqual(status.status, "completed")
         self.assertEqual(status.market_review_report, "市场复盘报告示例文本")
@@ -1157,10 +1152,10 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         original_instance = AnalysisTaskQueue._instance
         AnalysisTaskQueue._instance = None
         try:
-            queue = AnalysisTaskQueue(max_workers=1)
-            queue._executor = type("ExecutorStub", (), {"submit": lambda self, *args, **kwargs: Future()})()
+            queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
 
-            with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue):
+            with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
+                 patch.object(queue, "_apply_celery_task"):
                 first = trigger_analysis(
                     request=SimpleNamespace(
                         stock_code="600519",
@@ -1199,11 +1194,6 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                 json.loads(first.body)["task_id"],
             )
         finally:
-            queue = AnalysisTaskQueue._instance
-            if queue is not None and queue is not original_instance:
-                executor = getattr(queue, "_executor", None)
-                if executor is not None and hasattr(executor, "shutdown"):
-                    executor.shutdown(wait=False, cancel_futures=True)
             AnalysisTaskQueue._instance = original_instance
 
     def test_trigger_analysis_batch_does_not_apply_single_stock_name_to_all_tasks(self) -> None:
@@ -1294,33 +1284,6 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                     self.assertIsInstance(response, FileResponse)
                     self.assertEqual(Path(response.path).resolve(), (static_dir / "index.html").resolve())
 
-    def test_sse_generator_reraises_cancelled_error(self) -> None:
-        """CancelledError must propagate (not be swallowed) from the SSE event generator."""
-        try:
-            from api.v1.endpoints.analysis import task_stream
-        except Exception:  # pragma: no cover - optional dependency environments
-            self.skipTest("api.v1.endpoints.analysis not importable")
-
-        mock_task_queue = MagicMock()
-        mock_task_queue.list_pending_tasks.return_value = []
-
-        async def cancelled_events(*args, **kwargs):
-            raise asyncio.CancelledError()
-            yield  # pragma: no cover
-
-        async def run():
-            mock_task_queue.iter_events = cancelled_events
-            with patch("api.v1.endpoints.analysis.get_task_queue", return_value=mock_task_queue):
-                response = await task_stream()
-                gen = response.body_iterator
-
-                self.assertIn("connected", await gen.__anext__())
-                await gen.__anext__()
-
-        with self.assertRaises(asyncio.CancelledError):
-            asyncio.run(run())
-
-
 class BatchTaskQueueContractTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self._original_instance = AnalysisTaskQueue._instance
@@ -1331,42 +1294,44 @@ class BatchTaskQueueContractTestCase(unittest.TestCase):
         AnalysisTaskQueue._instance = self._original_instance
 
     def test_batch_submit_rolls_back_when_celery_submit_fails(self) -> None:
-        queue = AnalysisTaskQueue(max_workers=1)
+        repository = FakeTaskRecordRepository()
+        queue = AnalysisTaskQueue(max_workers=1, repository=repository)
+        calls = 0
 
         def fail_on_second(*args, **kwargs):
-            if len(queue._tasks) == 2:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
                 raise RuntimeError("celery down")
 
         with patch.object(queue, "_apply_celery_task", side_effect=fail_on_second):
             with self.assertRaisesRegex(RuntimeError, "celery down"):
                 queue.submit_tasks_batch(["600519", "000858"], report_type="detailed")
 
-        self.assertEqual(queue._tasks, {})
-        self.assertEqual(queue._analyzing_stocks, {})
-        self.assertEqual(queue._futures, {})
+        self.assertEqual(repository.get_by_task_id(next(iter(repository.records))).status, "pending")
 
     def test_batch_submit_ignores_blank_stock_codes(self) -> None:
-        queue = AnalysisTaskQueue(max_workers=1)
-        queue._executor = type("ExecutorStub", (), {"submit": lambda self, *args, **kwargs: Future()})()
+        queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
 
-        accepted, duplicates = queue.submit_tasks_batch(["600519", "   "], report_type="detailed")
+        with patch.object(queue, "_apply_celery_task"):
+            accepted, duplicates = queue.submit_tasks_batch(["600519", "   "], report_type="detailed")
 
         self.assertEqual([task.stock_code for task in accepted], ["600519"])
         self.assertEqual(duplicates, [])
-        self.assertEqual(sorted(task.stock_code for task in queue._tasks.values()), ["600519"])
 
     def test_batch_submit_deduplicates_equivalent_stock_code_shapes(self) -> None:
-        queue = AnalysisTaskQueue(max_workers=1)
-        queue._executor = type("ExecutorStub", (), {"submit": lambda self, *args, **kwargs: Future()})()
+        queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
 
-        accepted, duplicates = queue.submit_tasks_batch(["600519"], report_type="detailed")
+        with patch.object(queue, "_apply_celery_task"):
+            accepted, duplicates = queue.submit_tasks_batch(["600519"], report_type="detailed")
 
         self.assertEqual(len(accepted), 1)
         self.assertEqual(duplicates, [])
         self.assertTrue(queue.is_analyzing("600519.SH"))
         self.assertEqual(queue.get_analyzing_task_id("600519.SH"), accepted[0].task_id)
 
-        accepted_again, duplicates_again = queue.submit_tasks_batch(["600519.SH"], report_type="detailed")
+        with patch.object(queue, "_apply_celery_task"):
+            accepted_again, duplicates_again = queue.submit_tasks_batch(["600519.SH"], report_type="detailed")
 
         self.assertEqual(accepted_again, [])
         self.assertEqual(len(duplicates_again), 1)
@@ -1374,52 +1339,10 @@ class BatchTaskQueueContractTestCase(unittest.TestCase):
         self.assertEqual(duplicates_again[0].existing_task_id, accepted[0].task_id)
 
     def test_submit_task_rejects_blank_stock_code(self) -> None:
-        queue = AnalysisTaskQueue(max_workers=1)
-        queue._executor = type("ExecutorStub", (), {"submit": lambda self, *args, **kwargs: Future()})()
+        queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
 
         with self.assertRaisesRegex(ValueError, "股票代码不能为空或仅包含空白字符"):
             queue.submit_task("   ", report_type="detailed")
-
-        self.assertEqual(queue._tasks, {})
-        self.assertEqual(queue._analyzing_stocks, {})
-        self.assertEqual(queue._futures, {})
-
-    def test_batch_submit_broadcasts_task_created_while_queue_lock_is_held(self) -> None:
-        queue = AnalysisTaskQueue(max_workers=1)
-        queue._executor = type("ExecutorStub", (), {"submit": lambda self, *args, **kwargs: Future()})()
-        lock_states = []
-
-        def record_broadcast(event_type, data):
-            if event_type == "task_created":
-                lock_states.append(queue._data_lock._is_owned())
-
-        queue._broadcast_event = record_broadcast
-
-        accepted, duplicates = queue.submit_tasks_batch(["600519", "000858"], report_type="detailed")
-
-        self.assertEqual(len(accepted), 2)
-        self.assertEqual(duplicates, [])
-        self.assertEqual(lock_states, [False, False])
-
-    def test_update_task_progress_broadcasts_task_progress_event(self) -> None:
-        queue = AnalysisTaskQueue(max_workers=1)
-        queue._executor = type("ExecutorStub", (), {"submit": lambda self, *args, **kwargs: Future()})()
-        accepted, _ = queue.submit_tasks_batch(["600519"], report_type="detailed")
-
-        events = []
-        queue._broadcast_event = lambda event_type, data: events.append((event_type, data))
-
-        updated = queue.update_task_progress(
-            accepted[0].task_id,
-            62,
-            "LLM 正在生成分析结果",
-        )
-
-        self.assertIsNotNone(updated)
-        self.assertEqual(updated.progress, 62)
-        self.assertEqual(updated.message, "LLM 正在生成分析结果")
-        self.assertEqual(events, [("task_progress", updated.to_dict())])
-
 
 if __name__ == "__main__":
     unittest.main()

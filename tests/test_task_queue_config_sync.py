@@ -49,27 +49,17 @@ class TaskQueueConfigSyncTestCase(unittest.TestCase):
 
     def test_sync_max_workers_applies_when_idle(self) -> None:
         queue = AnalysisTaskQueue(max_workers=3)
-        shutdown_wait_args = []
-
-        class ExecutorStub:
-            def shutdown(self, wait=True, cancel_futures=False):
-                shutdown_wait_args.append(wait)
-
-        queue._executor = ExecutorStub()
 
         result = queue.sync_max_workers(1)
         self.assertEqual(result, "applied")
         self.assertEqual(queue.max_workers, 1)
-        self.assertIsNone(queue._executor)
-        self.assertEqual(shutdown_wait_args, [False])
 
-    def test_sync_max_workers_deferred_when_busy(self) -> None:
+    def test_sync_max_workers_applies_without_local_busy_state(self) -> None:
         queue = AnalysisTaskQueue(max_workers=3)
-        queue._analyzing_stocks["600519"] = "task1"
 
         result = queue.sync_max_workers(1)
-        self.assertEqual(result, "deferred_busy")
-        self.assertEqual(queue.max_workers, 3)
+        self.assertEqual(result, "applied")
+        self.assertEqual(queue.max_workers, 1)
 
     def test_get_task_queue_uses_runtime_configured_max_workers(self) -> None:
         with patch("src.config.get_config", return_value=SimpleNamespace(max_workers=1)):
@@ -95,15 +85,14 @@ class TaskQueueConfigSyncTestCase(unittest.TestCase):
     def test_dedupe_stock_code_key_normalizes_market_suffix(self) -> None:
         self.assertEqual(_dedupe_stock_code_key(" 600519.sh "), "600519")
 
-    def test_get_task_queue_defers_sync_when_busy(self) -> None:
+    def test_get_task_queue_applies_sync_without_local_busy_state(self) -> None:
         queue = AnalysisTaskQueue(max_workers=3)
-        queue._analyzing_stocks["600519"] = "task1"
 
         with patch("src.config.get_config", return_value=SimpleNamespace(max_workers=1)):
             synced = get_task_queue()
 
         self.assertIs(synced, queue)
-        self.assertEqual(synced.max_workers, 3)
+        self.assertEqual(synced.max_workers, 1)
 
 
 if __name__ == "__main__":
