@@ -12,7 +12,6 @@ import traceback
 import uuid
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, TypeVar
@@ -57,6 +56,8 @@ class TaskLifecycleMetadata:
     task_name: str
     source: str
     uid: Optional[int] = None
+    trigger_source: Optional[str] = None
+    triggered_by_uid: Optional[int] = None
     scheduler_job_id: Optional[str] = None
     parent_task_id: Optional[str] = None
 
@@ -78,7 +79,7 @@ def _redact_error_text(value: str) -> str:
     for token in SENSITIVE_KEY_TOKENS:
         text = re.sub(
             rf"({re.escape(token)}\s*[=:]\s*)([^\s,;]+)",
-            rf"\1***",
+            r"\1***",
             text,
             flags=re.IGNORECASE,
         )
@@ -190,6 +191,8 @@ class TaskLifecycleService:
                 retry_count=retry_count,
                 scheduler_job_id=metadata.scheduler_job_id,
                 dedupe_key=dedupe_key,
+                trigger_source=metadata.trigger_source,
+                triggered_by_uid=metadata.triggered_by_uid,
             ),
         )
 
@@ -221,6 +224,8 @@ class TaskLifecycleService:
                 parent_task_id=metadata.parent_task_id,
                 retry_count=retry_count,
                 scheduler_job_id=metadata.scheduler_job_id,
+                trigger_source=metadata.trigger_source,
+                triggered_by_uid=metadata.triggered_by_uid,
             ),
         )
 
@@ -259,6 +264,8 @@ class TaskLifecycleService:
                 finished_at=utc_now(),
                 parent_task_id=metadata.parent_task_id,
                 scheduler_job_id=metadata.scheduler_job_id,
+                trigger_source=metadata.trigger_source,
+                triggered_by_uid=metadata.triggered_by_uid,
             ),
         )
 
@@ -285,6 +292,8 @@ class TaskLifecycleService:
                 finished_at=utc_now(),
                 parent_task_id=metadata.parent_task_id,
                 scheduler_job_id=metadata.scheduler_job_id,
+                trigger_source=metadata.trigger_source,
+                triggered_by_uid=metadata.triggered_by_uid,
             ),
         )
 
@@ -309,6 +318,8 @@ class TaskLifecycleService:
                 finished_at=utc_now(),
                 parent_task_id=metadata.parent_task_id,
                 scheduler_job_id=metadata.scheduler_job_id,
+                trigger_source=metadata.trigger_source,
+                triggered_by_uid=metadata.triggered_by_uid,
             ),
         )
 
@@ -339,6 +350,8 @@ class TaskLifecycleService:
                 finished_at=utc_now(),
                 parent_task_id=metadata.parent_task_id,
                 scheduler_job_id=metadata.scheduler_job_id,
+                trigger_source=metadata.trigger_source,
+                triggered_by_uid=metadata.triggered_by_uid,
             ),
         )
 
@@ -379,9 +392,13 @@ def track_task(
     uid_getter: Optional[Callable[..., Optional[int]]] = None,
     task_id_getter: Optional[Callable[..., Optional[str]]] = None,
     task_name_getter: Optional[Callable[..., Optional[str]]] = None,
+    trigger_source: Optional[str] = None,
+    trigger_source_getter: Optional[Callable[..., Optional[str]]] = None,
+    triggered_by_uid_getter: Optional[Callable[..., Optional[int]]] = None,
     scheduler_job_id: Optional[str] = None,
     record_result: bool = True,
     success_message: Optional[str] = None,
+    strip_lifecycle_kwargs: bool = False,
 ) -> Callable[[F], F]:
     """Decorate task functions with persistent lifecycle tracking and task log context."""
 
@@ -391,11 +408,15 @@ def track_task(
             task_id = _resolve_task_id(task_id_getter, args, kwargs)
             uid = _resolve_uid(uid_getter, args, kwargs)
             resolved_task_name = _resolve_task_name(task_name, task_name_getter, args, kwargs)
+            resolved_trigger_source = _resolve_trigger_source(trigger_source, trigger_source_getter, args, kwargs)
+            resolved_triggered_by_uid = _resolve_triggered_by_uid(triggered_by_uid_getter, args, kwargs)
             metadata = TaskLifecycleMetadata(
                 task_type=task_type,
                 task_name=resolved_task_name,
                 source=source,
                 uid=uid,
+                trigger_source=resolved_trigger_source,
+                triggered_by_uid=resolved_triggered_by_uid,
                 scheduler_job_id=scheduler_job_id,
             )
             celery = source.startswith("celery")
@@ -414,7 +435,8 @@ def track_task(
                     retry_count=retry_count,
                 )
                 try:
-                    result = func(*args, **kwargs)
+                    call_kwargs = _strip_lifecycle_kwargs(kwargs) if strip_lifecycle_kwargs else kwargs
+                    result = func(*args, **call_kwargs)
                 except TaskSkipped as exc:
                     service.mark_skipped(
                         task_id=task_id,
@@ -478,6 +500,44 @@ def _resolve_uid(
         except Exception:
             logger.debug("uid_getter failed", exc_info=True)
     return _safe_int(kwargs.get("owner_uid"))
+
+
+def _resolve_trigger_source(
+    default: Optional[str],
+    trigger_source_getter: Optional[Callable[..., Optional[str]]],
+    args: tuple[Any, ...],
+    kwargs: Mapping[str, Any],
+) -> Optional[str]:
+    if trigger_source_getter is not None:
+        try:
+            value = trigger_source_getter(*args, **kwargs)
+            if value:
+                return str(value)
+        except Exception:
+            logger.debug("trigger_source_getter failed", exc_info=True)
+    value = kwargs.get("_trigger_source")
+    return str(value) if value else default
+
+
+def _resolve_triggered_by_uid(
+    triggered_by_uid_getter: Optional[Callable[..., Optional[int]]],
+    args: tuple[Any, ...],
+    kwargs: Mapping[str, Any],
+) -> Optional[int]:
+    if triggered_by_uid_getter is not None:
+        try:
+            return _safe_int(triggered_by_uid_getter(*args, **kwargs))
+        except Exception:
+            logger.debug("triggered_by_uid_getter failed", exc_info=True)
+    return _safe_int(kwargs.get("_triggered_by_uid"))
+
+
+def _strip_lifecycle_kwargs(kwargs: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        key: value
+        for key, value in kwargs.items()
+        if key not in {"task_id", "_trigger_source", "_triggered_by_uid"}
+    }
 
 
 def _resolve_task_name(

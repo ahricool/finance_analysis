@@ -18,6 +18,8 @@ class TaskRecord(Base):
     task_name = Column(String(128), nullable=True)
     uid = Column(Integer, nullable=True, index=True)
     source = Column(String(32), nullable=False, index=True)
+    trigger_source = Column(String(32), nullable=True, index=True)
+    triggered_by_uid = Column(Integer, nullable=True, index=True)
     status = Column(String(24), nullable=False, index=True)
     progress = Column(Integer, nullable=False, default=0)
     message = Column(String(255), nullable=True)

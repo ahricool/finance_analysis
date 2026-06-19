@@ -21,6 +21,7 @@ from api.v1.endpoints import (
     history,
     stock_list,
     stocks,
+    tasks,
     usage,
     watch_list,
 )
@@ -92,4 +93,10 @@ router.include_router(
     celery_demo.router,
     prefix="/celery",
     tags=["Celery"],
+)
+
+router.include_router(
+    tasks.router,
+    prefix="/tasks",
+    tags=["Tasks"],
 )
