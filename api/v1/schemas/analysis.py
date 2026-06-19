@@ -23,6 +23,9 @@ class TaskStatusEnum(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    SKIPPED = "skipped"
+    RETRYING = "retrying"
+    CANCELLED = "cancelled"
 
 
 class AnalyzeRequest(BaseModel):
@@ -232,7 +235,7 @@ class TaskStatus(BaseModel):
     status: str = Field(
         ..., 
         description="任务状态",
-        pattern="^(pending|processing|completed|failed)$"
+        pattern="^(pending|processing|completed|failed|skipped|retrying|cancelled)$"
     )
     progress: Optional[int] = Field(
         None, 

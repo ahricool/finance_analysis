@@ -1,0 +1,517 @@
+# -*- coding: utf-8 -*-
+"""Unified task lifecycle tracking for Celery, APScheduler, and queue state."""
+
+from __future__ import annotations
+
+import functools
+import json
+import logging
+import os
+import traceback
+import uuid
+from contextvars import ContextVar
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any, Callable, Dict, Mapping, Optional, TypeVar
+
+from src.logging_config import get_log_base_dir, get_task_log_file, task_logging_context
+from src.repositories.task_record_repo import TaskRecordRepository
+from src.time_utils import utc_now
+
+logger = logging.getLogger(__name__)
+F = TypeVar("F", bound=Callable[..., Any])
+
+MAX_PAYLOAD_CHARS = 8000
+MAX_RESULT_CHARS = 12000
+MAX_ERROR_CHARS = 24000
+SENSITIVE_KEY_TOKENS = ("token", "secret", "password", "authorization", "api_key", "apikey", "key")
+
+CURRENT_TASK_ID: ContextVar[Optional[str]] = ContextVar("task_lifecycle_task_id", default=None)
+
+
+class TaskExecutionStatus(str, Enum):
+    """Persistent lifecycle states for task execution instances."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    RETRYING = "retrying"
+    CANCELLED = "cancelled"
+
+
+class TaskSkipped(Exception):
+    """Raise from scheduled jobs when a run should be recorded as skipped."""
+
+
+@dataclass(frozen=True)
+class TaskLifecycleMetadata:
+    task_type: str
+    task_name: str
+    source: str
+    uid: Optional[int] = None
+    scheduler_job_id: Optional[str] = None
+    parent_task_id: Optional[str] = None
+
+
+def get_current_task_id() -> Optional[str]:
+    """Return the task id bound by ``track_task`` for the current execution context."""
+
+    return CURRENT_TASK_ID.get()
+
+
+def _truncate_text(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}...<truncated {len(value) - limit} chars>"
+
+
+def _redact_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        redacted: Dict[str, Any] = {}
+        for key, nested in value.items():
+            key_text = str(key)
+            if any(token in key_text.lower() for token in SENSITIVE_KEY_TOKENS):
+                redacted[key_text] = "***"
+            else:
+                redacted[key_text] = _redact_value(nested)
+        return redacted
+    if isinstance(value, (list, tuple, set)):
+        return [_redact_value(item) for item in list(value)[:50]]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
+def _json_summary(value: Any, *, limit: int) -> Optional[str]:
+    if value is None:
+        return None
+    try:
+        text = json.dumps(_redact_value(value), ensure_ascii=False, default=str)
+    except Exception:
+        text = repr(value)
+    return _truncate_text(text, limit)
+
+
+def _relative_task_log_path(task_name: str, task_id: str, *, celery: bool) -> str:
+    log_file = get_task_log_file(task_name, task_id, celery=celery)
+    try:
+        return str(log_file.relative_to(get_log_base_dir()))
+    except ValueError:
+        try:
+            return str(log_file.relative_to(Path.cwd()))
+        except ValueError:
+            return str(log_file)
+
+
+def _safe_int(value: Any) -> Optional[int]:
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+class TaskLifecycleService:
+    """Best-effort DB lifecycle writer used by queue and decorators."""
+
+    def __init__(self, repository: Optional[TaskRecordRepository] = None):
+        self.repository = repository
+
+    def create_pending(
+        self,
+        *,
+        task_id: str,
+        metadata: TaskLifecycleMetadata,
+        payload: Optional[Any] = None,
+        message: Optional[str] = None,
+        progress: int = 0,
+        task_log: Optional[str] = None,
+        retry_count: int = 0,
+    ) -> None:
+        self._safe_write(
+            "create pending task record",
+            lambda repo: repo.ensure_record(
+                task_id=task_id,
+                task_type=metadata.task_type,
+                task_name=metadata.task_name,
+                uid=metadata.uid,
+                source=metadata.source,
+                status=TaskExecutionStatus.PENDING.value,
+                payload=_json_summary(payload, limit=MAX_PAYLOAD_CHARS),
+                message=message,
+                progress=progress,
+                task_log=task_log,
+                parent_task_id=metadata.parent_task_id,
+                retry_count=retry_count,
+                scheduler_job_id=metadata.scheduler_job_id,
+            ),
+        )
+
+    def mark_processing(
+        self,
+        *,
+        task_id: str,
+        metadata: TaskLifecycleMetadata,
+        payload: Optional[Any] = None,
+        message: Optional[str] = None,
+        progress: int = 10,
+        task_log: Optional[str] = None,
+        retry_count: int = 0,
+    ) -> None:
+        self._safe_write(
+            "mark task processing",
+            lambda repo: repo.update_status(
+                task_id=task_id,
+                task_type=metadata.task_type,
+                task_name=metadata.task_name,
+                uid=metadata.uid,
+                source=metadata.source,
+                status=TaskExecutionStatus.PROCESSING.value,
+                progress=progress,
+                message=message,
+                payload=_json_summary(payload, limit=MAX_PAYLOAD_CHARS),
+                task_log=task_log,
+                started_at=utc_now(),
+                parent_task_id=metadata.parent_task_id,
+                retry_count=retry_count,
+                scheduler_job_id=metadata.scheduler_job_id,
+            ),
+        )
+
+    def mark_progress(self, *, task_id: str, progress: int, message: Optional[str] = None) -> None:
+        self._safe_write(
+            "update task progress",
+            lambda repo: repo.update_status(
+                task_id=task_id,
+                status=TaskExecutionStatus.PROCESSING.value,
+                progress=progress,
+                message=message,
+            ),
+        )
+
+    def mark_completed(
+        self,
+        *,
+        task_id: str,
+        metadata: TaskLifecycleMetadata,
+        result: Optional[Any] = None,
+        message: Optional[str] = None,
+        progress: int = 100,
+    ) -> None:
+        self._safe_write(
+            "mark task completed",
+            lambda repo: repo.update_status(
+                task_id=task_id,
+                task_type=metadata.task_type,
+                task_name=metadata.task_name,
+                uid=metadata.uid,
+                source=metadata.source,
+                status=TaskExecutionStatus.COMPLETED.value,
+                progress=progress,
+                message=message,
+                result=_json_summary(result, limit=MAX_RESULT_CHARS),
+                finished_at=utc_now(),
+                parent_task_id=metadata.parent_task_id,
+                scheduler_job_id=metadata.scheduler_job_id,
+            ),
+        )
+
+    def mark_skipped(
+        self,
+        *,
+        task_id: str,
+        metadata: TaskLifecycleMetadata,
+        message: Optional[str] = None,
+        result: Optional[Any] = None,
+    ) -> None:
+        self._safe_write(
+            "mark task skipped",
+            lambda repo: repo.update_status(
+                task_id=task_id,
+                task_type=metadata.task_type,
+                task_name=metadata.task_name,
+                uid=metadata.uid,
+                source=metadata.source,
+                status=TaskExecutionStatus.SKIPPED.value,
+                progress=100,
+                message=message,
+                result=_json_summary(result, limit=MAX_RESULT_CHARS),
+                finished_at=utc_now(),
+                parent_task_id=metadata.parent_task_id,
+                scheduler_job_id=metadata.scheduler_job_id,
+            ),
+        )
+
+    def mark_cancelled(
+        self,
+        *,
+        task_id: str,
+        metadata: TaskLifecycleMetadata,
+        message: Optional[str] = None,
+    ) -> None:
+        self._safe_write(
+            "mark task cancelled",
+            lambda repo: repo.update_status(
+                task_id=task_id,
+                task_type=metadata.task_type,
+                task_name=metadata.task_name,
+                uid=metadata.uid,
+                source=metadata.source,
+                status=TaskExecutionStatus.CANCELLED.value,
+                progress=100,
+                message=message,
+                finished_at=utc_now(),
+                parent_task_id=metadata.parent_task_id,
+                scheduler_job_id=metadata.scheduler_job_id,
+            ),
+        )
+
+    def mark_failed(
+        self,
+        *,
+        task_id: str,
+        metadata: TaskLifecycleMetadata,
+        error: BaseException | str,
+        message: Optional[str] = None,
+    ) -> None:
+        if isinstance(error, BaseException):
+            error_text = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+        else:
+            error_text = str(error)
+        self._safe_write(
+            "mark task failed",
+            lambda repo: repo.update_status(
+                task_id=task_id,
+                task_type=metadata.task_type,
+                task_name=metadata.task_name,
+                uid=metadata.uid,
+                source=metadata.source,
+                status=TaskExecutionStatus.FAILED.value,
+                progress=100,
+                message=message,
+                error=_truncate_text(error_text, MAX_ERROR_CHARS),
+                finished_at=utc_now(),
+                parent_task_id=metadata.parent_task_id,
+                scheduler_job_id=metadata.scheduler_job_id,
+            ),
+        )
+
+    def _get_repository(self) -> TaskRecordRepository:
+        if self.repository is None:
+            self.repository = TaskRecordRepository()
+        return self.repository
+
+    def _safe_write(self, operation: str, callback: Callable[[TaskRecordRepository], Any]) -> None:
+        if (
+            self.repository is None
+            and os.getenv("PYTEST_CURRENT_TEST")
+            and not os.getenv("FINANCE_TASK_RECORD_DB_TEST")
+        ):
+            return
+        try:
+            callback(self._get_repository())
+        except Exception as exc:
+            logger.warning("Task lifecycle DB write failed during %s: %s", operation, exc, exc_info=True)
+
+
+_DEFAULT_SERVICE = TaskLifecycleService()
+
+
+def get_task_lifecycle_service() -> TaskLifecycleService:
+    return _DEFAULT_SERVICE
+
+
+def build_payload_from_call(args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> Dict[str, Any]:
+    return {"args": list(args), "kwargs": dict(kwargs)}
+
+
+def track_task(
+    *,
+    task_type: str,
+    task_name: str,
+    source: str,
+    uid_getter: Optional[Callable[..., Optional[int]]] = None,
+    task_id_getter: Optional[Callable[..., Optional[str]]] = None,
+    task_name_getter: Optional[Callable[..., Optional[str]]] = None,
+    scheduler_job_id: Optional[str] = None,
+    record_result: bool = True,
+    success_message: Optional[str] = None,
+) -> Callable[[F], F]:
+    """Decorate task functions with persistent lifecycle tracking and task log context."""
+
+    def decorator(func: F) -> F:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            task_id = _resolve_task_id(task_id_getter, args, kwargs)
+            uid = _resolve_uid(uid_getter, args, kwargs)
+            resolved_task_name = _resolve_task_name(task_name, task_name_getter, args, kwargs)
+            metadata = TaskLifecycleMetadata(
+                task_type=task_type,
+                task_name=resolved_task_name,
+                source=source,
+                uid=uid,
+                scheduler_job_id=scheduler_job_id,
+            )
+            celery = source.startswith("celery")
+            task_log = _relative_task_log_path(resolved_task_name, task_id, celery=celery)
+            payload = build_payload_from_call(args, kwargs)
+            retry_count = _resolve_retry_count()
+            service = get_task_lifecycle_service()
+            token = CURRENT_TASK_ID.set(task_id)
+            with task_logging_context(resolved_task_name, task_id=task_id, celery=celery):
+                queue_updated = _mark_queue_started(task_id, "任务执行中", task_log) if celery else False
+                if not queue_updated:
+                    service.mark_processing(
+                        task_id=task_id,
+                        metadata=metadata,
+                        payload=payload,
+                        message="任务执行中",
+                        task_log=task_log,
+                        retry_count=retry_count,
+                    )
+                try:
+                    result = func(*args, **kwargs)
+                except TaskSkipped as exc:
+                    service.mark_skipped(
+                        task_id=task_id,
+                        metadata=metadata,
+                        message=str(exc) or "任务已跳过",
+                    )
+                    return None
+                except Exception as exc:
+                    if celery:
+                        _mark_queue_failed(task_id, str(exc), "任务失败")
+                    service.mark_failed(task_id=task_id, metadata=metadata, error=exc, message=str(exc)[:200])
+                    raise
+                else:
+                    completed_via_queue = (
+                        _mark_queue_completed(task_id, result if record_result else None, success_message)
+                        if celery
+                        else False
+                    )
+                    if not completed_via_queue:
+                        service.mark_completed(
+                            task_id=task_id,
+                            metadata=metadata,
+                            result=result if record_result else None,
+                            message=success_message or "任务执行完成",
+                        )
+                    return result
+                finally:
+                    CURRENT_TASK_ID.reset(token)
+
+        wrapper._finance_tracked_task = True  # type: ignore[attr-defined]
+        return wrapper  # type: ignore[return-value]
+
+    return decorator
+
+
+def _resolve_task_id(
+    task_id_getter: Optional[Callable[..., Optional[str]]],
+    args: tuple[Any, ...],
+    kwargs: Mapping[str, Any],
+) -> str:
+    if task_id_getter is not None:
+        try:
+            task_id = task_id_getter(*args, **kwargs)
+            if task_id:
+                return str(task_id)
+        except Exception:
+            logger.debug("task_id_getter failed", exc_info=True)
+    if kwargs.get("task_id"):
+        return str(kwargs["task_id"])
+    try:
+        from celery import current_task
+
+        request_id = getattr(getattr(current_task, "request", None), "id", None)
+        if request_id:
+            return str(request_id)
+    except Exception:
+        pass
+    return uuid.uuid4().hex
+
+
+def _resolve_uid(
+    uid_getter: Optional[Callable[..., Optional[int]]],
+    args: tuple[Any, ...],
+    kwargs: Mapping[str, Any],
+) -> Optional[int]:
+    if uid_getter is not None:
+        try:
+            return _safe_int(uid_getter(*args, **kwargs))
+        except Exception:
+            logger.debug("uid_getter failed", exc_info=True)
+    return _safe_int(kwargs.get("owner_uid"))
+
+
+def _resolve_task_name(
+    default: str,
+    task_name_getter: Optional[Callable[..., Optional[str]]],
+    args: tuple[Any, ...],
+    kwargs: Mapping[str, Any],
+) -> str:
+    if task_name_getter is not None:
+        try:
+            task_name = task_name_getter(*args, **kwargs)
+            if task_name:
+                return str(task_name)
+        except Exception:
+            logger.debug("task_name_getter failed", exc_info=True)
+    return default
+
+
+def _resolve_retry_count() -> int:
+    try:
+        from celery import current_task
+
+        return int(getattr(getattr(current_task, "request", None), "retries", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _mark_queue_started(task_id: str, message: str, task_log: Optional[str]) -> bool:
+    try:
+        from src.tasks.queue import get_task_queue
+
+        return get_task_queue().mark_task_started(task_id, message, task_log=task_log) is not None
+    except Exception:
+        logger.debug("Queue start update failed: task_id=%s", task_id, exc_info=True)
+        return False
+
+
+def _mark_queue_completed(task_id: str, result: Any, message: Optional[str]) -> bool:
+    try:
+        from src.tasks.queue import get_task_queue
+
+        stock_name = None
+        if isinstance(result, dict):
+            stock_name = result.get("stock_name") or result.get("name")
+        return get_task_queue().mark_task_completed(
+            task_id,
+            result if isinstance(result, dict) or result is None else {"result": result},
+            message=message or "任务执行完成",
+            stock_name=stock_name,
+        ) is not None
+    except Exception:
+        logger.debug("Queue completion update failed: task_id=%s", task_id, exc_info=True)
+        return False
+
+
+def _mark_queue_failed(task_id: str, error: str, message_prefix: str) -> bool:
+    try:
+        from src.tasks.queue import get_task_queue
+
+        return get_task_queue().mark_task_failed(task_id, error, message_prefix=message_prefix) is not None
+    except Exception:
+        logger.debug("Queue failure update failed: task_id=%s", task_id, exc_info=True)
+        return False
+
+
+def is_tracked_callable(value: Any) -> bool:
+    run = getattr(value, "run", None)
+    return bool(getattr(value, "_finance_tracked_task", False) or getattr(run, "_finance_tracked_task", False))

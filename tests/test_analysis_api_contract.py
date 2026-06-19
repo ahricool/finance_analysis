@@ -158,7 +158,10 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         lock_token = object()
         with patch("src.core.market_review_lock.try_acquire_market_review_lock", return_value=lock_token), \
              patch("src.core.market_review_lock.release_market_review_lock") as release_market_review_lock, \
-             patch("src.core.market_review_runtime.build_market_review_runtime", return_value=(runtime_notifier, runtime_analyzer, runtime_search)), \
+             patch(
+                 "src.core.market_review_runtime.build_market_review_runtime",
+                 return_value=(runtime_notifier, runtime_analyzer, runtime_search),
+             ), \
              patch("src.core.market_review.run_market_review", return_value="report") as run_market_review_pipeline:
             result = run_market_review(
                 task_id=task.task_id,
@@ -192,15 +195,18 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         lock_token = object()
         with patch("src.core.market_review_lock.try_acquire_market_review_lock", return_value=lock_token), \
              patch("src.core.market_review_lock.release_market_review_lock") as release_market_review_lock, \
-             patch("src.core.market_review_runtime.build_market_review_runtime", return_value=(MagicMock(), MagicMock(), MagicMock())), \
+             patch(
+                 "src.core.market_review_runtime.build_market_review_runtime",
+                 return_value=(MagicMock(), MagicMock(), MagicMock()),
+             ), \
              patch("src.core.market_review.run_market_review", return_value=None):
-            result = run_market_review(
-                task_id=task.task_id,
-                send_notification=False,
-                override_region="cn",
-            )
+            with self.assertRaisesRegex(RuntimeError, "大盘复盘未返回可持久化报告"):
+                run_market_review(
+                    task_id=task.task_id,
+                    send_notification=False,
+                    override_region="cn",
+                )
 
-        self.assertIsNone(result)
         release_market_review_lock.assert_called_once_with(lock_token)
         task_info = queue.get_task(task.task_id)
         self.assertEqual(task_info.status, TaskStatus.FAILED)

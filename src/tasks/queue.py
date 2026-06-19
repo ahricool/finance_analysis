@@ -17,6 +17,7 @@ from typing import Any, AsyncIterator, Dict, List, Literal, Optional, Tuple
 
 from data_provider.base import canonical_stock_code, normalize_stock_code
 from src.time_utils import utc_isoformat
+from src.tasks.lifecycle import TaskLifecycleMetadata, get_task_lifecycle_service
 from src.utils.analysis_metadata import SELECTION_SOURCES
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,8 @@ class TaskInfo:
     original_query: Optional[str] = None
     selection_source: Optional[str] = None
     owner_uid: Optional[int] = None
+    task_type: Optional[str] = None
+    source: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -99,6 +102,8 @@ class TaskInfo:
     def to_storage_dict(self) -> Dict[str, Any]:
         data = self.to_dict()
         data["result"] = self.result
+        data["task_type"] = self.task_type
+        data["source"] = self.source
         return data
 
     @classmethod
@@ -119,6 +124,8 @@ class TaskInfo:
             original_query=data.get("original_query"),
             selection_source=data.get("selection_source"),
             owner_uid=data.get("owner_uid"),
+            task_type=data.get("task_type"),
+            source=data.get("source"),
         )
 
     def copy(self) -> "TaskInfo":
@@ -331,11 +338,57 @@ class AnalysisTaskQueue:
         self._initialized = True
         logger.info("[TaskQueue] Celery-backed task queue initialized")
 
+    def _task_metadata(self, task: TaskInfo) -> TaskLifecycleMetadata:
+        task_type = task.task_type or self._infer_task_type(task.stock_code)
+        return TaskLifecycleMetadata(
+            task_type=task_type,
+            task_name=task.stock_name or self._infer_task_name(task.stock_code, task_type),
+            source=task.source or "celery_manual",
+            uid=task.owner_uid,
+        )
+
+    @staticmethod
+    def _infer_task_type(stock_code: str) -> str:
+        if stock_code == "market_review":
+            return "market_review"
+        if stock_code == "batch_analysis":
+            return "batch_analysis"
+        return "stock_analysis"
+
+    @staticmethod
+    def _infer_task_name(stock_code: str, task_type: str) -> str:
+        if task_type == "market_review":
+            return "大盘复盘"
+        if task_type == "batch_analysis":
+            return "批量分析"
+        return f"股票分析 {stock_code}"
+
+    def _create_pending_record(self, task: TaskInfo, payload: Optional[Dict[str, Any]] = None) -> None:
+        get_task_lifecycle_service().create_pending(
+            task_id=task.task_id,
+            metadata=self._task_metadata(task),
+            payload=payload,
+            message=task.message,
+            progress=task.progress,
+        )
+
+    def _mark_cancelled_record(self, task: TaskInfo, message: str) -> None:
+        get_task_lifecycle_service().mark_cancelled(
+            task_id=task.task_id,
+            metadata=self._task_metadata(task),
+            message=message,
+        )
+
     @property
     def max_workers(self) -> int:
         return self._max_workers
 
-    def sync_max_workers(self, max_workers: int, *, log: bool = True) -> Literal["applied", "unchanged", "deferred_busy"]:
+    def sync_max_workers(
+        self,
+        max_workers: int,
+        *,
+        log: bool = True,
+    ) -> Literal["applied", "unchanged", "deferred_busy"]:
         try:
             target = max(1, int(max_workers))
         except (TypeError, ValueError):
@@ -425,11 +478,22 @@ class AnalysisTaskQueue:
                 original_query=original_query,
                 selection_source=selection_source,
                 owner_uid=owner_uid,
+                task_type="stock_analysis",
+                source="celery_manual",
             )
             if not self._store.create_task(task):
                 existing_task_id = self.get_analyzing_task_id(stock_code) or ""
                 duplicates.append(DuplicateTaskError(stock_code, existing_task_id))
                 continue
+            task_payload = {
+                "stock_code": stock_code,
+                "report_type": report_type,
+                "force_refresh": force_refresh,
+                "notify": notify,
+                "original_query": original_query,
+                "selection_source": selection_source,
+            }
+            self._create_pending_record(task, task_payload)
             created_task_ids.append(task_id)
             try:
                 self._apply_celery_task(
@@ -447,6 +511,9 @@ class AnalysisTaskQueue:
                 )
             except Exception:
                 for created_task_id in created_task_ids:
+                    created_task = self._store.get_task(created_task_id)
+                    if created_task:
+                        self._mark_cancelled_record(created_task, "Celery 任务提交失败，已取消")
                     self._store.remove_task(created_task_id)
                 raise
             accepted.append(task.copy())
@@ -478,9 +545,12 @@ class AnalysisTaskQueue:
             status=TaskStatus.PENDING,
             message="Bot 分析任务已加入队列",
             report_type=report_type,
+            task_type="stock_analysis",
+            source="celery_manual",
         )
         if not self._store.create_task(task):
             raise DuplicateTaskError(stock_code, self.get_analyzing_task_id(stock_code) or "")
+        self._create_pending_record(task, {"stock_code": stock_code, "report_type": report_type, "task_source": "bot"})
         try:
             self._apply_celery_task(
                 run_stock_analysis,
@@ -498,6 +568,7 @@ class AnalysisTaskQueue:
                 },
             )
         except Exception:
+            self._mark_cancelled_record(task, "Celery 任务提交失败，已取消")
             self._store.remove_task(task_id)
             raise
         self._broadcast_event("task_created", task.to_dict())
@@ -520,9 +591,15 @@ class AnalysisTaskQueue:
             status=TaskStatus.PENDING,
             message="大盘复盘任务已提交",
             report_type="detailed",
+            task_type="market_review",
+            source="celery_manual",
         )
         if not self._store.create_task(task):
             raise DuplicateTaskError("market_review", self.get_analyzing_task_id("market_review") or "")
+        self._create_pending_record(
+            task,
+            {"send_notification": send_notification, "override_region": override_region},
+        )
         try:
             self._apply_celery_task(
                 run_market_review,
@@ -535,6 +612,7 @@ class AnalysisTaskQueue:
                 },
             )
         except Exception:
+            self._mark_cancelled_record(task, "Celery 任务提交失败，已取消")
             self._store.remove_task(task_id)
             raise
         self._broadcast_event("task_created", task.to_dict())
@@ -556,9 +634,12 @@ class AnalysisTaskQueue:
             status=TaskStatus.PENDING,
             message="Bot 批量分析任务已加入队列",
             report_type="simple",
+            task_type="batch_analysis",
+            source="celery_manual",
         )
         if not self._store.create_task(task):
             raise DuplicateTaskError("batch_analysis", self.get_analyzing_task_id("batch_analysis") or "")
+        self._create_pending_record(task, {"stock_codes": stock_codes, "task_source": "bot"})
         try:
             self._apply_celery_task(
                 run_batch_analysis,
@@ -570,6 +651,7 @@ class AnalysisTaskQueue:
                 },
             )
         except Exception:
+            self._mark_cancelled_record(task, "Celery 任务提交失败，已取消")
             self._store.remove_task(task_id)
             raise
         self._broadcast_event("task_created", task.to_dict())
@@ -618,10 +700,22 @@ class AnalysisTaskQueue:
             updates["message"] = message
         updated = self._store.update_task(task_id, **updates)
         if updated:
+            get_task_lifecycle_service().mark_progress(
+                task_id=task_id,
+                progress=updated.progress,
+                message=updated.message,
+            )
             self._broadcast_event(event_type, updated.to_dict())
         return updated
 
-    def mark_task_started(self, task_id: str, message: str = "正在分析中...") -> Optional[TaskInfo]:
+    def mark_task_started(
+        self,
+        task_id: str,
+        message: str = "正在分析中...",
+        *,
+        task_log: Optional[str] = None,
+    ) -> Optional[TaskInfo]:
+        previous = self.get_task(task_id)
         task = self._store.update_task(
             task_id,
             status=TaskStatus.PROCESSING,
@@ -630,6 +724,14 @@ class AnalysisTaskQueue:
             message=message,
         )
         if task:
+            get_task_lifecycle_service().mark_processing(
+                task_id=task_id,
+                metadata=self._task_metadata(task),
+                payload=previous.to_storage_dict() if previous else None,
+                message=message,
+                progress=task.progress,
+                task_log=task_log,
+            )
             self._broadcast_event("task_started", task.to_dict())
         return task
 
@@ -651,10 +753,17 @@ class AnalysisTaskQueue:
             stock_name=stock_name,
         )
         if task:
+            get_task_lifecycle_service().mark_completed(
+                task_id=task_id,
+                metadata=self._task_metadata(task),
+                result=result,
+                message=message,
+            )
             self._broadcast_event("task_completed", task.to_dict())
         return task
 
     def mark_task_failed(self, task_id: str, error: str, *, message_prefix: str = "分析失败") -> Optional[TaskInfo]:
+        previous = self.get_task(task_id)
         task = self._store.update_task(
             task_id,
             status=TaskStatus.FAILED,
@@ -662,6 +771,14 @@ class AnalysisTaskQueue:
             error=error[:200],
             message=f"{message_prefix}: {error[:80]}",
         )
+        tracked_task = task or previous
+        if tracked_task:
+            get_task_lifecycle_service().mark_failed(
+                task_id=task_id,
+                metadata=self._task_metadata(tracked_task),
+                error=error,
+                message=f"{message_prefix}: {error[:80]}",
+            )
         if task:
             self._broadcast_event("task_failed", task.to_dict())
         return task
