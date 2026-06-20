@@ -26,6 +26,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 MAX_PAYLOAD_CHARS = 8000
 MAX_RESULT_CHARS = 12000
 MAX_ERROR_CHARS = 24000
+MAX_FAILURE_NOTIFICATION_STACK_CHARS = 6000
 MAX_JSON_DEPTH = 6
 MAX_JSON_ITEMS = 40
 MAX_STRING_CHARS = 1000
@@ -384,6 +385,52 @@ def build_payload_from_call(args: tuple[Any, ...], kwargs: Mapping[str, Any]) ->
     return {"args": list(args), "kwargs": dict(kwargs)}
 
 
+def _send_task_failure_notification(
+    *,
+    task_id: str,
+    metadata: TaskLifecycleMetadata,
+    error: BaseException,
+) -> None:
+    try:
+        from src.notification import NotificationService
+
+        reason = _redact_error_text(f"{type(error).__name__}: {error}")
+        stack = _redact_error_text("".join(traceback.format_exception(type(error), error, error.__traceback__)))
+        stack = _truncate_text(stack, MAX_FAILURE_NOTIFICATION_STACK_CHARS)
+        content = "\n".join(
+            [
+                "**任务失败通知**",
+                "",
+                f"- 任务：{metadata.task_name}",
+                f"- 类型：{metadata.task_type}",
+                f"- 来源：{metadata.source}",
+                f"- Task ID：{task_id}",
+                f"- 失败原因：{reason}",
+                "",
+                "**调用栈**",
+                "```text",
+                stack,
+                "```",
+            ]
+        )
+        notification_key = f"task_failure:{task_id}"
+        NotificationService().send(
+            content,
+            route_type="system_error",
+            severity="error",
+            dedup_key=notification_key,
+            cooldown_key=notification_key,
+        )
+    except Exception as notify_exc:
+        logger.warning(
+            "Task failure notification failed for task_id=%s task_name=%s: %s",
+            task_id,
+            metadata.task_name,
+            notify_exc,
+            exc_info=True,
+        )
+
+
 def track_task(
     *,
     task_type: str,
@@ -446,6 +493,7 @@ def track_task(
                     return None
                 except Exception as exc:
                     service.mark_failed(task_id=task_id, metadata=metadata, error=exc, message=str(exc)[:200])
+                    _send_task_failure_notification(task_id=task_id, metadata=metadata, error=exc)
                     raise
                 else:
                     service.mark_completed(
