@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Protocol
 
-from src.config import get_config
+from src.core.pipeline_config import get_pipeline_config
 from src.notification import NotificationService
 from src.market_analyzer import MarketAnalyzer
 from src.report_language import normalize_report_language
@@ -79,7 +79,7 @@ def run_market_review(
         复盘报告文本
     """
     logger.info("开始执行大盘复盘分析...")
-    config = get_config()
+    config = get_pipeline_config()
     review_text = _get_market_review_text(getattr(config, "report_language", "zh"))
     region = (
         override_region

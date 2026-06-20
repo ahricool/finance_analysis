@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from bot.commands.base import BotCommand
 from bot.models import BotMessage, BotResponse
 from data_provider.base import canonical_stock_code
-from src.config import get_config
+from src.core.pipeline_config import get_pipeline_config
 from src.storage import get_db
 
 logger = logging.getLogger(__name__)
@@ -204,7 +204,7 @@ class AskCommand(BotCommand):
 
     def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """Execute the ask command via Agent pipeline. Supports multi-stock."""
-        config = get_config()
+        config = get_pipeline_config()
 
         if not config.agent_mode:
             return BotResponse.text_response(

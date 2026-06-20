@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from src.models.user import User
 from src.storage import DatabaseManager
-from src.config import get_config, Config
+from src.core.pipeline_config import PipelineConfig, get_pipeline_config
 from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL
 
 
@@ -43,14 +43,9 @@ def get_db() -> Generator[Session, None, None]:
         session.close()
 
 
-def get_config_dep() -> Config:
-    """
-    获取配置依赖
-
-    Returns:
-        Config: 配置单例对象
-    """
-    return get_config()
+def get_config_dep() -> PipelineConfig:
+    """Return the analysis pipeline configuration view."""
+    return get_pipeline_config()
 
 
 def get_database_manager() -> DatabaseManager:

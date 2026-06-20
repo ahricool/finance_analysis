@@ -15,7 +15,7 @@ from typing import List, Optional
 
 from bot.commands.base import BotCommand
 from bot.models import BotMessage, BotResponse
-from src.config import get_config
+from src.core.pipeline_config import get_pipeline_config
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class ResearchCommand(BotCommand):
                 "Example: /research 新能源板块前景分析"
             )
 
-        config = get_config()
+        config = get_pipeline_config()
 
         if not config.agent_mode:
             return BotResponse.text_response(

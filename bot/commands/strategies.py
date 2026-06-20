@@ -45,19 +45,21 @@ class StrategiesCommand(BotCommand):
 
         try:
             from src.agent.factory import get_skill_manager
-            from src.config import get_config
+            from src.agent.config import get_agent_config
+            from src.agent.skills.defaults import get_default_active_skill_ids
 
-            config = get_config()
+            config = get_agent_config()
             sm = get_skill_manager(config)
-            from src.agent.factory import DEFAULT_AGENT_SKILLS
 
             # Derive activation status from config without mutating the skill
             # manager — this is a read-only listing command.
-            configured_active: set = set(config.agent_skills or DEFAULT_AGENT_SKILLS)
-
             all_skills = sm.list_skills()
             if not all_skills:
                 return BotResponse.text_response("📋 暂无可用策略。请检查 strategies/ 目录。")
+            configured_active: set = set(
+                config.agent_skills
+                or get_default_active_skill_ids(all_skills)
+            )
 
             skills = all_skills
             if show_active_only:

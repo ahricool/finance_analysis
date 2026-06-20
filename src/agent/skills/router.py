@@ -101,9 +101,9 @@ class SkillRouter:
     @staticmethod
     def _get_routing_mode() -> str:
         try:
-            from src.config import get_config
+            from src.agent.config import get_agent_config
 
-            config = get_config()
+            config = get_agent_config()
             return getattr(config, "agent_skill_routing", "auto")
         except Exception:
             logger.warning("Failed to get routing mode, falling back to auto", exc_info=True)
@@ -133,9 +133,9 @@ class SkillRouter:
     def _get_manual_skills(cls, max_count: int) -> List[str]:
         configured: List[str] = []
         try:
-            from src.config import get_config
+            from src.agent.config import get_agent_config
 
-            config = get_config()
+            config = get_agent_config()
             configured = [
                 skill_id
                 for skill_id in getattr(config, "agent_skills", []) or []

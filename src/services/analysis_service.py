@@ -67,7 +67,7 @@ class AnalysisService:
         try:
             self.last_error = None
             # 导入分析相关模块
-            from src.config import get_config
+            from src.core.pipeline_config import get_pipeline_config
             from src.core.pipeline import StockAnalysisPipeline
             from src.enums import ReportType
             
@@ -76,7 +76,7 @@ class AnalysisService:
                 query_id = uuid.uuid4().hex
             
             # 获取配置
-            config = get_config()
+            config = get_pipeline_config()
             
             # 创建分析流水线
             pipeline = StockAnalysisPipeline(

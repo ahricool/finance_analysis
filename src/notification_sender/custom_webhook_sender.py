@@ -13,15 +13,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from src.config import Config
-
 
 logger = logging.getLogger(__name__)
 
 
 class CustomWebhookSender:
 
-    def __init__(self, config: Config):
+    def __init__(self, config: object):
         """
         初始化自定义 Webhook 配置
 

@@ -44,22 +44,22 @@ class StatusCommand(BotCommand):
     
     def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """执行状态命令"""
-        from src.config import get_config
-        
-        config = get_config()
-        
         # 收集状态信息
-        status_info = self._collect_status(config)
+        status_info = self._collect_status()
         
         # 格式化输出
         text = self._format_status(status_info, message.platform)
         
         return BotResponse.markdown_response(text)
     
-    def _collect_status(self, config) -> dict:
+    def _collect_status(self) -> dict:
         """收集系统状态信息"""
-        from src.config import _uses_direct_env_provider, get_configured_llm_models
+        from src.agent.config import get_agent_config
+        from src.llm import is_llm_configured
+        from src.llm.config import get_llm_config
+        from src.notification_config import get_notification_config
         from src.repositories.watch_list_repo import get_watch_list_codes
+        from src.search.config import get_search_config
 
         try:
             watch_codes = get_watch_list_codes()
@@ -74,55 +74,34 @@ class StatusCommand(BotCommand):
             "stock_list": watch_codes[:5],  # 只显示前5个
         }
         
-        # AI 配置状态
-        llm_channels = getattr(config, "llm_channels", []) or []
-        llm_model_list = getattr(config, "llm_model_list", []) or []
-        llm_model = (getattr(config, "litellm_model", "") or "").strip()
-        agent_model = (getattr(config, "agent_litellm_model", "") or "").strip()
+        llm_config = get_llm_config()
+        agent_config = get_agent_config()
+        search_config = get_search_config()
+        notification_config = get_notification_config()
+
+        llm_model = (llm_config.model or "").strip()
+        agent_model = (agent_config.agent_litellm_model or "").strip()
         status["ai_primary_model"] = llm_model
         status["ai_agent_model"] = agent_model or ("继承主模型" if llm_model else "")
-        status["ai_channels"] = [
-            str(channel.get("name") or "").strip()
-            for channel in llm_channels
-            if str(channel.get("name") or "").strip()
-        ]
-        status["ai_yaml"] = (
-            getattr(config, "llm_models_source", "") == "litellm_config"
-            and bool(llm_model_list)
-        )
-        status["ai_legacy_keys"] = {
-            "Gemini": bool(getattr(config, "gemini_api_keys", [])),
-            "OpenAI": bool(getattr(config, "openai_api_keys", [])),
-            "Anthropic": bool(getattr(config, "anthropic_api_keys", [])),
-            "DeepSeek": bool(getattr(config, "deepseek_api_keys", [])),
-        }
-        has_direct_env_model = bool(llm_model) and _uses_direct_env_provider(llm_model)
-        available_router_model_set = set(get_configured_llm_models(llm_model_list))
-        primary_model_reachable = not (
-            available_router_model_set
-            and llm_model
-            and not _uses_direct_env_provider(llm_model)
-            and llm_model not in available_router_model_set
-        )
-        status["ai_available"] = bool(
-            llm_model
-            and (has_direct_env_model or (llm_model_list and primary_model_reachable))
-        )
+        status["ai_channels"] = []
+        status["ai_yaml"] = False
+        status["ai_legacy_keys"] = {}
+        status["ai_available"] = is_llm_configured(llm_config)
         
         # 搜索服务状态
-        status["search_bocha"] = len(config.bocha_api_keys) > 0
-        status["search_tavily"] = len(config.tavily_api_keys) > 0
-        status["search_brave"] = len(config.brave_api_keys) > 0
-        status["search_serpapi"] = len(config.serpapi_keys) > 0
-        status["search_minimax"] = len(config.minimax_api_keys) > 0
-        status["search_searxng"] = config.has_searxng_enabled()
+        status["search_bocha"] = len(search_config.bocha_api_keys) > 0
+        status["search_tavily"] = len(search_config.tavily_api_keys) > 0
+        status["search_brave"] = len(search_config.brave_api_keys) > 0
+        status["search_serpapi"] = len(search_config.serpapi_keys) > 0
+        status["search_minimax"] = len(search_config.minimax_api_keys) > 0
+        status["search_searxng"] = search_config.has_searxng_enabled()
         
         # 通知渠道状态
-        status["notify_telegram"] = bool(config.telegram_bot_token and config.telegram_chat_id)
-        status["notify_email"] = bool(config.email_sender and config.email_password)
-        status["notify_ntfy"] = bool(getattr(config, "ntfy_url", None))
-        status["notify_custom"] = bool(getattr(config, "custom_webhook_urls", []))
-        status["notify_astrbot"] = bool(getattr(config, "astrbot_url", None))
+        status["notify_telegram"] = bool(notification_config.telegram_bot_token and notification_config.telegram_chat_id)
+        status["notify_email"] = bool(notification_config.email_sender and notification_config.email_password)
+        status["notify_ntfy"] = bool(notification_config.ntfy_url)
+        status["notify_custom"] = bool(notification_config.custom_webhook_urls)
+        status["notify_astrbot"] = bool(notification_config.astrbot_url)
         
         return status
     

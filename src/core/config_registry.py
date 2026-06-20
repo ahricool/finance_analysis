@@ -10,7 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
-from src.config import AGENT_MAX_STEPS_DEFAULT
+from src.agent.config import AGENT_MAX_STEPS_DEFAULT
 from src.notification_noise import NOTIFICATION_SEVERITIES
 from src.notification_routing import ROUTABLE_NOTIFICATION_CHANNELS
 
@@ -1192,20 +1192,6 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "validation": {},
         "display_order": 70,
     },
-    "HTTP_PROXY": {
-        "title": "HTTP Proxy",
-        "description": "Optional HTTP proxy endpoint.",
-        "category": "system",
-        "data_type": "string",
-        "ui_control": "text",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": None,
-        "options": [],
-        "validation": {},
-        "display_order": 20,
-    },
     "LOG_LEVEL": {
         "title": "Log Level",
         "description": "Application log level.",
@@ -1219,47 +1205,6 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "options": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         "validation": {"enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]},
         "display_order": 30,
-    },
-    "WEBUI_HOST": {
-        "title": "Web UI Host",
-        "description": "Host address for Web UI service binding.",
-        "category": "system",
-        "data_type": "string",
-        "ui_control": "text",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": None,
-        "options": [],
-        "validation": {},
-        "display_order": 39,
-        "help_key": "settings.system.WEBUI_HOST",
-        "examples": ["WEBUI_HOST=<bind-address>"],
-        "docs": [
-            {
-                "label": "云服务器访问 WebUI",
-                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/deploy-webui-cloud.md",
-            },
-            {
-                "label": "完整指南：WebUI 与 API",
-                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/full-guide.md#webui-与-api-服务",
-            },
-        ],
-        "warning_codes": ["restart_required"],
-    },
-    "WEBUI_PORT": {
-        "title": "Web UI Port",
-        "description": "Port for Web UI service.",
-        "category": "system",
-        "data_type": "integer",
-        "ui_control": "number",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": None,
-        "options": [],
-        "validation": {"min": 1, "max": 65535},
-        "display_order": 40,
     },
     "TRADING_DAY_CHECK_ENABLED": {
         "title": "Trading Day Check",
@@ -1330,20 +1275,6 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "options": [],
         "validation": {"min": 0, "max": 60},
         "display_order": 51,
-    },
-    "DEBUG": {
-        "title": "Debug Mode",
-        "description": "Enable debug mode with verbose logging.",
-        "category": "system",
-        "data_type": "boolean",
-        "ui_control": "switch",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": "false",
-        "options": [],
-        "validation": {},
-        "display_order": 55,
     },
     "BACKTEST_ENABLED": {
         "title": "Backtest Enabled",
@@ -1788,7 +1719,7 @@ def _infer_category(key: str) -> str:
         "ASTRBOT",
     )) or "WEBHOOK" in key:
         return "notification"
-    if key.startswith(("LOG_", "WEBUI_", "HTTP_", "HTTPS_", "MAX_", "DEBUG", "MARKET_REVIEW_", "TRADING_DAY_", "ANALYSIS_DELAY")):
+    if key.startswith(("LOG_", "MAX_", "MARKET_REVIEW_", "TRADING_DAY_", "ANALYSIS_DELAY")):
         return "system"
     return "uncategorized"
 

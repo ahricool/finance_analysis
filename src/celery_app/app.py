@@ -12,7 +12,8 @@ from celery import Celery
 from celery.signals import setup_logging as celery_setup_logging
 from celery.signals import before_task_publish, task_failure, task_postrun, task_prerun, worker_process_init
 
-from src.config import get_config, setup_env
+from src.config import load_env
+from src.db.config import get_database_config
 from src.logging_config import ensure_backend_logging, task_logging_context
 from src.tasks.lifecycle import TaskLifecycleMetadata, get_task_lifecycle_service, is_tracked_callable
 
@@ -140,8 +141,8 @@ def _safe_int(value: Any) -> Optional[int]:
 
 def create_celery_app() -> Celery:
     """Build a Celery app using the project Redis URL as broker and result backend."""
-    setup_env()
-    config = get_config()
+    load_env()
+    config = get_database_config()
     app = Celery(
         CELERY_APP_NAME,
         broker=config.redis_url,

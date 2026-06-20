@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote, urlparse
 
 from data_provider.us_index_mapping import is_us_index_code
-from src.config import (
+from src.search.config import (
     NEWS_STRATEGY_WINDOWS,
     normalize_news_strategy_profile,
     resolve_news_window_days,

@@ -34,7 +34,7 @@ from tenacity import (
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS,is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code, _is_hk_market
 from .codes import _is_etf_code, _is_us_code
 from .realtime_types import UnifiedRealtimeQuote, ChipDistribution
-from src.config import get_config
+from data_provider.config import get_data_provider_config
 from src.logging_config import log_external_call_exception
 import os
 from zoneinfo import ZoneInfo
@@ -147,7 +147,7 @@ class TushareFetcher(BaseFetcher):
         这里直接使用内置 HTTP client，避免运行时强依赖 tushare SDK，
         从而减少 Docker / PyInstaller / 多虚拟环境场景下因缺包导致的初始化失败。
         """
-        config = get_config()
+        config = get_data_provider_config()
 
         if not config.tushare_token:
             logger.warning("Tushare Token 未配置，此数据源不可用")
@@ -182,7 +182,7 @@ class TushareFetcher(BaseFetcher):
         Returns:
             优先级数字（0=最高，数字越大优先级越低）
         """
-        config = get_config()
+        config = get_data_provider_config()
 
         if config.tushare_token and self._api is not None:
             # Token 配置且 API 初始化成功，提升为最高优先级

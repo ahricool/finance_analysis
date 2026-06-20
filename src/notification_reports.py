@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from src.config import get_config
+from src.report_config import get_report_config
 from src.enums import ReportType
 from src.report_language import (
     get_localized_stock_name,
@@ -294,7 +294,7 @@ class ReportRenderingMixin:
         Returns:
             Markdown 格式的决策仪表盘日报
         """
-        config = get_config()
+        config = get_report_config()
         report_language = self._get_report_language(results)
         labels = get_report_labels(report_language)
         reason_label = "Rationale" if report_language == "en" else "操作理由"
@@ -596,7 +596,7 @@ class ReportRenderingMixin:
             report_date = datetime.now().strftime('%Y-%m-%d')
         report_language = self._get_report_language(results)
         labels = get_report_labels(report_language)
-        config = get_config()
+        config = get_report_config()
         if getattr(config, 'report_renderer_enabled', False) and results:
             from src.services.report_renderer import render
             out = render(
@@ -805,4 +805,3 @@ class ReportRenderingMixin:
             ])
 
         lines.append("")
-

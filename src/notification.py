@@ -21,7 +21,8 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from enum import Enum
 
-from src.config import Config, get_config
+from src.notification_config import get_notification_config
+from src.report_config import get_report_config
 from src.enums import ReportType
 from src.notification_routing import (
     get_notification_route_config,
@@ -123,20 +124,21 @@ class NotificationService(
 
         检测所有已配置的渠道，推送时会向所有渠道发送
         """
-        config = get_config()
+        config = get_notification_config()
+        report_config = get_report_config()
         self._config = config
         self._source_message = source_message
 
         # Markdown 转图片（Issue #289）
         self._markdown_to_image_channels = set(
-            getattr(config, 'markdown_to_image_channels', []) or []
+            getattr(report_config, 'markdown_to_image_channels', []) or []
         )
         self._markdown_to_image_max_chars = getattr(
-            config, 'markdown_to_image_max_chars', 15000
+            report_config, 'markdown_to_image_max_chars', 15000
         )
 
         # 仅分析结果摘要（Issue #262）：true 时只推送汇总，不含个股详情
-        self._report_summary_only = getattr(config, 'report_summary_only', False)
+        self._report_summary_only = getattr(report_config, 'report_summary_only', False)
         self._history_compare_cache: Dict[Tuple[int, Tuple[Tuple[str, str], ...]], Dict[str, List[Dict[str, Any]]]] = {}
 
         AstrbotSender.__init__(self, config)
@@ -171,7 +173,7 @@ class NotificationService(
             if language:
                 return normalize_report_language(language)
 
-        return normalize_report_language(getattr(get_config(), "report_language", "zh"))
+        return normalize_report_language(get_report_config().report_language)
 
     def _get_labels(self, payload: Optional[Any] = None) -> Dict[str, str]:
         return get_report_labels(self._get_report_language(payload))
@@ -184,7 +186,7 @@ class NotificationService(
 
     def _get_history_compare_context(self, results: List[AnalysisResult]) -> Dict[str, Any]:
         """Fetch and cache history comparison data for markdown rendering."""
-        config = get_config()
+        config = get_report_config()
         history_compare_n = getattr(config, 'report_history_compare_n', 0)
         if history_compare_n <= 0 or not results:
             return {"history_by_code": {}}
@@ -238,7 +240,7 @@ class NotificationService(
         return list(dict.fromkeys(models))
     
     @staticmethod
-    def detect_configured_channels(config: Config) -> List[NotificationChannel]:
+    def detect_configured_channels(config: object) -> List[NotificationChannel]:
         """
         Detect statically configured notification channels from Config.
 
@@ -439,8 +441,7 @@ class NotificationService(
                             [ch.value for ch in channels_needing_image])
             elif channels_needing_image:
                 try:
-                    from src.config import get_config
-                    engine = getattr(get_config(), "md2img_engine", "wkhtmltoimage")
+                    engine = get_report_config().md2img_engine
                 except Exception:
                     engine = "wkhtmltoimage"
                 hint = (

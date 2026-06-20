@@ -42,7 +42,7 @@ from tenacity import (
 )
 
 from src.patches.eastmoney_patch import eastmoney_patch
-from src.config import get_config
+from data_provider.config import get_data_provider_config
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS, is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code
 from .codes import _is_etf_code, _is_hk_code, _is_us_code, _to_sina_tx_symbol, is_hk_stock_code
 from .realtime_types import (
@@ -183,7 +183,7 @@ class AkshareFetcher(BaseFetcher):
         self.sleep_max = sleep_max
         self._last_request_time: Optional[float] = None
         # 东财补丁开启才执行打补丁操作
-        if get_config().enable_eastmoney_patch:
+        if get_data_provider_config().enable_eastmoney_patch:
             eastmoney_patch()
     
     def _set_random_user_agent(self) -> None:

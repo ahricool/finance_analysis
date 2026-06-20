@@ -108,7 +108,7 @@ jobs:
       - name: 🔍 Docker smoke imports
         run: |
           docker run --rm stock-analysis:test python -c "
-          from src.config import get_config; print('✅ config')
+          from src.config import load_env; print('✅ config')
           from src.storage import DatabaseManager; print('✅ storage')
           from src.notification import NotificationService; print('✅ notification')
           from data_provider import DataFetcherManager; print('✅ data_provider')

@@ -124,13 +124,13 @@ def _run_bot_stock_analysis(
     bot_message: Optional[Dict[str, Any]],
     save_context_snapshot: Optional[bool],
 ) -> Optional[Dict[str, Any]]:
-    from src.config import get_config
+    from src.core.pipeline_config import get_pipeline_config
     from src.core.pipeline import StockAnalysisPipeline
     from src.enums import ReportType
 
     source_message = _bot_message_from_payload(bot_message)
     pipeline = StockAnalysisPipeline(
-        config=get_config(),
+        config=get_pipeline_config(),
         max_workers=1,
         source_message=source_message,
         query_id=task_id,
@@ -175,12 +175,12 @@ def run_market_review(
     bot_message: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Run market review inside a Celery worker."""
-    from src.config import get_config
+    from src.core.pipeline_config import get_pipeline_config
     from src.core.market_review import run_market_review as run_market_review_pipeline
     from src.core.market_review_lock import release_market_review_lock, try_acquire_market_review_lock
     from src.core.market_review_runtime import build_market_review_runtime
 
-    config = get_config()
+    config = get_pipeline_config()
     lock_token = try_acquire_market_review_lock(config)
     if lock_token is None:
         raise RuntimeError("大盘复盘正在执行中")
@@ -219,11 +219,11 @@ def run_batch_analysis(
     bot_message: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Run Bot batch analysis inside a Celery worker."""
-    from src.config import get_config
+    from src.core.pipeline_config import get_pipeline_config
     from src.core.pipeline import StockAnalysisPipeline
 
     pipeline = StockAnalysisPipeline(
-        config=get_config(),
+        config=get_pipeline_config(),
         source_message=_bot_message_from_payload(bot_message),
         query_id=task_id,
         query_source="bot",

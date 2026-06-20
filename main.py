@@ -22,13 +22,14 @@ def main() -> int:
     """
     try:
         import uvicorn
-        from src.config import get_config, setup_env
+        from src.config import load_env
         from src.logging_config import setup_backend_logging
+        from src.runtime_config import get_runtime_config
 
         args = _parse_args()
-        setup_env()
+        load_env()
         setup_backend_logging(service="server", log_prefix="web_server")
-        config = get_config()
+        config = get_runtime_config()
         host = args.host or config.webui_host
         port = args.port or config.webui_port
         if not host or port is None:

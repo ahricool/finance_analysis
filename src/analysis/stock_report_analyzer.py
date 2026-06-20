@@ -21,11 +21,8 @@ from typing import Optional, Dict, Any, List, Tuple, Callable
 from json_repair import repair_json
 
 from src.agent.skills.defaults import CORE_TRADING_SKILL_POLICY_ZH
-from src.config import (
-    Config,
-    get_config,
-    resolve_news_window_days,
-)
+from src.core.pipeline_config import PipelineConfig, get_pipeline_config
+from src.search.config import resolve_news_window_days
 from src.llm import AllModelsFailedError, LLMClient, LLMRequest, completion, is_llm_configured
 from src.storage import persist_llm_usage
 from src.data.stock_mapping import STOCK_NAME_MAP
@@ -582,7 +579,7 @@ class StockReportAnalyzer:
     def __init__(
         self,
         *,
-        config: Optional[Config] = None,
+        config: Optional[PipelineConfig] = None,
         skills: Optional[List[str]] = None,
         skill_instructions: Optional[str] = None,
         default_skill_policy: Optional[str] = None,
@@ -598,9 +595,9 @@ class StockReportAnalyzer:
         if not is_llm_configured(self._get_runtime_config()):
             logger.warning("No LLM configured (LLM_MODEL / LLM_API_KEY), AI analysis will be unavailable")
 
-    def _get_runtime_config(self) -> Config:
+    def _get_runtime_config(self) -> PipelineConfig:
         """Return the runtime config, honoring injected overrides for tests/pipeline."""
-        return getattr(self, "_config_override", None) or get_config()
+        return getattr(self, "_config_override", None) or get_pipeline_config()
 
     def _get_skill_prompt_sections(self) -> tuple[str, str, bool]:
         """Resolve skill instructions + default baseline + prompt mode."""
@@ -694,7 +691,7 @@ class StockReportAnalyzer:
         model: str,
         call_kwargs: Dict[str, Any],
         *,
-        config: Config,
+        config: object,
     ) -> Any:
         """Dispatch one completion through the unified client."""
         return completion(

@@ -331,8 +331,8 @@ class LongbridgeFetcher(BaseFetcher):
         if self._available is not None:
             return self._available
         try:
-            from src.config import get_config
-            config = get_config()
+            from data_provider.config import get_data_provider_config
+            config = get_data_provider_config()
             has_creds = bool(
                 config.longbridge_app_key
                 and config.longbridge_app_secret
@@ -364,8 +364,8 @@ class LongbridgeFetcher(BaseFetcher):
 
                 # ── 2. Ensure credentials are available in env ──
                 try:
-                    from src.config import get_config
-                    app_config = get_config()
+                    from data_provider.config import get_data_provider_config
+                    app_config = get_data_provider_config()
                     app_key = app_config.longbridge_app_key
                     app_secret = app_config.longbridge_app_secret
                     access_token = app_config.longbridge_access_token

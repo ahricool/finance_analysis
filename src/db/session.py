@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.config import get_config
+from src.db.config import get_database_config
 from src.db.base import ensure_aware_datetime
 from src.db.bootstrap import bootstrap_database
 from src.models import (
@@ -69,7 +69,7 @@ class DatabaseManager(ConversationUsageMixin):
         if getattr(self, '_initialized', False):
             return
 
-        config = get_config()
+        config = get_database_config()
         if db_url is None:
             db_url = config.get_db_url()
 

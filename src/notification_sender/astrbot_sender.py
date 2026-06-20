@@ -13,7 +13,6 @@ from typing import Optional
 
 import requests
 
-from src.config import Config
 from src.formatters import markdown_to_html_document
 
 
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class AstrbotSender:
     
-    def __init__(self, config: Config):
+    def __init__(self, config: object):
         """
         初始化 AstrBot 配置
 
