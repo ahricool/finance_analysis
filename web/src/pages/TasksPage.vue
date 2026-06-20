@@ -468,7 +468,22 @@ onBeforeUnmount(() => {
                 </Button>
               </div>
 
-              <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+              <div class="grid gap-2 sm:grid-cols-2 lg:max-w-[560px]">
+                <input
+                  v-if="isAdmin"
+                  v-model="filters.uid"
+                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
+                  inputmode="numeric"
+                  placeholder="UID"
+                />
+                <input
+                  v-model="filters.keyword"
+                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
+                  placeholder="名称或 Task ID"
+                />
+              </div>
+
+              <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                 <details ref="statusFilterMenuRef" class="group relative">
                   <summary
                     class="flex h-9 w-full cursor-pointer list-none items-center justify-between gap-2 rounded-xl border border-border/70 bg-background px-3 text-sm text-foreground transition-colors hover:bg-hover [&::-webkit-details-marker]:hidden"
@@ -524,18 +539,6 @@ onBeforeUnmount(() => {
                     {{ option.label }}
                   </option>
                 </select>
-                <input
-                  v-if="isAdmin"
-                  v-model="filters.uid"
-                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
-                  inputmode="numeric"
-                  placeholder="UID"
-                />
-                <input
-                  v-model="filters.keyword"
-                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
-                  placeholder="名称或 Task ID"
-                />
               </div>
 
               <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
