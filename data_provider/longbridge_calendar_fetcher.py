@@ -99,6 +99,15 @@ def _parse_date(value: Any, fallback: Optional[date] = None) -> date:
     raise ValueError(f"invalid calendar event date: {value!r}")
 
 
+def _format_request_date(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    parsed = _parse_date(value)
+    return parsed.isoformat()
+
+
 def _parse_datetime(value: Any) -> Optional[datetime]:
     if value is None:
         return None
@@ -271,10 +280,13 @@ class LongbridgeCalendarFetcher:
         category_name = self._CATEGORY_BY_TYPE[calendar_type]
         return getattr(CalendarCategory, category_name)
 
-    def _resolve_market(self, market: str) -> Any:
-        from longbridge.openapi import Market
-
-        return getattr(Market, market.upper(), market)
+    def _resolve_market(self, market: Any) -> Optional[str]:
+        text = _enum_name(market).upper()
+        if not text or text == "UNKNOWN":
+            return None
+        if text.endswith(".US"):
+            return "US"
+        return text
 
     def fetch_earnings_calendar(self, start: date, end: date, market: str) -> List[Dict[str, Any]]:
         return self.fetch_calendar("earnings", start, end, market)
@@ -302,7 +314,12 @@ class LongbridgeCalendarFetcher:
         except Exception:
             pass
 
-        response = method(self._resolve_category(calendar_type), start, end, self._resolve_market(market))
+        response = method(
+            self._resolve_category(calendar_type),
+            _format_request_date(start),
+            _format_request_date(end),
+            self._resolve_market(market),
+        )
         return self.normalize_response(response, calendar_type=calendar_type, market=market)
 
     def normalize_response(self, response: Any, *, calendar_type: str, market: str) -> List[Dict[str, Any]]:
