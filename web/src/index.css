@@ -184,8 +184,7 @@
   --home-panel-subtle-bg-hover: hsl(220 16% 93% / 0.99);
   --home-history-item-bg: hsl(0 0% 100% / 0.82);
   --home-history-item-hover-bg: hsl(220 16% 93% / 0.99);
-  --home-history-item-selected-bg:
-    linear-gradient(180deg, hsl(var(--primary) / 0.07), hsl(220 16% 93% / 0.98));
+  --home-history-item-selected-bg: hsl(var(--card));
   --home-divider-border: hsl(220 14% 84% / 0.9);
   --home-surface-button-bg: hsl(220 18% 95% / 0.98);
   --home-surface-button-bg-hover: hsl(220 16% 91% / 0.99);
@@ -460,8 +459,7 @@
   --home-panel-subtle-bg-hover: hsl(var(--foreground) / 0.05);
   --home-history-item-bg: hsl(var(--foreground) / 0.03);
   --home-history-item-hover-bg: hsl(var(--foreground) / 0.06);
-  --home-history-item-selected-bg:
-    linear-gradient(180deg, hsl(var(--accent-secondary) / 0.14), hsl(var(--primary) / 0.1));
+  --home-history-item-selected-bg: hsl(var(--card));
   --home-divider-border: hsl(var(--foreground) / 0.1);
   --home-surface-button-bg: hsl(var(--foreground) / 0.03);
   --home-surface-button-bg-hover: hsl(var(--foreground) / 0.06);
@@ -1286,6 +1284,11 @@ textarea {
   --terminal-card-gradient-end: var(--home-panel-gradient-end);
   --terminal-card-shadow: var(--home-panel-shadow);
   --terminal-card-shadow-hover: var(--home-panel-shadow-hover);
+  background: hsl(var(--card));
+}
+
+.home-panel-card::before {
+  content: none;
 }
 
 .dashboard-card {
@@ -1338,6 +1341,20 @@ textarea {
   pointer-events: none;
 }
 
+[data-testid="home-dashboard"] .glass-card,
+[data-testid="home-dashboard"] .dashboard-card {
+  background: hsl(var(--card));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+[data-testid="home-dashboard"] .glass-card::before,
+[data-testid="home-dashboard"] .glass-card::after,
+[data-testid="home-dashboard"] .dashboard-card::before,
+[data-testid="home-dashboard"] .dashboard-card::after {
+  content: none;
+}
+
 .page-drawer-overlay {
   background-color: var(--page-drawer-overlay-bg);
 }
@@ -1355,8 +1372,8 @@ textarea {
   overflow: hidden;
   border-radius: 1rem;
   border: 1px solid var(--home-panel-border);
-  background: var(--home-panel-subtle-bg);
-  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.72);
+  background: hsl(var(--card));
+  box-shadow: none;
   transition:
     border-color 0.2s ease,
     background-color 0.2s ease,
@@ -1366,10 +1383,8 @@ textarea {
 
 .home-subpanel:hover {
   border-color: var(--home-panel-border-hover);
-  background: var(--home-panel-subtle-bg-hover);
-  box-shadow:
-    inset 0 1px 0 hsl(0 0% 100% / 0.78),
-    0 8px 18px hsl(220 18% 30% / 0.08);
+  background: hsl(var(--card));
+  box-shadow: none;
   transform: translateY(-1px);
 }
 
@@ -1388,28 +1403,7 @@ textarea {
 }
 
 .home-history-item::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(
-    135deg,
-    var(--home-panel-gradient-mid) 0%,
-    transparent 45%,
-    var(--home-panel-gradient-start) 100%
-  );
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
+  content: none;
 }
 
 .home-history-item:hover {
@@ -1730,24 +1724,19 @@ textarea {
   --terminal-card-gradient-mid: var(--home-hero-gradient-mid);
   --terminal-card-gradient-end: var(--home-hero-gradient-end);
   --terminal-card-shadow: var(--home-hero-shadow);
-  background: linear-gradient(180deg, hsl(0 0% 100% / 0.99), hsl(220 18% 95% / 0.98));
+  padding: 0;
+  border: 1px solid var(--home-hero-border);
+  background: hsl(var(--card));
+}
+
+.home-report-hero > .gradient-border-card-inner {
+  border-radius: inherit;
+  background: hsl(var(--card));
 }
 
 .home-report-hero::after,
 .home-rail-card::after {
-  content: "";
-  position: absolute;
-  left: 1.25rem;
-  right: 1.25rem;
-  top: 0;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    hsl(var(--primary) / 0.18) 50%,
-    transparent 100%
-  );
-  pointer-events: none;
+  content: none;
 }
 
 .home-rail-card {
@@ -1756,13 +1745,13 @@ textarea {
   --terminal-card-gradient-mid: hsl(var(--accent-secondary) / 0.12);
   --terminal-card-gradient-end: hsl(220 14% 84% / 0.08);
   --terminal-card-shadow: var(--home-rail-shadow);
-  background: var(--home-rail-bg);
+  background: hsl(var(--card));
 }
 
 .home-insight-card {
   --home-insight-tone: hsl(var(--primary));
   --home-insight-surface: hsl(0 0% 100% / 0.94);
-  background: linear-gradient(180deg, var(--home-insight-surface), hsl(220 18% 95% / 0.98));
+  background: hsl(var(--card));
 }
 
 .home-insight-card .home-insight-icon {
@@ -1791,7 +1780,7 @@ textarea {
 
 .home-strategy-card {
   --home-strategy-tone: hsl(var(--primary));
-  background: linear-gradient(180deg, hsl(0 0% 100% / 0.94), hsl(220 18% 95% / 0.98));
+  background: hsl(var(--card));
 }
 
 .home-strategy-card .home-strategy-label {
@@ -1803,16 +1792,11 @@ textarea {
 }
 
 .home-strategy-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.48);
-  pointer-events: none;
+  content: none;
 }
 
 .home-news-item {
-  background: linear-gradient(180deg, hsl(0 0% 100% / 0.92), hsl(220 18% 95% / 0.98));
+  background: hsl(var(--card));
 }
 
 .home-news-title {
@@ -1846,17 +1830,7 @@ textarea {
   --terminal-card-gradient-mid: hsl(var(--accent-secondary) / 0.18);
   --terminal-card-gradient-end: hsl(var(--foreground) / 0.08);
   --terminal-card-shadow: var(--shadow-soft-card);
-  background: linear-gradient(180deg, hsl(var(--card) / 0.96), hsl(var(--background) / 0.94));
-}
-
-.dark .home-report-hero::after,
-.dark .home-rail-card::after {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    hsl(var(--primary) / 0.24) 50%,
-    transparent 100%
-  );
+  background: hsl(var(--card));
 }
 
 .dark .home-rail-card {
@@ -1865,12 +1839,12 @@ textarea {
   --terminal-card-gradient-mid: hsl(var(--accent-secondary) / 0.14);
   --terminal-card-gradient-end: hsl(var(--foreground) / 0.08);
   --terminal-card-shadow: var(--shadow-soft-card);
-  background: linear-gradient(180deg, hsl(var(--card) / 0.94), hsl(var(--background) / 0.92));
+  background: hsl(var(--card));
 }
 
 .dark .home-insight-card {
   --home-insight-surface: hsl(var(--card) / 0.9);
-  background: linear-gradient(180deg, var(--home-insight-surface), hsl(var(--elevated) / 0.82));
+  background: hsl(var(--card));
 }
 
 .dark .home-insight-card .home-insight-icon {
@@ -1878,13 +1852,11 @@ textarea {
 }
 
 .dark .home-subpanel {
-  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.03);
+  box-shadow: none;
 }
 
 .dark .home-subpanel:hover {
-  box-shadow:
-    inset 0 1px 0 hsl(0 0% 100% / 0.04),
-    0 10px 18px hsl(220 18% 8% / 0.2);
+  box-shadow: none;
 }
 
 .dark .home-board-pill {
@@ -1895,15 +1867,15 @@ textarea {
 }
 
 .dark .home-strategy-card {
-  background: linear-gradient(180deg, hsl(var(--card) / 0.92), hsl(var(--elevated) / 0.82));
+  background: hsl(var(--card));
 }
 
 .dark .home-strategy-card::after {
-  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.04);
+  content: none;
 }
 
 .dark .home-news-item {
-  background: linear-gradient(180deg, hsl(var(--card) / 0.9), hsl(var(--elevated) / 0.84));
+  background: hsl(var(--card));
 }
 
 .dark .home-news-title {
