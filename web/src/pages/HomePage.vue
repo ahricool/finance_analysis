@@ -278,8 +278,8 @@ function handleDeleteSelectedHistory() {
       </div>
 
       <div class="flex min-h-0 flex-1 overflow-hidden">
-        <div class="hidden min-h-0 w-64 shrink-0 flex-col overflow-hidden pb-4 pl-4 md:flex lg:w-72">
-          <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+        <div class="hidden w-[clamp(18rem,22vw,22rem)] shrink-0 self-start pb-4 pl-4 md:flex">
+          <div class="flex w-full flex-col gap-3">
             <HistoryList
               :items="historyItems"
               :is-loading="isLoadingHistory"
@@ -288,7 +288,8 @@ function handleDeleteSelectedHistory() {
               :selected-id="selectedReport?.meta.id"
               :selected-ids="selectedIds"
               :is-deleting="isDeletingHistory"
-              class="min-h-0 flex-1 overflow-hidden"
+              fit-height
+              class="w-full overflow-hidden"
               @item-click="handleHistoryItemClick"
               @load-more="() => unref(loadMoreHistory)()"
               @toggle-item-selection="(id: number) => unref(toggleHistorySelection)(id)"
