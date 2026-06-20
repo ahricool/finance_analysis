@@ -78,6 +78,53 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
         self.assertEqual([event[0] for event in service.events], ["processing", "failed"])
         self.assertIsInstance(service.events[-1][1]["error"], RuntimeError)
 
+    def test_decorator_sends_system_error_notification_on_failure(self) -> None:
+        service = _RecordingLifecycleService()
+
+        @track_task(
+            task_type="unit",
+            task_name="Unit Task",
+            source="apscheduler",
+            task_id_getter=lambda: "task-123",
+        )
+        def run() -> None:
+            raise RuntimeError("api_key=super-secret failed")
+
+        with patch("src.tasks.lifecycle.get_task_lifecycle_service", return_value=service), \
+             patch("src.notification.NotificationService") as notification_service:
+            notification_service.return_value.send.return_value = True
+            with self.assertRaisesRegex(RuntimeError, "failed"):
+                run()
+
+        notification_service.return_value.send.assert_called_once()
+        content = notification_service.return_value.send.call_args.args[0]
+        kwargs = notification_service.return_value.send.call_args.kwargs
+        self.assertIn("任务失败通知", content)
+        self.assertIn("Unit Task", content)
+        self.assertIn("RuntimeError", content)
+        self.assertIn("调用栈", content)
+        self.assertIn("api_key=***", content)
+        self.assertNotIn("super-secret", content)
+        self.assertEqual(kwargs["route_type"], "system_error")
+        self.assertEqual(kwargs["severity"], "error")
+        self.assertEqual(kwargs["dedup_key"], "task_failure:task-123")
+        self.assertEqual(kwargs["cooldown_key"], "task_failure:task-123")
+
+    def test_notification_failure_does_not_replace_task_exception(self) -> None:
+        service = _RecordingLifecycleService()
+
+        @track_task(task_type="unit", task_name="Unit Task", source="apscheduler")
+        def run() -> None:
+            raise RuntimeError("boom")
+
+        with patch("src.tasks.lifecycle.get_task_lifecycle_service", return_value=service), \
+             patch("src.notification.NotificationService") as notification_service:
+            notification_service.return_value.send.side_effect = RuntimeError("notify down")
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                run()
+
+        self.assertEqual([event[0] for event in service.events], ["processing", "failed"])
+
     def test_scheduler_style_runs_get_distinct_task_ids(self) -> None:
         service = _RecordingLifecycleService()
 
