@@ -28,10 +28,10 @@ for optional_module in ("litellm", "json_repair"):
     except ModuleNotFoundError:
         sys.modules[optional_module] = mock.MagicMock()
 
-from src.config import Config
-from src.notification import NotificationService, NotificationChannel
-from src.notification_noise import reset_notification_noise_state
-from src.analysis.stock_report_analyzer import AnalysisResult
+from finance_analysis.config import Config
+from finance_analysis.notification.service import NotificationService, NotificationChannel
+from finance_analysis.notification.noise_control import reset_notification_noise_state
+from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
 import requests
 
 
@@ -80,7 +80,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
     def setUp(self):
         reset_notification_noise_state()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_no_channels_service_unavailable_and_send_returns_false(self, mock_get_config):
         mock_get_config.return_value = _make_config()
 
@@ -90,7 +90,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         result = service.send("test content")
         self.assertFalse(result)
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     def test_send_to_astrbot_via_notification_service(self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock):
         cfg = _make_config(astrbot_url="https://astrbot.example")
@@ -105,7 +105,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     def test_send_to_custom_webhook_via_notification_service(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
@@ -122,7 +122,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_send_isolates_channel_exceptions(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(
             telegram_bot_token="TOKEN",
@@ -142,7 +142,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         self.assertTrue(ok)
         mock_custom.assert_called_once_with("content")
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_send_route_empty_keeps_all_configured_channels(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(
             telegram_bot_token="TOKEN",
@@ -161,7 +161,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         mock_telegram.assert_called_once_with("content")
         mock_custom.assert_called_once_with("content")
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_send_report_route_filters_static_channels(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(
             telegram_bot_token="TOKEN",
@@ -181,7 +181,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         mock_telegram.assert_not_called()
         mock_custom.assert_called_once_with("content")
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_send_alert_and_system_error_routes_filter_independently(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(
             telegram_bot_token="TOKEN",
@@ -202,7 +202,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         mock_telegram.assert_called_once_with("alert")
         mock_custom.assert_called_once_with("system")
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_send_route_with_no_matching_channel_does_not_fallback(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(
             custom_webhook_urls=["https://example.com/webhook"],
@@ -218,7 +218,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         self.assertFalse(ok)
         mock_custom.assert_not_called()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_send_dedup_suppresses_static_channels_after_success(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(
             custom_webhook_urls=["https://example.com/webhook"],
@@ -234,7 +234,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
 
         mock_custom.assert_called_once_with("content at 12:00")
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_send_releases_noise_reservation_when_static_channels_fail(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(
             custom_webhook_urls=["https://example.com/webhook"],
@@ -262,21 +262,21 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
 
         self.assertEqual(mock_custom.call_count, 2)
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_noise_check_failure_does_not_block_static_send(self, mock_get_config: mock.MagicMock):
         cfg = _make_config(custom_webhook_urls=["https://example.com/webhook"])
         mock_get_config.return_value = cfg
 
         service = NotificationService()
 
-        with mock.patch("src.notification_noise._evaluate_notification_noise", side_effect=RuntimeError("boom")), \
+        with mock.patch("finance_analysis.notification.noise_control._evaluate_notification_noise", side_effect=RuntimeError("boom")), \
              mock.patch.object(service, "send_to_custom", return_value=True) as mock_custom:
             ok = service.send("content", route_type="report")
 
         self.assertTrue(ok)
         mock_custom.assert_called_once_with("content")
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_discord_via_notification_service_with_webhook(
@@ -294,7 +294,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_discord_via_notification_service_with_bot(
@@ -312,7 +312,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
         
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_discord_via_notification_service_with_bot_requires_chunking(self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock):
@@ -336,7 +336,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
 class TestNotificationServiceReportGeneration(unittest.TestCase):
     """报告生成与选路相关测试。"""
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_generate_aggregate_report_routes_by_report_type(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config()
         service = NotificationService()
@@ -360,7 +360,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertEqual(mock_dashboard.call_count, 3)
         mock_brief.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_generate_single_stock_report_keeps_legacy_simple_format(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(report_renderer_enabled=True)
         service = NotificationService()
@@ -373,14 +373,14 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
             analysis_summary="稳健",
         )
 
-        with mock.patch("src.services.report_renderer.render") as mock_render:
+        with mock.patch("finance_analysis.reporting.template_renderer.render") as mock_render:
             out = service.generate_single_stock_report(result)
 
         mock_render.assert_not_called()
         self.assertIn("贵州茅台", out)
         self.assertIn("600519", out)
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_generate_dashboard_report_localizes_english_fallback(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(report_renderer_enabled=False, report_language="en")
         service = NotificationService()
@@ -418,7 +418,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertIn("Action Levels", out)
         self.assertIn("Buy", out)
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_generate_dashboard_report_localizes_english_no_dashboard_fallback(
         self, mock_get_config: mock.MagicMock
     ):
@@ -452,7 +452,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertNotIn("技术面", out)
         self.assertNotIn("消息面", out)
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_generate_single_stock_report_localizes_english_fallback(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(report_renderer_enabled=False, report_language="en")
         service = NotificationService()
@@ -482,7 +482,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertIn("Action Levels", out)
         self.assertIn("Hold", out)
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_history_compare_context_uses_cache(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(report_history_compare_n=3)
         service = NotificationService()
@@ -497,7 +497,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         )
 
         with mock.patch(
-            "src.services.history_comparison_service.get_signal_changes_batch",
+            "finance_analysis.analysis.history.comparison.get_signal_changes_batch",
             return_value={"600519": []},
         ) as mock_batch:
             first = service._get_history_compare_context([result])
@@ -507,7 +507,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertEqual(second, {"history_by_code": {"600519": []}})
         mock_batch.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("smtplib.SMTP_SSL")
     def test_send_to_email_via_notification_service(
         self, mock_smtp_ssl: mock.MagicMock, mock_get_config: mock.MagicMock
@@ -528,7 +528,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         mock_smtp_ssl.assert_called_once()
         mock_smtp_ssl.return_value.send_message.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("smtplib.SMTP_SSL")
     def test_send_to_email_with_stock_group_routing(
         self, mock_smtp_ssl: mock.MagicMock, mock_get_config: mock.MagicMock
@@ -554,7 +554,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         msg = server.send_message.call_args[0][0]
         self.assertIn("group@example.com", msg["To"])
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_feishu_via_notification_service(self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock):
@@ -570,7 +570,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
         
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_feishu_via_notification_service_requires_chunking(self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock):
@@ -586,7 +586,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertTrue(ok)
         self.assertAlmostEqual(mock_post.call_count, 4, delta=1)
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_gotify_via_notification_service(
@@ -611,7 +611,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
             "text/markdown",
         )
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @unittest.skip("channel removed")
     def test_gotify_without_token_is_not_available(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(gotify_url="https://gotify.example")
@@ -621,7 +621,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertNotIn(NotificationChannel.GOTIFY, service.get_available_channels())
         self.assertFalse(service.is_available())
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @unittest.skip("channel removed")
     def test_gotify_blank_token_is_not_available(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(
@@ -634,7 +634,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertNotIn(NotificationChannel.GOTIFY, service.get_available_channels())
         self.assertFalse(service.is_available())
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @unittest.skip("channel removed")
     def test_gotify_message_endpoint_is_not_available(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(
@@ -647,7 +647,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertNotIn(NotificationChannel.GOTIFY, service.get_available_channels())
         self.assertFalse(service.is_available())
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_gotify_does_not_trigger_markdown_to_image(
@@ -662,14 +662,14 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         mock_post.return_value = _make_response(200)
 
         service = NotificationService()
-        with mock.patch("src.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
+        with mock.patch("finance_analysis.reporting.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
             ok = service.send("gotify content")
 
         self.assertTrue(ok)
         mock_md2img.assert_not_called()
         mock_post.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     def test_send_to_ntfy_via_notification_service(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
@@ -688,7 +688,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertEqual(mock_post.call_args.args[0], "https://ntfy.sh")
         self.assertEqual(mock_post.call_args.kwargs["json"]["topic"], "fa-topic")
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_ntfy_url_without_topic_is_not_available(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(ntfy_url="https://ntfy.sh")
 
@@ -697,7 +697,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertNotIn(NotificationChannel.NTFY, service.get_available_channels())
         self.assertFalse(service.is_available())
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_ntfy_url_with_unsupported_scheme_is_not_available(
         self, mock_get_config: mock.MagicMock
     ):
@@ -708,7 +708,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertNotIn(NotificationChannel.NTFY, service.get_available_channels())
         self.assertFalse(service.is_available())
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     def test_send_to_ntfy_does_not_trigger_markdown_to_image(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
@@ -721,14 +721,14 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         mock_post.return_value = _make_response(200)
 
         service = NotificationService()
-        with mock.patch("src.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
+        with mock.patch("finance_analysis.reporting.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
             ok = service.send("ntfy content")
 
         self.assertTrue(ok)
         mock_md2img.assert_not_called()
         mock_post.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_pushover_via_notification_service(
@@ -749,7 +749,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_pushplus_via_notification_service(
@@ -767,8 +767,8 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
 
-    @mock.patch("src.notification_sender.pushplus_sender.time.sleep")
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.senders.pushplus_sender.time.sleep")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_pushplus_via_notification_service_requires_chunking(
@@ -789,7 +789,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertTrue(ok)
         self.assertGreaterEqual(mock_post.call_count, 2)
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_slack_via_notification_service_with_webhook(
@@ -810,7 +810,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_slack_via_notification_service_with_bot(
@@ -828,7 +828,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
     def test_send_to_serverchan3_via_notification_service(
@@ -846,7 +846,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
 
-    @mock.patch("src.notification.get_config")
+    @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     def test_send_to_telegram_via_notification_service(
         self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock

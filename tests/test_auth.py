@@ -6,7 +6,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-import src.auth as auth
+import finance_analysis.users.auth as auth
 
 
 def _reset_auth_globals() -> None:

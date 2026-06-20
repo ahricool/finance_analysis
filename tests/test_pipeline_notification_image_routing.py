@@ -15,8 +15,8 @@ from tests.litellm_stub import ensure_litellm_stub
 
 ensure_litellm_stub()
 
-from src.core.pipeline import StockAnalysisPipeline, NotificationChannel
-from src.enums import ReportType
+from finance_analysis.analysis.pipeline import StockAnalysisPipeline, NotificationChannel
+from finance_analysis.reporting.types import ReportType
 
 
 class _FakeNotifier:
@@ -62,7 +62,7 @@ class TestPipelineEmailGroupImageRouting(unittest.TestCase):
             SimpleNamespace(code="600519"),
         ]
 
-    @patch("src.md2img.markdown_to_image", return_value=b"png-bytes")
+    @patch("finance_analysis.reporting.md2img.markdown_to_image", return_value=b"png-bytes")
     def test_send_notifications_email_group_uses_inline_image_when_enabled(self, _mock_md2img):
         pipeline = self._build_pipeline()
         results = self._make_results()
@@ -75,7 +75,7 @@ class TestPipelineEmailGroupImageRouting(unittest.TestCase):
         self.assertIn(["group@example.com"], called_receivers)
         self.assertIn(None, called_receivers)
 
-    @patch("src.md2img.markdown_to_image", return_value=None)
+    @patch("finance_analysis.reporting.md2img.markdown_to_image", return_value=None)
     def test_send_notifications_email_group_falls_back_to_text_when_image_unavailable(self, _mock_md2img):
         pipeline = self._build_pipeline()
         results = self._make_results()
@@ -88,7 +88,7 @@ class TestPipelineEmailGroupImageRouting(unittest.TestCase):
         self.assertIn(["group@example.com"], called_receivers)
         self.assertIn(None, called_receivers)
 
-    @patch("src.md2img.markdown_to_image", return_value=None)
+    @patch("finance_analysis.reporting.md2img.markdown_to_image", return_value=None)
     def test_send_notifications_email_group_failure_does_not_skip_later_group(self, _mock_md2img):
         pipeline = self._build_pipeline()
         pipeline.notifier.send_to_email.side_effect = [RuntimeError("group failed"), True]
@@ -151,7 +151,7 @@ class TestPipelineReportRouteFiltering(unittest.TestCase):
         pipeline.config = SimpleNamespace(stock_email_groups=[])
         results = [SimpleNamespace(code="000001")]
 
-        with patch("src.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
+        with patch("finance_analysis.reporting.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
             pipeline._send_notifications(results, ReportType.SIMPLE)
 
         mock_md2img.assert_not_called()
@@ -167,7 +167,7 @@ class TestPipelineReportRouteFiltering(unittest.TestCase):
         pipeline.config = SimpleNamespace(stock_email_groups=[])
         results = [SimpleNamespace(code="000001")]
 
-        with patch("src.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
+        with patch("finance_analysis.reporting.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
             pipeline._send_notifications(results, ReportType.SIMPLE)
 
         mock_md2img.assert_not_called()
@@ -185,7 +185,7 @@ class TestPipelineReportRouteFiltering(unittest.TestCase):
         pipeline.config = SimpleNamespace(stock_email_groups=[])
         results = [SimpleNamespace(code="000001")]
 
-        with patch("src.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
+        with patch("finance_analysis.reporting.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
             pipeline._send_notifications(results, ReportType.SIMPLE)
 
         mock_md2img.assert_not_called()

@@ -45,8 +45,8 @@ if "newspaper" not in sys.modules:
     mock_np.Config = MagicMock()
     sys.modules["newspaper"] = mock_np
 
-from src.config import Config, get_config
-from src.search_service import (
+from finance_analysis.config import Config, get_config
+from finance_analysis.search import (
     AnspireSearchProvider,
     SearchService,
     get_search_service,
@@ -184,7 +184,7 @@ class TestAnspireSearchProvider(unittest.TestCase):
             result = AnspireSearchProvider._extract_domain(url)
             self.assertEqual(result, expected, f"Failed for URL: {url}")
     
-    @patch('src.search.providers.anspire._get_with_retry')
+    @patch('finance_analysis.search.providers.anspire._get_with_retry')
     def test_search_success_response(self, mock_get):
         """测试成功响应处理"""
         fake_response = _FakeResponse(
@@ -229,7 +229,7 @@ class TestAnspireSearchProvider(unittest.TestCase):
         self.assertIn("params", call_args[1])
         self.assertNotIn("json", call_args[1])
     
-    @patch('src.search.providers.anspire._get_with_retry')
+    @patch('finance_analysis.search.providers.anspire._get_with_retry')
     def test_search_invalid_api_key(self, mock_get):
         """测试无效 API Key 的错误处理"""
         fake_response = _FakeResponse(
@@ -248,7 +248,7 @@ class TestAnspireSearchProvider(unittest.TestCase):
         # 错误消息可能因实现而异，这里做宽松检查
         self.assertTrue("API" in response.error_message or "KEY" in response.error_message or "无效" in response.error_message)
     
-    @patch('src.search.providers.anspire._get_with_retry')
+    @patch('finance_analysis.search.providers.anspire._get_with_retry')
     def test_search_timeout_error(self, mock_get):
         """测试超时错误处理"""
         import requests as real_requests
@@ -263,7 +263,7 @@ class TestAnspireSearchProvider(unittest.TestCase):
         # 错误消息检查
         self.assertTrue("超时" in response.error_message or "Timeout" in response.error_message)
     
-    @patch('src.search.providers.anspire._get_with_retry')
+    @patch('finance_analysis.search.providers.anspire._get_with_retry')
     def test_search_network_error(self, mock_get):
         """测试网络错误处理"""
         import requests as real_requests
@@ -277,7 +277,7 @@ class TestAnspireSearchProvider(unittest.TestCase):
         self.assertEqual(len(response.results), 0)
         self.assertTrue("网络" in response.error_message or "Connection" in response.error_message)
     
-    @patch('src.search.providers.anspire._get_with_retry')
+    @patch('finance_analysis.search.providers.anspire._get_with_retry')
     def test_search_empty_results(self, mock_get):
         """测试空结果处理"""
         fake_response = _FakeResponse(
@@ -293,7 +293,7 @@ class TestAnspireSearchProvider(unittest.TestCase):
         self.assertEqual(response.provider, "Anspire")
         self.assertEqual(len(response.results), 0)
     
-    @patch('src.search.providers.anspire._get_with_retry')
+    @patch('finance_analysis.search.providers.anspire._get_with_retry')
     def test_search_content_truncation(self, mock_get):
         """测试长内容截断功能"""
         long_content = "这是一段非常长的内容，" * 100  # 超过 500 字符
@@ -322,7 +322,7 @@ class TestAnspireSearchProvider(unittest.TestCase):
             self.assertLessEqual(len(response.results[0].snippet), 503)  # 500 + "..."
             self.assertTrue(response.results[0].snippet.endswith("..."))
     
-    @patch('src.search.providers.anspire._get_with_retry')
+    @patch('finance_analysis.search.providers.anspire._get_with_retry')
     def test_search_time_range(self, mock_get):
         """测试时间范围参数"""
         fake_response = _FakeResponse(status_code=200, json_data={"code": 200, "results": []})
@@ -484,7 +484,7 @@ class TestAnspireIntegration(unittest.TestCase):
 def run_manual_test():
     """手动测试函数（用于快速验证）"""
     import logging
-    from src.config import get_config
+    from finance_analysis.config import get_config
     
     # 配置日志
     logging.basicConfig(

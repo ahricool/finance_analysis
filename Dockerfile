@@ -47,6 +47,12 @@ ENV UV_PYTHON_DOWNLOADS=never
 COPY pyproject.toml uv.lock ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
+
+COPY src/ ./src/
+COPY main.py ./
+
+RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # ── Stage 3: Runtime image ───────────────────────────────────────────────────
@@ -85,12 +91,10 @@ COPY pyproject.toml uv.lock .python-version ./
 # 复制应用代码
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
-COPY *.py ./
-COPY api/ ./api/
-COPY data_provider/ ./data_provider/
-COPY bot/ ./bot/
+COPY main.py ./
 COPY src/ ./src/
 COPY strategies/ ./strategies/
+COPY templates/ ./templates/
 
 COPY --from=web-builder /workspace/static ./static/
 

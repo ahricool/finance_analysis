@@ -36,7 +36,7 @@ def _build_optional_module_stubs() -> dict[str, ModuleType]:
 
 
 sys.modules.update(_build_optional_module_stubs())
-import src.core.market_review as market_review_module
+import finance_analysis.market_review.service as market_review_module
 
 run_market_review = market_review_module.run_market_review
 
@@ -56,7 +56,7 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
 
         with patch.object(
             market_review_module,
-            "get_config",
+            "get_pipeline_config",
             return_value=SimpleNamespace(report_language="en", market_review_region="cn"),
         ), patch.object(market_review_module, "MarketAnalyzer", return_value=market_analyzer):
             result = run_market_review(notifier, send_notification=True)
@@ -80,7 +80,7 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
 
         with patch.object(
             market_review_module,
-            "get_config",
+            "get_pipeline_config",
             return_value=SimpleNamespace(report_language="en", market_review_region="both"),
         ), patch.object(
             market_review_module,
@@ -108,7 +108,7 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
 
         with patch.object(
             market_review_module,
-            "get_config",
+            "get_pipeline_config",
             return_value=SimpleNamespace(report_language="zh", market_review_region="cn"),
         ), patch.object(
             market_review_module,
@@ -135,7 +135,7 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
 
         with patch.object(
             market_review_module,
-            "get_config",
+            "get_pipeline_config",
             return_value=SimpleNamespace(report_language="zh", market_review_region="cn"),
         ), patch.object(
             market_review_module,

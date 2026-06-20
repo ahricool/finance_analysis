@@ -7,7 +7,7 @@ import types
 
 import pytest
 
-from src.logging_config import (
+from finance_analysis.core.logging import (
     LITELLM_LOGGERS,
     get_task_log_file,
     log_external_call_exception,
@@ -60,7 +60,7 @@ def test_litellm_debug_is_quiet_by_default_and_empty_env(tmp_path, monkeypatch, 
     for logger_name in LITELLM_LOGGERS:
         logging.getLogger(logger_name).debug("%s token debug should be filtered", logger_name)
     logging.getLogger("LiteLLM").warning("litellm warning should remain")
-    logging.getLogger("src.sample").debug("project debug should remain")
+    logging.getLogger("finance_analysis.sample").debug("project debug should remain")
 
     debug_log_text = _read_debug_log(tmp_path)
 
@@ -104,7 +104,7 @@ def test_setup_backend_logging_uses_service_subdirectory(tmp_path, monkeypatch):
     monkeypatch.setenv("LOG_DIR", str(tmp_path))
 
     setup_backend_logging(service="server", log_prefix="web_server", debug=False)
-    logging.getLogger("src.sample").info("server log routing works")
+    logging.getLogger("finance_analysis.sample").info("server log routing works")
     for handler in logging.getLogger().handlers:
         handler.flush()
 
@@ -117,7 +117,7 @@ def test_task_logging_context_writes_task_file(tmp_path, monkeypatch):
 
     setup_backend_logging(service="server", log_prefix="web_server", debug=False)
     with task_logging_context("analysis_daily", task_id="aps-123"):
-        logging.getLogger("src.sample").info("task log routing works")
+        logging.getLogger("finance_analysis.sample").info("task log routing works")
 
     task_log = get_task_log_file("analysis_daily", "aps-123", log_base_dir=str(tmp_path))
     assert task_log.is_file()
@@ -130,7 +130,7 @@ def test_celery_task_logging_context_uses_celery_task_directory(tmp_path, monkey
 
     setup_backend_logging(service="celery", log_prefix="celery", debug=False)
     with task_logging_context("demo.add", task_id="celery-123", celery=True):
-        logging.getLogger("src.sample").info("celery task log routing works")
+        logging.getLogger("finance_analysis.sample").info("celery task log routing works")
 
     task_log = get_task_log_file("demo.add", "celery-123", celery=True, log_base_dir=str(tmp_path))
     assert task_log.is_file()
@@ -141,7 +141,7 @@ def test_celery_task_logging_context_uses_celery_task_directory(tmp_path, monkey
 def test_overlapping_task_logging_contexts_do_not_cross_write(tmp_path, monkeypatch):
     monkeypatch.setenv("LOG_DIR", str(tmp_path))
     setup_backend_logging(service="server", log_prefix="web_server", debug=False)
-    logger = logging.getLogger("src.sample")
+    logger = logging.getLogger("finance_analysis.sample")
     barrier = threading.Barrier(2)
 
     def run_task(task_id: str, own_message: str, other_message: str) -> None:
@@ -193,7 +193,7 @@ def test_external_call_exception_logs_response_details(tmp_path, monkeypatch):
         raise exc
     except RuntimeError as caught:
         log_external_call_exception(
-            logging.getLogger("src.sample"),
+            logging.getLogger("finance_analysis.sample"),
             provider="example",
             operation="quote",
             exc=caught,

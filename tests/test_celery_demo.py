@@ -9,11 +9,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from api.v1.endpoints.celery_demo import submit_add_task
-from api.v1.schemas.celery_demo import CeleryAddRequest
-from src.celery_app.app import celery_app
-from src.celery_app.tasks.demo import add
-from src.config import Config
+from finance_analysis.interfaces.api.v1.endpoints.celery_demo import submit_add_task
+from finance_analysis.interfaces.api.v1.schemas.celery_demo import CeleryAddRequest
+from finance_analysis.tasks.celery.app import celery_app
+from finance_analysis.tasks.celery.jobs.demo import add
+from finance_analysis.config import Config
 
 
 class CeleryDemoTaskTestCase(unittest.TestCase):
@@ -51,7 +51,7 @@ class CeleryDemoEndpointTestCase(unittest.TestCase):
     """Endpoint tests for submit_add_task."""
 
     def test_submit_add_task_returns_success_without_waiting(self) -> None:
-        with patch("api.v1.endpoints.celery_demo.add.delay") as mock_delay:
+        with patch("finance_analysis.interfaces.api.v1.endpoints.celery_demo.add.delay") as mock_delay:
             mock_delay.return_value = MagicMock(id="task-123")
 
             response = submit_add_task(CeleryAddRequest(x=4, y=6))

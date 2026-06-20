@@ -15,9 +15,9 @@ import unittest
 
 from datetime import datetime
 
-from src.config import Config
-from src.storage import DatabaseManager, NewsIntel
-from src.search_service import SearchResponse, SearchResult
+from finance_analysis.config import Config
+from finance_analysis.database import DatabaseManager, NewsIntel
+from finance_analysis.search import SearchResponse, SearchResult
 
 
 class NewsIntelStorageTestCase(unittest.TestCase):

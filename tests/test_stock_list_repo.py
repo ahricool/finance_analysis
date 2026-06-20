@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for stock list repository field handling."""
 
-from src.repositories.stock_list_repo import StockListRepo
+from finance_analysis.database.repositories.stock_list import StockListRepo
 
 
 class _FakeSession:

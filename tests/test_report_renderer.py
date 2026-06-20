@@ -16,8 +16,9 @@ try:
 except ModuleNotFoundError:
     sys.modules["litellm"] = MagicMock()
 
-from src.analysis.stock_report_analyzer import AnalysisResult
-from src.services.report_renderer import render
+from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
+from finance_analysis.core.paths import PROJECT_ROOT, TEMPLATES_DIR
+from finance_analysis.reporting.template_renderer import _resolve_templates_dir, render
 
 
 def _make_result(
@@ -51,6 +52,13 @@ def _make_result(
 
 class TestReportRenderer(unittest.TestCase):
     """Report renderer tests."""
+
+    def test_resolve_templates_dir_points_at_repo_templates(self) -> None:
+        self.assertEqual(TEMPLATES_DIR, PROJECT_ROOT / "templates")
+        resolved = _resolve_templates_dir()
+        self.assertTrue(resolved.is_dir(), resolved)
+        self.assertEqual(resolved, TEMPLATES_DIR)
+        self.assertTrue((resolved / "report_markdown.j2").is_file())
 
     def test_render_markdown_summary_only(self) -> None:
         """Markdown platform renders with summary_only."""

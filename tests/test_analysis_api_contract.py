@@ -15,9 +15,9 @@ from tests.litellm_stub import ensure_litellm_stub
 ensure_litellm_stub()
 
 try:
-    from api.app import create_app
-    from api.v1.endpoints import analysis as analysis_endpoint_module
-    from api.v1.endpoints.analysis import (
+    from finance_analysis.interfaces.api.app import create_app
+    from finance_analysis.interfaces.api.v1.endpoints import analysis as analysis_endpoint_module
+    from finance_analysis.interfaces.api.v1.endpoints.analysis import (
         trigger_analysis,
         trigger_market_review,
         _handle_sync_analysis,
@@ -35,13 +35,13 @@ except Exception:  # pragma: no cover - optional dependency environments
     _load_sync_fundamental_sources = None
     get_analysis_status = None
 
-from src.enums import ReportType
-from src.services.analysis_service import AnalysisService
-from src.tasks.queue import AnalysisTaskQueue, DuplicateTaskError, TaskStatus, reset_task_state_for_tests
+from finance_analysis.reporting.types import ReportType
+from finance_analysis.analysis.service import AnalysisService
+from finance_analysis.tasks.queue import AnalysisTaskQueue, DuplicateTaskError, TaskStatus, reset_task_state_for_tests
 from tests.task_repo_fakes import FakeTaskRecordRepository
 try:
     from pydantic import ValidationError
-    from api.v1.schemas.analysis import MarketReviewRequest
+    from finance_analysis.interfaces.api.v1.schemas.analysis import MarketReviewRequest
 except Exception:  # pragma: no cover - optional dependency environments
     ValidationError = None
     MarketReviewRequest = None
@@ -66,7 +66,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             analysis_endpoint_module,
             "_compute_market_review_override_region",
             return_value=None,
-        ), patch("api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
+        ), patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
             response = trigger_market_review(
                 request=request,
                 config=config,
@@ -100,7 +100,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             analysis_endpoint_module,
             "_compute_market_review_override_region",
             return_value=None,
-        ), patch("api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
+        ), patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
             with self.assertRaises(Exception) as ctx:
                 trigger_market_review(
                     request=request,
@@ -125,7 +125,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                 analysis_endpoint_module,
                 "_compute_market_review_override_region",
                 return_value=None,
-            ), patch("api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
+            ), patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
                 response = trigger_market_review(
                     request=SimpleNamespace(send_notification=True),
                     config=config,
@@ -146,7 +146,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             analysis_endpoint_module,
             "_compute_market_review_override_region",
             return_value="",
-        ), patch("api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
+        ), patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
             response = trigger_market_review(
                 request=request,
                 config=config,
@@ -157,8 +157,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         task_queue.submit_market_review.assert_not_called()
 
     def test_market_review_celery_task_uses_configured_pipeline(self) -> None:
-        from src.celery_app.tasks.analysis import run_market_review
-        from src.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
+        from finance_analysis.tasks.celery.jobs.analysis import run_market_review
+        from finance_analysis.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
 
         reset_task_state_for_tests()
         queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
@@ -168,13 +168,13 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         runtime_search = MagicMock()
         runtime_analyzer = MagicMock()
         lock_token = object()
-        with patch("src.core.market_review_lock.try_acquire_market_review_lock", return_value=lock_token), \
-             patch("src.core.market_review_lock.release_market_review_lock") as release_market_review_lock, \
+        with patch("finance_analysis.market_review.lock.try_acquire_market_review_lock", return_value=lock_token), \
+             patch("finance_analysis.market_review.lock.release_market_review_lock") as release_market_review_lock, \
              patch(
-                 "src.core.market_review_runtime.build_market_review_runtime",
+                 "finance_analysis.market_review.runtime.build_market_review_runtime",
                  return_value=(runtime_notifier, runtime_analyzer, runtime_search),
              ), \
-             patch("src.core.market_review.run_market_review", return_value="report") as run_market_review_pipeline:
+             patch("finance_analysis.market_review.service.run_market_review", return_value="report") as run_market_review_pipeline:
             result = run_market_review(
                 task_id=task.task_id,
                 send_notification=False,
@@ -193,21 +193,21 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         reset_task_state_for_tests()
 
     def test_market_review_celery_task_marks_failed_when_report_is_empty(self) -> None:
-        from src.celery_app.tasks.analysis import run_market_review
-        from src.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
+        from finance_analysis.tasks.celery.jobs.analysis import run_market_review
+        from finance_analysis.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
 
         reset_task_state_for_tests()
         queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
         task = queue.submit_market_review(send_notification=False, override_region="cn")
 
         lock_token = object()
-        with patch("src.core.market_review_lock.try_acquire_market_review_lock", return_value=lock_token), \
-             patch("src.core.market_review_lock.release_market_review_lock") as release_market_review_lock, \
+        with patch("finance_analysis.market_review.lock.try_acquire_market_review_lock", return_value=lock_token), \
+             patch("finance_analysis.market_review.lock.release_market_review_lock") as release_market_review_lock, \
              patch(
-                 "src.core.market_review_runtime.build_market_review_runtime",
+                 "finance_analysis.market_review.runtime.build_market_review_runtime",
                  return_value=(MagicMock(), MagicMock(), MagicMock()),
              ), \
-             patch("src.core.market_review.run_market_review", return_value=None):
+             patch("finance_analysis.market_review.service.run_market_review", return_value=None):
             with self.assertRaisesRegex(RuntimeError, "大盘复盘未返回可持久化报告"):
                 run_market_review(
                     task_id=task.task_id,
@@ -237,8 +237,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         mock_db = MagicMock()
         mock_db.get_analysis_history.return_value = []
 
-        with patch("api.v1.endpoints.analysis.TaskRecordRepository", return_value=repository), \
-             patch("src.storage.DatabaseManager.get_instance", return_value=mock_db):
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.TaskRecordRepository", return_value=repository), \
+             patch("finance_analysis.database.DatabaseManager.get_instance", return_value=mock_db):
             status = get_analysis_status("market-task-1")
 
         self.assertEqual(status.status, "completed")
@@ -281,8 +281,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             )
         ]
 
-        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=mock_queue), \
-             patch("src.storage.DatabaseManager.get_instance", return_value=mock_db):
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=mock_queue), \
+             patch("finance_analysis.database.DatabaseManager.get_instance", return_value=mock_db):
             result = get_analysis_status("task-1")
 
         self.assertEqual(result.status, "completed")
@@ -325,8 +325,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             )
         ]
 
-        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=mock_queue), \
-             patch("src.storage.DatabaseManager.get_instance", return_value=mock_db):
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=mock_queue), \
+             patch("finance_analysis.database.DatabaseManager.get_instance", return_value=mock_db):
             result = get_analysis_status("task-2")
 
         self.assertEqual(result.status, "completed")
@@ -369,8 +369,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             )
         ]
 
-        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=mock_queue), \
-             patch("src.storage.DatabaseManager.get_instance", return_value=mock_db):
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=mock_queue), \
+             patch("finance_analysis.database.DatabaseManager.get_instance", return_value=mock_db):
             result = get_analysis_status("task-3")
 
         self.assertEqual(result.status, "completed")
@@ -382,8 +382,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         pipeline_instance = MagicMock()
         pipeline_instance.process_single_stock.return_value = object()
 
-        with patch("src.config.get_config", return_value=SimpleNamespace()), \
-             patch("src.core.pipeline.StockAnalysisPipeline", return_value=pipeline_instance), \
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace()), \
+             patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline_instance), \
              patch.object(AnalysisService, "_build_analysis_response", return_value={"stock_code": "600519"}):
             result = AnalysisService.analyze_stock(service, "600519", report_type="full", query_id="q1")
 
@@ -415,8 +415,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             get_sniper_points=lambda: {},
         )
 
-        with patch("src.config.get_config", return_value=SimpleNamespace()), \
-             patch("src.core.pipeline.StockAnalysisPipeline", return_value=pipeline_instance):
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace()), \
+             patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline_instance):
             result = service.analyze_stock("600519", report_type="full", query_id="q1", send_notification=False)
 
         self.assertEqual(result["report"]["meta"]["report_type"], "full")
@@ -430,8 +430,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             error_message="LLM stream interrupted",
         )
 
-        with patch("src.config.get_config", return_value=SimpleNamespace()), \
-             patch("src.core.pipeline.StockAnalysisPipeline", return_value=pipeline_instance):
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace()), \
+             patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline_instance):
             result = service.analyze_stock("600519", report_type="detailed", query_id="q1", send_notification=False)
 
         self.assertIsNone(result)
@@ -445,7 +445,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         service_instance.analyze_stock.return_value = None
         service_instance.last_error = "LLM stream interrupted"
 
-        with patch("src.services.analysis_service.AnalysisService", return_value=service_instance):
+        with patch("finance_analysis.analysis.service.AnalysisService", return_value=service_instance):
             with self.assertRaises(Exception) as ctx:
                 _handle_sync_analysis(
                     "600519",
@@ -703,7 +703,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         }
         mock_db.get_latest_fundamental_snapshot.return_value = fallback_payload
 
-        with patch("src.storage.DatabaseManager.get_instance", return_value=mock_db):
+        with patch("finance_analysis.database.DatabaseManager.get_instance", return_value=mock_db):
             context_snapshot, fundamental_snapshot = _load_sync_fundamental_sources(
                 query_id="q_sync_001",
                 stock_code="600519",
@@ -760,8 +760,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         mock_db = MagicMock()
         mock_db.get_analysis_history.return_value = [record]
 
-        with patch("api.v1.endpoints.analysis.get_task_queue") as queue_mock, \
-             patch("src.storage.DatabaseManager.get_instance", return_value=mock_db):
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue") as queue_mock, \
+             patch("finance_analysis.database.DatabaseManager.get_instance", return_value=mock_db):
             queue_mock.return_value.get_task.return_value = None
             status = get_analysis_status("task_123")
 
@@ -842,7 +842,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         if trigger_analysis is None:
             self.skipTest("fastapi is not installed in this test environment")
 
-        with patch("api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
             with self.assertRaises(Exception) as ctx:
                 trigger_analysis(
                     request=SimpleNamespace(
@@ -863,8 +863,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         if trigger_analysis is None:
             self.skipTest("fastapi is not installed in this test environment")
 
-        with patch("api.v1.endpoints.analysis.resolve_name_to_code", return_value=None), \
-             patch("api.v1.endpoints.analysis.get_task_queue") as queue_mock:
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.resolve_name_to_code", return_value=None), \
+             patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue") as queue_mock:
             with self.assertRaises(Exception) as ctx:
                 trigger_analysis(
                     request=SimpleNamespace(
@@ -888,8 +888,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         queue = MagicMock()
         queue.submit_tasks_batch.return_value = ([], [])
 
-        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
-             patch("api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
+             patch("finance_analysis.interfaces.api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
             response = trigger_analysis(
                 request=SimpleNamespace(
                     stock_code="AAPL.US",
@@ -924,8 +924,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         queue = MagicMock()
         queue.submit_tasks_batch.return_value = ([], [])
 
-        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
-             patch("api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
+             patch("finance_analysis.interfaces.api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
             response = trigger_analysis(
                 request=SimpleNamespace(
                     stock_code="00700.HK",
@@ -959,8 +959,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         queue = MagicMock()
         queue.submit_tasks_batch.return_value = ([], [])
 
-        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
-             patch("api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
+             patch("finance_analysis.interfaces.api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
             response = trigger_analysis(
                 request=SimpleNamespace(
                     stock_code="920493.BJ",
@@ -996,8 +996,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             with self.subTest(bad_code=bad_code):
                 queue = MagicMock()
 
-                with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
-                     patch("api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
+                with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
+                     patch("finance_analysis.interfaces.api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
                     with self.assertRaises(Exception) as exc:
                         trigger_analysis(
                             request=SimpleNamespace(
@@ -1026,8 +1026,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         queue = MagicMock()
         queue.submit_tasks_batch.return_value = ([], [])
 
-        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
-             patch("api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
+             patch("finance_analysis.interfaces.api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
             response = trigger_analysis(
                 request=SimpleNamespace(
                     stock_code="HK00700",
@@ -1061,8 +1061,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         queue = MagicMock()
         queue.submit_tasks_batch.return_value = ([], [])
 
-        with patch("api.v1.endpoints.analysis.resolve_name_to_code", return_value="688783"), \
-             patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue):
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.resolve_name_to_code", return_value="688783"), \
+             patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=queue):
             response = trigger_analysis(
                 request=SimpleNamespace(
                     stock_code="西安奕材-U",
@@ -1096,8 +1096,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         queue = MagicMock()
         queue.submit_tasks_batch.return_value = ([], [])
 
-        with patch("api.v1.endpoints.analysis.resolve_name_to_code", return_value="600519"), \
-             patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue):
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.resolve_name_to_code", return_value="600519"), \
+             patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=queue):
             response = trigger_analysis(
                 request=SimpleNamespace(
                     stock_code="贵州茅台",
@@ -1131,7 +1131,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         queue = MagicMock()
         queue.submit_tasks_batch.return_value = ([], [])
 
-        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue):
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=queue):
             response = trigger_analysis(
                 request=SimpleNamespace(
                     stock_code=None,
@@ -1167,7 +1167,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         try:
             queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
 
-            with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
+            with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
                  patch.object(queue, "_apply_celery_task"):
                 first = trigger_analysis(
                     request=SimpleNamespace(
@@ -1216,7 +1216,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         queue = MagicMock()
         queue.submit_tasks_batch.return_value = ([], [])
 
-        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue):
+        with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=queue):
             response = trigger_analysis(
                 request=SimpleNamespace(
                     stock_code=None,

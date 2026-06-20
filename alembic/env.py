@@ -8,10 +8,10 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-from src.config import load_env
-from src.db.config import get_database_config
-from src.db.base import Base
-import src.models  # noqa: F401  # register ORM models on Base.metadata
+from finance_analysis.config import load_env
+from finance_analysis.database.config import get_database_config
+from finance_analysis.database.base import Base
+import finance_analysis.database.models  # noqa: F401  # register ORM models on Base.metadata
 
 config = context.config
 

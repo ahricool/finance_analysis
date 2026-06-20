@@ -16,7 +16,7 @@ if "newspaper" not in sys.modules:
     mock_np.Config = MagicMock()
     sys.modules["newspaper"] = mock_np
 
-from src.search_service import (
+from finance_analysis.search import (
     BaseSearchProvider,
     SearchResponse,
     SearchResult,
@@ -252,8 +252,8 @@ class SearchServiceConcurrencyTestCase(unittest.TestCase):
         errors = []
         services = []
 
-        with patch("src.search_service.SearchService", side_effect=build_service) as mock_cls:
-            with patch("src.config.get_config", return_value=config):
+        with patch("finance_analysis.search.SearchService", side_effect=build_service) as mock_cls:
+            with patch("finance_analysis.config.runtime.get_runtime_config", return_value=config):
                 def worker():
                     try:
                         barrier.wait(timeout=1)

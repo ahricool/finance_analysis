@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from src.models import FinanceEvent
-from src.repositories.market_calendar_event_repo import MarketCalendarEventRepo, normalize_event_key
+from finance_analysis.database.models import FinanceEvent
+from finance_analysis.database.repositories.market_calendar_event import MarketCalendarEventRepo, normalize_event_key
 
 
 class _ScalarResult:

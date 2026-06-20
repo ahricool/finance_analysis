@@ -10,8 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.tasks.lifecycle import _json_summary, TaskSkipped, track_task
-from src.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
+from finance_analysis.tasks.lifecycle import _json_summary, TaskSkipped, track_task
+from finance_analysis.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
 from tests.task_repo_fakes import FakeTaskRecordRepository
 
 
@@ -57,7 +57,7 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
         def run(value: int) -> int:
             return value + 1
 
-        with patch("src.tasks.lifecycle.get_task_lifecycle_service", return_value=service):
+        with patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=service):
             self.assertEqual(run(2), 3)
 
         self.assertEqual([event[0] for event in service.events], ["processing", "completed"])
@@ -71,7 +71,7 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
         def run() -> None:
             raise RuntimeError("boom")
 
-        with patch("src.tasks.lifecycle.get_task_lifecycle_service", return_value=service):
+        with patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=service):
             with self.assertRaisesRegex(RuntimeError, "boom"):
                 run()
 
@@ -90,8 +90,8 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
         def run() -> None:
             raise RuntimeError("api_key=super-secret failed")
 
-        with patch("src.tasks.lifecycle.get_task_lifecycle_service", return_value=service), \
-             patch("src.notification.NotificationService") as notification_service:
+        with patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=service), \
+             patch("finance_analysis.notification.service.NotificationService") as notification_service:
             notification_service.return_value.send.return_value = True
             with self.assertRaisesRegex(RuntimeError, "failed"):
                 run()
@@ -117,8 +117,8 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
         def run() -> None:
             raise RuntimeError("boom")
 
-        with patch("src.tasks.lifecycle.get_task_lifecycle_service", return_value=service), \
-             patch("src.notification.NotificationService") as notification_service:
+        with patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=service), \
+             patch("finance_analysis.notification.service.NotificationService") as notification_service:
             notification_service.return_value.send.side_effect = RuntimeError("notify down")
             with self.assertRaisesRegex(RuntimeError, "boom"):
                 run()
@@ -132,7 +132,7 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
         def run() -> str:
             return "ok"
 
-        with patch("src.tasks.lifecycle.get_task_lifecycle_service", return_value=service):
+        with patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=service):
             run()
             run()
 
@@ -147,7 +147,7 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
         def run() -> None:
             raise TaskSkipped("no work")
 
-        with patch("src.tasks.lifecycle.get_task_lifecycle_service", return_value=service):
+        with patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=service):
             self.assertIsNone(run())
 
         self.assertEqual([event[0] for event in service.events], ["processing", "skipped"])
@@ -179,7 +179,7 @@ class TaskQueueLifecycleIntegrationTestCase(unittest.TestCase):
         repository = FakeTaskRecordRepository()
         queue = AnalysisTaskQueue(max_workers=1, repository=repository)
 
-        from src.celery_app.tasks.analysis import run_stock_analysis
+        from finance_analysis.tasks.celery.jobs.analysis import run_stock_analysis
 
         with patch.object(run_stock_analysis, "apply_async"):
             accepted, duplicates = queue.submit_tasks_batch(["600519"], report_type="detailed")

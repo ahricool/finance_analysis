@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from src.services.tasks.us_intraday_analysis.llm import build_intraday_batch_llm_prompt
+from finance_analysis.tasks.jobs.us_intraday_analysis.llm import build_intraday_batch_llm_prompt
 
 
 def test_build_intraday_batch_llm_prompt_includes_news_context():

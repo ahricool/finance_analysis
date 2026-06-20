@@ -20,7 +20,7 @@ except ValueError:
 if not json_repair_available and "json_repair" not in sys.modules:
     sys.modules["json_repair"] = MagicMock()
 
-from data_provider.tushare_fetcher import TushareFetcher, _TushareHttpClient
+from finance_analysis.integrations.market_data.providers.tushare import TushareFetcher, _TushareHttpClient
 
 
 class TestTushareHttpClient(unittest.TestCase):
@@ -41,7 +41,7 @@ class TestTushareHttpClient(unittest.TestCase):
             ),
         )
 
-        with patch("data_provider.tushare_fetcher.requests.post", return_value=response) as post_mock:
+        with patch("finance_analysis.integrations.market_data.providers.tushare.requests.post", return_value=response) as post_mock:
             df = client.daily(ts_code="600519.SH", start_date="20260320", end_date="20260325")
 
         post_mock.assert_called_once_with(
@@ -67,7 +67,7 @@ class TestTushareFetcherInit(unittest.TestCase):
     def test_init_builds_http_client_when_token_present(self) -> None:
         config = SimpleNamespace(tushare_token="demo-token")
 
-        with patch("data_provider.tushare_fetcher.get_config", return_value=config):
+        with patch("finance_analysis.integrations.market_data.config.get_data_provider_config", return_value=config):
             fetcher = TushareFetcher()
 
         self.assertIsInstance(fetcher._api, _TushareHttpClient)

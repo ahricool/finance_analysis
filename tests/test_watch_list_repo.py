@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for watch list repository field handling."""
 
-from src.repositories.watch_list_repo import WatchListRepo
+from finance_analysis.database.repositories.watch_list import WatchListRepo
 
 
 class _FakeSession:

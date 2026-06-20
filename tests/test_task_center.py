@@ -4,13 +4,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.services.task_center import (
+from finance_analysis.tasks.service import (
     DuplicateScheduledTaskError,
     ScheduledTaskService,
     SchedulerUnavailableError,
     TaskQueryService,
 )
-from src.time_utils import utc_now
+from finance_analysis.core.time import utc_now
 
 
 class _FakeScheduler:

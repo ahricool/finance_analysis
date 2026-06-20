@@ -14,7 +14,7 @@ import io
 import pytest
 from unittest.mock import patch
 
-from src.services.import_parser import (
+from finance_analysis.stock_lists.importer import (
     parse_import_from_bytes,
     parse_import_from_text,
     MAX_FILE_BYTES,
@@ -57,7 +57,7 @@ class TestParseImportFromBytesCsv:
         result = parse_import_from_bytes(data, "paste.txt")
         assert result[0] == ("600519", "贵州茅台", "medium")
 
-    @patch("src.services.import_parser.resolve_name_to_code")
+    @patch("finance_analysis.stock_lists.importer.resolve_name_to_code")
     def test_resolves_name_when_code_empty(self, mock_resolve):
         mock_resolve.return_value = "600519"
         # code column empty, name column has value
@@ -66,7 +66,7 @@ class TestParseImportFromBytesCsv:
         assert result[0] == ("600519", "贵州茅台", "medium")
         mock_resolve.assert_called_with("贵州茅台")
 
-    @patch("src.services.import_parser.resolve_name_to_code")
+    @patch("finance_analysis.stock_lists.importer.resolve_name_to_code")
     def test_returns_none_code_when_resolution_fails(self, mock_resolve):
         mock_resolve.return_value = None
         data = "code,name\n,不存在的股票".encode("utf-8")

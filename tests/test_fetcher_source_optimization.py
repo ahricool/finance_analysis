@@ -13,8 +13,8 @@ if "litellm" not in sys.modules:
 if "json_repair" not in sys.modules:
     sys.modules["json_repair"] = MagicMock()
 
-from data_provider.base import DataFetcherManager
-from data_provider.realtime_types import RealtimeSource, UnifiedRealtimeQuote
+from finance_analysis.integrations.market_data.base import DataFetcherManager
+from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote
 
 
 class _StubFetcher:
@@ -58,7 +58,7 @@ def _make_daily_df() -> pd.DataFrame:
 
 
 class TestFetcherSourceOptimization(unittest.TestCase):
-    @patch("src.config.get_config")
+    @patch("finance_analysis.config.runtime.get_runtime_config")
     def test_manager_skips_unconfigured_optional_fetchers(self, mock_get_config):
         mock_get_config.return_value = SimpleNamespace(
             tushare_token="",
@@ -67,23 +67,23 @@ class TestFetcherSourceOptimization(unittest.TestCase):
             longbridge_access_token="",
         )
 
-        with patch("data_provider.efinance_fetcher.EfinanceFetcher", return_value=_StubFetcher("EfinanceFetcher", 0)), patch(
-            "data_provider.akshare_fetcher.AkshareFetcher",
+        with patch("finance_analysis.integrations.market_data.providers.efinance.EfinanceFetcher", return_value=_StubFetcher("EfinanceFetcher", 0)), patch(
+            "finance_analysis.integrations.market_data.providers.akshare.AkshareFetcher",
             return_value=_StubFetcher("AkshareFetcher", 1),
         ), patch(
-            "data_provider.pytdx_fetcher.PytdxFetcher",
+            "finance_analysis.integrations.market_data.providers.pytdx.PytdxFetcher",
             return_value=_StubFetcher("PytdxFetcher", 2),
         ), patch(
-            "data_provider.baostock_fetcher.BaostockFetcher",
+            "finance_analysis.integrations.market_data.providers.baostock.BaostockFetcher",
             return_value=_StubFetcher("BaostockFetcher", 3),
         ), patch(
-            "data_provider.yfinance_fetcher.YfinanceFetcher",
+            "finance_analysis.integrations.market_data.providers.yfinance.YfinanceFetcher",
             return_value=_StubFetcher("YfinanceFetcher", 4),
         ), patch(
-            "data_provider.tushare_fetcher.TushareFetcher",
+            "finance_analysis.integrations.market_data.providers.tushare.TushareFetcher",
             return_value=_StubFetcher("TushareFetcher", -1),
         ) as mock_tushare, patch(
-            "data_provider.longbridge_fetcher.LongbridgeFetcher",
+            "finance_analysis.integrations.market_data.providers.longbridge.market.LongbridgeFetcher",
             return_value=_StubFetcher("LongbridgeFetcher", 5),
         ) as mock_longbridge:
             manager = DataFetcherManager()
@@ -101,7 +101,7 @@ class TestFetcherSourceOptimization(unittest.TestCase):
         mock_tushare.assert_not_called()
         mock_longbridge.assert_not_called()
 
-    @patch("src.config.get_config")
+    @patch("finance_analysis.config.runtime.get_runtime_config")
     def test_us_realtime_route_skips_temporarily_unavailable_longbridge(self, mock_get_config):
         mock_get_config.return_value = SimpleNamespace(
             enable_realtime_quote=True,
@@ -127,7 +127,7 @@ class TestFetcherSourceOptimization(unittest.TestCase):
         yfinance.get_realtime_quote.assert_called_once_with("AAPL")
         longbridge.get_realtime_quote.assert_not_called()
 
-    @patch("src.config.get_config")
+    @patch("finance_analysis.config.runtime.get_runtime_config")
     def test_us_daily_route_skips_temporarily_unavailable_longbridge(self, mock_get_config):
         mock_get_config.return_value = SimpleNamespace(
             longbridge_app_key="app-key",
@@ -154,7 +154,7 @@ class TestFetcherSourceOptimization(unittest.TestCase):
         yfinance.get_daily_data.assert_called_once()
         longbridge.get_daily_data.assert_not_called()
 
-    @patch("src.config.get_config")
+    @patch("finance_analysis.config.runtime.get_runtime_config")
     def test_hk_daily_route_skips_temporarily_unavailable_longbridge(self, mock_get_config):
         mock_get_config.return_value = SimpleNamespace(
             longbridge_app_key="app-key",

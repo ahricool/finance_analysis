@@ -16,7 +16,7 @@ class HistoryLoaderTestCase(unittest.TestCase):
     # ContextVar lifecycle
     # ------------------------------------------------------------------
     def test_frozen_target_date_lifecycle(self):
-        from src.services.history_loader import (
+        from finance_analysis.analysis.history.loader import (
             get_frozen_target_date,
             reset_frozen_target_date,
             set_frozen_target_date,
@@ -32,9 +32,9 @@ class HistoryLoaderTestCase(unittest.TestCase):
     # ------------------------------------------------------------------
     # DB hit path
     # ------------------------------------------------------------------
-    @patch("src.storage.get_db")
+    @patch("finance_analysis.database.get_db")
     def test_returns_db_data_when_sufficient(self, mock_get_db):
-        from src.services.history_loader import load_history_df
+        from finance_analysis.analysis.history.loader import load_history_df
 
         fake_bar = MagicMock()
         fake_bar.to_dict.return_value = {
@@ -59,10 +59,10 @@ class HistoryLoaderTestCase(unittest.TestCase):
     # ------------------------------------------------------------------
     # DB miss → DFM fallback
     # ------------------------------------------------------------------
-    @patch("src.services.history_loader._get_fetcher_manager")
-    @patch("src.storage.get_db")
+    @patch("finance_analysis.analysis.history.loader._get_fetcher_manager")
+    @patch("finance_analysis.database.get_db")
     def test_falls_back_to_dfm_when_db_empty(self, mock_get_db, mock_get_fm):
-        from src.services.history_loader import load_history_df
+        from finance_analysis.analysis.history.loader import load_history_df
 
         mock_db = MagicMock()
         mock_db.get_data_range.return_value = []
@@ -82,9 +82,9 @@ class HistoryLoaderTestCase(unittest.TestCase):
     # ------------------------------------------------------------------
     # ContextVar integration
     # ------------------------------------------------------------------
-    @patch("src.storage.get_db")
+    @patch("finance_analysis.database.get_db")
     def test_uses_frozen_target_date_from_contextvar(self, mock_get_db):
-        from src.services.history_loader import (
+        from finance_analysis.analysis.history.loader import (
             load_history_df,
             reset_frozen_target_date,
             set_frozen_target_date,
@@ -111,9 +111,9 @@ class HistoryLoaderTestCase(unittest.TestCase):
     # ------------------------------------------------------------------
     # normalize_stock_code fallback for prefixed codes
     # ------------------------------------------------------------------
-    @patch("src.storage.get_db")
+    @patch("finance_analysis.database.get_db")
     def test_uses_normalize_fallback_for_prefixed_code(self, mock_get_db):
-        from src.services.history_loader import load_history_df
+        from finance_analysis.analysis.history.loader import load_history_df
 
         fake_bar = MagicMock()
         fake_bar.to_dict.return_value = {"date": "2026-04-18", "close": 10}
@@ -136,10 +136,10 @@ class HistoryLoaderTestCase(unittest.TestCase):
     # ------------------------------------------------------------------
     # Both paths fail gracefully
     # ------------------------------------------------------------------
-    @patch("src.services.history_loader._get_fetcher_manager")
-    @patch("src.storage.get_db")
+    @patch("finance_analysis.analysis.history.loader._get_fetcher_manager")
+    @patch("finance_analysis.database.get_db")
     def test_graceful_when_both_fail(self, mock_get_db, mock_get_fm):
-        from src.services.history_loader import load_history_df
+        from finance_analysis.analysis.history.loader import load_history_df
 
         mock_db = MagicMock()
         mock_db.get_data_range.side_effect = Exception("DB down")

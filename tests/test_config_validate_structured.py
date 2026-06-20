@@ -11,7 +11,7 @@ import pytest
 from dataclasses import fields
 from unittest.mock import patch
 
-from src.config import Config, ConfigIssue
+from finance_analysis.config import Config, ConfigIssue
 
 _ALLOWED_CONFIG_FIELDS = {f.name for f in fields(Config)}
 
@@ -129,7 +129,7 @@ class TestValidateStructuredDatabase:
 # ---------------------------------------------------------------------------
 
 class TestValidateStructuredWatchList:
-    @patch("src.repositories.watch_list_repo.get_watch_list_codes", return_value=[])
+    @patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes", return_value=[])
     def test_empty_watch_list_emits_info(self, _mock_codes):
         cfg = _make_config()
         issues = cfg.validate_structured()
@@ -137,13 +137,13 @@ class TestValidateStructuredWatchList:
         assert info.severity == "info"
         assert "自选股" in info.message
 
-    @patch("src.repositories.watch_list_repo.get_watch_list_codes", return_value=["600519"])
+    @patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes", return_value=["600519"])
     def test_configured_watch_list_has_no_watch_list_issue(self, _mock_codes):
         cfg = _make_config()
         issues = cfg.validate_structured()
         assert not any(i.field == "watch_list" for i in issues)
 
-    @patch("src.repositories.watch_list_repo.get_watch_list_codes", side_effect=RuntimeError("db down"))
+    @patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes", side_effect=RuntimeError("db down"))
     def test_watch_list_db_unavailable_does_not_block_validation(self, _mock_codes):
         cfg = _make_config()
         issues = cfg.validate_structured()

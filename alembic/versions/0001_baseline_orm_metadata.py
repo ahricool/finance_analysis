@@ -26,8 +26,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     bind = op.get_bind()
     # Local import so env.py / CLI can load revision without pulling all ORM at collection time.
-    from src.db.base import Base
-    import src.models  # noqa: F401  # register ORM models on Base.metadata
+    from finance_analysis.database.base import Base
+    import finance_analysis.database.models  # noqa: F401  # register ORM models on Base.metadata
 
     Base.metadata.create_all(bind=bind)
 

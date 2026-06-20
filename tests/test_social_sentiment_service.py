@@ -6,7 +6,7 @@ import time
 import unittest
 from unittest.mock import patch, MagicMock
 
-from src.services.social_sentiment_service import SocialSentimentService
+from finance_analysis.market_intelligence.social_sentiment import SocialSentimentService
 
 
 class TestServiceAvailability(unittest.TestCase):
@@ -31,7 +31,7 @@ class TestFetchRedditReport(unittest.TestCase):
     def setUp(self):
         self.svc = SocialSentimentService(api_key="sk_live_test", api_url="https://api.example.com")
 
-    @patch("src.services.social_sentiment_service._get_with_retry")
+    @patch("finance_analysis.market_intelligence.social_sentiment._get_with_retry")
     def test_success(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -53,7 +53,7 @@ class TestFetchRedditReport(unittest.TestCase):
         call_args = mock_get.call_args
         self.assertIn("/reddit/stocks/v1/report/TSLA", call_args[0][0])
 
-    @patch("src.services.social_sentiment_service._get_with_retry")
+    @patch("finance_analysis.market_intelligence.social_sentiment._get_with_retry")
     def test_http_error_returns_none(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.status_code = 404
@@ -62,7 +62,7 @@ class TestFetchRedditReport(unittest.TestCase):
         result = self.svc.fetch_reddit_report("UNKNOWN")
         self.assertIsNone(result)
 
-    @patch("src.services.social_sentiment_service._get_with_retry")
+    @patch("finance_analysis.market_intelligence.social_sentiment._get_with_retry")
     def test_timeout_returns_none(self, mock_get):
         import requests
         mock_get.side_effect = requests.exceptions.Timeout("timed out")
@@ -77,7 +77,7 @@ class TestFetchTrending(unittest.TestCase):
     def setUp(self):
         self.svc = SocialSentimentService(api_key="sk_live_test", api_url="https://api.example.com")
 
-    @patch("src.services.social_sentiment_service._get_with_retry")
+    @patch("finance_analysis.market_intelligence.social_sentiment._get_with_retry")
     def test_x_trending_returns_list(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -93,7 +93,7 @@ class TestFetchTrending(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(len(result), 2)
 
-    @patch("src.services.social_sentiment_service._get_with_retry")
+    @patch("finance_analysis.market_intelligence.social_sentiment._get_with_retry")
     def test_trending_cache_prevents_duplicate_calls(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -168,7 +168,7 @@ class TestGetSocialContext(unittest.TestCase):
         result = svc.get_social_context("AAPL")
         self.assertIsNone(result)
 
-    @patch("src.services.social_sentiment_service._get_with_retry")
+    @patch("finance_analysis.market_intelligence.social_sentiment._get_with_retry")
     def test_returns_none_when_no_data(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.status_code = 404
@@ -178,7 +178,7 @@ class TestGetSocialContext(unittest.TestCase):
         result = svc.get_social_context("XYZZY")
         self.assertIsNone(result)
 
-    @patch("src.services.social_sentiment_service._get_with_retry")
+    @patch("finance_analysis.market_intelligence.social_sentiment._get_with_retry")
     def test_formats_reddit_data(self, mock_get):
         def side_effect(url, **kwargs):
             resp = MagicMock()
@@ -213,7 +213,7 @@ class TestGetSocialContext(unittest.TestCase):
         self.assertIn("342", result)
         self.assertIn("TSLA looking strong", result)
 
-    @patch("src.services.social_sentiment_service._get_with_retry")
+    @patch("finance_analysis.market_intelligence.social_sentiment._get_with_retry")
     def test_includes_all_platforms(self, mock_get):
         def side_effect(url, **kwargs):
             resp = MagicMock()
@@ -302,17 +302,17 @@ class TestUSStockGating(unittest.TestCase):
     """Verify that only US stock codes are processed."""
 
     def test_a_share_code_not_us(self):
-        from data_provider.us_index_mapping import is_us_stock_code
+        from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code
         self.assertFalse(is_us_stock_code("600519"))
         self.assertFalse(is_us_stock_code("000001"))
         self.assertFalse(is_us_stock_code("300750"))
 
     def test_hk_code_not_us(self):
-        from data_provider.us_index_mapping import is_us_stock_code
+        from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code
         self.assertFalse(is_us_stock_code("HK00700"))
 
     def test_us_code_detected(self):
-        from data_provider.us_index_mapping import is_us_stock_code
+        from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code
         self.assertTrue(is_us_stock_code("AAPL"))
         self.assertTrue(is_us_stock_code("TSLA"))
         self.assertTrue(is_us_stock_code("NVDA"))

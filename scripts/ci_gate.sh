@@ -7,11 +7,11 @@ cd "$ROOT"
 export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@127.0.0.1:5432/finance_analysis_test}"
 
 run_syntax() {
-  python -m compileall -q api bot data_provider src main.py
+  python -m compileall -q src main.py alembic tests
 }
 
 run_flake8() {
-  flake8 api bot data_provider src tests main.py \
+  flake8 src tests alembic main.py \
     --select=E9,F63,F7,F82 \
     --format='%(path)s:%(row)d: %(code)s %(text)s'
 }

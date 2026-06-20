@@ -13,7 +13,7 @@ from sqlalchemy.sql import func
 # Ensure src module can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.storage import DatabaseManager, StockDaily
+from finance_analysis.database import DatabaseManager, StockDaily
 
 class TestStorage(unittest.TestCase):
     

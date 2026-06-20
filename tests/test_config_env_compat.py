@@ -7,14 +7,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.config import Config
+from finance_analysis.config import Config
 
 
 class ConfigEnvCompatibilityTestCase(unittest.TestCase):
     def tearDown(self):
         Config.reset_instance()
 
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_load_from_env_reads_tickflow_api_key(
         self, _mock_parse_litellm_yaml, _mock_setup_env
@@ -30,7 +30,7 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
 
         self.assertEqual(config.tickflow_api_key, "tf-secret")
 
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_load_from_env_keeps_default_behavior_without_tickflow_api_key(
         self, _mock_parse_litellm_yaml, _mock_setup_env
@@ -49,7 +49,7 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
         )
         self.assertEqual(config.redis_url, "redis://localhost:6379/0")
 
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_load_from_env_reads_redis_url(
         self, _mock_parse_litellm_yaml, _mock_setup_env
@@ -65,7 +65,7 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
 
         self.assertEqual(config.redis_url, "redis://redis:6379/0")
 
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_report_language_prefers_preexisting_process_env_over_env_file(
         self,
@@ -88,7 +88,7 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
 
         self.assertEqual(config.report_language, "en")
 
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_report_language_uses_env_file_when_process_env_is_absent(
         self,
@@ -111,12 +111,12 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
         self.assertEqual(config.report_language, "en")
 
     def test_parse_report_language_accepts_known_alias_without_warning(self) -> None:
-        with self.assertNoLogs("src.config", level="WARNING"):
+        with self.assertNoLogs("finance_analysis.config", level="WARNING"):
             parsed = Config._parse_report_language("zh-cn")
 
         self.assertEqual(parsed, "zh")
 
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_invalid_numeric_env_values_fall_back_to_defaults(
         self,
@@ -138,7 +138,7 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
         self.assertEqual(config.max_workers, 3)
         self.assertIsNone(config.webui_port)
 
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_stock_email_groups_support_case_insensitive_env_names(
         self,
@@ -163,7 +163,7 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
             ],
         )
 
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_stock_email_groups_normalize_codes_at_parse_time(
         self,

@@ -7,19 +7,19 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
-from data_provider.longbridge_news_fetcher import LongbridgeNewsRecord
-from src.services.tasks.us_premarket_news.llm import (
+from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsRecord
+from finance_analysis.tasks.jobs.us_premarket_news.llm import (
     normalize_impact_results,
     normalize_importance_results,
 )
-from src.services.tasks.us_premarket_news.notifications import render_calendar_content
-from src.services.tasks.us_premarket_news.service import (
+from finance_analysis.tasks.jobs.us_premarket_news.notifications import render_calendar_content
+from finance_analysis.tasks.jobs.us_premarket_news.service import (
     build_premarket_symbol_universe,
     normalize_us_symbol,
     premarket_news_window,
     USPremarketNewsService,
 )
-from src.services.tasks.us_premarket_news.models import PremarketNewsSummary
+from finance_analysis.tasks.jobs.us_premarket_news.models import PremarketNewsSummary
 
 
 def test_normalize_us_symbol_strips_us_suffix_and_preserves_share_class():

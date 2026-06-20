@@ -15,7 +15,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from data_provider.base import DataFetcherManager
+from finance_analysis.integrations.market_data.base import DataFetcherManager
 
 
 class _DummyFetcher:
@@ -48,7 +48,7 @@ class TestFundamentalContext(unittest.TestCase):
             fundamental_fetch_timeout_seconds=0.8,
             fundamental_retry_max=1,
         )
-        with patch("src.config.get_config", return_value=cfg):
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=cfg):
             ctx = manager.get_fundamental_context("AAPL")
         self.assertEqual(ctx["market"], "us")
         self.assertEqual(ctx["status"], "not_supported")
@@ -85,10 +85,10 @@ class TestFundamentalContext(unittest.TestCase):
             "source_chain": [],
             "errors": [],
         }
-        with patch("src.config.get_config", return_value=cfg), \
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=cfg), \
                 patch.object(manager, "get_realtime_quote", return_value=quote), \
                 patch(
-                    "data_provider.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle",
+                    "finance_analysis.integrations.market_data.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle",
                     return_value=bundle,
                 ):
             ctx = manager.get_fundamental_context("159915")
@@ -135,9 +135,9 @@ class TestFundamentalContext(unittest.TestCase):
             circ_mv=7.0e10,
             source=SimpleNamespace(value="tencent"),
         )
-        with patch("src.config.get_config", return_value=cfg), \
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=cfg), \
                 patch.object(manager, "get_realtime_quote", return_value=quote), \
-                patch("data_provider.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle", return_value={
+                patch("finance_analysis.integrations.market_data.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle", return_value={
                     "growth": {"revenue_yoy": 10.1, "net_profit_yoy": 8.5},
                     "earnings": {"forecast_summary": "预增"},
                     "institution": {"institution_holding_change": 1.2},
@@ -171,9 +171,9 @@ class TestFundamentalContext(unittest.TestCase):
             circ_mv=7.0e10,
             source=SimpleNamespace(value="tencent"),
         )
-        with patch("src.config.get_config", return_value=cfg), \
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=cfg), \
                 patch.object(manager, "get_realtime_quote", return_value=quote), \
-                patch("data_provider.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle", return_value={
+                patch("finance_analysis.integrations.market_data.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle", return_value={
                     "status": "partial",
                     "growth": {},
                     "earnings": {
@@ -213,9 +213,9 @@ class TestFundamentalContext(unittest.TestCase):
             circ_mv=7.0e10,
             source=SimpleNamespace(value="tencent"),
         )
-        with patch("src.config.get_config", return_value=cfg), \
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=cfg), \
                 patch.object(manager, "get_realtime_quote", return_value=quote), \
-                patch("data_provider.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle", return_value={
+                patch("finance_analysis.integrations.market_data.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle", return_value={
                     "status": "partial",
                     "growth": {},
                     "earnings": {
@@ -275,10 +275,10 @@ class TestFundamentalContext(unittest.TestCase):
             budgets["boards"] = budget_seconds
             return {"status": "not_supported", "source_chain": [], "errors": [], "data": {}}
 
-        with patch("src.config.get_config", return_value=cfg), \
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=cfg), \
                 patch.object(manager, "get_realtime_quote", return_value=quote), \
                 patch(
-                    "data_provider.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle",
+                    "finance_analysis.integrations.market_data.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle",
                     return_value=bundle,
                 ), \
                 patch.object(manager, "get_capital_flow_context", side_effect=_capital_flow_side_effect), \
@@ -359,10 +359,10 @@ class TestFundamentalContext(unittest.TestCase):
             "source_chain": [],
             "errors": [],
         }
-        with patch("src.config.get_config", return_value=cfg), \
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=cfg), \
                 patch.object(manager, "get_realtime_quote", return_value=quote), \
                 patch(
-                    "data_provider.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle",
+                    "finance_analysis.integrations.market_data.fundamental_adapter.AkshareFundamentalAdapter.get_fundamental_bundle",
                     return_value=bundle,
                 ):
             ctx = manager.get_fundamental_context("600519")
@@ -388,7 +388,7 @@ class TestFundamentalContext(unittest.TestCase):
             fundamental_fetch_timeout_seconds=0.8,
             fundamental_retry_max=1,
         )
-        with patch("src.config.get_config", return_value=cfg), \
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=cfg), \
                 patch.object(manager, "_get_sector_rankings_with_meta", return_value=([], [], [], "all failed")):
             ctx = manager.get_board_context("600519", budget_seconds=0.5)
         self.assertEqual(ctx["status"], "failed")
@@ -403,9 +403,9 @@ class TestFundamentalContext(unittest.TestCase):
             fundamental_fetch_timeout_seconds=0.8,
             fundamental_retry_max=1,
         )
-        with patch("src.config.get_config", return_value=cfg), \
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=cfg), \
                 patch(
-                    "data_provider.fundamental_adapter.AkshareFundamentalAdapter.get_capital_flow",
+                    "finance_analysis.integrations.market_data.fundamental_adapter.AkshareFundamentalAdapter.get_capital_flow",
                     return_value={
                         "status": "not_supported",
                         "stock_flow": {},
@@ -482,8 +482,8 @@ class TestFundamentalContext(unittest.TestCase):
 
     def test_missing_value_helpers_log_expected_pd_isna_fallback(self) -> None:
         sentinel = object()
-        with patch("data_provider.base.pd.isna", side_effect=ValueError("ambiguous")):
-            with self.assertLogs("data_provider.base", level="DEBUG") as logs:
+        with patch("finance_analysis.integrations.market_data.base.pd.isna", side_effect=ValueError("ambiguous")):
+            with self.assertLogs("finance_analysis.integrations.market_data.base", level="DEBUG") as logs:
                 self.assertFalse(DataFetcherManager._is_missing_board_value(sentinel))
                 self.assertTrue(DataFetcherManager._has_meaningful_payload(sentinel))
 
@@ -504,7 +504,7 @@ class TestFundamentalContext(unittest.TestCase):
 
     def test_missing_value_helpers_propagate_unexpected_pd_isna_errors(self) -> None:
         sentinel = object()
-        with patch("data_provider.base.pd.isna", side_effect=RuntimeError("boom")):
+        with patch("finance_analysis.integrations.market_data.base.pd.isna", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
                 DataFetcherManager._is_missing_board_value(sentinel)
             with self.assertRaises(RuntimeError):

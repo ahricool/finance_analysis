@@ -108,16 +108,47 @@ jobs:
       - name: 🔍 Docker smoke imports
         run: |
           docker run --rm stock-analysis:test python -c "
-          from src.config import load_env; print('✅ config')
-          from src.storage import DatabaseManager; print('✅ storage')
-          from src.notification import NotificationService; print('✅ notification')
-          from data_provider import DataFetcherManager; print('✅ data_provider')
-          from src.analysis.stock_report_analyzer import StockReportAnalyzer; print('✅ analyzer')
-          from src.patches.eastmoney_patch import eastmoney_patch; print('✅ patch')
-          from bot.dispatcher import CommandDispatcher; print('✅ bot')
-          from api.app import app; print('✅ api')
+          from finance_analysis.config import load_env; print('✅ config')
+          from finance_analysis.database import DatabaseManager; print('✅ storage')
+          from finance_analysis.notification.service import NotificationService; print('✅ notification')
+          from finance_analysis.integrations.market_data import DataFetcherManager; print('✅ data_provider')
+          from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer; print('✅ analyzer')
+          from finance_analysis.patches.eastmoney_patch import eastmoney_patch; print('✅ patch')
+          from finance_analysis.interfaces.bot.dispatcher import CommandDispatcher; print('✅ bot')
+          from finance_analysis.interfaces.api.app import app; print('✅ api')
           print('✅ All Docker imports OK')
           "
+      - name: 🔍 Docker runtime path smoke
+        run: |
+          docker run --rm stock-analysis:test python - <<'PY'
+          from finance_analysis.core.paths import PROJECT_ROOT, STATIC_DIR, TEMPLATES_DIR, STRATEGIES_DIR, get_reports_dir
+          from finance_analysis.interfaces.api.app import create_app
+          from finance_analysis.reporting.template_renderer import _resolve_templates_dir
+
+          print('static_dir:', STATIC_DIR)
+          assert STATIC_DIR.name == 'static'
+          assert (STATIC_DIR / 'index.html').is_file()
+
+          templates = _resolve_templates_dir()
+          print('templates:', templates)
+          assert templates.is_dir()
+          assert (templates / 'report_markdown.j2').is_file()
+
+          print('strategies:', STRATEGIES_DIR)
+          assert STRATEGIES_DIR.is_dir()
+          assert (PROJECT_ROOT / 'pyproject.toml').is_file()
+
+          app = create_app()
+          print('routes:', len(app.routes))
+          assert len(app.routes) > 0
+
+          reports = get_reports_dir()
+          reports.mkdir(parents=True, exist_ok=True)
+          test_file = reports / 'smoke.txt'
+          test_file.write_text('ok', encoding='utf-8')
+          assert test_file.read_text(encoding='utf-8') == 'ok'
+          print('✅ Docker runtime paths OK')
+          PY
 
   web-gate:
     name: web-gate

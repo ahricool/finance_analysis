@@ -7,7 +7,7 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from data_provider.longbridge_calendar_fetcher import LongbridgeCalendarFetcher
+from finance_analysis.integrations.market_data.providers.longbridge.calendar import LongbridgeCalendarFetcher
 
 
 def test_fetch_calendar_calls_single_sdk_finance_calendar_method():

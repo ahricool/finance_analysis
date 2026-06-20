@@ -6,7 +6,7 @@ has its config keys registered in _FIELD_DEFINITIONS for runtime validation.
 """
 import unittest
 
-from src.core.config_registry import (
+from finance_analysis.config.registry import (
     build_schema_response,
     get_field_definition,
 )

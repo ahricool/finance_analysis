@@ -27,10 +27,10 @@ try:
 except ModuleNotFoundError:
     sys.modules["litellm"] = MagicMock()
 
-from src.agent.executor import AgentExecutor, AgentResult
-from src.agent.llm_adapter import LLMResponse, ToolCall
-from src.agent.runner import parse_dashboard_json, run_agent_loop, serialize_tool_result
-from src.agent.tools.registry import ToolRegistry, ToolDefinition, ToolParameter
+from finance_analysis.agent.executor import AgentExecutor, AgentResult
+from finance_analysis.agent.llm_adapter import LLMResponse, ToolCall
+from finance_analysis.agent.runner import parse_dashboard_json, run_agent_loop, serialize_tool_result
+from finance_analysis.agent.tools.registry import ToolRegistry, ToolDefinition, ToolParameter
 
 
 # ============================================================
@@ -598,7 +598,7 @@ class TestAgentExecutor(unittest.TestCase):
         adapter.call_with_tools.side_effect = _capture_timeout
 
         executor = AgentExecutor(registry, adapter, max_steps=2, timeout_seconds=1.0)
-        with patch("src.agent.runner.time.time", return_value=1000.0):
+        with patch("finance_analysis.agent.runner.time.time", return_value=1000.0):
             result = executor.run("Analyze 600519")
 
         self.assertTrue(result.success)
@@ -618,7 +618,7 @@ class TestAgentExecutor(unittest.TestCase):
         )
 
         with patch(
-            "src.agent.runner._remaining_timeout_seconds",
+            "finance_analysis.agent.runner._remaining_timeout_seconds",
             side_effect=[9.0, 9.0, 7.5, 7.5],
         ):
             result = run_agent_loop(

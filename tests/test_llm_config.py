@@ -5,8 +5,8 @@ import os
 import unittest
 from unittest.mock import patch
 
-from src.config import Config, get_effective_agent_models_to_try, get_effective_agent_primary_model
-from src.llm_client import (
+from finance_analysis.config import Config, get_effective_agent_models_to_try, get_effective_agent_primary_model
+from finance_analysis.llm.client import (
     LLMConfigError,
     build_completion_kwargs,
     completion_with_fallback,
@@ -16,7 +16,7 @@ from src.llm_client import (
 
 
 class UnifiedLLMConfigTestCase(unittest.TestCase):
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_stock_email_groups", return_value=[])
     def test_loads_unified_llm_env(self, _mock_groups, _mock_setup_env) -> None:
         env = {
@@ -40,7 +40,7 @@ class UnifiedLLMConfigTestCase(unittest.TestCase):
         )
         self.assertEqual(config.litellm_model, "openai/gpt-5.5")
 
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_stock_email_groups", return_value=[])
     def test_legacy_litellm_aliases_are_ignored(self, _mock_groups, _mock_setup_env) -> None:
         env = {
@@ -56,7 +56,7 @@ class UnifiedLLMConfigTestCase(unittest.TestCase):
         self.assertIsNone(config.llm_api_key)
         self.assertEqual(config.llm_fallback_models, [])
 
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_stock_email_groups", return_value=[])
     def test_agent_model_inherits_primary(self, _mock_groups, _mock_setup_env) -> None:
         env = {
@@ -109,7 +109,7 @@ class LiteLLMClientTestCase(unittest.TestCase):
             ["openai/gpt-5.5", "openai/gpt-4.1"],
         )
 
-    @patch("src.llm.client.completion")
+    @patch("finance_analysis.llm.client.completion")
     def test_completion_with_fallback_retries_next_model(self, mock_completion) -> None:
         mock_completion.side_effect = [RuntimeError("primary failed"), object()]
 
@@ -128,7 +128,7 @@ class LiteLLMClientTestCase(unittest.TestCase):
 
     @patch("litellm.completion")
     def test_single_model_completion(self, mock_completion) -> None:
-        from src.llm_client import completion
+        from finance_analysis.llm.client import completion
 
         mock_completion.return_value = {"ok": True}
         result = completion(

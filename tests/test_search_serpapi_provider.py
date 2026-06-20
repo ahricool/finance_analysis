@@ -15,7 +15,7 @@ if "newspaper" not in sys.modules:
     mock_np.Config = MagicMock()
     sys.modules["newspaper"] = mock_np
 
-from src.search_service import SerpAPISearchProvider
+from finance_analysis.search import SerpAPISearchProvider
 
 
 class _FakeGoogleSearch:
@@ -64,7 +64,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                     }
                 ]
             }
-        ), patch("src.search.providers.serpapi.fetch_url_content") as mock_fetch:
+        ), patch("finance_analysis.search.providers.serpapi.fetch_url_content") as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=3)
 
         self.assertTrue(resp.success)
@@ -100,7 +100,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                     }
                 ]
             }
-        ), patch("src.search.providers.serpapi.fetch_url_content") as mock_fetch:
+        ), patch("finance_analysis.search.providers.serpapi.fetch_url_content") as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=3)
 
         self.assertTrue(resp.success)
@@ -136,7 +136,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                     }
                 ]
             }
-        ), patch("src.search.providers.serpapi.fetch_url_content") as mock_fetch:
+        ), patch("finance_analysis.search.providers.serpapi.fetch_url_content") as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=3)
 
         self.assertTrue(resp.success)
@@ -173,7 +173,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                     }
                 ]
             }
-        ), patch("src.search.providers.serpapi.fetch_url_content") as mock_fetch:
+        ), patch("finance_analysis.search.providers.serpapi.fetch_url_content") as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=3)
 
         self.assertTrue(resp.success)
@@ -203,7 +203,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                 ]
             }
         ), patch(
-            "src.search.providers.serpapi.fetch_url_content",
+            "finance_analysis.search.providers.serpapi.fetch_url_content",
             return_value="网页正文补充信息 " * 40,
         ) as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=3)
@@ -236,7 +236,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                     }
                 ]
             }
-        ), patch("src.search.providers.serpapi.fetch_url_content") as mock_fetch:
+        ), patch("finance_analysis.search.providers.serpapi.fetch_url_content") as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=3)
 
         self.assertTrue(resp.success)
@@ -268,7 +268,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                     }
                 ]
             }
-        ), patch("src.search.providers.serpapi.fetch_url_content") as mock_fetch:
+        ), patch("finance_analysis.search.providers.serpapi.fetch_url_content") as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=3)
 
         self.assertTrue(resp.success)
@@ -330,7 +330,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                 ]
             }
         ), patch(
-            "src.search.providers.serpapi.fetch_url_content",
+            "finance_analysis.search.providers.serpapi.fetch_url_content",
             return_value="网页正文补充信息 " * 40,
         ) as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=3)
@@ -372,7 +372,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                 ]
             }
         ), patch(
-            "src.search.providers.serpapi.fetch_url_content",
+            "finance_analysis.search.providers.serpapi.fetch_url_content",
             return_value="网页正文补充信息 " * 40,
         ) as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=3)
@@ -414,7 +414,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                 ]
             }
         ), patch(
-            "src.search.providers.serpapi.fetch_url_content",
+            "finance_analysis.search.providers.serpapi.fetch_url_content",
             return_value="网页正文补充信息 " * 40,
         ) as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=3)
@@ -450,7 +450,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                 ]
             }
         ), patch(
-            "src.search.providers.serpapi.fetch_url_content",
+            "finance_analysis.search.providers.serpapi.fetch_url_content",
             return_value="网页正文补充信息 " * 40,
         ) as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=2)
@@ -485,7 +485,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                 ]
             }
         ), patch(
-            "src.search.providers.serpapi.fetch_url_content",
+            "finance_analysis.search.providers.serpapi.fetch_url_content",
             return_value="网页正文补充信息 " * 40,
         ) as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=2)
@@ -520,7 +520,7 @@ class TestSerpAPISearchProvider(unittest.TestCase):
                 ]
             }
         ), patch(
-            "src.search.providers.serpapi.fetch_url_content",
+            "finance_analysis.search.providers.serpapi.fetch_url_content",
             side_effect=TimeoutError("slow site"),
         ) as mock_fetch:
             resp = provider.search("阿里巴巴 财报", max_results=2)

@@ -5,8 +5,8 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import DateTime
 
-from src.storage import Base, DatabaseManager
-from src.time_utils import day_bounds_utc, utc_isoformat
+from finance_analysis.database import Base, DatabaseManager
+from finance_analysis.core.time import day_bounds_utc, utc_isoformat
 
 
 def test_utc_isoformat_uses_z_with_milliseconds() -> None:

@@ -7,9 +7,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from api.v1.endpoints import agent
-from src.config import Config
-from src.services.agent_model_service import list_agent_model_deployments
+from finance_analysis.interfaces.api.v1.endpoints import agent
+from finance_analysis.config import Config
+from finance_analysis.llm.model_service import list_agent_model_deployments
 
 
 def _build_config(**overrides):
@@ -228,7 +228,7 @@ class AgentModelsEndpointTestCase(unittest.TestCase):
             ],
         )
 
-        with patch("api.v1.endpoints.agent.get_config", return_value=config):
+        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_pipeline_config", return_value=config):
             payload = asyncio.run(agent.get_agent_models()).model_dump()
 
         self.assertEqual(len(payload["models"]), 2)
@@ -263,8 +263,8 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
             ]
         )
 
-        with patch("api.v1.endpoints.agent.get_config", return_value=config), patch(
-            "src.agent.factory.get_skill_manager",
+        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_pipeline_config", return_value=config), patch(
+            "finance_analysis.agent.factory.get_skill_manager",
             return_value=skill_manager,
         ):
             payload = asyncio.run(agent.get_skills()).model_dump()
@@ -287,8 +287,8 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
             ]
         )
 
-        with patch("api.v1.endpoints.agent.get_config", return_value=config), patch(
-            "src.agent.factory.get_skill_manager",
+        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_pipeline_config", return_value=config), patch(
+            "finance_analysis.agent.factory.get_skill_manager",
             return_value=skill_manager,
         ):
             payload = asyncio.run(agent.get_strategies()).model_dump()
@@ -322,14 +322,14 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
                 future.set_result(func())
                 return future
 
-        with patch("api.v1.endpoints.agent.get_config", return_value=config), patch(
-            "api.v1.endpoints.agent._build_executor",
+        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_pipeline_config", return_value=config), patch(
+            "finance_analysis.interfaces.api.v1.endpoints.agent._build_executor",
             return_value=executor,
         ) as mock_build_executor, patch(
-            "api.v1.endpoints.agent.asyncio.get_running_loop",
+            "finance_analysis.interfaces.api.v1.endpoints.agent.asyncio.get_running_loop",
             side_effect=lambda: _ImmediateLoop(real_get_running_loop()),
         ), patch(
-            "api.v1.endpoints.agent.get_effective_uid",
+            "finance_analysis.interfaces.api.v1.endpoints.agent.get_effective_uid",
             return_value=1,
         ):
             payload = asyncio.run(agent.agent_chat(SimpleNamespace(), request)).model_dump()
@@ -339,7 +339,7 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
         self.assertEqual(executor.chat.call_args.kwargs["context"]["skills"], [])
         self.assertEqual(payload["content"], "ok")
 class AgentModelsSourceDetectionTestCase(unittest.TestCase):
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_load_from_env_marks_channels_as_actual_source_after_yaml_fallback(
         self,
@@ -364,7 +364,7 @@ class AgentModelsSourceDetectionTestCase(unittest.TestCase):
         self.assertEqual(config.llm_models_source, "llm_channels")
         self.assertEqual(config.llm_model_list[0]["litellm_params"]["model"], "openai/gpt-4o-mini")
 
-    @patch("src.config.setup_env")
+    @patch("finance_analysis.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_load_from_env_marks_legacy_as_actual_source_after_yaml_fallback(
         self,

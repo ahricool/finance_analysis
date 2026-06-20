@@ -152,11 +152,11 @@ jobs:
         run: |
           docker build -t stock-analysis:release -f Dockerfile .
           docker run --rm stock-analysis:release python -c "
-          from src.config import load_env; print('ok-config')
-          from src.storage import DatabaseManager; print('ok-storage')
-          from src.notification import NotificationService; print('ok-notification')
-          from data_provider import DataFetcherManager; print('ok-data-provider')
-          from src.analysis.stock_report_analyzer import StockReportAnalyzer; print('ok-analyzer')
+          from finance_analysis.config import load_env; print('ok-config')
+          from finance_analysis.database import DatabaseManager; print('ok-storage')
+          from finance_analysis.notification.service import NotificationService; print('ok-notification')
+          from finance_analysis.integrations.market_data import DataFetcherManager; print('ok-data-provider')
+          from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer; print('ok-analyzer')
           print('release-smoke-ok')
           "
 

@@ -21,10 +21,10 @@ except ValueError:
 if not json_repair_available and "json_repair" not in sys.modules:
     sys.modules["json_repair"] = MagicMock()
 
-from data_provider.base import DataFetcherManager
-from data_provider.realtime_types import RealtimeSource, UnifiedRealtimeQuote
-from src.core.pipeline import StockAnalysisPipeline
-from src.enums import ReportType
+from finance_analysis.integrations.market_data.base import DataFetcherManager
+from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote
+from finance_analysis.analysis.pipeline import StockAnalysisPipeline
+from finance_analysis.reporting.types import ReportType
 
 
 class _DummyFetcher:
@@ -87,7 +87,7 @@ def _make_pipeline(enable_realtime_quote: bool, realtime_quote=None) -> StockAna
     return pipeline
 
 
-@patch("src.config.get_config")
+@patch("finance_analysis.config.runtime.get_runtime_config")
 def test_manager_does_not_warn_when_fallback_source_succeeds(mock_get_config, caplog):
     mock_get_config.return_value = SimpleNamespace(
         enable_realtime_quote=True,
@@ -126,9 +126,9 @@ def test_pipeline_warns_once_when_all_realtime_sources_fail(caplog):
     assert downgrade_logs == ["贵州茅台(600519) 所有实时行情数据源均不可用，已降级为历史收盘价继续分析"]
 
 
-@patch("src.config.get_config")
+@patch("finance_analysis.config.runtime.get_runtime_config")
 def test_event_monitor_keeps_manager_failure_summary_for_direct_quote_call(mock_get_config, caplog):
-    from src.agent.events import EventMonitor, PriceAlert
+    from finance_analysis.agent.events import EventMonitor, PriceAlert
 
     mock_get_config.return_value = SimpleNamespace(
         enable_realtime_quote=True,
@@ -145,8 +145,8 @@ def test_event_monitor_keeps_manager_failure_summary_for_direct_quote_call(mock_
     async def _run_inline(func, *args, **kwargs):
         return func(*args, **kwargs)
 
-    with patch("data_provider.DataFetcherManager", return_value=manager), patch(
-        "src.agent.events.asyncio.to_thread", new=_run_inline
+    with patch("finance_analysis.integrations.market_data.DataFetcherManager", return_value=manager), patch(
+        "finance_analysis.agent.events.asyncio.to_thread", new=_run_inline
     ), caplog.at_level(logging.INFO):
         result = asyncio.run(monitor._check_price(rule))
 

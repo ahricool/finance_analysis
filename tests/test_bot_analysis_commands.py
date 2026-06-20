@@ -5,10 +5,10 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from bot.commands.analyze import AnalyzeCommand
-from bot.commands.batch import BatchCommand
-from bot.models import BotMessage, ChatType
-from src.tasks.queue import DuplicateTaskError
+from finance_analysis.interfaces.bot.commands.analyze import AnalyzeCommand
+from finance_analysis.interfaces.bot.commands.batch import BatchCommand
+from finance_analysis.interfaces.bot.models import BotMessage, ChatType
+from finance_analysis.tasks.queue import DuplicateTaskError
 
 
 def _make_message(content: str) -> BotMessage:
@@ -30,7 +30,7 @@ def test_analyze_command_submits_bot_stock_analysis_task() -> None:
     task_queue = MagicMock()
     task_queue.submit_bot_analysis.return_value = SimpleNamespace(task_id="analysis-task-1234567890")
 
-    with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+    with patch("finance_analysis.tasks.queue.get_task_queue", return_value=task_queue):
         response = AnalyzeCommand().execute(_make_message("/analyze 600519"), ["600519", "full"])
 
     assert "分析任务已提交" in response.text
@@ -45,7 +45,7 @@ def test_analyze_command_duplicate_returns_error_response() -> None:
     task_queue = MagicMock()
     task_queue.submit_bot_analysis.side_effect = DuplicateTaskError("600519.SH", "task-1")
 
-    with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+    with patch("finance_analysis.tasks.queue.get_task_queue", return_value=task_queue):
         response = AnalyzeCommand().execute(_make_message("/analyze 600519"), ["600519"])
 
     assert not response.markdown
@@ -56,8 +56,8 @@ def test_batch_command_submits_bot_batch_analysis_task() -> None:
     task_queue = MagicMock()
     task_queue.submit_bot_batch_analysis.return_value = SimpleNamespace(task_id="batch-task-1234567890")
 
-    with patch("src.repositories.watch_list_repo.get_watch_list_codes", return_value=["600519", "000001"]), \
-         patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+    with patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes", return_value=["600519", "000001"]), \
+         patch("finance_analysis.tasks.queue.get_task_queue", return_value=task_queue):
         response = BatchCommand().execute(_make_message("/batch"), ["1"])
 
     assert "批量分析任务已启动" in response.text
