@@ -16,7 +16,9 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 
-_BUILTIN_SKILLS_DIR = Path(__file__).resolve().parents[4] / "strategies"
+from finance_analysis.core.paths import STRATEGIES_DIR
+
+_BUILTIN_SKILLS_DIR = STRATEGIES_DIR
 
 SKILL_AGENT_PREFIX = "skill_"
 LEGACY_STRATEGY_AGENT_PREFIX = "strategy_"

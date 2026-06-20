@@ -8,7 +8,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from finance_analysis.config import load_env, setup_env
 from finance_analysis.config.loader import ConfigManager
+from finance_analysis.core.paths import PROJECT_ROOT, get_env_file_path
 
 
 class ConfigManagerTestCase(unittest.TestCase):
@@ -85,6 +87,19 @@ class ConfigManagerTestCase(unittest.TestCase):
             )
 
         self.assertEqual(self.env_path.read_text(encoding="utf-8"), "STOCK_LIST=000001\n")
+
+    def test_env_path_is_shared_across_config_entrypoints(self) -> None:
+        custom_env = self.env_path
+        os.environ["ENV_FILE"] = str(custom_env)
+        load_env.cache_clear()
+        try:
+            self.assertEqual(get_env_file_path(), custom_env.resolve())
+            self.assertEqual(load_env(), custom_env.resolve())
+            self.assertEqual(ConfigManager().env_path, custom_env.resolve())
+            setup_env()
+            self.assertEqual(get_env_file_path(), custom_env.resolve())
+        finally:
+            load_env.cache_clear()
 
 
 if __name__ == "__main__":

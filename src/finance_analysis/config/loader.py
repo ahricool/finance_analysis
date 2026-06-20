@@ -17,7 +17,7 @@ from dotenv import dotenv_values
 
 from dotenv import dotenv_values
 
-from finance_analysis.core.paths import repo_root
+from finance_analysis.core.paths import get_env_file_path
 
 _ASSIGNMENT_PATTERN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
 _FALLBACK_REWRITE_ERRNOS = {errno.EBUSY, errno.EXDEV}
@@ -211,8 +211,4 @@ class ConfigManager:
 
     @staticmethod
     def _resolve_env_path() -> Path:
-        env_file = os.getenv("ENV_FILE")
-        if env_file:
-            return Path(env_file).resolve()
-
-        return (repo_root() / ".env").resolve()
+        return get_env_file_path()

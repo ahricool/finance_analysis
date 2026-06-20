@@ -55,22 +55,12 @@ from finance_analysis.config.model import (
     _has_ntfy_topic_endpoint,
 )
 
-from finance_analysis.core.paths import repo_root
-
-_PROJECT_ROOT = repo_root()
-
-
-def _env_path() -> Path:
-    configured = os.getenv("ENV_FILE")
-    if configured:
-        return Path(configured).expanduser()
-    return _PROJECT_ROOT / ".env"
-
+from finance_analysis.core.paths import get_env_file_path
 
 @lru_cache(maxsize=1)
 def load_env() -> Path:
     """Load the active env file once and return its path."""
-    env_path = _env_path()
+    env_path = get_env_file_path()
     load_dotenv(dotenv_path=env_path, override=False)
     return env_path
 

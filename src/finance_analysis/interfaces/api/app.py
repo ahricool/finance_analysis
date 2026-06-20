@@ -108,6 +108,7 @@ def _missing_asset_media_type(asset_path: str) -> str:
     return "text/plain"
 
 
+from finance_analysis.core.paths import STATIC_DIR
 from finance_analysis.interfaces.api.v1 import api_v1_router
 from finance_analysis.interfaces.api.middlewares.auth import add_auth_middleware
 from finance_analysis.interfaces.api.middlewares.error_handler import add_error_handlers
@@ -148,9 +149,7 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
     """
     # 默认静态文件目录
     if static_dir is None:
-        from finance_analysis.core.paths import repo_root
-
-        static_dir = repo_root() / "static"
+        static_dir = STATIC_DIR
 
     # 创建 FastAPI 实例
     app = FastAPI(
@@ -222,8 +221,8 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
 
         @app.get("/", include_in_schema=False)
         async def root():
-            """根路由 - 前端未构建时返回引导页面"""
-            return HTTPException(status_code=404)
+            """根路由 - 前端未构建时返回 404"""
+            raise HTTPException(status_code=404, detail="Frontend not built")
 
     @app.get(
         "/api/health",

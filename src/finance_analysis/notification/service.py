@@ -533,9 +533,9 @@ class NotificationService(
             filename = f"report_{date_str}.md"
         
         # 确保 reports 目录存在（使用项目根目录下的 reports）
-        from finance_analysis.core.paths import repo_root
+        from finance_analysis.core.paths import get_reports_dir
 
-        reports_dir = repo_root() / "reports"
+        reports_dir = get_reports_dir()
         reports_dir.mkdir(parents=True, exist_ok=True)
         
         filepath = reports_dir / filename

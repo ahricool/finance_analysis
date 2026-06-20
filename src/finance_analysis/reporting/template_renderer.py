@@ -58,9 +58,9 @@ def _clean_sniper_value(val: Any) -> str:
 def _resolve_templates_dir() -> Path:
     """Resolve template directory relative to project root."""
     config = get_report_config()
-    from finance_analysis.core.paths import repo_root
+    from finance_analysis.core.paths import PROJECT_ROOT
 
-    base = repo_root()
+    base = PROJECT_ROOT
     templates_dir = Path(config.report_templates_dir)
     if not templates_dir.is_absolute():
         return base / templates_dir

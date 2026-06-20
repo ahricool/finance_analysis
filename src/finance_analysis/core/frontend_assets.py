@@ -13,7 +13,9 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
+
+from finance_analysis.core.paths import STATIC_DIR, WEB_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +57,6 @@ def _tree_latest_mtime(root: Path) -> float:
             if p.is_file():
                 latest = max(latest, _safe_mtime(p))
     except OSError:
-        # Fallback to root mtime when recursive traversal fails on restricted envs.
         latest = max(latest, _safe_mtime(root))
     return latest
 
@@ -67,9 +68,9 @@ def _max_mtime(paths: Iterable[Path]) -> float:
     return latest
 
 
-def _resolve_artifact_index(frontend_dir: Path) -> Path:
-    # Prefer static/index.html because it is the configured output path in this repo.
-    static_index = (frontend_dir / ".." / "static" / "index.html").resolve()
+def _resolve_artifact_index(static_dir: Path, frontend_dir: Path) -> Path:
+    """Return the preferred built frontend entry HTML path."""
+    static_index = static_dir / "index.html"
     dist_index = frontend_dir / "dist" / "index.html"
     build_index = frontend_dir / "build" / "index.html"
     if static_index.exists():
@@ -96,8 +97,12 @@ def _collect_build_inputs_latest_mtime(frontend_dir: Path) -> float:
     return latest
 
 
-def _needs_frontend_build(frontend_dir: Path, force_build: bool) -> tuple[bool, Path]:
-    artifact_index = _resolve_artifact_index(frontend_dir)
+def _needs_frontend_build(
+    frontend_dir: Path,
+    static_dir: Path,
+    force_build: bool,
+) -> tuple[bool, Path]:
+    artifact_index = _resolve_artifact_index(static_dir, frontend_dir)
     inputs_latest_mtime = _collect_build_inputs_latest_mtime(frontend_dir)
     artifact_mtime = _safe_mtime(artifact_index)
     needs_build = force_build or (not artifact_index.exists()) or (artifact_mtime < inputs_latest_mtime)
@@ -128,11 +133,7 @@ def _manual_build_command(frontend_dir: Path) -> str:
 
 
 def _has_static_assets(static_dir: Path) -> bool:
-    """检查 static/assets/ 是否存在且包含 CSS/JS 文件。
-
-    index.html 存在但 assets/ 为空或缺失时，浏览器无法加载样式与脚本，
-    会导致页面元素异常放大、布局错乱（纯裸 HTML 渲染）。
-    """
+    """检查 static/assets/ 是否存在且包含 CSS/JS 文件。"""
     assets_dir = static_dir / "assets"
     if not assets_dir.is_dir():
         return False
@@ -165,7 +166,10 @@ def _warn_if_assets_missing(artifact_index: Path, frontend_dir: Path) -> None:
         )
 
 
-def prepare_webui_frontend_assets() -> bool:
+def prepare_webui_frontend_assets(
+    frontend_dir: Optional[Path] = None,
+    static_dir: Optional[Path] = None,
+) -> bool:
     """
     Prepare frontend assets for WebUI startup.
 
@@ -177,11 +181,10 @@ def prepare_webui_frontend_assets() -> bool:
     - Do not compile frontend during backend startup.
     - Only check whether existing artifacts are available.
     """
-    from finance_analysis.core.paths import repo_root
-
-    frontend_dir = repo_root() / "web"
+    frontend_dir = frontend_dir or WEB_DIR
+    static_dir = static_dir or STATIC_DIR
     auto_build_enabled = _is_truthy_env("WEBUI_AUTO_BUILD", "true")
-    artifact_index = _resolve_artifact_index(frontend_dir)
+    artifact_index = _resolve_artifact_index(static_dir, frontend_dir)
 
     if not auto_build_enabled:
         if artifact_index.exists():
@@ -195,7 +198,11 @@ def prepare_webui_frontend_assets() -> bool:
         return False
 
     force_build = _is_truthy_env("WEBUI_FORCE_BUILD", "false")
-    needs_build, artifact_index = _needs_frontend_build(frontend_dir=frontend_dir, force_build=force_build)
+    needs_build, artifact_index = _needs_frontend_build(
+        frontend_dir=frontend_dir,
+        static_dir=static_dir,
+        force_build=force_build,
+    )
 
     if not needs_build:
         logger.info("检测到可直接复用的前端静态产物，跳过运行时自动构建: %s", artifact_index)

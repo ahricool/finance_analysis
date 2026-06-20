@@ -101,6 +101,18 @@ class TestStockIndexLoader(unittest.TestCase):
             ):
                 self.assertEqual(stock_index_loader.get_index_stock_name("000001"), "平安银行")
 
+    def test_default_candidate_paths_point_at_project_root(self):
+        from finance_analysis.core.paths import PROJECT_ROOT
+
+        paths = stock_index_loader.get_stock_index_candidate_paths()
+        self.assertEqual(
+            paths,
+            (
+                PROJECT_ROOT / "web" / "public" / "stocks.index.json",
+                PROJECT_ROOT / "static" / "stocks.index.json",
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

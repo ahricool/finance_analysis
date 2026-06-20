@@ -26,7 +26,7 @@ from finance_analysis.config.llm import (
 )
 from finance_analysis.config.agent_models import normalize_agent_litellm_model
 from finance_analysis.config.constants import SUPPORTED_LLM_CHANNEL_PROTOCOLS
-from finance_analysis.core.paths import repo_root
+from finance_analysis.core.paths import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def parse_litellm_yaml(config_path: str) -> List[Dict[str, Any]]:
 
     path = Path(config_path)
     if not path.is_absolute():
-        path = repo_root() / path
+        path = PROJECT_ROOT / path
     if not path.exists():
         logger.warning("LITELLM_CONFIG file not found: %s", path)
         return []

@@ -51,9 +51,7 @@ logger = logging.getLogger(__name__)
 # Project root (config package lives at ``<root>/src/config``); resolve the
 # ``.env`` location relative to it so the package layout does not change which
 # file is loaded.
-from finance_analysis.core.paths import repo_root
-
-_PROJECT_ROOT = repo_root()
+from finance_analysis.core.paths import get_env_file_path
 
 
 @dataclass
@@ -97,11 +95,7 @@ def setup_env(override: bool = False):
                   system environment variables take precedence.
     """
     Config._capture_bootstrap_runtime_env_overrides()
-    env_file = os.getenv("ENV_FILE")
-    if env_file:
-        env_path = Path(env_file)
-    else:
-        env_path = _PROJECT_ROOT / '.env'
+    env_path = get_env_file_path()
     # Resolve ``load_dotenv`` through the package namespace so that tests which
     # patch ``src.config.load_dotenv`` keep working after the package split.
     _pkg = sys.modules.get(__package__)
@@ -922,8 +916,7 @@ class Config:
     @classmethod
     def _get_env_file_value(cls, key: str) -> Optional[str]:
         """Read one config key directly from the active `.env` file."""
-        env_file = os.getenv("ENV_FILE")
-        env_path = Path(env_file) if env_file else (_PROJECT_ROOT / ".env")
+        env_path = get_env_file_path()
         if not env_path.exists():
             return None
 
@@ -1025,7 +1018,7 @@ class Config:
             env_text = preexisting_env_value.strip()
             file_text = (file_value or "").strip()
             if file_text and env_text and env_text.lower() != file_text.lower():
-                env_file = os.getenv("ENV_FILE") or str(_PROJECT_ROOT / ".env")
+                env_file = os.getenv("ENV_FILE") or str(get_env_file_path())
                 logging.getLogger(__name__).warning(
                     "REPORT_LANGUAGE environment value '%s' overrides %s ('%s')",
                     preexisting_env_value,
