@@ -58,7 +58,7 @@ services:
       - ./.env:/workspace/.env:ro
       - ./strategies:/workspace/strategies:ro
 
-  celery_worker:
+  worker:
     image: ghcr.io/ahricool/finance_analysis:latest
     container_name: finance-analysis-celery
     restart: unless-stopped

@@ -105,11 +105,6 @@ ENV DATA_DIR=/workspace/data
 # 数据卷（持久化数据）
 VOLUME ["/workspace/data"]
 
-# 健康检查（FastAPI 模式）
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD sh -c 'curl -f "$HEALTHCHECK_URL" || curl -f "$HEALTHCHECK_FALLBACK_URL"'
-
-
 # 默认命令（可被覆盖）
 # 使用 venv 内的 python（已通过 PATH 注入），与 smoke / HEALTHCHECK 行为一致
 CMD ["python", "main.py"]

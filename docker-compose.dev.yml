@@ -64,7 +64,7 @@ services:
       - ./src:/workspace/src
       - ./main.py:/workspace/main.py
 
-  celery_worker:
+  worker:
     image: ghcr.io/ahricool/finance_analysis:latest
     build:
       context: .
