@@ -92,8 +92,6 @@ def env_list(name: str, default: Optional[list[str]] = None) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-from finance_analysis.config.constants import _FALSEY_ENV_VALUES
-
 
 def parse_env_bool(value: Optional[str], default: bool = False) -> bool:
     if value is None:
