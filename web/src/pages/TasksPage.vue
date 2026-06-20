@@ -15,6 +15,7 @@ import { formatDateTimeInDisplayTimezone, toUtcIsoString } from '@/utils/format'
 import {
   ClipboardCheck,
   ClipboardList,
+  ChevronDown,
   Copy,
   FileSearch,
   ListChecks,
@@ -49,8 +50,30 @@ const detail = ref<TaskRunDetail | null>(null);
 const detailLoading = ref(false);
 const detailError = ref<ParsedApiError | null>(null);
 
-const filters = reactive({
-  status: '',
+const taskStatusOptions: Array<{ value: TaskStatus; label: string }> = [
+  { value: 'pending', label: '等待中' },
+  { value: 'processing', label: '执行中' },
+  { value: 'completed', label: '已完成' },
+  { value: 'failed', label: '失败' },
+  { value: 'skipped', label: '已跳过' },
+  { value: 'retrying', label: '重试中' },
+  { value: 'cancelled', label: '已取消' },
+];
+const defaultStatusFilters = taskStatusOptions
+  .filter((option) => option.value !== 'skipped')
+  .map((option) => option.value);
+
+const filters = reactive<{
+  statuses: TaskStatus[];
+  taskType: string;
+  source: string;
+  triggerSource: string;
+  keyword: string;
+  startedFrom: string;
+  startedTo: string;
+  uid: string;
+}>({
+  statuses: [...defaultStatusFilters],
   taskType: '',
   source: '',
   triggerSource: '',
@@ -71,14 +94,26 @@ const navItems = computed(() => [
 
 const statusOptions: Array<{ value: TaskStatus | ''; label: string }> = [
   { value: '', label: '全部状态' },
-  { value: 'pending', label: '等待中' },
-  { value: 'processing', label: '执行中' },
-  { value: 'completed', label: '已完成' },
-  { value: 'failed', label: '失败' },
-  { value: 'skipped', label: '已跳过' },
-  { value: 'retrying', label: '重试中' },
-  { value: 'cancelled', label: '已取消' },
+  ...taskStatusOptions,
 ];
+
+const isDefaultStatusFilter = computed(
+  () =>
+    filters.statuses.length === defaultStatusFilters.length &&
+    defaultStatusFilters.every((status) => filters.statuses.includes(status)),
+);
+
+const statusFilterLabel = computed(() => {
+  if (filters.statuses.length === taskStatusOptions.length) return '全部状态';
+  if (isDefaultStatusFilter.value) return '默认状态';
+  if (filters.statuses.length <= 2) {
+    return taskStatusOptions
+      .filter((option) => filters.statuses.includes(option.value))
+      .map((option) => option.label)
+      .join('、');
+  }
+  return `已选 ${filters.statuses.length} 个状态`;
+});
 
 const sourceOptions = [
   { value: '', label: '全部来源' },
@@ -124,6 +159,23 @@ function schedulerStatusLabel(value: string): string {
 
 function triggerLabel(value?: string | null): string {
   return triggerOptions.find((item) => item.value === value)?.label ?? (value || '—');
+}
+
+function toggleStatusFilter(status: TaskStatus) {
+  if (filters.statuses.includes(status)) {
+    if (filters.statuses.length <= 1) return;
+    filters.statuses = filters.statuses.filter((item) => item !== status);
+    return;
+  }
+  filters.statuses = [...filters.statuses, status];
+}
+
+function selectAllStatuses() {
+  filters.statuses = taskStatusOptions.map((option) => option.value);
+}
+
+function selectDefaultStatuses() {
+  filters.statuses = [...defaultStatusFilters];
 }
 
 function formatDuration(seconds?: number | null): string {
@@ -176,7 +228,7 @@ function buildRunQuery(page = runsPage.value): TaskRunQuery {
   return {
     page,
     pageSize: runsPageSize.value,
-    status: filters.status || undefined,
+    status: filters.statuses.join(',') || undefined,
     taskType: filters.taskType.trim() || undefined,
     source: filters.source || undefined,
     triggerSource: filters.triggerSource || undefined,
@@ -210,7 +262,7 @@ function submitFilters() {
 
 function resetFilters() {
   Object.assign(filters, {
-    status: '',
+    statuses: [...defaultStatusFilters],
     taskType: '',
     source: '',
     triggerSource: '',
@@ -288,7 +340,7 @@ onMounted(() => {
     </div>
 
     <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <aside class="h-fit rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm">
+      <aside class="h-fit space-y-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm">
         <RouterLink
           v-for="item in navItems"
           :key="item.key"
@@ -404,31 +456,73 @@ onMounted(() => {
 
         <template v-else>
           <div class="rounded-2xl border border-border/70 bg-card/94 p-4 shadow-soft-card">
-            <div class="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-              <div class="flex items-center gap-3">
-                <ClipboardList class="h-5 w-5 text-primary" />
-                <div>
-                  <h2 class="text-base font-semibold text-foreground">执行记录</h2>
-                  <p class="text-xs text-muted-text">{{ isAdmin ? '全部用户和系统任务。' : '自己的任务执行记录。' }}</p>
+            <div class="space-y-3">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-center gap-3">
+                  <ClipboardList class="h-5 w-5 text-primary" />
+                  <div>
+                    <h2 class="text-base font-semibold text-foreground">执行记录</h2>
+                    <p class="text-xs text-muted-text">{{ isAdmin ? '全部用户和系统任务。' : '自己的任务执行记录。' }}</p>
+                  </div>
                 </div>
+                <Button variant="secondary" size="sm" :is-loading="runsLoading" @click="loadRuns(runsPage)">
+                  <RotateCw class="h-4 w-4" />
+                  刷新
+                </Button>
               </div>
-              <div class="flex flex-wrap gap-2">
-                <select v-model="filters.status" class="h-9 rounded-xl border border-border/70 bg-background px-3 text-sm">
-                  <option v-for="option in statusOptions" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
+
+              <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+                <details class="group relative">
+                  <summary
+                    class="flex h-9 w-full cursor-pointer list-none items-center justify-between gap-2 rounded-xl border border-border/70 bg-background px-3 text-sm text-foreground transition-colors hover:bg-hover [&::-webkit-details-marker]:hidden"
+                  >
+                    <span class="truncate">{{ statusFilterLabel }}</span>
+                    <ChevronDown class="h-4 w-4 shrink-0 text-secondary-text transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div class="absolute left-0 top-11 z-20 w-56 rounded-xl border border-border/70 bg-card p-2 shadow-soft-card-strong">
+                    <div class="mb-2 flex items-center justify-between gap-2 border-b border-border/60 pb-2">
+                      <button
+                        type="button"
+                        class="rounded-lg px-2 py-1 text-xs font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground"
+                        @click="selectAllStatuses"
+                      >
+                        全选
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded-lg px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                        @click="selectDefaultStatuses"
+                      >
+                        默认
+                      </button>
+                    </div>
+                    <label
+                      v-for="option in taskStatusOptions"
+                      :key="option.value"
+                      class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-hover"
+                    >
+                      <input
+                        class="h-4 w-4 rounded border-border/70 text-primary focus:ring-primary/40"
+                        type="checkbox"
+                        :checked="filters.statuses.includes(option.value)"
+                        :disabled="filters.statuses.length <= 1 && filters.statuses.includes(option.value)"
+                        @change="toggleStatusFilter(option.value)"
+                      />
+                      <span>{{ option.label }}</span>
+                    </label>
+                  </div>
+                </details>
                 <input
                   v-model="filters.taskType"
-                  class="h-9 w-36 rounded-xl border border-border/70 bg-background px-3 text-sm"
+                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
                   placeholder="任务类型"
                 />
-                <select v-model="filters.source" class="h-9 rounded-xl border border-border/70 bg-background px-3 text-sm">
+                <select v-model="filters.source" class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm">
                   <option v-for="option in sourceOptions" :key="option.value" :value="option.value">
                     {{ option.label }}
                   </option>
                 </select>
-                <select v-model="filters.triggerSource" class="h-9 rounded-xl border border-border/70 bg-background px-3 text-sm">
+                <select v-model="filters.triggerSource" class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm">
                   <option v-for="option in triggerOptions" :key="option.value" :value="option.value">
                     {{ option.label }}
                   </option>
@@ -436,33 +530,36 @@ onMounted(() => {
                 <input
                   v-if="isAdmin"
                   v-model="filters.uid"
-                  class="h-9 w-24 rounded-xl border border-border/70 bg-background px-3 text-sm"
+                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
                   inputmode="numeric"
                   placeholder="UID"
                 />
                 <input
                   v-model="filters.keyword"
-                  class="h-9 w-44 rounded-xl border border-border/70 bg-background px-3 text-sm"
+                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
                   placeholder="名称或 Task ID"
                 />
-                <input
-                  v-model="filters.startedFrom"
-                  class="h-9 rounded-xl border border-border/70 bg-background px-3 text-sm"
-                  type="date"
-                  aria-label="开始日期"
-                />
-                <input
-                  v-model="filters.startedTo"
-                  class="h-9 rounded-xl border border-border/70 bg-background px-3 text-sm"
-                  type="date"
-                  aria-label="结束日期"
-                />
-                <Button variant="secondary" size="sm" @click="submitFilters">查询</Button>
-                <Button variant="ghost" size="sm" @click="resetFilters">重置</Button>
-                <Button variant="secondary" size="sm" :is-loading="runsLoading" @click="loadRuns(runsPage)">
-                  <RotateCw class="h-4 w-4" />
-                  刷新
-                </Button>
+              </div>
+
+              <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <div class="grid gap-2 sm:grid-cols-2 lg:w-[360px]">
+                  <input
+                    v-model="filters.startedFrom"
+                    class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
+                    type="date"
+                    aria-label="开始日期"
+                  />
+                  <input
+                    v-model="filters.startedTo"
+                    class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
+                    type="date"
+                    aria-label="结束日期"
+                  />
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <Button variant="secondary" size="sm" @click="submitFilters">查询</Button>
+                  <Button variant="ghost" size="sm" @click="resetFilters">重置</Button>
+                </div>
               </div>
             </div>
 
@@ -476,17 +573,17 @@ onMounted(() => {
           <ApiErrorAlert v-if="runsError" :error="runsError" @dismiss="runsError = null" />
 
           <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-            <table class="min-w-[1040px] w-full text-left text-sm">
+            <table class="w-full min-w-[1320px] text-left text-sm">
               <thead class="border-b border-border/70 text-xs text-muted-text">
                 <tr>
-                  <th class="px-4 py-3 font-medium">任务</th>
-                  <th class="px-4 py-3 font-medium">状态</th>
-                  <th v-if="isAdmin" class="px-4 py-3 font-medium">所属用户</th>
-                  <th class="px-4 py-3 font-medium">来源</th>
-                  <th class="px-4 py-3 font-medium">提交时间</th>
-                  <th class="px-4 py-3 font-medium">耗时</th>
-                  <th class="px-4 py-3 font-medium">消息</th>
-                  <th class="px-4 py-3 text-right font-medium">操作</th>
+                  <th class="min-w-[220px] px-4 py-3 font-medium">任务</th>
+                  <th class="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">状态</th>
+                  <th v-if="isAdmin" class="min-w-[112px] whitespace-nowrap px-4 py-3 font-medium">所属用户</th>
+                  <th class="min-w-[220px] whitespace-nowrap px-4 py-3 font-medium">来源</th>
+                  <th class="min-w-[140px] whitespace-nowrap px-4 py-3 font-medium">提交时间</th>
+                  <th class="min-w-[80px] whitespace-nowrap px-4 py-3 font-medium">耗时</th>
+                  <th class="min-w-[280px] px-4 py-3 font-medium">消息</th>
+                  <th class="min-w-[112px] whitespace-nowrap px-4 py-3 text-right font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -497,7 +594,7 @@ onMounted(() => {
                   <td :colspan="isAdmin ? 8 : 7" class="px-4 py-10 text-center text-muted-text">暂无执行记录</td>
                 </tr>
                 <tr v-for="item in runs" v-else :key="item.taskId" class="border-b border-border/50 last:border-0">
-                  <td class="px-4 py-4">
+                  <td class="min-w-[220px] px-4 py-4">
                     <p class="font-medium text-foreground">{{ item.taskName || item.taskType }}</p>
                     <p class="mt-1 text-xs text-muted-text">{{ item.taskType }}</p>
                     <p v-if="isAdmin" class="mt-1 font-mono text-[11px] text-muted-text">
@@ -507,26 +604,26 @@ onMounted(() => {
                       </button>
                     </p>
                   </td>
-                  <td class="px-4 py-4">
-                    <Badge :variant="statusVariant(item.status)">{{ statusLabel(item.status) }}</Badge>
+                  <td class="min-w-[96px] whitespace-nowrap px-4 py-4">
+                    <Badge class="whitespace-nowrap" :variant="statusVariant(item.status)">{{ statusLabel(item.status) }}</Badge>
                   </td>
-                  <td v-if="isAdmin" class="px-4 py-4 text-xs text-muted-text">
+                  <td v-if="isAdmin" class="min-w-[112px] whitespace-nowrap px-4 py-4 text-xs text-muted-text">
                     <template v-if="item.user">{{ item.user.username }}<br />{{ item.user.email }}</template>
                     <span v-else>系统任务</span>
                   </td>
-                  <td class="px-4 py-4 text-xs text-muted-text">
+                  <td class="min-w-[220px] px-4 py-4 text-xs text-muted-text">
                     <p>{{ item.source }}</p>
                     <p>{{ triggerLabel(item.triggerSource) }}</p>
                     <p v-if="isAdmin && item.schedulerJobId" class="font-mono">{{ item.schedulerJobId }}</p>
                   </td>
-                  <td class="px-4 py-4 text-sm text-foreground">
+                  <td class="min-w-[140px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
                     {{ formatDateTimeInDisplayTimezone(item.createdAt) }}
                   </td>
-                  <td class="px-4 py-4 text-sm text-foreground">{{ formatDuration(item.durationSeconds) }}</td>
-                  <td class="max-w-xs px-4 py-4 text-xs text-muted-text">
+                  <td class="min-w-[80px] whitespace-nowrap px-4 py-4 text-sm text-foreground">{{ formatDuration(item.durationSeconds) }}</td>
+                  <td class="min-w-[280px] max-w-xs px-4 py-4 text-xs text-muted-text">
                     <span class="line-clamp-2">{{ item.message || '—' }}</span>
                   </td>
-                  <td class="px-4 py-4 text-right">
+                  <td class="min-w-[112px] whitespace-nowrap px-4 py-4 text-right">
                     <Button variant="ghost" size="sm" @click="openDetail(item)">
                       <FileSearch class="h-4 w-4" />
                       查看详情
@@ -547,7 +644,13 @@ onMounted(() => {
       </section>
     </div>
 
-    <Drawer :is-open="detailLoading || !!detail || !!detailError" title="任务详情" width="max-w-3xl" @close="detail = null; detailError = null">
+    <Drawer
+      :is-open="detailLoading || !!detail || !!detailError"
+      title="任务详情"
+      width="max-w-4xl"
+      variant="modal"
+      @close="detail = null; detailError = null"
+    >
       <div v-if="detailLoading" class="py-10 text-center text-sm text-muted-text">加载中...</div>
       <ApiErrorAlert v-else-if="detailError" :error="detailError" @dismiss="detailError = null" />
       <div v-else-if="detail" class="space-y-5">
