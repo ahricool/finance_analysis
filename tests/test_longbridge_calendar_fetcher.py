@@ -21,7 +21,7 @@ def test_fetch_calendar_calls_single_sdk_finance_calendar_method():
     result = fetcher.fetch_earnings_calendar(date(2026, 6, 18), date(2026, 7, 18), "US")
 
     assert result == []
-    ctx.finance_calendar.assert_called_once_with("REPORT", date(2026, 6, 18), date(2026, 7, 18), "US")
+    ctx.finance_calendar.assert_called_once_with("REPORT", "2026-06-18", "2026-07-18", "US")
 
 
 def test_normalize_response_flattens_date_groups_and_builds_markdown():
