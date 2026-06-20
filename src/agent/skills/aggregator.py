@@ -148,9 +148,9 @@ class SkillAggregator:
     @staticmethod
     def _use_backtest_autoweight() -> bool:
         try:
-            from src.config import get_config
+            from src.agent.config import get_agent_config
 
-            config = get_config()
+            config = get_agent_config()
             return getattr(config, "agent_skill_autoweight", True)
         except Exception:
             logger.debug("Failed to get backtest autoweight config, defaulting to True", exc_info=True)

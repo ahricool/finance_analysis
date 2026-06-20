@@ -8,7 +8,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-from src.config import get_config, setup_env
+from src.config import load_env
+from src.db.config import get_database_config
 from src.db.base import Base
 import src.models  # noqa: F401  # register ORM models on Base.metadata
 
@@ -17,13 +18,13 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-setup_env()
+load_env()
 target_metadata = Base.metadata
 
 
 def get_database_url() -> str:
     """Resolve DB URL the same way as the application runtime."""
-    return get_config().get_db_url()
+    return get_database_config().get_db_url()
 
 
 def run_migrations_offline() -> None:

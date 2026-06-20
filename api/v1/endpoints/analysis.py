@@ -46,10 +46,11 @@ from api.v1.schemas.history import (
     ReportDetails,
 )
 from data_provider.base import canonical_stock_code, normalize_stock_code
-from src.config import Config
+from src.core.pipeline_config import PipelineConfig
 from src.core.market_review_lock import (
     market_review_lock_path,
 )
+from src.report_config import get_report_config
 from src.report_language import get_localized_stock_name, normalize_report_language
 from src.services.name_to_code_resolver import resolve_name_to_code
 from src.services.stock_code_utils import is_code_like
@@ -73,11 +74,11 @@ router = APIRouter()
 _SUPPORTED_FREE_TEXT_RE = re.compile(r"^[A-Za-z0-9.*\-+\u3400-\u9fff\s]+$")
 
 
-def _market_review_lock_path(config: Config) -> Path:
+def _market_review_lock_path(config: PipelineConfig) -> Path:
     return market_review_lock_path(config)
 
 
-def _compute_market_review_override_region(config: Config) -> Optional[str]:
+def _compute_market_review_override_region(config: PipelineConfig) -> Optional[str]:
     if not getattr(config, "trading_day_check_enabled", True):
         return None
 
@@ -168,7 +169,7 @@ def _resolve_and_normalize_input(raw_value: str) -> str:
 def trigger_analysis(
         request: AnalyzeRequest,
         http_request: Request = None,
-        config: Config = Depends(get_config_dep)
+        config: PipelineConfig = Depends(get_config_dep)
 ) -> Union[AnalysisResultResponse, JSONResponse]:
     """
     触发股票分析
@@ -448,7 +449,7 @@ def _handle_sync_analysis(
 )
 def trigger_market_review(
     request: Optional[MarketReviewRequest] = Body(None),
-    config: Config = Depends(get_config_dep),
+    config: PipelineConfig = Depends(get_config_dep),
 ) -> MarketReviewAccepted:
     """Trigger market review from Web/API without blocking the request."""
     request = request or MarketReviewRequest()
@@ -782,7 +783,7 @@ def _build_analysis_report(
     report_language = normalize_report_language(
         meta_data.get("report_language")
         or (context_snapshot or {}).get("report_language")
-        or getattr(Config.get_instance(), "report_language", "zh")
+        or get_report_config().report_language
     )
     localized_stock_name = get_localized_stock_name(
         meta_data.get("stock_name", stock_name),

@@ -589,9 +589,9 @@ def _task_info_from_record(record: Any) -> TaskInfo:
 def get_task_queue() -> AnalysisTaskQueue:
     queue = AnalysisTaskQueue()
     try:
-        from src.config import get_config
+        from src.runtime_config import get_runtime_config
 
-        queue.sync_max_workers(max(1, int(getattr(get_config(), "max_workers", queue.max_workers))), log=False)
+        queue.sync_max_workers(max(1, int(get_runtime_config().max_workers)), log=False)
     except Exception as exc:
         logger.debug("[TaskQueue] 读取 MAX_WORKERS 失败，使用当前并发设置: %s", exc)
     return queue

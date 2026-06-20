@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from api.deps import get_effective_uid
-from src.config import get_config
+from src.core.pipeline_config import get_pipeline_config
 from src.services.agent_model_service import list_agent_model_deployments
 
 # Tool name -> Chinese display name mapping
@@ -96,7 +96,7 @@ class AgentModelsResponse(BaseModel):
 @router.get("/models", response_model=AgentModelsResponse)
 async def get_agent_models():
     """Get configured Agent model deployments for frontend selection."""
-    config = get_config()
+    config = get_pipeline_config()
     return AgentModelsResponse(
         models=[AgentModelDeployment(**item) for item in list_agent_model_deployments(config)]
     )
@@ -134,13 +134,13 @@ async def get_skills():
     """
     Get available agent strategy skills.
     """
-    return _build_skills_response(get_config())
+    return _build_skills_response(get_pipeline_config())
 
 
 @router.get("/strategies", response_model=StrategiesResponse, include_in_schema=False)
 async def get_strategies():
     """Compatibility alias for legacy clients."""
-    payload = _build_skills_response(get_config())
+    payload = _build_skills_response(get_pipeline_config())
     return StrategiesResponse(
         strategies=payload.skills,
         default_strategy_id=payload.default_skill_id,
@@ -151,7 +151,7 @@ async def agent_chat(http_request: Request, body: ChatRequest):
     """
     Chat with the AI Agent.
     """
-    config = get_config()
+    config = get_pipeline_config()
 
     if not config.is_agent_available():
         raise HTTPException(status_code=400, detail="Agent mode is not enabled")
@@ -325,7 +325,7 @@ async def agent_research(request: ResearchRequest):
 
     Similar to the ``/research`` bot command but exposed as a REST endpoint.
     """
-    config = get_config()
+    config = get_pipeline_config()
     if not config.is_agent_available():
         raise HTTPException(status_code=400, detail="Agent mode is not enabled")
 
@@ -393,7 +393,7 @@ async def agent_chat_stream(http_request: Request, body: ChatRequest):
       - done: analysis complete, contains 'content' and 'success'
       - error: error occurred, contains 'message'
     """
-    config = get_config()
+    config = get_pipeline_config()
     if not config.is_agent_available():
         raise HTTPException(status_code=400, detail="Agent mode is not enabled")
 

@@ -57,15 +57,8 @@ cp .env.example .env
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=finance_analysis
-POSTGRES_PORT=
-DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT}/${POSTGRES_DB}
-REDIS_PORT=
-REDIS_URL=redis://localhost:${REDIS_PORT}/0
-
-# Web 服务：Docker Compose 会注入；本机裸跑 Python 时再填写
-WEBUI_HOST=
-WEBUI_PORT=
-API_PORT=
+DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${POSTGRES_DB}
+REDIS_URL=redis://localhost:6379/0
 
 # AI / 搜索 / 数据源：任选你实际使用的服务填写
 GEMINI_API_KEY=
@@ -141,7 +134,7 @@ uv sync
 
 ```bash
 cp .env.example .env
-# 确认 DATABASE_URL 指向 localhost:${POSTGRES_PORT}
+# 确认 DATABASE_URL 指向 localhost:5432
 ```
 
 4. 启动后端 API：
@@ -198,8 +191,6 @@ cp .env.example .env
 POSTGRES_USER=finance_user
 POSTGRES_PASSWORD=请换成超长随机密码
 POSTGRES_DB=finance_analysis
-POSTGRES_PORT=
-REDIS_PORT=
 
 # 按需填写你的 AI、搜索、行情、通知配置
 OPENAI_API_KEY=

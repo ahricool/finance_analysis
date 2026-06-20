@@ -29,7 +29,7 @@ import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
-from src.config import AGENT_MAX_STEPS_DEFAULT
+from src.agent.config import AGENT_MAX_STEPS_DEFAULT, get_agent_config
 
 logger = logging.getLogger(__name__)
 
@@ -186,8 +186,7 @@ def get_skill_manager(config=None):
     global _SKILL_MANAGER_PROTOTYPE, _SKILL_MANAGER_CUSTOM_DIR
 
     if config is None:
-        from src.config import get_config
-        config = get_config()
+        config = get_agent_config()
 
     current_custom_dir = getattr(config, "agent_skill_dir", None)
     if _SKILL_MANAGER_PROTOTYPE is not None and current_custom_dir == _SKILL_MANAGER_CUSTOM_DIR:
@@ -217,8 +216,7 @@ def get_skill_manager(config=None):
 def resolve_skill_prompt_state(config=None, skills: Optional[List[str]] = None) -> SkillPromptState:
     """Resolve active skills and prompt fragments for analyzer / agent entrypoints."""
     if config is None:
-        from src.config import get_config
-        config = get_config()
+        config = get_agent_config()
 
     from src.agent.skills.defaults import (
         get_default_active_skill_ids,
@@ -279,8 +277,8 @@ def build_agent_executor(config=None, skills: Optional[List[str]] = None):
     executor.
 
     Args:
-        config: Application config object.  When *None*, ``get_config()`` is
-                called automatically.
+        config: Agent config object.  When *None*, the Agent module config is
+                loaded automatically.
         skills: Skill ids to activate.  When *None* falls back to
                 ``config.agent_skills``; if that is also empty falls back to
                 the central default skill set.
@@ -289,8 +287,7 @@ def build_agent_executor(config=None, skills: Optional[List[str]] = None):
         A ready-to-call :class:`src.agent.executor.AgentExecutor` instance.
     """
     if config is None:
-        from src.config import get_config
-        config = get_config()
+        config = get_agent_config()
 
     arch = getattr(config, "agent_arch", "single")
 

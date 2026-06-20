@@ -469,8 +469,8 @@ User: "analyze TSLA and NVDA using trend strategy"
 
         Returns ``BotResponse`` if a route was found, ``None`` otherwise.
         """
-        from src.config import get_config
-        config = get_config()
+        from src.agent.config import get_agent_config
+        config = get_agent_config()
 
         if not getattr(config, 'agent_nl_routing', False):
             return None
@@ -540,9 +540,9 @@ User: "analyze TSLA and NVDA using trend strategy"
 
     def _try_nl_routing_sync(self, message: BotMessage) -> Optional[BotResponse]:
         """Synchronous companion to `_try_nl_routing` for legacy call sites."""
-        from src.config import get_config
+        from src.agent.config import get_agent_config
 
-        config = get_config()
+        config = get_agent_config()
         if not getattr(config, 'agent_nl_routing', False):
             return None
 
@@ -741,9 +741,9 @@ def get_dispatcher() -> CommandDispatcher:
     global _dispatcher
 
     if _dispatcher is None:
-        from src.config import get_config
+        from src.runtime_config import get_runtime_config
 
-        config = get_config()
+        config = get_runtime_config()
 
         # 创建分发器
         _dispatcher = CommandDispatcher(

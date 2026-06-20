@@ -491,9 +491,9 @@ class DataFetcherManager:
 
     def _get_tickflow_fetcher(self):
         """Lazily create a TickFlow fetcher for market-review-only calls."""
-        from src.config import get_config
+        from data_provider.config import get_data_provider_config
 
-        config = get_config()
+        config = get_data_provider_config()
         api_key = (getattr(config, "tickflow_api_key", None) or "").strip()
 
         if not hasattr(self, "_tickflow_lock") or self._tickflow_lock is None:
@@ -786,7 +786,7 @@ class DataFetcherManager:
           3. BaostockFetcher (Priority 3)
           4. YfinanceFetcher (Priority 4)
         """
-        from src.config import get_config
+        from data_provider.config import get_data_provider_config
         from .efinance_fetcher import EfinanceFetcher
         from .akshare_fetcher import AkshareFetcher
         from .tushare_fetcher import TushareFetcher
@@ -794,7 +794,7 @@ class DataFetcherManager:
         from .baostock_fetcher import BaostockFetcher
         from .yfinance_fetcher import YfinanceFetcher
         from .longbridge_fetcher import LongbridgeFetcher
-        config = get_config()
+        config = get_data_provider_config()
         # 创建所有数据源实例（优先级在各 Fetcher 的 __init__ 中确定）
         efinance = EfinanceFetcher()
         akshare = AkshareFetcher()
@@ -1020,9 +1020,9 @@ class DataFetcherManager:
         # Normalize all codes
         stock_codes = [normalize_stock_code(c) for c in stock_codes]
 
-        from src.config import get_config
+        from data_provider.config import get_data_provider_config
 
-        config = get_config()
+        config = get_data_provider_config()
 
         # Issue #455: PREFETCH_REALTIME_QUOTES=false 可禁用预取，避免全市场拉取
         if not getattr(config, "prefetch_realtime_quotes", True):
@@ -1105,9 +1105,9 @@ class DataFetcherManager:
 
         from .akshare_fetcher import _is_us_code
         from .us_index_mapping import is_us_index_code
-        from src.config import get_config
+        from data_provider.config import get_data_provider_config
 
-        config = get_config()
+        config = get_data_provider_config()
 
         # 如果实时行情功能被禁用，直接返回 None
         if not config.enable_realtime_quote:
@@ -1336,9 +1336,9 @@ class DataFetcherManager:
         stock_code = normalize_stock_code(stock_code)
 
         from .realtime_types import get_chip_circuit_breaker
-        from src.config import get_config
+        from data_provider.config import get_data_provider_config
 
-        config = get_config()
+        config = get_data_provider_config()
 
         # 如果筹码分布功能被禁用，直接返回 None
         if not config.enable_chip_distribution:
@@ -1692,8 +1692,8 @@ class DataFetcherManager:
         return None, last_error, total_cost_ms
 
     def _get_fundamental_config(self):
-        from src.config import get_config
-        return get_config()
+        from data_provider.config import get_data_provider_config
+        return get_data_provider_config()
 
     @staticmethod
     def _normalize_source_chain(
@@ -1914,9 +1914,9 @@ class DataFetcherManager:
         """
         Aggregate fundamental blocks with fail-open semantics.
         """
-        from src.config import get_config
+        from data_provider.config import get_data_provider_config
 
-        config = get_config()
+        config = get_data_provider_config()
         if not config.enable_fundamental_pipeline:
             return self._build_market_not_supported(
                 market=_market_tag(stock_code),
@@ -2211,9 +2211,9 @@ class DataFetcherManager:
 
     def get_capital_flow_context(self, stock_code: str, budget_seconds: Optional[float] = None) -> Dict[str, Any]:
         """资金流向块（fail-open）。"""
-        from src.config import get_config
+        from data_provider.config import get_data_provider_config
 
-        config = get_config()
+        config = get_data_provider_config()
         stock_code = normalize_stock_code(stock_code)
         timeout = float(budget_seconds if budget_seconds is not None else config.fundamental_fetch_timeout_seconds)
         if _market_tag(stock_code) != "cn" or _is_etf_code(stock_code):
@@ -2275,9 +2275,9 @@ class DataFetcherManager:
 
     def get_dragon_tiger_context(self, stock_code: str, budget_seconds: Optional[float] = None) -> Dict[str, Any]:
         """龙虎榜块（fail-open）。"""
-        from src.config import get_config
+        from data_provider.config import get_data_provider_config
 
-        config = get_config()
+        config = get_data_provider_config()
         stock_code = normalize_stock_code(stock_code)
         timeout = float(budget_seconds if budget_seconds is not None else config.fundamental_fetch_timeout_seconds)
         if _market_tag(stock_code) != "cn" or _is_etf_code(stock_code):
@@ -2325,9 +2325,9 @@ class DataFetcherManager:
 
     def get_board_context(self, stock_code: str, budget_seconds: Optional[float] = None) -> Dict[str, Any]:
         """板块榜单块（fail-open）。"""
-        from src.config import get_config
+        from data_provider.config import get_data_provider_config
 
-        config = get_config()
+        config = get_data_provider_config()
         stock_code = normalize_stock_code(stock_code)
         timeout = float(budget_seconds if budget_seconds is not None else config.fundamental_fetch_timeout_seconds)
         if _market_tag(stock_code) != "cn" or _is_etf_code(stock_code):

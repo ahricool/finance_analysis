@@ -7,7 +7,7 @@ import logging
 import time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
-from src.config import Config, get_config, normalize_litellm_temperature
+from src.llm.config import LLMConfig, get_llm_config, normalize_litellm_temperature
 from src.llm.types import LLMRequest, LLMResult
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ def _model_requires_api_key(model: str, base_url: Optional[str]) -> bool:
     return True
 
 
-def validate_llm_config(config: Config, *, model: Optional[str] = None) -> None:
+def validate_llm_config(config: LLMConfig, *, model: Optional[str] = None) -> None:
     resolved_model = (model or getattr(config, "llm_model", "") or "").strip()
     if not resolved_model:
         raise LLMConfigError("LLM_MODEL is not configured")
@@ -89,7 +89,7 @@ def validate_llm_config(config: Config, *, model: Optional[str] = None) -> None:
         raise LLMConfigError("LLM_API_KEY is not configured")
 
 
-def get_models_to_try(config: Config) -> List[str]:
+def get_models_to_try(config: LLMConfig) -> List[str]:
     models = [getattr(config, "llm_model", "")] + list(getattr(config, "llm_fallback_models", []) or [])
     ordered: List[str] = []
     seen = set()
@@ -103,7 +103,7 @@ def get_models_to_try(config: Config) -> List[str]:
 
 
 def build_completion_kwargs(
-    config: Config,
+    config: LLMConfig,
     model: str,
     messages: List[Dict[str, Any]],
     *,
@@ -140,7 +140,7 @@ def build_completion_kwargs(
 
 
 def completion(
-    config: Config,
+    config: LLMConfig,
     model: str,
     messages: List[Dict[str, Any]],
     *,
@@ -154,7 +154,7 @@ def completion(
 
 
 def completion_with_fallback(
-    config: Config,
+    config: LLMConfig,
     messages: List[Dict[str, Any]],
     *,
     temperature: Optional[float] = None,
@@ -180,7 +180,7 @@ def completion_with_fallback(
     raise LLMConfigError("All configured LLM models failed")
 
 
-def is_llm_configured(config: Config) -> bool:
+def is_llm_configured(config: LLMConfig) -> bool:
     try:
         validate_llm_config(config)
         return bool(get_models_to_try(config))
@@ -193,11 +193,11 @@ class LLMClient:
 
     def __init__(
         self,
-        config: Config | None = None,
+        config: LLMConfig | None = None,
         *,
         models_to_try: Optional[Iterable[str]] = None,
     ):
-        self.config = config or get_config()
+        self.config = config or get_llm_config()
         self._models_to_try_override = [m for m in (models_to_try or []) if m]
 
     def is_available(self) -> bool:

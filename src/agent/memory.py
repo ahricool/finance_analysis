@@ -79,8 +79,8 @@ class AgentMemory:
     def from_config(cls) -> "AgentMemory":
         """Create an AgentMemory from the current config."""
         try:
-            from src.config import get_config
-            config = get_config()
+            from src.agent.config import get_agent_config
+            config = get_agent_config()
             enabled = getattr(config, "agent_memory_enabled", False)
             return cls(enabled=enabled)
         except Exception:

@@ -185,9 +185,9 @@ class LongbridgeNewsFetcher:
                 logger.debug("[LongbridgeNews] Config.%s() 失败: %s", factory_name, exc)
 
         try:
-            from src.config import get_config
+            from data_provider.config import get_data_provider_config
 
-            app_config = get_config()
+            app_config = get_data_provider_config()
             lb_config = Config.from_apikey(
                 app_config.longbridge_app_key,
                 app_config.longbridge_app_secret,

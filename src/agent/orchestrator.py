@@ -62,7 +62,7 @@ from src.agent.signal_utils import (
     _truncate_text,
 )
 from src.agent.tools.registry import ToolRegistry
-from src.config import AGENT_MAX_STEPS_DEFAULT
+from src.agent.config import AGENT_MAX_STEPS_DEFAULT
 from src.report_language import normalize_report_language
 
 if TYPE_CHECKING:
@@ -1379,5 +1379,4 @@ class AgentOrchestrator:
         prefix = f"风控接管：最终信号已下调为 {signal}。"
         merged = " ".join(dict.fromkeys([prefix] + warnings))
         return merged[:500]
-
 

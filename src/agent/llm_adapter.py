@@ -15,10 +15,12 @@ from typing import Any, Dict, List, Optional
 
 import litellm
 
-from src.config import (
-    get_config,
+from src.agent.config import (
     get_effective_agent_models_to_try,
     get_effective_agent_primary_model,
+)
+from src.llm.config import (
+    get_llm_config,
     normalize_litellm_temperature,
 )
 from src.llm import completion, is_llm_configured
@@ -150,7 +152,7 @@ class LLMToolAdapter:
     """
 
     def __init__(self, config=None):
-        config = config or get_config()
+        config = config or get_llm_config()
         self._config = config
         self._register_custom_model_pricing()
 

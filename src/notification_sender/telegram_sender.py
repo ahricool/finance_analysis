@@ -12,15 +12,13 @@ import requests
 import time
 import re
 
-from src.config import Config
-
 
 logger = logging.getLogger(__name__)
 
 
 class TelegramSender:
     
-    def __init__(self, config: Config):
+    def __init__(self, config: object):
         """
         初始化 Telegram 配置
 

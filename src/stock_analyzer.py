@@ -24,7 +24,7 @@ from enum import Enum
 import pandas as pd
 import numpy as np
 
-from src.config import get_config
+from src.report_config import get_report_config
 
 logger = logging.getLogger(__name__)
 
@@ -618,7 +618,7 @@ class StockTrendAnalyzer:
         bias = result.bias_ma5
         if bias != bias or bias is None:  # NaN or None defense
             bias = 0.0
-        base_threshold = get_config().bias_threshold
+        base_threshold = get_report_config().bias_threshold
 
         # Strong trend compensation: relax threshold for STRONG_BULL with high strength
         trend_strength = result.trend_strength if result.trend_strength == result.trend_strength else 0.0

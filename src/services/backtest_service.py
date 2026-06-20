@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, select
 
-from src.config import get_config
+from src.backtest.config import get_backtest_config
 from src.core.backtest_engine import OVERALL_SENTINEL_CODE, BacktestEngine, EvaluationConfig
 from src.repositories.backtest_repo import BacktestRepository
 from src.repositories.stock_repo import StockRepository
@@ -40,7 +40,7 @@ class BacktestService:
         limit: int = 200,
         uid: Optional[int] = None,
     ) -> Dict[str, Any]:
-        config = get_config()
+        config = get_backtest_config()
 
         if eval_window_days is None:
             eval_window_days = getattr(config, "backtest_eval_window_days", 10)
@@ -228,7 +228,7 @@ class BacktestService:
         analysis_date_to: Optional[date] = None,
         uid: Optional[int] = None,
     ) -> Dict[str, Any]:
-        config = get_config()
+        config = get_backtest_config()
         engine_version = str(getattr(config, "backtest_engine_version", "v1"))
 
         # When date filters are active and no explicit window is requested,
@@ -269,7 +269,7 @@ class BacktestService:
         analysis_date_to: Optional[date] = None,
         uid: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
-        config = get_config()
+        config = get_backtest_config()
         engine_version = str(getattr(config, "backtest_engine_version", "v1"))
         lookup_code = OVERALL_SENTINEL_CODE if scope == "overall" else code
 
@@ -597,7 +597,7 @@ class BacktestService:
             if window_values:
                 summary_window_days = window_values[0]
             else:
-                summary_window_days = int(getattr(get_config(), "backtest_eval_window_days", 10))
+                summary_window_days = int(getattr(get_backtest_config(), "backtest_eval_window_days", 10))
 
         filtered_rows = [
             row for row in filtered_rows if getattr(row, "eval_window_days", None) == summary_window_days

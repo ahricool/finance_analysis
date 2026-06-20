@@ -19,7 +19,7 @@ import time
 from typing import Optional, Tuple
 
 import jwt
-from src.config import get_config
+from src.runtime_config import get_runtime_config
 
 COOKIE_NAME = "session"
 RATE_LIMIT_WINDOW_SEC = 300
@@ -45,9 +45,9 @@ def _get_lock():
 
 def _ensure_env_loaded() -> None:
     """Ensure .env is loaded before reading config."""
-    from src.config import setup_env
+    from src.config import load_env
 
-    setup_env()
+    load_env()
 
 
 def _load_secret_key() -> str:
@@ -55,14 +55,13 @@ def _load_secret_key() -> str:
     if _secret_key is not None:
         return _secret_key
 
-    config = get_config()
+    config = get_runtime_config()
     _sk = config.secret_key
 
     # 如果 SECRET_KEY 未设置，则随机生成一个满足 HS256 推荐长度的密钥。
     # 配置单例可能残留旧版本生成的短密钥；没有显式环境密钥时也一并修正。
     if not _sk or (not os.getenv("SECRET_KEY") and len(_sk.encode("utf-8")) < 32):
         _sk = secrets.token_urlsafe(32)
-        config.secret_key = _sk
     elif len(_sk.encode("utf-8")) < 32:
         _sk = hashlib.sha256(_sk.encode("utf-8")).hexdigest()
     _secret_key = _sk

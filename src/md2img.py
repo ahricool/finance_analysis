@@ -130,9 +130,9 @@ def markdown_to_image(markdown_text: str, max_chars: int = 15000) -> Optional[by
         return None
 
     try:
-        from src.config import get_config
+        from src.report_config import get_report_config
 
-        engine = getattr(get_config(), "md2img_engine", "wkhtmltoimage")
+        engine = get_report_config().md2img_engine
     except Exception:
         engine = "wkhtmltoimage"
 

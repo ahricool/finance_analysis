@@ -6,7 +6,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Literal, Optional, Sequence, Tuple
 
-from src.config import Config
 from src.notification import ChannelDetector, NotificationChannel, NotificationService
 from src.notification_noise import (
     NOTIFICATION_SEVERITIES,
@@ -166,11 +165,11 @@ P6_CHANNEL_ACTIONS_ENV_KEYS: Tuple[str, ...] = (
 )
 
 
-def _value(config: Config, attr: str):
+def _value(config: object, attr: str):
     return getattr(config, attr, None)
 
 
-def _has(config: Config, attr: str) -> bool:
+def _has(config: object, attr: str) -> bool:
     value = _value(config, attr)
     if isinstance(value, (list, tuple, set, dict)):
         return bool(value)
@@ -187,7 +186,7 @@ def _issue(
 
 
 def _require_pair(
-    config: Config,
+    config: object,
     *,
     left_attr: str,
     right_attr: str,
@@ -223,7 +222,7 @@ def _require_pair(
         )
 
 
-def run_notification_diagnostics(config: Config) -> NotificationDiagnosticResult:
+def run_notification_diagnostics(config: object) -> NotificationDiagnosticResult:
     """Run read-only diagnostics for notification configuration."""
 
     configured = tuple(channel.value for channel in NotificationService.detect_configured_channels(config))

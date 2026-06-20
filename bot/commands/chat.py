@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from bot.commands.base import BotCommand
 from bot.models import BotMessage, BotResponse, ChatType
-from src.config import get_config
+from src.core.pipeline_config import get_pipeline_config
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class ChatCommand(BotCommand):
 
     def execute(self, message: BotMessage, args: list[str]) -> BotResponse:
         """Execute the chat command."""
-        config = get_config()
+        config = get_pipeline_config()
 
         if not config.agent_mode:
             return BotResponse.text_response(

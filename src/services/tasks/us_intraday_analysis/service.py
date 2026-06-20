@@ -207,8 +207,8 @@ class USIntradayAnalysisService:
 
 if __name__ == "__main__":
     import logging
-    from src.config import get_config
+    from src.core.pipeline_config import get_pipeline_config
     logging.basicConfig(level=logging.DEBUG)
-    service = USIntradayAnalysisService(config=get_config())
+    service = USIntradayAnalysisService(config=get_pipeline_config())
     summary = service.run(["NVDA"])
     print(summary)

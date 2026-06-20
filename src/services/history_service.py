@@ -15,7 +15,7 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 
-from src.config import get_config, resolve_news_window_days
+from src.search.config import get_search_config, resolve_news_window_days
 from src.time_utils import utc_isoformat, utc_now
 from src.report_language import (
     get_bias_status_emoji,
@@ -403,7 +403,7 @@ class HistoryService:
         ]
 
         # 历史兜底链路也做发布时间硬过滤，避免旧库脏数据重新冒出。
-        cfg = get_config()
+        cfg = get_search_config()
         window_days = resolve_news_window_days(
             news_max_age_days=getattr(cfg, "news_max_age_days", 3),
             news_strategy_profile=getattr(cfg, "news_strategy_profile", "short"),

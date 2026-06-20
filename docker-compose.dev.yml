@@ -54,9 +54,6 @@ services:
       - .env
     environment:
       TZ: Asia/Shanghai
-      WEBUI_HOST: 0.0.0.0
-      WEBUI_PORT: "8000"
-      API_PORT: "8000"
       HEALTHCHECK_URL: http://127.0.0.1:8000/api/health
       HEALTHCHECK_FALLBACK_URL: http://127.0.0.1:8000/health
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}

@@ -48,7 +48,7 @@ class MarketCommand(BotCommand):
 
     def execute(self, message: BotMessage, args: List[str]) -> BotResponse:
         """执行大盘复盘命令"""
-        config = self._get_config()
+        config = self._get_runtime_config()
         try:
             override_region = self._compute_market_review_override_region(config)
             if override_region == "":
@@ -84,9 +84,9 @@ class MarketCommand(BotCommand):
             "分析完成后将自动推送结果。"
         )
 
-    def _get_config(self):
-        from src.config import get_config
-        return get_config()
+    def _get_runtime_config(self):
+        from src.runtime_config import get_runtime_config
+        return get_runtime_config()
 
     def _compute_market_review_override_region(self, config) -> Optional[str]:
         if not getattr(config, "trading_day_check_enabled", True):

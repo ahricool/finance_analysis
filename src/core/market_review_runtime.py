@@ -9,19 +9,18 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Tuple
 
-from src.config import Config
 from src.llm_client import is_llm_configured
 
 logger = logging.getLogger(__name__)
 
 
-def has_configured_llm_runtime(config: Config) -> bool:
+def has_configured_llm_runtime(config: object) -> bool:
     """Return whether unified LLM configuration is available."""
     return is_llm_configured(config)
 
 
 def build_market_review_runtime(
-    config: Config,
+    config: object,
     source_message: Optional[Any] = None,
 ) -> Tuple[Any, Any, Any]:
     """

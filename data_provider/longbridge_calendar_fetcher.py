@@ -214,9 +214,9 @@ class LongbridgeCalendarFetcher:
 
     def _has_credentials(self) -> bool:
         try:
-            from src.config import get_config
+            from data_provider.config import get_data_provider_config
 
-            config = get_config()
+            config = get_data_provider_config()
             return bool(config.longbridge_app_key and config.longbridge_app_secret and config.longbridge_access_token)
         except Exception:
             return bool(
@@ -236,9 +236,9 @@ class LongbridgeCalendarFetcher:
         _sanitize_longbridge_env()
 
         try:
-            from src.config import get_config
+            from data_provider.config import get_data_provider_config
 
-            app_config = get_config()
+            app_config = get_data_provider_config()
             app_key = app_config.longbridge_app_key
             app_secret = app_config.longbridge_app_secret
             access_token = app_config.longbridge_access_token

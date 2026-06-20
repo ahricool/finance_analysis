@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any, List
 
 import pandas as pd
 
-from src.config import get_config
+from src.core.pipeline_config import get_pipeline_config
 from src.report_language import normalize_report_language
 from src.search_service import SearchService
 from src.core.market_profile import get_profile, MarketProfile
@@ -59,7 +59,7 @@ class MarketAnalyzer:
             analyzer: AI分析器实例（用于调用LLM）
             region: 市场区域 cn=A股 us=美股
         """
-        self.config = get_config()
+        self.config = get_pipeline_config()
         self.search_service = search_service
         self.analyzer = analyzer
         self.data_manager = DataFetcherManager()

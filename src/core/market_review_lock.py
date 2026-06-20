@@ -10,8 +10,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from src.config import Config
-
 try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows fallback
@@ -31,7 +29,7 @@ class MarketReviewExecutionLock:
     uses_flock: bool
 
 
-def market_review_lock_path(config: Config) -> Path:
+def market_review_lock_path(config: object) -> Path:
     data_dir = getattr(config, "data_dir", "./data")
     return Path(data_dir) / "market_review.lock"
 
@@ -142,7 +140,7 @@ def _is_stale_lock(lock_path: Path) -> bool:
 
 
 def try_acquire_market_review_lock(
-    config: Config,
+    config: object,
 ) -> Optional[MarketReviewExecutionLock]:
     """Acquire a process-local and same-host lock for market-review execution.
 

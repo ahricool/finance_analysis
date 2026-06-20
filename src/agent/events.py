@@ -523,8 +523,8 @@ def validate_event_alert_rule(rule: Dict[str, Any]) -> None:
 def build_event_monitor_from_config(config=None, notifier=None) -> Optional[EventMonitor]:
     """Build an EventMonitor from runtime config and attach notification callbacks."""
     if config is None:
-        from src.config import get_config
-        config = get_config()
+        from src.agent.config import get_agent_config
+        config = get_agent_config()
 
     if not getattr(config, "agent_event_monitor_enabled", False):
         return None

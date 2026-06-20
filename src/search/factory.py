@@ -24,8 +24,8 @@ def get_search_service() -> "SearchService":
     if _search_service is None:
         with _search_service_lock:
             if _search_service is None:
-                from src.config import get_config
-                config = get_config()
+                from src.search.config import get_search_config
+                config = get_search_config()
                 search_service_cls = _resolve_search_service_class()
 
                 _search_service = search_service_cls(

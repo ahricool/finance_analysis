@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.analysis.stock_report_analyzer import AnalysisResult
-from src.config import get_config
+from src.report_config import get_report_config
 from src.report_language import (
     get_localized_stock_name,
     get_report_labels,
@@ -57,7 +57,7 @@ def _clean_sniper_value(val: Any) -> str:
 
 def _resolve_templates_dir() -> Path:
     """Resolve template directory relative to project root."""
-    config = get_config()
+    config = get_report_config()
     base = Path(__file__).resolve().parent.parent.parent
     templates_dir = Path(config.report_templates_dir)
     if not templates_dir.is_absolute():
@@ -109,7 +109,7 @@ def render(
             (getattr(result, "report_language", None) for result in results if getattr(result, "report_language", None)),
             None,
         )
-        or getattr(get_config(), "report_language", "zh")
+        or get_report_config().report_language
     )
     labels = get_report_labels(report_language)
 

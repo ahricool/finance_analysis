@@ -22,7 +22,7 @@ from typing import List, Dict, Any, Optional, Tuple, Callable
 
 import pandas as pd
 
-from src.config import get_config, Config
+from src.core.pipeline_config import PipelineConfig, get_pipeline_config
 from src.storage import get_db
 from data_provider import DataFetcherManager
 from data_provider.base import normalize_stock_code
@@ -78,7 +78,7 @@ class StockAnalysisPipeline(AgentResultMixin):
     
     def __init__(
         self,
-        config: Optional[Config] = None,
+        config: Optional[PipelineConfig] = None,
         max_workers: Optional[int] = None,
         source_message: Optional[BotMessage] = None,
         query_id: Optional[str] = None,
@@ -94,7 +94,7 @@ class StockAnalysisPipeline(AgentResultMixin):
             config: 配置对象（可选，默认使用全局配置）
             max_workers: 最大并发线程数（可选，默认从配置读取）
         """
-        self.config = config or get_config()
+        self.config = config or get_pipeline_config()
         self.max_workers = max_workers or self.config.max_workers
         self.source_message = source_message
         self.query_id = query_id
@@ -1457,7 +1457,7 @@ class StockAnalysisPipeline(AgentResultMixin):
 
     def _md2img_install_hint(self) -> str:
         try:
-            engine = getattr(get_config(), "md2img_engine", "wkhtmltoimage")
+            engine = getattr(self.config, "md2img_engine", "wkhtmltoimage")
         except Exception:
             engine = "wkhtmltoimage"
         return (

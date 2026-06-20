@@ -16,7 +16,6 @@ from email.utils import formataddr
 import smtplib
 
 from data_provider.base import normalize_stock_code
-from src.config import Config
 from src.formatters import markdown_to_html_document
 
 
@@ -50,7 +49,7 @@ SMTP_CONFIGS = {
 
 class EmailSender:
     
-    def __init__(self, config: Config):
+    def __init__(self, config: object):
         """
         初始化 Email 配置
 

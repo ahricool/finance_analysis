@@ -214,11 +214,11 @@ def _daily_analysis_task() -> None:
     total_count = 0
     report: Optional[str] = None
     try:
-        from src.config import get_config
+        from src.core.pipeline_config import get_pipeline_config
         from src.core.pipeline import StockAnalysisPipeline
         from src.repositories.watch_list_repo import get_watch_list_codes
 
-        config = get_config()
+        config = get_pipeline_config()
         stock_codes = get_watch_list_codes()
         total_count = len(stock_codes)
         if not stock_codes:
@@ -283,7 +283,7 @@ def _us_premarket_analysis_task() -> None:
     total_count = 0
     report: Optional[str] = None
     try:
-        from src.config import get_config
+        from src.core.pipeline_config import get_pipeline_config
         from src.core.pipeline import StockAnalysisPipeline
         from src.repositories.watch_list_repo import get_watch_list_codes_by_market
 
@@ -303,7 +303,7 @@ def _us_premarket_analysis_task() -> None:
             )
             raise TaskSkipped("未配置美股自选股，本次定时任务已跳过")
 
-        config = get_config()
+        config = get_pipeline_config()
         pipeline = StockAnalysisPipeline(config=config)
         results = pipeline.run(stock_codes=stock_codes)
         if results:
@@ -352,12 +352,12 @@ def _us_premarket_news_task() -> None:
     logger.info("=" * 50)
     total_count = 0
     try:
-        from src.config import get_config
+        from src.core.pipeline_config import get_pipeline_config
         from src.repositories.watch_list_repo import get_watch_list_codes_by_market
         from src.services.tasks.us_premarket_news.service import USPremarketNewsService
 
         watch_symbols = get_watch_list_codes_by_market("US")
-        service = USPremarketNewsService(config=get_config())
+        service = USPremarketNewsService(config=get_pipeline_config())
         summary = service.run(watch_symbols, now=started_at)
         total_count = summary.symbols_count
     except Exception as exc:
@@ -414,7 +414,7 @@ def _us_intraday_analysis_task() -> None:
     started_at = _scheduled_now()
     logger.info("美股盘中分析任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
     try:
-        from src.config import get_config
+        from src.core.pipeline_config import get_pipeline_config
         from src.repositories.watch_list_repo import get_watch_list_codes_by_market
         from src.services.tasks.us_intraday_analysis import USIntradayAnalysisService
 
@@ -423,7 +423,7 @@ def _us_intraday_analysis_task() -> None:
             logger.info("未配置美股自选股，跳过美股盘中分析任务")
             raise TaskSkipped("未配置美股自选股，跳过美股盘中分析任务")
 
-        service = USIntradayAnalysisService(config=get_config())
+        service = USIntradayAnalysisService(config=get_pipeline_config())
         summary = service.run(stock_codes)
         if not summary.market_open:
             logger.info("当前不是美股盘中交易时段，跳过美股盘中分析任务")

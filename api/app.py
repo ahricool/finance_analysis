@@ -112,7 +112,7 @@ from api.v1 import api_v1_router
 from api.middlewares.auth import add_auth_middleware
 from api.middlewares.error_handler import add_error_handlers
 from api.v1.schemas.common import HealthResponse
-from src.config import setup_env
+from src.config import load_env
 from src.logging_config import ensure_backend_logging
 from src.scheduler import (
     start_embedded_analysis_scheduler,
@@ -124,7 +124,7 @@ from src.time_utils import utc_isoformat, utc_now
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     """Initialize and release shared services for the app lifecycle."""
-    setup_env()
+    load_env()
     ensure_backend_logging(service="server", log_prefix="web_server")
     analysis_scheduler = start_embedded_analysis_scheduler()
     app.state.analysis_scheduler = analysis_scheduler
