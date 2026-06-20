@@ -6,11 +6,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import lru_cache
 import logging
-import os
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
-from finance_analysis.config.env_parsing import env_bool, env_int, env_list
+from finance_analysis.config.env_parsing import env_bool, env_list
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,21 @@ def resolve_news_window_days(news_max_age_days: int, news_strategy_profile: Opti
     return max(1, min(max(1, int(news_max_age_days)), profile_days))
 
 
-@dataclass(frozen=True)
+def _resolve_searxng_base_urls(raw_urls: List[str]) -> List[str]:
+    valid_urls: list[str] = []
+    invalid_urls: list[str] = []
+    for url in raw_urls:
+        parsed = urlparse(url)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            valid_urls.append(url)
+        else:
+            invalid_urls.append(url)
+    if invalid_urls:
+        logger.warning("SEARXNG_BASE_URLS contains invalid URLs and they were ignored: %s", ", ".join(invalid_urls[:3]))
+    return valid_urls
+
+
+@dataclass
 class SearchConfig:
     anspire_api_keys: List[str] = field(default_factory=list)
     bocha_api_keys: List[str] = field(default_factory=list)
@@ -63,19 +76,6 @@ class SearchConfig:
 
 @lru_cache(maxsize=1)
 def get_search_config() -> SearchConfig:
-    raw_urls = env_list("SEARXNG_BASE_URLS")
-    valid_urls: list[str] = []
-    invalid_urls: list[str] = []
-    for url in raw_urls:
-        parsed = urlparse(url)
-        if parsed.scheme in {"http", "https"} and parsed.netloc:
-            valid_urls.append(url)
-        else:
-            invalid_urls.append(url)
-    if invalid_urls:
-        logger.warning("SEARXNG_BASE_URLS contains invalid URLs and they were ignored: %s", ", ".join(invalid_urls[:3]))
-
-    profile = normalize_news_strategy_profile(os.getenv("NEWS_STRATEGY_PROFILE", "short"))
     return SearchConfig(
         anspire_api_keys=env_list("ANSPIRE_API_KEYS"),
         bocha_api_keys=env_list("BOCHA_API_KEYS"),
@@ -83,8 +83,6 @@ def get_search_config() -> SearchConfig:
         tavily_api_keys=env_list("TAVILY_API_KEYS"),
         brave_api_keys=env_list("BRAVE_API_KEYS"),
         serpapi_keys=env_list("SERPAPI_API_KEYS"),
-        searxng_base_urls=valid_urls,
+        searxng_base_urls=_resolve_searxng_base_urls(env_list("SEARXNG_BASE_URLS")),
         searxng_public_instances_enabled=env_bool("SEARXNG_PUBLIC_INSTANCES_ENABLED", True),
-        news_max_age_days=env_int("NEWS_MAX_AGE_DAYS", 3, minimum=1),
-        news_strategy_profile=profile,
     )

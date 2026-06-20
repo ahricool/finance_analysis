@@ -6,14 +6,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
-from finance_analysis.config.env_parsing import env_int, env_str
-from finance_analysis.core.paths import get_data_dir
+from finance_analysis.config.env_parsing import env_str
 
 
-@dataclass(frozen=True)
+@dataclass
 class DatabaseConfig:
     database_url: str = ""
-    data_dir: str = ""
     db_pool_size: int = 10
     db_max_overflow: int = 5
     db_pool_recycle: int = 1800
@@ -42,9 +40,5 @@ class DatabaseConfig:
 def get_database_config() -> DatabaseConfig:
     return DatabaseConfig(
         database_url=env_str("DATABASE_URL", "") or "",
-        data_dir=str(get_data_dir()),
-        db_pool_size=env_int("DB_POOL_SIZE", 10, minimum=1),
-        db_max_overflow=env_int("DB_MAX_OVERFLOW", 5, minimum=0),
-        db_pool_recycle=env_int("DB_POOL_RECYCLE", 1800, minimum=0),
         redis_url=env_str("REDIS_URL", "redis://localhost:6379/0") or "redis://localhost:6379/0",
     )

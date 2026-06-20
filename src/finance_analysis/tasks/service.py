@@ -46,7 +46,7 @@ class ManualRunNotAllowedError(RuntimeError):
     """Raised when a scheduled task does not allow manual execution."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class DuplicateScheduledTaskError(RuntimeError):
     existing_task_id: str
     message: str

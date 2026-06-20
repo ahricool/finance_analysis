@@ -55,7 +55,7 @@ _JOB_A_SHARE_INTRADAY_ANALYSIS = "analysis_a_share_intraday"
 _EMBEDDED_SCHEDULER: Optional[Any] = None
 
 
-@dataclass(frozen=True)
+@dataclass
 class ScheduledTaskDefinition:
     job_id: str
     name: str

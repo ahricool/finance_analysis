@@ -10,14 +10,14 @@ def main() -> int:
     import uvicorn
 
     from finance_analysis.config import load_env
-    from finance_analysis.config.runtime import get_runtime_config
     from finance_analysis.core.logging import setup_backend_logging
     from finance_analysis.core.paths import ensure_data_directories
+    from finance_analysis.interfaces.api.config import get_api_server_config
 
     load_env()
     ensure_data_directories()
     setup_backend_logging(service="server", log_prefix="web_server")
-    config = get_runtime_config()
+    config = get_api_server_config()
     host = config.webui_host
     port = config.webui_port
     if not host or port is None:

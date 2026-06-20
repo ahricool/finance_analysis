@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List
 
 
-@dataclass(frozen=True)
+@dataclass
 class StrategyDimension:
     """Single strategy dimension used by market recap prompts."""
 
@@ -14,7 +14,7 @@ class StrategyDimension:
     checkpoints: List[str]
 
 
-@dataclass(frozen=True)
+@dataclass
 class MarketStrategyBlueprint:
     """Region specific market strategy blueprint."""
 

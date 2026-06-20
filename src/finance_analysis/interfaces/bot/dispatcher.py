@@ -741,9 +741,9 @@ def get_dispatcher() -> CommandDispatcher:
     global _dispatcher
 
     if _dispatcher is None:
-        from finance_analysis.config.runtime import get_runtime_config
+        from finance_analysis.interfaces.bot.config import get_bot_config
 
-        config = get_runtime_config()
+        config = get_bot_config()
 
         # 创建分发器
         _dispatcher = CommandDispatcher(

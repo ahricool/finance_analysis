@@ -58,7 +58,7 @@ class StatusCommand(BotCommand):
         if config is None:
             return self._collect_status_from_runtime()
 
-        from finance_analysis.config.llm import _uses_direct_env_provider, get_configured_llm_models
+        from finance_analysis.llm.config import _uses_direct_env_provider, get_configured_llm_models
 
         stock_list = list(getattr(config, "stock_list", []) or [])
         if not stock_list:

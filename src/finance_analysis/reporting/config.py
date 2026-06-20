@@ -3,12 +3,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 import logging
 
 from finance_analysis.reporting.localization import is_supported_report_language_value, normalize_report_language
-from finance_analysis.config.env_parsing import env_bool, env_float, env_int, env_list, env_str
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,7 @@ def _parse_md2img_engine(value: str | None) -> str:
     return "wkhtmltoimage"
 
 
-@dataclass(frozen=True)
+@dataclass
 class ReportConfig:
     bias_threshold: float = 5.0
     single_stock_notify: bool = False
@@ -50,34 +49,16 @@ class ReportConfig:
     report_integrity_retry: int = 1
     report_history_compare_n: int = 0
     analysis_delay: float = 0.0
-    merge_email_notification: bool = False
-    markdown_to_image_channels: list[str] | None = None
+    markdown_to_image_channels: list[str] | None = field(default_factory=list)
     markdown_to_image_max_chars: int = 15000
     md2img_engine: str = "wkhtmltoimage"
     save_context_snapshot: bool = True
 
     def __post_init__(self) -> None:
         if self.markdown_to_image_channels is None:
-            object.__setattr__(self, "markdown_to_image_channels", [])
+            self.markdown_to_image_channels = []
 
 
 @lru_cache(maxsize=1)
 def get_report_config() -> ReportConfig:
-    return ReportConfig(
-        bias_threshold=env_float("BIAS_THRESHOLD", 5.0, minimum=1.0),
-        single_stock_notify=env_bool("SINGLE_STOCK_NOTIFY", False),
-        report_type=_parse_report_type(env_str("REPORT_TYPE", "simple")),
-        report_language=_parse_report_language(env_str("REPORT_LANGUAGE", "zh")),
-        report_summary_only=env_bool("REPORT_SUMMARY_ONLY", False),
-        report_templates_dir=env_str("REPORT_TEMPLATES_DIR", "templates") or "templates",
-        report_renderer_enabled=env_bool("REPORT_RENDERER_ENABLED", False),
-        report_integrity_enabled=env_bool("REPORT_INTEGRITY_ENABLED", True),
-        report_integrity_retry=env_int("REPORT_INTEGRITY_RETRY", 1, minimum=0),
-        report_history_compare_n=env_int("REPORT_HISTORY_COMPARE_N", 0, minimum=0),
-        analysis_delay=env_float("ANALYSIS_DELAY", 0.0, minimum=0.0),
-        merge_email_notification=env_bool("MERGE_EMAIL_NOTIFICATION", False),
-        markdown_to_image_channels=[channel.lower() for channel in env_list("MARKDOWN_TO_IMAGE_CHANNELS")],
-        markdown_to_image_max_chars=env_int("MARKDOWN_TO_IMAGE_MAX_CHARS", 15000, minimum=1),
-        md2img_engine=_parse_md2img_engine(env_str("MD2IMG_ENGINE", "wkhtmltoimage")),
-        save_context_snapshot=env_bool("SAVE_CONTEXT_SNAPSHOT", True),
-    )
+    return ReportConfig()

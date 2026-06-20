@@ -45,7 +45,7 @@ _QUIET_HOURS_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]
 _INFLIGHT_RESERVATION_SECONDS = 300
 
 
-@dataclass(frozen=True)
+@dataclass
 class NotificationNoiseDecision:
     """Decision returned by the notification noise-control gate."""
 

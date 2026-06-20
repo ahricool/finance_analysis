@@ -41,7 +41,7 @@ class BacktestResultLike(Protocol):
     operation_advice: Optional[str]
 
 
-@dataclass(frozen=True)
+@dataclass
 class EvaluationConfig:
     eval_window_days: int
     neutral_band_pct: float = 2.0

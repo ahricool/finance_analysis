@@ -35,7 +35,7 @@ LONGBRIDGE_NEWS_SOURCE = "longbridge"
 LONGBRIDGE_NEWS_CANONICAL_URL = "https://longbridge.com/news/{news_id}"
 
 
-@dataclass(frozen=True)
+@dataclass
 class LongbridgeNewsRecord:
     """Normalized Longbridge news item for persistence and LLM context."""
 

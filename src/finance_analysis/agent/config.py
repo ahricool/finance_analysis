@@ -9,7 +9,7 @@ import logging
 from typing import List, Optional
 
 from finance_analysis.llm.config import get_llm_config
-from finance_analysis.config.env_parsing import env_bool, env_int, env_list, env_str
+from finance_analysis.config.env_parsing import env_str
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def normalize_agent_litellm_model(model: str) -> str:
     return normalized_model
 
 
-@dataclass(frozen=True)
+@dataclass
 class AgentConfig:
     agent_litellm_model: str = ""
     agent_mode: bool = False
@@ -47,7 +47,6 @@ class AgentConfig:
     agent_skill_autoweight: bool = True
     agent_skill_routing: str = "auto"
     agent_event_monitor_enabled: bool = False
-    agent_event_monitor_interval_minutes: int = 5
     agent_event_alert_rules_json: str = ""
 
     def is_agent_available(self) -> bool:
@@ -75,29 +74,11 @@ def _normalize_agent_config(config: AgentConfig) -> AgentConfig:
 
 @lru_cache(maxsize=1)
 def get_agent_config() -> AgentConfig:
-    raw_mode = env_str("AGENT_MODE")
-    cfg = AgentConfig(
-        agent_litellm_model=normalize_agent_litellm_model(env_str("AGENT_LITELLM_MODEL", "") or ""),
-        agent_mode=env_bool("AGENT_MODE", False),
-        agent_mode_explicit=raw_mode is not None,
-        agent_max_steps=env_int("AGENT_MAX_STEPS", AGENT_MAX_STEPS_DEFAULT, minimum=1),
-        agent_skills=env_list("AGENT_SKILLS"),
-        agent_skill_dir=env_str("AGENT_SKILL_DIR") or env_str("AGENT_STRATEGY_DIR"),
-        agent_nl_routing=env_bool("AGENT_NL_ROUTING", False),
-        agent_arch=(env_str("AGENT_ARCH", "single") or "single").lower(),
-        agent_orchestrator_mode=(env_str("AGENT_ORCHESTRATOR_MODE", "standard") or "standard").lower(),
-        agent_orchestrator_timeout_s=env_int("AGENT_ORCHESTRATOR_TIMEOUT_S", 600, minimum=0),
-        agent_risk_override=env_bool("AGENT_RISK_OVERRIDE", True),
-        agent_deep_research_budget=env_int("AGENT_DEEP_RESEARCH_BUDGET", 30000, minimum=5000),
-        agent_deep_research_timeout=env_int("AGENT_DEEP_RESEARCH_TIMEOUT", 180, minimum=30),
-        agent_memory_enabled=env_bool("AGENT_MEMORY_ENABLED", False),
-        agent_skill_autoweight=env_bool("AGENT_SKILL_AUTOWEIGHT", env_bool("AGENT_STRATEGY_AUTOWEIGHT", True)),
-        agent_skill_routing=(env_str("AGENT_SKILL_ROUTING") or env_str("AGENT_STRATEGY_ROUTING", "auto") or "auto").lower(),
-        agent_event_monitor_enabled=env_bool("AGENT_EVENT_MONITOR_ENABLED", False),
-        agent_event_monitor_interval_minutes=env_int("AGENT_EVENT_MONITOR_INTERVAL_MINUTES", 5, minimum=1),
-        agent_event_alert_rules_json=env_str("AGENT_EVENT_ALERT_RULES_JSON", "") or "",
+    return _normalize_agent_config(
+        AgentConfig(
+            agent_litellm_model=normalize_agent_litellm_model(env_str("AGENT_LITELLM_MODEL", "") or ""),
+        )
     )
-    return _normalize_agent_config(cfg)
 
 
 def get_effective_agent_primary_model(config: object | None = None) -> str:

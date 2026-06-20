@@ -51,7 +51,7 @@ class TaskSkipped(Exception):
     """Raise from scheduled jobs when a run should be recorded as skipped."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class TaskLifecycleMetadata:
     task_type: str
     task_name: str

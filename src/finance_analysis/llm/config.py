@@ -19,7 +19,7 @@ _FIXED_TEMPERATURE_LITELLM_MODELS: Dict[str, Dict[str, float]] = {
 }
 
 
-@dataclass(frozen=True)
+@dataclass
 class LLMConfig:
     model: str = ""
     base_url: Optional[str] = None

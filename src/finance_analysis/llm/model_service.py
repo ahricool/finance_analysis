@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from finance_analysis.config.agent_models import get_effective_agent_models_to_try, get_effective_agent_primary_model
+from finance_analysis.agent.config import get_effective_agent_models_to_try, get_effective_agent_primary_model
 
 _PLACEHOLDER_TO_PROVIDER = {
     "__legacy_gemini__": "gemini",
