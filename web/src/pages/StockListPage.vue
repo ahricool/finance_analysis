@@ -6,6 +6,7 @@ import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import type { Market } from '@/types/stockIndex';
+import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { looksLikeStockCode } from '@/utils/validation';
 import { Briefcase, Pencil, Plus, Trash2, X } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -230,50 +231,69 @@ onMounted(loadList);
       <p class="text-xs text-secondary-text/60">持仓股列表同时作为每日分析的目标股票</p>
     </div>
 
-    <!-- List -->
-    <div v-else class="space-y-2">
-      <div
-        v-for="item in items"
-        :key="item.id"
-        class="flex items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 transition-colors hover:bg-hover"
-      >
-        <!-- Code badge -->
-        <span class="min-w-[72px] rounded-lg bg-primary/10 px-2 py-0.5 text-center text-sm font-mono font-semibold text-primary">
-          {{ item.code }}
-        </span>
-        <!-- Market badge -->
-        <span class="shrink-0 rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-secondary-text">
-          {{ marketLabel(item.market_type) }}
-        </span>
-        <!-- Name & notes -->
-        <div class="min-w-0 flex-1">
-          <p class="truncate text-sm font-medium text-foreground">
-            {{ item.name || '—' }}
-          </p>
-          <p v-if="item.notes" class="truncate text-xs text-secondary-text">{{ item.notes }}</p>
-        </div>
-        <!-- Quantity badge -->
-        <span class="shrink-0 rounded-lg border border-border/60 bg-background px-2.5 py-0.5 text-sm font-semibold tabular-nums text-foreground">
-          {{ item.quantity.toLocaleString() }} 股
-        </span>
-        <!-- Actions -->
-        <div class="flex shrink-0 items-center gap-1">
-          <button
-            class="rounded-lg p-1.5 text-secondary-text hover:bg-hover hover:text-foreground"
-            aria-label="编辑"
-            @click="openEdit(item)"
+    <!-- Table -->
+    <div v-else class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
+      <table class="w-full min-w-[900px] text-left text-sm">
+        <thead class="border-b border-border/70 text-xs text-muted-text">
+          <tr>
+            <th class="min-w-[120px] px-4 py-3 font-medium">代码</th>
+            <th class="min-w-[80px] px-4 py-3 font-medium">市场</th>
+            <th class="min-w-[180px] px-4 py-3 font-medium">名称</th>
+            <th class="min-w-[120px] px-4 py-3 text-right font-medium">持仓数量</th>
+            <th class="min-w-[220px] px-4 py-3 font-medium">备注</th>
+            <th class="min-w-[150px] px-4 py-3 font-medium">添加时间</th>
+            <th class="min-w-[150px] px-4 py-3 font-medium">更新时间</th>
+            <th class="min-w-[96px] px-4 py-3 text-right font-medium">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="item in items"
+            :key="item.id"
+            class="border-b border-border/50 transition-colors last:border-0 hover:bg-hover/70"
           >
-            <Pencil class="h-4 w-4" />
-          </button>
-          <button
-            class="rounded-lg p-1.5 text-secondary-text hover:bg-destructive/10 hover:text-destructive"
-            aria-label="删除"
-            @click="openDelete(item)"
-          >
-            <Trash2 class="h-4 w-4" />
-          </button>
-        </div>
-      </div>
+            <td class="px-4 py-3">
+              <span class="font-mono text-sm font-semibold text-primary">{{ item.code }}</span>
+            </td>
+            <td class="px-4 py-3">
+              <span class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-secondary-text">
+                {{ marketLabel(item.market_type) }}
+              </span>
+            </td>
+            <td class="px-4 py-3 font-medium text-foreground">{{ item.name || '—' }}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-foreground">
+              {{ item.quantity.toLocaleString() }} 股
+            </td>
+            <td class="max-w-xs px-4 py-3 text-secondary-text">
+              <span class="line-clamp-2">{{ item.notes || '—' }}</span>
+            </td>
+            <td class="whitespace-nowrap px-4 py-3 text-xs text-secondary-text">
+              {{ formatDateTimeInDisplayTimezone(item.created_at) }}
+            </td>
+            <td class="whitespace-nowrap px-4 py-3 text-xs text-secondary-text">
+              {{ formatDateTimeInDisplayTimezone(item.updated_at) }}
+            </td>
+            <td class="px-4 py-3 text-right">
+              <div class="flex justify-end gap-1">
+                <button
+                  class="rounded-lg p-1.5 text-secondary-text hover:bg-hover hover:text-foreground"
+                  aria-label="编辑"
+                  @click="openEdit(item)"
+                >
+                  <Pencil class="h-4 w-4" />
+                </button>
+                <button
+                  class="rounded-lg p-1.5 text-secondary-text hover:bg-destructive/10 hover:text-destructive"
+                  aria-label="删除"
+                  @click="openDelete(item)"
+                >
+                  <Trash2 class="h-4 w-4" />
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <!-- Add / Edit Dialog -->

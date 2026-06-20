@@ -205,7 +205,7 @@ onBeforeUnmount(clearAvatarSource);
     />
 
     <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <aside class="h-fit rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm">
+      <aside class="h-fit space-y-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm">
         <button
           v-for="tab in tabs"
           :key="tab.key"
