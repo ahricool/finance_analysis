@@ -22,7 +22,6 @@ type SubmitAnalysisOptions = {
   stockName?: string;
   originalQuery?: string;
   selectionSource?: SelectionSource;
-  notify?: boolean;
   forceRefresh?: boolean;
 };
 
@@ -33,7 +32,6 @@ let historyRequestSeq = 0;
 export interface StockPoolState {
   query: string;
   selectionSource: SelectionSource;
-  notify: boolean;
   inputError?: string;
   duplicateError: string | null;
   error: ParsedApiError | null;
@@ -61,14 +59,12 @@ export interface StockPoolState {
   toggleSelectAllVisible: () => void;
   deleteSelectedHistory: () => Promise<void>;
   submitAnalysis: (options?: SubmitAnalysisOptions) => Promise<void>;
-  setNotify: (notify: boolean) => void;
   resetDashboardState: () => void;
 }
 
 const initialState = {
   query: '',
   selectionSource: 'manual' as SelectionSource,
-  notify: true,
   inputError: undefined,
   duplicateError: null,
   error: null,
@@ -182,8 +178,6 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
   clearError: () => set({ error: null }),
 
   clearInlineMessages: () => set({ inputError: undefined, duplicateError: null }),
-
-  setNotify: (notify) => set({ notify }),
 
   openMarkdownDrawer: () => set({ markdownDrawerOpen: true }),
 
@@ -301,7 +295,6 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
     const stockName = options?.stockName;
     const selectionSource = options?.selectionSource ?? state.selectionSource;
     const originalQuery = (options?.originalQuery ?? state.query).trim();
-    const notify = options?.notify ?? state.notify;
     const forceRefresh = options?.forceRefresh ?? false;
 
     if (!stockCodeInput) {
@@ -339,7 +332,6 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
         stockName,
         originalQuery: originalQuery || stockCodeInput,
         selectionSource,
-        notify,
         forceRefresh,
       });
 

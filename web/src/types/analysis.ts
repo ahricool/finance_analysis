@@ -14,11 +14,6 @@ export interface AnalysisRequest {
   stockName?: string;
   originalQuery?: string;
   selectionSource?: 'manual' | 'autocomplete' | 'import' | 'image';
-  notify?: boolean;
-}
-
-export interface MarketReviewRequest {
-  sendNotification?: boolean;
 }
 
 export interface MarketReviewAccepted {

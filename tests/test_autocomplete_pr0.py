@@ -11,6 +11,9 @@ Test backend data contract extensions:
 - Backward compatibility
 """
 
+import pytest
+from pydantic import ValidationError
+
 from api.v1.schemas.analysis import AnalyzeRequest
 from src.tasks.queue import (
     TaskInfo,
@@ -48,6 +51,15 @@ class TestAnalyzeRequest:
         assert request.stock_name is None
         assert request.original_query is None
         assert request.selection_source is None
+
+    def test_analyze_request_rejects_notify_parameter(self):
+        """Notification delivery is always enabled and is not request-configurable."""
+        with pytest.raises(ValidationError):
+            AnalyzeRequest(
+                stock_code="600519",
+                async_mode=True,
+                notify=False,
+            )
 
     def test_analyze_request_validation_selection_source(self):
         """Test selection_source field validation"""

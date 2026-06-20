@@ -7,7 +7,6 @@ import type {
   AnalyzeAsyncResponse,
   AnalysisReport,
   MarketReviewAccepted,
-  MarketReviewRequest,
   TaskStatus,
   TaskListResponse,
 } from '../types/analysis';
@@ -30,7 +29,6 @@ export const analysisApi = {
       stock_name: data.stockName,
       original_query: data.originalQuery,
       selection_source: data.selectionSource,
-      ...(data.notify !== undefined && { notify: data.notify }),
     };
 
     const response = await apiClient.post<Record<string, unknown>>(
@@ -63,7 +61,6 @@ export const analysisApi = {
       stock_name: data.stockName,
       original_query: data.originalQuery,
       selection_source: data.selectionSource,
-      ...(data.notify !== undefined && { notify: data.notify }),
     };
 
     const response = await apiClient.post<Record<string, unknown>>(
@@ -92,12 +89,10 @@ export const analysisApi = {
   /**
    * Trigger market review in background mode.
    */
-  triggerMarketReview: async (data: MarketReviewRequest = {}): Promise<MarketReviewAccepted> => {
+  triggerMarketReview: async (): Promise<MarketReviewAccepted> => {
     const response = await apiClient.post<Record<string, unknown>>(
       '/api/v1/analysis/market-review',
-      {
-        send_notification: data.sendNotification ?? true,
-      },
+      undefined,
       {
         validateStatus: (status) => status === 202 || status === 409,
       }

@@ -39,6 +39,12 @@ from src.enums import ReportType
 from src.services.analysis_service import AnalysisService
 from src.tasks.queue import AnalysisTaskQueue, DuplicateTaskError, TaskStatus, reset_task_state_for_tests
 from tests.task_repo_fakes import FakeTaskRecordRepository
+try:
+    from pydantic import ValidationError
+    from api.v1.schemas.analysis import MarketReviewRequest
+except Exception:  # pragma: no cover - optional dependency environments
+    ValidationError = None
+    MarketReviewRequest = None
 
 
 class AnalysisApiContractTestCase(unittest.TestCase):
@@ -67,12 +73,19 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status, "accepted")
-        self.assertFalse(response.send_notification)
+        self.assertTrue(response.send_notification)
         self.assertEqual(response.task_id, "market-task-1")
         task_queue.submit_market_review.assert_called_once_with(
-            send_notification=False,
+            send_notification=True,
             override_region=None,
         )
+
+    def test_market_review_request_rejects_send_notification_parameter(self) -> None:
+        if MarketReviewRequest is None or ValidationError is None:
+            self.skipTest("pydantic is not installed in this test environment")
+
+        with self.assertRaises(ValidationError):
+            MarketReviewRequest(send_notification=False)
 
     def test_trigger_market_review_rejects_duplicate_submission(self) -> None:
         if trigger_market_review is None or analysis_endpoint_module is None:

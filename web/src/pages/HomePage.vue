@@ -63,8 +63,6 @@ const {
   toggleSelectAllVisible,
   deleteSelectedHistory,
   submitAnalysis,
-  notify,
-  setNotify,
   openMarkdownDrawer,
   closeMarkdownDrawer,
 } = useHomeDashboardState();
@@ -158,7 +156,7 @@ async function handleTriggerMarketReview() {
   marketReviewError.value = null;
   scrollMarketReviewFeedbackIntoView();
   try {
-    const result = await analysisApi.triggerMarketReview({ sendNotification: unref(notify) });
+    const result = await analysisApi.triggerMarketReview();
     const taskSuffix = result.taskId ? `（任务 ID：${result.taskId}）` : '';
     marketReviewNotice.value = {
       variant: 'success',
@@ -212,17 +210,6 @@ function handleDeleteSelectedHistory() {
             </div>
           </div>
           <div class="flex min-w-0 flex-shrink-0 items-center gap-2.5">
-            <label
-              class="flex h-10 flex-shrink-0 cursor-pointer items-center gap-1.5 select-none rounded-xl border border-subtle bg-surface/60 px-3 text-xs text-secondary-text transition-colors hover:border-subtle-hover hover:text-foreground"
-            >
-              <input
-                type="checkbox"
-                :checked="unref(notify)"
-                class="h-3.5 w-3.5 rounded border-border accent-primary"
-                @change="unref(setNotify)(($event.target as HTMLInputElement).checked)"
-              />
-              推送通知
-            </label>
             <Button
               type="button"
               variant="secondary"
