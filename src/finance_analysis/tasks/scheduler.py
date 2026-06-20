@@ -43,6 +43,7 @@ US_PREMARKET_SCHEDULE_HOUR = 21
 US_PREMARKET_SCHEDULE_MINUTE = 0
 INTRADAY_ANALYSIS_INTERVAL_MINUTES = 15
 SCHEDULE_TIMEZONE = "Asia/Shanghai"
+RUN_IMMEDIATELY_ON_STARTUP = False
 
 _JOB_DAILY_ANALYSIS = "analysis_daily"
 _JOB_MARKET_CALENDAR = "market_calendar"
@@ -634,6 +635,13 @@ def start_embedded_analysis_scheduler():
             "财经日历任务下次执行时间: %s",
             market_calendar_job.next_run_time.strftime("%Y-%m-%d %H:%M:%S"),
         )
+
+    if RUN_IMMEDIATELY_ON_STARTUP:
+        logger.info("启动时立即执行一次定时任务...")
+        try:
+            _daily_analysis_task()
+        except Exception as exc:
+            logger.exception("启动时立即执行任务失败: %s", exc)
 
     return scheduler
 

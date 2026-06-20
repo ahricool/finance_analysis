@@ -15,6 +15,10 @@ from typing import Dict, Iterable, List, Literal, Optional, Set, Tuple
 
 from dotenv import dotenv_values
 
+from dotenv import dotenv_values
+
+from finance_analysis.core.paths import repo_root
+
 _ASSIGNMENT_PATTERN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
 _FALLBACK_REWRITE_ERRNOS = {errno.EBUSY, errno.EXDEV}
 
@@ -211,4 +215,4 @@ class ConfigManager:
         if env_file:
             return Path(env_file).resolve()
 
-        return (Path(__file__).resolve().parent.parent.parent / ".env").resolve()
+        return (repo_root() / ".env").resolve()

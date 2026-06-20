@@ -595,6 +595,10 @@ class StockReportAnalyzer:
         if not is_llm_configured(self._get_runtime_config()):
             logger.warning("No LLM configured (LLM_MODEL / LLM_API_KEY), AI analysis will be unavailable")
 
+    def _init_litellm(self) -> None:
+        """Backward-compatible no-op for tests that patch LiteLLM initialization."""
+        return None
+
     def _get_runtime_config(self) -> PipelineConfig:
         """Return the runtime config, honoring injected overrides for tests/pipeline."""
         return getattr(self, "_config_override", None) or get_pipeline_config()

@@ -127,7 +127,7 @@ class TestCommandDispatcherAsync(unittest.IsolatedAsyncioTestCase):
             litellm_model="gemini/test-model",
         )
 
-        with patch("finance_analysis.config.get_config", return_value=config):
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=config):
             with patch.object(dispatcher, "_parse_intent_via_llm", new=AsyncMock(return_value={
                 "intent": "analysis",
                 "codes": ["600519"],
@@ -152,7 +152,7 @@ class TestCommandDispatcherAsync(unittest.IsolatedAsyncioTestCase):
             litellm_model="gemini/test-model",
         )
 
-        with patch("finance_analysis.config.get_config", return_value=config):
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=config):
             with patch(
                 "finance_analysis.stocks.resolver._get_akshare_name_to_code"
             ) as mock_akshare:
@@ -213,7 +213,7 @@ class TestHandleWebhookAsync(unittest.IsolatedAsyncioTestCase):
         fake_config = MagicMock()
         fake_config.bot_enabled = True
 
-        with patch("finance_analysis.config.get_config", return_value=fake_config), \
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=fake_config), \
              patch("finance_analysis.interfaces.bot.handler.get_platform", return_value=fake_platform), \
              patch("finance_analysis.interfaces.bot.handler.get_dispatcher") as mock_get_disp:
             mock_dispatcher = MagicMock()
@@ -230,7 +230,7 @@ class TestHandleWebhookAsync(unittest.IsolatedAsyncioTestCase):
         fake_config = MagicMock()
         fake_config.bot_enabled = False
 
-        with patch("finance_analysis.config.get_config", return_value=fake_config):
+        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=fake_config):
             result = await handle_webhook_async("feishu", {}, b'{}')
 
         # WebhookResponse.success() returns status_code 200
@@ -249,7 +249,7 @@ class TestChatCommandCompatibility(unittest.TestCase):
         db = MagicMock()
         db.conversation_session_exists.side_effect = lambda session_id: session_id == "feishu_u1"
 
-        with patch("finance_analysis.interfaces.bot.commands.chat.get_config", return_value=config), \
+        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=config), \
              patch("finance_analysis.database.get_db", return_value=db), \
              patch("finance_analysis.agent.factory.build_agent_executor", return_value=executor):
             response = command.execute(_make_message("/chat hello"), ["hello"])
@@ -272,7 +272,7 @@ class TestChatCommandCompatibility(unittest.TestCase):
         message.chat_type = ChatType.GROUP
         message.chat_id = "group-1"
 
-        with patch("finance_analysis.interfaces.bot.commands.chat.get_config", return_value=config), \
+        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=config), \
              patch("finance_analysis.database.get_db", return_value=db), \
              patch("finance_analysis.agent.factory.build_agent_executor", return_value=executor):
             response = command.execute(message, ["hello"])

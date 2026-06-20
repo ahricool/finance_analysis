@@ -1,14 +1,16 @@
 import logging
 
 import finance_analysis.core.frontend_assets as webui_frontend
+import finance_analysis.core.paths as paths_module
 
 
 def _prepare_fake_repo(tmp_path, monkeypatch):
     repo_root = tmp_path / "repo"
-    module_path = repo_root / "src" / "webui_frontend.py"
-    module_path.parent.mkdir(parents=True)
+    module_path = repo_root / "src" / "finance_analysis" / "core" / "frontend_assets.py"
+    module_path.parent.mkdir(parents=True, exist_ok=True)
     module_path.touch()
     monkeypatch.setattr(webui_frontend, "__file__", str(module_path))
+    monkeypatch.setattr(paths_module, "repo_root", lambda: repo_root)
     return repo_root
 
 

@@ -148,7 +148,9 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
     """
     # 默认静态文件目录
     if static_dir is None:
-        static_dir = Path(__file__).parent.parent / "static"
+        from finance_analysis.core.paths import repo_root
+
+        static_dir = repo_root() / "static"
 
     # 创建 FastAPI 实例
     app = FastAPI(

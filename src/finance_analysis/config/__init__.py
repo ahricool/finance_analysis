@@ -55,7 +55,9 @@ from finance_analysis.config.model import (
     _has_ntfy_topic_endpoint,
 )
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from finance_analysis.core.paths import repo_root
+
+_PROJECT_ROOT = repo_root()
 
 
 def _env_path() -> Path:

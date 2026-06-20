@@ -24,14 +24,17 @@ def get_effective_agent_primary_model(config: "Config") -> str:
     )
     if configured_agent_model:
         return configured_agent_model
-    return (getattr(config, "llm_model", "") or "").strip()
+    return (getattr(config, "litellm_model", "") or getattr(config, "llm_model", "") or "").strip()
 
 
 def get_effective_agent_models_to_try(config: "Config") -> List[str]:
     """Return Agent model try-order: primary + global fallbacks (deduped)."""
-    raw_models = [get_effective_agent_primary_model(config)] + (
-        getattr(config, "llm_fallback_models", []) or []
+    fallbacks = (
+        getattr(config, "litellm_fallback_models", None)
+        or getattr(config, "llm_fallback_models", None)
+        or []
     )
+    raw_models = [get_effective_agent_primary_model(config)] + list(fallbacks)
     seen = set()
     ordered_models: List[str] = []
     for model in raw_models:

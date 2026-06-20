@@ -7,6 +7,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from finance_analysis.core.paths import repo_root
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,7 +22,7 @@ def run_alembic_upgrade_head(project_root: Optional[Path] = None) -> None:
     from alembic import command
     from alembic.config import Config as AlembicConfig
 
-    root = project_root or Path(__file__).resolve().parents[3]
+    root = project_root or repo_root()
     ini_path = root / "alembic.ini"
     if not ini_path.is_file():
         raise FileNotFoundError(

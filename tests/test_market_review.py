@@ -56,7 +56,7 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
 
         with patch.object(
             market_review_module,
-            "get_config",
+            "get_pipeline_config",
             return_value=SimpleNamespace(report_language="en", market_review_region="cn"),
         ), patch.object(market_review_module, "MarketAnalyzer", return_value=market_analyzer):
             result = run_market_review(notifier, send_notification=True)
@@ -80,7 +80,7 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
 
         with patch.object(
             market_review_module,
-            "get_config",
+            "get_pipeline_config",
             return_value=SimpleNamespace(report_language="en", market_review_region="both"),
         ), patch.object(
             market_review_module,
@@ -108,7 +108,7 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
 
         with patch.object(
             market_review_module,
-            "get_config",
+            "get_pipeline_config",
             return_value=SimpleNamespace(report_language="zh", market_review_region="cn"),
         ), patch.object(
             market_review_module,
@@ -135,7 +135,7 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
 
         with patch.object(
             market_review_module,
-            "get_config",
+            "get_pipeline_config",
             return_value=SimpleNamespace(report_language="zh", market_review_region="cn"),
         ), patch.object(
             market_review_module,

@@ -228,7 +228,7 @@ class AgentModelsEndpointTestCase(unittest.TestCase):
             ],
         )
 
-        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_config", return_value=config):
+        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_pipeline_config", return_value=config):
             payload = asyncio.run(agent.get_agent_models()).model_dump()
 
         self.assertEqual(len(payload["models"]), 2)
@@ -263,7 +263,7 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
             ]
         )
 
-        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_config", return_value=config), patch(
+        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_pipeline_config", return_value=config), patch(
             "finance_analysis.agent.factory.get_skill_manager",
             return_value=skill_manager,
         ):
@@ -287,7 +287,7 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
             ]
         )
 
-        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_config", return_value=config), patch(
+        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_pipeline_config", return_value=config), patch(
             "finance_analysis.agent.factory.get_skill_manager",
             return_value=skill_manager,
         ):
@@ -322,7 +322,7 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
                 future.set_result(func())
                 return future
 
-        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_config", return_value=config), patch(
+        with patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_pipeline_config", return_value=config), patch(
             "finance_analysis.interfaces.api.v1.endpoints.agent._build_executor",
             return_value=executor,
         ) as mock_build_executor, patch(

@@ -72,7 +72,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
             msg=f"Did not expect substring '{substring}' in {items}",
         )
 
-    @patch("finance_analysis.analysis.technical.analyzer.get_config")
+    @patch("finance_analysis.reporting.config.get_report_config")
     def test_bias_nan_defense(self, mock_get_config: MagicMock) -> None:
         """bias_ma5=NaN should be treated as 0.0 without exception."""
         mock_get_config.return_value.bias_threshold = 5.0
@@ -84,7 +84,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
         self.assertIsInstance(result.signal_score, (int, float))
         self.assertFalse(math.isnan(result.signal_score))
 
-    @patch("finance_analysis.analysis.technical.analyzer.get_config")
+    @patch("finance_analysis.reporting.config.get_report_config")
     def test_bias_negative_pullback(self, mock_get_config: MagicMock) -> None:
         """bias=-2% should yield '回踩买点'."""
         mock_get_config.return_value.bias_threshold = 5.0
@@ -95,7 +95,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
         self.analyzer._generate_signal(result)
         self._assert_contains(result.signal_reasons, "回踩买点")
 
-    @patch("finance_analysis.analysis.technical.analyzer.get_config")
+    @patch("finance_analysis.reporting.config.get_report_config")
     def test_bias_close_to_ma5(self, mock_get_config: MagicMock) -> None:
         """bias=1.5% should yield '介入好时机'."""
         mock_get_config.return_value.bias_threshold = 5.0
@@ -106,7 +106,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
         self.analyzer._generate_signal(result)
         self._assert_contains(result.signal_reasons, "介入好时机")
 
-    @patch("finance_analysis.analysis.technical.analyzer.get_config")
+    @patch("finance_analysis.reporting.config.get_report_config")
     def test_bias_slightly_high(self, mock_get_config: MagicMock) -> None:
         """bias=4% (< base_threshold=5%) should yield '可小仓介入'."""
         mock_get_config.return_value.bias_threshold = 5.0
@@ -117,7 +117,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
         self.analyzer._generate_signal(result)
         self._assert_contains(result.signal_reasons, "可小仓介入")
 
-    @patch("finance_analysis.analysis.technical.analyzer.get_config")
+    @patch("finance_analysis.reporting.config.get_report_config")
     def test_strong_trend_relaxed_threshold(self, mock_get_config: MagicMock) -> None:
         """STRONG_BULL + trend_strength=75 + bias=6% -> '可轻仓追踪' (effective=7.5%)."""
         mock_get_config.return_value.bias_threshold = 5.0
@@ -130,7 +130,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
         self._assert_contains(result.signal_reasons, "可轻仓追踪")
         self._assert_not_contains(result.risk_factors, "严禁追高")
 
-    @patch("finance_analysis.analysis.technical.analyzer.get_config")
+    @patch("finance_analysis.reporting.config.get_report_config")
     def test_non_strong_trend_strict_threshold(self, mock_get_config: MagicMock) -> None:
         """BULL + bias=6% -> '严禁追高!'."""
         mock_get_config.return_value.bias_threshold = 5.0
@@ -141,7 +141,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
         self.analyzer._generate_signal(result)
         self._assert_contains(result.risk_factors, "严禁追高")
 
-    @patch("finance_analysis.analysis.technical.analyzer.get_config")
+    @patch("finance_analysis.reporting.config.get_report_config")
     def test_strong_trend_exceed_effective(self, mock_get_config: MagicMock) -> None:
         """STRONG_BULL + trend_strength=80 + bias=10% -> '严禁追高!' (exceeds 7.5%)."""
         mock_get_config.return_value.bias_threshold = 5.0
@@ -153,7 +153,7 @@ class StockAnalyzerBiasTestCase(unittest.TestCase):
         self.analyzer._generate_signal(result)
         self._assert_contains(result.risk_factors, "严禁追高")
 
-    @patch("finance_analysis.analysis.technical.analyzer.get_config")
+    @patch("finance_analysis.reporting.config.get_report_config")
     def test_boundary_at_base_threshold(self, mock_get_config: MagicMock) -> None:
         """bias=5.0% (exact base_threshold) -> '可小仓介入' (bias < base_threshold is False)."""
         mock_get_config.return_value.bias_threshold = 5.0

@@ -16,9 +16,12 @@ _STOCK_INDEX_CACHE: Dict[str, str] | None = None
 _STOCK_INDEX_CACHE_LOCK = RLock()
 
 
+from finance_analysis.core.paths import repo_root
+
+
 def get_stock_index_candidate_paths() -> tuple[Path, ...]:
     """Return the supported locations for the generated stock index."""
-    repo_root = Path(__file__).resolve().parents[2]
+    root = repo_root()
     return (
         repo_root / "web" / "public" / _STOCK_INDEX_FILENAME,
         repo_root / "static" / _STOCK_INDEX_FILENAME,

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-===================================
 API 模块初始化
 ===================================
 
@@ -9,4 +8,8 @@ API 模块初始化
 2. 统一版本管理
 """
 
+from finance_analysis.interfaces.api.app import _check_frontend_assets_consistency
+
 __version__ = "1.0.0"
+
+__all__ = ["__version__", "_check_frontend_assets_consistency"]

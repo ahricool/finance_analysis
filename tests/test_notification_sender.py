@@ -261,7 +261,7 @@ class TestAstrbotSender(unittest.TestCase):
         result = sender.send_to_astrbot("hello")
         self.assertFalse(result)
 
-    @mock.patch("finance_analysis.notification.senders.astrfinance_analysis.interfaces.bot.requests.post")
+    @mock.patch("finance_analysis.notification.senders.astrbot.requests.post")
     def test_send_success_returns_true(self, mock_post):
         mock_post.return_value = _response(200)
         cfg = _config(astrbot_url="https://astrbot.example/api")

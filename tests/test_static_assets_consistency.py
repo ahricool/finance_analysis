@@ -32,7 +32,7 @@ def _vite_index(js_name: str, css_name: str) -> str:
 
 
 def test_backend_asset_check_passes_when_assets_match(tmp_path: Path) -> None:
-    from fastapi import app as app_module
+    from finance_analysis.interfaces import api as app_module
 
     static_dir = tmp_path / "static"
     assets_dir = static_dir / "assets"
@@ -47,7 +47,7 @@ def test_backend_asset_check_passes_when_assets_match(tmp_path: Path) -> None:
 
 
 def test_backend_asset_check_detects_stale_bundle(tmp_path: Path) -> None:
-    from fastapi import app as app_module
+    from finance_analysis.interfaces import api as app_module
 
     static_dir = tmp_path / "static"
     assets_dir = static_dir / "assets"
@@ -62,7 +62,7 @@ def test_backend_asset_check_detects_stale_bundle(tmp_path: Path) -> None:
 
 
 def test_backend_asset_check_returns_empty_when_index_missing(tmp_path: Path) -> None:
-    from fastapi import app as app_module
+    from finance_analysis.interfaces import api as app_module
 
     static_dir = tmp_path / "static"
     static_dir.mkdir()
@@ -76,7 +76,7 @@ def test_backend_startup_check_logs_when_bundle_inconsistent(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from fastapi import app as app_module
+    from finance_analysis.interfaces import api as app_module
 
     static_dir = tmp_path / "static"
     (static_dir / "assets").mkdir(parents=True)
@@ -96,7 +96,7 @@ def test_backend_startup_check_silent_when_bundle_consistent(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from fastapi import app as app_module
+    from finance_analysis.interfaces import api as app_module
 
     static_dir = tmp_path / "static"
     assets = static_dir / "assets"

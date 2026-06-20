@@ -164,14 +164,14 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         """Inject stub modules so ``_daily_analysis_task`` can import without dotenv."""
         fake_pipeline_module = types.ModuleType("finance_analysis.analysis.pipeline")
         fake_pipeline_module.StockAnalysisPipeline = pipeline_cls
-        fake_config_module = types.ModuleType("finance_analysis.config")
-        fake_config_module.get_config = MagicMock(return_value=MagicMock(name="config"))
+        fake_config_module = types.ModuleType("finance_analysis.analysis.pipeline_config")
+        fake_config_module.get_pipeline_config = MagicMock(return_value=MagicMock(name="config"))
         fake_repo_module = types.ModuleType("finance_analysis.database.repositories.watch_list")
         fake_repo_module.get_watch_list_codes = MagicMock(return_value=["600519"])
         fake_repo_module.get_watch_list_codes_by_market = MagicMock(return_value=[])
         return {
             "finance_analysis.analysis.pipeline": fake_pipeline_module,
-            "finance_analysis.config": fake_config_module,
+            "finance_analysis.analysis.pipeline_config": fake_config_module,
             "finance_analysis.database.repositories.watch_list": fake_repo_module,
         }
 
@@ -179,7 +179,7 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         pipeline_instance = MagicMock()
         pipeline_cls = MagicMock(return_value=pipeline_instance)
         stubs = self._install_pipeline_stub(pipeline_cls)
-        fake_config = stubs["finance_analysis.config"].get_config.return_value
+        fake_config = stubs["finance_analysis.analysis.pipeline_config"].get_pipeline_config.return_value
 
         with patch.dict(sys.modules, stubs), patch.object(
             scheduler_module, "_safe_record_scheduled_task_result"
@@ -238,8 +238,8 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
     def test_us_premarket_news_task_runs_service_for_us_watch_list(self) -> None:
         fake_repo_module = types.ModuleType("finance_analysis.database.repositories.watch_list")
         fake_repo_module.get_watch_list_codes_by_market = MagicMock(return_value=["AAPL", "TSLA"])
-        fake_config_module = types.ModuleType("finance_analysis.config")
-        fake_config_module.get_config = MagicMock(return_value=MagicMock(name="config"))
+        fake_config_module = types.ModuleType("finance_analysis.analysis.pipeline_config")
+        fake_config_module.get_pipeline_config = MagicMock(return_value=MagicMock(name="config"))
         fake_service_module = types.ModuleType("finance_analysis.tasks.jobs.us_premarket_news.service")
         service_instance = MagicMock()
         service_instance.run.return_value = MagicMock(symbols_count=22)
@@ -247,7 +247,7 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
 
         stubs = {
             "finance_analysis.database.repositories.watch_list": fake_repo_module,
-            "finance_analysis.config": fake_config_module,
+            "finance_analysis.analysis.pipeline_config": fake_config_module,
             "finance_analysis.tasks.jobs.us_premarket_news.service": fake_service_module,
         }
         with patch.dict(sys.modules, stubs), patch.object(
@@ -257,7 +257,7 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
 
         fake_repo_module.get_watch_list_codes_by_market.assert_called_once_with("US")
         fake_service_module.USPremarketNewsService.assert_called_once_with(
-            config=fake_config_module.get_config.return_value
+            config=fake_config_module.get_pipeline_config.return_value
         )
         service_instance.run.assert_called_once()
         self.assertEqual(service_instance.run.call_args.args[0], ["AAPL", "TSLA"])

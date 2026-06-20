@@ -1445,7 +1445,7 @@ class TestAgentConstructionChain(unittest.TestCase):
 
     def test_llm_adapter_no_args(self):
         """LLMToolAdapter should also work with no arguments (uses get_config)."""
-        with patch('finance_analysis.agent.llm_adapter.get_config') as mock_get_config:
+        with patch('finance_analysis.llm.config.get_llm_config') as mock_get_config:
             mock_cfg = MagicMock()
             mock_cfg.gemini_api_key = ""
             mock_cfg.anthropic_api_key = ""

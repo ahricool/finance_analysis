@@ -274,7 +274,7 @@ class TestStrategyRouter(unittest.TestCase):
             SimpleNamespace(name="wave_theory"),
         ],
     )
-    @patch("finance_analysis.config.get_config", return_value=SimpleNamespace(agent_skills=["chan_theory", "wave_theory"]))
+    @patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace(agent_skills=["chan_theory", "wave_theory"]))
     def test_manual_mode_uses_configured_agent_skills(self, _mock_config, _mock_available, _mock):
         from finance_analysis.agent.strategies.router import StrategyRouter
         router = StrategyRouter()
@@ -290,7 +290,7 @@ class TestStrategyRouter(unittest.TestCase):
             SimpleNamespace(name="shrink_pullback", default_router=True, default_priority=40),
         ],
     )
-    @patch("finance_analysis.config.get_config", return_value=SimpleNamespace(agent_skills=[]))
+    @patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace(agent_skills=[]))
     def test_manual_mode_falls_back_to_defaults_when_no_skills_configured(self, _mock_config, _mock_available, _mock):
         from finance_analysis.agent.strategies.router import StrategyRouter, _DEFAULT_STRATEGIES
         router = StrategyRouter()
@@ -1596,7 +1596,7 @@ class TestResearchCommandTimeout(unittest.TestCase):
             agent_mode=True,
         )
 
-        with patch("finance_analysis.interfaces.bot.commands.research.get_config", return_value=config), \
+        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=config), \
              patch("finance_analysis.agent.factory.get_tool_registry", return_value=MagicMock()), \
              patch("finance_analysis.agent.llm_adapter.LLMToolAdapter", return_value=MagicMock()), \
              patch("finance_analysis.agent.research.ResearchAgent.research", return_value=SimpleNamespace(
@@ -1647,7 +1647,7 @@ class TestResearchCommandTimeout(unittest.TestCase):
             agent_mode=True,
         )
 
-        with patch("finance_analysis.interfaces.bot.commands.research.get_config", return_value=config), \
+        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=config), \
              patch("finance_analysis.agent.factory.get_tool_registry", return_value=MagicMock()), \
              patch("finance_analysis.agent.llm_adapter.LLMToolAdapter", return_value=MagicMock()), \
              patch("finance_analysis.agent.research.ResearchAgent.research", side_effect=_capture_research):
@@ -1794,7 +1794,7 @@ class TestAgentResearchEndpoint(unittest.IsolatedAsyncioTestCase):
         ))
 
         with (
-            patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_config", return_value=config),
+            patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=config),
             patch("finance_analysis.interfaces.api.v1.endpoints.agent._run_research_in_background", new=research_result),
             patch("finance_analysis.agent.factory.get_tool_registry", return_value=MagicMock()),
             patch("finance_analysis.agent.llm_adapter.LLMToolAdapter", return_value=MagicMock()),

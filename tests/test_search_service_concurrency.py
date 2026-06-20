@@ -253,7 +253,7 @@ class SearchServiceConcurrencyTestCase(unittest.TestCase):
         services = []
 
         with patch("finance_analysis.search.SearchService", side_effect=build_service) as mock_cls:
-            with patch("finance_analysis.config.get_config", return_value=config):
+            with patch("finance_analysis.config.runtime.get_runtime_config", return_value=config):
                 def worker():
                     try:
                         barrier.wait(timeout=1)

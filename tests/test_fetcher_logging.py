@@ -112,7 +112,7 @@ class TestFetcherLogging(unittest.TestCase):
         self.assertEqual(akshare.calls, ["HK01211"])
         self.assertEqual(yfinance.calls, [])
 
-    @patch("finance_analysis.integrations.market_data.providers.efinance.get_config")
+    @patch("finance_analysis.integrations.market_data.config.get_data_provider_config")
     def test_efinance_rejects_hk_daily_without_calling_eastmoney(self, mock_get_config):
         mock_get_config.return_value = types.SimpleNamespace(enable_eastmoney_patch=False)
         fetcher = EfinanceFetcher(sleep_min=0, sleep_max=0)

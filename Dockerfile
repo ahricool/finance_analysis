@@ -94,6 +94,7 @@ COPY alembic/ ./alembic/
 COPY main.py ./
 COPY src/ ./src/
 COPY strategies/ ./strategies/
+COPY templates/ ./templates/
 
 COPY --from=web-builder /workspace/static ./static/
 

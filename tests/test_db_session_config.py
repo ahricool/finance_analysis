@@ -16,7 +16,7 @@ def test_database_sessions_do_not_expire_on_commit():
 
     try:
         with (
-            patch("finance_analysis.database.session.get_config", return_value=config),
+            patch("finance_analysis.database.config.get_database_config", return_value=config),
             patch("finance_analysis.database.session.create_engine", return_value=object()),
             patch("finance_analysis.database.session.event.listen"),
             patch("finance_analysis.database.session.bootstrap_database"),

@@ -15,10 +15,10 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from urllib.parse import unquote, urlparse
 from dotenv import load_dotenv, dotenv_values
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 
 from finance_analysis.reporting.localization import (
     is_supported_report_language_value,
@@ -51,7 +51,9 @@ logger = logging.getLogger(__name__)
 # Project root (config package lives at ``<root>/src/config``); resolve the
 # ``.env`` location relative to it so the package layout does not change which
 # file is loaded.
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from finance_analysis.core.paths import repo_root
+
+_PROJECT_ROOT = repo_root()
 
 
 @dataclass
@@ -133,6 +135,17 @@ class Config:
     llm_api_key: Optional[str] = None
     llm_temperature: float = 0.7
     llm_fallback_models: List[str] = field(default_factory=list)
+
+    # Multi-tier LLM config (YAML / channels / legacy keys) — compatibility facade
+    litellm_config_path: Optional[str] = None
+    llm_models_source: str = "legacy_env"
+    llm_channels: List[Dict[str, Any]] = field(default_factory=list)
+    llm_model_list: List[Dict[str, Any]] = field(default_factory=list)
+    openai_base_url: Optional[str] = None
+    gemini_api_keys: List[str] = field(default_factory=list)
+    anthropic_api_keys: List[str] = field(default_factory=list)
+    openai_api_keys: List[str] = field(default_factory=list)
+    deepseek_api_keys: List[str] = field(default_factory=list)
 
     # Request throttling for LLM calls
     llm_request_delay: float = 2.0
@@ -377,6 +390,31 @@ class Config:
     _BOOTSTRAP_RUNTIME_ENV_OVERRIDES = frozenset()
     _BOOTSTRAP_RUNTIME_ENV_PRESENT_KEYS = frozenset()
 
+    def __init__(self, **kwargs: Any) -> None:
+        alias_map = {
+            "litellm_model": "llm_model",
+            "litellm_fallback_models": "llm_fallback_models",
+        }
+        for alias, target in alias_map.items():
+            if alias in kwargs and target not in kwargs:
+                kwargs[target] = kwargs.pop(alias)
+            elif alias in kwargs:
+                kwargs.pop(alias)
+
+        for config_field in fields(self):
+            if config_field.name in kwargs:
+                object.__setattr__(self, config_field.name, kwargs.pop(config_field.name))
+            elif config_field.default is not MISSING:
+                object.__setattr__(self, config_field.name, config_field.default)
+            elif config_field.default_factory is not MISSING:  # type: ignore[attr-defined]
+                object.__setattr__(self, config_field.name, config_field.default_factory())
+
+        if kwargs:
+            unexpected = ", ".join(sorted(kwargs))
+            raise TypeError(f"Config.__init__() got unexpected keyword argument(s): {unexpected}")
+
+        self.__post_init__()
+
     def __post_init__(self) -> None:
         _log = logging.getLogger(__name__)
         if self.agent_arch not in self._VALID_AGENT_ARCH:
@@ -409,10 +447,18 @@ class Config:
         """Backward-compatible alias for ``llm_model``."""
         return self.llm_model
 
+    @litellm_model.setter
+    def litellm_model(self, value: str) -> None:
+        object.__setattr__(self, "llm_model", value)
+
     @property
     def litellm_fallback_models(self) -> List[str]:
         """Backward-compatible alias for ``llm_fallback_models``."""
         return self.llm_fallback_models
+
+    @litellm_fallback_models.setter
+    def litellm_fallback_models(self, value: List[str]) -> None:
+        object.__setattr__(self, "llm_fallback_models", list(value or []))
 
     # 单例实例存储
     _instance: Optional['Config'] = None
@@ -432,9 +478,44 @@ class Config:
         return cls._instance
 
     @classmethod
-    def _parse_litellm_yaml(cls) -> list:
+    def _parse_litellm_yaml(cls, config_path: str = "") -> list:
         """Parse optional LiteLLM YAML model list (tests may patch this)."""
-        return []
+        from finance_analysis.config.llm_bootstrap import parse_litellm_yaml
+
+        if not config_path:
+            return []
+        return parse_litellm_yaml(config_path)
+
+    @classmethod
+    def _parse_llm_channels(cls, channels_str: str) -> List[Dict[str, Any]]:
+        from finance_analysis.config.llm_bootstrap import parse_llm_channels
+
+        return parse_llm_channels(channels_str)
+
+    @classmethod
+    def _channels_to_model_list(cls, channels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        from finance_analysis.config.llm_bootstrap import channels_to_model_list
+
+        return channels_to_model_list(channels)
+
+    @classmethod
+    def _legacy_keys_to_model_list(
+        cls,
+        gemini_keys: List[str],
+        anthropic_keys: List[str],
+        openai_keys: List[str],
+        openai_base_url: Optional[str],
+        deepseek_keys: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        from finance_analysis.config.llm_bootstrap import legacy_keys_to_model_list
+
+        return legacy_keys_to_model_list(
+            gemini_keys,
+            anthropic_keys,
+            openai_keys,
+            openai_base_url,
+            deepseek_keys,
+        )
 
     @classmethod
     def _load_from_env(cls) -> 'Config':
@@ -496,19 +577,15 @@ class Config:
                 os.environ['HTTPS_PROXY'] = https_proxy
                 os.environ['https_proxy'] = https_proxy
 
-        # === LiteLLM unified config ===
-        llm_model = os.getenv("LLM_MODEL", "").strip()
-        llm_base_url = os.getenv("LLM_BASE_URL", "").strip() or None
-        llm_api_key = os.getenv("LLM_API_KEY", "").strip() or None
-        _fallback_str = os.getenv("LLM_FALLBACK_MODELS", "").strip()
-        if _fallback_str:
-            llm_fallback_models = [m.strip() for m in _fallback_str.split(",") if m.strip()]
-        else:
-            llm_fallback_models = []
+        # === LiteLLM unified + legacy multi-tier config ===
+        from finance_analysis.config.llm_bootstrap import bootstrap_llm_config_from_env
 
-        agent_litellm_model = normalize_agent_litellm_model(
-            os.getenv("AGENT_LITELLM_MODEL", ""),
-        )
+        llm_bootstrap = bootstrap_llm_config_from_env()
+        llm_model = llm_bootstrap.llm_model
+        llm_base_url = llm_bootstrap.llm_base_url
+        llm_api_key = llm_bootstrap.llm_api_key
+        llm_fallback_models = llm_bootstrap.llm_fallback_models
+        agent_litellm_model = llm_bootstrap.agent_litellm_model
 
         # 解析搜索引擎 API Keys（支持多个 key，逗号分隔）
         anspire_keys_str = os.getenv('ANSPIRE_API_KEYS', '')
@@ -562,6 +639,15 @@ class Config:
             llm_api_key=llm_api_key,
             llm_temperature=resolve_unified_llm_temperature(llm_model),
             llm_fallback_models=llm_fallback_models,
+            litellm_config_path=llm_bootstrap.litellm_config_path,
+            llm_models_source=llm_bootstrap.llm_models_source,
+            llm_channels=llm_bootstrap.llm_channels,
+            llm_model_list=llm_bootstrap.llm_model_list,
+            openai_base_url=llm_bootstrap.openai_base_url,
+            gemini_api_keys=llm_bootstrap.gemini_api_keys,
+            anthropic_api_keys=llm_bootstrap.anthropic_api_keys,
+            openai_api_keys=llm_bootstrap.openai_api_keys,
+            deepseek_api_keys=llm_bootstrap.deepseek_api_keys,
             llm_request_delay=parse_env_float(os.getenv('LLM_REQUEST_DELAY'), 2.0, field_name='LLM_REQUEST_DELAY', minimum=0.0),
             llm_max_retries=parse_env_int(os.getenv('LLM_MAX_RETRIES'), 5, field_name='LLM_MAX_RETRIES', minimum=0),
             llm_retry_delay=parse_env_float(os.getenv('LLM_RETRY_DELAY'), 5.0, field_name='LLM_RETRY_DELAY', minimum=0.0),

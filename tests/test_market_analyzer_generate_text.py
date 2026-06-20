@@ -28,7 +28,7 @@ from unittest.mock import PropertyMock
 class TestAnalyzerGenerateText:
     def _make_analyzer(self):
         """Return a minimally configured StockReportAnalyzer with _call_litellm mocked."""
-        with patch("finance_analysis.analysis.stock_report_analyzer.get_config") as mock_cfg:
+        with patch("finance_analysis.analysis.stock_report_analyzer.get_pipeline_config") as mock_cfg:
             cfg = MagicMock()
             cfg.llm_model = "gemini/gemini-2.0-flash"
             cfg.llm_fallback_models = []
@@ -558,8 +558,8 @@ class TestMarketAnalyzerBypassFix:
         from finance_analysis.market_review.profile import CN_PROFILE
         from finance_analysis.market_review.strategy import get_market_strategy_blueprint
 
-        with patch("finance_analysis.analysis.stock_report_analyzer.get_config") as mock_cfg, \
-             patch("finance_analysis.market_review.analyzer.get_config") as mock_cfg2:
+        with patch("finance_analysis.analysis.stock_report_analyzer.get_pipeline_config") as mock_cfg, \
+             patch("finance_analysis.analysis.pipeline_config.get_pipeline_config") as mock_cfg2:
             cfg = MagicMock()
             cfg.llm_model = "gemini/gemini-2.0-flash"
             cfg.llm_fallback_models = []

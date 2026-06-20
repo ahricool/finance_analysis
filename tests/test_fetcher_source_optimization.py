@@ -58,7 +58,7 @@ def _make_daily_df() -> pd.DataFrame:
 
 
 class TestFetcherSourceOptimization(unittest.TestCase):
-    @patch("finance_analysis.config.get_config")
+    @patch("finance_analysis.config.runtime.get_runtime_config")
     def test_manager_skips_unconfigured_optional_fetchers(self, mock_get_config):
         mock_get_config.return_value = SimpleNamespace(
             tushare_token="",
@@ -101,7 +101,7 @@ class TestFetcherSourceOptimization(unittest.TestCase):
         mock_tushare.assert_not_called()
         mock_longbridge.assert_not_called()
 
-    @patch("finance_analysis.config.get_config")
+    @patch("finance_analysis.config.runtime.get_runtime_config")
     def test_us_realtime_route_skips_temporarily_unavailable_longbridge(self, mock_get_config):
         mock_get_config.return_value = SimpleNamespace(
             enable_realtime_quote=True,
@@ -127,7 +127,7 @@ class TestFetcherSourceOptimization(unittest.TestCase):
         yfinance.get_realtime_quote.assert_called_once_with("AAPL")
         longbridge.get_realtime_quote.assert_not_called()
 
-    @patch("finance_analysis.config.get_config")
+    @patch("finance_analysis.config.runtime.get_runtime_config")
     def test_us_daily_route_skips_temporarily_unavailable_longbridge(self, mock_get_config):
         mock_get_config.return_value = SimpleNamespace(
             longbridge_app_key="app-key",
@@ -154,7 +154,7 @@ class TestFetcherSourceOptimization(unittest.TestCase):
         yfinance.get_daily_data.assert_called_once()
         longbridge.get_daily_data.assert_not_called()
 
-    @patch("finance_analysis.config.get_config")
+    @patch("finance_analysis.config.runtime.get_runtime_config")
     def test_hk_daily_route_skips_temporarily_unavailable_longbridge(self, mock_get_config):
         mock_get_config.return_value = SimpleNamespace(
             longbridge_app_key="app-key",
