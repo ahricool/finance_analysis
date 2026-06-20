@@ -280,10 +280,13 @@ class LongbridgeCalendarFetcher:
         category_name = self._CATEGORY_BY_TYPE[calendar_type]
         return getattr(CalendarCategory, category_name)
 
-    def _resolve_market(self, market: str) -> Any:
-        from longbridge.openapi import Market
-
-        return getattr(Market, market.upper(), market)
+    def _resolve_market(self, market: Any) -> Optional[str]:
+        text = _enum_name(market).upper()
+        if not text or text == "UNKNOWN":
+            return None
+        if text.endswith(".US"):
+            return "US"
+        return text
 
     def fetch_earnings_calendar(self, start: date, end: date, market: str) -> List[Dict[str, Any]]:
         return self.fetch_calendar("earnings", start, end, market)
