@@ -100,10 +100,10 @@ COPY --from=web-builder /workspace/static ./static/
 
 # 设置环境变量默认值
 ENV PYTHONUNBUFFERED=1
-ENV LOG_DIR=/workspace/logs
+ENV DATA_DIR=/workspace/data
 
 # 数据卷（持久化数据）
-VOLUME ["/workspace/data", "/workspace/logs", "/workspace/reports"]
+VOLUME ["/workspace/data"]
 
 # 健康检查（FastAPI 模式）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \

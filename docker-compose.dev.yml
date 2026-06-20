@@ -54,6 +54,7 @@ services:
       - .env
     environment:
       TZ: Asia/Shanghai
+      DATA_DIR: /workspace/data
       HEALTHCHECK_URL: http://127.0.0.1:8000/api/health
       HEALTHCHECK_FALLBACK_URL: http://127.0.0.1:8000/health
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -62,8 +63,6 @@ services:
       - "8001:8000"
     volumes:
       - ./data:/workspace/data
-      - ./logs:/workspace/logs
-      - ./reports:/workspace/reports
       - ./.env:/workspace/.env
       - ./strategies:/workspace/strategies:ro
       - ./static:/workspace/static
@@ -87,12 +86,11 @@ services:
       - .env
     environment:
       TZ: Asia/Shanghai
+      DATA_DIR: /workspace/data
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./data:/workspace/data
-      - ./logs:/workspace/logs
-      - ./reports:/workspace/reports
       - ./.env:/workspace/.env
       - ./strategies:/workspace/strategies:ro
       - ./src:/workspace/src

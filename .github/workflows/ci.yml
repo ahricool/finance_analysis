@@ -121,7 +121,16 @@ jobs:
       - name: 🔍 Docker runtime path smoke
         run: |
           docker run --rm stock-analysis:test python - <<'PY'
-          from finance_analysis.core.paths import PROJECT_ROOT, STATIC_DIR, TEMPLATES_DIR, STRATEGIES_DIR, get_reports_dir
+          from finance_analysis.core.paths import (
+              PROJECT_ROOT,
+              STATIC_DIR,
+              TEMPLATES_DIR,
+              STRATEGIES_DIR,
+              ensure_data_directories,
+              get_data_dir,
+              get_log_app_dir,
+              get_report_analysis_dir,
+          )
           from finance_analysis.interfaces.api.app import create_app
           from finance_analysis.reporting.template_renderer import _resolve_templates_dir
 
@@ -138,12 +147,15 @@ jobs:
           assert STRATEGIES_DIR.is_dir()
           assert (PROJECT_ROOT / 'pyproject.toml').is_file()
 
+          print('data_dir:', get_data_dir())
+          ensure_data_directories()
+          assert get_log_app_dir().is_dir()
+
           app = create_app()
           print('routes:', len(app.routes))
           assert len(app.routes) > 0
 
-          reports = get_reports_dir()
-          reports.mkdir(parents=True, exist_ok=True)
+          reports = get_report_analysis_dir()
           test_file = reports / 'smoke.txt'
           test_file.write_text('ok', encoding='utf-8')
           assert test_file.read_text(encoding='utf-8') == 'ok'

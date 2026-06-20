@@ -108,7 +108,7 @@ def _missing_asset_media_type(asset_path: str) -> str:
     return "text/plain"
 
 
-from finance_analysis.core.paths import STATIC_DIR
+from finance_analysis.core.paths import STATIC_DIR, ensure_data_directories
 from finance_analysis.interfaces.api.v1 import api_v1_router
 from finance_analysis.interfaces.api.middlewares.auth import add_auth_middleware
 from finance_analysis.interfaces.api.middlewares.error_handler import add_error_handlers
@@ -126,6 +126,7 @@ from finance_analysis.core.time import utc_isoformat, utc_now
 async def app_lifespan(app: FastAPI):
     """Initialize and release shared services for the app lifecycle."""
     load_env()
+    ensure_data_directories()
     ensure_backend_logging(service="server", log_prefix="web_server")
     analysis_scheduler = start_embedded_analysis_scheduler()
     app.state.analysis_scheduler = analysis_scheduler

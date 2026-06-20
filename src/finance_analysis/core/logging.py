@@ -25,15 +25,16 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
 
+from finance_analysis.core.paths import PROJECT_ROOT, get_log_app_dir, get_log_celery_dir, get_log_dir, get_log_scheduler_dir
+
+
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(pathname)s:%(lineno)d | %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-DEFAULT_LOG_BASE_DIR = "./logs"
 SERVICE_LOG_DIRS = {
-    "server": "server",
+    "server": "app",
+    "app": "app",
     "celery": "celery",
 }
-TASK_LOG_DIR = "tasks"
-CELERY_TASK_LOG_DIR = "tasks/celery"
 DEFAULT_APP_LOG_MAX_BYTES = 10 * 1024 * 1024
 DEFAULT_APP_LOG_BACKUP_COUNT = 5
 DEFAULT_DEBUG_LOG_MAX_BYTES = 50 * 1024 * 1024
@@ -127,26 +128,30 @@ def _env_int(name: str, default: int) -> int:
 
 def get_log_base_dir(log_base_dir: Optional[str] = None) -> Path:
     """Return the root log directory shared by all backend logging helpers."""
-    base = (log_base_dir or os.getenv("LOG_DIR") or DEFAULT_LOG_BASE_DIR).strip()
-    return Path(base or DEFAULT_LOG_BASE_DIR).expanduser()
+    if log_base_dir:
+        return Path(log_base_dir).expanduser()
+    return get_log_dir()
 
 
 def get_service_log_dir(service: str, log_base_dir: Optional[str] = None) -> Path:
-    """Resolve a backend service log directory under ``LOG_DIR``."""
+    """Resolve a backend service log directory under ``data/logs``."""
     service_key = (service or "server").strip().lower()
     subdir = SERVICE_LOG_DIRS.get(service_key, service_key)
     return get_log_base_dir(log_base_dir) / subdir
 
 
+def get_task_log_dir(*, celery: bool = False, log_base_dir: Optional[str] = None) -> Path:
+    """Resolve the directory for APScheduler or Celery task log files."""
+    if celery:
+        return get_log_celery_dir() if log_base_dir is None else get_log_base_dir(log_base_dir) / "celery"
+    if log_base_dir is None:
+        return get_log_scheduler_dir()
+    return get_log_base_dir(log_base_dir) / "scheduler"
+
+
 def _sanitize_log_file_stem(name: str) -> str:
     stem = _SAFE_LOG_NAME_RE.sub("_", str(name or "").strip()).strip("._-")
     return stem[:120] or "task"
-
-
-def get_task_log_dir(*, celery: bool = False, log_base_dir: Optional[str] = None) -> Path:
-    """Resolve the directory for APScheduler or Celery task log files."""
-    subdir = CELERY_TASK_LOG_DIR if celery else TASK_LOG_DIR
-    return get_log_base_dir(log_base_dir) / subdir
 
 
 def get_task_log_file(
@@ -210,7 +215,7 @@ def setup_logging(
 
     Args:
         log_prefix: 日志文件名前缀（如 "api_server" -> api_server_20240101.log）
-        log_dir: 日志文件目录，默认 ./logs；传入 service 时默认使用 ./logs/{service}
+        log_dir: 日志文件目录，默认 data/logs/app；传入 service 时默认使用 data/logs/{service}
         console_level: 控制台日志级别（可选，优先于 debug 参数）
         debug: 是否启用调试模式（控制台输出 DEBUG 级别）
         extra_quiet_loggers: 额外需要降低日志级别的第三方库列表
@@ -224,7 +229,7 @@ def setup_logging(
 
     # 创建日志目录
     if log_dir is None:
-        log_path = get_service_log_dir(service) if service else Path(DEFAULT_LOG_BASE_DIR)
+        log_path = get_service_log_dir(service) if service else get_log_app_dir()
     else:
         log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
@@ -242,7 +247,7 @@ def setup_logging(
     if root_logger.handlers:
         root_logger.handlers.clear()
     # 创建相对路径 Formatter（相对于项目根目录）
-    project_root = Path.cwd()
+    project_root = PROJECT_ROOT
     rel_formatter = RelativePathFormatter(
         LOG_FORMAT, LOG_DATE_FORMAT, relative_to=project_root
     )
@@ -367,7 +372,7 @@ def task_logging_context(
     )
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    project_root = Path.cwd()
+    project_root = PROJECT_ROOT
     formatter = RelativePathFormatter(LOG_FORMAT, LOG_DATE_FORMAT, relative_to=project_root)
     handler = FileHandler(
         log_file,

@@ -17,8 +17,11 @@ import logging
 import os
 import shutil
 import subprocess
-import tempfile
+import uuid
+from pathlib import Path
 from typing import Optional
+
+from finance_analysis.core.paths import get_temp_dir
 
 from finance_analysis.reporting.formatters import markdown_to_html_document
 
@@ -34,21 +37,22 @@ def _markdown_to_image_m2f(markdown_text: str) -> Optional[bytes]:
         )
         return None
 
-    temp_dir = None
+    temp_dir: Path | None = None
     try:
-        temp_dir = tempfile.mkdtemp()
-        md_path = os.path.join(temp_dir, "report.md")
+        temp_dir = get_temp_dir() / f"md2img_{uuid.uuid4().hex}"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        md_path = temp_dir / "report.md"
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(markdown_text)
 
         result = subprocess.run(
-            ["m2f", md_path, "png", f"outputDirectory={temp_dir}"],
+            ["m2f", str(md_path), "png", f"outputDirectory={temp_dir}"],
             capture_output=True,
             timeout=60,
             check=False,
         )
-        png_path = os.path.join(temp_dir, "report.png")
-        if result.returncode != 0 or not os.path.isfile(png_path):
+        png_path = temp_dir / "report.png"
+        if result.returncode != 0 or not png_path.is_file():
             logger.warning(
                 "m2f conversion failed: returncode=%s, stderr=%s",
                 result.returncode,
@@ -65,7 +69,7 @@ def _markdown_to_image_m2f(markdown_text: str) -> Optional[bytes]:
         logger.warning("markdown_to_image (m2f) failed: %s", e)
         return None
     finally:
-        if temp_dir and os.path.isdir(temp_dir):
+        if temp_dir is not None and temp_dir.is_dir():
             try:
                 shutil.rmtree(temp_dir)
             except OSError as e:

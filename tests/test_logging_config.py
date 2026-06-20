@@ -101,45 +101,60 @@ def test_invalid_litellm_log_level_falls_back_to_warning(tmp_path, monkeypatch):
 
 
 def test_setup_backend_logging_uses_service_subdirectory(tmp_path, monkeypatch):
-    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+    log_root = tmp_path / "logs"
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    from finance_analysis.core.paths import clear_paths_cache
+
+    clear_paths_cache()
 
     setup_backend_logging(service="server", log_prefix="web_server", debug=False)
     logging.getLogger("finance_analysis.sample").info("server log routing works")
     for handler in logging.getLogger().handlers:
         handler.flush()
 
-    server_log = next((tmp_path / "server").glob("web_server_*.log"))
+    server_log = next((log_root / "app").glob("web_server_*.log"))
     assert "server log routing works" in server_log.read_text(encoding="utf-8")
 
 
 def test_task_logging_context_writes_task_file(tmp_path, monkeypatch):
-    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+    log_root = tmp_path / "logs"
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    from finance_analysis.core.paths import clear_paths_cache
+
+    clear_paths_cache()
 
     setup_backend_logging(service="server", log_prefix="web_server", debug=False)
     with task_logging_context("analysis_daily", task_id="aps-123"):
         logging.getLogger("finance_analysis.sample").info("task log routing works")
 
-    task_log = get_task_log_file("analysis_daily", "aps-123", log_base_dir=str(tmp_path))
+    task_log = get_task_log_file("analysis_daily", "aps-123")
     assert task_log.is_file()
-    assert task_log.name == "analysis_daily_aps-123.log"
+    assert task_log == log_root / "scheduler" / "analysis_daily_aps-123.log"
     assert "task log routing works" in task_log.read_text(encoding="utf-8")
 
 
 def test_celery_task_logging_context_uses_celery_task_directory(tmp_path, monkeypatch):
-    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+    log_root = tmp_path / "logs"
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    from finance_analysis.core.paths import clear_paths_cache
+
+    clear_paths_cache()
 
     setup_backend_logging(service="celery", log_prefix="celery", debug=False)
     with task_logging_context("demo.add", task_id="celery-123", celery=True):
         logging.getLogger("finance_analysis.sample").info("celery task log routing works")
 
-    task_log = get_task_log_file("demo.add", "celery-123", celery=True, log_base_dir=str(tmp_path))
+    task_log = get_task_log_file("demo.add", "celery-123", celery=True)
     assert task_log.is_file()
-    assert task_log.name == "demo.add_celery-123.log"
+    assert task_log == log_root / "celery" / "demo.add_celery-123.log"
     assert "celery task log routing works" in task_log.read_text(encoding="utf-8")
 
 
 def test_overlapping_task_logging_contexts_do_not_cross_write(tmp_path, monkeypatch):
-    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    from finance_analysis.core.paths import clear_paths_cache
+
+    clear_paths_cache()
     setup_backend_logging(service="server", log_prefix="web_server", debug=False)
     logger = logging.getLogger("finance_analysis.sample")
     barrier = threading.Barrier(2)
@@ -160,8 +175,8 @@ def test_overlapping_task_logging_contexts_do_not_cross_write(tmp_path, monkeypa
     assert not first.is_alive()
     assert not second.is_alive()
 
-    first_log = get_task_log_file("analysis_daily", "task-a", log_base_dir=str(tmp_path))
-    second_log = get_task_log_file("analysis_daily", "task-b", log_base_dir=str(tmp_path))
+    first_log = get_task_log_file("analysis_daily", "task-a")
+    second_log = get_task_log_file("analysis_daily", "task-b")
     first_text = first_log.read_text(encoding="utf-8")
     second_text = second_log.read_text(encoding="utf-8")
 
@@ -176,7 +191,10 @@ def test_overlapping_task_logging_contexts_do_not_cross_write(tmp_path, monkeypa
 
 
 def test_external_call_exception_logs_response_details(tmp_path, monkeypatch):
-    monkeypatch.setenv("LOG_DIR", str(tmp_path))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    from finance_analysis.core.paths import clear_paths_cache
+
+    clear_paths_cache()
     setup_backend_logging(service="server", log_prefix="web_server", debug=False)
 
     request = types.SimpleNamespace(method="GET", url="https://example.test/quote")
@@ -204,7 +222,7 @@ def test_external_call_exception_logs_response_details(tmp_path, monkeypatch):
 
     for handler in logging.getLogger().handlers:
         handler.flush()
-    debug_log = next((tmp_path / "server").glob("web_server_debug_*.log"))
+    debug_log = next((tmp_path / "logs" / "app").glob("web_server_debug_*.log"))
     text = debug_log.read_text(encoding="utf-8")
     assert "status_code" in text
     assert "503" in text

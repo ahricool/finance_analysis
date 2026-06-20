@@ -81,7 +81,7 @@ SERPAPI_API_KEYS=
 - 启动 PostgreSQL；
 - 构建/启动后端服务；
 - 把 `api/`、`src/`、`data_provider/`、`bot/`、`strategies/` 等目录挂载进容器，方便改代码；
-- 将 `data/`、`logs/`、`reports/` 挂载到宿主机保存。
+- 将 `data/` 挂载到宿主机保存（日志、报告、上传文件等均位于 `data/` 下）。
 
 ```bash
 cp .env.example .env
@@ -160,12 +160,12 @@ pnpm run dev
 
 ## 生产环境怎么部署？🚀🏡
 
-生产环境建议使用 `docker-compose.prod.yml`，它会使用发布镜像 `ghcr.io/ahricool/finance_analysis:latest`，并减少开发目录挂载，只保留必要的数据、日志、报告和策略目录。
+生产环境建议使用 `docker-compose.prod.yml`，它会使用发布镜像 `ghcr.io/ahricool/finance_analysis:latest`，并减少开发目录挂载，只保留必要的数据和策略目录。
 
 ### 1. 准备服务器目录
 
 ```bash
-mkdir -p finance_analysis/{data,logs,reports,strategies}
+mkdir -p finance_analysis/{data,strategies}
 cd finance_analysis
 ```
 
@@ -263,9 +263,7 @@ docker compose -f docker-compose.prod.yml exec server bash
 
 数据默认保存在：
 
-- `data/`：本地应用数据、密钥锚点等；
-- `logs/`：运行日志；
-- `reports/`：生成报告；
+- `data/`：所有运行时文件（`data/logs/`、`data/reports/`、`data/uploads/` 等）；
 - Docker volume `finance-analysis-postgres-data`：PostgreSQL 数据。
 
 ## 开发检查 🧪
