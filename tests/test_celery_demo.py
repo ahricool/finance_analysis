@@ -24,7 +24,10 @@ class CeleryDemoTaskTestCase(unittest.TestCase):
         self.env_path = Path(self.temp_dir.name) / ".env"
         self.env_path.write_text("GEMINI_API_KEY=test\n", encoding="utf-8")
         os.environ["ENV_FILE"] = str(self.env_path)
-        os.environ["LOG_DIR"] = str(Path(self.temp_dir.name) / "logs")
+        os.environ["DATA_DIR"] = str(Path(self.temp_dir.name) / "data")
+        from finance_analysis.core.paths import clear_paths_cache
+
+        clear_paths_cache()
         Config.reset_instance()
 
         self._original_always_eager = celery_app.conf.task_always_eager
@@ -34,7 +37,10 @@ class CeleryDemoTaskTestCase(unittest.TestCase):
         celery_app.conf.task_always_eager = self._original_always_eager
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
-        os.environ.pop("LOG_DIR", None)
+        os.environ.pop("DATA_DIR", None)
+        from finance_analysis.core.paths import clear_paths_cache
+
+        clear_paths_cache()
         self.temp_dir.cleanup()
 
     def test_add_task_returns_sum(self) -> None:

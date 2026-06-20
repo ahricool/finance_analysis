@@ -349,10 +349,11 @@ class AuthApiTestCase(unittest.TestCase):
         token = auth.create_session(uid=1)
         request = self._build_request(cookies={auth.COOKIE_NAME: token})
 
-        with patch.object(auth_endpoint, "AVATAR_DIR", self.data_dir / "avatar"):
+        avatar_dir = self.data_dir / "avatars"
+        with patch.object(auth_endpoint, "get_avatar_upload_dir", return_value=avatar_dir):
             data = asyncio.run(auth_endpoint.auth_upload_avatar(request, self._jpeg_upload()))
 
-        avatar_path = self.data_dir / "avatar" / "1.jpg"
+        avatar_path = avatar_dir / "1.jpg"
         self.assertTrue(avatar_path.is_file())
         self.assertTrue(data["user"]["avatarUrl"].startswith("/api/v1/auth/avatar/1.jpg?v="))
 

@@ -53,9 +53,9 @@ env/
 .cursorrules
 
 # 数据和日志
-/data/
-logs/
-reports/
+/data/*
+!/data/README.md
+!/data/.gitkeep
 
 # 系统文件
 .DS_Store

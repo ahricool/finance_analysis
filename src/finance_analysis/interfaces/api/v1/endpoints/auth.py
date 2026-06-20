@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
+from finance_analysis.core.paths import get_avatar_upload_dir
 from finance_analysis.users.auth import (
     COOKIE_NAME,
     JWT_EXPIRE_SECONDS,
@@ -31,7 +32,6 @@ from finance_analysis.database.repositories.user import VALID_GENDERS, UserRepos
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-AVATAR_DIR = Path("data/avatar")
 MAX_AVATAR_BYTES = 2 * 1024 * 1024
 ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
@@ -209,7 +209,7 @@ async def auth_update_profile(request: Request, body: ProfileUpdateRequest):
 @router.post(
     "/avatar",
     summary="Upload current user avatar",
-    description="Uploads a square avatar image and stores it as ./data/avatar/{uid}.jpg.",
+    description="Uploads a square avatar image and stores it as data/uploads/avatars/{uid}.jpg.",
 )
 async def auth_upload_avatar(request: Request, file: UploadFile = File(...)):
     uid = _get_request_uid(request)
@@ -238,8 +238,9 @@ async def auth_upload_avatar(request: Request, file: UploadFile = File(...)):
     if image.width != image.height:
         return JSONResponse(status_code=400, content={"error": "avatar_not_square", "message": "Avatar must be square"})
 
-    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    avatar_path = AVATAR_DIR / f"{uid}.jpg"
+    avatar_dir = get_avatar_upload_dir()
+    avatar_dir.mkdir(parents=True, exist_ok=True)
+    avatar_path = avatar_dir / f"{uid}.jpg"
     image.convert("RGB").save(avatar_path, format="JPEG", quality=90, optimize=True)
 
     avatar_url = f"/api/v1/auth/avatar/{uid}.jpg?v={int(time.time())}"
@@ -262,7 +263,7 @@ async def auth_get_avatar(request: Request, uid: int):
     if current_uid != uid:
         return JSONResponse(status_code=403, content={"error": "forbidden", "message": "Avatar access denied"})
 
-    avatar_path = AVATAR_DIR / f"{uid}.jpg"
+    avatar_path = get_avatar_upload_dir() / f"{uid}.jpg"
     if not avatar_path.is_file():
         return JSONResponse(status_code=404, content={"error": "avatar_not_found", "message": "Avatar not found"})
     return FileResponse(avatar_path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})

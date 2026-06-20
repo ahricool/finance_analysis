@@ -29,9 +29,10 @@ class MarketReviewExecutionLock:
     uses_flock: bool
 
 
-def market_review_lock_path(config: object) -> Path:
-    data_dir = getattr(config, "data_dir", "./data")
-    return Path(data_dir) / "market_review.lock"
+def market_review_lock_path(config: object | None = None) -> Path:
+    from finance_analysis.core.paths import get_runtime_locks_dir
+
+    return get_runtime_locks_dir() / "market_review.lock"
 
 
 def _write_market_review_lock_metadata(handle: Any) -> None:

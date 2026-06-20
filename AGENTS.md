@@ -14,7 +14,7 @@ The Python application lives in the `src/finance_analysis/` package (src layout)
 - `src/finance_analysis/notification/`: notification routing and delivery channels
 - `src/finance_analysis/reporting/`: report rendering and localization
 - `src/finance_analysis/llm/`: shared LLM client and model management
-- `src/finance_analysis/core/paths.py`: unified project-root path helpers (`PROJECT_ROOT`, `STATIC_DIR`, `WEB_DIR`, etc.)
+- `src/finance_analysis/core/paths.py`: unified project-root and `DATA_DIR` runtime path helpers (`PROJECT_ROOT`, `STATIC_DIR`, `WEB_DIR`, `get_data_dir()`, `get_log_dir()`, `ensure_data_directories()`, etc.)
 - `strategies/`: YAML strategy definitions; update `strategies/README.md` for behavior changes
 - `alembic/`: database migrations; keep schema changes here
 - `web/`: Vue 3 + TypeScript frontend, Vitest tests, and Playwright smoke tests

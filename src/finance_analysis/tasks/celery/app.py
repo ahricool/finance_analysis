@@ -15,6 +15,7 @@ from celery.signals import before_task_publish, task_failure, task_postrun, task
 from finance_analysis.config import load_env
 from finance_analysis.database.config import get_database_config
 from finance_analysis.core.logging import ensure_backend_logging, task_logging_context
+from finance_analysis.core.paths import ensure_data_directories
 from finance_analysis.tasks.lifecycle import TaskLifecycleMetadata, get_task_lifecycle_service, is_tracked_callable
 
 CELERY_APP_NAME = "finance_analysis"
@@ -24,6 +25,7 @@ _TASK_LOG_CONTEXTS: Dict[str, AbstractContextManager[logging.Logger]] = {}
 
 def configure_celery_logging() -> None:
     """Configure Celery process logging without relying on the CLI --loglevel flag."""
+    ensure_data_directories()
     ensure_backend_logging(service="celery", log_prefix="celery")
 
 

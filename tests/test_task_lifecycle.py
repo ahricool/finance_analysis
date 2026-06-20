@@ -44,10 +44,16 @@ class _RecordingLifecycleService:
 class TaskLifecycleDecoratorTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        os.environ["LOG_DIR"] = str(Path(self.temp_dir.name) / "logs")
+        os.environ["DATA_DIR"] = str(Path(self.temp_dir.name) / "data")
+        from finance_analysis.core.paths import clear_paths_cache
+
+        clear_paths_cache()
 
     def tearDown(self) -> None:
-        os.environ.pop("LOG_DIR", None)
+        os.environ.pop("DATA_DIR", None)
+        from finance_analysis.core.paths import clear_paths_cache
+
+        clear_paths_cache()
         self.temp_dir.cleanup()
 
     def test_decorator_preserves_return_value_and_records_completed(self) -> None:

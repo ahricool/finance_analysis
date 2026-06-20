@@ -266,7 +266,7 @@ class Config:
     # 仅支持 PostgreSQL：必须设置 DATABASE_URL（例如 postgresql+psycopg2://...）。
     database_url: str = ""
     # 本地数据目录（市场复盘锁等运行期文件所在目录）。
-    data_dir: str = "./data"
+    data_dir: str = ""
     # PostgreSQL 连接池
     db_pool_size: int = 10
     db_max_overflow: int = 5
@@ -285,7 +285,7 @@ class Config:
     backtest_neutral_band_pct: float = 2.0
 
     # === 日志配置 ===
-    log_dir: str = "./logs"  # 日志文件目录
+    log_dir: str = ""  # 日志文件目录（data/logs）
     log_level: str = "INFO"  # 日志级别
 
     # === 系统配置 ===
@@ -529,6 +529,8 @@ class Config:
         _pkg = sys.modules.get(__package__)
         _setup_env = getattr(_pkg, "setup_env", setup_env) if _pkg else setup_env
         _setup_env()
+
+        from finance_analysis.core import paths as runtime_paths
 
         # === 智能代理配置 (关键修复) ===
         # 如果配置了代理，自动设置 NO_PROXY 以排除国内数据源，避免行情获取失败
@@ -779,7 +781,7 @@ class Config:
             md2img_engine=cls._parse_md2img_engine(os.getenv('MD2IMG_ENGINE', 'wkhtmltoimage')),
             prefetch_realtime_quotes=os.getenv('PREFETCH_REALTIME_QUOTES', 'true').lower() == 'true',
             database_url=os.getenv('DATABASE_URL', ''),
-            data_dir=os.getenv('DATA_DIR', './data'),
+            data_dir=str(runtime_paths.get_data_dir()),
             db_pool_size=parse_env_int(os.getenv('DB_POOL_SIZE'), 10, field_name='DB_POOL_SIZE', minimum=1),
             db_max_overflow=parse_env_int(os.getenv('DB_MAX_OVERFLOW'), 5, field_name='DB_MAX_OVERFLOW', minimum=0),
             db_pool_recycle=parse_env_int(os.getenv('DB_POOL_RECYCLE'), 1800, field_name='DB_POOL_RECYCLE', minimum=0),
@@ -795,7 +797,7 @@ class Config:
                 field_name='BACKTEST_NEUTRAL_BAND_PCT',
                 minimum=0.0,
             ),
-            log_dir=os.getenv('LOG_DIR', './logs'),
+            log_dir=str(runtime_paths.get_log_dir()),
             log_level=os.getenv('LOG_LEVEL', 'INFO'),
             max_workers=parse_env_int(os.getenv('MAX_WORKERS'), 3, field_name='MAX_WORKERS', minimum=1),
             debug=os.getenv('DEBUG', 'false').lower() == 'true',

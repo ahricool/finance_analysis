@@ -15,7 +15,7 @@ LongbridgeFetcher - 长桥兜底数据源 (Priority 5)
 4. static_info 进程内短缓存，减少重复请求（默认 24h，可调；见 LONGBRIDGE_STATIC_INFO_TTL_SECONDS）
 
 凭证：`LONGBRIDGE_APP_KEY` / `LONGBRIDGE_APP_SECRET` / `LONGBRIDGE_ACCESS_TOKEN`。
-可选：`LONGBRIDGE_STATIC_INFO_TTL_SECONDS`；SDK `language` 取自 `REPORT_LANGUAGE`，`log_path` 为 `{LOG_DIR}/longbridge_sdk.log`；
+可选：`LONGBRIDGE_STATIC_INFO_TTL_SECONDS`；SDK `language` 取自 `REPORT_LANGUAGE`，`log_path` 为 `data/logs/app/longbridge_sdk.log`；
 `LONGBRIDGE_HTTP_URL` / `LONGBRIDGE_QUOTE_WS_URL` / `LONGBRIDGE_TRADE_WS_URL` / `LONGBRIDGE_REGION` （见官方文档默认值）。
 """
 
@@ -112,8 +112,9 @@ def _sanitize_longbridge_env() -> None:
 
     if not os.environ.get("LONGBRIDGE_LOG_PATH"):
         try:
-            log_dir = (os.getenv("LOG_DIR") or "./logs").strip() or "./logs"
-            p = Path(log_dir).expanduser()
+            from finance_analysis.core.paths import get_log_app_dir
+
+            p = get_log_app_dir()
             p.mkdir(parents=True, exist_ok=True)
             os.environ["LONGBRIDGE_LOG_PATH"] = str(p / "longbridge_sdk.log")
             logger.debug("[Longbridge] 设置 LONGBRIDGE_LOG_PATH=%s",
@@ -203,12 +204,13 @@ def _longbridge_config_kwargs() -> Dict[str, Any]:
 
     if "log_path" in params:
         try:
-            log_dir = (os.getenv("LOG_DIR") or "./logs").strip() or "./logs"
-            p = Path(log_dir).expanduser()
+            from finance_analysis.core.paths import get_log_app_dir
+
+            p = get_log_app_dir()
             p.mkdir(parents=True, exist_ok=True)
             kw["log_path"] = str(p / "longbridge_sdk.log")
         except Exception as e:
-            logger.debug("Longbridge log_path from LOG_DIR skipped: %s", e)
+            logger.debug("Longbridge log_path from data/logs/app skipped: %s", e)
 
     return kw
 

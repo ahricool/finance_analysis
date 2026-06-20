@@ -22,9 +22,11 @@ def main() -> int:
         from finance_analysis.config import load_env
         from finance_analysis.config.runtime import get_runtime_config
         from finance_analysis.core.logging import setup_backend_logging
+        from finance_analysis.core.paths import ensure_data_directories
 
         args = _parse_args()
         load_env()
+        ensure_data_directories()
         setup_backend_logging(service="server", log_prefix="web_server")
         config = get_runtime_config()
         host = args.host or config.webui_host

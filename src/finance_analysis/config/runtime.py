@@ -8,6 +8,7 @@ from functools import lru_cache
 import logging
 
 from finance_analysis.config.env_parsing import env_bool, env_int, env_list, env_str
+from finance_analysis.core.paths import get_log_dir
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ def _parse_market_review_region(value: str | None) -> str:
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    log_dir: str = "./logs"
+    log_dir: str = ""
     log_level: str = "INFO"
     max_workers: int = 3
     market_review_enabled: bool = True
@@ -48,7 +49,7 @@ class RuntimeConfig:
 @lru_cache(maxsize=1)
 def get_runtime_config() -> RuntimeConfig:
     return RuntimeConfig(
-        log_dir=env_str("LOG_DIR", "./logs") or "./logs",
+        log_dir=str(get_log_dir()),
         log_level=env_str("LOG_LEVEL", "INFO") or "INFO",
         max_workers=env_int("MAX_WORKERS", 3, minimum=1),
         market_review_enabled=env_bool("MARKET_REVIEW_ENABLED", True),

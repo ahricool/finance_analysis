@@ -10,15 +10,28 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import finance_analysis.market_review.lock as market_review_lock
+from finance_analysis.core.paths import clear_paths_cache
 
 
 class MarketReviewNoFcntlLockTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self._orig_running = market_review_lock._market_review_running
+        self._orig_data_dir = os.environ.get("DATA_DIR")
         market_review_lock._market_review_running = False
 
     def tearDown(self) -> None:
         market_review_lock._market_review_running = self._orig_running
+        if self._orig_data_dir is None:
+            os.environ.pop("DATA_DIR", None)
+        else:
+            os.environ["DATA_DIR"] = self._orig_data_dir
+        clear_paths_cache()
+
+    @staticmethod
+    def _activate_data_dir(temp_dir: str) -> SimpleNamespace:
+        os.environ["DATA_DIR"] = temp_dir
+        clear_paths_cache()
+        return SimpleNamespace(data_dir=temp_dir)
 
     @staticmethod
     def _write_lock_file(path: Path, pid: int, started_at: datetime) -> None:
@@ -30,7 +43,7 @@ class MarketReviewNoFcntlLockTestCase(unittest.TestCase):
 
     def test_stale_no_fcntl_lock_file_is_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = SimpleNamespace(data_dir=temp_dir)
+            config = self._activate_data_dir(temp_dir)
             lock_path = market_review_lock.market_review_lock_path(config)
             self._write_lock_file(lock_path, pid=99999, started_at=datetime.now())
 
@@ -49,7 +62,7 @@ class MarketReviewNoFcntlLockTestCase(unittest.TestCase):
 
     def test_running_no_fcntl_lock_file_blocks_acquisition(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = SimpleNamespace(data_dir=temp_dir)
+            config = self._activate_data_dir(temp_dir)
             lock_path = market_review_lock.market_review_lock_path(config)
             self._write_lock_file(lock_path, pid=12345, started_at=datetime.now())
 
@@ -65,7 +78,7 @@ class MarketReviewNoFcntlLockTestCase(unittest.TestCase):
 
     def test_empty_fresh_no_fcntl_lock_file_blocks_acquisition(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = SimpleNamespace(data_dir=temp_dir)
+            config = self._activate_data_dir(temp_dir)
             lock_path = market_review_lock.market_review_lock_path(config)
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             lock_path.touch()
@@ -78,7 +91,7 @@ class MarketReviewNoFcntlLockTestCase(unittest.TestCase):
 
     def test_empty_old_no_fcntl_lock_file_is_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = SimpleNamespace(data_dir=temp_dir)
+            config = self._activate_data_dir(temp_dir)
             lock_path = market_review_lock.market_review_lock_path(config)
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             lock_path.touch()
@@ -96,7 +109,7 @@ class MarketReviewNoFcntlLockTestCase(unittest.TestCase):
 
     def test_lock_with_old_started_at_is_recovered_even_if_process_alive(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = SimpleNamespace(data_dir=temp_dir)
+            config = self._activate_data_dir(temp_dir)
             lock_path = market_review_lock.market_review_lock_path(config)
             self._write_lock_file(
                 lock_path,
