@@ -18,9 +18,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from data_provider.realtime_types import UnifiedRealtimeQuote, RealtimeSource
-from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult, TrendStatus
-from src.core.pipeline import StockAnalysisPipeline
+from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, RealtimeSource
+from finance_analysis.analysis.technical.analyzer import StockTrendAnalyzer, TrendAnalysisResult, TrendStatus
+from finance_analysis.analysis.pipeline import StockAnalysisPipeline
 
 
 def _make_realtime_quote(
@@ -75,7 +75,7 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
     """Tests for _augment_historical_with_realtime."""
 
     def setUp(self) -> None:
-        from src.config import Config
+        from finance_analysis.config import Config
         Config._instance = None
         self.config = Config._load_from_env()
         self.pipeline = StockAnalysisPipeline(config=self.config)
@@ -109,9 +109,9 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertNotIn("close", result.columns)
 
-    @patch("src.core.pipeline.get_market_now")
-    @patch("src.core.pipeline.is_market_open", return_value=True)
-    @patch("src.core.pipeline.get_market_for_stock", return_value="cn")
+    @patch("finance_analysis.analysis.pipeline.get_market_now")
+    @patch("finance_analysis.analysis.pipeline.is_market_open", return_value=True)
+    @patch("finance_analysis.analysis.pipeline.get_market_for_stock", return_value="cn")
     def test_appends_row_when_last_date_before_today(
         self, _mock_market, _mock_open, mock_now
     ) -> None:
@@ -129,9 +129,9 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
         self.assertEqual(last["close"], 15.72)
         self.assertEqual(last["date"], today)
 
-    @patch("src.core.pipeline.get_market_now")
-    @patch("src.core.pipeline.is_market_open", return_value=True)
-    @patch("src.core.pipeline.get_market_for_stock", return_value="cn")
+    @patch("finance_analysis.analysis.pipeline.get_market_now")
+    @patch("finance_analysis.analysis.pipeline.is_market_open", return_value=True)
+    @patch("finance_analysis.analysis.pipeline.get_market_for_stock", return_value="cn")
     def test_updates_last_row_when_last_date_is_today(
         self, _mock_market, _mock_open, mock_now
     ) -> None:
@@ -169,13 +169,13 @@ class TestEnhanceContextRealtimeOverride(unittest.TestCase):
     """Tests for _enhance_context today override with realtime + trend."""
 
     def setUp(self) -> None:
-        from src.config import Config
+        from finance_analysis.config import Config
         Config._instance = None
         self.config = Config._load_from_env()
         self.pipeline = StockAnalysisPipeline(config=self.config)
 
-    @patch("src.core.pipeline.get_market_now")
-    @patch("src.core.pipeline.get_market_for_stock", return_value="cn")
+    @patch("finance_analysis.analysis.pipeline.get_market_now")
+    @patch("finance_analysis.analysis.pipeline.get_market_for_stock", return_value="cn")
     def test_today_overridden_when_realtime_and_trend_exist(
         self, _mock_market, mock_now
     ) -> None:

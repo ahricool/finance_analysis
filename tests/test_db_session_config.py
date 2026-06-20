@@ -3,7 +3,7 @@
 
 from unittest.mock import Mock, patch
 
-from src.storage import DatabaseManager
+from finance_analysis.database import DatabaseManager
 
 
 def test_database_sessions_do_not_expire_on_commit():
@@ -16,10 +16,10 @@ def test_database_sessions_do_not_expire_on_commit():
 
     try:
         with (
-            patch("src.db.session.get_config", return_value=config),
-            patch("src.db.session.create_engine", return_value=object()),
-            patch("src.db.session.event.listen"),
-            patch("src.db.session.bootstrap_database"),
+            patch("finance_analysis.database.session.get_config", return_value=config),
+            patch("finance_analysis.database.session.create_engine", return_value=object()),
+            patch("finance_analysis.database.session.event.listen"),
+            patch("finance_analysis.database.session.bootstrap_database"),
         ):
             db = DatabaseManager()
 

@@ -25,19 +25,19 @@ except ModuleNotFoundError:
 
 try:
     from fastapi.testclient import TestClient
-    from api.app import create_app
-    from api.v1.endpoints.history import get_history_detail
+    from finance_analysis.interfaces.api.app import create_app
+    from finance_analysis.interfaces.api.v1.endpoints.history import get_history_detail
 except ModuleNotFoundError:
     TestClient = None
     create_app = None
     get_history_detail = None
 
-from src.config import Config
-from src.auth import COOKIE_NAME, create_session
-from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL, UserRepository
-from src.storage import DatabaseManager, AnalysisHistory, BacktestResult
-from src.analysis.stock_report_analyzer import AnalysisResult
-from src.services.history_service import HistoryService
+from finance_analysis.config import Config
+from finance_analysis.users.auth import COOKIE_NAME, create_session
+from finance_analysis.database.repositories.user import DEFAULT_ADMIN_EMAIL, UserRepository
+from finance_analysis.database import DatabaseManager, AnalysisHistory, BacktestResult
+from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
+from finance_analysis.analysis.history.service import HistoryService
 
 class AnalysisHistoryTestCase(unittest.TestCase):
     """分析历史存储测试"""
@@ -767,7 +767,7 @@ class HistoryItemSchemaNegativeSentimentTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         """Import schema classes once for all tests, skipping gracefully when deps are missing."""
         try:
-            from api.v1.schemas.history import HistoryItem, ReportSummary  # type: ignore
+            from finance_analysis.interfaces.api.v1.schemas.history import HistoryItem, ReportSummary  # type: ignore
         except ModuleNotFoundError:
             cls.HistoryItem = None
             cls.ReportSummary = None

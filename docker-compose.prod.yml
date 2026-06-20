@@ -68,7 +68,7 @@ services:
     image: ghcr.io/ahricool/finance_analysis:latest
     container_name: finance-analysis-celery
     restart: unless-stopped
-    command: ["celery", "-A", "src.celery_app.app", "worker"]
+    command: ["celery", "-A", "finance_analysis.tasks.celery.app", "worker"]
     depends_on:
       postgres:
         condition: service_healthy

@@ -22,11 +22,11 @@ try:
 except ModuleNotFoundError:
     sys.modules["litellm"] = MagicMock()
 
-import src.auth as auth
-from api.middlewares.auth import AuthMiddleware
-from api.v1.endpoints import auth as auth_endpoint
-from src.config import Config
-from src.repositories.user_repo import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAME
+import finance_analysis.users.auth as auth
+from finance_analysis.interfaces.api.middlewares.auth import AuthMiddleware
+from finance_analysis.interfaces.api.v1.endpoints import auth as auth_endpoint
+from finance_analysis.config import Config
+from finance_analysis.database.repositories.user import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAME
 
 
 def _reset_auth_globals() -> None:
@@ -398,8 +398,8 @@ class AuthApiTestCase(unittest.TestCase):
         middleware = AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("api.middlewares.auth.parse_session_uid", return_value=1):
-            with patch("api.middlewares.auth.UserRepository") as repo_cls:
+        with patch("finance_analysis.interfaces.api.middlewares.auth.parse_session_uid", return_value=1):
+            with patch("finance_analysis.interfaces.api.middlewares.auth.UserRepository") as repo_cls:
                 repo_cls.return_value.get_by_uid.return_value = SimpleNamespace(uid=1)
                 response = asyncio.run(middleware.dispatch(request, call_next))
 
@@ -411,8 +411,8 @@ class AuthApiTestCase(unittest.TestCase):
         middleware = AuthMiddleware(app=MagicMock())
         call_next = AsyncMock(return_value=Response(status_code=200))
 
-        with patch("api.middlewares.auth.parse_session_uid", return_value=999):
-            with patch("api.middlewares.auth.UserRepository") as repo_cls:
+        with patch("finance_analysis.interfaces.api.middlewares.auth.parse_session_uid", return_value=999):
+            with patch("finance_analysis.interfaces.api.middlewares.auth.UserRepository") as repo_cls:
                 repo_cls.return_value.get_by_uid.return_value = None
                 response = asyncio.run(middleware.dispatch(request, call_next))
 

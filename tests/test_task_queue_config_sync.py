@@ -11,26 +11,26 @@ from unittest.mock import patch
 
 # Keep task_queue import lightweight in environments without optional deps,
 # but restore sys.modules immediately to avoid cross-test pollution.
-_orig_data_provider_base = sys.modules.get("data_provider.base")
+_orig_data_provider_base = sys.modules.get("finance_analysis.integrations.market_data.base")
 _orig_data_provider = sys.modules.get("data_provider")
 
 if _orig_data_provider_base is None:
-    base_mod = types.ModuleType("data_provider.base")
+    base_mod = types.ModuleType("finance_analysis.integrations.market_data.base")
     base_mod.canonical_stock_code = lambda x: (x or "").strip().upper()
     base_mod.normalize_stock_code = lambda x: (x or "").strip().upper().removesuffix(".SH").removesuffix(".SZ")
-    sys.modules["data_provider.base"] = base_mod
+    sys.modules["finance_analysis.integrations.market_data.base"] = base_mod
 
 if _orig_data_provider is None:
     pkg_mod = types.ModuleType("data_provider")
-    pkg_mod.base = sys.modules["data_provider.base"]
+    pkg_mod.base = sys.modules["finance_analysis.integrations.market_data.base"]
     sys.modules["data_provider"] = pkg_mod
 
-from src.tasks.queue import AnalysisTaskQueue, get_task_queue, reset_task_state_for_tests, _dedupe_stock_code_key
+from finance_analysis.tasks.queue import AnalysisTaskQueue, get_task_queue, reset_task_state_for_tests, _dedupe_stock_code_key
 
 if _orig_data_provider_base is None:
-    sys.modules.pop("data_provider.base", None)
+    sys.modules.pop("finance_analysis.integrations.market_data.base", None)
 else:
-    sys.modules["data_provider.base"] = _orig_data_provider_base
+    sys.modules["finance_analysis.integrations.market_data.base"] = _orig_data_provider_base
 
 if _orig_data_provider is None:
     sys.modules.pop("data_provider", None)
@@ -62,22 +62,22 @@ class TaskQueueConfigSyncTestCase(unittest.TestCase):
         self.assertEqual(queue.max_workers, 1)
 
     def test_get_task_queue_uses_runtime_configured_max_workers(self) -> None:
-        with patch("src.config.get_config", return_value=SimpleNamespace(max_workers=1)):
+        with patch("finance_analysis.config.get_config", return_value=SimpleNamespace(max_workers=1)):
             queue = get_task_queue()
 
         self.assertEqual(queue.max_workers, 1)
 
     def test_get_task_queue_keeps_singleton_identity_after_sync(self) -> None:
-        with patch("src.config.get_config", return_value=SimpleNamespace(max_workers=3)):
+        with patch("finance_analysis.config.get_config", return_value=SimpleNamespace(max_workers=3)):
             first = get_task_queue()
-        with patch("src.config.get_config", return_value=SimpleNamespace(max_workers=1)):
+        with patch("finance_analysis.config.get_config", return_value=SimpleNamespace(max_workers=1)):
             second = get_task_queue()
 
         self.assertIs(first, second)
         self.assertEqual(second.max_workers, 1)
 
     def test_get_task_queue_supports_string_max_workers(self) -> None:
-        with patch("src.config.get_config", return_value=SimpleNamespace(max_workers="2")):
+        with patch("finance_analysis.config.get_config", return_value=SimpleNamespace(max_workers="2")):
             queue = get_task_queue()
 
         self.assertEqual(queue.max_workers, 2)
@@ -88,7 +88,7 @@ class TaskQueueConfigSyncTestCase(unittest.TestCase):
     def test_get_task_queue_applies_sync_without_local_busy_state(self) -> None:
         queue = AnalysisTaskQueue(max_workers=3)
 
-        with patch("src.config.get_config", return_value=SimpleNamespace(max_workers=1)):
+        with patch("finance_analysis.config.get_config", return_value=SimpleNamespace(max_workers=1)):
             synced = get_task_queue()
 
         self.assertIs(synced, queue)

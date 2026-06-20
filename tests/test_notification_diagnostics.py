@@ -4,9 +4,9 @@
 import os
 import unittest
 
-from src.config import Config
-from src.notification import NotificationChannel
-from src.services.notification_diagnostics import (
+from finance_analysis.config import Config
+from finance_analysis.notification.service import NotificationChannel
+from finance_analysis.notification.diagnostics import (
     CHANNEL_SPECS,
     KEY_SPECS,
     NotificationDiagnosticResult,

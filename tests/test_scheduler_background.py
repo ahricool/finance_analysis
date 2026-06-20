@@ -6,7 +6,7 @@ import types
 import unittest
 from unittest.mock import MagicMock, patch
 
-import src.scheduler as scheduler_module
+import finance_analysis.tasks.scheduler as scheduler_module
 
 
 def _install_apscheduler_stub() -> tuple[MagicMock, MagicMock]:
@@ -162,24 +162,24 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
 
     def _install_pipeline_stub(self, pipeline_cls: MagicMock) -> dict:
         """Inject stub modules so ``_daily_analysis_task`` can import without dotenv."""
-        fake_pipeline_module = types.ModuleType("src.core.pipeline")
+        fake_pipeline_module = types.ModuleType("finance_analysis.analysis.pipeline")
         fake_pipeline_module.StockAnalysisPipeline = pipeline_cls
-        fake_config_module = types.ModuleType("src.config")
+        fake_config_module = types.ModuleType("finance_analysis.config")
         fake_config_module.get_config = MagicMock(return_value=MagicMock(name="config"))
-        fake_repo_module = types.ModuleType("src.repositories.watch_list_repo")
+        fake_repo_module = types.ModuleType("finance_analysis.database.repositories.watch_list")
         fake_repo_module.get_watch_list_codes = MagicMock(return_value=["600519"])
         fake_repo_module.get_watch_list_codes_by_market = MagicMock(return_value=[])
         return {
-            "src.core.pipeline": fake_pipeline_module,
-            "src.config": fake_config_module,
-            "src.repositories.watch_list_repo": fake_repo_module,
+            "finance_analysis.analysis.pipeline": fake_pipeline_module,
+            "finance_analysis.config": fake_config_module,
+            "finance_analysis.database.repositories.watch_list": fake_repo_module,
         }
 
     def test_daily_task_invokes_pipeline_run(self) -> None:
         pipeline_instance = MagicMock()
         pipeline_cls = MagicMock(return_value=pipeline_instance)
         stubs = self._install_pipeline_stub(pipeline_cls)
-        fake_config = stubs["src.config"].get_config.return_value
+        fake_config = stubs["finance_analysis.config"].get_config.return_value
 
         with patch.dict(sys.modules, stubs), patch.object(
             scheduler_module, "_safe_record_scheduled_task_result"
@@ -206,9 +206,9 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         pipeline_instance = MagicMock()
         pipeline_cls = MagicMock(return_value=pipeline_instance)
         stubs = self._install_pipeline_stub(pipeline_cls)
-        fake_repo_module = types.ModuleType("src.repositories.watch_list_repo")
+        fake_repo_module = types.ModuleType("finance_analysis.database.repositories.watch_list")
         fake_repo_module.get_watch_list_codes_by_market = MagicMock(return_value=["AAPL", "TSLA"])
-        stubs["src.repositories.watch_list_repo"] = fake_repo_module
+        stubs["finance_analysis.database.repositories.watch_list"] = fake_repo_module
 
         with patch.dict(sys.modules, stubs), patch.object(
             scheduler_module, "_safe_record_scheduled_task_result"
@@ -222,9 +222,9 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         pipeline_instance = MagicMock()
         pipeline_cls = MagicMock(return_value=pipeline_instance)
         stubs = self._install_pipeline_stub(pipeline_cls)
-        fake_repo_module = types.ModuleType("src.repositories.watch_list_repo")
+        fake_repo_module = types.ModuleType("finance_analysis.database.repositories.watch_list")
         fake_repo_module.get_watch_list_codes_by_market = MagicMock(return_value=[])
-        stubs["src.repositories.watch_list_repo"] = fake_repo_module
+        stubs["finance_analysis.database.repositories.watch_list"] = fake_repo_module
 
         with patch.dict(sys.modules, stubs), patch.object(
             scheduler_module, "_safe_record_scheduled_task_result"
@@ -236,19 +236,19 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         record_mock.assert_called_once()
 
     def test_us_premarket_news_task_runs_service_for_us_watch_list(self) -> None:
-        fake_repo_module = types.ModuleType("src.repositories.watch_list_repo")
+        fake_repo_module = types.ModuleType("finance_analysis.database.repositories.watch_list")
         fake_repo_module.get_watch_list_codes_by_market = MagicMock(return_value=["AAPL", "TSLA"])
-        fake_config_module = types.ModuleType("src.config")
+        fake_config_module = types.ModuleType("finance_analysis.config")
         fake_config_module.get_config = MagicMock(return_value=MagicMock(name="config"))
-        fake_service_module = types.ModuleType("src.services.tasks.us_premarket_news.service")
+        fake_service_module = types.ModuleType("finance_analysis.tasks.jobs.us_premarket_news.service")
         service_instance = MagicMock()
         service_instance.run.return_value = MagicMock(symbols_count=22)
         fake_service_module.USPremarketNewsService = MagicMock(return_value=service_instance)
 
         stubs = {
-            "src.repositories.watch_list_repo": fake_repo_module,
-            "src.config": fake_config_module,
-            "src.services.tasks.us_premarket_news.service": fake_service_module,
+            "finance_analysis.database.repositories.watch_list": fake_repo_module,
+            "finance_analysis.config": fake_config_module,
+            "finance_analysis.tasks.jobs.us_premarket_news.service": fake_service_module,
         }
         with patch.dict(sys.modules, stubs), patch.object(
             scheduler_module, "_safe_record_scheduled_task_result"
@@ -264,7 +264,7 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         record_mock.assert_not_called()
 
     def test_market_calendar_task_runs_service(self) -> None:
-        fake_service_module = types.ModuleType("src.services.tasks.market_calendar_sync")
+        fake_service_module = types.ModuleType("finance_analysis.tasks.jobs.market_calendar_sync")
         service_instance = MagicMock()
         service_instance.run.return_value = MagicMock(
             all_interfaces_failed=False,
@@ -276,7 +276,7 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         )
         fake_service_module.MarketCalendarSyncService = MagicMock(return_value=service_instance)
 
-        with patch.dict(sys.modules, {"src.services.tasks.market_calendar_sync": fake_service_module}):
+        with patch.dict(sys.modules, {"finance_analysis.tasks.jobs.market_calendar_sync": fake_service_module}):
             scheduler_module._market_calendar_task()
 
         fake_service_module.MarketCalendarSyncService.assert_called_once_with()

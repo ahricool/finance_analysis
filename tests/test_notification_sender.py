@@ -18,8 +18,8 @@ import requests
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.config import Config
-from src.notification_sender import (
+from finance_analysis.config import Config
+from finance_analysis.notification.senders import (
     AstrbotSender,
     CustomWebhookSender,
     EmailSender,
@@ -168,7 +168,7 @@ class TestNtfySender(unittest.TestCase):
 
         self.assertFalse(result)
 
-    @mock.patch("src.notification_sender.ntfy_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.ntfy.requests.post")
     def test_send_success_uses_json_publish_with_topic_endpoint(self, mock_post):
         mock_post.return_value = _response(200)
         cfg = _config(
@@ -197,7 +197,7 @@ class TestNtfySender(unittest.TestCase):
         self.assertEqual(call_kw["timeout"], 5)
         self.assertFalse(call_kw["verify"])
 
-    @mock.patch("src.notification_sender.ntfy_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.ntfy.requests.post")
     def test_send_supports_self_hosted_path_prefix(self, mock_post):
         mock_post.return_value = _response(200)
         cfg = _config(ntfy_url="https://example.com/ntfy/fa-topic")
@@ -209,7 +209,7 @@ class TestNtfySender(unittest.TestCase):
         self.assertEqual(mock_post.call_args.args[0], "https://example.com/ntfy")
         self.assertEqual(mock_post.call_args.kwargs["json"]["topic"], "fa-topic")
 
-    @mock.patch("src.notification_sender.ntfy_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.ntfy.requests.post")
     def test_send_returns_false_when_url_has_no_topic(self, mock_post):
         cfg = _config(ntfy_url="https://ntfy.sh")
         sender = NtfySender(cfg)
@@ -219,7 +219,7 @@ class TestNtfySender(unittest.TestCase):
         self.assertFalse(result)
         mock_post.assert_not_called()
 
-    @mock.patch("src.notification_sender.ntfy_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.ntfy.requests.post")
     def test_send_returns_false_when_url_scheme_is_not_http(self, mock_post):
         cfg = _config(ntfy_url="ftp://ntfy.example/fa-topic")
         sender = NtfySender(cfg)
@@ -229,7 +229,7 @@ class TestNtfySender(unittest.TestCase):
         self.assertFalse(result)
         mock_post.assert_not_called()
 
-    @mock.patch("src.notification_sender.ntfy_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.ntfy.requests.post")
     def test_send_http_error_returns_false(self, mock_post):
         mock_post.return_value = _response(500)
         cfg = _config(ntfy_url="https://ntfy.sh/fa-topic")
@@ -239,13 +239,13 @@ class TestNtfySender(unittest.TestCase):
 
         self.assertFalse(result)
 
-    @mock.patch("src.notification_sender.ntfy_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.ntfy.requests.post")
     def test_send_timeout_does_not_log_token_value(self, mock_post):
         mock_post.side_effect = requests.exceptions.Timeout("secret-token")
         cfg = _config(ntfy_url="https://ntfy.sh/fa-topic", ntfy_token="secret-token")
         sender = NtfySender(cfg)
 
-        with self.assertLogs("src.notification_sender.ntfy_sender", level="ERROR") as captured:
+        with self.assertLogs("finance_analysis.notification.senders.ntfy", level="ERROR") as captured:
             result = sender.send_to_ntfy("body")
 
         self.assertFalse(result)
@@ -261,7 +261,7 @@ class TestAstrbotSender(unittest.TestCase):
         result = sender.send_to_astrbot("hello")
         self.assertFalse(result)
 
-    @mock.patch("src.notification_sender.astrbot_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.astrfinance_analysis.interfaces.bot.requests.post")
     def test_send_success_returns_true(self, mock_post):
         mock_post.return_value = _response(200)
         cfg = _config(astrbot_url="https://astrbot.example/api")
@@ -280,7 +280,7 @@ class TestCustomWebhookSender(unittest.TestCase):
         result = sender.send_to_custom("hello")
         self.assertFalse(result)
 
-    @mock.patch("src.notification_sender.custom_webhook_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.custom_webhook.requests.post")
     def test_send_success_payload_has_text_and_content(self, mock_post):
         mock_post.return_value = _response(200)
         cfg = _config(custom_webhook_urls=["https://example.com/webhook"])
@@ -290,7 +290,7 @@ class TestCustomWebhookSender(unittest.TestCase):
         body = mock_post.call_args[1]["data"].decode("utf-8")
         self.assertIn("hello", body)
 
-    @mock.patch("src.notification_sender.custom_webhook_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.custom_webhook.requests.post")
     def test_send_returns_true_when_one_custom_webhook_succeeds(self, mock_post):
         mock_post.side_effect = [_response(500), _response(200)]
         cfg = _config(
@@ -306,7 +306,7 @@ class TestCustomWebhookSender(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(mock_post.call_count, 2)
 
-    @mock.patch("src.notification_sender.custom_webhook_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.custom_webhook.requests.post")
     def test_test_custom_webhooks_returns_ordered_attempts(self, mock_post):
         mock_post.side_effect = [_response(500), _response(200)]
         cfg = _config(
@@ -388,7 +388,7 @@ class TestCustomWebhookSender(unittest.TestCase):
             },
         )
 
-    @mock.patch("src.notification_sender.custom_webhook_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.custom_webhook.requests.post")
     def test_send_uses_custom_body_template(self, mock_post):
         mock_post.return_value = _response(200)
         cfg = _config(
@@ -406,7 +406,7 @@ class TestCustomWebhookSender(unittest.TestCase):
             {"msg_type": "text", "content": 'hello "world"'},
         )
 
-    @mock.patch("src.notification_sender.custom_webhook_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.custom_webhook.requests.post")
     def test_invalid_custom_body_template_falls_back(self, mock_post):
         mock_post.return_value = _response(200)
         cfg = _config(
@@ -421,7 +421,7 @@ class TestCustomWebhookSender(unittest.TestCase):
         body = mock_post.call_args[1]["data"].decode("utf-8")
         self.assertIn("hello", body)
 
-    @mock.patch("src.notification_sender.custom_webhook_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.custom_webhook.requests.post")
     def test_non_object_custom_body_template_falls_back(self, mock_post):
         mock_post.return_value = _response(200)
         cfg = _config(
@@ -447,7 +447,7 @@ class TestTelegramSender(unittest.TestCase):
         result = sender.send_to_telegram("hello")
         self.assertFalse(result)
 
-    @mock.patch("src.notification_sender.telegram_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.telegram.requests.post")
     def test_send_success_returns_true(self, mock_post):
         mock_post.return_value = _response(200, {"ok": True})
         cfg = _config(telegram_bot_token="BOT", telegram_chat_id="CHAT")
@@ -456,7 +456,7 @@ class TestTelegramSender(unittest.TestCase):
         self.assertTrue(result)
         self.assertIn("sendMessage", mock_post.call_args[0][0])
 
-    @mock.patch("src.notification_sender.telegram_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.telegram.requests.post")
     def test_send_retries_plain_text_when_markdown_http_400(self, mock_post):
         markdown_error = _response(400)
         markdown_error.text = (
@@ -477,7 +477,7 @@ class TestTelegramSender(unittest.TestCase):
         self.assertNotIn("parse_mode", second_payload)
         self.assertEqual(second_payload["text"], "*ST宝实")
 
-    @mock.patch("src.notification_sender.telegram_sender.requests.post")
+    @mock.patch("finance_analysis.notification.senders.telegram.requests.post")
     def test_send_plain_text_fallback_handles_non_json_200(self, mock_post):
         markdown_error = _response(400)
         markdown_error.text = (

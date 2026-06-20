@@ -14,8 +14,8 @@ Test backend data contract extensions:
 import pytest
 from pydantic import ValidationError
 
-from api.v1.schemas.analysis import AnalyzeRequest
-from src.tasks.queue import (
+from finance_analysis.interfaces.api.v1.schemas.analysis import AnalyzeRequest
+from finance_analysis.tasks.queue import (
     TaskInfo,
     DuplicateTaskError,
     AnalysisTaskQueue,

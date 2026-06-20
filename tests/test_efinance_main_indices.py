@@ -8,7 +8,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from data_provider.efinance_fetcher import EfinanceFetcher
+from finance_analysis.integrations.market_data.providers.efinance import EfinanceFetcher
 
 
 class TestEfinanceMainIndices(unittest.TestCase):

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.app import create_app
+from finance_analysis.interfaces.api.app import create_app
 
 
 class AppCorsConfigTestCase(unittest.TestCase):

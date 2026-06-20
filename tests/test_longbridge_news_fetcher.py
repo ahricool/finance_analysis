@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from data_provider.longbridge_news_fetcher import (
+from finance_analysis.integrations.market_data.providers.longbridge.news import (
     LongbridgeNewsFetcher,
     LongbridgeNewsRecord,
     _canonical_news_url,
@@ -83,7 +83,7 @@ class TestLongbridgeNewsFetcher(unittest.TestCase):
 
         self.assertEqual(records, [])
 
-    @patch("data_provider.longbridge_news_fetcher._to_longbridge_symbol", return_value="AAPL.US")
+    @patch("finance_analysis.integrations.market_data.providers.longbridge.news._to_longbridge_symbol", return_value="AAPL.US")
     def test_fetch_news_normalizes_sdk_items(self, _mock_symbol):
         fake_ctx = MagicMock()
         fake_ctx.news.return_value = [
@@ -103,7 +103,7 @@ class TestLongbridgeNewsFetcher(unittest.TestCase):
         self.assertEqual(records[0].title, "NVDA beats estimates")
         fake_ctx.news.assert_called_once_with("AAPL.US")
 
-    @patch("data_provider.longbridge_news_fetcher._to_longbridge_symbol", return_value="AAPL.US")
+    @patch("finance_analysis.integrations.market_data.providers.longbridge.news._to_longbridge_symbol", return_value="AAPL.US")
     def test_fetch_and_save_news_persists_with_dedup(self, _mock_symbol):
         fake_ctx = MagicMock()
         fake_ctx.news.return_value = [
@@ -117,7 +117,7 @@ class TestLongbridgeNewsFetcher(unittest.TestCase):
         ]
         self.fetcher._get_ctx = MagicMock(return_value=fake_ctx)
 
-        with patch("src.storage.DatabaseManager.get_instance") as mock_db_getter:
+        with patch("finance_analysis.database.DatabaseManager.get_instance") as mock_db_getter:
             mock_db = MagicMock()
             mock_db_getter.return_value = mock_db
 

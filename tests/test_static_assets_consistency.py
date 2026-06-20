@@ -32,7 +32,7 @@ def _vite_index(js_name: str, css_name: str) -> str:
 
 
 def test_backend_asset_check_passes_when_assets_match(tmp_path: Path) -> None:
-    from api import app as app_module
+    from fastapi import app as app_module
 
     static_dir = tmp_path / "static"
     assets_dir = static_dir / "assets"
@@ -47,7 +47,7 @@ def test_backend_asset_check_passes_when_assets_match(tmp_path: Path) -> None:
 
 
 def test_backend_asset_check_detects_stale_bundle(tmp_path: Path) -> None:
-    from api import app as app_module
+    from fastapi import app as app_module
 
     static_dir = tmp_path / "static"
     assets_dir = static_dir / "assets"
@@ -62,7 +62,7 @@ def test_backend_asset_check_detects_stale_bundle(tmp_path: Path) -> None:
 
 
 def test_backend_asset_check_returns_empty_when_index_missing(tmp_path: Path) -> None:
-    from api import app as app_module
+    from fastapi import app as app_module
 
     static_dir = tmp_path / "static"
     static_dir.mkdir()
@@ -76,13 +76,13 @@ def test_backend_startup_check_logs_when_bundle_inconsistent(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from api import app as app_module
+    from fastapi import app as app_module
 
     static_dir = tmp_path / "static"
     (static_dir / "assets").mkdir(parents=True)
     _write_index(static_dir, _vite_index("index-NEW.js", "index-NEW.css"))
 
-    with caplog.at_level(logging.ERROR, logger="api.app"):
+    with caplog.at_level(logging.ERROR, logger="finance_analysis.interfaces.api.app"):
         missing = app_module._check_frontend_assets_consistency(static_dir)
 
     assert sorted(missing) == ["/assets/index-NEW.css", "/assets/index-NEW.js"]
@@ -96,7 +96,7 @@ def test_backend_startup_check_silent_when_bundle_consistent(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from api import app as app_module
+    from fastapi import app as app_module
 
     static_dir = tmp_path / "static"
     assets = static_dir / "assets"
@@ -105,7 +105,7 @@ def test_backend_startup_check_silent_when_bundle_consistent(
     (assets / "index-abc.css").write_text("/* css */", encoding="utf-8")
     _write_index(static_dir, _vite_index("index-abc.js", "index-abc.css"))
 
-    with caplog.at_level(logging.ERROR, logger="api.app"):
+    with caplog.at_level(logging.ERROR, logger="finance_analysis.interfaces.api.app"):
         missing = app_module._check_frontend_assets_consistency(static_dir)
 
     assert missing == []
@@ -116,7 +116,7 @@ def test_backend_startup_check_silent_when_bundle_consistent(
 
 
 def test_missing_asset_returns_safe_404_content_types(tmp_path: Path) -> None:
-    from api.app import create_app
+    from finance_analysis.interfaces.api.app import create_app
 
     static_dir = tmp_path / "static"
     assets_dir = static_dir / "assets"
@@ -145,7 +145,7 @@ def test_missing_asset_returns_safe_404_content_types(tmp_path: Path) -> None:
 
 
 def test_existing_asset_is_served_from_explicit_assets_route(tmp_path: Path) -> None:
-    from api.app import create_app
+    from finance_analysis.interfaces.api.app import create_app
 
     static_dir = tmp_path / "static"
     assets_dir = static_dir / "assets"
@@ -171,7 +171,7 @@ def test_existing_asset_is_served_from_explicit_assets_route(tmp_path: Path) -> 
 
 
 def test_existing_asset_supports_head_and_conditional_requests(tmp_path: Path) -> None:
-    from api.app import create_app
+    from finance_analysis.interfaces.api.app import create_app
 
     static_dir = tmp_path / "static"
     assets_dir = static_dir / "assets"
@@ -217,7 +217,7 @@ def test_asset_traversal_attempts_are_rejected(
     tmp_path: Path,
     request_path: str,
 ) -> None:
-    from api.app import create_app
+    from finance_analysis.interfaces.api.app import create_app
 
     static_dir = tmp_path / "static"
     assets_dir = static_dir / "assets"

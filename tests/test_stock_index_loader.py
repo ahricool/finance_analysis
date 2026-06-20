@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.data import stock_index_loader
+from finance_analysis.stocks.reference_data import loader as stock_index_loader
 
 
 class TestStockIndexLoader(unittest.TestCase):

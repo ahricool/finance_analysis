@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import src.core.market_review_lock as market_review_lock
+import finance_analysis.market_review.lock as market_review_lock
 
 
 class MarketReviewNoFcntlLockTestCase(unittest.TestCase):

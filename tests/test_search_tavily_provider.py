@@ -16,7 +16,7 @@ if "newspaper" not in sys.modules:
     mock_np.Config = MagicMock()
     sys.modules["newspaper"] = mock_np
 
-from src.search_service import SearchService, TavilySearchProvider
+from finance_analysis.search import SearchService, TavilySearchProvider
 
 
 class _FakeTavilyClient:

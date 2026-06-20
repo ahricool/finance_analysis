@@ -5,8 +5,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.core.market_strategy import get_market_strategy_blueprint
-from src.market_analyzer import MarketAnalyzer, MarketOverview
+from finance_analysis.market_review.strategy import get_market_strategy_blueprint
+from finance_analysis.market_review.analyzer import MarketAnalyzer, MarketOverview
 
 
 class TestMarketStrategyBlueprint(unittest.TestCase):
@@ -47,7 +47,7 @@ class TestMarketAnalyzerStrategyPrompt(unittest.TestCase):
         self.assertIn("US Market Regime Strategy", prompt)
 
     def test_cn_prompt_uses_english_shell_when_report_language_is_en(self):
-        with patch("src.market_analyzer.get_config", return_value=SimpleNamespace(report_language="en")):
+        with patch("finance_analysis.market_review.analyzer.get_config", return_value=SimpleNamespace(report_language="en")):
             analyzer = MarketAnalyzer(region="cn")
 
         prompt = analyzer._build_review_prompt(MarketOverview(date="2026-02-24"), [])

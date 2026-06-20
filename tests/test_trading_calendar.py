@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from src.core import trading_calendar
+from finance_analysis.market_review import trading_calendar
 
 
 class _FakeCalendar:

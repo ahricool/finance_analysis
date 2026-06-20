@@ -48,6 +48,16 @@ dependencies = [
     "ipdb>=0.13.13",
 ]
 
+[project.scripts]
+finance-analysis = "finance_analysis.__main__:main"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.uv]
 dev-dependencies = [
     "flake8",

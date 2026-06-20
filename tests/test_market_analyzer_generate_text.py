@@ -28,14 +28,14 @@ from unittest.mock import PropertyMock
 class TestAnalyzerGenerateText:
     def _make_analyzer(self):
         """Return a minimally configured StockReportAnalyzer with _call_litellm mocked."""
-        with patch("src.analysis.stock_report_analyzer.get_config") as mock_cfg:
+        with patch("finance_analysis.analysis.stock_report_analyzer.get_config") as mock_cfg:
             cfg = MagicMock()
             cfg.llm_model = "gemini/gemini-2.0-flash"
             cfg.llm_fallback_models = []
             cfg.llm_api_key = "sk-gemini-testkey-1234"
             cfg.llm_base_url = None
             mock_cfg.return_value = cfg
-            from src.analysis.stock_report_analyzer import StockReportAnalyzer
+            from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
             analyzer = StockReportAnalyzer.__new__(StockReportAnalyzer)
             return analyzer
 
@@ -306,7 +306,7 @@ class TestAnalyzerGenerateText:
             report_integrity_retry=1,
         )
 
-        from src.analysis.stock_report_analyzer import AnalysisResult
+        from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
 
         progress_updates = []
         first_result = AnalysisResult(
@@ -345,7 +345,7 @@ class TestAnalyzerGenerateText:
                  side_effect=[(False, ["analysis_summary"]), (True, [])],
              ), \
              patch.object(analyzer, "_build_integrity_retry_prompt", return_value="retry prompt"), \
-             patch("src.analysis.stock_report_analyzer.persist_llm_usage"):
+             patch("finance_analysis.analysis.stock_report_analyzer.persist_llm_usage"):
             result = analyzer.analyze(
                 {"code": "600519", "stock_name": "贵州茅台"},
                 progress_callback=lambda progress, message: progress_updates.append((progress, message)),
@@ -361,7 +361,7 @@ class TestAnalyzerGenerateText:
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(report_language="zh")
 
-        from src.analysis.stock_report_analyzer import StockReportAnalyzer
+        from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
 
         result = StockReportAnalyzer._parse_response(analyzer, "这是一段纯文本分析，没有 JSON。", "600519", "贵州茅台")
         assert result.success is False
@@ -373,7 +373,7 @@ class TestAnalyzerGenerateText:
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(report_language="zh")
 
-        from src.analysis.stock_report_analyzer import StockReportAnalyzer
+        from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
 
         malformed = "Here is the analysis: {broken json content without closing"
         result = StockReportAnalyzer._parse_response(analyzer, malformed, "AAPL", "Apple")
@@ -385,7 +385,7 @@ class TestAnalyzerGenerateText:
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(report_language="zh")
 
-        from src.analysis.stock_report_analyzer import StockReportAnalyzer
+        from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
         import json
 
         valid_response = json.dumps({
@@ -444,7 +444,7 @@ class TestAnalyzerGenerateText:
             llm_api_key="sk-test-key",
         )
 
-        from src.analysis.stock_report_analyzer import _AllModelsFailedError
+        from finance_analysis.analysis.stock_report_analyzer import _AllModelsFailedError
 
         def fake_dispatch(model, call_kwargs, **kwargs):
             return SimpleNamespace(
@@ -470,7 +470,7 @@ class TestAnalyzerGenerateText:
         with complement instructions); when that also yields invalid JSON the
         exhausted-retries path fires placeholder fill.
         """
-        from src.analysis.stock_report_analyzer import AnalysisResult, _AllModelsFailedError
+        from finance_analysis.analysis.stock_report_analyzer import AnalysisResult, _AllModelsFailedError
 
         analyzer = self._make_analyzer()
         analyzer._config_override = SimpleNamespace(
@@ -516,7 +516,7 @@ class TestAnalyzerGenerateText:
              patch.object(analyzer, "_check_content_integrity", return_value=(False, ["dashboard.core_conclusion.one_sentence"])), \
              patch.object(analyzer, "_build_integrity_retry_prompt", return_value="retry prompt"), \
              patch.object(analyzer, "_apply_placeholder_fill") as mock_fill, \
-             patch("src.analysis.stock_report_analyzer.persist_llm_usage") as mock_usage:
+             patch("finance_analysis.analysis.stock_report_analyzer.persist_llm_usage") as mock_usage:
 
             result = analyzer.analyze(
                 {"code": "600519", "stock_name": "贵州茅台"},
@@ -555,11 +555,11 @@ class TestAnalyzerGenerateText:
 class TestMarketAnalyzerBypassFix:
     def _make_market_analyzer_with_mock_generate_text(self, return_value="复盘报告"):
         """Return a MarketAnalyzer whose embedded Analyzer.generate_text is mocked."""
-        from src.core.market_profile import CN_PROFILE
-        from src.core.market_strategy import get_market_strategy_blueprint
+        from finance_analysis.market_review.profile import CN_PROFILE
+        from finance_analysis.market_review.strategy import get_market_strategy_blueprint
 
-        with patch("src.analysis.stock_report_analyzer.get_config") as mock_cfg, \
-             patch("src.market_analyzer.get_config") as mock_cfg2:
+        with patch("finance_analysis.analysis.stock_report_analyzer.get_config") as mock_cfg, \
+             patch("finance_analysis.market_review.analyzer.get_config") as mock_cfg2:
             cfg = MagicMock()
             cfg.llm_model = "gemini/gemini-2.0-flash"
             cfg.llm_fallback_models = []
@@ -574,8 +574,8 @@ class TestMarketAnalyzerBypassFix:
             mock_cfg.return_value = cfg
             mock_cfg2.return_value = cfg
 
-            from src.analysis.stock_report_analyzer import StockReportAnalyzer
-            from src.market_analyzer import MarketAnalyzer
+            from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer
+            from finance_analysis.market_review.analyzer import MarketAnalyzer
 
             analyzer = StockReportAnalyzer.__new__(StockReportAnalyzer)
             analyzer._router = None
@@ -604,7 +604,7 @@ class TestMarketAnalyzerBypassFix:
 
     def test_generate_text_none_falls_back_to_template(self):
         """generate_market_review() falls back to template when generate_text returns None."""
-        from src.market_analyzer import MarketOverview, MarketIndex
+        from finance_analysis.market_review.analyzer import MarketOverview, MarketIndex
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value=None)
         overview = MarketOverview(
@@ -625,7 +625,7 @@ class TestMarketAnalyzerBypassFix:
 
     def test_market_review_uses_8192_max_tokens(self):
         """generate_market_review() should request a larger output budget to avoid truncation."""
-        from src.market_analyzer import MarketOverview, MarketIndex
+        from finance_analysis.market_review.analyzer import MarketOverview, MarketIndex
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value="复盘结果")
         overview = MarketOverview(
@@ -650,7 +650,7 @@ class TestMarketAnalyzerBypassFix:
         assert kwargs["temperature"] == 0.7
 
     def test_generate_template_review_uses_english_shell_for_cn_when_report_language_is_en(self):
-        from src.market_analyzer import MarketOverview, MarketIndex
+        from finance_analysis.market_review.analyzer import MarketOverview, MarketIndex
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value=None)
         ma.config.report_language = "en"
@@ -685,9 +685,9 @@ class TestMarketAnalyzerBypassFix:
         assert "### 一、市场总结" not in result
 
     def test_generate_template_review_keeps_chinese_shell_for_us_when_report_language_is_default(self):
-        from src.core.market_profile import US_PROFILE
-        from src.core.market_strategy import get_market_strategy_blueprint
-        from src.market_analyzer import MarketOverview, MarketIndex
+        from finance_analysis.market_review.profile import US_PROFILE
+        from finance_analysis.market_review.strategy import get_market_strategy_blueprint
+        from finance_analysis.market_review.analyzer import MarketOverview, MarketIndex
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value=None)
         ma.region = "us"
@@ -715,7 +715,7 @@ class TestMarketAnalyzerBypassFix:
         assert "US Market Recap" not in result
 
     def test_inject_data_into_review_matches_english_headings(self):
-        from src.market_analyzer import MarketOverview, MarketIndex
+        from finance_analysis.market_review.analyzer import MarketOverview, MarketIndex
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value="review")
         ma.config.report_language = "en"
@@ -763,7 +763,7 @@ Sector text.
         assert "| 1 | 煤炭 | -1.12% |" in result
 
     def test_inject_data_into_review_matches_reference_style_chinese_headings(self):
-        from src.market_analyzer import MarketOverview, MarketIndex
+        from finance_analysis.market_review.analyzer import MarketOverview, MarketIndex
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value="review")
         overview = MarketOverview(
@@ -823,7 +823,7 @@ Sector text.
         assert "AI算力板块走强" in result
 
     def test_news_block_labels_snippets_and_preserves_source_url(self):
-        from src.market_analyzer import MarketAnalyzer
+        from finance_analysis.market_review.analyzer import MarketAnalyzer
 
         ma = MarketAnalyzer.__new__(MarketAnalyzer)
         ma.config = SimpleNamespace(report_language="zh")
@@ -849,7 +849,7 @@ Sector text.
         assert "[东方财富 / 2026-05-06](https://example.com/news/1)" in result
 
     def test_news_block_uses_dash_when_source_metadata_missing(self):
-        from src.market_analyzer import MarketAnalyzer
+        from finance_analysis.market_review.analyzer import MarketAnalyzer
 
         ma = MarketAnalyzer.__new__(MarketAnalyzer)
         ma.config = SimpleNamespace(report_language="zh")
@@ -866,7 +866,7 @@ Sector text.
         assert "| 1 | 政策利好带动板块活跃 | 相关主题成交放大 | source |" not in result
 
     def test_review_prompt_caps_news_url_context(self):
-        from src.market_analyzer import MarketOverview
+        from finance_analysis.market_review.analyzer import MarketOverview
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value="review")
         long_url = "https://example.com/redirect?" + "utm_campaign=" + ("x" * 420)
@@ -889,7 +889,7 @@ Sector text.
         assert ("x" * 220) not in prompt
 
     def test_market_light_snapshot_marks_defensive_market_red(self):
-        from src.market_analyzer import MarketIndex, MarketOverview
+        from finance_analysis.market_review.analyzer import MarketIndex, MarketOverview
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value="review")
         overview = MarketOverview(
@@ -913,7 +913,7 @@ Sector text.
         assert any("亏钱效应" in reason for reason in snapshot["reasons"])
 
     def test_market_light_snapshot_uses_english_labels_and_reasons(self):
-        from src.market_analyzer import MarketIndex, MarketOverview
+        from finance_analysis.market_review.analyzer import MarketIndex, MarketOverview
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value="review")
         ma.config.report_language = "en"
@@ -944,9 +944,9 @@ Sector text.
         )
 
     def test_us_english_indices_do_not_label_turnover_as_cny(self):
-        from src.core.market_profile import US_PROFILE
-        from src.core.market_strategy import get_market_strategy_blueprint
-        from src.market_analyzer import MarketOverview, MarketIndex
+        from finance_analysis.market_review.profile import US_PROFILE
+        from finance_analysis.market_review.strategy import get_market_strategy_blueprint
+        from finance_analysis.market_review.analyzer import MarketOverview, MarketIndex
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value=None)
         ma.config.report_language = "en"

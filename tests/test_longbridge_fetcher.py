@@ -20,13 +20,13 @@ from dataclasses import dataclass
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from data_provider.longbridge_fetcher import (
+from finance_analysis.integrations.market_data.providers.longbridge.market import (
     LongbridgeFetcher,
     _to_longbridge_symbol,
     _is_us_code,
     _is_hk_code,
 )
-from data_provider.realtime_types import UnifiedRealtimeQuote, RealtimeSource
+from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, RealtimeSource
 
 
 class TestSymbolConversion(unittest.TestCase):
@@ -216,7 +216,7 @@ class TestLongbridgeFetcherMocked(unittest.TestCase):
         fetcher, ctx = self._make_fetcher_with_mock_ctx()
         ctx.quote.side_effect = Exception("client is closed")
 
-        with patch("data_provider.longbridge_fetcher._connection_cooldown_seconds", return_value=30):
+        with patch("finance_analysis.integrations.market_data.providers.longbridge.market._connection_cooldown_seconds", return_value=30):
             first = fetcher.get_realtime_quote("AAPL")
             second = fetcher.get_realtime_quote("AAPL")
 
@@ -255,7 +255,7 @@ class TestSupplementFromLongbridge(unittest.TestCase):
 
     def test_merge_fills_missing_fields(self):
         """When yfinance quote is missing volume_ratio/turnover_rate, LB fills them."""
-        from data_provider.base import DataFetcherManager
+        from finance_analysis.integrations.market_data.base import DataFetcherManager
 
         yf_quote = UnifiedRealtimeQuote(
             code="AAPL",
@@ -298,7 +298,7 @@ class TestSupplementFromLongbridge(unittest.TestCase):
 
     def test_sole_source_when_yfinance_fails(self):
         """When yfinance returns None, LB acts as sole source."""
-        from data_provider.base import DataFetcherManager
+        from finance_analysis.integrations.market_data.base import DataFetcherManager
 
         lb_quote = UnifiedRealtimeQuote(
             code="AAPL",

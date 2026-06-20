@@ -6,7 +6,7 @@ Covers: is_code_like, normalize_code - including exchange prefix handling.
 
 import pytest
 
-from src.services.stock_code_utils import is_code_like, normalize_code
+from finance_analysis.stocks.symbols import is_code_like, normalize_code
 
 
 class TestIsCodeLike:

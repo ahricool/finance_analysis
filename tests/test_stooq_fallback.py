@@ -2,8 +2,8 @@
 import unittest
 from unittest.mock import patch, MagicMock, PropertyMock
 
-from data_provider.yfinance_fetcher import YfinanceFetcher
-from data_provider.realtime_types import RealtimeSource
+from finance_analysis.integrations.market_data.providers.yfinance import YfinanceFetcher
+from finance_analysis.integrations.market_data.realtime_types import RealtimeSource
 
 try:
     import yfinance  # noqa: F401
@@ -17,7 +17,7 @@ class TestStooqFallback(unittest.TestCase):
     def setUp(self):
         self.fetcher = YfinanceFetcher()
 
-    @patch('data_provider.yfinance_fetcher.urlopen')
+    @patch('finance_analysis.integrations.market_data.providers.yfinance.urlopen')
     def test_stooq_success_logic(self, mock_urlopen):
         """测试 Stooq 正常抓取与解析逻辑"""
         # 模拟 Stooq 返回的 CSV 格式数据（实时 + 日线历史）

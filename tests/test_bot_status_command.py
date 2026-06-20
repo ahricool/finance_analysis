@@ -3,8 +3,8 @@
 
 import os
 
-from bot.commands.status import StatusCommand
-from src.config import Config
+from finance_analysis.interfaces.bot.commands.status import StatusCommand
+from finance_analysis.config import Config
 
 
 def test_status_command_reports_unified_llm_and_notification_channels():

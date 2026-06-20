@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from src.services.tasks.us_intraday_analysis import (
+from finance_analysis.tasks.jobs.us_intraday_analysis import (
     aggregate_bars,
     compute_intraday_metrics,
     evaluate_signal_candidates,
@@ -85,7 +85,7 @@ def test_compute_intraday_metrics_relative_strength_and_vwap():
 
 
 def test_relative_to_sectors_ignores_non_metric_entries():
-    from src.services.tasks.us_intraday_analysis.metrics import _relative_to_sectors
+    from finance_analysis.tasks.jobs.us_intraday_analysis.metrics import _relative_to_sectors
 
     relative = _relative_to_sectors(
         1.5,

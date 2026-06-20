@@ -36,7 +36,7 @@ def _build_optional_module_stubs() -> dict[str, ModuleType]:
 
 
 sys.modules.update(_build_optional_module_stubs())
-import src.core.market_review as market_review_module
+import finance_analysis.market_review.service as market_review_module
 
 run_market_review = market_review_module.run_market_review
 

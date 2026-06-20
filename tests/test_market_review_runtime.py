@@ -9,7 +9,7 @@ from tests.litellm_stub import ensure_litellm_stub
 
 ensure_litellm_stub()
 
-from src.core.market_review_runtime import build_market_review_runtime, has_configured_llm_runtime
+from finance_analysis.market_review.runtime import build_market_review_runtime, has_configured_llm_runtime
 
 
 class TestMarketReviewRuntimeCompatibility(unittest.TestCase):
@@ -41,13 +41,13 @@ class TestMarketReviewRuntimeCompatibility(unittest.TestCase):
         analyzer = MagicMock()
         analyzer.is_available.return_value = True
 
-        import src.analysis.stock_report_analyzer
-        import src.notification
-        import src.search_service
+        import finance_analysis.analysis.stock_report_analyzer
+        import finance_analysis.notification
+        import finance_analysis.search
 
-        with patch.object(src.analysis.stock_report_analyzer, "StockReportAnalyzer", return_value=analyzer) as analyzer_cls, \
-             patch.object(src.notification, "NotificationService", return_value=notifier) as notifier_cls, \
-             patch.object(src.search_service, "SearchService") as search_cls:
+        with patch.object(finance_analysis.analysis.stock_report_analyzer, "StockReportAnalyzer", return_value=analyzer) as analyzer_cls, \
+             patch.object(finance_analysis.notification.service, "NotificationService", return_value=notifier) as notifier_cls, \
+             patch.object(finance_analysis.search.service, "SearchService") as search_cls:
             runtime_notifier, runtime_analyzer, runtime_search = build_market_review_runtime(config)
 
         notifier_cls.assert_called_once_with(source_message=None)

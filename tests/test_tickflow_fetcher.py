@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from data_provider.tickflow_fetcher import (
+from finance_analysis.integrations.market_data.providers.tickflow import (
     TickFlowFetcher,
     _UNIVERSE_PERMISSION_NEGATIVE_CACHE_TTL_SECONDS,
 )
@@ -264,7 +264,7 @@ class TestTickFlowFetcher(unittest.TestCase):
         )
 
         with patch(
-            "data_provider.tickflow_fetcher.monotonic",
+            "finance_analysis.integrations.market_data.providers.tickflow.monotonic",
             side_effect=[
                 100.0,
                 100.0 + _UNIVERSE_PERMISSION_NEGATIVE_CACHE_TTL_SECONDS + 1,

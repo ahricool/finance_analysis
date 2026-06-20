@@ -14,9 +14,9 @@ except ModuleNotFoundError:
 
     ensure_litellm_stub()
 
-from bot.commands.market import MarketCommand
-from bot.models import BotMessage, ChatType
-from src.tasks.queue import DuplicateTaskError
+from finance_analysis.interfaces.bot.commands.market import MarketCommand
+from finance_analysis.interfaces.bot.models import BotMessage, ChatType
+from finance_analysis.tasks.queue import DuplicateTaskError
 
 
 def _make_message() -> BotMessage:
@@ -51,15 +51,15 @@ class MarketCommandRegionFilterTestCase(unittest.TestCase):
         trading_calendar_module = MagicMock()
         trading_calendar_module.get_open_markets_today.return_value = open_markets
 
-        from src.core.trading_calendar import compute_effective_region
+        from finance_analysis.market_review.trading_calendar import compute_effective_region
 
         trading_calendar_module.compute_effective_region.side_effect = compute_effective_region
 
         patcher = patch.dict(
             sys.modules,
             {
-                "src.config": config_module,
-                "src.core.trading_calendar": trading_calendar_module,
+                "finance_analysis.config": config_module,
+                "finance_analysis.market_review.trading_calendar": trading_calendar_module,
             },
         )
         patcher.start()
@@ -75,7 +75,7 @@ class MarketCommandRegionFilterTestCase(unittest.TestCase):
         task_queue = MagicMock()
         task_queue.submit_market_review.return_value = SimpleNamespace(task_id="market-task-1234567890")
 
-        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+        with patch("finance_analysis.tasks.queue.get_task_queue", return_value=task_queue):
             response = MarketCommand().execute(message, [])
 
         self.assertIn("任务已启动", response.text)
@@ -94,7 +94,7 @@ class MarketCommandRegionFilterTestCase(unittest.TestCase):
         task_queue = MagicMock()
         task_queue.submit_market_review.return_value = SimpleNamespace(task_id="market-task-1234567890")
 
-        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+        with patch("finance_analysis.tasks.queue.get_task_queue", return_value=task_queue):
             MarketCommand().execute(message, [])
 
         self.assertEqual(task_queue.submit_market_review.call_args.kwargs["override_region"], "cn,hk")
@@ -107,7 +107,7 @@ class MarketCommandRegionFilterTestCase(unittest.TestCase):
         )
         task_queue = MagicMock()
 
-        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+        with patch("finance_analysis.tasks.queue.get_task_queue", return_value=task_queue):
             response = MarketCommand().execute(message, [])
 
         self.assertIn("休市", response.text)
@@ -123,7 +123,7 @@ class MarketCommandRegionFilterTestCase(unittest.TestCase):
         task_queue = MagicMock()
         task_queue.submit_market_review.return_value = SimpleNamespace(task_id="market-task-1234567890")
 
-        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+        with patch("finance_analysis.tasks.queue.get_task_queue", return_value=task_queue):
             MarketCommand().execute(message, [])
 
         self.assertIsNone(task_queue.submit_market_review.call_args.kwargs["override_region"])
@@ -137,7 +137,7 @@ class MarketCommandRegionFilterTestCase(unittest.TestCase):
         task_queue = MagicMock()
         task_queue.submit_market_review.side_effect = DuplicateTaskError("market_review", "task-1")
 
-        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+        with patch("finance_analysis.tasks.queue.get_task_queue", return_value=task_queue):
             response = MarketCommand().execute(message, [])
 
         self.assertIn("正在执行中", response.text)
@@ -151,7 +151,7 @@ class MarketCommandRegionFilterTestCase(unittest.TestCase):
         task_queue = MagicMock()
         task_queue.submit_market_review.side_effect = RuntimeError("broker unavailable")
 
-        with patch("src.tasks.queue.get_task_queue", return_value=task_queue):
+        with patch("finance_analysis.tasks.queue.get_task_queue", return_value=task_queue):
             response = MarketCommand().execute(message, [])
 
         self.assertFalse(response.markdown)

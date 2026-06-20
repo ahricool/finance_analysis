@@ -5,7 +5,7 @@ import threading
 import time
 import unittest
 
-from data_provider.realtime_types import CircuitBreaker
+from finance_analysis.integrations.market_data.realtime_types import CircuitBreaker
 
 
 class CircuitBreakerConcurrencyTestCase(unittest.TestCase):

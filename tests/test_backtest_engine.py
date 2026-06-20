@@ -5,7 +5,7 @@ import unittest
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from src.core.backtest_engine import BacktestEngine, EvaluationConfig
+from finance_analysis.backtest.engine import BacktestEngine, EvaluationConfig
 
 
 @dataclass

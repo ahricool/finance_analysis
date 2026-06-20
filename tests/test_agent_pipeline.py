@@ -41,10 +41,10 @@ class TestAgentConfig(unittest.TestCase):
     """Test agent-related configuration fields load correctly."""
 
     @patch.dict(os.environ, {}, clear=True)
-    @patch('src.config.load_dotenv')
+    @patch('finance_analysis.config.load_dotenv')
     def test_default_agent_config(self, _mock_dotenv):
         """Agent mode should be disabled by default."""
-        from src.config import AGENT_MAX_STEPS_DEFAULT, Config
+        from finance_analysis.config import AGENT_MAX_STEPS_DEFAULT, Config
         Config._instance = None
         config = Config._load_from_env()
         self.assertEqual(config.agent_litellm_model, "")
@@ -59,7 +59,7 @@ class TestAgentConfig(unittest.TestCase):
     }, clear=True)
     def test_agent_config_from_env(self):
         """Agent config should be loaded from environment."""
-        from src.config import Config
+        from finance_analysis.config import Config
         Config._instance = None
         config = Config._load_from_env()
         self.assertTrue(config.agent_mode)
@@ -69,7 +69,7 @@ class TestAgentConfig(unittest.TestCase):
     @patch.dict(os.environ, {'AGENT_MODE': 'false'}, clear=True)
     def test_agent_mode_disabled(self):
         """Explicitly disabled agent mode."""
-        from src.config import Config
+        from finance_analysis.config import Config
         Config._instance = None
         config = Config._load_from_env()
         self.assertFalse(config.agent_mode)
@@ -77,7 +77,7 @@ class TestAgentConfig(unittest.TestCase):
     @patch.dict(os.environ, {'AGENT_SKILLS': ''}, clear=True)
     def test_empty_skills_list(self):
         """Empty AGENT_SKILLS should produce empty list."""
-        from src.config import Config
+        from finance_analysis.config import Config
         Config._instance = None
         config = Config._load_from_env()
         self.assertEqual(config.agent_skills, [])
@@ -85,7 +85,7 @@ class TestAgentConfig(unittest.TestCase):
     @patch.dict(os.environ, {'AGENT_SKILLS': '  dragon_head , shrink_pullback  '}, clear=True)
     def test_skills_whitespace_handling(self):
         """Skills should have whitespace trimmed."""
-        from src.config import Config
+        from finance_analysis.config import Config
         Config._instance = None
         config = Config._load_from_env()
         self.assertEqual(config.agent_skills, ['dragon_head', 'shrink_pullback'])
@@ -93,7 +93,7 @@ class TestAgentConfig(unittest.TestCase):
     @patch.dict(os.environ, {'AGENT_LITELLM_MODEL': 'gpt-4o-mini'}, clear=True)
     def test_agent_is_available_when_agent_primary_model_is_configured(self):
         """Agent availability auto-detection should use effective Agent primary model."""
-        from src.config import Config
+        from finance_analysis.config import Config
         Config._instance = None
         config = Config._load_from_env()
         self.assertEqual(config.agent_litellm_model, 'openai/gpt-4o-mini')
@@ -101,7 +101,7 @@ class TestAgentConfig(unittest.TestCase):
 
     def test_agent_models_to_try_inherit_legacy_provider_models(self):
         """Legacy provider key/model envs should still produce a non-empty Agent model try list."""
-        from src.config import Config, get_effective_agent_models_to_try
+        from finance_analysis.config import Config, get_effective_agent_models_to_try
 
         test_cases = [
             (
@@ -130,7 +130,7 @@ class TestAgentConfig(unittest.TestCase):
             ),
         ]
 
-        with patch("src.config.setup_env"), patch.object(Config, "_parse_litellm_yaml", return_value=[]):
+        with patch("finance_analysis.config.setup_env"), patch.object(Config, "_parse_litellm_yaml", return_value=[]):
             for env, expected_models in test_cases:
                 with self.subTest(expected_models=expected_models), patch.dict(os.environ, env, clear=True):
                     Config._instance = None
@@ -168,18 +168,18 @@ class TestAgentFactorySkillBaseline(unittest.TestCase):
         skill_manager.list_skills.return_value = skill_catalog
         skill_manager.get_skill_instructions.return_value = instructions
 
-        fake_llm_module = types.ModuleType("src.agent.llm_adapter")
+        fake_llm_module = types.ModuleType("finance_analysis.agent.llm_adapter")
         fake_llm_module.LLMToolAdapter = MagicMock(return_value=MagicMock())
-        fake_executor_module = types.ModuleType("src.agent.executor")
+        fake_executor_module = types.ModuleType("finance_analysis.agent.executor")
         fake_executor_cls = MagicMock(return_value=MagicMock())
         fake_executor_module.AgentExecutor = fake_executor_cls
 
         with patch.dict(sys.modules, {
             "litellm": MagicMock(),
-            "src.agent.llm_adapter": fake_llm_module,
-            "src.agent.executor": fake_executor_module,
+            "finance_analysis.agent.llm_adapter": fake_llm_module,
+            "finance_analysis.agent.executor": fake_executor_module,
         }):
-            factory_module = importlib.import_module("src.agent.factory")
+            factory_module = importlib.import_module("finance_analysis.agent.factory")
 
             with patch.object(factory_module, "get_skill_manager", return_value=skill_manager), \
                  patch.object(factory_module, "get_tool_registry", return_value=MagicMock()):
@@ -367,12 +367,12 @@ class TestAgentResultConversion(unittest.TestCase):
     def _make_pipeline(self):
         """Create a minimal StockAnalysisPipeline with mocked dependencies."""
         # We need to import and mock carefully to avoid touching real services
-        with patch('src.core.pipeline.get_config') as mock_config, \
-             patch('src.core.pipeline.get_db'), \
-             patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.StockReportAnalyzer'), \
-             patch('src.core.pipeline.NotificationService'), \
-             patch('src.core.pipeline.SearchService'):
+        with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
+             patch('finance_analysis.analysis.pipeline.get_db'), \
+             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
+             patch('finance_analysis.analysis.pipeline.NotificationService'), \
+             patch('finance_analysis.analysis.pipeline.SearchService'):
 
             mock_cfg = MagicMock()
             mock_cfg.max_workers = 2
@@ -393,7 +393,7 @@ class TestAgentResultConversion(unittest.TestCase):
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
-            from src.core.pipeline import StockAnalysisPipeline
+            from finance_analysis.analysis.pipeline import StockAnalysisPipeline
             pipeline = StockAnalysisPipeline(config=mock_cfg)
             return pipeline
 
@@ -401,8 +401,8 @@ class TestAgentResultConversion(unittest.TestCase):
         """Successful AgentResult should produce a valid AnalysisResult."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
 
         dashboard = {
             "stock_name": "贵州茅台",
@@ -459,8 +459,8 @@ class TestAgentResultConversion(unittest.TestCase):
         """Failed AgentResult should produce a minimal AnalysisResult."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
 
         agent_result = AgentResult(
             success=False,
@@ -483,9 +483,9 @@ class TestAgentResultConversion(unittest.TestCase):
         """Invalid Agent dashboard should not erase already-computed trend data."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
-        from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
+        from finance_analysis.analysis.technical.analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
         agent_result = AgentResult(
             success=True,
@@ -521,10 +521,10 @@ class TestAgentResultConversion(unittest.TestCase):
         """Empty Agent dashboard should still produce an integrity-ready local fallback dashboard."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.analysis.stock_report_analyzer import check_content_integrity
-        from src.enums import ReportType
-        from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.analysis.stock_report_analyzer import check_content_integrity
+        from finance_analysis.reporting.types import ReportType
+        from finance_analysis.analysis.technical.analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
         agent_result = AgentResult(
             success=True,
@@ -563,8 +563,8 @@ class TestAgentResultConversion(unittest.TestCase):
         """When operation_advice is dict without decision_type, preserve dict-derived buy/sell hint."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
 
         agent_result = AgentResult(
             success=True,
@@ -595,9 +595,9 @@ class TestAgentResultConversion(unittest.TestCase):
         """Condition-hold wording should remain hold when decision_type is not provided."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
-        from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
+        from finance_analysis.analysis.technical.analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
         agent_result = AgentResult(
             success=True,
@@ -631,8 +631,8 @@ class TestAgentResultConversion(unittest.TestCase):
         """Empty top-level advice dict should not block nested dashboard fallback."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
 
         agent_result = AgentResult(
             success=True,
@@ -664,8 +664,8 @@ class TestAgentResultConversion(unittest.TestCase):
         """Placeholder advice dict should not block nested dashboard fallback."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
 
         agent_result = AgentResult(
             success=True,
@@ -700,8 +700,8 @@ class TestAgentResultConversion(unittest.TestCase):
         """Malformed top-level analysis_summary should not block nested dashboard fallback."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
 
         agent_result = AgentResult(
             success=True,
@@ -733,8 +733,8 @@ class TestAgentResultConversion(unittest.TestCase):
         """Non-string analysis_summary should trigger fallback to nested summary or local fallback."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
 
         for raw_summary in (0, False):
             agent_result = AgentResult(
@@ -767,9 +767,9 @@ class TestAgentResultConversion(unittest.TestCase):
         """Malformed non-scalar scalar fields should not be treated as valid values."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
-        from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
+        from finance_analysis.analysis.technical.analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
         agent_result = AgentResult(
             success=True,
@@ -810,9 +810,9 @@ class TestAgentResultConversion(unittest.TestCase):
         pipeline = self._make_pipeline()
         pipeline.config.report_language = "en"
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
-        from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
+        from finance_analysis.analysis.technical.analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
         agent_result = AgentResult(
             success=True,
@@ -854,9 +854,9 @@ class TestAgentResultConversion(unittest.TestCase):
         """Conflict between trend fallback and explicit non-dict advice should keep advice decision."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
-        from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
+        from finance_analysis.analysis.technical.analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
         agent_result = AgentResult(
             success=True,
@@ -891,9 +891,9 @@ class TestAgentResultConversion(unittest.TestCase):
         """Partial Agent dashboards should keep AI fields while filling missing scalars locally."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
-        from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
+        from finance_analysis.analysis.technical.analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
         agent_result = AgentResult(
             success=True,
@@ -941,10 +941,10 @@ class TestAgentResultConversion(unittest.TestCase):
         """String-like placeholder risk alerts should be replaced with local trend risk factors."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.analysis.stock_report_analyzer import check_content_integrity
-        from src.enums import ReportType
-        from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.analysis.stock_report_analyzer import check_content_integrity
+        from finance_analysis.reporting.types import ReportType
+        from finance_analysis.analysis.technical.analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
         agent_result = AgentResult(
             success=True,
@@ -983,10 +983,10 @@ class TestAgentResultConversion(unittest.TestCase):
         """Placeholder dashboard blocks should be completed without falling back to neutral defaults."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.analysis.stock_report_analyzer import check_content_integrity
-        from src.enums import ReportType
-        from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.analysis.stock_report_analyzer import check_content_integrity
+        from finance_analysis.reporting.types import ReportType
+        from finance_analysis.analysis.technical.analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
         agent_result = AgentResult(
             success=True,
@@ -1030,9 +1030,9 @@ class TestAgentResultConversion(unittest.TestCase):
         """Fallback preserves strong advice text while keeping stable decision_type values."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
-        from src.stock_analyzer import BuySignal, TrendAnalysisResult, TrendStatus
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
+        from finance_analysis.analysis.technical.analyzer import BuySignal, TrendAnalysisResult, TrendStatus
 
         cases = [
             (BuySignal.STRONG_BUY, "buy", "强烈买入"),
@@ -1070,8 +1070,8 @@ class TestAgentResultConversion(unittest.TestCase):
         """When input name is placeholder-like, prefer dashboard stock_name."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
 
         agent_result = AgentResult(
             success=True,
@@ -1095,8 +1095,8 @@ class TestAgentResultConversion(unittest.TestCase):
         """When input name is already valid, do not overwrite with dashboard value."""
         pipeline = self._make_pipeline()
 
-        from src.agent.executor import AgentResult
-        from src.enums import ReportType
+        from finance_analysis.agent.executor import AgentResult
+        from finance_analysis.reporting.types import ReportType
 
         agent_result = AgentResult(
             success=True,
@@ -1126,7 +1126,7 @@ class TestPipelineSkillRegistration(unittest.TestCase):
 
     def test_load_builtin_strategies(self):
         """SkillManager.load_builtin_strategies() should load all YAML strategies."""
-        from src.agent.skills.base import SkillManager
+        from finance_analysis.agent.skills.base import SkillManager
 
         skill_manager = SkillManager()
         expected = _builtin_strategy_names()
@@ -1157,12 +1157,12 @@ class TestPipelineRouting(unittest.TestCase):
 
     def test_agent_mode_routes_to_agent(self):
         """When agent_mode=True, analyze_stock should call _analyze_with_agent."""
-        with patch('src.core.pipeline.get_config') as mock_config, \
-             patch('src.core.pipeline.get_db'), \
-             patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.StockReportAnalyzer'), \
-             patch('src.core.pipeline.NotificationService'), \
-             patch('src.core.pipeline.SearchService'):
+        with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
+             patch('finance_analysis.analysis.pipeline.get_db'), \
+             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
+             patch('finance_analysis.analysis.pipeline.NotificationService'), \
+             patch('finance_analysis.analysis.pipeline.SearchService'):
 
             mock_cfg = MagicMock()
             mock_cfg.max_workers = 2
@@ -1182,8 +1182,8 @@ class TestPipelineRouting(unittest.TestCase):
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
-            from src.core.pipeline import StockAnalysisPipeline
-            from src.enums import ReportType
+            from finance_analysis.analysis.pipeline import StockAnalysisPipeline
+            from finance_analysis.reporting.types import ReportType
             pipeline = StockAnalysisPipeline(config=mock_cfg)
 
             # Mock _analyze_with_agent to verify it gets called
@@ -1202,12 +1202,12 @@ class TestPipelineRouting(unittest.TestCase):
 
     def test_legacy_mode_does_not_call_agent(self):
         """When agent_mode=False, analyze_stock should NOT call _analyze_with_agent."""
-        with patch('src.core.pipeline.get_config') as mock_config, \
-             patch('src.core.pipeline.get_db') as mock_db, \
-             patch('src.core.pipeline.DataFetcherManager') as mock_fm, \
-             patch('src.core.pipeline.StockReportAnalyzer') as mock_analyzer, \
-             patch('src.core.pipeline.NotificationService'), \
-             patch('src.core.pipeline.SearchService') as mock_search:
+        with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
+             patch('finance_analysis.analysis.pipeline.get_db') as mock_db, \
+             patch('finance_analysis.analysis.pipeline.DataFetcherManager') as mock_fm, \
+             patch('finance_analysis.analysis.pipeline.StockReportAnalyzer') as mock_analyzer, \
+             patch('finance_analysis.analysis.pipeline.NotificationService'), \
+             patch('finance_analysis.analysis.pipeline.SearchService') as mock_search:
 
             mock_cfg = MagicMock()
             mock_cfg.max_workers = 2
@@ -1228,8 +1228,8 @@ class TestPipelineRouting(unittest.TestCase):
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
-            from src.core.pipeline import StockAnalysisPipeline
-            from src.enums import ReportType
+            from finance_analysis.analysis.pipeline import StockAnalysisPipeline
+            from finance_analysis.reporting.types import ReportType
             pipeline = StockAnalysisPipeline(config=mock_cfg)
 
             # Mock the fetcher_manager to return None for realtime
@@ -1254,14 +1254,14 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
 
     def test_analyze_with_agent_uses_resolved_name_for_news_persistence(self):
         """Should use resolved stock name from dashboard for search and DB persistence."""
-        with patch('src.core.pipeline.get_config') as mock_config, \
-             patch('src.core.pipeline.get_db'), \
-             patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.StockReportAnalyzer'), \
-             patch('src.core.pipeline.NotificationService'), \
-             patch('src.core.pipeline.SearchService'), \
-             patch('src.agent.factory.build_agent_executor') as mock_build_executor, \
-             patch('src.agent.executor.AgentExecutor.run') as mock_agent_run:
+        with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
+             patch('finance_analysis.analysis.pipeline.get_db'), \
+             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
+             patch('finance_analysis.analysis.pipeline.NotificationService'), \
+             patch('finance_analysis.analysis.pipeline.SearchService'), \
+             patch('finance_analysis.agent.factory.build_agent_executor') as mock_build_executor, \
+             patch('finance_analysis.agent.executor.AgentExecutor.run') as mock_agent_run:
 
             mock_cfg = MagicMock()
             mock_cfg.max_workers = 2
@@ -1281,9 +1281,9 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
-            from src.core.pipeline import StockAnalysisPipeline
-            from src.agent.executor import AgentResult
-            from src.enums import ReportType
+            from finance_analysis.analysis.pipeline import StockAnalysisPipeline
+            from finance_analysis.agent.executor import AgentResult
+            from finance_analysis.reporting.types import ReportType
             pipeline = StockAnalysisPipeline(config=mock_cfg)
 
             agent_result = AgentResult(
@@ -1332,13 +1332,13 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
 
     def test_analyze_with_agent_keeps_dashboard_top_level_fields_after_stability(self):
         """Decision stability downgrade in agent flow should sync dashboard and top-level decision fields."""
-        with patch('src.core.pipeline.get_config') as mock_config, \
-             patch('src.core.pipeline.get_db'), \
-             patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.StockReportAnalyzer'), \
-             patch('src.core.pipeline.NotificationService'), \
-             patch('src.core.pipeline.SearchService'), \
-             patch('src.agent.factory.build_agent_executor') as mock_build_executor:
+        with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
+             patch('finance_analysis.analysis.pipeline.get_db'), \
+             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
+             patch('finance_analysis.analysis.pipeline.NotificationService'), \
+             patch('finance_analysis.analysis.pipeline.SearchService'), \
+             patch('finance_analysis.agent.factory.build_agent_executor') as mock_build_executor:
 
             mock_cfg = MagicMock()
             mock_cfg.max_workers = 2
@@ -1360,10 +1360,10 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             mock_cfg.agent_orchestrator_timeout_s = 600
             mock_config.return_value = mock_cfg
 
-            from src.core.pipeline import StockAnalysisPipeline
-            from src.agent.executor import AgentResult
-            from src.enums import ReportType
-            from src.stock_analyzer import TrendAnalysisResult, TrendStatus, BuySignal
+            from finance_analysis.analysis.pipeline import StockAnalysisPipeline
+            from finance_analysis.agent.executor import AgentResult
+            from finance_analysis.reporting.types import ReportType
+            from finance_analysis.analysis.technical.analyzer import TrendAnalysisResult, TrendStatus, BuySignal
             pipeline = StockAnalysisPipeline(config=mock_cfg)
 
             agent_result = AgentResult(
@@ -1439,13 +1439,13 @@ class TestAgentConstructionChain(unittest.TestCase):
         mock_cfg.openai_base_url = ""
         mock_cfg.openai_model = ""
 
-        from src.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
         adapter = LLMToolAdapter(config=mock_cfg)
         self.assertIsNotNone(adapter)
 
     def test_llm_adapter_no_args(self):
         """LLMToolAdapter should also work with no arguments (uses get_config)."""
-        with patch('src.agent.llm_adapter.get_config') as mock_get_config:
+        with patch('finance_analysis.agent.llm_adapter.get_config') as mock_get_config:
             mock_cfg = MagicMock()
             mock_cfg.gemini_api_key = ""
             mock_cfg.anthropic_api_key = ""
@@ -1454,16 +1454,16 @@ class TestAgentConstructionChain(unittest.TestCase):
             mock_cfg.openai_model = ""
             mock_get_config.return_value = mock_cfg
 
-            from src.agent.llm_adapter import LLMToolAdapter
+            from finance_analysis.agent.llm_adapter import LLMToolAdapter
             adapter = LLMToolAdapter()
             self.assertIsNotNone(adapter)
 
     def test_full_construction_chain(self):
         """Test ToolRegistry + SkillManager + LLMToolAdapter + AgentExecutor wiring."""
-        from src.agent.tools.registry import ToolRegistry, ToolDefinition, ToolParameter
-        from src.agent.skills.base import SkillManager, Skill
-        from src.agent.llm_adapter import LLMToolAdapter
-        from src.agent.executor import AgentExecutor
+        from finance_analysis.agent.tools.registry import ToolRegistry, ToolDefinition, ToolParameter
+        from finance_analysis.agent.skills.base import SkillManager, Skill
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.executor import AgentExecutor
 
         # Build registry with a dummy tool
         registry = ToolRegistry()
@@ -1529,7 +1529,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         mock_cfg.deepseek_api_keys = []
         mock_cfg.openai_base_url = None
 
-        from src.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
         adapter = LLMToolAdapter(config=mock_cfg)
 
         calls = []
@@ -1563,7 +1563,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             llm_api_key="sk-test",
         )
 
-        from src.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
         adapter = LLMToolAdapter(config=mock_cfg)
         adapter._router = None
         response = SimpleNamespace(
@@ -1578,7 +1578,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             usage=SimpleNamespace(prompt_tokens=1, completion_tokens=2, total_tokens=3),
         )
 
-        with patch("src.agent.llm_adapter.completion", return_value=response) as mock_completion:
+        with patch("finance_analysis.agent.llm_adapter.completion", return_value=response) as mock_completion:
             result = adapter._call_litellm_model(
                 [{"role": "user", "content": "hi"}],
                 [],
@@ -1610,7 +1610,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             llm_api_key="sk-test",
         )
 
-        from src.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
         adapter = LLMToolAdapter(config=mock_cfg)
         adapter._router = None
         response = SimpleNamespace(
@@ -1625,7 +1625,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             usage=SimpleNamespace(prompt_tokens=1, completion_tokens=2, total_tokens=3),
         )
 
-        with patch("src.agent.llm_adapter.completion", return_value=response) as mock_completion:
+        with patch("finance_analysis.agent.llm_adapter.completion", return_value=response) as mock_completion:
             result = adapter._call_litellm_model(
                 [{"role": "user", "content": "hi"}],
                 [],
@@ -1660,7 +1660,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             llm_api_key="sk-test",
         )
 
-        from src.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
         adapter = LLMToolAdapter(config=mock_cfg)
         adapter._router = None
         response = SimpleNamespace(
@@ -1675,7 +1675,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             usage=SimpleNamespace(prompt_tokens=1, completion_tokens=2, total_tokens=3),
         )
 
-        with patch("src.agent.llm_adapter.completion", return_value=response) as mock_completion:
+        with patch("finance_analysis.agent.llm_adapter.completion", return_value=response) as mock_completion:
             result = adapter._call_litellm_model(
                 [{"role": "user", "content": "hi"}],
                 [],
@@ -1702,7 +1702,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             llm_api_key="sk-test",
         )
 
-        from src.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
         adapter = LLMToolAdapter(config=mock_cfg)
         response = SimpleNamespace(
             choices=[
@@ -1723,7 +1723,7 @@ class TestAgentConstructionChain(unittest.TestCase):
                 raise RuntimeError("primary failed")
             return response
 
-        with patch("src.agent.llm_adapter.completion", side_effect=fake_completion):
+        with patch("finance_analysis.agent.llm_adapter.completion", side_effect=fake_completion):
             result = adapter.call_completion(
                 messages=[{"role": "user", "content": "hi"}],
                 tools=[],
@@ -1750,7 +1750,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         mock_cfg.deepseek_api_keys = []
         mock_cfg.openai_base_url = None
 
-        from src.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
         adapter = LLMToolAdapter(config=mock_cfg)
 
         timeouts = []
@@ -1763,7 +1763,7 @@ class TestAgentConstructionChain(unittest.TestCase):
 
         adapter._call_litellm_model = MagicMock(side_effect=fake_call)
 
-        with patch("src.agent.llm_adapter.time.time", side_effect=[0.0, 0.0, 7.0, 7.0]):
+        with patch("finance_analysis.agent.llm_adapter.time.time", side_effect=[0.0, 0.0, 7.0, 7.0]):
             result = adapter.call_completion(
                 messages=[{"role": "user", "content": "hi"}],
                 tools=[],
@@ -1788,7 +1788,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         mock_cfg.deepseek_api_keys = []
         mock_cfg.openai_base_url = None
 
-        from src.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
         adapter = LLMToolAdapter(config=mock_cfg)
 
         class FakeRateLimitError(Exception):
@@ -1814,10 +1814,10 @@ class TestAgentConstructionChain(unittest.TestCase):
 
         adapter._call_litellm_model = MagicMock(side_effect=fake_call)
 
-        with patch("src.agent.llm_adapter.litellm.RateLimitError", FakeRateLimitError), \
-             patch("src.agent.llm_adapter.logger.warning"), \
-             patch("src.agent.llm_adapter.time.time", side_effect=fake_time), \
-             patch("src.agent.llm_adapter.time.sleep", side_effect=fake_sleep) as mock_sleep:
+        with patch("finance_analysis.agent.llm_adapter.litellm.RateLimitError", FakeRateLimitError), \
+             patch("finance_analysis.agent.llm_adapter.logger.warning"), \
+             patch("finance_analysis.agent.llm_adapter.time.time", side_effect=fake_time), \
+             patch("finance_analysis.agent.llm_adapter.time.sleep", side_effect=fake_sleep) as mock_sleep:
             result = adapter.call_completion(
                 messages=[{"role": "user", "content": "hi"}],
                 tools=[],
@@ -1849,7 +1849,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         mock_cfg.deepseek_api_keys = []
         mock_cfg.openai_base_url = None
 
-        from src.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
         adapter = LLMToolAdapter(config=mock_cfg)
 
         class FakeContextWindowExceededError(Exception):
@@ -1863,9 +1863,9 @@ class TestAgentConstructionChain(unittest.TestCase):
         adapter._call_litellm_model = MagicMock(side_effect=fake_call)
 
         with patch(
-            "src.agent.llm_adapter.litellm.ContextWindowExceededError",
+            "finance_analysis.agent.llm_adapter.litellm.ContextWindowExceededError",
             FakeContextWindowExceededError,
-        ), patch("src.agent.llm_adapter.time.sleep") as mock_sleep:
+        ), patch("finance_analysis.agent.llm_adapter.time.sleep") as mock_sleep:
             result = adapter.call_completion(messages=[{"role": "user", "content": "hi"}], tools=[])
 
         self.assertEqual(result.content, "ok")
@@ -1885,7 +1885,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         mock_cfg.deepseek_api_keys = []
         mock_cfg.openai_base_url = None
 
-        from src.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
         adapter = LLMToolAdapter(config=mock_cfg)
 
         class FakeRateLimitError(Exception):
@@ -1901,12 +1901,12 @@ class TestAgentConstructionChain(unittest.TestCase):
 
         adapter._call_litellm_model = MagicMock(side_effect=fake_call)
 
-        with patch("src.agent.llm_adapter.litellm.RateLimitError", FakeRateLimitError), \
+        with patch("finance_analysis.agent.llm_adapter.litellm.RateLimitError", FakeRateLimitError), \
              patch(
-                 "src.agent.llm_adapter.litellm.ContextWindowExceededError",
+                 "finance_analysis.agent.llm_adapter.litellm.ContextWindowExceededError",
                  FakeContextWindowExceededError,
              ), \
-             patch("src.agent.llm_adapter.time.sleep") as mock_sleep:
+             patch("finance_analysis.agent.llm_adapter.time.sleep") as mock_sleep:
             result = adapter.call_completion(messages=[{"role": "user", "content": "hi"}], tools=[])
 
         self.assertEqual(result.provider, "error")
@@ -1930,7 +1930,7 @@ class TestAgentConstructionChain(unittest.TestCase):
             llm_api_key="sk-test",
         )
 
-        from src.agent.llm_adapter import LLMToolAdapter
+        from finance_analysis.agent.llm_adapter import LLMToolAdapter
         adapter = LLMToolAdapter(config=mock_cfg)
 
         result = adapter.call_completion(messages=[{"role": "user", "content": "hi"}], tools=[])
@@ -1951,12 +1951,12 @@ class TestSafeInt(unittest.TestCase):
 
     def _get_safe_int(self):
         """Get reference to StockAnalysisPipeline._safe_int static method."""
-        with patch('src.core.pipeline.get_config') as mock_config, \
-             patch('src.core.pipeline.get_db'), \
-             patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.StockReportAnalyzer'), \
-             patch('src.core.pipeline.NotificationService'), \
-             patch('src.core.pipeline.SearchService'):
+        with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
+             patch('finance_analysis.analysis.pipeline.get_db'), \
+             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
+             patch('finance_analysis.analysis.pipeline.NotificationService'), \
+             patch('finance_analysis.analysis.pipeline.SearchService'):
 
             mock_cfg = MagicMock()
             mock_cfg.max_workers = 2
@@ -1976,7 +1976,7 @@ class TestSafeInt(unittest.TestCase):
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
-            from src.core.pipeline import StockAnalysisPipeline
+            from finance_analysis.analysis.pipeline import StockAnalysisPipeline
             return StockAnalysisPipeline._safe_int
 
     def test_int_passthrough(self):
@@ -2027,7 +2027,7 @@ class TestSkillActivation(unittest.TestCase):
 
     def test_skills_default_disabled(self):
         """After registration, skills should be disabled by default."""
-        from src.agent.skills.base import SkillManager, Skill
+        from finance_analysis.agent.skills.base import SkillManager, Skill
 
         manager = SkillManager()
         # Create a fresh Skill with default enabled=False
@@ -2043,7 +2043,7 @@ class TestSkillActivation(unittest.TestCase):
 
     def test_activate_all(self):
         """activate(['all']) should enable all registered skills."""
-        from src.agent.skills.base import SkillManager, Skill
+        from finance_analysis.agent.skills.base import SkillManager, Skill
 
         manager = SkillManager()
         # Create test skills instead of importing deleted Python modules
@@ -2059,7 +2059,7 @@ class TestSkillActivation(unittest.TestCase):
 
     def test_activate_specific(self):
         """activate with specific names should only enable those."""
-        from src.agent.skills.base import SkillManager, Skill
+        from finance_analysis.agent.skills.base import SkillManager, Skill
 
         manager = SkillManager()
         skill1 = Skill(name="dragon_head", display_name="龙头策略",
@@ -2078,8 +2078,8 @@ class TestSkillActivation(unittest.TestCase):
 
     def test_empty_config_uses_primary_default_skill(self):
         """Empty agent_skills config should activate the primary default skill only."""
-        from src.agent.skills.base import SkillManager
-        from src.agent.skills.defaults import get_default_active_skill_ids
+        from finance_analysis.agent.skills.base import SkillManager
+        from finance_analysis.agent.skills.defaults import get_default_active_skill_ids
 
         skill_manager = SkillManager()
         count = skill_manager.load_builtin_strategies()
@@ -2094,12 +2094,12 @@ class TestSkillActivation(unittest.TestCase):
 
     def test_sentiment_score_parsed_from_dashboard(self):
         """Verify _agent_result_to_analysis_result handles non-numeric sentiment_score."""
-        with patch('src.core.pipeline.get_config') as mock_config, \
-             patch('src.core.pipeline.get_db'), \
-             patch('src.core.pipeline.DataFetcherManager'), \
-             patch('src.core.pipeline.StockReportAnalyzer'), \
-             patch('src.core.pipeline.NotificationService'), \
-             patch('src.core.pipeline.SearchService'):
+        with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
+             patch('finance_analysis.analysis.pipeline.get_db'), \
+             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
+             patch('finance_analysis.analysis.pipeline.NotificationService'), \
+             patch('finance_analysis.analysis.pipeline.SearchService'):
 
             mock_cfg = MagicMock()
             mock_cfg.max_workers = 2
@@ -2119,9 +2119,9 @@ class TestSkillActivation(unittest.TestCase):
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
-            from src.core.pipeline import StockAnalysisPipeline
-            from src.agent.executor import AgentResult
-            from src.enums import ReportType
+            from finance_analysis.analysis.pipeline import StockAnalysisPipeline
+            from finance_analysis.agent.executor import AgentResult
+            from finance_analysis.reporting.types import ReportType
             pipeline = StockAnalysisPipeline(config=mock_cfg)
 
             # Dashboard with "80分" instead of 80

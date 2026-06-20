@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, Iterable, Optional
 
-from src.time_utils import utc_now
+from finance_analysis.core.time import utc_now
 
 
 class FakeTaskRecordRepository:

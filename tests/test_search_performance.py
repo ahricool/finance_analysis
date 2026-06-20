@@ -10,7 +10,7 @@ Benchmarks the name-to-code resolution engine under load.
 import time
 import pytest
 from unittest.mock import patch
-from src.services.name_to_code_resolver import resolve_name_to_code
+from finance_analysis.stocks.resolver import resolve_name_to_code
 
 class TestSearchPerformance:
     """Benchmark tests for stock search resolution."""
@@ -41,7 +41,7 @@ class TestSearchPerformance:
         assert avg_ms < 20, f"Fast-path resolution too slow: {avg_ms:.2f}ms"
 
     @pytest.mark.benchmark
-    @patch("src.services.name_to_code_resolver._get_akshare_name_to_code", return_value={})
+    @patch("finance_analysis.stocks.resolver._get_akshare_name_to_code", return_value={})
     def test_resolve_name_to_code_typo_fallback_budget(self, mock_akshare):
         """Benchmark typo/fuzzy fallback separately with a smaller iteration budget."""
         typo_inputs = [
@@ -65,7 +65,7 @@ class TestSearchPerformance:
         assert avg_ms < 100, f"Typo fallback too slow: {avg_ms:.2f}ms"
 
     @pytest.mark.benchmark
-    @patch("src.services.name_to_code_resolver._get_akshare_name_to_code")
+    @patch("finance_analysis.stocks.resolver._get_akshare_name_to_code")
     def test_fuzzy_match_performance_large_set(self, mock_akshare):
         """Test difflib fuzzy matching performance with a 5000+ stock set."""
         # Simulate 5000 stocks from AkShare

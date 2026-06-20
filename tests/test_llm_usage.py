@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from sqlalchemy import text
 
-from src.storage import DatabaseManager, LLMUsage, persist_llm_usage
+from finance_analysis.database import DatabaseManager, LLMUsage, persist_llm_usage
 
 
 def _fresh_db() -> DatabaseManager:

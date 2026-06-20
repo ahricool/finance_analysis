@@ -8,9 +8,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
-from src.models import FinanceEvent
-from src.repositories.market_calendar_event_repo import FinanceEventUpsertResult
-from src.services.tasks.market_calendar_sync.service import (
+from finance_analysis.database.models import FinanceEvent
+from finance_analysis.database.repositories.market_calendar_event import FinanceEventUpsertResult
+from finance_analysis.tasks.jobs.market_calendar_sync.service import (
     MarketCalendarSyncService,
     is_important_for_notification,
     sort_focus_events,
@@ -125,7 +125,7 @@ def test_service_continues_when_single_interface_fails_and_records_summary(monke
     notifier = MagicMock()
     notifier.send.return_value = True
     monkeypatch.setattr(
-        "src.repositories.watch_list_repo.get_watch_list_codes_by_market",
+        "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market",
         MagicMock(return_value=["AAPL"]),
     )
     service = MarketCalendarSyncService(
