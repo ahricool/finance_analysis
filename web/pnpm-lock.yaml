@@ -150,7 +150,7 @@ packages:
     resolution: {integrity: sha512-wajfB8KqzMCN2KGNFdLkReeHncd0AslUSrvHVvvYWuU8ghncRJoA50kT3zP9MVL0+9g4/67H+cdvBskj9THPzg==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
 
-  '@asamuzakjp/nwsfinance_analysis.interfaces.api@2.3.9':
+  '@asamuzakjp/nwsapi@2.3.9':
     resolution: {integrity: sha512-n8GuYSrI9bF7FFZ/SjhwevlHc8xaVlb/7HmHelnc/PZXBD2ZR49NnN9sMMuDdEGPeeRQ5d0hqlSlEpgCX3Wl0Q==}
 
   '@babel/helper-string-parser@7.27.1':
@@ -687,11 +687,11 @@ packages:
     engines: {node: '>=14.0.0'}
     cpu: [wasm32]
     bundledDependencies:
-      - '@nfinance_analysis.interfaces.api-rs/wasm-runtime'
-      - '@emnfinance_analysis.interfaces.api/core'
-      - '@emnfinance_analysis.interfaces.api/runtime'
+      - '@napi-rs/wasm-runtime'
+      - '@emnapi/core'
+      - '@emnapi/runtime'
       - '@tybys/wasm-util'
-      - '@emnfinance_analysis.interfaces.api/wasi-threads'
+      - '@emnapi/wasi-threads'
       - tslib
 
   '@tailwindcss/oxide-win32-arm64-msvc@4.3.0':
@@ -866,7 +866,7 @@ packages:
   '@vue/compiler-vue2@2.7.16':
     resolution: {integrity: sha512-qYC3Psj9S/mfu9uVi5WvNZIzq+xnXMhOwbTFKKDD7b1lhpnn71jXSFdTQ+WsIEk0ONCd7VV2IMm7ONl6tbQ86A==}
 
-  '@vue/devtools-finance_analysis.interfaces.api@6.6.4':
+  '@vue/devtools-api@6.6.4':
     resolution: {integrity: sha512-sGhTPMuXqZ1rVOk32RylztWkfXTRhuS7vgAKv0zjqk8gbsHkJ7xfFf+jbySxt7tWObEJwyKaHMikV/WGDiQm8g==}
 
   '@vue/eslint-config-typescript@14.7.0':
@@ -1946,7 +1946,7 @@ packages:
     resolution: {integrity: sha512-bLVMLPtstlZ4iMQHpFHTR7GAGj2jxi8Dg0s2h2MafAE4uSWF98FC/3MomU51iQAMf8/qDUbKWf5GxuvvVcXEhw==}
     engines: {node: '>=20'}
 
-  ts-finance_analysis.interfaces.api-utils@2.5.0:
+  ts-api-utils@2.5.0:
     resolution: {integrity: sha512-OJ/ibxhPlqrMM0UiNHJ/0CKQkoKF243/AEmplt3qpRgkW8VG7IfOS41h7V8TjITqdByHzrjcS/2si+y4lIh8NA==}
     engines: {node: '>=18.12'}
     peerDependencies:
@@ -2044,7 +2044,7 @@ packages:
     hasBin: true
     peerDependencies:
       '@edge-runtime/vm': '*'
-      '@opentelemetry/finance_analysis.interfaces.api': ^1.9.0
+      '@opentelemetry/api': ^1.9.0
       '@types/node': ^20.0.0 || ^22.0.0 || >=24.0.0
       '@vitest/browser-playwright': 4.1.6
       '@vitest/browser-preview': 4.1.6
@@ -2058,7 +2058,7 @@ packages:
     peerDependenciesMeta:
       '@edge-runtime/vm':
         optional: true
-      '@opentelemetry/finance_analysis.interfaces.api':
+      '@opentelemetry/api':
         optional: true
       '@types/node':
         optional: true
@@ -2090,10 +2090,10 @@ packages:
     engines: {node: '>=12'}
     hasBin: true
     peerDependencies:
-      '@vue/composition-finance_analysis.interfaces.api': ^1.0.0-rc.1
+      '@vue/composition-api': ^1.0.0-rc.1
       vue: ^3.0.0-0 || ^2.6.0
     peerDependenciesMeta:
-      '@vue/composition-finance_analysis.interfaces.api':
+      '@vue/composition-api':
         optional: true
 
   vue-demi@0.14.10:
@@ -2101,10 +2101,10 @@ packages:
     engines: {node: '>=12'}
     hasBin: true
     peerDependencies:
-      '@vue/composition-finance_analysis.interfaces.api': ^1.0.0-rc.1
+      '@vue/composition-api': ^1.0.0-rc.1
       vue: ^3.0.0-0 || ^2.6.0
     peerDependenciesMeta:
-      '@vue/composition-finance_analysis.interfaces.api':
+      '@vue/composition-api':
         optional: true
 
   vue-echarts@7.0.3:
@@ -2244,7 +2244,7 @@ snapshots:
 
   '@asamuzakjp/dom-selector@6.8.1':
     dependencies:
-      '@asamuzakjp/nwsfinance_analysis.interfaces.api': 2.3.9
+      '@asamuzakjp/nwsapi': 2.3.9
       bidi-js: 1.0.3
       css-tree: 3.2.1
       is-potential-custom-element-name: 1.0.1
@@ -2252,7 +2252,7 @@ snapshots:
 
   '@asamuzakjp/generational-cache@1.0.1': {}
 
-  '@asamuzakjp/nwsfinance_analysis.interfaces.api@2.3.9': {}
+  '@asamuzakjp/nwsapi@2.3.9': {}
 
   '@babel/helper-string-parser@7.27.1': {}
 
@@ -2675,7 +2675,7 @@ snapshots:
       eslint: 9.39.4(jiti@2.7.0)
       ignore: 7.0.5
       natural-compare: 1.4.0
-      ts-finance_analysis.interfaces.api-utils: 2.5.0(typescript@5.9.3)
+      ts-api-utils: 2.5.0(typescript@5.9.3)
       typescript: 5.9.3
     transitivePeerDependencies:
       - supports-color
@@ -2717,7 +2717,7 @@ snapshots:
       '@typescript-eslint/utils': 8.59.3(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
       debug: 4.4.3
       eslint: 9.39.4(jiti@2.7.0)
-      ts-finance_analysis.interfaces.api-utils: 2.5.0(typescript@5.9.3)
+      ts-api-utils: 2.5.0(typescript@5.9.3)
       typescript: 5.9.3
     transitivePeerDependencies:
       - supports-color
@@ -2734,7 +2734,7 @@ snapshots:
       minimatch: 10.2.5
       semver: 7.8.0
       tinyglobby: 0.2.16
-      ts-finance_analysis.interfaces.api-utils: 2.5.0(typescript@5.9.3)
+      ts-api-utils: 2.5.0(typescript@5.9.3)
       typescript: 5.9.3
     transitivePeerDependencies:
       - supports-color
@@ -2849,7 +2849,7 @@ snapshots:
       de-indent: 1.0.2
       he: 1.2.0
 
-  '@vue/devtools-finance_analysis.interfaces.api@6.6.4': {}
+  '@vue/devtools-api@6.6.4': {}
 
   '@vue/eslint-config-typescript@14.7.0(eslint-plugin-vue@9.33.0(eslint@9.39.4(jiti@2.7.0)))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)':
     dependencies:
@@ -3741,13 +3741,13 @@ snapshots:
 
   pinia@2.3.1(typescript@5.9.3)(vue@3.5.34(typescript@5.9.3)):
     dependencies:
-      '@vue/devtools-finance_analysis.interfaces.api': 6.6.4
+      '@vue/devtools-api': 6.6.4
       vue: 3.5.34(typescript@5.9.3)
       vue-demi: 0.14.10(vue@3.5.34(typescript@5.9.3))
     optionalDependencies:
       typescript: 5.9.3
     transitivePeerDependencies:
-      - '@vue/composition-finance_analysis.interfaces.api'
+      - '@vue/composition-api'
 
   playwright-core@1.60.0: {}
 
@@ -3912,7 +3912,7 @@ snapshots:
     dependencies:
       punycode: 2.3.1
 
-  ts-finance_analysis.interfaces.api-utils@2.5.0(typescript@5.9.3):
+  ts-api-utils@2.5.0(typescript@5.9.3):
     dependencies:
       typescript: 5.9.3
 
@@ -4019,7 +4019,7 @@ snapshots:
     optionalDependencies:
       '@vue/runtime-core': 3.5.34
     transitivePeerDependencies:
-      - '@vue/composition-finance_analysis.interfaces.api'
+      - '@vue/composition-api'
 
   vue-eslint-parser@10.4.0(eslint@9.39.4(jiti@2.7.0)):
     dependencies:
@@ -4048,7 +4048,7 @@ snapshots:
 
   vue-router@4.6.4(vue@3.5.34(typescript@5.9.3)):
     dependencies:
-      '@vue/devtools-finance_analysis.interfaces.api': 6.6.4
+      '@vue/devtools-api': 6.6.4
       vue: 3.5.34(typescript@5.9.3)
 
   vue-tsc@2.2.12(typescript@5.9.3):
