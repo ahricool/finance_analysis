@@ -17,10 +17,12 @@ const props = withDefaults(
     selectedId?: number;
     selectedIds: Set<number>;
     isDeleting?: boolean;
+    fitHeight?: boolean;
     class?: string;
   }>(),
   {
     isDeleting: false,
+    fitHeight: false,
     class: '',
   },
 );
@@ -44,6 +46,10 @@ const allVisibleSelected = computed(
 );
 const someVisibleSelected = computed(
   () => selectedCount.value > 0 && !allVisibleSelected.value,
+);
+const scrollAreaClass = computed(() => (props.fitHeight ? 'min-h-0 flex-none' : 'min-h-0 flex-1'));
+const viewportClassName = computed(() =>
+  props.fitHeight ? 'h-auto max-h-[calc(100vh-10rem)] p-4' : 'p-4',
 );
 
 let observer: IntersectionObserver | null = null;
@@ -100,9 +106,9 @@ onUnmounted(() => {
   <aside :class="`glass-card flex flex-col overflow-hidden ${props.class}`">
     <ScrollArea
       ref="scrollAreaRef"
-      viewport-class-name="p-4"
+      :viewport-class-name="viewportClassName"
       test-id="home-history-list-scroll"
-      class="min-h-0 flex-1"
+      :class="scrollAreaClass"
     >
       <div class="mb-4 space-y-3">
         <DashboardPanelHeader class="mb-1" title-class-name="text-sm font-medium" heading-class-name="items-center">

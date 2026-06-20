@@ -63,8 +63,6 @@ const {
   toggleSelectAllVisible,
   deleteSelectedHistory,
   submitAnalysis,
-  notify,
-  setNotify,
   openMarkdownDrawer,
   closeMarkdownDrawer,
 } = useHomeDashboardState();
@@ -158,7 +156,7 @@ async function handleTriggerMarketReview() {
   marketReviewError.value = null;
   scrollMarketReviewFeedbackIntoView();
   try {
-    const result = await analysisApi.triggerMarketReview({ sendNotification: unref(notify) });
+    const result = await analysisApi.triggerMarketReview();
     const taskSuffix = result.taskId ? `（任务 ID：${result.taskId}）` : '';
     marketReviewNotice.value = {
       variant: 'success',
@@ -212,17 +210,6 @@ function handleDeleteSelectedHistory() {
             </div>
           </div>
           <div class="flex min-w-0 flex-shrink-0 items-center gap-2.5">
-            <label
-              class="flex h-10 flex-shrink-0 cursor-pointer items-center gap-1.5 select-none rounded-xl border border-subtle bg-surface/60 px-3 text-xs text-secondary-text transition-colors hover:border-subtle-hover hover:text-foreground"
-            >
-              <input
-                type="checkbox"
-                :checked="unref(notify)"
-                class="h-3.5 w-3.5 rounded border-border accent-primary"
-                @change="unref(setNotify)(($event.target as HTMLInputElement).checked)"
-              />
-              推送通知
-            </label>
             <Button
               type="button"
               variant="secondary"
@@ -278,8 +265,8 @@ function handleDeleteSelectedHistory() {
       </div>
 
       <div class="flex min-h-0 flex-1 overflow-hidden">
-        <div class="hidden min-h-0 w-64 shrink-0 flex-col overflow-hidden pb-4 pl-4 md:flex lg:w-72">
-          <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+        <div class="hidden w-[clamp(18rem,22vw,22rem)] shrink-0 self-start pb-4 pl-4 md:flex">
+          <div class="flex w-full flex-col gap-3">
             <HistoryList
               :items="historyItems"
               :is-loading="isLoadingHistory"
@@ -288,7 +275,8 @@ function handleDeleteSelectedHistory() {
               :selected-id="selectedReport?.meta.id"
               :selected-ids="selectedIds"
               :is-deleting="isDeletingHistory"
-              class="min-h-0 flex-1 overflow-hidden"
+              fit-height
+              class="w-full overflow-hidden"
               @item-click="handleHistoryItemClick"
               @load-more="() => unref(loadMoreHistory)()"
               @toggle-item-selection="(id: number) => unref(toggleHistorySelection)(id)"

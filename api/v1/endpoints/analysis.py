@@ -288,8 +288,6 @@ def _handle_async_analysis_batch(
     stock_name = request.stock_name if is_single else None
     original_query = request.original_query if (is_single or preserve_batch_metadata) else None
     selection_source = request.selection_source if (is_single or preserve_batch_metadata) else None
-    notify = getattr(request, "notify", True)
-
     submit_kwargs = dict(
         stock_codes=stock_codes,
         stock_name=stock_name,
@@ -297,7 +295,7 @@ def _handle_async_analysis_batch(
         selection_source=selection_source,
         report_type=request.report_type,
         force_refresh=request.force_refresh,
-        notify=notify,
+        notify=True,
     )
     if owner_uid is not None:
         submit_kwargs["owner_uid"] = owner_uid
@@ -382,7 +380,7 @@ def _handle_sync_analysis(
             report_type=request.report_type,
             force_refresh=request.force_refresh,
             query_id=query_id,
-            send_notification=getattr(request, "notify", True),
+            send_notification=True,
             owner_uid=owner_uid,
         )
 
@@ -460,12 +458,12 @@ def trigger_market_review(
         return MarketReviewAccepted(
             status="accepted",
             message="今日大盘复盘相关市场均为非交易日，已跳过大盘复盘",
-            send_notification=request.send_notification,
+            send_notification=True,
         )
 
     try:
         task = get_task_queue().submit_market_review(
-            send_notification=request.send_notification,
+            send_notification=True,
             override_region=override_region,
         )
     except DuplicateTaskError:
@@ -482,7 +480,7 @@ def trigger_market_review(
     return MarketReviewAccepted(
         status="accepted",
         message="大盘复盘任务已提交，完成后会保存报告并按配置推送通知",
-        send_notification=request.send_notification,
+        send_notification=True,
         task_id=task.task_id,
     )
 

@@ -22,7 +22,7 @@ import {
   Play,
   RotateCw,
 } from 'lucide-vue-next';
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 
 type TaskTab = 'scheduled' | 'runs';
@@ -45,6 +45,7 @@ const runsPageSize = ref(20);
 const runsStats = ref<Record<string, number>>({});
 const runsLoading = ref(false);
 const runsError = ref<ParsedApiError | null>(null);
+const statusFilterMenuRef = ref<HTMLDetailsElement | null>(null);
 
 const detail = ref<TaskRunDetail | null>(null);
 const detailLoading = ref(false);
@@ -97,23 +98,7 @@ const statusOptions: Array<{ value: TaskStatus | ''; label: string }> = [
   ...taskStatusOptions,
 ];
 
-const isDefaultStatusFilter = computed(
-  () =>
-    filters.statuses.length === defaultStatusFilters.length &&
-    defaultStatusFilters.every((status) => filters.statuses.includes(status)),
-);
-
-const statusFilterLabel = computed(() => {
-  if (filters.statuses.length === taskStatusOptions.length) return '全部状态';
-  if (isDefaultStatusFilter.value) return '默认状态';
-  if (filters.statuses.length <= 2) {
-    return taskStatusOptions
-      .filter((option) => filters.statuses.includes(option.value))
-      .map((option) => option.label)
-      .join('、');
-  }
-  return `已选 ${filters.statuses.length} 个状态`;
-});
+const statusFilterLabel = computed(() => `已选 ${filters.statuses.length} 个状态`);
 
 const sourceOptions = [
   { value: '', label: '全部来源' },
@@ -176,6 +161,13 @@ function selectAllStatuses() {
 
 function selectDefaultStatuses() {
   filters.statuses = [...defaultStatusFilters];
+}
+
+function closeStatusFilterOnOutsideClick(event: MouseEvent) {
+  const menu = statusFilterMenuRef.value;
+  const target = event.target;
+  if (!menu?.open || !(target instanceof Node) || menu.contains(target)) return;
+  menu.open = false;
 }
 
 function formatDuration(seconds?: number | null): string {
@@ -327,6 +319,11 @@ watch(
 
 onMounted(() => {
   document.title = formatDocumentTitle('任务中心');
+  document.addEventListener('click', closeStatusFilterOnOutsideClick);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeStatusFilterOnOutsideClick);
 });
 </script>
 
@@ -471,8 +468,23 @@ onMounted(() => {
                 </Button>
               </div>
 
-              <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-                <details class="group relative">
+              <div class="grid gap-2 sm:grid-cols-2 lg:max-w-[560px]">
+                <input
+                  v-if="isAdmin"
+                  v-model="filters.uid"
+                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
+                  inputmode="numeric"
+                  placeholder="UID"
+                />
+                <input
+                  v-model="filters.keyword"
+                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
+                  placeholder="名称或 Task ID"
+                />
+              </div>
+
+              <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                <details ref="statusFilterMenuRef" class="group relative">
                   <summary
                     class="flex h-9 w-full cursor-pointer list-none items-center justify-between gap-2 rounded-xl border border-border/70 bg-background px-3 text-sm text-foreground transition-colors hover:bg-hover [&::-webkit-details-marker]:hidden"
                   >
@@ -527,18 +539,6 @@ onMounted(() => {
                     {{ option.label }}
                   </option>
                 </select>
-                <input
-                  v-if="isAdmin"
-                  v-model="filters.uid"
-                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
-                  inputmode="numeric"
-                  placeholder="UID"
-                />
-                <input
-                  v-model="filters.keyword"
-                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
-                  placeholder="名称或 Task ID"
-                />
               </div>
 
               <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">

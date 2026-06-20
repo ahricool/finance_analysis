@@ -13,7 +13,7 @@
 from typing import Optional, List, Any
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from src.utils.analysis_metadata import SELECTION_SOURCE_PATTERN
 
 
@@ -30,6 +30,21 @@ class TaskStatusEnum(str, Enum):
 
 class AnalyzeRequest(BaseModel):
     """Analysis request parameters"""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "stock_code": "600519",
+                "report_type": "detailed",
+                "force_refresh": False,
+                "async_mode": False,
+                "stock_name": "贵州茅台",
+                "original_query": "茅台",
+                "selection_source": "autocomplete",
+            }
+        },
+    )
     
     stock_code: Optional[str] = Field(
         None, 
@@ -70,33 +85,12 @@ class AnalyzeRequest(BaseModel):
         pattern=SELECTION_SOURCE_PATTERN,
         example="autocomplete"
     )
-    notify: bool = Field(
-        True,
-        description="是否发送推送通知（Telegram/邮件等已配置渠道）"
-    )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "stock_code": "600519",
-                "report_type": "detailed",
-                "force_refresh": False,
-                "async_mode": False,
-                "stock_name": "贵州茅台",
-                "original_query": "茅台",
-                "selection_source": "autocomplete",
-                "notify": True
-            }
-        }
 
 
 class MarketReviewRequest(BaseModel):
     """Market review trigger parameters."""
 
-    send_notification: bool = Field(
-        True,
-        description="是否在大盘复盘完成后发送推送通知",
-    )
+    model_config = ConfigDict(extra="forbid")
 
 
 class MarketReviewAccepted(BaseModel):
