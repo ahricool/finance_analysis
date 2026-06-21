@@ -51,12 +51,24 @@ services:
       TZ: Asia/Shanghai
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       - ./data:/workspace/data
       - ./.env:/workspace/.env:ro
       - ./strategies:/workspace/strategies:ro
+
+  web:
+    image: ghcr.io/ahricool/finance_analysis-web:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: finance-analysis-web
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "8000:80"
 
   worker:
     image: ghcr.io/ahricool/finance_analysis:latest

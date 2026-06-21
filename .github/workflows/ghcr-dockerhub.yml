@@ -16,7 +16,9 @@ env:
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   GHCR_IMAGE_NAME: ${{ github.repository }}
+  GHCR_WEB_IMAGE_NAME: ${{ github.repository }}-web
   DOCKERHUB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
+  DOCKERHUB_WEB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}-web
 
 jobs:
   build-and-push:
@@ -65,8 +67,8 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract metadata for GHCR
-        id: meta-ghcr
+      - name: Extract backend metadata for GHCR
+        id: meta-ghcr-backend
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}
@@ -76,8 +78,19 @@ jobs:
           flavor: |
             latest=false
 
-      - name: Extract metadata for Docker Hub
-        id: meta-dockerhub
+      - name: Extract web metadata for GHCR
+        id: meta-ghcr-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_WEB_IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ inputs.image_tag }}
+            type=raw,value=latest
+          flavor: |
+            latest=false
+
+      - name: Extract backend metadata for Docker Hub
+        id: meta-dockerhub-backend
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_IMAGE_NAME }}
@@ -87,9 +100,21 @@ jobs:
           flavor: |
             latest=false
 
+      - name: Extract web metadata for Docker Hub
+        id: meta-dockerhub-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_WEB_IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ inputs.image_tag }}
+            type=raw,value=latest
+          flavor: |
+            latest=false
+
       - name: Pre-publish docker smoke
         run: |
           docker build -t stock-analysis:manual -f Dockerfile .
+          docker build -t stock-analysis-web:manual -f Dockerfile.web .
           docker run --rm stock-analysis:manual python -c "
           from finance_analysis.config import load_env; print('ok-config')
           from finance_analysis.database import DatabaseManager; print('ok-storage')
@@ -98,8 +123,9 @@ jobs:
           from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer; print('ok-analyzer')
           print('manual-smoke-ok')
           "
+          docker run --rm stock-analysis-web:manual nginx -t
 
-      - name: Build and push multi-arch images
+      - name: Build and push backend multi-arch images
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -107,23 +133,41 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ steps.meta-ghcr.outputs.tags }}
-            ${{ steps.meta-dockerhub.outputs.tags }}
-          labels: ${{ steps.meta-ghcr.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ${{ steps.meta-ghcr-backend.outputs.tags }}
+            ${{ steps.meta-dockerhub-backend.outputs.tags }}
+          labels: ${{ steps.meta-ghcr-backend.outputs.labels }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build and push web multi-arch images
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.web
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta-ghcr-web.outputs.tags }}
+            ${{ steps.meta-dockerhub-web.outputs.tags }}
+          labels: ${{ steps.meta-ghcr-web.outputs.labels }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
 
       - name: Generate summary
         run: |
           echo "### Docker images built and pushed successfully" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Docker Hub: \`${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Web GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_WEB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend Docker Hub: \`${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Web Docker Hub: \`${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_WEB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tags: ${{ inputs.image_tag }}, latest" >> "$GITHUB_STEP_SUMMARY"
           echo "- Platforms: linux/amd64, linux/arm64" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Pull commands" >> "$GITHUB_STEP_SUMMARY"
           echo '```bash' >> "$GITHUB_STEP_SUMMARY"
           echo "docker pull ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:${{ inputs.image_tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "docker pull ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_WEB_IMAGE_NAME }}:${{ inputs.image_tag }}" >> "$GITHUB_STEP_SUMMARY"
           echo "docker pull ${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_IMAGE_NAME }}:${{ inputs.image_tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "docker pull ${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_WEB_IMAGE_NAME }}:${{ inputs.image_tag }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

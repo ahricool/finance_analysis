@@ -1,0 +1,27 @@
+# ===================================
+# Finance Analysis - Web 镜像
+# ===================================
+# 多阶段构建：前端打包 + nginx 运行时
+
+# ── Stage 1: Web frontend build ─────────────────────────────────────────────
+FROM node:24-slim AS web-builder
+
+# Corepack reads `packageManager` from package.json on first `pnpm` invocation.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
+
+WORKDIR /workspace/web
+
+# Dependency layer: caches when only source (not lockfile) changes.
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN --mount=type=cache,id=pnpm-store-web,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
+COPY web/ ./
+RUN pnpm run build
+
+# ── Stage 2: Web frontend runtime (nginx) ────────────────────────────────────
+FROM nginx:1.27-alpine
+
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=web-builder /workspace/static /usr/share/nginx/html

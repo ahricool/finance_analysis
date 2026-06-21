@@ -14,7 +14,6 @@ import os
 import sys
 import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # Keep this test runnable when optional LLM runtime deps are not installed.
@@ -302,9 +301,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
                 self.fail("未找到保存的历史记录")
             record_id = row.id
 
-        static_dir = Path(self._temp_dir.name) / "empty-static"
-        static_dir.mkdir(exist_ok=True)
-        client = TestClient(create_app(static_dir=static_dir))
+        client = TestClient(create_app())
 
         response = client.get(f"/api/v1/history/{record_id}", cookies=self._auth_cookies())
 
@@ -741,9 +738,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         record_id_1 = self._save_history("query_delete_api_001")
         record_id_2 = self._save_history("query_delete_api_002")
 
-        static_dir = Path(self._temp_dir.name) / "empty-static"
-        static_dir.mkdir(exist_ok=True)
-        client = TestClient(create_app(static_dir=static_dir))
+        client = TestClient(create_app())
 
         response = client.request(
             "DELETE",

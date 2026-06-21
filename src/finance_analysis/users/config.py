@@ -19,3 +19,4 @@ def get_auth_config() -> AuthConfig:
     return AuthConfig(
         secret_key=env_str("SECRET_KEY", "") or "",
     )
+    

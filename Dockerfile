@@ -1,30 +1,13 @@
 # ===================================
 # Finance Analysis - Docker 镜像
 # ===================================
-# 多阶段构建：前端打包 + Python 依赖安装 + 运行时
+# 多阶段构建：Python 依赖安装 + 后端运行时
 #
 # Python 3.13 + uv for fast, reproducible dependency installation.
 # Note: Python 3.14 is intentionally skipped — litellm requires <3.14.
 # Database: PostgreSQL via psycopg2-binary (no system libpq needed).
 
-# ── Stage 1: Web frontend build ─────────────────────────────────────────────
-FROM node:24-slim AS web-builder
-
-# Corepack reads `packageManager` from package.json on first `pnpm` invocation.
-ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-RUN corepack enable
-
-WORKDIR /workspace/web
-
-# Dependency layer: caches when only source (not lockfile) changes.
-COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-RUN --mount=type=cache,id=pnpm-store-web,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
-
-COPY web/ ./
-RUN pnpm run build
-
-# ── Stage 2: Python dependency build (uv) ────────────────────────────────────
+# ── Stage 1: Python dependency build (uv) ────────────────────────────────────
 FROM python:3.13-slim-trixie AS py-builder
 
 # Inject uv binary from the official distroless image
@@ -55,7 +38,7 @@ COPY main.py ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
-# ── Stage 3: Runtime image ───────────────────────────────────────────────────
+# ── Stage 2: Backend runtime image ───────────────────────────────────────────
 FROM python:3.13-slim-trixie
 
 # Inject uv binary from the official distroless image
@@ -95,8 +78,6 @@ COPY main.py ./
 COPY src/ ./src/
 COPY strategies/ ./strategies/
 COPY templates/ ./templates/
-
-COPY --from=web-builder /workspace/static ./static/
 
 # 设置环境变量默认值
 ENV PYTHONUNBUFFERED=1

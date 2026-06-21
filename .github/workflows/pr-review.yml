@@ -22,6 +22,8 @@ on:
       - '.github/workflows/**'
       - '.github/scripts/**'
       - 'Dockerfile'
+      - 'Dockerfile.web'
+      - 'docker/**'
       - 'docker-compose.yml'
   # 支持手动触发（用于重新审查）
   workflow_dispatch:
