@@ -27,7 +27,7 @@ class BacktestServiceTestCase(unittest.TestCase):
         from sqlalchemy import text
         with self.db._engine.begin() as conn:
             conn.execute(text(
-                "TRUNCATE TABLE backtest_summaries, backtest_results, analysis_history "
+                "TRUNCATE TABLE backtest_summaries, backtest_results, analysis_history, stock_daily "
                 "RESTART IDENTITY CASCADE"
             ))
 
