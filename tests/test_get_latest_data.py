@@ -29,6 +29,9 @@ class GetLatestDataTestCase(unittest.TestCase):
 
         DatabaseManager.reset_instance()
         self.db = DatabaseManager.get_instance()
+        from sqlalchemy import text
+        with self.db._engine.begin() as conn:
+            conn.execute(text("TRUNCATE TABLE stock_daily RESTART IDENTITY CASCADE"))
 
     def tearDown(self) -> None:
         """Clean up resources."""

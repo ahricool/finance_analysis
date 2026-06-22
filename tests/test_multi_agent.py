@@ -853,8 +853,8 @@ class TestOrchestratorExecution(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertEqual(add_message.call_count, 2)
-        add_message.assert_any_call("session-1", "user", "hello")
-        add_message.assert_any_call("session-1", "assistant", "assistant reply")
+        add_message.assert_any_call("session-1", "user", "hello", user_id=None)
+        add_message.assert_any_call("session-1", "assistant", "assistant reply", user_id=None)
 
     def test_chat_persists_failure_message(self):
         from finance_analysis.agent.orchestrator import OrchestratorResult
@@ -867,7 +867,7 @@ class TestOrchestratorExecution(unittest.TestCase):
                 result = orch.chat("hello", "session-2")
 
         self.assertFalse(result.success)
-        add_message.assert_any_call("session-2", "assistant", "[分析失败] boom")
+        add_message.assert_any_call("session-2", "assistant", "[分析失败] boom", user_id=None)
 
     def test_execute_pipeline_fails_when_dashboard_parse_fails(self):
         orch = self._make_orchestrator()
@@ -1706,7 +1706,7 @@ class TestAgentResearchEndpoint(unittest.IsolatedAsyncioTestCase):
         ))
 
         with (
-            patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=config),
+            patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_pipeline_config", return_value=config),
             patch("finance_analysis.interfaces.api.v1.endpoints.agent._run_research_in_background", new=research_result),
             patch("finance_analysis.agent.factory.get_tool_registry", return_value=MagicMock()),
             patch("finance_analysis.agent.llm_adapter.LLMToolAdapter", return_value=MagicMock()),

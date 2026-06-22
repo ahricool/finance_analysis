@@ -31,11 +31,18 @@ except ModuleNotFoundError:
     create_app = None
     get_history_detail = None
 
+from types import SimpleNamespace
+
 from finance_analysis.users.auth import COOKIE_NAME, create_session
 from finance_analysis.database.repositories.user import DEFAULT_ADMIN_EMAIL, UserRepository
 from finance_analysis.database import DatabaseManager, AnalysisHistory, BacktestResult
 from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
 from finance_analysis.analysis.history.service import HistoryService
+
+
+def _fake_request():
+    """Minimal request stub for direct endpoint calls (no scoped uid → admin scope)."""
+    return SimpleNamespace(state=SimpleNamespace())
 
 class AnalysisHistoryTestCase(unittest.TestCase):
     """分析历史存储测试"""
@@ -47,6 +54,12 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         DatabaseManager.reset_instance()
         os.environ["SECRET_KEY"] = "analysis-history-test-secret"
         self.db = DatabaseManager.get_instance()
+        from sqlalchemy import text
+        with self.db._engine.begin() as conn:
+            conn.execute(text(
+                "TRUNCATE TABLE analysis_history, fundamental_snapshot, news_intel "
+                "RESTART IDENTITY CASCADE"
+            ))
 
     def tearDown(self) -> None:
         """清理资源"""
@@ -230,7 +243,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
                 self.fail("未找到保存的历史记录")
             record_id = row.id
 
-        report = get_history_detail(str(record_id), db_manager=self.db)
+        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
         self.assertEqual(report.meta.current_price, 100.0)
         self.assertEqual(report.meta.change_pct, 0.0)
 
@@ -267,7 +280,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
                 self.fail("未找到保存的历史记录")
             record_id = row.id
 
-        report = get_history_detail(str(record_id), db_manager=self.db)
+        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
         self.assertEqual(report.meta.current_price, 200.0)
         self.assertEqual(report.meta.change_pct, 1.23)
 
@@ -449,7 +462,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
                 self.fail("未找到保存的历史记录")
             record_id = row.id
 
-        report = get_history_detail(str(record_id), db_manager=self.db)
+        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
         self.assertEqual(report.details.financial_report["report_date"], "2025-12-31")
         self.assertEqual(report.details.dividend_metrics["ttm_dividend_yield_pct"], 2.6)
         self.assertEqual(report.details.belong_boards, [{"name": "白酒", "type": "行业"}])
@@ -491,7 +504,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
                 self.fail("未找到保存的历史记录")
             record_id = row.id
 
-        report = get_history_detail(str(record_id), db_manager=self.db)
+        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
         self.assertEqual(report.details.belong_boards, [{"name": "白酒", "type": "行业"}])
         self.assertIsNone(report.details.sector_rankings)
 
@@ -517,7 +530,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
                 self.fail("未找到保存的历史记录")
             record_id = row.id
 
-        report = get_history_detail(str(record_id), db_manager=self.db)
+        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
         self.assertIsNone(report.details.financial_report)
         self.assertIsNone(report.details.dividend_metrics)
         self.assertEqual(report.details.belong_boards, [])
@@ -552,7 +565,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
                 self.fail("未找到保存的历史记录")
             record_id = row.id
 
-        report = get_history_detail(str(record_id), db_manager=self.db)
+        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
         self.assertEqual(report.details.belong_boards, [])
         self.assertIsNone(report.details.sector_rankings)
 
@@ -646,7 +659,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
                 self.fail("未找到保存的历史记录")
             record_id = row.id
 
-        report = get_history_detail(str(record_id), db_manager=self.db)
+        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
 
         self.assertEqual(report.meta.report_language, "en")
         self.assertEqual(report.meta.stock_name, "Unnamed Stock")

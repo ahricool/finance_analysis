@@ -268,7 +268,7 @@ class CustomWebhookSender:
             }
         
         # Bark (iOS 推送)
-        if 'finance_analysis.interfaces.api.day.app' in url_lower:
+        if 'api.day.app' in url_lower:
             return {
                 "title": "股票分析报告",
                 "body": content[:4000],  # Bark 限制

@@ -29,6 +29,9 @@ class NewsIntelStorageTestCase(unittest.TestCase):
         # 重置数据库单例，确保使用临时库
         DatabaseManager.reset_instance()
         self.db = DatabaseManager.get_instance()
+        from sqlalchemy import text
+        with self.db._engine.begin() as conn:
+            conn.execute(text("TRUNCATE TABLE news_intel RESTART IDENTITY CASCADE"))
 
     def tearDown(self) -> None:
         """清理资源"""

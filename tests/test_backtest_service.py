@@ -24,6 +24,12 @@ class BacktestServiceTestCase(unittest.TestCase):
 
         DatabaseManager.reset_instance()
         self.db = DatabaseManager.get_instance()
+        from sqlalchemy import text
+        with self.db._engine.begin() as conn:
+            conn.execute(text(
+                "TRUNCATE TABLE backtest_summaries, backtest_results, analysis_history "
+                "RESTART IDENTITY CASCADE"
+            ))
 
         # Ensure analysis is old enough for default min_age_days=14
         old_created_at = datetime(2024, 1, 1, 0, 0, 0)
