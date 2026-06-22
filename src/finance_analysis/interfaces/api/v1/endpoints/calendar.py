@@ -12,7 +12,12 @@ from finance_analysis.interfaces.api.v1.schemas.calendar import (
     CalendarEntryResponse,
     CalendarEntryUpdate,
 )
+from finance_analysis.interfaces.api.v1.schemas.market_calendar import (
+    FinanceEventListResponse,
+    FinanceEventResponse,
+)
 from finance_analysis.database.repositories.calendar import CalendarRepo
+from finance_analysis.database.repositories.market_calendar_event import MarketCalendarEventRepo
 from finance_analysis.core.time import DEFAULT_DISPLAY_TIMEZONE, validate_display_timezone
 
 router = APIRouter()
@@ -20,6 +25,36 @@ router = APIRouter()
 
 def _repo() -> CalendarRepo:
     return CalendarRepo()
+
+
+def _event_repo() -> MarketCalendarEventRepo:
+    return MarketCalendarEventRepo()
+
+
+@router.get('/events', response_model=FinanceEventListResponse, summary='按日期获取财经事件')
+def list_finance_events(
+    query_date: date_type = Query(..., alias='date', description='查询日期 YYYY-MM-DD'),
+    timezone: str = Query(DEFAULT_DISPLAY_TIMEZONE, description='Asia/Shanghai | America/New_York'),
+    market: Optional[str] = Query(None, description='市场，例如 US'),
+    calendar_type: Optional[str] = Query(None, description='事件类型，例如 earnings'),
+):
+    try:
+        validate_display_timezone(timezone)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_timezone", "message": str(exc)},
+        ) from exc
+    items = _event_repo().list_events_by_date(
+        query_date,
+        market=market,
+        calendar_type=calendar_type,
+    )
+    return FinanceEventListResponse(
+        date=query_date.isoformat(),
+        items=[FinanceEventResponse.model_validate(i) for i in items],
+        total=len(items),
+    )
 
 
 @router.get('', response_model=CalendarEntryListResponse, summary='按日期获取日历记录')

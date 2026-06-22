@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { calendarApi, type CalendarEntryItem } from '@/api/calendar';
+import { calendarApi, type CalendarEntryItem, type FinanceEventItem } from '@/api/calendar';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import { useTimezoneStore } from '@/stores/timezoneStore';
-import { formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/utils/format';
+import { formatDateOnly, formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/utils/format';
 import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -14,11 +14,15 @@ const WEEKDAY_CN = ['星期日', '星期一', '星期二', '星期三', '星期�
 const timezoneStore = useTimezoneStore();
 const { displayTimezone } = storeToRefs(timezoneStore);
 const initialSelectedDate = getTodayInDisplayTimezone();
+const todayInDisplayTimezone = ref(initialSelectedDate);
 const weekStart = ref(startOfWeek(parseDateOnly(initialSelectedDate)));
 const selectedDate = ref(initialSelectedDate);
+const events = ref<FinanceEventItem[]>([]);
 const entries = ref<CalendarEntryItem[]>([]);
-const loading = ref(false);
+const eventsLoading = ref(false);
+const entriesLoading = ref(false);
 const error = ref<ParsedApiError | null>(null);
+const expandedEventId = ref<number | null>(null);
 const expandedEntryId = ref<number | null>(null);
 
 const weekDates = computed(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart.value, i)));
@@ -65,16 +69,23 @@ const selectedDateDisplay = computed(() => {
 });
 
 async function loadEntries() {
-  loading.value = true;
+  eventsLoading.value = true;
+  entriesLoading.value = true;
   error.value = null;
+  expandedEventId.value = null;
   expandedEntryId.value = null;
   try {
-    const res = await calendarApi.listByDate(selectedDate.value);
-    entries.value = res.items;
+    const [eventRes, entryRes] = await Promise.all([
+      calendarApi.listEventsByDate(selectedDate.value),
+      calendarApi.listByDate(selectedDate.value),
+    ]);
+    events.value = eventRes.items;
+    entries.value = entryRes.items;
   } catch (e) {
     error.value = getParsedApiError(e);
   } finally {
-    loading.value = false;
+    eventsLoading.value = false;
+    entriesLoading.value = false;
   }
 }
 
@@ -91,12 +102,36 @@ function toggleEntry(item: CalendarEntryItem) {
   expandedEntryId.value = expandedEntryId.value === item.id ? null : item.id;
 }
 
+function toggleEvent(item: FinanceEventItem) {
+  expandedEventId.value = expandedEventId.value === item.id ? null : item.id;
+}
+
 function entryTypeLabel(type: string | null): string {
   if (type === 'scheduled_daily') return '定时全量';
   if (type === 'scheduled_market_calendar') return '财经日历';
   if (type === 'scheduled_us_premarket') return '美股盘前';
   if (type === 'scheduled_us_premarket_news') return '盘前新闻';
   return type || '日历记录';
+}
+
+function eventTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    earnings: '财报',
+    dividend: '分红',
+    split: '拆股',
+    ipo: 'IPO',
+    macro: '宏观',
+  };
+  return labels[type] ?? type;
+}
+
+function eventName(item: FinanceEventItem): string {
+  return [item.symbol, item.counter_name].filter(Boolean).join(' / ') || item.market;
+}
+
+function eventTime(item: FinanceEventItem): string {
+  if (item.event_datetime) return formatDateTimeInDisplayTimezone(item.event_datetime);
+  return item.financial_market_time || formatDateOnly(item.event_date);
 }
 
 function renderMarkdown(content: string | null): string {
@@ -107,6 +142,13 @@ function renderMarkdown(content: string | null): string {
 onMounted(loadEntries);
 
 watch(displayTimezone, () => {
+  const previousToday = todayInDisplayTimezone.value;
+  const nextToday = getTodayInDisplayTimezone();
+  todayInDisplayTimezone.value = nextToday;
+  if (selectedDate.value === previousToday) {
+    selectedDate.value = nextToday;
+    weekStart.value = startOfWeek(parseDateOnly(nextToday));
+  }
   void loadEntries();
 });
 </script>
@@ -119,7 +161,7 @@ watch(displayTimezone, () => {
       </div>
       <div>
         <h1 class="text-lg font-semibold text-foreground">日历记录</h1>
-        <p class="text-xs text-secondary-text">按周查看每日自动化记录与定时任务执行结果</p>
+        <p class="text-xs text-secondary-text">按周查看财经事件与自动化任务记录</p>
       </div>
     </div>
 
@@ -150,9 +192,46 @@ watch(displayTimezone, () => {
     </div>
 
     <ApiErrorAlert v-if="error" :error="error" class="mb-4" />
+
+    <div class="mb-4 rounded-2xl border border-border/60 bg-card p-4">
+      <h2 class="mb-3 text-xs font-semibold sm:text-sm">{{ selectedDateDisplay }} 财经事件</h2>
+      <div v-if="eventsLoading" class="space-y-2">
+        <div v-for="n in 3" :key="n" class="h-16 animate-pulse rounded-xl bg-hover" />
+      </div>
+      <div v-else-if="!events.length" class="py-6 text-sm text-secondary-text">当天暂无财经事件</div>
+      <div v-else class="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+        <article v-for="item in events" :key="item.id" class="overflow-hidden rounded-xl border border-border/60">
+          <button
+            type="button"
+            class="flex w-full items-start justify-between gap-3 p-3 text-left transition hover:bg-hover/70"
+            @click="toggleEvent(item)"
+          >
+            <span class="min-w-0 flex-1">
+              <span class="mb-1 flex flex-wrap items-center gap-2 text-xs text-secondary-text">
+                <span class="rounded-full bg-hover px-2 py-0.5">{{ eventTypeLabel(item.calendar_type) }}</span>
+                <span>{{ eventName(item) }}</span>
+                <span v-if="item.star !== null">star {{ item.star }}</span>
+                <span>{{ eventTime(item) }}</span>
+              </span>
+              <span class="block text-sm font-medium">{{ item.title }}</span>
+              <span class="mt-1 block text-xs text-secondary-text">{{ formatDateOnly(item.event_date) }}</span>
+            </span>
+            <ChevronDown
+              class="mt-0.5 h-4 w-4 shrink-0 text-secondary-text transition-transform"
+              :class="expandedEventId === item.id ? 'rotate-180 text-primary' : ''"
+            />
+          </button>
+          <div v-if="expandedEventId === item.id" class="border-t border-border/60 bg-background/40 p-3">
+            <div v-if="item.content" class="prose prose-sm max-w-none text-sm text-foreground dark:prose-invert" v-html="renderMarkdown(item.content)" />
+            <p v-else class="text-sm text-secondary-text">该事件暂无详情内容</p>
+          </div>
+        </article>
+      </div>
+    </div>
+
     <div class="rounded-2xl border border-border/60 bg-card p-4">
       <h2 class="mb-3 text-xs font-semibold sm:text-sm">{{ selectedDateDisplay }} 日历记录</h2>
-      <div v-if="loading" class="space-y-2"><div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-xl bg-hover" /></div>
+      <div v-if="entriesLoading" class="space-y-2"><div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-xl bg-hover" /></div>
       <div v-else-if="!entries.length" class="py-6 text-sm text-secondary-text">当天暂无日历记录</div>
       <div v-else class="space-y-2">
         <article v-for="item in entries" :key="item.id" class="overflow-hidden rounded-xl border border-border/60">
