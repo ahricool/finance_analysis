@@ -101,6 +101,27 @@ def notification_fingerprint(event: Mapping[str, Any]) -> str:
     return _digest(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str), 48)
 
 
+def _sort_events_for_display(events: List[FinanceEvent]) -> List[FinanceEvent]:
+    def _star_rank(event: FinanceEvent) -> tuple[int, int]:
+        star = getattr(event, "star", None)
+        if star is None:
+            return (1, 0)
+        try:
+            return (0, -int(star))
+        except (TypeError, ValueError):
+            return (1, 0)
+
+    return sorted(
+        events,
+        key=lambda event: (
+            *_star_rank(event),
+            str(getattr(event, "calendar_type", "") or ""),
+            str(getattr(event, "symbol", "") or ""),
+            str(getattr(event, "title", "") or ""),
+        ),
+    )
+
+
 @dataclass
 class FinanceEventUpsertResult:
     event: FinanceEvent
@@ -154,6 +175,32 @@ class MarketCalendarEventRepo:
             )
 
         return self.db._run_write_transaction("finance_events.upsert", _write)
+
+    def list_events_by_date(
+        self,
+        day: date,
+        market: Optional[str] = None,
+        calendar_type: Optional[str] = None,
+    ) -> List[FinanceEvent]:
+        with self.db.get_session() as session:
+            stmt = (
+                select(FinanceEvent)
+                .where(FinanceEvent.event_date == day)
+                .order_by(
+                    FinanceEvent.star.desc().nulls_last(),
+                    FinanceEvent.calendar_type.asc(),
+                    FinanceEvent.symbol.asc(),
+                    FinanceEvent.title.asc(),
+                )
+            )
+            if market:
+                stmt = stmt.where(FinanceEvent.market == market.upper())
+            if calendar_type:
+                stmt = stmt.where(FinanceEvent.calendar_type == calendar_type)
+            rows = session.execute(stmt).scalars().all()
+            for row in rows:
+                session.expunge(row)
+            return _sort_events_for_display(rows)
 
     def list_events_by_date_range(
         self,
