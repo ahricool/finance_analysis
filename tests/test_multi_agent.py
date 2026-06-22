@@ -274,7 +274,7 @@ class TestStrategyRouter(unittest.TestCase):
             SimpleNamespace(name="wave_theory"),
         ],
     )
-    @patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace(agent_skills=["chan_theory", "wave_theory"]))
+    @patch("finance_analysis.agent.config.get_agent_config", return_value=SimpleNamespace(agent_skills=["chan_theory", "wave_theory"]))
     def test_manual_mode_uses_configured_agent_skills(self, _mock_config, _mock_available, _mock):
         from finance_analysis.agent.strategies.router import StrategyRouter
         router = StrategyRouter()
@@ -290,7 +290,7 @@ class TestStrategyRouter(unittest.TestCase):
             SimpleNamespace(name="shrink_pullback", default_router=True, default_priority=40),
         ],
     )
-    @patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace(agent_skills=[]))
+    @patch("finance_analysis.agent.config.get_agent_config", return_value=SimpleNamespace(agent_skills=[]))
     def test_manual_mode_falls_back_to_defaults_when_no_skills_configured(self, _mock_config, _mock_available, _mock):
         from finance_analysis.agent.strategies.router import StrategyRouter, _DEFAULT_STRATEGIES
         router = StrategyRouter()

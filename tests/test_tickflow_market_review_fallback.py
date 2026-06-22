@@ -120,7 +120,7 @@ class TestTickFlowMarketReviewFallback(unittest.TestCase):
         self.assertEqual(data["up_count"], 1)
         self.assertEqual(fallback.stats_calls, 1)
 
-    @patch("finance_analysis.config.runtime.get_runtime_config")
+    @patch("finance_analysis.integrations.market_data.config.get_data_provider_config")
     def test_manager_skips_tickflow_without_api_key(self, mock_get_config):
         mock_get_config.return_value = SimpleNamespace(tickflow_api_key=None)
 

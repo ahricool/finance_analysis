@@ -380,7 +380,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         pipeline_instance = MagicMock()
         pipeline_instance.process_single_stock.return_value = object()
 
-        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace()), \
+        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=SimpleNamespace()), \
              patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline_instance), \
              patch.object(AnalysisService, "_build_analysis_response", return_value={"stock_code": "600519"}):
             result = AnalysisService.analyze_stock(service, "600519", report_type="full", query_id="q1")
@@ -413,7 +413,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             get_sniper_points=lambda: {},
         )
 
-        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace()), \
+        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=SimpleNamespace()), \
              patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline_instance):
             result = service.analyze_stock("600519", report_type="full", query_id="q1", send_notification=False)
 
@@ -428,7 +428,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             error_message="LLM stream interrupted",
         )
 
-        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace()), \
+        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=SimpleNamespace()), \
              patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline_instance):
             result = service.analyze_stock("600519", report_type="detailed", query_id="q1", send_notification=False)
 

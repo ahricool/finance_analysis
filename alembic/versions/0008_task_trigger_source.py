@@ -20,10 +20,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("task", sa.Column("trigger_source", sa.String(length=32), nullable=True))
-    op.add_column("task", sa.Column("triggered_by_uid", sa.Integer(), nullable=True))
-    op.create_index("ix_task_trigger_source", "task", ["trigger_source"])
-    op.create_index("ix_task_triggered_by_uid", "task", ["triggered_by_uid"])
+    # Idempotent against the collapsed baseline (0001), which already creates these
+    # columns/indexes from the current ORM metadata.
+    op.execute("ALTER TABLE task ADD COLUMN IF NOT EXISTS trigger_source VARCHAR(32)")
+    op.execute("ALTER TABLE task ADD COLUMN IF NOT EXISTS triggered_by_uid INTEGER")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_task_trigger_source ON task (trigger_source)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_task_triggered_by_uid ON task (triggered_by_uid)")
 
 
 def downgrade() -> None:

@@ -67,6 +67,14 @@ def upgrade() -> None:
         DROP CONSTRAINT IF EXISTS uix_backtest_summary_scope_code_window_version;
         """
     )
+    # Idempotent: the collapsed baseline (0001) already creates this constraint
+    # from the current ORM metadata, so drop any existing copy before re-adding.
+    op.execute(
+        """
+        ALTER TABLE backtest_summaries
+        DROP CONSTRAINT IF EXISTS uix_backtest_summary_uid_scope_code_window_version;
+        """
+    )
     op.execute(
         """
         ALTER TABLE backtest_summaries
