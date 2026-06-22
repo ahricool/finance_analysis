@@ -15,7 +15,6 @@ import unittest
 
 from datetime import datetime
 
-from finance_analysis.config import Config
 from finance_analysis.database import DatabaseManager, NewsIntel
 from finance_analysis.search import SearchResponse, SearchResult
 
@@ -27,15 +26,16 @@ class NewsIntelStorageTestCase(unittest.TestCase):
         """为每个用例初始化独立数据库"""
         self._temp_dir = tempfile.TemporaryDirectory()
 
-        # 重置配置与数据库单例，确保使用临时库
-        Config._instance = None
+        # 重置数据库单例，确保使用临时库
         DatabaseManager.reset_instance()
         self.db = DatabaseManager.get_instance()
+        from sqlalchemy import text
+        with self.db._engine.begin() as conn:
+            conn.execute(text("TRUNCATE TABLE news_intel RESTART IDENTITY CASCADE"))
 
     def tearDown(self) -> None:
         """清理资源"""
         DatabaseManager.reset_instance()
-        Config.reset_instance()
         self._temp_dir.cleanup()
 
     def _build_response(self, results) -> SearchResponse:

@@ -28,16 +28,22 @@ for optional_module in ("litellm", "json_repair"):
     except ModuleNotFoundError:
         sys.modules[optional_module] = mock.MagicMock()
 
-from finance_analysis.config import Config
+from finance_analysis.notification.config import NotificationConfig
+from finance_analysis.reporting.config import ReportConfig
 from finance_analysis.notification.service import NotificationService, NotificationChannel
 from finance_analysis.notification.noise_control import reset_notification_noise_state
 from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
 import requests
 
 
-def _make_config(**overrides) -> Config:
-    """Create a Config instance overriding only notification-related fields."""
-    return Config(database_url=os.environ["DATABASE_URL"], **overrides)
+def _make_config(**overrides) -> NotificationConfig:
+    """Create a NotificationConfig overriding only notification-related fields."""
+    return NotificationConfig(**overrides)
+
+
+def _make_report_config(**overrides) -> ReportConfig:
+    """Create a ReportConfig overriding only report-related fields."""
+    return ReportConfig(**overrides)
 
 
 def _make_response(status_code: int, json: Optional[dict] = None) -> requests.Response:
@@ -360,9 +366,11 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertEqual(mock_dashboard.call_count, 3)
         mock_brief.assert_called_once()
 
+    @mock.patch("finance_analysis.notification.service.get_report_config")
     @mock.patch("finance_analysis.notification.service.get_notification_config")
-    def test_generate_single_stock_report_keeps_legacy_simple_format(self, mock_get_config: mock.MagicMock):
-        mock_get_config.return_value = _make_config(report_renderer_enabled=True)
+    def test_generate_single_stock_report_keeps_legacy_simple_format(self, mock_get_config: mock.MagicMock, mock_get_report_config: mock.MagicMock):
+        mock_get_config.return_value = _make_config()
+        mock_get_report_config.return_value = _make_report_config(report_renderer_enabled=True)
         service = NotificationService()
         result = AnalysisResult(
             code="600519",
@@ -380,9 +388,11 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertIn("贵州茅台", out)
         self.assertIn("600519", out)
 
+    @mock.patch("finance_analysis.notification.service.get_report_config")
     @mock.patch("finance_analysis.notification.service.get_notification_config")
-    def test_generate_dashboard_report_localizes_english_fallback(self, mock_get_config: mock.MagicMock):
-        mock_get_config.return_value = _make_config(report_renderer_enabled=False, report_language="en")
+    def test_generate_dashboard_report_localizes_english_fallback(self, mock_get_config: mock.MagicMock, mock_get_report_config: mock.MagicMock):
+        mock_get_config.return_value = _make_config()
+        mock_get_report_config.return_value = _make_report_config(report_renderer_enabled=False, report_language="en")
         service = NotificationService()
         result = AnalysisResult(
             code="AAPL",
@@ -418,11 +428,13 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertIn("Action Levels", out)
         self.assertIn("Buy", out)
 
+    @mock.patch("finance_analysis.notification.service.get_report_config")
     @mock.patch("finance_analysis.notification.service.get_notification_config")
     def test_generate_dashboard_report_localizes_english_no_dashboard_fallback(
-        self, mock_get_config: mock.MagicMock
+        self, mock_get_config: mock.MagicMock, mock_get_report_config: mock.MagicMock
     ):
-        mock_get_config.return_value = _make_config(report_renderer_enabled=False, report_language="en")
+        mock_get_config.return_value = _make_config()
+        mock_get_report_config.return_value = _make_report_config(report_renderer_enabled=False, report_language="en")
         service = NotificationService()
         result = AnalysisResult(
             code="AAPL",
@@ -452,9 +464,11 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertNotIn("技术面", out)
         self.assertNotIn("消息面", out)
 
+    @mock.patch("finance_analysis.notification.service.get_report_config")
     @mock.patch("finance_analysis.notification.service.get_notification_config")
-    def test_generate_single_stock_report_localizes_english_fallback(self, mock_get_config: mock.MagicMock):
-        mock_get_config.return_value = _make_config(report_renderer_enabled=False, report_language="en")
+    def test_generate_single_stock_report_localizes_english_fallback(self, mock_get_config: mock.MagicMock, mock_get_report_config: mock.MagicMock):
+        mock_get_config.return_value = _make_config()
+        mock_get_report_config.return_value = _make_report_config(report_renderer_enabled=False, report_language="en")
         service = NotificationService()
         result = AnalysisResult(
             code="AAPL",
@@ -482,9 +496,11 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertIn("Action Levels", out)
         self.assertIn("Hold", out)
 
+    @mock.patch("finance_analysis.notification.service.get_report_config")
     @mock.patch("finance_analysis.notification.service.get_notification_config")
-    def test_history_compare_context_uses_cache(self, mock_get_config: mock.MagicMock):
-        mock_get_config.return_value = _make_config(report_history_compare_n=3)
+    def test_history_compare_context_uses_cache(self, mock_get_config: mock.MagicMock, mock_get_report_config: mock.MagicMock):
+        mock_get_config.return_value = _make_config()
+        mock_get_report_config.return_value = _make_report_config(report_history_compare_n=3)
         service = NotificationService()
         result = AnalysisResult(
             code="600519",
@@ -708,16 +724,15 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertNotIn(NotificationChannel.NTFY, service.get_available_channels())
         self.assertFalse(service.is_available())
 
+    @mock.patch("finance_analysis.notification.service.get_report_config")
     @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     def test_send_to_ntfy_does_not_trigger_markdown_to_image(
-        self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock
+        self, mock_post: mock.MagicMock, mock_get_config: mock.MagicMock, mock_get_report_config: mock.MagicMock
     ):
-        cfg = _make_config(
-            ntfy_url="https://ntfy.sh/fa-topic",
-            markdown_to_image_channels=["ntfy"],
-        )
+        cfg = _make_config(ntfy_url="https://ntfy.sh/fa-topic")
         mock_get_config.return_value = cfg
+        mock_get_report_config.return_value = _make_report_config(markdown_to_image_channels=["ntfy"])
         mock_post.return_value = _make_response(200)
 
         service = NotificationService()

@@ -118,7 +118,6 @@ jobs:
           from finance_analysis.integrations.market_data import DataFetcherManager; print('✅ data_provider')
           from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer; print('✅ analyzer')
           from finance_analysis.patches.eastmoney_patch import eastmoney_patch; print('✅ patch')
-          from finance_analysis.interfaces.bot.dispatcher import CommandDispatcher; print('✅ bot')
           from finance_analysis.interfaces.api.app import app; print('✅ api')
           print('✅ All Docker imports OK')
           "

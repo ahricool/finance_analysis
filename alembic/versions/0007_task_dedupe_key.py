@@ -20,7 +20,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("task", sa.Column("dedupe_key", sa.String(length=160), nullable=True))
+    # Idempotent against the collapsed baseline (0001), which already creates the
+    # column from the current ORM metadata.
+    op.execute("ALTER TABLE task ADD COLUMN IF NOT EXISTS dedupe_key VARCHAR(160)")
     op.execute("CREATE INDEX IF NOT EXISTS ix_task_dedupe_key ON task (dedupe_key)")
     op.execute("CREATE INDEX IF NOT EXISTS ix_task_dedupe_status ON task (dedupe_key, status)")
     op.execute(

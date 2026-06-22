@@ -17,7 +17,7 @@ run_flake8() {
 }
 
 run_deterministic() {
-  python -m pytest tests/test_config_manager.py -q
+  python -m pytest tests/test_core_paths.py -q
 }
 
 run_offline_tests() {

@@ -55,7 +55,7 @@ from finance_analysis.market_review.trading_calendar import (
     is_market_open,
 )
 from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code
-from finance_analysis.interfaces.bot.models import BotMessage
+from finance_analysis.notification.messages import BotMessage
 from finance_analysis.analysis.pipeline_agent_result import AgentResultMixin
 
 

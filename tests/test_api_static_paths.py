@@ -24,7 +24,7 @@ def test_create_app_does_not_serve_frontend_assets() -> None:
 
 def test_api_routes_remain_available() -> None:
     client = TestClient(create_app())
-    response = client.get("/api/health")
+    response = client.get("/status")
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"

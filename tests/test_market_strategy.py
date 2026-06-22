@@ -47,7 +47,7 @@ class TestMarketAnalyzerStrategyPrompt(unittest.TestCase):
         self.assertIn("US Market Regime Strategy", prompt)
 
     def test_cn_prompt_uses_english_shell_when_report_language_is_en(self):
-        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=SimpleNamespace(report_language="en")):
+        with patch("finance_analysis.market_review.analyzer.get_pipeline_config", return_value=SimpleNamespace(report_language="en")):
             analyzer = MarketAnalyzer(region="cn")
 
         prompt = analyzer._build_review_prompt(MarketOverview(date="2026-02-24"), [])

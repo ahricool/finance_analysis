@@ -87,7 +87,7 @@ def _make_pipeline(enable_realtime_quote: bool, realtime_quote=None) -> StockAna
     return pipeline
 
 
-@patch("finance_analysis.config.runtime.get_runtime_config")
+@patch("finance_analysis.integrations.market_data.config.get_data_provider_config")
 def test_manager_does_not_warn_when_fallback_source_succeeds(mock_get_config, caplog):
     mock_get_config.return_value = SimpleNamespace(
         enable_realtime_quote=True,
@@ -126,7 +126,7 @@ def test_pipeline_warns_once_when_all_realtime_sources_fail(caplog):
     assert downgrade_logs == ["贵州茅台(600519) 所有实时行情数据源均不可用，已降级为历史收盘价继续分析"]
 
 
-@patch("finance_analysis.config.runtime.get_runtime_config")
+@patch("finance_analysis.integrations.market_data.config.get_data_provider_config")
 def test_event_monitor_keeps_manager_failure_summary_for_direct_quote_call(mock_get_config, caplog):
     from finance_analysis.agent.events import EventMonitor, PriceAlert
 

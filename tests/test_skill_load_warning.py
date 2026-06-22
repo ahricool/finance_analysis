@@ -12,27 +12,8 @@ except ModuleNotFoundError:
 
     ensure_litellm_stub()
 
-from finance_analysis.interfaces.bot.commands.ask import AskCommand
 from finance_analysis.agent.skills.aggregator import SkillAggregator
 from finance_analysis.agent.skills.router import SkillRouter
-
-
-class AskCommandSkillLoadWarningTests(unittest.TestCase):
-    """AskCommand._load_skills and _get_default_skill_id must log on failure."""
-
-    def test_load_skills_logs_warning_on_exception(self) -> None:
-        with patch("finance_analysis.agent.factory.get_skill_manager", side_effect=RuntimeError("factory broken")):
-            with self.assertLogs("finance_analysis.interfaces.bot.commands.ask", level=logging.WARNING) as cm:
-                result = AskCommand._load_skills()
-        self.assertEqual(result, [])
-        self.assertTrue(any("Failed to load skills" in line for line in cm.output))
-
-    def test_get_default_skill_id_logs_warning_on_exception(self) -> None:
-        with patch.object(AskCommand, "_load_skills", side_effect=RuntimeError("boom")):
-            with self.assertLogs("finance_analysis.interfaces.bot.commands.ask", level=logging.WARNING) as cm:
-                result = AskCommand._get_default_skill_id()
-        self.assertEqual(result, "")
-        self.assertTrue(any("Failed to resolve default skill id" in line for line in cm.output))
 
 
 class SkillRouterWarningTests(unittest.TestCase):
@@ -47,14 +28,14 @@ class SkillRouterWarningTests(unittest.TestCase):
         self.assertTrue(any("Failed to get available skills" in line for line in cm.output))
 
     def test_get_routing_mode_logs_warning(self) -> None:
-        with patch("finance_analysis.config.runtime.get_runtime_config", side_effect=RuntimeError("no config")):
+        with patch("finance_analysis.agent.config.get_agent_config", side_effect=RuntimeError("no config")):
             with self.assertLogs("finance_analysis.agent.skills.router", level=logging.WARNING) as cm:
                 result = SkillRouter._get_routing_mode()
         self.assertEqual(result, "auto")
         self.assertTrue(any("Failed to get routing mode" in line for line in cm.output))
 
     def test_get_manual_skills_logs_warning(self) -> None:
-        with patch("finance_analysis.config.runtime.get_runtime_config", side_effect=RuntimeError("cfg error")):
+        with patch("finance_analysis.agent.config.get_agent_config", side_effect=RuntimeError("cfg error")):
             with patch.object(SkillRouter, "_get_available_skills", return_value=[]):
                 with self.assertLogs("finance_analysis.agent.skills.router", level=logging.WARNING) as cm:
                     result = SkillRouter._get_manual_skills(max_count=3)
@@ -74,7 +55,7 @@ class SkillAggregatorDebugLogTests(unittest.TestCase):
         self.assertTrue(any("backtest factor" in line.lower() for line in cm.output))
 
     def test_use_backtest_autoweight_logs_debug_on_exception(self) -> None:
-        with patch("finance_analysis.config.runtime.get_runtime_config", side_effect=RuntimeError("cfg error")):
+        with patch("finance_analysis.agent.config.get_agent_config", side_effect=RuntimeError("cfg error")):
             with self.assertLogs("finance_analysis.agent.skills.aggregator", level=logging.DEBUG) as cm:
                 result = SkillAggregator._use_backtest_autoweight()
         self.assertTrue(result)

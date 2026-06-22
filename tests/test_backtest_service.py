@@ -12,7 +12,6 @@ import unittest
 from datetime import date, datetime
 from unittest.mock import patch
 
-from finance_analysis.config import Config
 from finance_analysis.backtest.engine import OVERALL_SENTINEL_CODE
 from finance_analysis.backtest.service import BacktestService
 from finance_analysis.database import AnalysisHistory, BacktestResult, BacktestSummary, DatabaseManager, StockDaily
@@ -23,9 +22,14 @@ class BacktestServiceTestCase(unittest.TestCase):
         self._temp_dir = tempfile.TemporaryDirectory()
         os.environ["BACKTEST_EVAL_WINDOW_DAYS"] = "3"
 
-        Config._instance = None
         DatabaseManager.reset_instance()
         self.db = DatabaseManager.get_instance()
+        from sqlalchemy import text
+        with self.db._engine.begin() as conn:
+            conn.execute(text(
+                "TRUNCATE TABLE backtest_summaries, backtest_results, analysis_history, stock_daily "
+                "RESTART IDENTITY CASCADE"
+            ))
 
         # Ensure analysis is old enough for default min_age_days=14
         old_created_at = datetime(2024, 1, 1, 0, 0, 0)

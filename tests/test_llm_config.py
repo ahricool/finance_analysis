@@ -5,7 +5,11 @@ import os
 import unittest
 from unittest.mock import patch
 
-from finance_analysis.config import Config, get_effective_agent_models_to_try, get_effective_agent_primary_model
+from finance_analysis.agent.config import (
+    get_effective_agent_models_to_try,
+    get_effective_agent_primary_model,
+)
+from finance_analysis.llm.config import LLMConfig, get_llm_config
 from finance_analysis.llm.client import (
     LLMConfigError,
     build_completion_kwargs,
@@ -15,10 +19,16 @@ from finance_analysis.llm.client import (
 )
 
 
+def _load_llm_config_from_env() -> LLMConfig:
+    get_llm_config.cache_clear()
+    try:
+        return get_llm_config()
+    finally:
+        get_llm_config.cache_clear()
+
+
 class UnifiedLLMConfigTestCase(unittest.TestCase):
-    @patch("finance_analysis.config.setup_env")
-    @patch.object(Config, "_parse_stock_email_groups", return_value=[])
-    def test_loads_unified_llm_env(self, _mock_groups, _mock_setup_env) -> None:
+    def test_loads_unified_llm_env(self) -> None:
         env = {
             "LLM_MODEL": "openai/gpt-5.5",
             "LLM_BASE_URL": "https://proxy.example/v1",
@@ -28,7 +38,7 @@ class UnifiedLLMConfigTestCase(unittest.TestCase):
         }
 
         with patch.dict(os.environ, env, clear=True):
-            config = Config._load_from_env()
+            config = _load_llm_config_from_env()
 
         self.assertEqual(config.llm_model, "openai/gpt-5.5")
         self.assertEqual(config.llm_base_url, "https://proxy.example/v1")
@@ -38,11 +48,9 @@ class UnifiedLLMConfigTestCase(unittest.TestCase):
             config.llm_fallback_models,
             ["openai/gpt-4.1", "anthropic/claude-sonnet-4-6"],
         )
-        self.assertEqual(config.litellm_model, "openai/gpt-5.5")
+        self.assertEqual(config.model, "openai/gpt-5.5")
 
-    @patch("finance_analysis.config.setup_env")
-    @patch.object(Config, "_parse_stock_email_groups", return_value=[])
-    def test_legacy_litellm_aliases_are_ignored(self, _mock_groups, _mock_setup_env) -> None:
+    def test_legacy_litellm_aliases_are_ignored(self) -> None:
         env = {
             "LITELLM_MODEL": "gemini/gemini-3.1-pro-preview",
             "GEMINI_API_KEY": "gemini-test-key",
@@ -50,35 +58,33 @@ class UnifiedLLMConfigTestCase(unittest.TestCase):
         }
 
         with patch.dict(os.environ, env, clear=True):
-            config = Config._load_from_env()
+            config = _load_llm_config_from_env()
 
         self.assertEqual(config.llm_model, "")
         self.assertIsNone(config.llm_api_key)
         self.assertEqual(config.llm_fallback_models, [])
 
-    @patch("finance_analysis.config.setup_env")
-    @patch.object(Config, "_parse_stock_email_groups", return_value=[])
-    def test_agent_model_inherits_primary(self, _mock_groups, _mock_setup_env) -> None:
+    def test_agent_model_inherits_primary(self) -> None:
         env = {
             "LLM_MODEL": "openai/gpt-5.5",
             "LLM_API_KEY": "sk-test-key",
         }
 
         with patch.dict(os.environ, env, clear=True):
-            config = Config._load_from_env()
+            config = _load_llm_config_from_env()
 
         self.assertEqual(get_effective_agent_primary_model(config), "openai/gpt-5.5")
         self.assertEqual(get_effective_agent_models_to_try(config), ["openai/gpt-5.5"])
 
 
 class LiteLLMClientTestCase(unittest.TestCase):
-    def _config(self) -> Config:
-        return Config(
-            llm_model="openai/gpt-5.5",
-            llm_base_url="https://proxy.example/v1",
-            llm_api_key="sk-test-key",
-            llm_temperature=0.7,
-            llm_fallback_models=["openai/gpt-4.1"],
+    def _config(self) -> LLMConfig:
+        return LLMConfig(
+            model="openai/gpt-5.5",
+            base_url="https://proxy.example/v1",
+            api_key="sk-test-key",
+            temperature=0.7,
+            fallback_models=["openai/gpt-4.1"],
         )
 
     def test_build_completion_kwargs_passes_api_base_and_key(self) -> None:
@@ -94,12 +100,12 @@ class LiteLLMClientTestCase(unittest.TestCase):
         self.assertNotIn("chat/completions", kwargs["api_base"])
 
     def test_missing_model_raises_clear_error(self) -> None:
-        config = Config(llm_api_key="sk-test-key")
+        config = LLMConfig(api_key="sk-test-key")
         with self.assertRaisesRegex(LLMConfigError, "LLM_MODEL"):
             validate_llm_config(config)
 
     def test_missing_api_key_raises_clear_error(self) -> None:
-        config = Config(llm_model="openai/gpt-5.5")
+        config = LLMConfig(model="openai/gpt-5.5")
         with self.assertRaisesRegex(LLMConfigError, "LLM_API_KEY"):
             validate_llm_config(config)
 

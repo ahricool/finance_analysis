@@ -75,9 +75,8 @@ class TestAugmentHistoricalWithRealtime(unittest.TestCase):
     """Tests for _augment_historical_with_realtime."""
 
     def setUp(self) -> None:
-        from finance_analysis.config import Config
-        Config._instance = None
-        self.config = Config._load_from_env()
+        from finance_analysis.analysis.pipeline_config import get_pipeline_config
+        self.config = get_pipeline_config()
         self.pipeline = StockAnalysisPipeline(config=self.config)
 
     def test_returns_unchanged_when_realtime_none(self) -> None:
@@ -169,9 +168,8 @@ class TestEnhanceContextRealtimeOverride(unittest.TestCase):
     """Tests for _enhance_context today override with realtime + trend."""
 
     def setUp(self) -> None:
-        from finance_analysis.config import Config
-        Config._instance = None
-        self.config = Config._load_from_env()
+        from finance_analysis.analysis.pipeline_config import get_pipeline_config
+        self.config = get_pipeline_config()
         self.pipeline = StockAnalysisPipeline(config=self.config)
 
     @patch("finance_analysis.analysis.pipeline.get_market_now")

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from finance_analysis.interfaces.bot.models import BotMessage
+from finance_analysis.notification.messages import BotMessage
 
 
 def bot_message_to_payload(message: Optional[BotMessage]) -> Optional[Dict[str, Any]]:

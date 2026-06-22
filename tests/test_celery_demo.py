@@ -13,8 +13,6 @@ from finance_analysis.interfaces.api.v1.endpoints.celery_demo import submit_add_
 from finance_analysis.interfaces.api.v1.schemas.celery_demo import CeleryAddRequest
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.jobs.demo import add
-from finance_analysis.config import Config
-
 
 class CeleryDemoTaskTestCase(unittest.TestCase):
     """Unit tests for the demo add Celery task."""
@@ -28,14 +26,12 @@ class CeleryDemoTaskTestCase(unittest.TestCase):
         from finance_analysis.core.paths import clear_paths_cache
 
         clear_paths_cache()
-        Config.reset_instance()
 
         self._original_always_eager = celery_app.conf.task_always_eager
         celery_app.conf.task_always_eager = True
 
     def tearDown(self) -> None:
         celery_app.conf.task_always_eager = self._original_always_eager
-        Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("DATA_DIR", None)
         from finance_analysis.core.paths import clear_paths_cache

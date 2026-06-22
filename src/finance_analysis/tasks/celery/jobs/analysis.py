@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from finance_analysis.interfaces.bot.models import BotMessage, ChatType
+from finance_analysis.notification.messages import BotMessage, ChatType
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.lifecycle import track_task
 
