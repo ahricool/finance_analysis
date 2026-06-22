@@ -31,7 +31,6 @@ except ModuleNotFoundError:
     create_app = None
     get_history_detail = None
 
-from finance_analysis.config import Config
 from finance_analysis.users.auth import COOKIE_NAME, create_session
 from finance_analysis.database.repositories.user import DEFAULT_ADMIN_EMAIL, UserRepository
 from finance_analysis.database import DatabaseManager, AnalysisHistory, BacktestResult
@@ -45,7 +44,6 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         """为每个用例初始化独立数据库"""
         self._temp_dir = tempfile.TemporaryDirectory()
 
-        Config._instance = None
         DatabaseManager.reset_instance()
         os.environ["SECRET_KEY"] = "analysis-history-test-secret"
         self.db = DatabaseManager.get_instance()

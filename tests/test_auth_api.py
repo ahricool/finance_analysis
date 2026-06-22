@@ -25,7 +25,6 @@ except ModuleNotFoundError:
 import finance_analysis.users.auth as auth
 from finance_analysis.interfaces.api.middlewares.auth import AuthMiddleware
 from finance_analysis.interfaces.api.v1.endpoints import auth as auth_endpoint
-from finance_analysis.config import Config
 from finance_analysis.database.repositories.user import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAME
 
 
@@ -150,11 +149,9 @@ class AuthApiTestCase(unittest.TestCase):
         }
         self.user_repo_patch = patch.object(auth_endpoint, "UserRepository", FakeUserRepository)
         self.user_repo_patch.start()
-        Config.reset_instance()
 
     def tearDown(self) -> None:
         self.user_repo_patch.stop()
-        Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("SECRET_KEY", None)
         self.temp_dir.cleanup()

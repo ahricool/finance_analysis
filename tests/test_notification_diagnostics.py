@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """Tests for read-only notification diagnostics."""
 
-import os
 import unittest
 
-from finance_analysis.config import Config
+from finance_analysis.notification.config import NotificationConfig
 from finance_analysis.notification.service import NotificationChannel
 from finance_analysis.notification.diagnostics import (
     CHANNEL_SPECS,
@@ -17,8 +16,8 @@ from finance_analysis.notification.diagnostics import (
 )
 
 
-def _config(**overrides) -> Config:
-    return Config(database_url=os.environ["DATABASE_URL"], **overrides)
+def _config(**overrides) -> NotificationConfig:
+    return NotificationConfig(**overrides)
 
 
 class NotificationDiagnosticsTestCase(unittest.TestCase):

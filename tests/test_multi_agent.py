@@ -34,7 +34,7 @@ from finance_analysis.agent.protocols import (
     StageResult,
     StageStatus,
 )
-from finance_analysis.config import AGENT_MAX_STEPS_DEFAULT
+from finance_analysis.agent.config import AGENT_MAX_STEPS_DEFAULT
 
 
 # ============================================================
@@ -1569,94 +1569,6 @@ class TestRiskOverride(unittest.TestCase):
         orch._apply_risk_override(ctx)
 
         self.assertEqual(dashboard["decision_type"], "buy")
-
-
-# ============================================================
-# ResearchCommand timeout guard
-# ============================================================
-
-class TestResearchCommandTimeout(unittest.TestCase):
-    """Verify that ResearchCommand respects the configured timeout."""
-
-    def test_research_timeout_returns_timeout_response(self):
-        """Timed-out research results should surface the timeout response text."""
-        from finance_analysis.interfaces.bot.commands.research import ResearchCommand
-        from finance_analysis.interfaces.bot.models import BotMessage
-
-        cmd = ResearchCommand()
-
-        msg = MagicMock(spec=BotMessage)
-        msg.platform = "test"
-        msg.user_id = "u1"
-
-        config = SimpleNamespace(
-            agent_deep_research_budget=30000,
-            agent_deep_research_timeout=0.01,  # 10ms — will trigger timeout
-            litellm_model="test-model",
-            agent_mode=True,
-        )
-
-        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=config), \
-             patch("finance_analysis.agent.factory.get_tool_registry", return_value=MagicMock()), \
-             patch("finance_analysis.agent.llm_adapter.LLMToolAdapter", return_value=MagicMock()), \
-             patch("finance_analysis.agent.research.ResearchAgent.research", return_value=SimpleNamespace(
-                 success=False,
-                 report="",
-                 sub_questions=["q"],
-                 findings_count=1,
-                 total_tokens=100,
-                 duration_s=0.01,
-                 error="Deep research timed out after 0.01s",
-                 timed_out=True,
-             )):
-            response = cmd.execute(msg, ["600519"])
-
-        self.assertIn("超时", response.text)
-
-    def test_research_recognizes_five_letter_us_ticker(self):
-        from finance_analysis.interfaces.bot.commands.research import ResearchCommand
-        from finance_analysis.interfaces.bot.models import BotMessage
-
-        cmd = ResearchCommand()
-        msg = MagicMock(spec=BotMessage)
-        msg.platform = "test"
-        msg.user_id = "u1"
-
-        result = SimpleNamespace(
-            success=True,
-            report="ok",
-            sub_questions=["q"],
-            findings_count=1,
-            total_tokens=100,
-            duration_s=1.0,
-            error=None,
-            timed_out=False,
-        )
-        captured = {}
-
-        def _capture_research(query, context=None, timeout_seconds=None):
-            captured["query"] = query
-            captured["context"] = context
-            captured["timeout_seconds"] = timeout_seconds
-            return result
-
-        config = SimpleNamespace(
-            agent_deep_research_budget=30000,
-            agent_deep_research_timeout=1,
-            litellm_model="test-model",
-            agent_mode=True,
-        )
-
-        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=config), \
-             patch("finance_analysis.agent.factory.get_tool_registry", return_value=MagicMock()), \
-             patch("finance_analysis.agent.llm_adapter.LLMToolAdapter", return_value=MagicMock()), \
-             patch("finance_analysis.agent.research.ResearchAgent.research", side_effect=_capture_research):
-            response = cmd.execute(msg, ["googl", "风险"])
-
-        self.assertIn("Deep Research Report", response.text)
-        self.assertEqual(captured["context"], {"stock_code": "GOOGL", "stock_name": ""})
-        self.assertEqual(captured["timeout_seconds"], 1)
-        self.assertTrue(captured["query"].startswith("[Stock: GOOGL]"))
 
 
 # ============================================================

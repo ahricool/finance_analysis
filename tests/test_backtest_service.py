@@ -12,7 +12,6 @@ import unittest
 from datetime import date, datetime
 from unittest.mock import patch
 
-from finance_analysis.config import Config
 from finance_analysis.backtest.engine import OVERALL_SENTINEL_CODE
 from finance_analysis.backtest.service import BacktestService
 from finance_analysis.database import AnalysisHistory, BacktestResult, BacktestSummary, DatabaseManager, StockDaily
@@ -23,7 +22,6 @@ class BacktestServiceTestCase(unittest.TestCase):
         self._temp_dir = tempfile.TemporaryDirectory()
         os.environ["BACKTEST_EVAL_WINDOW_DAYS"] = "3"
 
-        Config._instance = None
         DatabaseManager.reset_instance()
         self.db = DatabaseManager.get_instance()
 

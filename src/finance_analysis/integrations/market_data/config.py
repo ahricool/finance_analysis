@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 import logging
 
-from finance_analysis.config.env_parsing import env_str
+from finance_analysis.config.env_parsing import env_bool, env_str
 
 logger = logging.getLogger(__name__)
 
@@ -51,5 +51,6 @@ def get_data_provider_config() -> DataProviderConfig:
         longbridge_app_key=env_str("LONGBRIDGE_APP_KEY") or None,
         longbridge_app_secret=env_str("LONGBRIDGE_APP_SECRET") or None,
         longbridge_access_token=env_str("LONGBRIDGE_ACCESS_TOKEN") or None,
+        enable_eastmoney_patch=env_bool("ENABLE_EASTMONEY_PATCH", False),
         realtime_source_priority=_resolve_realtime_source_priority(tushare_token),
     )

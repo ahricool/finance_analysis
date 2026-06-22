@@ -17,7 +17,6 @@ from datetime import date, timedelta
 
 import pandas as pd
 
-from finance_analysis.config import Config
 from finance_analysis.database import DatabaseManager, StockDaily
 
 
@@ -28,7 +27,6 @@ class GetLatestDataTestCase(unittest.TestCase):
         """Initialize an isolated database for each test case."""
         self._temp_dir = tempfile.TemporaryDirectory()
 
-        Config._instance = None
         DatabaseManager.reset_instance()
         self.db = DatabaseManager.get_instance()
 
