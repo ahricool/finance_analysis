@@ -19,6 +19,7 @@ env:
   GHCR_WEB_IMAGE_NAME: ${{ github.repository }}_web
   DOCKERHUB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
   DOCKERHUB_WEB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}-web
+  BUILDKIT_IMAGE: moby/buildkit:v0.31.0
 
 jobs:
   build-and-push:
@@ -41,19 +42,19 @@ jobs:
             exit 1
           fi
 
+      - name: Set up QEMU for multi-platform build
+        uses: docker/setup-qemu-action@v4
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           driver-opts: |
-            image=moby/buildkit:master
+            image=${{ env.BUILDKIT_IMAGE }}
             network=host
-
-      - name: Set up QEMU for multi-platform build
-        uses: docker/setup-qemu-action@v3
 
       # 登录到 GHCR
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
@@ -61,7 +62,7 @@ jobs:
 
       # 登录到 Docker Hub（需要预先设置 secrets.DOCKERHUB_USERNAME 和 secrets.DOCKERHUB_TOKEN）
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.DOCKERHUB_REGISTRY }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -69,7 +70,7 @@ jobs:
 
       - name: Extract backend metadata for GHCR
         id: meta-ghcr-backend
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}
           tags: |
@@ -80,7 +81,7 @@ jobs:
 
       - name: Extract web metadata for GHCR
         id: meta-ghcr-web
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_WEB_IMAGE_NAME }}
           tags: |
@@ -91,7 +92,7 @@ jobs:
 
       - name: Extract backend metadata for Docker Hub
         id: meta-dockerhub-backend
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_IMAGE_NAME }}
           tags: |
@@ -102,7 +103,7 @@ jobs:
 
       - name: Extract web metadata for Docker Hub
         id: meta-dockerhub-web
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_WEB_IMAGE_NAME }}
           tags: |
@@ -126,7 +127,7 @@ jobs:
           docker run --rm stock-analysis-web:manual nginx -t
 
       - name: Build and push backend multi-arch images
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -140,7 +141,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=backend
 
       - name: Build and push web multi-arch images
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.web
