@@ -59,7 +59,7 @@ services:
       - ./strategies:/workspace/strategies:ro
 
   web:
-    image: ghcr.io/ahricool/finance_analysis-web:latest
+    image: ghcr.io/ahricool/finance_analysis_web:latest
     build:
       context: .
       dockerfile: Dockerfile.web

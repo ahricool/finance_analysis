@@ -13,7 +13,7 @@ concurrency:
 env:
   GHCR_REGISTRY: ghcr.io
   GHCR_IMAGE_NAME: ${{ github.repository }}
-  GHCR_WEB_IMAGE_NAME: ${{ github.repository }}-web
+  GHCR_WEB_IMAGE_NAME: ${{ github.repository }}_web
 
 jobs:
   build-and-push:

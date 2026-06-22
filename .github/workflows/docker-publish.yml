@@ -19,7 +19,7 @@ env:
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   GHCR_IMAGE_NAME: ${{ github.repository }}
-  GHCR_WEB_IMAGE_NAME: ${{ github.repository }}-web
+  GHCR_WEB_IMAGE_NAME: ${{ github.repository }}_web
   DOCKERHUB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
   DOCKERHUB_WEB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}-web
   HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' && 'true' || 'false' }}
