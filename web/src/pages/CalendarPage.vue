@@ -195,11 +195,11 @@ watch(displayTimezone, () => {
 
     <div class="mb-4 rounded-2xl border border-border/60 bg-card p-4">
       <h2 class="mb-3 text-xs font-semibold sm:text-sm">{{ selectedDateDisplay }} 财经事件</h2>
-      <div v-if="eventsLoading" class="space-y-2">
+      <div v-if="eventsLoading" class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <div v-for="n in 3" :key="n" class="h-16 animate-pulse rounded-xl bg-hover" />
       </div>
       <div v-else-if="!events.length" class="py-6 text-sm text-secondary-text">当天暂无财经事件</div>
-      <div v-else class="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+      <div v-else class="max-h-[320px] grid grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
         <article v-for="item in events" :key="item.id" class="overflow-hidden rounded-xl border border-border/60">
           <button
             type="button"
