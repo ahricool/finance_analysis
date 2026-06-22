@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 """Regression tests for analysis API/report-type contracts."""
 
-import asyncio
 from datetime import datetime
 import json
 import tempfile
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -382,7 +380,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         pipeline_instance = MagicMock()
         pipeline_instance.process_single_stock.return_value = object()
 
-        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace()), \
+        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=SimpleNamespace()), \
              patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline_instance), \
              patch.object(AnalysisService, "_build_analysis_response", return_value={"stock_code": "600519"}):
             result = AnalysisService.analyze_stock(service, "600519", report_type="full", query_id="q1")
@@ -415,7 +413,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             get_sniper_points=lambda: {},
         )
 
-        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace()), \
+        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=SimpleNamespace()), \
              patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline_instance):
             result = service.analyze_stock("600519", report_type="full", query_id="q1", send_notification=False)
 
@@ -430,7 +428,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             error_message="LLM stream interrupted",
         )
 
-        with patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace()), \
+        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=SimpleNamespace()), \
              patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline_instance):
             result = service.analyze_stock("600519", report_type="detailed", query_id="q1", send_notification=False)
 
@@ -774,11 +772,10 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         if create_app is None:
             self.skipTest("fastapi is not installed in this test environment")
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            app = create_app(static_dir=Path(temp_dir))
-            schema = app.openapi()["paths"]["/api/v1/analysis/analyze"]["post"]["responses"]["202"][
-                "content"
-            ]["application/json"]["schema"]
+        app = create_app()
+        schema = app.openapi()["paths"]["/api/v1/analysis/analyze"]["post"]["responses"]["202"][
+            "content"
+        ]["application/json"]["schema"]
 
         refs = {item["$ref"] for item in schema["anyOf"]}
         self.assertEqual(
@@ -795,11 +792,10 @@ class AnalysisApiContractTestCase(unittest.TestCase):
 
         config = SimpleNamespace(trading_day_check_enabled=True, market_review_region="cn")
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            app = create_app(static_dir=Path(temp_dir))
-            request_body = app.openapi()["paths"]["/api/v1/analysis/market-review"]["post"][
-                "requestBody"
-            ]
+        app = create_app()
+        request_body = app.openapi()["paths"]["/api/v1/analysis/market-review"]["post"][
+            "requestBody"
+        ]
 
         self.assertNotIn("required", request_body)
 
@@ -1242,60 +1238,6 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             force_refresh=False,
             notify=True,
         )
-
-    def test_spa_fallback_returns_json_404_for_bare_api_path(self) -> None:
-        if create_app is None:
-            self.skipTest("fastapi is not installed in this test environment")
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            static_dir = Path(temp_dir)
-            (static_dir / "index.html").write_text("<html>spa</html>", encoding="utf-8")
-            app = create_app(static_dir=static_dir)
-
-            serve_spa = next(
-                route.endpoint for route in app.routes
-                if getattr(route, "path", None) == "/{full_path:path}"
-            )
-
-            response = asyncio.run(serve_spa(None, "api"))
-
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(
-            json.loads(response.body),
-            {"error": "not_found", "message": "API endpoint /api not found"},
-        )
-
-    def test_spa_fallback_blocks_path_traversal(self) -> None:
-        """SPA fallback must not serve files outside static_dir.
-
-        Starlette's :path converter does not normalize `..` segments, so
-        without an explicit containment check `static_dir / full_path` can
-        resolve to arbitrary files on disk (CVE-class path traversal).
-        """
-        if create_app is None:
-            self.skipTest("fastapi is not installed in this test environment")
-
-        from fastapi.responses import FileResponse
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            static_dir = root / "static"
-            static_dir.mkdir()
-            (static_dir / "index.html").write_text("<html>spa</html>", encoding="utf-8")
-            secret = root / "secret.txt"
-            secret.write_text("TOPSECRET", encoding="utf-8")
-
-            app = create_app(static_dir=static_dir)
-            serve_spa = next(
-                route.endpoint for route in app.routes
-                if getattr(route, "path", None) == "/{full_path:path}"
-            )
-
-            for traversal in ("../secret.txt", "../../secret.txt", "foo/../../secret.txt"):
-                with self.subTest(traversal=traversal):
-                    response = asyncio.run(serve_spa(None, traversal))
-                    self.assertIsInstance(response, FileResponse)
-                    self.assertEqual(Path(response.path).resolve(), (static_dir / "index.html").resolve())
 
 class BatchTaskQueueContractTestCase(unittest.TestCase):
     def setUp(self) -> None:

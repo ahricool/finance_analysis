@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 
-@dataclass(frozen=True)
+@dataclass
 class NewsCandidate:
     """A persisted Longbridge news item prepared for LLM evaluation."""
 

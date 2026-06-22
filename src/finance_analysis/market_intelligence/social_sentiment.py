@@ -5,7 +5,7 @@ Social Sentiment Intelligence Service
 ===================================
 
 Fetches Reddit / X (Twitter) / Polymarket social sentiment data
-from finance_analysis.interfaces.api.adanos.org for US stock tickers.
+from api.adanos.org for US stock tickers.
 
 Optional — requires SOCIAL_SENTIMENT_API_KEY.
 Only activates for US stock codes (AAPL, TSLA, etc.).

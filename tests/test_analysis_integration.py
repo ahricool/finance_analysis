@@ -16,8 +16,6 @@ from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from finance_analysis.interfaces.api.app import create_app
 from finance_analysis.tasks.queue import AnalysisTaskQueue, TaskStatus
-from finance_analysis.config import Config
-
 @pytest.fixture
 def client():
     app = create_app()

@@ -43,7 +43,7 @@ from finance_analysis.reporting.localization import (
     localize_trend_prediction,
     normalize_report_language,
 )
-from finance_analysis.interfaces.bot.models import BotMessage
+from finance_analysis.notification.messages import BotMessage
 from finance_analysis.analysis.context_normalizer import normalize_model_used
 from finance_analysis.notification.senders import (
     AstrbotSender,

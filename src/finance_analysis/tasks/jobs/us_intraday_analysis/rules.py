@@ -19,7 +19,7 @@ Metrics = Dict[str, Any]
 RulePredicate = Callable[[Metrics], bool]
 
 
-@dataclass(frozen=True)
+@dataclass
 class SignalRule:
     """Pair a signal type with the predicate that decides whether it fires."""
 

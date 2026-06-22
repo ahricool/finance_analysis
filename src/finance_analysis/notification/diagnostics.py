@@ -26,7 +26,7 @@ IssueSeverity = Literal["error", "warning", "info"]
 ChannelKind = Literal["configured", "fallback", "context"]
 
 
-@dataclass(frozen=True)
+@dataclass
 class NotificationKeySpec:
     """Metadata for a notification-related configuration key."""
 
@@ -36,7 +36,7 @@ class NotificationKeySpec:
     channel: str
 
 
-@dataclass(frozen=True)
+@dataclass
 class NotificationChannelSpec:
     """Baseline metadata for one notification channel."""
 
@@ -49,7 +49,7 @@ class NotificationChannelSpec:
     note: str = ""
 
 
-@dataclass(frozen=True)
+@dataclass
 class NotificationDiagnosticIssue:
     """One diagnostic message."""
 
@@ -59,7 +59,7 @@ class NotificationDiagnosticIssue:
     key: Optional[str] = None
 
 
-@dataclass(frozen=True)
+@dataclass
 class NotificationDiagnosticResult:
     """Structured notification diagnostic result."""
 

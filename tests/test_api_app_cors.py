@@ -2,9 +2,7 @@
 """Tests for FastAPI app CORS configuration."""
 
 import os
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,9 +14,7 @@ class AppCorsConfigTestCase(unittest.TestCase):
     """CORS configuration should stay browser-compatible."""
 
     def _build_app(self):
-        temp_dir = tempfile.TemporaryDirectory()
-        self.addCleanup(temp_dir.cleanup)
-        return create_app(static_dir=Path(temp_dir.name))
+        return create_app()
 
     def test_allow_all_disables_credentials(self):
         with patch.dict(os.environ, {"CORS_ALLOW_ALL": "true"}, clear=False):

@@ -37,16 +37,25 @@ def _builtin_strategy_names() -> set[str]:
 # Config tests
 # ============================================================
 
+def _load_agent_config():
+    """Load a fresh AgentConfig from the current environment."""
+    from finance_analysis.agent.config import get_agent_config
+    get_agent_config.cache_clear()
+    return get_agent_config()
+
+
 class TestAgentConfig(unittest.TestCase):
     """Test agent-related configuration fields load correctly."""
 
+    def tearDown(self) -> None:
+        from finance_analysis.agent.config import get_agent_config
+        get_agent_config.cache_clear()
+
     @patch.dict(os.environ, {}, clear=True)
-    @patch('finance_analysis.config.load_dotenv')
-    def test_default_agent_config(self, _mock_dotenv):
+    def test_default_agent_config(self):
         """Agent mode should be disabled by default."""
-        from finance_analysis.config import AGENT_MAX_STEPS_DEFAULT, Config
-        Config._instance = None
-        config = Config._load_from_env()
+        from finance_analysis.agent.config import AGENT_MAX_STEPS_DEFAULT
+        config = _load_agent_config()
         self.assertEqual(config.agent_litellm_model, "")
         self.assertFalse(config.agent_mode)
         self.assertEqual(config.agent_max_steps, AGENT_MAX_STEPS_DEFAULT)
@@ -59,9 +68,7 @@ class TestAgentConfig(unittest.TestCase):
     }, clear=True)
     def test_agent_config_from_env(self):
         """Agent config should be loaded from environment."""
-        from finance_analysis.config import Config
-        Config._instance = None
-        config = Config._load_from_env()
+        config = _load_agent_config()
         self.assertTrue(config.agent_mode)
         self.assertEqual(config.agent_max_steps, 15)
         self.assertEqual(config.agent_skills, ['dragon_head', 'shrink_pullback', 'volume_breakout'])
@@ -69,75 +76,27 @@ class TestAgentConfig(unittest.TestCase):
     @patch.dict(os.environ, {'AGENT_MODE': 'false'}, clear=True)
     def test_agent_mode_disabled(self):
         """Explicitly disabled agent mode."""
-        from finance_analysis.config import Config
-        Config._instance = None
-        config = Config._load_from_env()
+        config = _load_agent_config()
         self.assertFalse(config.agent_mode)
 
     @patch.dict(os.environ, {'AGENT_SKILLS': ''}, clear=True)
     def test_empty_skills_list(self):
         """Empty AGENT_SKILLS should produce empty list."""
-        from finance_analysis.config import Config
-        Config._instance = None
-        config = Config._load_from_env()
+        config = _load_agent_config()
         self.assertEqual(config.agent_skills, [])
 
     @patch.dict(os.environ, {'AGENT_SKILLS': '  dragon_head , shrink_pullback  '}, clear=True)
     def test_skills_whitespace_handling(self):
         """Skills should have whitespace trimmed."""
-        from finance_analysis.config import Config
-        Config._instance = None
-        config = Config._load_from_env()
+        config = _load_agent_config()
         self.assertEqual(config.agent_skills, ['dragon_head', 'shrink_pullback'])
 
     @patch.dict(os.environ, {'AGENT_LITELLM_MODEL': 'gpt-4o-mini'}, clear=True)
     def test_agent_is_available_when_agent_primary_model_is_configured(self):
         """Agent availability auto-detection should use effective Agent primary model."""
-        from finance_analysis.config import Config
-        Config._instance = None
-        config = Config._load_from_env()
+        config = _load_agent_config()
         self.assertEqual(config.agent_litellm_model, 'openai/gpt-4o-mini')
         self.assertTrue(config.is_agent_available())
-
-    def test_agent_models_to_try_inherit_legacy_provider_models(self):
-        """Legacy provider key/model envs should still produce a non-empty Agent model try list."""
-        from finance_analysis.config import Config, get_effective_agent_models_to_try
-
-        test_cases = [
-            (
-                {
-                    "GEMINI_API_KEY": "gemini-test-key",
-                    "GEMINI_MODEL": "gemini-2.5-flash",
-                    "AGENT_LITELLM_MODEL": "",
-                },
-                ["gemini/gemini-2.5-flash", "gemini/gemini-3-flash-preview"],
-            ),
-            (
-                {
-                    "OPENAI_API_KEY": "sk-test-value",
-                    "OPENAI_MODEL": "gpt-4o-mini",
-                    "AGENT_LITELLM_MODEL": "",
-                },
-                ["openai/gpt-4o-mini"],
-            ),
-            (
-                {
-                    "ANTHROPIC_API_KEY": "anthropic-test-key",
-                    "ANTHROPIC_MODEL": "claude-3-5-sonnet-20241022",
-                    "AGENT_LITELLM_MODEL": "",
-                },
-                ["anthropic/claude-3-5-sonnet-20241022"],
-            ),
-        ]
-
-        with patch("finance_analysis.config.setup_env"), patch.object(Config, "_parse_litellm_yaml", return_value=[]):
-            for env, expected_models in test_cases:
-                with self.subTest(expected_models=expected_models), patch.dict(os.environ, env, clear=True):
-                    Config._instance = None
-                    config = Config._load_from_env()
-                    self.assertEqual(get_effective_agent_models_to_try(config), expected_models)
-
-        Config._instance = None
 
 
 class TestAgentFactorySkillBaseline(unittest.TestCase):
@@ -1520,7 +1479,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         mock_cfg = MagicMock()
         mock_cfg.agent_litellm_model = "gpt-4o-mini"
         mock_cfg.litellm_model = "gemini/gemini-2.5-flash"
-        mock_cfg.litellm_fallback_models = ["openai/gpt-4o-mini", "anthropic/claude-3-5-sonnet-20241022"]
+        mock_cfg.llm_fallback_models = ["openai/gpt-4o-mini", "anthropic/claude-3-5-sonnet-20241022"]
         mock_cfg.llm_model_list = []
         mock_cfg.llm_temperature = 0.7
         mock_cfg.gemini_api_keys = []
@@ -1741,7 +1700,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         mock_cfg = MagicMock()
         mock_cfg.agent_litellm_model = "gpt-4o-mini"
         mock_cfg.litellm_model = None
-        mock_cfg.litellm_fallback_models = ["anthropic/claude-3-5-sonnet-20241022"]
+        mock_cfg.llm_fallback_models = ["anthropic/claude-3-5-sonnet-20241022"]
         mock_cfg.llm_model_list = []
         mock_cfg.llm_temperature = 0.7
         mock_cfg.gemini_api_keys = []
@@ -1779,7 +1738,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         mock_cfg = MagicMock()
         mock_cfg.agent_litellm_model = "gpt-4o-mini"
         mock_cfg.litellm_model = None
-        mock_cfg.litellm_fallback_models = ["openai/gpt-4.1-mini"]
+        mock_cfg.llm_fallback_models = ["openai/gpt-4.1-mini"]
         mock_cfg.llm_model_list = []
         mock_cfg.llm_temperature = 0.7
         mock_cfg.gemini_api_keys = []
@@ -1840,7 +1799,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         mock_cfg = MagicMock()
         mock_cfg.agent_litellm_model = "gpt-4o-mini"
         mock_cfg.litellm_model = None
-        mock_cfg.litellm_fallback_models = ["anthropic/claude-3-5-sonnet-20241022"]
+        mock_cfg.llm_fallback_models = ["anthropic/claude-3-5-sonnet-20241022"]
         mock_cfg.llm_model_list = []
         mock_cfg.llm_temperature = 0.7
         mock_cfg.gemini_api_keys = []
@@ -1876,7 +1835,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         mock_cfg = MagicMock()
         mock_cfg.agent_litellm_model = "gpt-4o-mini"
         mock_cfg.litellm_model = None
-        mock_cfg.litellm_fallback_models = ["anthropic/claude-3-5-sonnet-20241022"]
+        mock_cfg.llm_fallback_models = ["anthropic/claude-3-5-sonnet-20241022"]
         mock_cfg.llm_model_list = []
         mock_cfg.llm_temperature = 0.7
         mock_cfg.gemini_api_keys = []
@@ -1938,7 +1897,7 @@ class TestAgentConstructionChain(unittest.TestCase):
         self.assertEqual(result.provider, "error")
         self.assertEqual(
             result.content,
-            "No LLM configured. Please set LITELLM_MODEL, LLM_CHANNELS, or provider API keys before using Agent.",
+            "No LLM configured. Please set LLM_MODEL and LLM_API_KEY before using Agent.",
         )
 
 

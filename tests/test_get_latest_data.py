@@ -17,7 +17,6 @@ from datetime import date, timedelta
 
 import pandas as pd
 
-from finance_analysis.config import Config
 from finance_analysis.database import DatabaseManager, StockDaily
 
 
@@ -28,9 +27,11 @@ class GetLatestDataTestCase(unittest.TestCase):
         """Initialize an isolated database for each test case."""
         self._temp_dir = tempfile.TemporaryDirectory()
 
-        Config._instance = None
         DatabaseManager.reset_instance()
         self.db = DatabaseManager.get_instance()
+        from sqlalchemy import text
+        with self.db._engine.begin() as conn:
+            conn.execute(text("TRUNCATE TABLE stock_daily RESTART IDENTITY CASCADE"))
 
     def tearDown(self) -> None:
         """Clean up resources."""

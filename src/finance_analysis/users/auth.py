@@ -19,7 +19,7 @@ import time
 from typing import Optional, Tuple
 
 import jwt
-from finance_analysis.config.runtime import get_runtime_config
+from finance_analysis.users.config import get_auth_config
 
 COOKIE_NAME = "session"
 RATE_LIMIT_WINDOW_SEC = 300
@@ -55,7 +55,7 @@ def _load_secret_key() -> str:
     if _secret_key is not None:
         return _secret_key
 
-    config = get_runtime_config()
+    config = get_auth_config()
     _sk = config.secret_key
 
     # 如果 SECRET_KEY 未设置，则随机生成一个满足 HS256 推荐长度的密钥。

@@ -2,30 +2,47 @@
 """Tests for the Agent models discovery service and endpoint."""
 
 import asyncio
-import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from finance_analysis.interfaces.api.v1.endpoints import agent
-from finance_analysis.config import Config
 from finance_analysis.llm.model_service import list_agent_model_deployments
 
 
 def _build_config(**overrides):
-    config = Config(
-        database_url=os.environ["DATABASE_URL"],
-        litellm_model="gemini/gemini-2.5-flash",
-        litellm_fallback_models=["openai/gpt-4o-mini"],
+    """Build a lightweight pipeline-config-like object for model discovery tests.
+
+    The effective-model helpers read ``llm_model`` / ``llm_fallback_models`` while
+    the legacy tests express the primary/fallback models via ``litellm_model`` /
+    ``litellm_fallback_models``; keep both in sync so either name works.
+    """
+    primary = overrides.pop("llm_model", None)
+    if primary is None:
+        primary = overrides.pop("litellm_model", "gemini/gemini-2.5-flash")
+    else:
+        overrides.pop("litellm_model", None)
+
+    fallbacks = overrides.pop("llm_fallback_models", None)
+    if fallbacks is None:
+        fallbacks = overrides.pop("litellm_fallback_models", ["openai/gpt-4o-mini"])
+    else:
+        overrides.pop("litellm_fallback_models", None)
+
+    values = dict(
+        llm_model=primary,
+        litellm_model=primary,
+        llm_fallback_models=list(fallbacks),
+        litellm_fallback_models=list(fallbacks),
+        agent_litellm_model="",
         llm_model_list=[],
         llm_channels=[],
         litellm_config_path=None,
         llm_models_source="legacy_env",
         openai_base_url=None,
     )
-    for key, value in overrides.items():
-        setattr(config, key, value)
-    return config
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
 
 class AgentModelsApiTestCase(unittest.TestCase):
@@ -338,56 +355,6 @@ class AgentSkillsEndpointTestCase(unittest.TestCase):
         executor.chat.assert_called_once()
         self.assertEqual(executor.chat.call_args.kwargs["context"]["skills"], [])
         self.assertEqual(payload["content"], "ok")
-class AgentModelsSourceDetectionTestCase(unittest.TestCase):
-    @patch("finance_analysis.config.setup_env")
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_load_from_env_marks_channels_as_actual_source_after_yaml_fallback(
-        self,
-        _mock_parse_yaml,
-        _mock_setup_env,
-    ) -> None:
-        env = {
-            "LITELLM_CONFIG": "config/missing.yaml",
-            "LLM_CHANNELS": "primary",
-            "LLM_PRIMARY_API_KEY": "channel-secret-key",
-            "LLM_PRIMARY_MODELS": "openai/gpt-4o-mini",
-            "OPENAI_API_KEY": "",
-            "AIHUBMIX_KEY": "",
-            "GEMINI_API_KEY": "",
-            "ANTHROPIC_API_KEY": "",
-            "DEEPSEEK_API_KEY": "",
-        }
-
-        with patch.dict(os.environ, env, clear=True):
-            config = Config._load_from_env()
-
-        self.assertEqual(config.llm_models_source, "llm_channels")
-        self.assertEqual(config.llm_model_list[0]["litellm_params"]["model"], "openai/gpt-4o-mini")
-
-    @patch("finance_analysis.config.setup_env")
-    @patch.object(Config, "_parse_litellm_yaml", return_value=[])
-    def test_load_from_env_marks_legacy_as_actual_source_after_yaml_fallback(
-        self,
-        _mock_parse_yaml,
-        _mock_setup_env,
-    ) -> None:
-        env = {
-            "LITELLM_CONFIG": "config/missing.yaml",
-            "LLM_CHANNELS": "",
-            "OPENAI_API_KEY": "legacy-openai-key",
-            "LITELLM_MODEL": "gpt-4o-mini",
-            "AIHUBMIX_KEY": "",
-            "GEMINI_API_KEY": "",
-            "ANTHROPIC_API_KEY": "",
-            "DEEPSEEK_API_KEY": "",
-        }
-
-        with patch.dict(os.environ, env, clear=True):
-            config = Config._load_from_env()
-
-        self.assertEqual(config.llm_models_source, "legacy_env")
-        self.assertTrue(config.llm_model_list)
-        self.assertEqual(config.llm_model_list[0]["model_name"], "__legacy_openai__")
 
 
 if __name__ == "__main__":

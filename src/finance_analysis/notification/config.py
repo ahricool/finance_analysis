@@ -15,8 +15,7 @@ from finance_analysis.notification.noise_control import (
     parse_notification_quiet_hours,
     validate_notification_timezone,
 )
-from finance_analysis.notification.routing import parse_notification_route_channels
-from finance_analysis.config.env_parsing import env_bool, env_int, env_list, env_str
+from finance_analysis.config.env_parsing import env_bool, env_list, env_str
 
 
 def has_ntfy_topic_endpoint(value: Optional[str]) -> bool:
@@ -64,12 +63,11 @@ def _parse_stock_email_groups() -> List[Tuple[List[str], List[str]]]:
     return result
 
 
-@dataclass(frozen=True)
+@dataclass
 class NotificationConfig:
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_message_thread_id: Optional[str] = None
-    telegram_webhook_secret: Optional[str] = None
     email_sender: Optional[str] = None
     email_sender_name: str = "Finance Analysis 分析助手"
     email_password: Optional[str] = None
@@ -118,9 +116,7 @@ def get_notification_config() -> NotificationConfig:
         telegram_bot_token=env_str("TELEGRAM_BOT_TOKEN") or None,
         telegram_chat_id=env_str("TELEGRAM_CHAT_ID") or None,
         telegram_message_thread_id=env_str("TELEGRAM_MESSAGE_THREAD_ID") or None,
-        telegram_webhook_secret=env_str("TELEGRAM_WEBHOOK_SECRET") or None,
         email_sender=env_str("EMAIL_SENDER") or None,
-        email_sender_name=env_str("EMAIL_SENDER_NAME", "Finance Analysis 分析助手") or "Finance Analysis 分析助手",
         email_password=env_str("EMAIL_PASSWORD") or None,
         email_receivers=env_list("EMAIL_RECEIVERS"),
         stock_email_groups=_parse_stock_email_groups(),
@@ -132,13 +128,4 @@ def get_notification_config() -> NotificationConfig:
         webhook_verify_ssl=env_bool("WEBHOOK_VERIFY_SSL", True),
         astrbot_url=env_str("ASTRBOT_URL") or None,
         astrbot_token=env_str("ASTRBOT_TOKEN") or None,
-        notification_report_channels=parse_notification_route_channels(env_str("NOTIFICATION_REPORT_CHANNELS")),
-        notification_alert_channels=parse_notification_route_channels(env_str("NOTIFICATION_ALERT_CHANNELS")),
-        notification_system_error_channels=parse_notification_route_channels(env_str("NOTIFICATION_SYSTEM_ERROR_CHANNELS")),
-        notification_dedup_ttl_seconds=env_int("NOTIFICATION_DEDUP_TTL_SECONDS", 0, minimum=0),
-        notification_cooldown_seconds=env_int("NOTIFICATION_COOLDOWN_SECONDS", 0, minimum=0),
-        notification_quiet_hours=(env_str("NOTIFICATION_QUIET_HOURS", "") or "").strip(),
-        notification_timezone=(env_str("NOTIFICATION_TIMEZONE", "") or "").strip(),
-        notification_min_severity=(env_str("NOTIFICATION_MIN_SEVERITY", "") or "").strip().lower(),
-        notification_daily_digest_enabled=env_bool("NOTIFICATION_DAILY_DIGEST_ENABLED", False),
     )

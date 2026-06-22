@@ -13,6 +13,7 @@ concurrency:
 env:
   GHCR_REGISTRY: ghcr.io
   GHCR_IMAGE_NAME: ${{ github.repository }}
+  GHCR_WEB_IMAGE_NAME: ${{ github.repository }}_web
 
 jobs:
   build-and-push:
@@ -42,8 +43,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
+      - name: Extract backend metadata
+        id: meta-backend
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}
@@ -53,21 +54,45 @@ jobs:
             type=sha,format=short
             type=sha,format=long
 
-      - name: Build and push GHCR images
+      - name: Extract web metadata
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_WEB_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=main
+            type=sha,format=short
+            type=sha,format=long
+
+      - name: Build and push backend image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build and push web image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.web
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
 
       - name: Publish summary
         run: |
-          echo "### Docker main image published" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Docker main images published" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Web GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_WEB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tags: \`latest\`, \`main\`, commit SHA tags" >> "$GITHUB_STEP_SUMMARY"

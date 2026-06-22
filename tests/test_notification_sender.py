@@ -18,7 +18,7 @@ import requests
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from finance_analysis.config import Config
+from finance_analysis.notification.config import NotificationConfig
 from finance_analysis.notification.senders import (
     AstrbotSender,
     CustomWebhookSender,
@@ -29,8 +29,8 @@ from finance_analysis.notification.senders import (
 
 
 def _config(**overrides):
-    """Minimal Config for sender tests."""
-    return Config(database_url=os.environ["DATABASE_URL"], **overrides)
+    """Minimal NotificationConfig for sender tests."""
+    return NotificationConfig(**overrides)
 
 
 def _response(status_code: int, json_body: Optional[dict] = None):

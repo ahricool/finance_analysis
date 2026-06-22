@@ -11,7 +11,6 @@ from pathlib import Path
 def main() -> int:
     from finance_analysis.core.paths import (
         PROJECT_ROOT,
-        STATIC_DIR,
         STRATEGIES_DIR,
         TEMPLATES_DIR,
         clear_paths_cache,
@@ -28,13 +27,10 @@ def main() -> int:
 
     print("PROJECT_ROOT =", PROJECT_ROOT)
     print("DATA_DIR =", get_data_dir())
-    print("STATIC_DIR =", STATIC_DIR)
     print("TEMPLATES_DIR =", TEMPLATES_DIR)
     print("STRATEGIES_DIR =", STRATEGIES_DIR)
 
     assert (PROJECT_ROOT / "pyproject.toml").is_file(), PROJECT_ROOT
-    assert STATIC_DIR.name == "static", STATIC_DIR
-    assert (STATIC_DIR / "index.html").is_file(), STATIC_DIR
 
     templates = _resolve_templates_dir()
     print("templates =", templates)

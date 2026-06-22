@@ -17,11 +17,13 @@ from finance_analysis.agent.config import get_agent_config, get_effective_agent_
 from finance_analysis.llm.config import get_llm_config
 from finance_analysis.notification.config import get_notification_config
 from finance_analysis.reporting.config import get_report_config
-from finance_analysis.config.runtime import get_runtime_config
+from finance_analysis.market_review.config import get_market_review_config
+from finance_analysis.market_intelligence.config import get_social_sentiment_config
 from finance_analysis.search.config import get_search_config
+from finance_analysis.tasks.config import get_task_config
 
 
-@dataclass(frozen=True)
+@dataclass
 class PipelineConfig:
     pass
 
@@ -48,9 +50,11 @@ def get_pipeline_config() -> PipelineConfig:
         get_agent_config(),
         get_search_config(),
         get_data_provider_config(),
+        get_market_review_config(),
         get_notification_config(),
         get_report_config(),
-        get_runtime_config(),
+        get_social_sentiment_config(),
+        get_task_config(),
     ):
         values.update(_asdict(config))
     values.update(
@@ -67,5 +71,5 @@ def get_pipeline_config() -> PipelineConfig:
         }
     )
 
-    cls = dataclass(frozen=True)(type("PipelineRuntimeConfig", (PipelineConfig,), {"__annotations__": {key: type(value) for key, value in values.items()}}))
+    cls = dataclass(type("PipelineRuntimeConfig", (PipelineConfig,), {"__annotations__": {key: type(value) for key, value in values.items()}}))
     return cls(**values)

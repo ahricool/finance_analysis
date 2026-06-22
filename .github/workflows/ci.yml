@@ -24,6 +24,8 @@ jobs:
           filters: |
             frontend:
               - 'web/**'
+              - 'Dockerfile.web'
+              - 'docker/nginx.conf'
 
   ai-governance:
     name: ai-governance
@@ -104,7 +106,9 @@ jobs:
       - name: 🐳 Build image
         run: |
           docker build -t stock-analysis:test -f Dockerfile .
+          docker build -t stock-analysis-web:test -f Dockerfile.web .
           docker run --rm stock-analysis:test python -c "print('✅ Docker OK')"
+          docker run --rm stock-analysis-web:test nginx -t
       - name: 🔍 Docker smoke imports
         run: |
           docker run --rm stock-analysis:test python -c "
@@ -114,7 +118,6 @@ jobs:
           from finance_analysis.integrations.market_data import DataFetcherManager; print('✅ data_provider')
           from finance_analysis.analysis.stock_report_analyzer import StockReportAnalyzer; print('✅ analyzer')
           from finance_analysis.patches.eastmoney_patch import eastmoney_patch; print('✅ patch')
-          from finance_analysis.interfaces.bot.dispatcher import CommandDispatcher; print('✅ bot')
           from finance_analysis.interfaces.api.app import app; print('✅ api')
           print('✅ All Docker imports OK')
           "
@@ -123,7 +126,6 @@ jobs:
           docker run --rm stock-analysis:test python - <<'PY'
           from finance_analysis.core.paths import (
               PROJECT_ROOT,
-              STATIC_DIR,
               TEMPLATES_DIR,
               STRATEGIES_DIR,
               ensure_data_directories,
@@ -133,10 +135,6 @@ jobs:
           )
           from finance_analysis.interfaces.api.app import create_app
           from finance_analysis.reporting.template_renderer import _resolve_templates_dir
-
-          print('static_dir:', STATIC_DIR)
-          assert STATIC_DIR.name == 'static'
-          assert (STATIC_DIR / 'index.html').is_file()
 
           templates = _resolve_templates_dir()
           print('templates:', templates)

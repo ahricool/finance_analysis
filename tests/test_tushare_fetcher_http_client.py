@@ -67,7 +67,7 @@ class TestTushareFetcherInit(unittest.TestCase):
     def test_init_builds_http_client_when_token_present(self) -> None:
         config = SimpleNamespace(tushare_token="demo-token")
 
-        with patch("finance_analysis.integrations.market_data.config.get_data_provider_config", return_value=config):
+        with patch("finance_analysis.integrations.market_data.providers.tushare.get_data_provider_config", return_value=config):
             fetcher = TushareFetcher()
 
         self.assertIsInstance(fetcher._api, _TushareHttpClient)

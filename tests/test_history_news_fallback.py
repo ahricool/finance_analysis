@@ -2,7 +2,7 @@
 """Tests for history fallback published_date hard filtering (Issue #697)."""
 
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -11,7 +11,7 @@ from finance_analysis.analysis.history.service import HistoryService
 
 class HistoryNewsFallbackTestCase(unittest.TestCase):
     def test_fallback_filters_by_published_date_window(self) -> None:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         analysis = SimpleNamespace(code="600519", created_at=now)
 
         # All entries are within fetched_at window; only one should pass published_date window.
@@ -45,7 +45,7 @@ class HistoryNewsFallbackTestCase(unittest.TestCase):
         self.assertEqual([item.title for item in result], ["fresh"])
 
     def test_fallback_uses_analysis_date_as_window_anchor(self) -> None:
-        analysis_time = datetime.now() - timedelta(days=40)
+        analysis_time = datetime.now(timezone.utc) - timedelta(days=40)
         analysis = SimpleNamespace(code="600519", created_at=analysis_time)
 
         candidates = [

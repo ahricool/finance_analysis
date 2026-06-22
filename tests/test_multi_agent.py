@@ -34,7 +34,7 @@ from finance_analysis.agent.protocols import (
     StageResult,
     StageStatus,
 )
-from finance_analysis.config import AGENT_MAX_STEPS_DEFAULT
+from finance_analysis.agent.config import AGENT_MAX_STEPS_DEFAULT
 
 
 # ============================================================
@@ -274,7 +274,7 @@ class TestStrategyRouter(unittest.TestCase):
             SimpleNamespace(name="wave_theory"),
         ],
     )
-    @patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace(agent_skills=["chan_theory", "wave_theory"]))
+    @patch("finance_analysis.agent.config.get_agent_config", return_value=SimpleNamespace(agent_skills=["chan_theory", "wave_theory"]))
     def test_manual_mode_uses_configured_agent_skills(self, _mock_config, _mock_available, _mock):
         from finance_analysis.agent.strategies.router import StrategyRouter
         router = StrategyRouter()
@@ -290,7 +290,7 @@ class TestStrategyRouter(unittest.TestCase):
             SimpleNamespace(name="shrink_pullback", default_router=True, default_priority=40),
         ],
     )
-    @patch("finance_analysis.config.runtime.get_runtime_config", return_value=SimpleNamespace(agent_skills=[]))
+    @patch("finance_analysis.agent.config.get_agent_config", return_value=SimpleNamespace(agent_skills=[]))
     def test_manual_mode_falls_back_to_defaults_when_no_skills_configured(self, _mock_config, _mock_available, _mock):
         from finance_analysis.agent.strategies.router import StrategyRouter, _DEFAULT_STRATEGIES
         router = StrategyRouter()
@@ -853,8 +853,8 @@ class TestOrchestratorExecution(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertEqual(add_message.call_count, 2)
-        add_message.assert_any_call("session-1", "user", "hello")
-        add_message.assert_any_call("session-1", "assistant", "assistant reply")
+        add_message.assert_any_call("session-1", "user", "hello", user_id=None)
+        add_message.assert_any_call("session-1", "assistant", "assistant reply", user_id=None)
 
     def test_chat_persists_failure_message(self):
         from finance_analysis.agent.orchestrator import OrchestratorResult
@@ -867,7 +867,7 @@ class TestOrchestratorExecution(unittest.TestCase):
                 result = orch.chat("hello", "session-2")
 
         self.assertFalse(result.success)
-        add_message.assert_any_call("session-2", "assistant", "[分析失败] boom")
+        add_message.assert_any_call("session-2", "assistant", "[分析失败] boom", user_id=None)
 
     def test_execute_pipeline_fails_when_dashboard_parse_fails(self):
         orch = self._make_orchestrator()
@@ -1572,94 +1572,6 @@ class TestRiskOverride(unittest.TestCase):
 
 
 # ============================================================
-# ResearchCommand timeout guard
-# ============================================================
-
-class TestResearchCommandTimeout(unittest.TestCase):
-    """Verify that ResearchCommand respects the configured timeout."""
-
-    def test_research_timeout_returns_timeout_response(self):
-        """Timed-out research results should surface the timeout response text."""
-        from finance_analysis.interfaces.bot.commands.research import ResearchCommand
-        from finance_analysis.interfaces.bot.models import BotMessage
-
-        cmd = ResearchCommand()
-
-        msg = MagicMock(spec=BotMessage)
-        msg.platform = "test"
-        msg.user_id = "u1"
-
-        config = SimpleNamespace(
-            agent_deep_research_budget=30000,
-            agent_deep_research_timeout=0.01,  # 10ms — will trigger timeout
-            litellm_model="test-model",
-            agent_mode=True,
-        )
-
-        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=config), \
-             patch("finance_analysis.agent.factory.get_tool_registry", return_value=MagicMock()), \
-             patch("finance_analysis.agent.llm_adapter.LLMToolAdapter", return_value=MagicMock()), \
-             patch("finance_analysis.agent.research.ResearchAgent.research", return_value=SimpleNamespace(
-                 success=False,
-                 report="",
-                 sub_questions=["q"],
-                 findings_count=1,
-                 total_tokens=100,
-                 duration_s=0.01,
-                 error="Deep research timed out after 0.01s",
-                 timed_out=True,
-             )):
-            response = cmd.execute(msg, ["600519"])
-
-        self.assertIn("超时", response.text)
-
-    def test_research_recognizes_five_letter_us_ticker(self):
-        from finance_analysis.interfaces.bot.commands.research import ResearchCommand
-        from finance_analysis.interfaces.bot.models import BotMessage
-
-        cmd = ResearchCommand()
-        msg = MagicMock(spec=BotMessage)
-        msg.platform = "test"
-        msg.user_id = "u1"
-
-        result = SimpleNamespace(
-            success=True,
-            report="ok",
-            sub_questions=["q"],
-            findings_count=1,
-            total_tokens=100,
-            duration_s=1.0,
-            error=None,
-            timed_out=False,
-        )
-        captured = {}
-
-        def _capture_research(query, context=None, timeout_seconds=None):
-            captured["query"] = query
-            captured["context"] = context
-            captured["timeout_seconds"] = timeout_seconds
-            return result
-
-        config = SimpleNamespace(
-            agent_deep_research_budget=30000,
-            agent_deep_research_timeout=1,
-            litellm_model="test-model",
-            agent_mode=True,
-        )
-
-        with patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=config), \
-             patch("finance_analysis.agent.factory.get_tool_registry", return_value=MagicMock()), \
-             patch("finance_analysis.agent.llm_adapter.LLMToolAdapter", return_value=MagicMock()), \
-             patch("finance_analysis.agent.research.ResearchAgent.research", side_effect=_capture_research):
-            response = cmd.execute(msg, ["googl", "风险"])
-
-        self.assertIn("Deep Research Report", response.text)
-        self.assertEqual(captured["context"], {"stock_code": "GOOGL", "stock_name": ""})
-        self.assertEqual(captured["timeout_seconds"], 1)
-        self.assertTrue(captured["query"].startswith("[Stock: GOOGL]"))
-
-
-# ============================================================
 # ResearchAgent filtered registry & API endpoint
 # ============================================================
 
@@ -1794,7 +1706,7 @@ class TestAgentResearchEndpoint(unittest.IsolatedAsyncioTestCase):
         ))
 
         with (
-            patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=config),
+            patch("finance_analysis.interfaces.api.v1.endpoints.agent.get_pipeline_config", return_value=config),
             patch("finance_analysis.interfaces.api.v1.endpoints.agent._run_research_in_background", new=research_result),
             patch("finance_analysis.agent.factory.get_tool_registry", return_value=MagicMock()),
             patch("finance_analysis.agent.llm_adapter.LLMToolAdapter", return_value=MagicMock()),
