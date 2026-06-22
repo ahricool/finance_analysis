@@ -2,10 +2,11 @@
 import { calendarApi, type CalendarEntryItem, type FinanceEventItem } from '@/api/calendar';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
+import Drawer from '@/components/common/Drawer.vue';
 import { useTimezoneStore } from '@/stores/timezoneStore';
 import { formatDateOnly, formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/utils/format';
 import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { CalendarDays, ChevronLeft, ChevronRight, FileSearch } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 
@@ -22,8 +23,17 @@ const entries = ref<CalendarEntryItem[]>([]);
 const eventsLoading = ref(false);
 const entriesLoading = ref(false);
 const error = ref<ParsedApiError | null>(null);
-const expandedEventId = ref<number | null>(null);
-const expandedEntryId = ref<number | null>(null);
+
+type CalendarDetail =
+  | { kind: 'event'; item: FinanceEventItem }
+  | { kind: 'entry'; item: CalendarEntryItem };
+
+const detail = ref<CalendarDetail | null>(null);
+
+const detailTitle = computed(() => {
+  if (!detail.value) return '';
+  return detail.value.kind === 'event' ? '财经事件详情' : '日历记录详情';
+});
 
 const weekDates = computed(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart.value, i)));
 
@@ -72,8 +82,7 @@ async function loadEntries() {
   eventsLoading.value = true;
   entriesLoading.value = true;
   error.value = null;
-  expandedEventId.value = null;
-  expandedEntryId.value = null;
+  detail.value = null;
   try {
     const [eventRes, entryRes] = await Promise.all([
       calendarApi.listEventsByDate(selectedDate.value),
@@ -98,12 +107,16 @@ function shiftWeek(step: number) {
   weekStart.value = addDays(weekStart.value, step * 7);
 }
 
-function toggleEntry(item: CalendarEntryItem) {
-  expandedEntryId.value = expandedEntryId.value === item.id ? null : item.id;
+function openEventDetail(item: FinanceEventItem) {
+  detail.value = { kind: 'event', item };
 }
 
-function toggleEvent(item: FinanceEventItem) {
-  expandedEventId.value = expandedEventId.value === item.id ? null : item.id;
+function openEntryDetail(item: CalendarEntryItem) {
+  detail.value = { kind: 'entry', item };
+}
+
+function closeDetail() {
+  detail.value = null;
 }
 
 function entryTypeLabel(type: string | null): string {
@@ -204,7 +217,7 @@ watch(displayTimezone, () => {
           <button
             type="button"
             class="flex w-full items-start justify-between gap-3 p-3 text-left transition hover:bg-hover/70"
-            @click="toggleEvent(item)"
+            @click="openEventDetail(item)"
           >
             <span class="min-w-0 flex-1">
               <span class="mb-1 flex flex-wrap items-center gap-2 text-xs text-secondary-text">
@@ -216,15 +229,10 @@ watch(displayTimezone, () => {
               <span class="block text-sm font-medium">{{ item.title }}</span>
               <span class="mt-1 block text-xs text-secondary-text">{{ formatDateOnly(item.event_date) }}</span>
             </span>
-            <ChevronDown
-              class="mt-0.5 h-4 w-4 shrink-0 text-secondary-text transition-transform"
-              :class="expandedEventId === item.id ? 'rotate-180 text-primary' : ''"
-            />
+            <span class="mt-0.5 inline-flex shrink-0 items-center gap-1 text-xs text-secondary-text">
+              <FileSearch class="h-4 w-4" />
+            </span>
           </button>
-          <div v-if="expandedEventId === item.id" class="border-t border-border/60 bg-background/40 p-3">
-            <div v-if="item.content" class="prose prose-sm max-w-none text-sm text-foreground dark:prose-invert" v-html="renderMarkdown(item.content)" />
-            <p v-else class="text-sm text-secondary-text">该事件暂无详情内容</p>
-          </div>
         </article>
       </div>
     </div>
@@ -238,7 +246,7 @@ watch(displayTimezone, () => {
           <button
             type="button"
             class="flex w-full items-start justify-between gap-3 p-3 text-left transition hover:bg-hover/70"
-            @click="toggleEntry(item)"
+            @click="openEntryDetail(item)"
           >
             <span class="min-w-0 flex-1">
               <span class="block text-sm font-medium">{{ item.title }}</span>
@@ -248,17 +256,86 @@ watch(displayTimezone, () => {
                 <span v-if="item.content">点击查看执行结果与报告</span>
               </span>
             </span>
-            <ChevronDown
-              class="mt-0.5 h-4 w-4 shrink-0 text-secondary-text transition-transform"
-              :class="expandedEntryId === item.id ? 'rotate-180 text-primary' : ''"
-            />
+            <span class="mt-0.5 inline-flex shrink-0 items-center gap-1 text-xs text-secondary-text">
+              <FileSearch class="h-4 w-4" />
+            </span>
           </button>
-          <div v-if="expandedEntryId === item.id" class="border-t border-border/60 bg-background/40 p-3">
-            <div v-if="item.content" class="prose prose-sm max-w-none text-sm text-foreground dark:prose-invert" v-html="renderMarkdown(item.content)" />
-            <p v-else class="text-sm text-secondary-text">该记录暂无详情内容</p>
-          </div>
         </article>
       </div>
     </div>
+
+    <Drawer
+      :is-open="!!detail"
+      :title="detailTitle"
+      width="max-w-4xl"
+      variant="modal"
+      @close="closeDetail"
+    >
+      <div v-if="detail?.kind === 'event'" class="space-y-5">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+            <p class="text-xs text-muted-text">类型</p>
+            <p class="mt-1 text-sm font-medium text-foreground">{{ eventTypeLabel(detail.item.calendar_type) }}</p>
+          </div>
+          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+            <p class="text-xs text-muted-text">标的 / 名称</p>
+            <p class="mt-1 text-sm text-foreground">{{ eventName(detail.item) }}</p>
+          </div>
+          <div v-if="detail.item.star !== null" class="rounded-xl border border-border/60 bg-background/60 p-3">
+            <p class="text-xs text-muted-text">评级</p>
+            <p class="mt-1 text-sm text-foreground">star {{ detail.item.star }}</p>
+          </div>
+          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+            <p class="text-xs text-muted-text">时间</p>
+            <p class="mt-1 text-sm text-foreground">{{ eventTime(detail.item) }}</p>
+          </div>
+          <div class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2">
+            <p class="text-xs text-muted-text">标题</p>
+            <p class="mt-1 text-sm font-medium text-foreground">{{ detail.item.title }}</p>
+          </div>
+          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+            <p class="text-xs text-muted-text">日期</p>
+            <p class="mt-1 text-sm text-foreground">{{ formatDateOnly(detail.item.event_date) }}</p>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+          <p class="text-xs text-muted-text">详情内容</p>
+          <div
+            v-if="detail.item.content"
+            class="prose prose-sm mt-3 max-w-none text-sm text-foreground dark:prose-invert"
+            v-html="renderMarkdown(detail.item.content)"
+          />
+          <p v-else class="mt-2 text-sm text-secondary-text">该事件暂无详情内容</p>
+        </div>
+      </div>
+
+      <div v-else-if="detail?.kind === 'entry'" class="space-y-5">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2">
+            <p class="text-xs text-muted-text">标题</p>
+            <p class="mt-1 text-sm font-medium text-foreground">{{ detail.item.title }}</p>
+          </div>
+          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+            <p class="text-xs text-muted-text">类型</p>
+            <p class="mt-1 text-sm text-foreground">{{ entryTypeLabel(detail.item.type) }}</p>
+          </div>
+          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+            <p class="text-xs text-muted-text">时间</p>
+            <p class="mt-1 text-sm text-foreground">{{ formatDateTimeInDisplayTimezone(detail.item.time) }}</p>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+          <p class="text-xs text-muted-text">详情内容</p>
+          <div
+            v-if="detail.item.content"
+            class="prose prose-sm mt-3 max-w-none text-sm text-foreground dark:prose-invert"
+            v-html="renderMarkdown(detail.item.content)"
+          />
+          <p v-else class="mt-2 text-sm text-secondary-text">该记录暂无详情内容</p>
+        </div>
+      </div>
+    </Drawer>
   </div>
 </template>
