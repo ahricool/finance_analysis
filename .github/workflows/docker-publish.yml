@@ -24,10 +24,11 @@ env:
   DOCKERHUB_WEB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}-web
   HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' && 'true' || 'false' }}
   HAS_DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME != '' && 'true' || 'false' }}
+  BUILDKIT_IMAGE: moby/buildkit:v0.31.0
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -108,10 +109,18 @@ jobs:
           fi
           echo "Tag annotation found for $VERSION ($(echo "$TAG_BODY" | wc -l) lines). Gate passed."
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: |
+            image=${{ env.BUILDKIT_IMAGE }}
+            network=host
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
@@ -119,7 +128,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: ${{ env.HAS_DOCKERHUB_TOKEN == 'true' && env.HAS_DOCKERHUB_USERNAME == 'true' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.DOCKERHUB_REGISTRY }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -127,7 +136,7 @@ jobs:
 
       - name: Extract backend metadata for GHCR
         id: meta-ghcr-backend
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}
           tags: |
@@ -139,7 +148,7 @@ jobs:
 
       - name: Extract web metadata for GHCR
         id: meta-ghcr-web
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_WEB_IMAGE_NAME }}
           tags: |
@@ -152,7 +161,7 @@ jobs:
       - name: Extract backend metadata for Docker Hub
         if: ${{ env.HAS_DOCKERHUB_TOKEN == 'true' && env.HAS_DOCKERHUB_USERNAME == 'true' }}
         id: meta-dockerhub-backend
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_IMAGE_NAME }}
           tags: |
@@ -165,7 +174,7 @@ jobs:
       - name: Extract web metadata for Docker Hub
         if: ${{ env.HAS_DOCKERHUB_TOKEN == 'true' && env.HAS_DOCKERHUB_USERNAME == 'true' }}
         id: meta-dockerhub-web
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_WEB_IMAGE_NAME }}
           tags: |
@@ -190,7 +199,7 @@ jobs:
           docker run --rm stock-analysis-web:release nginx -t
 
       - name: Build and push backend release images
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -204,7 +213,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=backend
 
       - name: Build and push web release images
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.web
