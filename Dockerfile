@@ -19,8 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc && \
 
 WORKDIR /workspace
 
-# Enable bytecode compilation for faster container startup
-ENV UV_COMPILE_BYTECODE=1
+# Disable bytecode compilation
+ENV UV_COMPILE_BYTECODE=0
 # Use copy link mode when a Docker cache mount is active
 ENV UV_LINK_MODE=copy
 # Never download extra Python interpreters (use the system Python)
