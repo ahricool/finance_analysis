@@ -9,7 +9,6 @@ import EmptyState from '@/components/common/EmptyState.vue';
 import Pagination from '@/components/common/Pagination.vue';
 import StatusDot from '@/components/common/StatusDot.vue';
 import Tooltip from '@/components/common/Tooltip.vue';
-import { formatDocumentTitle } from '@/config/app';
 import type { BacktestResultItem, BacktestRunResponse, PerformanceMetrics } from '@/types/backtest';
 import { Check, Minus, X } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
@@ -64,7 +63,6 @@ const showNextDayActualColumns = computed(() => isNextDayValidation.value);
 const totalPages = computed(() => Math.ceil(totalResults.value / pageSize));
 
 onMounted(() => {
-  document.title = formatDocumentTitle('策略回测');
   void (async () => {
     const overall = await backtestApi.getOverallPerformance();
     overallPerf.value = overall;

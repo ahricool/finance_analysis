@@ -11,7 +11,6 @@ import InlineAlert from '@/components/common/InlineAlert.vue';
 import ScrollArea from '@/components/common/ScrollArea.vue';
 import Tooltip from '@/components/common/Tooltip.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
-import { formatDocumentTitle } from '@/config/app';
 import { cn } from '@/utils/cn';
 import { formatDate } from '@/utils/format';
 import { downloadSession, formatSessionAsMarkdown } from '@/utils/chatExport';
@@ -119,7 +118,6 @@ const sessionsLoading = computed(() => unref(chat.sessionsLoading));
 const chatError = computed(() => unref(chat.chatError));
 
 onMounted(() => {
-  document.title = formatDocumentTitle('问股');
   isMountedRef.value = true;
   unref(chat.loadInitialSession)();
   unref(chat.clearCompletionBadge)();
