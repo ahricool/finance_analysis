@@ -73,7 +73,7 @@ async def run_scheduled_task(job_id: str, admin: User = Depends(require_admin)):
 @router.get("", response_model=TaskRunListResponse)
 async def list_task_runs(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(10, ge=1, le=100),
     status_value: Optional[str] = Query(None, alias="status"),
     task_type: Optional[str] = None,
     source: Optional[str] = None,
