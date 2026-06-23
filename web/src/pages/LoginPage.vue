@@ -4,7 +4,7 @@ import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
 import { useAuth } from '@/composables/useAuth';
-import { APP_NAME, formatDocumentTitle } from '@/config/app';
+import { APP_NAME } from '@/config/app';
 import { Lock } from 'lucide-vue-next';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -115,7 +115,6 @@ async function handleSubmit(e: Event) {
 }
 
 onMounted(() => {
-  document.title = formatDocumentTitle('登录');
   document.documentElement.classList.add('login-page-active');
 });
 

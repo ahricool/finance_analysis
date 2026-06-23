@@ -7,7 +7,6 @@ import AvatarCropper from '@/components/profile/AvatarCropper.vue';
 import ChangePasswordCard from '@/components/settings/ChangePasswordCard.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
 import SettingsSectionCard from '@/components/settings/SettingsSectionCard.vue';
-import { formatDocumentTitle } from '@/config/app';
 import { useAuthStore } from '@/stores/authStore';
 import { Bell, Camera, LockKeyhole, Save, Upload, UserRound } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
@@ -184,7 +183,6 @@ async function saveNotification() {
 }
 
 onMounted(() => {
-  document.title = formatDocumentTitle('个人中心');
   void loadProfile();
 });
 onBeforeUnmount(clearAvatarSource);

@@ -13,11 +13,10 @@ import ReportMarkdown from '@/components/report/ReportMarkdown.vue';
 import ReportSummary from '@/components/report/ReportSummary.vue';
 import { useDashboardLifecycle } from '@/composables/useDashboardLifecycle';
 import { useHomeDashboardState } from '@/composables/useHomeDashboardState';
-import { formatDocumentTitle } from '@/config/app';
 import { useTimezoneStore } from '@/stores/timezoneStore';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { BarChart3 } from 'lucide-vue-next';
-import { computed, onMounted, ref, unref, watch } from 'vue';
+import { computed, ref, unref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 
@@ -94,10 +93,6 @@ function scrollMarketReviewFeedbackIntoView() {
   }
   scrollContainer.scrollTop = 0;
 }
-
-onMounted(() => {
-  document.title = formatDocumentTitle();
-});
 
 watch(displayTimezone, () => {
   void unref(refreshHistory)(true);

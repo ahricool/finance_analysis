@@ -8,7 +8,6 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import Drawer from '@/components/common/Drawer.vue';
 import InlineAlert from '@/components/common/InlineAlert.vue';
 import Pagination from '@/components/common/Pagination.vue';
-import { formatDocumentTitle } from '@/config/app';
 import { useAuthStore } from '@/stores/authStore';
 import type { ScheduledTask, TaskRun, TaskRunDetail, TaskStatus } from '@/types/tasks';
 import { formatDateTimeInDisplayTimezone, toUtcIsoString } from '@/utils/format';
@@ -318,7 +317,6 @@ watch(
 );
 
 onMounted(() => {
-  document.title = formatDocumentTitle('任务中心');
   document.addEventListener('click', closeStatusFilterOnOutsideClick);
 });
 
