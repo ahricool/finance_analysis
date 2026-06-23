@@ -7,7 +7,6 @@ import json
 import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import desc, or_, select
 
@@ -30,7 +29,6 @@ from .models import (
     InstrumentPerformance,
     US_POSTMARKET_BENCHMARKS,
     US_POSTMARKET_SECTOR_ETFS,
-    US_POSTMARKET_TIMEZONE,
     USPostmarketReviewContext,
     USPostmarketReviewSummary,
     WatchlistSummary,
