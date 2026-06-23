@@ -13,4 +13,15 @@ describe('renderMarkdownToHtml', () => {
   it('returns empty string for blank input', () => {
     expect(renderMarkdownToHtml('')).toBe('');
   });
+
+  it('wraps markdown tables and code blocks in local horizontal scroll areas', () => {
+    const html = renderMarkdownToHtml('| A | B |\n| --- | --- |\n| 1 | 2 |\n\n```txt\nvery long code\n```');
+
+    expect(html).toContain('class="markdown-horizontal-scroll"');
+    expect(html).toContain('data-scroll-area="horizontal"');
+    expect(html).toContain('aria-label="Markdown 表格横向滚动区域"');
+    expect(html).toContain('aria-label="Markdown 代码块横向滚动区域"');
+    expect(html).toContain('<table>');
+    expect(html).toContain('<pre>');
+  });
 });

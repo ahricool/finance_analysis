@@ -3,6 +3,7 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { stockListApi, type MarketType, type StockHolding, type StockHoldingCreate } from '@/api/stockList';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
+import HorizontalScrollArea from '@/components/common/HorizontalScrollArea.vue';
 import Input from '@/components/common/Input.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import type { Market } from '@/types/stockIndex';
@@ -232,7 +233,11 @@ onMounted(loadList);
     </div>
 
     <!-- Table -->
-    <div v-else class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
+    <HorizontalScrollArea
+      v-else
+      class="overflow-hidden rounded-2xl border border-border/70 bg-card/94 shadow-soft-card"
+      aria-label="持仓股表格"
+    >
       <table class="w-full min-w-[900px] text-left text-sm">
         <thead class="border-b border-border/70 text-xs text-muted-text">
           <tr>
@@ -294,7 +299,7 @@ onMounted(loadList);
           </tr>
         </tbody>
       </table>
-    </div>
+    </HorizontalScrollArea>
 
     <!-- Add / Edit Dialog -->
     <Teleport to="body">

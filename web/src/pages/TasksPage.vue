@@ -6,6 +6,7 @@ import Badge from '@/components/common/Badge.vue';
 import Button from '@/components/common/Button.vue';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import Drawer from '@/components/common/Drawer.vue';
+import HorizontalScrollArea from '@/components/common/HorizontalScrollArea.vue';
 import InlineAlert from '@/components/common/InlineAlert.vue';
 import Pagination from '@/components/common/Pagination.vue';
 import { useAuthStore } from '@/stores/authStore';
@@ -375,7 +376,10 @@ onBeforeUnmount(() => {
             {{ scheduledSuccess }}
           </InlineAlert>
 
-          <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
+          <HorizontalScrollArea
+            class="overflow-hidden rounded-2xl border border-border/70 bg-card/94 shadow-soft-card"
+            aria-label="定时任务表格"
+          >
             <table class="min-w-[980px] w-full text-left text-sm">
               <thead class="border-b border-border/70 text-xs text-muted-text">
                 <tr>
@@ -446,7 +450,7 @@ onBeforeUnmount(() => {
                 </tr>
               </tbody>
             </table>
-          </div>
+          </HorizontalScrollArea>
         </template>
 
         <template v-else>
@@ -570,18 +574,26 @@ onBeforeUnmount(() => {
 
           <ApiErrorAlert v-if="runsError" :error="runsError" @dismiss="runsError = null" />
 
-          <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
+          <HorizontalScrollArea
+            class="overflow-hidden rounded-2xl border border-border/70 bg-card/94 shadow-soft-card"
+            aria-label="执行记录表格"
+            hint-text="执行记录表格可横向滚动：拖动上方滚动条，或按住 Shift 滚动鼠标滚轮。"
+          >
             <table class="w-full min-w-[1320px] text-left text-sm">
               <thead class="border-b border-border/70 text-xs text-muted-text">
                 <tr>
-                  <th class="min-w-[220px] px-4 py-3 font-medium">任务</th>
+                  <th class="sticky left-0 z-30 min-w-[220px] border-r border-border/60 bg-card/95 px-4 py-3 font-medium backdrop-blur">
+                    任务
+                  </th>
                   <th class="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">状态</th>
                   <th v-if="isAdmin" class="min-w-[112px] whitespace-nowrap px-4 py-3 font-medium">所属用户</th>
                   <th class="min-w-[220px] whitespace-nowrap px-4 py-3 font-medium">来源</th>
                   <th class="min-w-[140px] whitespace-nowrap px-4 py-3 font-medium">提交时间</th>
                   <th class="min-w-[80px] whitespace-nowrap px-4 py-3 font-medium">耗时</th>
                   <th class="min-w-[280px] px-4 py-3 font-medium">消息</th>
-                  <th class="min-w-[112px] whitespace-nowrap px-4 py-3 text-right font-medium">操作</th>
+                  <th class="sticky right-0 z-30 min-w-[112px] whitespace-nowrap border-l border-border/60 bg-card/95 px-4 py-3 text-right font-medium backdrop-blur">
+                    操作
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -591,8 +603,8 @@ onBeforeUnmount(() => {
                 <tr v-else-if="!runs.length">
                   <td :colspan="isAdmin ? 8 : 7" class="px-4 py-10 text-center text-muted-text">暂无执行记录</td>
                 </tr>
-                <tr v-for="item in runs" v-else :key="item.taskId" class="border-b border-border/50 last:border-0">
-                  <td class="min-w-[220px] px-4 py-4">
+                <tr v-for="item in runs" v-else :key="item.taskId" class="group border-b border-border/50 last:border-0">
+                  <td class="sticky left-0 z-20 min-w-[220px] border-r border-border/60 bg-card/95 px-4 py-4 backdrop-blur transition-colors group-hover:bg-hover">
                     <p class="font-medium text-foreground">{{ item.taskName || item.taskType }}</p>
                     <p class="mt-1 text-xs text-muted-text">{{ item.taskType }}</p>
                     <p v-if="isAdmin" class="mt-1 font-mono text-[11px] text-muted-text">
@@ -621,7 +633,7 @@ onBeforeUnmount(() => {
                   <td class="min-w-[280px] max-w-xs px-4 py-4 text-xs text-muted-text">
                     <span class="line-clamp-2">{{ item.message || '—' }}</span>
                   </td>
-                  <td class="min-w-[112px] whitespace-nowrap px-4 py-4 text-right">
+                  <td class="sticky right-0 z-20 min-w-[112px] whitespace-nowrap border-l border-border/60 bg-card/95 px-4 py-4 text-right backdrop-blur transition-colors group-hover:bg-hover">
                     <Button variant="ghost" size="sm" @click="openDetail(item)">
                       <FileSearch class="h-4 w-4" />
                       查看详情
@@ -630,7 +642,7 @@ onBeforeUnmount(() => {
                 </tr>
               </tbody>
             </table>
-          </div>
+          </HorizontalScrollArea>
 
           <Pagination
             :current-page="runsPage"

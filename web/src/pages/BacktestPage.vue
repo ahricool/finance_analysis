@@ -6,6 +6,7 @@ import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Badge from '@/components/common/Badge.vue';
 import Card from '@/components/common/Card.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
+import HorizontalScrollArea from '@/components/common/HorizontalScrollArea.vue';
 import Pagination from '@/components/common/Pagination.vue';
 import StatusDot from '@/components/common/StatusDot.vue';
 import Tooltip from '@/components/common/Tooltip.vue';
@@ -470,9 +471,14 @@ function onCodeInput(e: Event) {
                 {{ analysisDateTo ? ` · to ${analysisDateTo}` : '' }}
               </span>
             </div>
-            <span class="backtest-table-scroll-hint">Scroll horizontally on small screens</span>
+            <span class="backtest-table-scroll-hint">可横向滚动浏览完整结果</span>
           </div>
-          <div class="backtest-table-wrapper">
+          <HorizontalScrollArea
+            class="backtest-table-wrapper"
+            viewport-class-name="backtest-table-scroll-viewport"
+            aria-label="策略回测结果表格"
+            hint-text="结果表格可横向滚动：拖动上方滚动条，或按住 Shift 滚动鼠标滚轮。"
+          >
             <table class="backtest-table min-w-[840px] w-full text-sm">
               <thead class="backtest-table-head">
                 <tr class="text-left">
@@ -599,7 +605,7 @@ function onCodeInput(e: Event) {
                 </tr>
               </tbody>
             </table>
-          </div>
+          </HorizontalScrollArea>
           <div class="mt-4">
             <Pagination
               :current-page="currentPage"

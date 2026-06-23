@@ -111,6 +111,7 @@ function renderJsonPre(data: unknown, panel: JsonPanel) {
               </button>
             </span>
             <pre
+              data-scroll-area="horizontal"
               class="home-trace-pre home-trace-pre-content max-h-80 w-0 min-w-full overflow-x-auto overflow-y-auto rounded-lg bg-base p-3 text-left font-mono text-xs text-foreground"
             >{{ JSON.stringify(details.rawResult, null, 2) }}</pre>
           </div>
@@ -151,6 +152,7 @@ function renderJsonPre(data: unknown, panel: JsonPanel) {
               </button>
             </span>
             <pre
+              data-scroll-area="horizontal"
               class="home-trace-pre home-trace-pre-content max-h-80 w-0 min-w-full overflow-x-auto overflow-y-auto rounded-lg bg-base p-3 text-left font-mono text-xs text-foreground"
             >{{ JSON.stringify(details.contextSnapshot, null, 2) }}</pre>
           </div>
