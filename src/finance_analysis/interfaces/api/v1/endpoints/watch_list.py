@@ -65,13 +65,15 @@ def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
 @router.put("/{item_id}", response_model=WatchListItemResponse, summary="更新自选股")
 def update_watch_list_item(http_request: Request, item_id: int, body: WatchListItemUpdate):
     uid = get_effective_uid(http_request)
+    update_data = body.model_dump(exclude_unset=True)
+    if update_data.get("notes") is None and "notes" in update_data:
+        update_data["notes"] = ""
+    if update_data.get("name") is None and "name" in update_data:
+        update_data["name"] = ""
     item = _repo().update(
         item_id=item_id,
         uid=uid,
-        name=body.name,
-        notes=body.notes,
-        market_type=body.market_type,
-        is_favorite=body.is_favorite,
+        **update_data,
     )
     if item is None:
         raise HTTPException(status_code=404, detail="未找到该自选股")

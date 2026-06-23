@@ -2,7 +2,7 @@
 import EyeToggleIcon from '@/components/common/EyeToggleIcon.vue';
 import { cn } from '@/utils/cn';
 import { Key, Lock, Mail } from 'lucide-vue-next';
-import { computed, getCurrentInstance, ref, useId } from 'vue';
+import { computed, getCurrentInstance, ref, useAttrs, useId } from 'vue';
 
 defineOptions({ inheritAttrs: false });
 
@@ -17,6 +17,7 @@ const props = withDefaults(
     appearance?: 'default' | 'login';
     allowTogglePassword?: boolean;
     iconType?: 'password' | 'key' | 'mail' | 'none';
+    modelValue?: string | number | null;
     /** Controlled password visibility */
     passwordVisible?: boolean;
     type?: string;
@@ -30,9 +31,11 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
+  'update:modelValue': [value: string];
   'update:passwordVisible': [visible: boolean];
 }>();
 
+const attrs = useAttrs();
 const generatedId = useId();
 const inputId = computed(() => props.id ?? props.name ?? generatedId);
 const hintId = computed(() => (props.hint ? `${inputId.value}-hint` : undefined));
@@ -57,6 +60,7 @@ const visible = computed(() =>
 const effectiveType = computed(() =>
   isPasswordInput.value && props.allowTogglePassword && visible.value ? 'text' : props.type,
 );
+const inputValue = computed(() => props.modelValue ?? (attrs.value as string | number | undefined) ?? '');
 
 const inputStyle = computed(() =>
   props.error
@@ -73,6 +77,10 @@ function togglePassword() {
     isPasswordVisibleInner.value = nextVisible;
   }
   emit('update:passwordVisible', nextVisible);
+}
+
+function handleInput(event: Event) {
+  emit('update:modelValue', (event.target as HTMLInputElement).value);
 }
 </script>
 
@@ -126,6 +134,7 @@ function togglePassword() {
         v-bind="$attrs"
         :name="name"
         :type="effectiveType"
+        :value="inputValue"
         :aria-describedby="describedBy"
         :aria-invalid="error ? true : undefined"
         :style="inputStyle ?? undefined"
@@ -141,6 +150,7 @@ function togglePassword() {
             'disabled:cursor-not-allowed disabled:opacity-60',
           )
         "
+        @input="handleInput"
       />
       <div
         v-if="isPasswordInput && allowTogglePassword"
