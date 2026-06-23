@@ -37,12 +37,12 @@ describe('Input password visibility toggle', () => {
 
   it('syncs values through v-model', async () => {
     const wrapper = mount(defineComponent({
-      components: { Input },
+      components: { BaseInput: Input },
       setup() {
         const value = ref('old note');
         return { value };
       },
-      template: '<Input v-model="value" data-testid="note" />',
+      template: '<BaseInput v-model="value" data-testid="note" />',
     }));
 
     const input = wrapper.get('input');
