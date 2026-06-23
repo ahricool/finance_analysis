@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
+import { defineComponent, ref } from 'vue';
 import Input from '../Input.vue';
 
 describe('Input password visibility toggle', () => {
@@ -32,5 +33,23 @@ describe('Input password visibility toggle', () => {
 
     expect(wrapper.classes()).toContain('max-w-sm');
     expect(wrapper.get('input').classes()).not.toContain('max-w-sm');
+  });
+
+  it('syncs values through v-model', async () => {
+    const wrapper = mount(defineComponent({
+      components: { Input },
+      setup() {
+        const value = ref('old note');
+        return { value };
+      },
+      template: '<Input v-model="value" data-testid="note" />',
+    }));
+
+    const input = wrapper.get('input');
+    expect((input.element as HTMLInputElement).value).toBe('old note');
+
+    await input.setValue('new note');
+
+    expect(wrapper.vm.value).toBe('new note');
   });
 });

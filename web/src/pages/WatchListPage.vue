@@ -94,7 +94,7 @@ async function save() {
     if (editingId.value !== null) {
       const updated = await watchListApi.update(editingId.value, {
         name: formName.value.trim() || undefined,
-        notes: formNotes.value.trim() || undefined,
+        notes: formNotes.value.trim(),
         market_type: formMarketType.value,
       });
       const idx = items.value.findIndex((i) => i.id === editingId.value);
