@@ -16,7 +16,6 @@ import {
   ClipboardList,
   ChevronDown,
   Copy,
-  FileSearch,
   ListChecks,
   Play,
   RotateCw,
@@ -384,7 +383,7 @@ onBeforeUnmount(() => {
                   <th class="px-4 py-3 font-medium">调度状态</th>
                   <th class="px-4 py-3 font-medium">最近执行</th>
                   <th class="px-4 py-3 font-medium">下次执行</th>
-                  <th class="px-4 py-3 text-right font-medium">操作</th>
+                  <th class="px-4 py-3 font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -429,7 +428,7 @@ onBeforeUnmount(() => {
                   <td class="px-4 py-4 text-sm text-foreground">
                     {{ formatDateTimeInDisplayTimezone(item.nextRunTime) }}
                   </td>
-                  <td class="px-4 py-4 text-right">
+                  <td class="px-4 py-4">
                     <Button
                       v-if="item.allowManualRun"
                       variant="secondary"
@@ -581,7 +580,7 @@ onBeforeUnmount(() => {
                   <th class="min-w-[140px] whitespace-nowrap px-4 py-3 font-medium">提交时间</th>
                   <th class="min-w-[80px] whitespace-nowrap px-4 py-3 font-medium">耗时</th>
                   <th class="min-w-[280px] px-4 py-3 font-medium">消息</th>
-                  <th class="min-w-[112px] whitespace-nowrap px-4 py-3 text-right font-medium">操作</th>
+                  <th class="min-w-[112px] whitespace-nowrap px-4 py-3 font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -621,9 +620,8 @@ onBeforeUnmount(() => {
                   <td class="min-w-[280px] max-w-xs px-4 py-4 text-xs text-muted-text">
                     <span class="line-clamp-2">{{ item.message || '—' }}</span>
                   </td>
-                  <td class="min-w-[112px] whitespace-nowrap px-4 py-4 text-right">
+                  <td class="min-w-[112px] whitespace-nowrap px-4 py-4">
                     <Button variant="ghost" size="sm" @click="openDetail(item)">
-                      <FileSearch class="h-4 w-4" />
                       查看详情
                     </Button>
                   </td>
