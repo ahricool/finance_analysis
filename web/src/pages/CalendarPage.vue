@@ -213,12 +213,12 @@ watch(displayTimezone, () => {
       </div>
       <div v-else-if="!events.length" class="py-6 text-sm text-secondary-text">当天暂无财经事件</div>
       <div v-else class="max-h-[320px] overflow-y-auto">
-        <div class="grid grid-cols-1 gap-2 p-1 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="grid grid-cols-1 gap-3 p-2 sm:grid-cols-2 lg:grid-cols-3">
           <button
             v-for="item in events"
             :key="item.id"
             type="button"
-            class="flex h-full w-full items-start justify-between gap-3 rounded-xl border border-border/60 bg-card p-3 text-left transition hover:border-primary/25 hover:bg-hover/70 hover:shadow-soft-card"
+            class="terminal-card terminal-card-hover flex h-full w-full cursor-pointer items-start justify-between gap-3 p-3 text-left"
             @click="openEventDetail(item)"
           >
             <span class="min-w-0 flex-1">
@@ -243,12 +243,12 @@ watch(displayTimezone, () => {
       <h2 class="mb-3 text-xs font-semibold sm:text-sm">{{ selectedDateDisplay }} 日历记录</h2>
       <div v-if="entriesLoading" class="space-y-2"><div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-xl bg-hover" /></div>
       <div v-else-if="!entries.length" class="py-6 text-sm text-secondary-text">当天暂无日历记录</div>
-      <div v-else class="space-y-2 p-1">
+      <div v-else class="space-y-3 p-2">
         <button
           v-for="item in entries"
           :key="item.id"
           type="button"
-          class="flex w-full items-start justify-between gap-3 rounded-xl border border-border/60 bg-card p-3 text-left transition hover:border-primary/25 hover:bg-hover/70 hover:shadow-soft-card"
+          class="terminal-card terminal-card-hover flex w-full cursor-pointer items-start justify-between gap-3 p-3 text-left"
           @click="openEntryDetail(item)"
         >
           <span class="min-w-0 flex-1">
