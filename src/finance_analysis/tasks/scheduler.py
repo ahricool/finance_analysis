@@ -10,7 +10,8 @@
 - 北京时间 20:00 执行美股盘前新闻情报，拉取关注股票和 Nasdaq-100 前 20 新闻。
 - 北京时间 19:00 执行美股财经日历同步。
 - 北京时间 21:00 执行美股盘前分析，仅分析自选股中标记为美股的股票。
-- 每 15 分钟执行一次美股盘中分析（当前任务流程为空）。
+- 每 15 分钟执行一次美股盘中分析。
+- 美东时间 16:30 执行美股收盘复盘，自动适配美国夏令时。
 - 每 15 分钟执行一次 A 股盘中分析（当前任务流程为空）。
 
 如需修改调度策略，请直接修改本文件中的常量或 ``_daily_analysis_task``，
@@ -42,6 +43,9 @@ MARKET_CALENDAR_SCHEDULE_MINUTE = 0
 US_PREMARKET_SCHEDULE_HOUR = 21
 US_PREMARKET_SCHEDULE_MINUTE = 0
 INTRADAY_ANALYSIS_INTERVAL_MINUTES = 15
+US_POSTMARKET_REVIEW_SCHEDULE_HOUR = 16
+US_POSTMARKET_REVIEW_SCHEDULE_MINUTE = 30
+US_POSTMARKET_REVIEW_TIMEZONE = "America/New_York"
 SCHEDULE_TIMEZONE = "Asia/Shanghai"
 RUN_IMMEDIATELY_ON_STARTUP = False
 
@@ -50,6 +54,7 @@ _JOB_MARKET_CALENDAR = "market_calendar"
 _JOB_US_PREMARKET_NEWS = "analysis_us_premarket_news"
 _JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
 _JOB_US_INTRADAY_ANALYSIS = "analysis_us_intraday"
+_JOB_US_POSTMARKET_REVIEW = "analysis_us_postmarket_review"
 _JOB_A_SHARE_INTRADAY_ANALYSIS = "analysis_a_share_intraday"
 
 _EMBEDDED_SCHEDULER: Optional[Any] = None
@@ -446,6 +451,29 @@ def _us_intraday_analysis_task() -> None:
         raise
 
 
+@_with_task_tracking(
+    "scheduled_us_postmarket_review",
+    "美股收盘复盘",
+    _JOB_US_POSTMARKET_REVIEW,
+)
+def _us_postmarket_review_task() -> dict:
+    """美股收盘后生成指数、板块、自选股和新闻复盘报告。"""
+    started_at = datetime.now(ZoneInfo(US_POSTMARKET_REVIEW_TIMEZONE))
+    logger.info("美股收盘复盘任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S %Z"))
+    try:
+        from finance_analysis.analysis.pipeline_config import get_pipeline_config
+        from finance_analysis.tasks.jobs.us_postmarket_review import USPostmarketReviewService
+
+        service = USPostmarketReviewService(config=get_pipeline_config())
+        summary = service.run(send_notification=True)
+        return summary.to_dict()
+    except TaskSkipped:
+        raise
+    except Exception as exc:
+        logger.exception("美股收盘复盘任务执行失败: %s", exc)
+        raise
+
+
 @_with_task_tracking("scheduled_a_share_intraday", "A股盘中分析", _JOB_A_SHARE_INTRADAY_ANALYSIS)
 def _a_share_intraday_analysis_task() -> None:
     """A 股盘中定时任务：任务流程暂为空。"""
@@ -508,6 +536,16 @@ def get_scheduled_task_definitions() -> List[ScheduledTaskDefinition]:
             timezone=SCHEDULE_TIMEZONE,
             allow_manual_run=True,
             func=_us_intraday_analysis_task,
+        ),
+        ScheduledTaskDefinition(
+            job_id=_JOB_US_POSTMARKET_REVIEW,
+            name="美股收盘复盘",
+            description="美股收盘后分析指数、板块、自选股和市场新闻，生成每日复盘报告",
+            task_type="scheduled_us_postmarket_review",
+            schedule="美股交易日 16:30 America/New_York",
+            timezone=US_POSTMARKET_REVIEW_TIMEZONE,
+            allow_manual_run=True,
+            func=_us_postmarket_review_task,
         ),
         ScheduledTaskDefinition(
             job_id=_JOB_A_SHARE_INTRADAY_ANALYSIS,
@@ -601,6 +639,19 @@ def start_embedded_analysis_scheduler():
         coalesce=True,
     )
     scheduler.add_job(
+        _us_postmarket_review_task,
+        CronTrigger(
+            hour=US_POSTMARKET_REVIEW_SCHEDULE_HOUR,
+            minute=US_POSTMARKET_REVIEW_SCHEDULE_MINUTE,
+            timezone=US_POSTMARKET_REVIEW_TIMEZONE,
+        ),
+        id=_JOB_US_POSTMARKET_REVIEW,
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=1800,
+    )
+    scheduler.add_job(
         _a_share_intraday_analysis_task,
         CronTrigger(minute=f"*/{INTRADAY_ANALYSIS_INTERVAL_MINUTES}", timezone=SCHEDULE_TIMEZONE),
         id=_JOB_A_SHARE_INTRADAY_ANALYSIS,
@@ -614,7 +665,8 @@ def start_embedded_analysis_scheduler():
         "APScheduler 已启动，每日定时任务: %02d:%02d，财经日历: %02d:%02d，"
         "美股盘前新闻: %02d:%02d，"
         "美股盘前分析: %02d:%02d，"
-        "美股盘中分析/A股盘中分析: 每 %d 分钟一次 (%s)",
+        "美股盘中分析/A股盘中分析: 每 %d 分钟一次 (%s)，"
+        "美股收盘复盘: %02d:%02d (%s)",
         DAILY_SCHEDULE_HOUR,
         DAILY_SCHEDULE_MINUTE,
         MARKET_CALENDAR_SCHEDULE_HOUR,
@@ -625,6 +677,9 @@ def start_embedded_analysis_scheduler():
         US_PREMARKET_SCHEDULE_MINUTE,
         INTRADAY_ANALYSIS_INTERVAL_MINUTES,
         SCHEDULE_TIMEZONE,
+        US_POSTMARKET_REVIEW_SCHEDULE_HOUR,
+        US_POSTMARKET_REVIEW_SCHEDULE_MINUTE,
+        US_POSTMARKET_REVIEW_TIMEZONE,
     )
     job = scheduler.get_job(_JOB_DAILY_ANALYSIS)
     if job is not None and job.next_run_time is not None:
@@ -634,6 +689,12 @@ def start_embedded_analysis_scheduler():
         logger.info(
             "财经日历任务下次执行时间: %s",
             market_calendar_job.next_run_time.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+    us_postmarket_job = scheduler.get_job(_JOB_US_POSTMARKET_REVIEW)
+    if us_postmarket_job is not None and us_postmarket_job.next_run_time is not None:
+        logger.info(
+            "美股收盘复盘任务下次执行时间: %s",
+            us_postmarket_job.next_run_time.strftime("%Y-%m-%d %H:%M:%S %Z"),
         )
 
     if RUN_IMMEDIATELY_ON_STARTUP:

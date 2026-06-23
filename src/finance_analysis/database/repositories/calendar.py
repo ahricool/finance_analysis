@@ -41,6 +41,31 @@ class CalendarRepo:
                 stmt = stmt.where(CalendarEntry.uid == uid)
             return session.execute(stmt).scalars().all()
 
+    def get_by_type_and_date(
+        self,
+        *,
+        type: str,
+        day: date,
+        timezone_name: str = "Asia/Shanghai",
+        uid: Optional[int] = None,
+    ) -> Optional[CalendarEntry]:
+        """Return the latest calendar entry matching a business type on a local date."""
+        start, end = day_bounds_utc(day, timezone_name)
+        normalized_type = (type or '').strip()
+        with self.db.get_session() as session:
+            stmt = (
+                select(CalendarEntry)
+                .where(
+                    CalendarEntry.type == normalized_type,
+                    CalendarEntry.time >= start,
+                    CalendarEntry.time < end,
+                )
+                .order_by(CalendarEntry.updated_at.desc(), CalendarEntry.created_at.desc())
+            )
+            if uid is not None:
+                stmt = stmt.where(CalendarEntry.uid == uid)
+            return session.execute(stmt).scalars().first()
+
     def create(
         self,
         *,

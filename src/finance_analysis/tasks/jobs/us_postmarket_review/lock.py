@@ -1,0 +1,102 @@
+# -*- coding: utf-8 -*-
+"""Execution lock for US post-market review runs."""
+
+from __future__ import annotations
+
+import errno
+import logging
+import os
+import re
+import threading
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None
+
+logger = logging.getLogger(__name__)
+_lock_guard = threading.Lock()
+_running_keys: set[str] = set()
+
+
+@dataclass
+class PostmarketReviewExecutionLock:
+    key: str
+    handle: Any
+    path: Path
+    uses_flock: bool
+
+
+def _lock_path(key: str) -> Path:
+    from finance_analysis.core.paths import get_runtime_locks_dir
+
+    safe_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", key.strip())
+    return get_runtime_locks_dir() / f"{safe_key}.lock"
+
+
+def _write_metadata(handle: Any, key: str) -> None:
+    handle.seek(0)
+    handle.truncate()
+    handle.write(f"key={key}\npid={os.getpid()}\nstarted_at={datetime.now().isoformat()}\n")
+    handle.flush()
+
+
+def try_acquire_us_postmarket_review_lock(key: str) -> Optional[PostmarketReviewExecutionLock]:
+    """Acquire an in-process and same-host lock for a business-date key."""
+    normalized_key = key.strip()
+    lock_path = _lock_path(normalized_key)
+    with _lock_guard:
+        if normalized_key in _running_keys:
+            return None
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if fcntl is not None:
+            handle = open(lock_path, "a+", encoding="utf-8")
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (BlockingIOError, OSError) as exc:
+                handle.close()
+                if isinstance(exc, BlockingIOError) or getattr(exc, "errno", None) in (
+                    errno.EACCES,
+                    errno.EAGAIN,
+                ):
+                    return None
+                raise
+            uses_flock = True
+        else:  # pragma: no cover - exercised only on platforms without fcntl
+            try:
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            except FileExistsError:
+                return None
+            handle = os.fdopen(fd, "w+", encoding="utf-8")
+            uses_flock = False
+
+        _write_metadata(handle, normalized_key)
+        _running_keys.add(normalized_key)
+        return PostmarketReviewExecutionLock(
+            key=normalized_key,
+            handle=handle,
+            path=lock_path,
+            uses_flock=uses_flock,
+        )
+
+
+def release_us_postmarket_review_lock(lock_token: Optional[PostmarketReviewExecutionLock]) -> None:
+    if lock_token is None:
+        return
+    with _lock_guard:
+        _running_keys.discard(lock_token.key)
+    try:
+        if lock_token.uses_flock and fcntl is not None:
+            fcntl.flock(lock_token.handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        lock_token.handle.close()
+        if not lock_token.uses_flock:
+            try:
+                lock_token.path.unlink()
+            except FileNotFoundError:
+                pass
