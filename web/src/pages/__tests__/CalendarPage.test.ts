@@ -53,6 +53,14 @@ function findDialog() {
   return document.body.querySelector('[role="dialog"]');
 }
 
+function findEventButton(wrapper: ReturnType<typeof mount>) {
+  return wrapper.findAll('button').find((button) => button.text().includes('Apple 财报发布'));
+}
+
+function findEntryButton(wrapper: ReturnType<typeof mount>) {
+  return wrapper.findAll('button').find((button) => button.text().includes('美股盘前扫描'));
+}
+
 describe('CalendarPage detail modal', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -75,8 +83,9 @@ describe('CalendarPage detail modal', () => {
 
     expect(findDialog()).toBeNull();
 
-    const eventButton = wrapper.get('article button');
-    await eventButton.trigger('click');
+    const eventButton = findEventButton(wrapper);
+    expect(eventButton).toBeDefined();
+    await eventButton!.trigger('click');
     await flushPromises();
 
     const dialog = findDialog();
@@ -92,7 +101,7 @@ describe('CalendarPage detail modal', () => {
 
     expect(findDialog()).toBeNull();
 
-    await eventButton.trigger('click');
+    await eventButton!.trigger('click');
     await flushPromises();
     expect(findDialog()?.textContent).toContain('财经事件详情');
   });
@@ -101,10 +110,10 @@ describe('CalendarPage detail modal', () => {
     const wrapper = mount(CalendarPage);
     await flushPromises();
 
-    const entryButtons = wrapper.findAll('article button');
-    expect(entryButtons.length).toBeGreaterThanOrEqual(2);
+    const entryButton = findEntryButton(wrapper);
+    expect(entryButton).toBeDefined();
 
-    await entryButtons[1].trigger('click');
+    await entryButton!.trigger('click');
     await flushPromises();
 
     const dialog = findDialog();
@@ -120,7 +129,7 @@ describe('CalendarPage detail modal', () => {
 
     expect(findDialog()).toBeNull();
 
-    await entryButtons[1].trigger('click');
+    await entryButton!.trigger('click');
     await flushPromises();
     expect(findDialog()?.textContent).toContain('日历记录详情');
   });
@@ -129,7 +138,9 @@ describe('CalendarPage detail modal', () => {
     const wrapper = mount(CalendarPage);
     await flushPromises();
 
-    await wrapper.get('article button').trigger('click');
+    const eventButton = findEventButton(wrapper);
+    expect(eventButton).toBeDefined();
+    await eventButton!.trigger('click');
     await flushPromises();
     expect(findDialog()).not.toBeNull();
 
