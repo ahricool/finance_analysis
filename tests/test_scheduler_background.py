@@ -67,7 +67,7 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
             returned = scheduler_module.start_embedded_analysis_scheduler()
 
         self.assertIs(returned, scheduler_instance)
-        self.assertEqual(self.cron_trigger_cls.call_count, 6)
+        self.assertEqual(self.cron_trigger_cls.call_count, 7)
         self.cron_trigger_cls.assert_any_call(
             hour=scheduler_module.DAILY_SCHEDULE_HOUR,
             minute=scheduler_module.DAILY_SCHEDULE_MINUTE,
@@ -92,7 +92,12 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
             minute=f"*/{scheduler_module.INTRADAY_ANALYSIS_INTERVAL_MINUTES}",
             timezone=scheduler_module.SCHEDULE_TIMEZONE,
         )
-        self.assertEqual(scheduler_instance.add_job.call_count, 6)
+        self.cron_trigger_cls.assert_any_call(
+            hour=scheduler_module.US_POSTMARKET_REVIEW_SCHEDULE_HOUR,
+            minute=scheduler_module.US_POSTMARKET_REVIEW_SCHEDULE_MINUTE,
+            timezone=scheduler_module.US_POSTMARKET_REVIEW_TIMEZONE,
+        )
+        self.assertEqual(scheduler_instance.add_job.call_count, 7)
         add_job_kwargs = scheduler_instance.add_job.call_args_list[0].kwargs
         self.assertEqual(add_job_kwargs["id"], "analysis_daily")
         self.assertTrue(add_job_kwargs["replace_existing"])
@@ -118,7 +123,13 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         self.assertTrue(us_intraday_add_job_kwargs["replace_existing"])
         self.assertEqual(us_intraday_add_job_kwargs["max_instances"], 1)
         self.assertTrue(us_intraday_add_job_kwargs["coalesce"])
-        a_share_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[5].kwargs
+        us_postmarket_add_job_kwargs = scheduler_instance.add_job.call_args_list[5].kwargs
+        self.assertEqual(us_postmarket_add_job_kwargs["id"], "analysis_us_postmarket_review")
+        self.assertTrue(us_postmarket_add_job_kwargs["replace_existing"])
+        self.assertEqual(us_postmarket_add_job_kwargs["max_instances"], 1)
+        self.assertTrue(us_postmarket_add_job_kwargs["coalesce"])
+        self.assertEqual(us_postmarket_add_job_kwargs["misfire_grace_time"], 1800)
+        a_share_intraday_add_job_kwargs = scheduler_instance.add_job.call_args_list[6].kwargs
         self.assertEqual(a_share_intraday_add_job_kwargs["id"], "analysis_a_share_intraday")
         self.assertTrue(a_share_intraday_add_job_kwargs["replace_existing"])
         self.assertEqual(a_share_intraday_add_job_kwargs["max_instances"], 1)
@@ -138,6 +149,19 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         self.assertTrue(us_add_job_kwargs["replace_existing"])
         self.assertEqual(us_add_job_kwargs["max_instances"], 1)
         self.assertTrue(us_add_job_kwargs["coalesce"])
+
+    def test_us_postmarket_review_definition_is_exposed_for_task_center(self) -> None:
+        definitions = {
+            item.job_id: item
+            for item in scheduler_module.get_scheduled_task_definitions()
+        }
+
+        definition = definitions["analysis_us_postmarket_review"]
+        self.assertEqual(definition.name, "美股收盘复盘")
+        self.assertEqual(definition.task_type, "scheduled_us_postmarket_review")
+        self.assertEqual(definition.timezone, "America/New_York")
+        self.assertEqual(definition.schedule, "美股交易日 16:30 America/New_York")
+        self.assertTrue(definition.allow_manual_run)
 
     def test_start_runs_task_immediately_when_flag_enabled(self) -> None:
         scheduler_instance = MagicMock()
@@ -262,6 +286,31 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         service_instance.run.assert_called_once()
         self.assertEqual(service_instance.run.call_args.args[0], ["AAPL", "TSLA"])
         record_mock.assert_not_called()
+
+    def test_us_postmarket_review_task_runs_service_and_returns_summary(self) -> None:
+        fake_config_module = types.ModuleType("finance_analysis.analysis.pipeline_config")
+        fake_config_module.get_pipeline_config = MagicMock(return_value=MagicMock(name="config"))
+        fake_service_module = types.ModuleType("finance_analysis.tasks.jobs.us_postmarket_review")
+        service_instance = MagicMock()
+        service_instance.run.return_value = MagicMock(
+            to_dict=MagicMock(return_value={"trading_date": "2026-06-23", "market_regime": "risk_on"})
+        )
+        fake_service_module.USPostmarketReviewService = MagicMock(return_value=service_instance)
+
+        with patch.dict(
+            sys.modules,
+            {
+                "finance_analysis.analysis.pipeline_config": fake_config_module,
+                "finance_analysis.tasks.jobs.us_postmarket_review": fake_service_module,
+            },
+        ):
+            result = scheduler_module._us_postmarket_review_task()
+
+        fake_service_module.USPostmarketReviewService.assert_called_once_with(
+            config=fake_config_module.get_pipeline_config.return_value
+        )
+        service_instance.run.assert_called_once_with(send_notification=True)
+        self.assertEqual(result["market_regime"], "risk_on")
 
     def test_market_calendar_task_runs_service(self) -> None:
         fake_service_module = types.ModuleType("finance_analysis.tasks.jobs.market_calendar_sync")

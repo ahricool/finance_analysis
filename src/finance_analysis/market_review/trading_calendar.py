@@ -13,7 +13,7 @@
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Optional, Set
 from zoneinfo import ZoneInfo
 
@@ -162,6 +162,67 @@ def get_effective_trading_date(
     except Exception as e:
         logger.warning("trading_calendar.get_effective_trading_date fail-open: %s", e)
         return fallback_date
+
+
+def get_market_session_close(
+    market: str,
+    check_date: date,
+    current_time: Optional[datetime] = None,
+) -> datetime:
+    """
+    Return the market-local session close time for ``check_date``.
+
+    The primary source is ``exchange-calendars`` so holiday calendars and US
+    daylight saving time are handled by the exchange definition.  If the
+    optional calendar dependency is unavailable or out of range, fall back to
+    the conventional 16:00 local close for the requested market.
+    """
+    tz_name = MARKET_TIMEZONE.get(market or "")
+    tz = ZoneInfo(tz_name) if tz_name else None
+    fallback_tz = tz or (get_market_now(market, current_time=current_time).tzinfo)
+    fallback_close = datetime.combine(check_date, time(16, 0), tzinfo=fallback_tz)
+
+    if not _XCALS_AVAILABLE:
+        return fallback_close
+
+    ex = MARKET_EXCHANGE.get(market or "")
+    if not ex or not tz_name:
+        return fallback_close
+
+    try:
+        cal = xcals.get_calendar(ex)
+        if not cal.is_session(check_date):
+            return fallback_close
+        session = cal.date_to_session(check_date, direction="previous")
+        session_close = cal.session_close(session)
+        if hasattr(session_close, "tz_convert"):
+            return session_close.tz_convert(tz_name).to_pydatetime()
+        if session_close.tzinfo is not None:
+            return session_close.astimezone(ZoneInfo(tz_name))
+        return session_close.replace(tzinfo=ZoneInfo(tz_name))
+    except Exception as e:
+        logger.warning("trading_calendar.get_market_session_close fallback: %s", e)
+        return fallback_close
+
+
+def is_market_session_closed(
+    market: str,
+    current_time: Optional[datetime] = None,
+    check_date: Optional[date] = None,
+) -> bool:
+    """
+    Return whether the given market's regular session has closed.
+
+    Non-trading days return ``False``; callers that need to distinguish
+    holidays/weekends should call :func:`is_market_open` first and raise their
+    own skipped reason.
+    """
+    market_now = get_market_now(market, current_time=current_time)
+    trading_date = check_date or market_now.date()
+    if not is_market_open(market, trading_date):
+        return False
+    session_close = get_market_session_close(market, trading_date, current_time=market_now)
+    return market_now >= session_close
 
 
 def get_open_markets_today() -> Set[str]:
