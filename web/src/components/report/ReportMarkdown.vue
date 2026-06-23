@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Drawer from '@/components/common/Drawer.vue';
 import Tooltip from '@/components/common/Tooltip.vue';
+import { useHorizontalWheelScroll } from '@/composables/useHorizontalWheelScroll';
 import { historyApi } from '@/api/history';
 import type { ReportLanguage } from '@/types/analysis';
 import { markdownToPlainText } from '@/utils/markdown';
@@ -73,6 +74,7 @@ async function handleCopyPlainText() {
 }
 
 const htmlContent = computed(() => renderMarkdownToHtml(content.value));
+const { onDelegatedWheel } = useHorizontalWheelScroll();
 
 onMounted(() => {
   isLoading.value = true;
@@ -232,6 +234,7 @@ onUnmounted(() => {
         prose-a:no-underline hover:prose-a:underline
         prose-blockquote:text-secondary-text"
       v-html="htmlContent"
+      @wheel="onDelegatedWheel"
     />
 
     <div class="home-divider mt-6 flex justify-end border-t pt-4">

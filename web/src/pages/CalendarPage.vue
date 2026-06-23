@@ -4,6 +4,7 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Drawer from '@/components/common/Drawer.vue';
 import { useTimezoneStore } from '@/stores/timezoneStore';
+import { useHorizontalWheelScroll } from '@/composables/useHorizontalWheelScroll';
 import { formatDateOnly, formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/utils/format';
 import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 import { CalendarDays, ChevronLeft, ChevronRight, FileSearch } from 'lucide-vue-next';
@@ -151,6 +152,8 @@ function renderMarkdown(content: string | null): string {
   if (!content) return '';
   return renderMarkdownToHtml(content);
 }
+
+const { onDelegatedWheel } = useHorizontalWheelScroll();
 
 onMounted(loadEntries);
 
@@ -307,6 +310,7 @@ watch(displayTimezone, () => {
             v-if="detail.item.content"
             class="prose prose-sm mt-3 max-w-none text-sm text-foreground dark:prose-invert"
             v-html="renderMarkdown(detail.item.content)"
+            @wheel="onDelegatedWheel"
           />
           <p v-else class="mt-2 text-sm text-secondary-text">该事件暂无详情内容</p>
         </div>
@@ -334,6 +338,7 @@ watch(displayTimezone, () => {
             v-if="detail.item.content"
             class="prose prose-sm mt-3 max-w-none text-sm text-foreground dark:prose-invert"
             v-html="renderMarkdown(detail.item.content)"
+            @wheel="onDelegatedWheel"
           />
           <p v-else class="mt-2 text-sm text-secondary-text">该记录暂无详情内容</p>
         </div>

@@ -858,6 +858,45 @@
   margin-top: 8px;
 }
 
+/* ============ Horizontal Table Scroll ============ */
+.table-scroll-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  min-width: 0;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--foreground) / 0.3) hsl(var(--foreground) / 0.08);
+}
+
+.table-scroll-x::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.table-scroll-x::-webkit-scrollbar-track {
+  background: hsl(var(--foreground) / 0.08);
+  border-radius: 9999px;
+}
+
+.table-scroll-x::-webkit-scrollbar-thumb {
+  background: hsl(var(--foreground) / 0.28);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.table-scroll-x::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--foreground) / 0.42);
+  background-clip: content-box;
+}
+
+.table-scroll-x::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* ============ Custom Scrollbar ============ */
 ::-webkit-scrollbar {
   width: 6px;
@@ -1937,6 +1976,20 @@ textarea {
   padding: 4px 6px;
 }
 
+.home-markdown-prose .table-scroll-x {
+  margin: 0.75rem 0;
+  border-radius: 0.75rem;
+  border: 1px solid var(--home-prose-border);
+  background: hsl(var(--elevated) / 0.5);
+}
+
+.chat-prose .table-scroll-x {
+  margin: 0.75rem 0;
+  border-radius: 0.75rem;
+  border: 1px solid var(--chat-prose-border);
+  background: hsl(var(--card) / 0.35);
+}
+
 .home-markdown-prose :where(th) {
   background: hsl(var(--elevated) / 0.92);
   color: hsl(var(--foreground));
@@ -2739,12 +2792,10 @@ textarea {
 }
 
 .backtest-table-wrapper {
-  overflow-x: auto;
   border-radius: 0.75rem;
   border: 1px solid var(--backtest-border-subtle);
   background: var(--backtest-table-bg);
   box-shadow: 0 18px 46px hsl(var(--background) / 0.18);
-  scrollbar-gutter: stable both-edges;
 }
 
 .backtest-table-toolbar {

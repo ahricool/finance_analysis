@@ -8,6 +8,7 @@ import Card from '@/components/common/Card.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Pagination from '@/components/common/Pagination.vue';
 import StatusDot from '@/components/common/StatusDot.vue';
+import TableScrollArea from '@/components/common/TableScrollArea.vue';
 import Tooltip from '@/components/common/Tooltip.vue';
 import type { BacktestResultItem, BacktestRunResponse, PerformanceMetrics } from '@/types/backtest';
 import { Check, Minus, X } from 'lucide-vue-next';
@@ -470,9 +471,9 @@ function onCodeInput(e: Event) {
                 {{ analysisDateTo ? ` · to ${analysisDateTo}` : '' }}
               </span>
             </div>
-            <span class="backtest-table-scroll-hint">Scroll horizontally on small screens</span>
+            <span class="backtest-table-scroll-hint">表格较宽时，可拖动底部滚动条，或在表格区域使用鼠标滚轮横向浏览</span>
           </div>
-          <div class="backtest-table-wrapper">
+          <TableScrollArea :bordered="false" class="backtest-table-wrapper">
             <table class="backtest-table min-w-[840px] w-full text-sm">
               <thead class="backtest-table-head">
                 <tr class="text-left">
@@ -599,7 +600,7 @@ function onCodeInput(e: Event) {
                 </tr>
               </tbody>
             </table>
-          </div>
+          </TableScrollArea>
           <div class="mt-4">
             <Pagination
               :current-page="currentPage"

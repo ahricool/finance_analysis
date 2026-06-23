@@ -11,6 +11,7 @@ import InlineAlert from '@/components/common/InlineAlert.vue';
 import ScrollArea from '@/components/common/ScrollArea.vue';
 import Tooltip from '@/components/common/Tooltip.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
+import { useHorizontalWheelScroll } from '@/composables/useHorizontalWheelScroll';
 import { cn } from '@/utils/cn';
 import { formatDate } from '@/utils/format';
 import { downloadSession, formatSessionAsMarkdown } from '@/utils/chatExport';
@@ -55,6 +56,8 @@ function getMessageSkillLabel(msg: Message): string {
 function renderMd(content: string): string {
   return renderMarkdownToHtml(content);
 }
+
+const { onDelegatedWheel } = useHorizontalWheelScroll();
 
 const route = useRoute();
 const router = useRouter();
@@ -854,7 +857,11 @@ function onTextareaInput(e: Event) {
                         导出
                       </button>
                     </div>
-                    <div class="chat-prose pr-20 sm:pr-24" v-html="renderMd(msg.content)" />
+                    <div
+                      class="chat-prose pr-20 sm:pr-24"
+                      v-html="renderMd(msg.content)"
+                      @wheel="onDelegatedWheel"
+                    />
                   </div>
                 </template>
                 <template v-else>

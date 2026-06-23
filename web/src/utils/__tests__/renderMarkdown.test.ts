@@ -13,4 +13,10 @@ describe('renderMarkdownToHtml', () => {
   it('returns empty string for blank input', () => {
     expect(renderMarkdownToHtml('')).toBe('');
   });
+
+  it('wraps markdown tables in a horizontal scroll container', () => {
+    const html = renderMarkdownToHtml('| A | B |\n| --- | --- |\n| 1 | 2 |');
+    expect(html).toContain('class="table-scroll-x table-scroll-x-inline"');
+    expect(html).toContain('<table');
+  });
 });

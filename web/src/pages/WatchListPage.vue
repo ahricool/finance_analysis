@@ -4,6 +4,7 @@ import { watchListApi, type MarketType, type WatchListItem, type WatchListItemCr
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
+import TableScrollArea from '@/components/common/TableScrollArea.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import type { Market } from '@/types/stockIndex';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
@@ -239,7 +240,7 @@ onMounted(loadList);
     </div>
 
     <!-- Table -->
-    <div v-else class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
+    <TableScrollArea v-else>
       <table class="w-full min-w-[920px] text-left text-sm">
         <thead class="border-b border-border/70 text-xs text-muted-text">
           <tr>
@@ -315,7 +316,7 @@ onMounted(loadList);
           </tr>
         </tbody>
       </table>
-    </div>
+    </TableScrollArea>
 
     <!-- Add / Edit Dialog -->
     <Teleport to="body">
