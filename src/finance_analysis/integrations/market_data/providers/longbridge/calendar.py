@@ -9,7 +9,7 @@ import logging
 import os
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Set
 from zoneinfo import ZoneInfo
 
 from finance_analysis.integrations.market_data.providers.longbridge.market import _longbridge_config_kwargs, _sanitize_longbridge_env
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 PROVIDER = "longbridge"
 MARKET_CALENDAR_TIMEZONE = "Asia/Shanghai"
+MAX_CALENDAR_PAGES = 20
 CALENDAR_TYPE_LABELS: Dict[str, str] = {
     "earnings": "财报",
     "dividend": "分红",
@@ -106,6 +107,12 @@ def _format_request_date(value: Any) -> str:
         return value.isoformat()
     parsed = _parse_date(value)
     return parsed.isoformat()
+
+
+def _response_next_date(response: Any) -> Optional[str]:
+    if isinstance(response, Mapping):
+        return _none_if_blank(response.get("next_date") or response.get("nextDate"))
+    return _none_if_blank(getattr(response, "next_date", None) or getattr(response, "nextDate", None))
 
 
 def _parse_datetime(value: Any) -> Optional[datetime]:
@@ -314,13 +321,53 @@ class LongbridgeCalendarFetcher:
         except Exception:
             pass
 
-        response = method(
-            self._resolve_category(calendar_type),
-            _format_request_date(start),
-            _format_request_date(end),
-            self._resolve_market(market),
-        )
-        return self.normalize_response(response, calendar_type=calendar_type, market=market)
+        category = self._resolve_category(calendar_type)
+        market_filter = self._resolve_market(market)
+        end_str = _format_request_date(end)
+        end_date = _parse_date(end_str)
+        start_str = _format_request_date(start)
+        seen_cursors: Set[str] = set()
+        events: List[Dict[str, Any]] = []
+
+        for _ in range(MAX_CALENDAR_PAGES):
+            response = method(category, start_str, end_str, market_filter)
+            events.extend(self.normalize_response(response, calendar_type=calendar_type, market=market))
+
+            next_date_text = _response_next_date(response)
+            if not next_date_text:
+                break
+            try:
+                next_date = _parse_date(next_date_text)
+            except ValueError:
+                logger.warning(
+                    "Longbridge finance_calendar returned invalid next_date=%r for type=%s",
+                    next_date_text,
+                    calendar_type,
+                )
+                break
+            next_start = next_date.isoformat()
+            if next_date > end_date:
+                break
+            if next_start in seen_cursors or next_start <= start_str:
+                logger.warning(
+                    "Longbridge finance_calendar pagination cursor did not advance: type=%s start=%s next=%s",
+                    calendar_type,
+                    start_str,
+                    next_start,
+                )
+                break
+            seen_cursors.add(start_str)
+            start_str = next_start
+        else:
+            logger.warning(
+                "Longbridge finance_calendar reached max pages: type=%s start=%s end=%s max_pages=%s",
+                calendar_type,
+                _format_request_date(start),
+                end_str,
+                MAX_CALENDAR_PAGES,
+            )
+
+        return events
 
     def normalize_response(self, response: Any, *, calendar_type: str, market: str) -> List[Dict[str, Any]]:
         groups = getattr(response, "list", None)

@@ -43,6 +43,40 @@ def test_fetch_calendar_passes_sdk_expected_request_types_with_market_enum():
     )
 
 
+def test_fetch_calendar_follows_next_date_pagination():
+    fetcher = LongbridgeCalendarFetcher()
+    ctx = MagicMock()
+    first_page = SimpleNamespace(
+        list=[
+            SimpleNamespace(
+                date=date(2026, 6, 18),
+                infos=[SimpleNamespace(id="event-1", symbol="AAPL.US", market="US", date=date(2026, 6, 18))],
+            )
+        ],
+        next_date="2026-06-24",
+    )
+    second_page = SimpleNamespace(
+        list=[
+            SimpleNamespace(
+                date=date(2026, 6, 24),
+                infos=[SimpleNamespace(id="event-2", symbol="MU.US", market="US", date=date(2026, 6, 24))],
+            )
+        ],
+        next_date="",
+    )
+    ctx.finance_calendar.side_effect = [first_page, second_page]
+    fetcher._get_ctx = MagicMock(return_value=ctx)
+    fetcher._resolve_category = MagicMock(return_value="REPORT")
+    fetcher._resolve_market = MagicMock(return_value="US")
+
+    result = fetcher.fetch_earnings_calendar(date(2026, 6, 18), date(2026, 7, 18), "US")
+
+    assert [event["symbol"] for event in result] == ["AAPL", "MU"]
+    assert [event["event_date"] for event in result] == ["2026-06-18", "2026-06-24"]
+    assert ctx.finance_calendar.call_args_list[0].args == ("REPORT", "2026-06-18", "2026-07-18", "US")
+    assert ctx.finance_calendar.call_args_list[1].args == ("REPORT", "2026-06-24", "2026-07-18", "US")
+
+
 def test_normalize_response_flattens_date_groups_and_builds_markdown():
     fetcher = LongbridgeCalendarFetcher()
     info = SimpleNamespace(
