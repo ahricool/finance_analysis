@@ -1,92 +1,28 @@
 # -*- coding: utf-8 -*-
-"""
-===================================
-定时调度模块（APScheduler）
-===================================
+"""Plain business runners for the periodic scheduled tasks.
 
-将定时任务**写死在代码中**，不再从环境变量或外部配置读取调度参数：
+These functions contain the actual analysis/ingestion work that used to live in
+the APScheduler module. They are intentionally framework-agnostic: they take no
+scheduler/Celery context, return JSON-serializable results, and raise
+:class:`TaskSkipped` when a run should be recorded as skipped. The Celery task
+wrappers in :mod:`finance_analysis.tasks.celery.jobs.scheduled` add lifecycle
+tracking on top of them.
 
-- 每日 :data:`DAILY_SCHEDULE_HOUR` : :data:`DAILY_SCHEDULE_MINUTE` 执行一次全量分析。
-- 北京时间 20:00 执行美股盘前新闻情报，拉取关注股票和 Nasdaq-100 前 20 新闻。
-- 北京时间 19:00 执行美股财经日历同步。
-- 北京时间 21:00 执行美股盘前分析，仅分析自选股中标记为美股的股票。
-- 每 15 分钟执行一次美股盘中分析。
-- 美东时间 16:30 执行美股收盘复盘，自动适配美国夏令时。
-- A 股交易日 09:45-11:30、13:15-15:00 每 15 分钟执行一次 A 股盘中分析。
-
-如需修改调度策略，请直接修改本文件中的常量或 ``_daily_analysis_task``，
-然后重启进程。
-
-由 ``api.app`` 的 FastAPI lifespan 负责 ``start``/``shutdown``。
+The exchange trading-day, trading-session, lunch-break, and close checks remain
+inside each business service; nothing here simulates a trading calendar.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, List, Optional, Sequence, TypeVar
+from typing import Any, List, Optional, Sequence
 from zoneinfo import ZoneInfo
 
-from finance_analysis.tasks.lifecycle import TaskSkipped, track_task
+from finance_analysis.tasks.celery.schedule import SCHEDULE_TIMEZONE, US_TIMEZONE
+from finance_analysis.tasks.lifecycle import TaskSkipped
 
 logger = logging.getLogger(__name__)
-F = TypeVar("F", bound=Callable[..., Any])
-
-# === 调度参数（修改后需重启进程）===
-DAILY_SCHEDULE_HOUR = 18
-DAILY_SCHEDULE_MINUTE = 0
-US_PREMARKET_NEWS_SCHEDULE_HOUR = 20
-US_PREMARKET_NEWS_SCHEDULE_MINUTE = 0
-MARKET_CALENDAR_SCHEDULE_HOUR = 19
-MARKET_CALENDAR_SCHEDULE_MINUTE = 0
-US_PREMARKET_SCHEDULE_HOUR = 21
-US_PREMARKET_SCHEDULE_MINUTE = 0
-INTRADAY_ANALYSIS_INTERVAL_MINUTES = 15
-US_POSTMARKET_REVIEW_SCHEDULE_HOUR = 16
-US_POSTMARKET_REVIEW_SCHEDULE_MINUTE = 30
-US_POSTMARKET_REVIEW_TIMEZONE = "America/New_York"
-SCHEDULE_TIMEZONE = "Asia/Shanghai"
-RUN_IMMEDIATELY_ON_STARTUP = False
-
-_JOB_DAILY_ANALYSIS = "analysis_daily"
-_JOB_MARKET_CALENDAR = "market_calendar"
-_JOB_US_PREMARKET_NEWS = "analysis_us_premarket_news"
-_JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
-_JOB_US_INTRADAY_ANALYSIS = "analysis_us_intraday"
-_JOB_US_POSTMARKET_REVIEW = "analysis_us_postmarket_review"
-_JOB_A_SHARE_INTRADAY_ANALYSIS = "analysis_a_share_intraday"
-
-_EMBEDDED_SCHEDULER: Optional[Any] = None
-
-
-@dataclass
-class ScheduledTaskDefinition:
-    job_id: str
-    name: str
-    description: str
-    task_type: str
-    schedule: str
-    timezone: str
-    allow_manual_run: bool
-    func: Callable[..., Any]
-
-
-def _with_task_tracking(task_type: str, task_name: str, scheduler_job_id: str) -> Callable[[F], F]:
-    """Track one APScheduler execution instance in logs and the task table."""
-    return track_task(
-        task_type=task_type,
-        task_name=task_name,
-        source="apscheduler",
-        trigger_source="scheduler",
-        task_id_getter=lambda **kwargs: kwargs.get("task_id"),
-        trigger_source_getter=lambda **kwargs: kwargs.get("_trigger_source") or "scheduler",
-        triggered_by_uid_getter=lambda **kwargs: kwargs.get("_triggered_by_uid"),
-        scheduler_job_id=scheduler_job_id,
-        record_result=True,
-        success_message="定时任务执行完成",
-        strip_lifecycle_kwargs=True,
-    )
 
 
 def _scheduled_now() -> datetime:
@@ -201,15 +137,14 @@ def _record_scheduled_task_result(
 
 
 def _safe_record_scheduled_task_result(**kwargs: Any) -> None:
-    """Best-effort calendar recording; never fail the scheduler because of UI history."""
+    """Best-effort calendar recording; never fail the task because of UI history."""
     try:
         _record_scheduled_task_result(**kwargs)
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.warning("写入定时任务日历记录失败: %s", exc, exc_info=True)
 
 
-@_with_task_tracking("scheduled_daily", "每日全量分析", _JOB_DAILY_ANALYSIS)
-def _daily_analysis_task() -> None:
+def run_daily_analysis() -> None:
     """每日定时任务：执行一次完整的股票分析流水线。"""
     task_name = "每日全量分析"
     started_at = _scheduled_now()
@@ -277,8 +212,7 @@ def _daily_analysis_task() -> None:
         )
 
 
-@_with_task_tracking("scheduled_us_premarket", "美股盘前分析", _JOB_US_PREMARKET_ANALYSIS)
-def _us_premarket_analysis_task() -> None:
+def run_us_premarket_analysis() -> None:
     """美股盘前定时任务：仅分析自选股中标记为美股的股票。"""
     task_name = "美股盘前分析"
     started_at = _scheduled_now()
@@ -348,8 +282,7 @@ def _us_premarket_analysis_task() -> None:
         )
 
 
-@_with_task_tracking("scheduled_us_premarket_news", "美股盘前新闻情报", _JOB_US_PREMARKET_NEWS)
-def _us_premarket_news_task() -> None:
+def run_us_premarket_news() -> None:
     """美股盘前新闻情报任务：每天运行，抓取自选股和 Nasdaq-100 前 20 新闻。"""
     task_name = "美股盘前新闻情报"
     started_at = _scheduled_now()
@@ -386,8 +319,7 @@ def _us_premarket_news_task() -> None:
         )
 
 
-@_with_task_tracking("scheduled_market_calendar", "美股财经日历同步", _JOB_MARKET_CALENDAR)
-def _market_calendar_task() -> None:
+def run_market_calendar() -> None:
     """美股财经日历定时任务：每天同步未来财经事件。"""
     started_at = _scheduled_now()
     logger.info("=" * 50)
@@ -414,8 +346,7 @@ def _market_calendar_task() -> None:
         raise
 
 
-@_with_task_tracking("scheduled_us_intraday", "美股盘中分析", _JOB_US_INTRADAY_ANALYSIS)
-def _us_intraday_analysis_task() -> None:
+def run_us_intraday_analysis() -> None:
     """美股盘中定时任务：检测自选美股的盘中异动并按需提醒。"""
     started_at = _scheduled_now()
     logger.info("美股盘中分析任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
@@ -451,14 +382,9 @@ def _us_intraday_analysis_task() -> None:
         raise
 
 
-@_with_task_tracking(
-    "scheduled_us_postmarket_review",
-    "美股收盘复盘",
-    _JOB_US_POSTMARKET_REVIEW,
-)
-def _us_postmarket_review_task() -> dict:
+def run_us_postmarket_review() -> dict:
     """美股收盘后生成指数、板块、自选股和新闻复盘报告。"""
-    started_at = datetime.now(ZoneInfo(US_POSTMARKET_REVIEW_TIMEZONE))
+    started_at = datetime.now(ZoneInfo(US_TIMEZONE))
     logger.info("美股收盘复盘任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S %Z"))
     try:
         from finance_analysis.analysis.pipeline_config import get_pipeline_config
@@ -474,8 +400,7 @@ def _us_postmarket_review_task() -> dict:
         raise
 
 
-@_with_task_tracking("scheduled_a_share_intraday", "A股盘中分析", _JOB_A_SHARE_INTRADAY_ANALYSIS)
-def _a_share_intraday_analysis_task() -> dict:
+def run_a_share_intraday_analysis() -> dict:
     """A 股盘中定时任务：识别市场情绪、板块轮动与自选股异动并按需提醒。"""
     started_at = _scheduled_now()
     logger.info("A股盘中分析任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S %Z"))
@@ -495,258 +420,12 @@ def _a_share_intraday_analysis_task() -> dict:
         raise
 
 
-def get_scheduled_task_definitions() -> List[ScheduledTaskDefinition]:
-    """Return code-defined APScheduler jobs and their display metadata."""
-    return [
-        ScheduledTaskDefinition(
-            job_id=_JOB_DAILY_ANALYSIS,
-            name="每日全量分析",
-            description="分析自选股中的全部股票并生成汇总报告",
-            task_type="scheduled_daily",
-            schedule=f"每天 {DAILY_SCHEDULE_HOUR:02d}:{DAILY_SCHEDULE_MINUTE:02d}",
-            timezone=SCHEDULE_TIMEZONE,
-            allow_manual_run=True,
-            func=_daily_analysis_task,
-        ),
-        ScheduledTaskDefinition(
-            job_id=_JOB_MARKET_CALENDAR,
-            name="美股财经日历同步",
-            description="同步未来美股财经事件并更新事件日历",
-            task_type="scheduled_market_calendar",
-            schedule=f"每天 {MARKET_CALENDAR_SCHEDULE_HOUR:02d}:{MARKET_CALENDAR_SCHEDULE_MINUTE:02d}",
-            timezone=SCHEDULE_TIMEZONE,
-            allow_manual_run=True,
-            func=_market_calendar_task,
-        ),
-        ScheduledTaskDefinition(
-            job_id=_JOB_US_PREMARKET_NEWS,
-            name="美股盘前新闻情报",
-            description="抓取自选股和 Nasdaq-100 前 20 新闻并生成盘前情报",
-            task_type="scheduled_us_premarket_news",
-            schedule=f"每天 {US_PREMARKET_NEWS_SCHEDULE_HOUR:02d}:{US_PREMARKET_NEWS_SCHEDULE_MINUTE:02d}",
-            timezone=SCHEDULE_TIMEZONE,
-            allow_manual_run=True,
-            func=_us_premarket_news_task,
-        ),
-        ScheduledTaskDefinition(
-            job_id=_JOB_US_PREMARKET_ANALYSIS,
-            name="美股盘前分析",
-            description="分析自选股中的美股并生成盘前报告",
-            task_type="scheduled_us_premarket",
-            schedule=f"每天 {US_PREMARKET_SCHEDULE_HOUR:02d}:{US_PREMARKET_SCHEDULE_MINUTE:02d}",
-            timezone=SCHEDULE_TIMEZONE,
-            allow_manual_run=True,
-            func=_us_premarket_analysis_task,
-        ),
-        ScheduledTaskDefinition(
-            job_id=_JOB_US_INTRADAY_ANALYSIS,
-            name="美股盘中分析",
-            description="检测自选美股盘中异动并按需提醒",
-            task_type="scheduled_us_intraday",
-            schedule=f"每 {INTRADAY_ANALYSIS_INTERVAL_MINUTES} 分钟",
-            timezone=SCHEDULE_TIMEZONE,
-            allow_manual_run=True,
-            func=_us_intraday_analysis_task,
-        ),
-        ScheduledTaskDefinition(
-            job_id=_JOB_US_POSTMARKET_REVIEW,
-            name="美股收盘复盘",
-            description="美股收盘后分析指数、板块、自选股和市场新闻，生成每日复盘报告",
-            task_type="scheduled_us_postmarket_review",
-            schedule="美股交易日 16:30 America/New_York",
-            timezone=US_POSTMARKET_REVIEW_TIMEZONE,
-            allow_manual_run=True,
-            func=_us_postmarket_review_task,
-        ),
-        ScheduledTaskDefinition(
-            job_id=_JOB_A_SHARE_INTRADAY_ANALYSIS,
-            name="A股盘中分析",
-            description="分析A股市场情绪、板块轮动和自选股异动，识别涨停、炸板、强弱转换及风险信号",
-            task_type="scheduled_a_share_intraday",
-            schedule="A股交易日 09:45-11:30、13:15-15:00，每15分钟",
-            timezone="Asia/Shanghai",
-            allow_manual_run=True,
-            func=_a_share_intraday_analysis_task,
-        ),
-    ]
-
-
-def get_scheduled_task_definition(job_id: str) -> Optional[ScheduledTaskDefinition]:
-    definitions = {item.job_id: item for item in get_scheduled_task_definitions()}
-    return definitions.get(job_id)
-
-
-def get_embedded_analysis_scheduler() -> Optional[Any]:
-    """Return the scheduler instance started by FastAPI lifespan, if available."""
-    return _EMBEDDED_SCHEDULER
-
-
-def start_embedded_analysis_scheduler():
-    """启动 APScheduler，注册每日分析 Cron 任务。
-
-    返回 ``BackgroundScheduler`` 实例；调用方需在停机时调用
-    :func:`shutdown_embedded_analysis_scheduler` 释放线程。
-    """
-    try:
-        from apscheduler.schedulers.background import BackgroundScheduler
-        from apscheduler.triggers.cron import CronTrigger
-        from apscheduler.triggers.combining import OrTrigger
-    except ImportError as exc:  # pragma: no cover - import guard
-        logger.error("apscheduler 未安装，请执行: pip install apscheduler")
-        raise ImportError("请安装 apscheduler 库: pip install apscheduler") from exc
-
-    global _EMBEDDED_SCHEDULER
-
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(
-        _daily_analysis_task,
-        CronTrigger(hour=DAILY_SCHEDULE_HOUR, minute=DAILY_SCHEDULE_MINUTE, timezone=SCHEDULE_TIMEZONE),
-        id=_JOB_DAILY_ANALYSIS,
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.add_job(
-        _market_calendar_task,
-        CronTrigger(
-            hour=MARKET_CALENDAR_SCHEDULE_HOUR,
-            minute=MARKET_CALENDAR_SCHEDULE_MINUTE,
-            timezone=SCHEDULE_TIMEZONE,
-        ),
-        id=_JOB_MARKET_CALENDAR,
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.add_job(
-        _us_premarket_news_task,
-        CronTrigger(
-            hour=US_PREMARKET_NEWS_SCHEDULE_HOUR,
-            minute=US_PREMARKET_NEWS_SCHEDULE_MINUTE,
-            timezone=SCHEDULE_TIMEZONE,
-        ),
-        id=_JOB_US_PREMARKET_NEWS,
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.add_job(
-        _us_premarket_analysis_task,
-        CronTrigger(
-            hour=US_PREMARKET_SCHEDULE_HOUR,
-            minute=US_PREMARKET_SCHEDULE_MINUTE,
-            timezone=SCHEDULE_TIMEZONE,
-        ),
-        id=_JOB_US_PREMARKET_ANALYSIS,
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.add_job(
-        _us_intraday_analysis_task,
-        CronTrigger(minute=f"*/{INTRADAY_ANALYSIS_INTERVAL_MINUTES}", timezone=SCHEDULE_TIMEZONE),
-        id=_JOB_US_INTRADAY_ANALYSIS,
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.add_job(
-        _us_postmarket_review_task,
-        CronTrigger(
-            hour=US_POSTMARKET_REVIEW_SCHEDULE_HOUR,
-            minute=US_POSTMARKET_REVIEW_SCHEDULE_MINUTE,
-            timezone=US_POSTMARKET_REVIEW_TIMEZONE,
-        ),
-        id=_JOB_US_POSTMARKET_REVIEW,
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=1800,
-    )
-    # A-share intraday: only fire inside the morning/afternoon trading windows
-    # (Asia/Shanghai) so lunch and overnight never produce skipped runs. The
-    # business service still enforces the precise 09:45-11:30 / 13:15-15:00
-    # window plus trading-day/holiday checks.
-    scheduler.add_job(
-        _a_share_intraday_analysis_task,
-        OrTrigger(
-            [
-                CronTrigger(
-                    day_of_week="mon-fri",
-                    hour="9-11",
-                    minute="0,15,30,45",
-                    timezone=SCHEDULE_TIMEZONE,
-                ),
-                CronTrigger(
-                    day_of_week="mon-fri",
-                    hour="13-15",
-                    minute="0,15,30,45",
-                    timezone=SCHEDULE_TIMEZONE,
-                ),
-            ]
-        ),
-        id=_JOB_A_SHARE_INTRADAY_ANALYSIS,
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    scheduler.start()
-    _EMBEDDED_SCHEDULER = scheduler
-    logger.info(
-        "APScheduler 已启动，每日定时任务: %02d:%02d，财经日历: %02d:%02d，"
-        "美股盘前新闻: %02d:%02d，"
-        "美股盘前分析: %02d:%02d，"
-        "美股盘中分析: 每 %d 分钟一次 (%s)，"
-        "A股盘中分析: 交易日 09:45-11:30、13:15-15:00 每 15 分钟 (Asia/Shanghai)，"
-        "美股收盘复盘: %02d:%02d (%s)",
-        DAILY_SCHEDULE_HOUR,
-        DAILY_SCHEDULE_MINUTE,
-        MARKET_CALENDAR_SCHEDULE_HOUR,
-        MARKET_CALENDAR_SCHEDULE_MINUTE,
-        US_PREMARKET_NEWS_SCHEDULE_HOUR,
-        US_PREMARKET_NEWS_SCHEDULE_MINUTE,
-        US_PREMARKET_SCHEDULE_HOUR,
-        US_PREMARKET_SCHEDULE_MINUTE,
-        INTRADAY_ANALYSIS_INTERVAL_MINUTES,
-        SCHEDULE_TIMEZONE,
-        US_POSTMARKET_REVIEW_SCHEDULE_HOUR,
-        US_POSTMARKET_REVIEW_SCHEDULE_MINUTE,
-        US_POSTMARKET_REVIEW_TIMEZONE,
-    )
-    job = scheduler.get_job(_JOB_DAILY_ANALYSIS)
-    if job is not None and job.next_run_time is not None:
-        logger.info("下次执行时间: %s", job.next_run_time.strftime("%Y-%m-%d %H:%M:%S"))
-    market_calendar_job = scheduler.get_job(_JOB_MARKET_CALENDAR)
-    if market_calendar_job is not None and market_calendar_job.next_run_time is not None:
-        logger.info(
-            "财经日历任务下次执行时间: %s",
-            market_calendar_job.next_run_time.strftime("%Y-%m-%d %H:%M:%S"),
-        )
-    us_postmarket_job = scheduler.get_job(_JOB_US_POSTMARKET_REVIEW)
-    if us_postmarket_job is not None and us_postmarket_job.next_run_time is not None:
-        logger.info(
-            "美股收盘复盘任务下次执行时间: %s",
-            us_postmarket_job.next_run_time.strftime("%Y-%m-%d %H:%M:%S %Z"),
-        )
-
-    if RUN_IMMEDIATELY_ON_STARTUP:
-        logger.info("启动时立即执行一次定时任务...")
-        try:
-            _daily_analysis_task()
-        except Exception as exc:
-            logger.exception("启动时立即执行任务失败: %s", exc)
-
-    return scheduler
-
-
-def shutdown_embedded_analysis_scheduler(scheduler) -> None:
-    """停机时调用：等待运行中的任务完成后停止调度器。"""
-    global _EMBEDDED_SCHEDULER
-    if scheduler is None:
-        return
-    try:
-        scheduler.shutdown(wait=True)
-    finally:
-        if _EMBEDDED_SCHEDULER is scheduler:
-            _EMBEDDED_SCHEDULER = None
-        logger.info("APScheduler 已停止")
+__all__ = [
+    "run_a_share_intraday_analysis",
+    "run_daily_analysis",
+    "run_market_calendar",
+    "run_us_intraday_analysis",
+    "run_us_postmarket_review",
+    "run_us_premarket_analysis",
+    "run_us_premarket_news",
+]

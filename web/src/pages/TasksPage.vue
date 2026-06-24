@@ -100,8 +100,8 @@ const statusFilterLabel = computed(() => `已选 ${filters.statuses.length} 个�
 
 const sourceOptions = [
   { value: '', label: '全部来源' },
-  { value: 'apscheduler', label: 'APScheduler' },
-  { value: 'celery_manual', label: 'Celery' },
+  { value: 'celery', label: '定时任务' },
+  { value: 'celery_manual', label: '手动 / 分析' },
 ];
 
 const triggerOptions = [

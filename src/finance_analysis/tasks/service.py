@@ -15,8 +15,8 @@ from finance_analysis.database.session import DatabaseManager
 from finance_analysis.database.models.task import TaskRecord
 from finance_analysis.database.models.user import User
 from finance_analysis.database.repositories.task_record import TaskRecordRepository
-from finance_analysis.tasks.scheduler import (
-    get_embedded_analysis_scheduler,
+from finance_analysis.tasks.celery.schedule import (
+    ScheduledTaskDefinition,
     get_scheduled_task_definition,
     get_scheduled_task_definitions,
 )
@@ -35,7 +35,7 @@ TASK_STATUSES = (
 
 
 class SchedulerUnavailableError(RuntimeError):
-    """Raised when the embedded APScheduler is not running."""
+    """Raised when a manual run cannot be published to Celery."""
 
 
 class ScheduledTaskNotFoundError(KeyError):
@@ -79,25 +79,58 @@ def _sanitize_error_for_user(value: Optional[str]) -> Optional[str]:
     return lines[-1][:500]
 
 
+def _default_task_submitter(
+    definition: ScheduledTaskDefinition,
+    *,
+    task_id: str,
+    triggered_by_uid: int,
+) -> None:
+    """Publish a manual scheduled run to Celery via ``apply_async``."""
+    from finance_analysis.tasks.celery.jobs.scheduled import get_scheduled_celery_task
+
+    celery_task = get_scheduled_celery_task(definition.job_id)
+    if celery_task is None:
+        raise SchedulerUnavailableError(f"Celery task for job {definition.job_id} is not registered")
+    celery_task.apply_async(
+        task_id=task_id,
+        kwargs={
+            "scheduler_job_id": definition.job_id,
+            "_trigger_source": "manual",
+            "_triggered_by_uid": triggered_by_uid,
+        },
+        queue=definition.queue,
+        expires=definition.expires,
+    )
+
+
+def _default_beat_status_reader() -> str:
+    from finance_analysis.tasks.celery.heartbeat import read_beat_status
+
+    return read_beat_status()
+
+
 class ScheduledTaskService:
-    """Read scheduled job metadata and submit one-off manual runs."""
+    """Read scheduled job metadata and submit one-off manual runs via Celery."""
 
     def __init__(
         self,
         repository: Optional[TaskRecordRepository] = None,
-        scheduler: Optional[Any] = None,
+        *,
+        task_submitter: Optional[Any] = None,
+        beat_status_reader: Optional[Any] = None,
     ):
         self.repository = repository or TaskRecordRepository()
-        self.scheduler = scheduler
+        self._task_submitter = task_submitter or _default_task_submitter
+        self._beat_status_reader = beat_status_reader or _default_beat_status_reader
 
     def list_scheduled_tasks(self) -> List[Dict[str, Any]]:
-        scheduler = self._get_scheduler(required=False)
         definitions = get_scheduled_task_definitions()
         latest_by_job = self.repository.get_latest_by_scheduler_job_ids(item.job_id for item in definitions)
+        beat_status = self._read_beat_status()
+        now = utc_now()
         items: List[Dict[str, Any]] = []
         for definition in definitions:
-            job = scheduler.get_job(definition.job_id) if scheduler is not None else None
-            scheduler_status = self._scheduler_status(scheduler, job)
+            scheduler_status = beat_status if definition.enabled else "unavailable"
             latest = latest_by_job.get(definition.job_id)
             items.append(
                 {
@@ -105,10 +138,10 @@ class ScheduledTaskService:
                     "name": definition.name,
                     "description": definition.description,
                     "task_type": definition.task_type,
-                    "schedule": definition.schedule,
+                    "schedule": definition.schedule_text,
                     "timezone": definition.timezone,
                     "scheduler_status": scheduler_status,
-                    "next_run_time": utc_isoformat(job.next_run_time) if job is not None else None,
+                    "next_run_time": utc_isoformat(definition.next_run_time(now=now)),
                     "allow_manual_run": definition.allow_manual_run,
                     "latest_run": self._latest_run_payload(latest) if latest else None,
                 }
@@ -122,10 +155,6 @@ class ScheduledTaskService:
         if not definition.allow_manual_run:
             raise ManualRunNotAllowedError(f"{definition.name} 不支持手动执行")
 
-        scheduler = self._get_scheduler(required=True)
-        if scheduler.get_job(job_id) is None:
-            raise SchedulerUnavailableError(f"Scheduler job {job_id} is not registered")
-
         existing = self.repository.get_active_by_scheduler_job_id(job_id)
         if existing is not None:
             raise DuplicateScheduledTaskError(existing.task_id, f"{definition.name} 正在执行中")
@@ -137,44 +166,31 @@ class ScheduledTaskService:
             task_id=task_id,
             task_type=definition.task_type,
             task_name=definition.name,
-            source="apscheduler",
+            source="celery",
             trigger_source="manual",
             triggered_by_uid=triggered_by_uid,
             scheduler_job_id=definition.job_id,
             dedupe_key=dedupe_key,
             payload=_json_summary(payload, limit=MAX_PAYLOAD_CHARS),
-            message="管理员手动提交，等待调度器执行",
+            message="管理员手动提交，等待 Celery Worker 执行",
             progress=0,
         )
         if not created:
             raise DuplicateScheduledTaskError(record.task_id, f"{definition.name} 正在执行中")
 
-        one_off_job_id = f"manual:{job_id}:{task_id}"
         try:
-            scheduler.add_job(
-                definition.func,
-                "date",
-                id=one_off_job_id,
-                run_date=utc_now(),
-                kwargs={
-                    "task_id": task_id,
-                    "_trigger_source": "manual",
-                    "_triggered_by_uid": triggered_by_uid,
-                },
-                replace_existing=False,
-                misfire_grace_time=60,
-            )
+            self._task_submitter(definition, task_id=task_id, triggered_by_uid=triggered_by_uid)
         except Exception as exc:
             self.repository.update_status(
                 task_id=task_id,
                 status=TaskExecutionStatus.CANCELLED.value,
                 task_type=definition.task_type,
                 task_name=definition.name,
-                source="apscheduler",
+                source="celery",
                 trigger_source="manual",
                 triggered_by_uid=triggered_by_uid,
                 scheduler_job_id=definition.job_id,
-                message=f"调度器提交失败: {exc}",
+                message=f"Celery 任务提交失败: {exc}",
                 finished_at=utc_now(),
                 progress=100,
             )
@@ -187,15 +203,12 @@ class ScheduledTaskService:
             "message": "任务已提交",
         }
 
-    @staticmethod
-    def _scheduler_status(scheduler: Optional[Any], job: Optional[Any]) -> str:
-        if scheduler is None or not getattr(scheduler, "running", False):
+    def _read_beat_status(self) -> str:
+        try:
+            status = self._beat_status_reader()
+        except Exception:
             return "unavailable"
-        if job is None:
-            return "unavailable"
-        if getattr(job, "next_run_time", None) is None:
-            return "paused"
-        return "active"
+        return status if status in ("active", "unavailable") else "unavailable"
 
     @staticmethod
     def _latest_run_payload(record: TaskRecord) -> Dict[str, Any]:
@@ -207,12 +220,6 @@ class ScheduledTaskService:
             "duration_seconds": _duration_seconds(record),
             "message": record.message,
         }
-
-    def _get_scheduler(self, *, required: bool) -> Optional[Any]:
-        scheduler = self.scheduler if self.scheduler is not None else get_embedded_analysis_scheduler()
-        if required and (scheduler is None or not getattr(scheduler, "running", False)):
-            raise SchedulerUnavailableError("APScheduler is not running")
-        return scheduler
 
 
 class TaskQueryService:

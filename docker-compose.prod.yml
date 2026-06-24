@@ -74,7 +74,43 @@ services:
     image: ghcr.io/ahricool/finance_analysis:latest
     container_name: finance-analysis-celery
     restart: unless-stopped
-    command: ["celery", "-A", "finance_analysis.tasks.celery.app", "worker"]
+    command:
+      [
+        "celery",
+        "-A",
+        "finance_analysis.tasks.celery.app:celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "-Q",
+        "celery,alerts,analysis,ingestion,maintenance",
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./data:/workspace/data
+      - ./.env:/workspace/.env:ro
+      - ./strategies:/workspace/strategies:ro
+
+  beat:
+    image: ghcr.io/ahricool/finance_analysis:latest
+    container_name: finance-analysis-celery-beat
+    restart: unless-stopped
+    command:
+      [
+        "celery",
+        "-A",
+        "finance_analysis.tasks.celery.app:celery_app",
+        "beat",
+        "--loglevel=INFO",
+        "--schedule=/workspace/data/celerybeat-schedule",
+      ]
     depends_on:
       postgres:
         condition: service_healthy

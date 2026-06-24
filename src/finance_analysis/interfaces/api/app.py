@@ -28,27 +28,20 @@ from finance_analysis.interfaces.api.middlewares.error_handler import add_error_
 from finance_analysis.interfaces.api.v1.schemas.common import HealthResponse
 from finance_analysis.config import load_env
 from finance_analysis.core.logging import ensure_backend_logging
-from finance_analysis.tasks.scheduler import (
-    start_embedded_analysis_scheduler,
-    shutdown_embedded_analysis_scheduler,
-)
 from finance_analysis.core.time import utc_isoformat, utc_now
 
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
-    """Initialize and release shared services for the app lifecycle."""
+    """Initialize and release shared services for the app lifecycle.
+
+    Periodic scheduling now runs in a dedicated Celery Beat container; the API
+    process no longer starts an in-process scheduler.
+    """
     load_env()
     ensure_data_directories()
     ensure_backend_logging(service="server", log_prefix="web_server")
-    analysis_scheduler = start_embedded_analysis_scheduler()
-    app.state.analysis_scheduler = analysis_scheduler
-    try:
-        yield
-    finally:
-        shutdown_embedded_analysis_scheduler(analysis_scheduler)
-        if hasattr(app.state, "analysis_scheduler"):
-            delattr(app.state, "analysis_scheduler")
+    yield
 
 
 def create_app() -> FastAPI:

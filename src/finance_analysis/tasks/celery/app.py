@@ -9,6 +9,7 @@ from contextlib import AbstractContextManager
 from typing import Any, Dict, Optional
 
 from celery import Celery
+from celery.signals import beat_init
 from celery.signals import setup_logging as celery_setup_logging
 from celery.signals import before_task_publish, task_failure, task_postrun, task_prerun, worker_process_init
 
@@ -16,6 +17,12 @@ from finance_analysis.config import load_env
 from finance_analysis.database.config import get_database_config
 from finance_analysis.core.logging import ensure_backend_logging, task_logging_context
 from finance_analysis.core.paths import ensure_data_directories
+from finance_analysis.tasks.celery.schedule import (
+    QUEUE_DEFAULT,
+    build_beat_schedule,
+    build_task_routes,
+    get_definition_by_task_name,
+)
 from finance_analysis.tasks.lifecycle import TaskLifecycleMetadata, get_task_lifecycle_service, is_tracked_callable
 
 CELERY_APP_NAME = "finance_analysis"
@@ -100,6 +107,31 @@ def _create_pending_task_record(
     kwargs = payload.get("kwargs") if isinstance(payload, dict) else {}
     if not isinstance(kwargs, dict):
         kwargs = {}
+
+    definition = get_definition_by_task_name(task_name)
+    if definition is not None:
+        # Beat (or a manual submission) is publishing a registered periodic task;
+        # seed the pending TaskRecord with the stable job_id and scheduler metadata
+        # so the single record matches what the worker's ``track_task`` writes.
+        # ``dedupe_key`` is intentionally omitted here: manual runs pre-create the
+        # record (with the dedupe key) before publishing, and ``ensure_record``
+        # only resolves uniqueness conflicts by ``task_id``.
+        get_task_lifecycle_service().create_pending(
+            task_id=task_id,
+            metadata=TaskLifecycleMetadata(
+                task_type=definition.task_type,
+                task_name=definition.name,
+                source="celery",
+                trigger_source=str(kwargs.get("_trigger_source") or "scheduler"),
+                triggered_by_uid=_safe_int(kwargs.get("_triggered_by_uid")),
+                scheduler_job_id=str(kwargs.get("scheduler_job_id") or definition.job_id),
+            ),
+            payload=payload,
+            message="任务已加入队列",
+            retry_count=_safe_int(headers.get("retries")) or 0,
+        )
+        return
+
     get_task_lifecycle_service().create_pending(
         task_id=task_id,
         metadata=TaskLifecycleMetadata(
@@ -112,6 +144,15 @@ def _create_pending_task_record(
         message="任务已加入队列",
         retry_count=_safe_int(headers.get("retries")) or 0,
     )
+
+
+@beat_init.connect
+def _on_beat_init(**_: Any) -> None:
+    """Start the Redis heartbeat writer when the Beat process boots."""
+    from finance_analysis.tasks.celery.heartbeat import start_beat_heartbeat
+
+    configure_celery_logging()
+    start_beat_heartbeat()
 
 
 def _extract_publish_payload(body: Any) -> Dict[str, Any]:
@@ -152,6 +193,7 @@ def create_celery_app() -> Celery:
         include=[
             "finance_analysis.tasks.celery.jobs.demo",
             "finance_analysis.tasks.celery.jobs.analysis",
+            "finance_analysis.tasks.celery.jobs.scheduled",
         ],
     )
     app.conf.update(
@@ -161,6 +203,14 @@ def create_celery_app() -> Celery:
         timezone="Asia/Shanghai",
         enable_utc=True,
         task_track_started=True,
+        # Truly disable broker prefetch (Celery 5.5+): the worker reserves at most
+        # one message at a time and never hoards future-scheduled deliveries.
+        worker_disable_prefetch=True,
+        # Queue topology — a single worker still consumes all of these.
+        task_default_queue=QUEUE_DEFAULT,
+        task_routes=build_task_routes(),
+        # Beat schedule and per-task timezones come straight from the registry.
+        beat_schedule=build_beat_schedule(),
     )
     return app
 
