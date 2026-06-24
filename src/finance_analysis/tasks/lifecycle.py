@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Unified task lifecycle tracking for Celery, APScheduler, and queue state."""
+"""Unified task lifecycle tracking for Celery tasks and queue state."""
 
 from __future__ import annotations
 

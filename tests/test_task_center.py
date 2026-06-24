@@ -13,21 +13,19 @@ from finance_analysis.tasks.service import (
 from finance_analysis.core.time import utc_now
 
 
-class _FakeScheduler:
-    running = True
+class _RecordingSubmitter:
+    """Capture manual Celery submissions instead of touching a broker."""
 
-    def __init__(self):
-        self.jobs = {
-            "analysis_us_premarket": SimpleNamespace(id="analysis_us_premarket", next_run_time=utc_now()),
-            "analysis_daily": SimpleNamespace(id="analysis_daily", next_run_time=utc_now()),
-        }
-        self.added_jobs = []
+    def __init__(self, *, fail: bool = False):
+        self.calls = []
+        self.fail = fail
 
-    def get_job(self, job_id):
-        return self.jobs.get(job_id)
-
-    def add_job(self, func, trigger, **kwargs):
-        self.added_jobs.append({"func": func, "trigger": trigger, **kwargs})
+    def __call__(self, definition, *, task_id, triggered_by_uid):
+        self.calls.append(
+            {"definition": definition, "task_id": task_id, "triggered_by_uid": triggered_by_uid}
+        )
+        if self.fail:
+            raise RuntimeError("broker unavailable")
 
 
 class _FakeTaskRepo:
@@ -111,7 +109,7 @@ def _record(task_id, *, uid, status="completed", scheduler_job_id=None, payload=
         task_type="unit",
         task_name="Unit Task",
         uid=uid,
-        source="apscheduler" if scheduler_job_id else "celery_manual",
+        source="celery" if scheduler_job_id else "celery_manual",
         trigger_source="scheduler" if scheduler_job_id else "api",
         triggered_by_uid=None,
         status=status,
@@ -134,7 +132,10 @@ def _record(task_id, *, uid, status="completed", scheduler_job_id=None, payload=
 
 def test_scheduled_tasks_include_latest_run_and_next_run_time():
     repo = _FakeTaskRepo([_record("task-1", uid=None, scheduler_job_id="analysis_us_premarket")])
-    service = ScheduledTaskService(repository=repo, scheduler=_FakeScheduler())
+    service = ScheduledTaskService(
+        repository=repo,
+        beat_status_reader=lambda: "active",
+    )
 
     items = service.list_scheduled_tasks()
     premarket = next(item for item in items if item["job_id"] == "analysis_us_premarket")
@@ -145,10 +146,25 @@ def test_scheduled_tasks_include_latest_run_and_next_run_time():
     assert premarket["latest_run"]["task_id"] == "task-1"
 
 
-def test_manual_run_creates_pending_record_and_submits_one_off_job_without_calling_function():
+def test_scheduled_tasks_report_unavailable_when_beat_heartbeat_missing():
     repo = _FakeTaskRepo()
-    scheduler = _FakeScheduler()
-    service = ScheduledTaskService(repository=repo, scheduler=scheduler)
+    service = ScheduledTaskService(
+        repository=repo,
+        beat_status_reader=lambda: "unavailable",
+    )
+
+    items = service.list_scheduled_tasks()
+
+    assert items
+    assert all(item["scheduler_status"] == "unavailable" for item in items)
+    # next_run_time is the planned schedule and is shown regardless of Beat health.
+    assert all(item["next_run_time"] for item in items)
+
+
+def test_manual_run_creates_pending_record_and_submits_via_celery():
+    repo = _FakeTaskRepo()
+    submitter = _RecordingSubmitter()
+    service = ScheduledTaskService(repository=repo, task_submitter=submitter)
 
     result = service.run_scheduled_task_now(job_id="analysis_us_premarket", triggered_by_uid=7)
 
@@ -156,14 +172,19 @@ def test_manual_run_creates_pending_record_and_submits_one_off_job_without_calli
     assert repo.records[0].trigger_source == "manual"
     assert repo.records[0].triggered_by_uid == 7
     assert repo.records[0].scheduler_job_id == "analysis_us_premarket"
-    assert len(scheduler.added_jobs) == 1
-    assert scheduler.added_jobs[0]["trigger"] == "date"
-    assert scheduler.added_jobs[0]["kwargs"]["task_id"] == result["task_id"]
+    assert repo.records[0].source == "celery"
+    assert len(submitter.calls) == 1
+    assert submitter.calls[0]["task_id"] == result["task_id"]
+    assert submitter.calls[0]["triggered_by_uid"] == 7
+    assert submitter.calls[0]["definition"].job_id == "analysis_us_premarket"
 
 
 def test_manual_run_returns_duplicate_when_job_active():
     active = _record("active-task", uid=None, status="processing", scheduler_job_id="analysis_us_premarket")
-    service = ScheduledTaskService(repository=_FakeTaskRepo([active]), scheduler=_FakeScheduler())
+    service = ScheduledTaskService(
+        repository=_FakeTaskRepo([active]),
+        task_submitter=_RecordingSubmitter(),
+    )
 
     with pytest.raises(DuplicateScheduledTaskError) as exc:
         service.run_scheduled_task_now(job_id="analysis_us_premarket", triggered_by_uid=7)
@@ -171,13 +192,15 @@ def test_manual_run_returns_duplicate_when_job_active():
     assert exc.value.existing_task_id == "active-task"
 
 
-def test_manual_run_requires_running_scheduler():
-    scheduler = _FakeScheduler()
-    scheduler.running = False
-    service = ScheduledTaskService(repository=_FakeTaskRepo(), scheduler=scheduler)
+def test_manual_run_marks_record_cancelled_when_submission_fails():
+    repo = _FakeTaskRepo()
+    service = ScheduledTaskService(repository=repo, task_submitter=_RecordingSubmitter(fail=True))
 
     with pytest.raises(SchedulerUnavailableError):
         service.run_scheduled_task_now(job_id="analysis_us_premarket", triggered_by_uid=7)
+
+    assert repo.updated
+    assert repo.updated[-1]["status"] == "cancelled"
 
 
 def test_task_run_list_scopes_regular_user_and_keeps_admin_unscoped():

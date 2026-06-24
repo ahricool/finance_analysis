@@ -141,7 +141,7 @@ def get_service_log_dir(service: str, log_base_dir: Optional[str] = None) -> Pat
 
 
 def get_task_log_dir(*, celery: bool = False, log_base_dir: Optional[str] = None) -> Path:
-    """Resolve the directory for APScheduler or Celery task log files."""
+    """Resolve the directory for in-process scheduler or Celery task log files."""
     if celery:
         return get_log_celery_dir() if log_base_dir is None else get_log_base_dir(log_base_dir) / "celery"
     if log_base_dir is None:
@@ -386,7 +386,7 @@ def task_logging_context(
     handler._finance_task_id = resolved_task_id  # type: ignore[attr-defined]
 
     root_logger = logging.getLogger()
-    task_logger_name = "tasks.celery" if celery else "tasks.apscheduler"
+    task_logger_name = "tasks.celery" if celery else "tasks.scheduled"
     task_logger = logging.getLogger(f"{task_logger_name}.{_sanitize_log_file_stem(task_name)}")
 
     task_id_token = _TASK_ID_CONTEXT.set(resolved_task_id)

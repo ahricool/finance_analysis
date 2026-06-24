@@ -11,8 +11,9 @@ data/
 ├── logs/
 │   ├── app/          # FastAPI / main server logs
 │   ├── celery/       # Celery worker and task logs
-│   ├── scheduler/    # APScheduler task logs
+│   ├── scheduler/    # In-process scheduled task logs
 │   └── access/       # HTTP access logs (reserved)
+├── celerybeat-schedule  # Celery Beat schedule state (auto-created by Beat)
 ├── reports/
 │   ├── analysis/     # Saved analysis and market-review reports
 │   ├── backtest/     # Backtest output

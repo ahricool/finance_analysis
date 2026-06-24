@@ -65,7 +65,7 @@ def get_log_celery_dir() -> Path:
 
 
 def get_log_scheduler_dir() -> Path:
-    """Return ``data/logs/scheduler`` for APScheduler task logs."""
+    """Return ``data/logs/scheduler`` for in-process scheduled task logs."""
     return get_log_dir() / "scheduler"
 
 

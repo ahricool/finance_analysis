@@ -59,7 +59,7 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
     def test_decorator_preserves_return_value_and_records_completed(self) -> None:
         service = _RecordingLifecycleService()
 
-        @track_task(task_type="unit", task_name="Unit Task", source="apscheduler")
+        @track_task(task_type="unit", task_name="Unit Task", source="celery")
         def run(value: int) -> int:
             return value + 1
 
@@ -73,7 +73,7 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
     def test_decorator_reraises_original_exception_and_records_failed(self) -> None:
         service = _RecordingLifecycleService()
 
-        @track_task(task_type="unit", task_name="Unit Task", source="apscheduler")
+        @track_task(task_type="unit", task_name="Unit Task", source="celery")
         def run() -> None:
             raise RuntimeError("boom")
 
@@ -90,7 +90,7 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
         @track_task(
             task_type="unit",
             task_name="Unit Task",
-            source="apscheduler",
+            source="celery",
             task_id_getter=lambda: "task-123",
         )
         def run() -> None:
@@ -119,7 +119,7 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
     def test_notification_failure_does_not_replace_task_exception(self) -> None:
         service = _RecordingLifecycleService()
 
-        @track_task(task_type="unit", task_name="Unit Task", source="apscheduler")
+        @track_task(task_type="unit", task_name="Unit Task", source="celery")
         def run() -> None:
             raise RuntimeError("boom")
 
@@ -134,7 +134,7 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
     def test_scheduler_style_runs_get_distinct_task_ids(self) -> None:
         service = _RecordingLifecycleService()
 
-        @track_task(task_type="unit", task_name="Unit Task", source="apscheduler")
+        @track_task(task_type="unit", task_name="Unit Task", source="celery")
         def run() -> str:
             return "ok"
 
@@ -149,7 +149,7 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
     def test_task_skipped_records_skipped_without_failure(self) -> None:
         service = _RecordingLifecycleService()
 
-        @track_task(task_type="unit", task_name="Unit Task", source="apscheduler")
+        @track_task(task_type="unit", task_name="Unit Task", source="celery")
         def run() -> None:
             raise TaskSkipped("no work")
 
