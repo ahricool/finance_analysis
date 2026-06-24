@@ -19,11 +19,14 @@ def _install_apscheduler_stub() -> tuple[MagicMock, MagicMock]:
     background_mod = types.ModuleType("apscheduler.schedulers.background")
     triggers_pkg = types.ModuleType("apscheduler.triggers")
     cron_mod = types.ModuleType("apscheduler.triggers.cron")
+    combining_mod = types.ModuleType("apscheduler.triggers.combining")
 
     background_scheduler = MagicMock(name="BackgroundScheduler")
     cron_trigger = MagicMock(name="CronTrigger")
+    or_trigger = MagicMock(name="OrTrigger")
     background_mod.BackgroundScheduler = background_scheduler
     cron_mod.CronTrigger = cron_trigger
+    combining_mod.OrTrigger = or_trigger
 
     sys.modules.update(
         {
@@ -32,9 +35,10 @@ def _install_apscheduler_stub() -> tuple[MagicMock, MagicMock]:
             "apscheduler.schedulers.background": background_mod,
             "apscheduler.triggers": triggers_pkg,
             "apscheduler.triggers.cron": cron_mod,
+            "apscheduler.triggers.combining": combining_mod,
         }
     )
-    return background_scheduler, cron_trigger
+    return background_scheduler, cron_trigger, or_trigger
 
 
 class HardcodedSchedulerTestCase(unittest.TestCase):
@@ -47,9 +51,14 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
                 "apscheduler.schedulers.background",
                 "apscheduler.triggers",
                 "apscheduler.triggers.cron",
+                "apscheduler.triggers.combining",
             )
         }
-        self.background_scheduler_cls, self.cron_trigger_cls = _install_apscheduler_stub()
+        (
+            self.background_scheduler_cls,
+            self.cron_trigger_cls,
+            self.or_trigger_cls,
+        ) = _install_apscheduler_stub()
 
     def tearDown(self) -> None:
         for name, mod in self._modules_snapshot.items():
@@ -67,7 +76,9 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
             returned = scheduler_module.start_embedded_analysis_scheduler()
 
         self.assertIs(returned, scheduler_instance)
-        self.assertEqual(self.cron_trigger_cls.call_count, 7)
+        # 6 single-cron jobs + 2 cron triggers composed into the A-share OrTrigger.
+        self.assertEqual(self.cron_trigger_cls.call_count, 8)
+        self.assertEqual(self.or_trigger_cls.call_count, 1)
         self.cron_trigger_cls.assert_any_call(
             hour=scheduler_module.DAILY_SCHEDULE_HOUR,
             minute=scheduler_module.DAILY_SCHEDULE_MINUTE,
@@ -311,6 +322,45 @@ class HardcodedSchedulerTestCase(unittest.TestCase):
         )
         service_instance.run.assert_called_once_with(send_notification=True)
         self.assertEqual(result["market_regime"], "risk_on")
+
+    def test_a_share_intraday_definition_is_exposed_for_task_center(self) -> None:
+        definitions = {
+            item.job_id: item
+            for item in scheduler_module.get_scheduled_task_definitions()
+        }
+
+        definition = definitions["analysis_a_share_intraday"]
+        self.assertEqual(definition.name, "A股盘中分析")
+        self.assertEqual(definition.task_type, "scheduled_a_share_intraday")
+        self.assertEqual(definition.timezone, "Asia/Shanghai")
+        self.assertTrue(definition.allow_manual_run)
+
+    def test_a_share_intraday_task_runs_service_and_returns_summary(self) -> None:
+        fake_config_module = types.ModuleType("finance_analysis.analysis.pipeline_config")
+        fake_config_module.get_pipeline_config = MagicMock(return_value=MagicMock(name="config"))
+        fake_service_module = types.ModuleType(
+            "finance_analysis.tasks.jobs.a_share_intraday_analysis"
+        )
+        service_instance = MagicMock()
+        service_instance.run.return_value = MagicMock(
+            to_dict=MagicMock(return_value={"trading_date": "2026-06-24", "market_regime": "divergent"})
+        )
+        fake_service_module.AShareIntradayAnalysisService = MagicMock(return_value=service_instance)
+
+        with patch.dict(
+            sys.modules,
+            {
+                "finance_analysis.analysis.pipeline_config": fake_config_module,
+                "finance_analysis.tasks.jobs.a_share_intraday_analysis": fake_service_module,
+            },
+        ):
+            result = scheduler_module._a_share_intraday_analysis_task()
+
+        fake_service_module.AShareIntradayAnalysisService.assert_called_once_with(
+            config=fake_config_module.get_pipeline_config.return_value
+        )
+        service_instance.run.assert_called_once_with(send_notification=True)
+        self.assertEqual(result["market_regime"], "divergent")
 
     def test_market_calendar_task_runs_service(self) -> None:
         fake_service_module = types.ModuleType("finance_analysis.tasks.jobs.market_calendar_sync")

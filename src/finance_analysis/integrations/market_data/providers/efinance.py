@@ -1084,7 +1084,189 @@ class EfinanceFetcher(BaseFetcher):
                 elapsed=time.time() - api_start,
             )
             return None
-    
+
+    def get_all_realtime_quotes(self) -> List[Dict[str, Any]]:
+        """Return a normalized full-market A-share realtime snapshot.
+
+        One ``ef.stock.get_realtime_quotes()`` call (shared cache) yields the
+        whole A-share board. Each row is mapped to a stable English-keyed dict
+        so intraday candidate screening can run without per-symbol requests.
+        """
+        import efinance as ef
+
+        circuit_breaker = get_realtime_circuit_breaker()
+        source_key = "efinance"
+        if not circuit_breaker.is_available(source_key):
+            logger.info(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过全市场快照")
+            return []
+
+        api_start = time.time()
+        try:
+            current_time = time.time()
+            if (
+                _realtime_cache['data'] is not None
+                and current_time - _realtime_cache['timestamp'] < _realtime_cache['ttl']
+            ):
+                df = _realtime_cache['data']
+            else:
+                self._set_random_user_agent()
+                self._enforce_rate_limit()
+                logger.info("[API调用] ef.stock.get_realtime_quotes() 获取全市场快照...")
+                df = _ef_call_with_timeout(ef.stock.get_realtime_quotes)
+                circuit_breaker.record_success(source_key)
+                _realtime_cache['data'] = df
+                _realtime_cache['timestamp'] = current_time
+
+            if df is None or df.empty:
+                logger.warning("[API返回] 全市场快照为空")
+                return []
+
+            return self._snapshot_rows_from_df(df)
+        except FuturesTimeoutError:
+            logger.info(f"[超时] ef.stock.get_realtime_quotes() 超过 {_EF_CALL_TIMEOUT}s，跳过全市场快照")
+            circuit_breaker.record_failure(source_key, "timeout")
+            return []
+        except Exception as e:
+            log_external_call_exception(
+                logger,
+                provider="efinance",
+                operation="stock.get_realtime_quotes",
+                exc=e,
+                params={"purpose": "market_snapshot"},
+                elapsed=time.time() - api_start,
+            )
+            circuit_breaker.record_failure(source_key, str(e))
+            return []
+
+    @staticmethod
+    def _snapshot_rows_from_df(df: "pd.DataFrame") -> List[Dict[str, Any]]:
+        """Map a full-market realtime DataFrame to normalized snapshot dicts."""
+        columns = df.columns
+
+        def pick(*candidates: str) -> Optional[str]:
+            for candidate in candidates:
+                if candidate in columns:
+                    return candidate
+            return None
+
+        code_col = pick('股票代码', '代码', 'code')
+        name_col = pick('股票名称', '名称', 'name')
+        price_col = pick('最新价', 'price', 'close')
+        pct_col = pick('涨跌幅', 'pct_chg')
+        chg_col = pick('涨跌额', 'change')
+        pre_close_col = pick('昨收', '昨日收盘', 'pre_close')
+        open_col = pick('今开', '开盘', 'open')
+        high_col = pick('最高', 'high')
+        low_col = pick('最低', 'low')
+        vol_col = pick('成交量', 'volume')
+        amt_col = pick('成交额', 'amount')
+        turn_col = pick('换手率', 'turnover_rate')
+        amp_col = pick('振幅', 'amplitude')
+        if code_col is None or name_col is None:
+            return []
+
+        rows: List[Dict[str, Any]] = []
+        records = df.to_dict("records")
+        for record in records:
+            raw_code = str(record.get(code_col, "")).strip()
+            if not raw_code:
+                continue
+            price = safe_float(record.get(price_col)) if price_col else None
+            pre_close = safe_float(record.get(pre_close_col)) if pre_close_col else None
+            change_pct = safe_float(record.get(pct_col)) if pct_col else None
+            if pre_close is None and price is not None and change_pct is not None:
+                denom = 1 + change_pct / 100.0
+                pre_close = round(price / denom, 4) if denom else None
+            rows.append(
+                {
+                    "code": raw_code,
+                    "name": str(record.get(name_col, "")).strip(),
+                    "price": price,
+                    "pre_close": pre_close,
+                    "open": safe_float(record.get(open_col)) if open_col else None,
+                    "high": safe_float(record.get(high_col)) if high_col else None,
+                    "low": safe_float(record.get(low_col)) if low_col else None,
+                    "change_pct": change_pct,
+                    "change_amount": safe_float(record.get(chg_col)) if chg_col else None,
+                    "volume": safe_int(record.get(vol_col)) if vol_col else None,
+                    "amount": safe_float(record.get(amt_col)) if amt_col else None,
+                    "turnover_rate": safe_float(record.get(turn_col)) if turn_col else None,
+                    "amplitude": safe_float(record.get(amp_col)) if amp_col else None,
+                }
+            )
+        return rows
+
+    def get_minute_candlesticks(
+        self,
+        stock_code: str,
+        interval: int = 1,
+        count: int = 240,
+    ) -> List[Dict[str, Any]]:
+        """Fetch recent 1/5/15-minute candlesticks for an A-share security.
+
+        Uses ``ef.stock.get_quote_history`` with the intraday ``klt`` period.
+        Returns raw dicts (``timestamp/open/high/low/close/volume/turnover``);
+        timezone normalization and lunch filtering are the caller's job.
+        """
+        if interval not in (1, 5, 15, 30, 60):
+            raise ValueError("efinance minute interval must be one of 1, 5, 15, 30, 60")
+        import efinance as ef
+
+        api_start = time.time()
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+            df = _ef_call_with_timeout(
+                ef.stock.get_quote_history,
+                stock_codes=stock_code,
+                klt=interval,
+                fqt=1,
+                timeout=_EF_CALL_TIMEOUT,
+            )
+            if isinstance(df, dict):
+                df = df.get(stock_code)
+            if df is None or getattr(df, "empty", True):
+                return []
+
+            ts_col = next((c for c in ('日期', '时间', 'date') if c in df.columns), None)
+            open_col = next((c for c in ('开盘', 'open') if c in df.columns), None)
+            close_col = next((c for c in ('收盘', 'close') if c in df.columns), None)
+            high_col = next((c for c in ('最高', 'high') if c in df.columns), None)
+            low_col = next((c for c in ('最低', 'low') if c in df.columns), None)
+            vol_col = next((c for c in ('成交量', 'volume') if c in df.columns), None)
+            amt_col = next((c for c in ('成交额', 'amount', 'turnover') if c in df.columns), None)
+            if ts_col is None or close_col is None:
+                return []
+
+            bars: List[Dict[str, Any]] = []
+            for record in df.tail(max(1, int(count))).to_dict("records"):
+                bars.append(
+                    {
+                        "timestamp": record.get(ts_col),
+                        "open": safe_float(record.get(open_col)) if open_col else None,
+                        "high": safe_float(record.get(high_col)) if high_col else None,
+                        "low": safe_float(record.get(low_col)) if low_col else None,
+                        "close": safe_float(record.get(close_col)),
+                        "volume": safe_int(record.get(vol_col)) if vol_col else 0,
+                        "turnover": safe_float(record.get(amt_col)) if amt_col else None,
+                    }
+                )
+            return bars
+        except FuturesTimeoutError:
+            logger.info(f"[超时] ef.stock.get_quote_history({stock_code}, klt={interval}) 超过 {_EF_CALL_TIMEOUT}s")
+            return []
+        except Exception as e:
+            log_external_call_exception(
+                logger,
+                provider="efinance",
+                operation="stock.get_quote_history",
+                exc=e,
+                symbol=stock_code,
+                params={"klt": interval, "count": count},
+                elapsed=time.time() - api_start,
+            )
+            return []
+
     def get_base_info(self, stock_code: str) -> Optional[Dict[str, Any]]:
         """
         获取股票基本信息
