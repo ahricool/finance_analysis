@@ -194,6 +194,7 @@ def create_celery_app() -> Celery:
             "finance_analysis.tasks.celery.jobs.demo",
             "finance_analysis.tasks.celery.jobs.analysis",
             "finance_analysis.tasks.celery.jobs.scheduled",
+            "finance_analysis.tasks.celery.jobs.market_calendar",
         ],
     )
     app.conf.update(

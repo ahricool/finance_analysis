@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 from fastapi import HTTPException
 
 from finance_analysis.interfaces.api.v1.endpoints.calendar import list_finance_events
+from finance_analysis.interfaces.api.v1.schemas.market_calendar import FinanceEventResponse
 from finance_analysis.database.models import FinanceEvent
 from finance_analysis.database.repositories.market_calendar_event import MarketCalendarEventRepo, normalize_event_key
 
@@ -154,6 +155,80 @@ def test_upsert_event_updates_existing_event_without_duplicate_insert():
     assert result.event.title == "New title"
 
 
+def test_upsert_event_does_not_clear_importance_assessment():
+    existing = FinanceEvent(
+        id=7,
+        provider="longbridge",
+        event_key=normalize_event_key(_event()),
+        calendar_type="earnings",
+        market="US",
+        symbol="NVDA",
+        event_date=date(2026, 6, 20),
+        title="Old",
+        content="Old",
+        star=3,
+        importance_score=9,
+        importance_reason="大型公司财报",
+        importance_confidence=0.8,
+        importance_model="test-model",
+        importance_prompt_version="v1",
+        importance_input_hash="hash-1",
+        importance_scored_at=datetime(2026, 6, 18, tzinfo=timezone.utc),
+        first_seen_at=date(2026, 6, 18),
+        last_seen_at=date(2026, 6, 18),
+        created_at=date(2026, 6, 18),
+        updated_at=date(2026, 6, 18),
+    )
+    repo = MarketCalendarEventRepo(db=_FakeDB(existing))
+
+    result = repo.upsert_event(_event(title="New title", content_markdown="New content"))
+
+    assert result.event.importance_score == 9
+    assert result.event.importance_reason == "大型公司财报"
+    assert result.event.importance_input_hash == "hash-1"
+
+
+def test_update_importance_assessment_only_changes_importance_fields():
+    existing = FinanceEvent(
+        id=7,
+        provider="longbridge",
+        event_key="event-7",
+        calendar_type="earnings",
+        market="US",
+        symbol="NVDA",
+        event_date=date(2026, 6, 20),
+        title="NVIDIA earnings",
+        content="Old",
+        star=3,
+        first_seen_at=date(2026, 6, 18),
+        last_seen_at=date(2026, 6, 18),
+        created_at=date(2026, 6, 18),
+        updated_at=date(2026, 6, 18),
+    )
+    repo = MarketCalendarEventRepo(db=_FakeDB(existing))
+
+    ok = repo.update_importance_assessment(
+        7,
+        score=10,
+        reason="核心宏观或龙头事件",
+        confidence=0.91,
+        model="model-a",
+        prompt_version="v1",
+        input_hash="hash-2",
+        scored_at=datetime(2026, 6, 19, tzinfo=timezone.utc),
+    )
+
+    assert ok is True
+    assert existing.title == "NVIDIA earnings"
+    assert existing.star == 3
+    assert existing.importance_score == 10
+    assert existing.importance_reason == "核心宏观或龙头事件"
+    assert existing.importance_confidence == 0.91
+    assert existing.importance_model == "model-a"
+    assert existing.importance_prompt_version == "v1"
+    assert existing.importance_input_hash == "hash-2"
+
+
 def test_list_events_by_date_uses_event_date_filter_and_optional_filters():
     db = _FakeDB([])
     repo = MarketCalendarEventRepo(db=db)
@@ -241,6 +316,84 @@ def test_list_events_by_date_sorts_star_desc_then_type_symbol_title():
     result = repo.list_events_by_date(date(2026, 6, 20))
 
     assert [item.id for item in result] == [4, 3, 2, 1]
+
+
+def test_list_events_by_date_sorts_importance_before_star():
+    rows = [
+        FinanceEvent(
+            id=1,
+            provider="longbridge",
+            event_key="event-1",
+            calendar_type="earnings",
+            market="US",
+            symbol="AAA",
+            event_date=date(2026, 6, 20),
+            title="AAA earnings",
+            content="AAA",
+            star=3,
+            importance_score=8,
+            first_seen_at=datetime(2026, 6, 18, tzinfo=timezone.utc),
+            last_seen_at=datetime(2026, 6, 18, tzinfo=timezone.utc),
+            created_at=datetime(2026, 6, 18, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 6, 18, tzinfo=timezone.utc),
+        ),
+        FinanceEvent(
+            id=2,
+            provider="longbridge",
+            event_key="event-2",
+            calendar_type="earnings",
+            market="US",
+            symbol="BBB",
+            event_date=date(2026, 6, 20),
+            title="BBB earnings",
+            content="BBB",
+            star=1,
+            importance_score=10,
+            first_seen_at=datetime(2026, 6, 18, tzinfo=timezone.utc),
+            last_seen_at=datetime(2026, 6, 18, tzinfo=timezone.utc),
+            created_at=datetime(2026, 6, 18, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 6, 18, tzinfo=timezone.utc),
+        ),
+    ]
+    repo = MarketCalendarEventRepo(db=_FakeDB(rows))
+
+    result = repo.list_events_by_date(date(2026, 6, 20))
+
+    assert [item.id for item in result] == [2, 1]
+
+
+def test_finance_event_response_returns_importance_fields():
+    scored_at = datetime(2026, 6, 18, 12, 0, tzinfo=timezone.utc)
+    event = FinanceEvent(
+        id=1,
+        provider="longbridge",
+        event_key="event-1",
+        calendar_type="earnings",
+        market="US",
+        symbol="AAPL",
+        event_date=date(2026, 6, 20),
+        title="Apple earnings",
+        content="AAPL",
+        star=3,
+        importance_score=9,
+        importance_reason="大型科技公司财报",
+        importance_confidence=0.87,
+        importance_model="model-a",
+        importance_prompt_version="v1",
+        importance_input_hash="hash-a",
+        importance_scored_at=scored_at,
+        first_seen_at=scored_at,
+        last_seen_at=scored_at,
+        created_at=scored_at,
+        updated_at=scored_at,
+    )
+
+    data = FinanceEventResponse.model_validate(event).model_dump(mode="json")
+
+    assert data["importance_score"] == 9
+    assert data["importance_reason"] == "大型科技公司财报"
+    assert data["importance_confidence"] == 0.87
+    assert data["importance_scored_at"] == "2026-06-18T12:00:00.000Z"
 
 
 def test_list_finance_events_rejects_invalid_timezone():

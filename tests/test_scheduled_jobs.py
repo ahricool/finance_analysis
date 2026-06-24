@@ -172,21 +172,38 @@ class ScheduledJobRunnerTestCase(unittest.TestCase):
     def test_market_calendar_task_runs_service(self) -> None:
         fake_service_module = types.ModuleType("finance_analysis.tasks.jobs.market_calendar_sync")
         service_instance = MagicMock()
-        service_instance.run.return_value = MagicMock(
+        summary = MagicMock(
             all_interfaces_failed=False,
             fetched_count_by_type={"earnings": 1},
             inserted_count=1,
             updated_count=0,
             skipped_duplicate_count=0,
             notification_sent_count=1,
+            importance_candidate_ids=[11, 12],
         )
+        summary.to_dict.return_value = {"importance_candidate_ids": [11, 12]}
+        service_instance.run.return_value = summary
         fake_service_module.MarketCalendarSyncService = MagicMock(return_value=service_instance)
 
-        with patch.dict(sys.modules, {"finance_analysis.tasks.jobs.market_calendar_sync": fake_service_module}):
-            scheduled_jobs.run_market_calendar()
+        with patch.dict(sys.modules, {"finance_analysis.tasks.jobs.market_calendar_sync": fake_service_module}), patch.object(
+            scheduled_jobs, "_submit_market_calendar_importance_task"
+        ) as submit_mock:
+            result = scheduled_jobs.run_market_calendar()
 
         fake_service_module.MarketCalendarSyncService.assert_called_once_with()
         service_instance.run.assert_called_once()
+        submit_mock.assert_called_once_with([11, 12])
+        self.assertEqual(result["importance_candidate_ids"], [11, 12])
+
+    def test_market_calendar_importance_submit_failure_does_not_raise(self) -> None:
+        task_module = types.ModuleType("finance_analysis.tasks.celery.jobs.market_calendar")
+        task_module.market_calendar_importance = MagicMock()
+        task_module.market_calendar_importance.apply_async.side_effect = RuntimeError("broker down")
+
+        with patch.dict(sys.modules, {"finance_analysis.tasks.celery.jobs.market_calendar": task_module}):
+            scheduled_jobs._submit_market_calendar_importance_task([1, 2])
+
+        task_module.market_calendar_importance.apply_async.assert_called_once()
 
 
 if __name__ == "__main__":

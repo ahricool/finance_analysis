@@ -28,6 +28,13 @@ class FinanceEventResponse(BaseModel):
     star: Optional[int]
     currency: Optional[str]
     data_kv_json: Optional[str]
+    importance_score: Optional[int]
+    importance_reason: Optional[str]
+    importance_confidence: Optional[float]
+    importance_model: Optional[str]
+    importance_prompt_version: Optional[str]
+    importance_input_hash: Optional[str]
+    importance_scored_at: Optional[datetime]
     first_seen_at: datetime
     last_seen_at: datetime
     notified_at: Optional[datetime]
@@ -40,7 +47,15 @@ class FinanceEventResponse(BaseModel):
     def serialize_date(self, value: date) -> str:
         return value.isoformat()
 
-    @field_serializer("event_datetime", "first_seen_at", "last_seen_at", "notified_at", "created_at", "updated_at")
+    @field_serializer(
+        "event_datetime",
+        "importance_scored_at",
+        "first_seen_at",
+        "last_seen_at",
+        "notified_at",
+        "created_at",
+        "updated_at",
+    )
     def serialize_datetime(self, value: Optional[datetime]) -> Optional[str]:
         return utc_isoformat(value)
 
