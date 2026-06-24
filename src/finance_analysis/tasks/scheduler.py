@@ -12,7 +12,7 @@
 - 北京时间 21:00 执行美股盘前分析，仅分析自选股中标记为美股的股票。
 - 每 15 分钟执行一次美股盘中分析。
 - 美东时间 16:30 执行美股收盘复盘，自动适配美国夏令时。
-- 每 15 分钟执行一次 A 股盘中分析（当前任务流程为空）。
+- A 股交易日 09:45-11:30、13:15-15:00 每 15 分钟执行一次 A 股盘中分析。
 
 如需修改调度策略，请直接修改本文件中的常量或 ``_daily_analysis_task``，
 然后重启进程。
@@ -475,13 +475,24 @@ def _us_postmarket_review_task() -> dict:
 
 
 @_with_task_tracking("scheduled_a_share_intraday", "A股盘中分析", _JOB_A_SHARE_INTRADAY_ANALYSIS)
-def _a_share_intraday_analysis_task() -> None:
-    """A 股盘中定时任务：任务流程暂为空。"""
-    logger.info(
-        "A股盘中分析任务触发 - %s（任务流程暂为空）",
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    )
-    raise TaskSkipped("A股盘中分析任务流程暂为空，本次执行已跳过")
+def _a_share_intraday_analysis_task() -> dict:
+    """A 股盘中定时任务：识别市场情绪、板块轮动与自选股异动并按需提醒。"""
+    started_at = _scheduled_now()
+    logger.info("A股盘中分析任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S %Z"))
+    try:
+        from finance_analysis.analysis.pipeline_config import get_pipeline_config
+        from finance_analysis.tasks.jobs.a_share_intraday_analysis import (
+            AShareIntradayAnalysisService,
+        )
+
+        service = AShareIntradayAnalysisService(config=get_pipeline_config())
+        summary = service.run(send_notification=True)
+        return summary.to_dict()
+    except TaskSkipped:
+        raise
+    except Exception as exc:
+        logger.exception("A股盘中分析任务执行失败: %s", exc)
+        raise
 
 
 def get_scheduled_task_definitions() -> List[ScheduledTaskDefinition]:
@@ -550,11 +561,11 @@ def get_scheduled_task_definitions() -> List[ScheduledTaskDefinition]:
         ScheduledTaskDefinition(
             job_id=_JOB_A_SHARE_INTRADAY_ANALYSIS,
             name="A股盘中分析",
-            description="A 股盘中分析任务占位流程，当前执行后会记录为跳过",
+            description="分析A股市场情绪、板块轮动和自选股异动，识别涨停、炸板、强弱转换及风险信号",
             task_type="scheduled_a_share_intraday",
-            schedule=f"每 {INTRADAY_ANALYSIS_INTERVAL_MINUTES} 分钟",
-            timezone=SCHEDULE_TIMEZONE,
-            allow_manual_run=False,
+            schedule="A股交易日 09:45-11:30、13:15-15:00，每15分钟",
+            timezone="Asia/Shanghai",
+            allow_manual_run=True,
             func=_a_share_intraday_analysis_task,
         ),
     ]
@@ -579,6 +590,7 @@ def start_embedded_analysis_scheduler():
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.combining import OrTrigger
     except ImportError as exc:  # pragma: no cover - import guard
         logger.error("apscheduler 未安装，请执行: pip install apscheduler")
         raise ImportError("请安装 apscheduler 库: pip install apscheduler") from exc
@@ -651,9 +663,28 @@ def start_embedded_analysis_scheduler():
         coalesce=True,
         misfire_grace_time=1800,
     )
+    # A-share intraday: only fire inside the morning/afternoon trading windows
+    # (Asia/Shanghai) so lunch and overnight never produce skipped runs. The
+    # business service still enforces the precise 09:45-11:30 / 13:15-15:00
+    # window plus trading-day/holiday checks.
     scheduler.add_job(
         _a_share_intraday_analysis_task,
-        CronTrigger(minute=f"*/{INTRADAY_ANALYSIS_INTERVAL_MINUTES}", timezone=SCHEDULE_TIMEZONE),
+        OrTrigger(
+            [
+                CronTrigger(
+                    day_of_week="mon-fri",
+                    hour="9-11",
+                    minute="0,15,30,45",
+                    timezone=SCHEDULE_TIMEZONE,
+                ),
+                CronTrigger(
+                    day_of_week="mon-fri",
+                    hour="13-15",
+                    minute="0,15,30,45",
+                    timezone=SCHEDULE_TIMEZONE,
+                ),
+            ]
+        ),
         id=_JOB_A_SHARE_INTRADAY_ANALYSIS,
         replace_existing=True,
         max_instances=1,
@@ -665,7 +696,8 @@ def start_embedded_analysis_scheduler():
         "APScheduler 已启动，每日定时任务: %02d:%02d，财经日历: %02d:%02d，"
         "美股盘前新闻: %02d:%02d，"
         "美股盘前分析: %02d:%02d，"
-        "美股盘中分析/A股盘中分析: 每 %d 分钟一次 (%s)，"
+        "美股盘中分析: 每 %d 分钟一次 (%s)，"
+        "A股盘中分析: 交易日 09:45-11:30、13:15-15:00 每 15 分钟 (Asia/Shanghai)，"
         "美股收盘复盘: %02d:%02d (%s)",
         DAILY_SCHEDULE_HOUR,
         DAILY_SCHEDULE_MINUTE,

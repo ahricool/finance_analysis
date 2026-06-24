@@ -225,6 +225,65 @@ def is_market_session_closed(
     return market_now >= session_close
 
 
+ASIA_SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+# A-share intraday trading phase boundaries (Asia/Shanghai local time).
+_A_SHARE_OPEN = time(9, 30)
+_A_SHARE_MORNING_START = time(10, 0)
+_A_SHARE_MORNING_END = time(11, 30)
+_A_SHARE_AFTERNOON_OPEN = time(13, 0)
+_A_SHARE_CLOSING_START = time(14, 30)
+_A_SHARE_CLOSE = time(15, 0)
+
+# Skip the first minutes after the open: minute data is too thin to be useful.
+_A_SHARE_ANALYSIS_MORNING_START = time(9, 45)
+
+
+def get_a_share_market_now(current_time: Optional[datetime] = None) -> datetime:
+    """Return a timezone-aware Asia/Shanghai datetime for ``current_time``."""
+    return get_market_now("cn", current_time=current_time)
+
+
+def is_a_share_trading_day(check_date: Optional[date] = None, current_time: Optional[datetime] = None) -> bool:
+    """Return whether the given A-share date is a trading session day."""
+    if check_date is None:
+        check_date = get_a_share_market_now(current_time).date()
+    return is_market_open("cn", check_date)
+
+
+def get_a_share_market_phase(current_time: Optional[datetime] = None) -> str:
+    """Classify the current A-share intraday phase.
+
+    Returns one of ``opening`` / ``morning`` / ``afternoon`` / ``closing`` /
+    ``closed``. The lunch break, pre-open and post-close all map to ``closed``.
+    """
+    now = get_a_share_market_now(current_time)
+    current = now.time()
+    if _A_SHARE_OPEN <= current < _A_SHARE_MORNING_START:
+        return "opening"
+    if _A_SHARE_MORNING_START <= current < _A_SHARE_MORNING_END:
+        return "morning"
+    if _A_SHARE_AFTERNOON_OPEN <= current < _A_SHARE_CLOSING_START:
+        return "afternoon"
+    if _A_SHARE_CLOSING_START <= current <= _A_SHARE_CLOSE:
+        return "closing"
+    return "closed"
+
+
+def is_a_share_intraday_analysis_time(current_time: Optional[datetime] = None) -> bool:
+    """Return whether ``current_time`` is a valid A-share intraday analysis slot.
+
+    Valid windows skip the first 15 minutes after the open (09:45) and exclude
+    the lunch break: 09:45-11:30 in the morning and 13:00-15:00 in the
+    afternoon. Trading-day/holiday checks are handled separately by the caller.
+    """
+    now = get_a_share_market_now(current_time)
+    current = now.time()
+    morning = _A_SHARE_ANALYSIS_MORNING_START <= current <= _A_SHARE_MORNING_END
+    afternoon = _A_SHARE_AFTERNOON_OPEN <= current <= _A_SHARE_CLOSE
+    return morning or afternoon
+
+
 def get_open_markets_today() -> Set[str]:
     """
     Get markets that are open today (by each market's local timezone).
