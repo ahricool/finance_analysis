@@ -375,15 +375,15 @@ onBeforeUnmount(() => {
           </InlineAlert>
 
           <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-            <table class="min-w-[980px] w-full text-left text-sm">
+            <table class="w-full min-w-[1080px] text-left text-sm">
               <thead class="border-b border-border/70 text-xs text-muted-text">
                 <tr>
-                  <th class="px-4 py-3 font-medium">任务</th>
-                  <th class="px-4 py-3 font-medium">调度规则</th>
-                  <th class="px-4 py-3 font-medium">调度状态</th>
-                  <th class="px-4 py-3 font-medium">最近执行</th>
-                  <th class="px-4 py-3 font-medium">下次执行</th>
-                  <th class="px-4 py-3 font-medium">操作</th>
+                  <th class="min-w-[260px] px-4 py-3 font-medium">任务</th>
+                  <th class="min-w-[180px] whitespace-nowrap px-4 py-3 font-medium">调度规则</th>
+                  <th class="min-w-[110px] whitespace-nowrap px-4 py-3 font-medium">调度状态</th>
+                  <th class="min-w-[180px] whitespace-nowrap px-4 py-3 font-medium">最近执行</th>
+                  <th class="min-w-[160px] whitespace-nowrap px-4 py-3 font-medium">下次执行</th>
+                  <th class="min-w-[120px] whitespace-nowrap px-4 py-3 font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -399,40 +399,41 @@ onBeforeUnmount(() => {
                   :key="item.jobId"
                   class="border-b border-border/50 last:border-0"
                 >
-                  <td class="px-4 py-4">
+                  <td class="min-w-[260px] px-4 py-4">
                     <p class="font-medium text-foreground">{{ item.name }}</p>
-                    <p class="mt-1 max-w-xs text-xs text-muted-text">{{ item.description }}</p>
+                    <p class="mt-1 text-xs text-muted-text">{{ item.description }}</p>
                     <p class="mt-1 font-mono text-[11px] text-muted-text">{{ item.jobId }}</p>
                   </td>
-                  <td class="px-4 py-4">
-                    <p class="text-foreground">{{ item.schedule }}</p>
-                    <p class="mt-1 text-xs text-muted-text">{{ item.timezone }}</p>
+                  <td class="min-w-[180px] px-4 py-4">
+                    <p class="whitespace-nowrap text-foreground">{{ item.schedule }}</p>
+                    <p class="mt-1 whitespace-nowrap text-xs text-muted-text">{{ item.timezone }}</p>
                   </td>
-                  <td class="px-4 py-4">
-                    <Badge :variant="item.schedulerStatus === 'active' ? 'success' : 'default'">
+                  <td class="min-w-[110px] whitespace-nowrap px-4 py-4">
+                    <Badge class="whitespace-nowrap" :variant="item.schedulerStatus === 'active' ? 'success' : 'default'">
                       {{ schedulerStatusLabel(item.schedulerStatus) }}
                     </Badge>
                   </td>
-                  <td class="px-4 py-4">
+                  <td class="min-w-[180px] px-4 py-4">
                     <template v-if="item.latestRun">
-                      <Badge :variant="statusVariant(item.latestRun.status)">
+                      <Badge class="whitespace-nowrap" :variant="statusVariant(item.latestRun.status)">
                         {{ statusLabel(item.latestRun.status) }}
                       </Badge>
-                      <p class="mt-2 text-xs text-muted-text">
+                      <p class="mt-2 whitespace-nowrap text-xs text-muted-text">
                         {{ formatDateTimeInDisplayTimezone(item.latestRun.finishedAt || item.latestRun.startedAt) }}
                       </p>
-                      <p class="mt-1 text-xs text-muted-text">{{ formatDuration(item.latestRun.durationSeconds) }}</p>
+                      <p class="mt-1 whitespace-nowrap text-xs text-muted-text">{{ formatDuration(item.latestRun.durationSeconds) }}</p>
                     </template>
                     <span v-else class="text-xs text-muted-text">从未执行</span>
                   </td>
-                  <td class="px-4 py-4 text-sm text-foreground">
+                  <td class="min-w-[160px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
                     {{ formatDateTimeInDisplayTimezone(item.nextRunTime) }}
                   </td>
-                  <td class="px-4 py-4">
+                  <td class="min-w-[120px] px-4 py-4">
                     <Button
                       v-if="item.allowManualRun"
                       variant="secondary"
                       size="sm"
+                      class="whitespace-nowrap"
                       :is-loading="runningJobId === item.jobId"
                       :disabled="!!item.latestRun && ['pending', 'processing', 'retrying'].includes(item.latestRun.status)"
                       @click="selectedJob = item"
@@ -440,7 +441,7 @@ onBeforeUnmount(() => {
                       <Play class="h-4 w-4" />
                       立即执行
                     </Button>
-                    <span v-else class="text-xs text-muted-text">不可手动执行</span>
+                    <span v-else class="whitespace-nowrap text-xs text-muted-text">不可手动执行</span>
                   </td>
                 </tr>
               </tbody>
