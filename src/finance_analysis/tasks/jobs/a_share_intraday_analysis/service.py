@@ -28,7 +28,6 @@ from finance_analysis.tasks.lifecycle import TaskSkipped
 
 from .config import (
     A_SHARE_INDICES,
-    ASIA_SHANGHAI,
     BOARD_BENCHMARK_INDEX,
     INDEX_CODE_ALIASES,
     LLM_BATCH_SIZE,
@@ -44,7 +43,6 @@ from .lock import (
     release_a_share_intraday_lock,
     try_acquire_a_share_intraday_lock,
 )
-from .market_calendar import parse_a_share_timestamp
 from .metrics import _change_over_minutes, compute_a_share_intraday_metrics
 from .models import (
     AShareCandidate,
@@ -56,7 +54,6 @@ from .notifications import AShareIntradayReporter
 from .price_limits import (
     BOARD_CONVERTIBLE_BOND,
     BOARD_ETF,
-    BOARD_NEW_LISTING,
     classify_a_share_board,
     resolve_price_limit_rule,
 )
@@ -539,7 +536,6 @@ class AShareIntradayAnalysisService:
 
     def _signal_from_fallback(self, candidate: Dict[str, Any]) -> Optional[AShareSignalResult]:
         signal_type = candidate["signal_type"]
-        category = SIGNAL_CATEGORY.get(signal_type, "info")
         is_risk = signal_type in FALLBACK_RISK_SIGNALS
         severity = self._resolve_severity(signal_type, "risk" if is_risk else "watch")
         fallback_result = {
@@ -737,8 +733,6 @@ def determine_market_regime(
     counted = breadth.get("counted_symbols") or 0
     if counted < 50:
         return "unknown"
-    up = breadth.get("up_count", 0)
-    down = breadth.get("down_count", 0)
     limit_up = breadth.get("limit_up_count", 0)
     limit_down = breadth.get("limit_down_count", 0)
     break_rate = breadth.get("break_rate")

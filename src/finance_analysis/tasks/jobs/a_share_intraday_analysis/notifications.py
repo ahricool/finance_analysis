@@ -347,7 +347,6 @@ def render_aggregated_notification(
     snapshot: AShareMarketSnapshot,
     signals: Sequence[AShareSignalResult],
 ) -> str:
-    stats = snapshot.market_stats or {}
     header = [
         f"**A股盘中提醒 {summary.snapshot_time.astimezone(ASIA_SHANGHAI).strftime('%H:%M')}"
         f"｜{_REGIME_LABELS.get(summary.market_regime, summary.market_regime)}**",
