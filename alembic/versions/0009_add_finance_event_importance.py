@@ -19,6 +19,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)")
     op.execute("ALTER TABLE finance_events ADD COLUMN IF NOT EXISTS importance_score INTEGER")
     op.execute("ALTER TABLE finance_events ADD COLUMN IF NOT EXISTS importance_reason TEXT")
     op.execute("ALTER TABLE finance_events ADD COLUMN IF NOT EXISTS importance_confidence FLOAT")
