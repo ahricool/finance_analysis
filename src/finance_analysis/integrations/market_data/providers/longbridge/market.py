@@ -493,6 +493,60 @@ class LongbridgeFetcher(BaseFetcher):
         name = getattr(info, "name_cn", "") or getattr(info, "name_en", "") or ""
         return name.strip() or None
 
+    def get_company_quote_context(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """Return lightweight company context for calendar scoring.
+
+        This intentionally uses only quote + static_info. It does not call historical
+        candlestick APIs because calendar importance scoring only needs company size
+        context, not volume ratios or price history.
+        """
+        if not self.is_available_for_request("company_quote_context"):
+            return None
+
+        symbol = _to_longbridge_symbol(stock_code)
+        if symbol is None:
+            logger.debug("[Longbridge] 无法转换公司上下文代码: %s", stock_code)
+            return None
+
+        ctx = self._get_ctx()
+        if ctx is None:
+            return None
+
+        price = None
+        api_start = time.time()
+        try:
+            quotes = ctx.quote([symbol])
+            if quotes:
+                price = safe_float(getattr(quotes[0], "last_done", None))
+        except Exception as e:
+            log_external_call_exception(
+                logger,
+                provider="longbridge",
+                operation="quote",
+                exc=e,
+                symbol=symbol,
+                params={"symbols": [symbol], "purpose": "company_quote_context"},
+                elapsed=time.time() - api_start,
+            )
+            if self._is_connection_error(e):
+                self._mark_connection_cooldown(e)
+
+        static = self._get_static_info(symbol)
+        name = ""
+        total_mv = None
+        if static is not None:
+            name = getattr(static, "name_cn", "") or getattr(static, "name_en", "") or ""
+            total_shares = int(getattr(static, "total_shares", 0) or 0)
+            if price is not None and price > 0 and total_shares > 0:
+                total_mv = round(price * total_shares, 2)
+
+        return {
+            "symbol": symbol,
+            "name": name.strip() or None,
+            "price": price,
+            "total_mv": total_mv,
+        }
+
     # ------------------------------------------------------------------
     # volume_ratio from history
     # ------------------------------------------------------------------

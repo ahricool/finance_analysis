@@ -27,6 +27,19 @@ MARKET_CALENDAR_NOTIFICATION_DAYS = 14
 MARKET_CALENDAR_DIVIDEND_SPLIT_IPO_NOTIFICATION_DAYS = 3
 
 CALENDAR_TYPES: Sequence[str] = ("earnings", "dividend", "split", "ipo", "macro")
+IMPORTANCE_RELEVANT_FIELDS = {
+    "calendar_type",
+    "symbol",
+    "counter_name",
+    "event_type",
+    "activity_type",
+    "event_date",
+    "event_datetime",
+    "title",
+    "content",
+    "star",
+    "data_kv_json",
+}
 
 
 @dataclass
@@ -44,6 +57,7 @@ class MarketCalendarSyncSummary:
     errors: List[str] = field(default_factory=list)
     new_or_changed_important_events: List[FinanceEvent] = field(default_factory=list)
     focus_events: List[FinanceEvent] = field(default_factory=list)
+    importance_candidate_ids: List[int] = field(default_factory=list)
     calendar_id: Optional[int] = None
 
     @property
@@ -53,6 +67,24 @@ class MarketCalendarSyncSummary:
     @property
     def all_interfaces_failed(self) -> bool:
         return len(self.errors) >= len(CALENDAR_TYPES) and self.fetched_total_count == 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "started_at": self.started_at.isoformat(),
+            "finished_at": self.finished_at.isoformat(),
+            "start_date": self.start_date.isoformat(),
+            "end_date": self.end_date.isoformat(),
+            "market": self.market,
+            "fetched_count_by_type": dict(self.fetched_count_by_type),
+            "inserted_count": self.inserted_count,
+            "updated_count": self.updated_count,
+            "skipped_duplicate_count": self.skipped_duplicate_count,
+            "notification_sent_count": self.notification_sent_count,
+            "errors": list(self.errors),
+            "importance_candidate_ids": list(self.importance_candidate_ids),
+            "calendar_id": self.calendar_id,
+            "all_interfaces_failed": self.all_interfaces_failed,
+        }
 
 
 def scheduler_now(now: Optional[datetime] = None) -> datetime:
@@ -97,6 +129,16 @@ def _event_star(event: FinanceEvent) -> int:
         return 0
 
 
+def _event_importance_score(event: FinanceEvent) -> Optional[int]:
+    value = getattr(event, "importance_score", None)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _calendar_type_rank(calendar_type: str) -> int:
     return {"earnings": 0, "macro": 1, "dividend": 2, "split": 3, "ipo": 4}.get(calendar_type, 9)
 
@@ -104,12 +146,15 @@ def _calendar_type_rank(calendar_type: str) -> int:
 def sort_focus_events(events: Sequence[FinanceEvent], watch_symbols: Sequence[str]) -> List[FinanceEvent]:
     watch = {normalize_watch_symbol(symbol) for symbol in watch_symbols if normalize_watch_symbol(symbol)}
 
-    def _key(event: FinanceEvent) -> tuple[int, int, int, date, str]:
+    def _key(event: FinanceEvent) -> tuple[int, int, int, int, int, date, str]:
         symbol = _event_symbol(event)
         calendar_type = str(getattr(event, "calendar_type", "") or "")
+        score = _event_importance_score(event)
         return (
+            0 if score is not None else 1,
+            -(score or 0),
             0 if symbol in watch else 1,
-            0 if _event_star(event) >= 2 else 1,
+            -_event_star(event),
             _calendar_type_rank(calendar_type),
             _event_date(event),
             str(getattr(event, "title", "") or ""),
@@ -138,10 +183,15 @@ def render_event_line(event: FinanceEvent) -> str:
     symbol = _event_symbol(event)
     prefix = f"{symbol} {label}" if symbol else label
     star = _event_star(event)
-    star_text = f"，star={star}" if star else ""
+    score = _event_importance_score(event)
+    importance_text = f"，重要性 {score}/10" if score is not None else ""
+    star_text = f"，provider star={star}" if star else ""
     event_time = getattr(event, "event_datetime", None) or getattr(event, "financial_market_time", None) or ""
     time_text = f" {event_time}" if isinstance(event_time, str) and event_time else ""
-    return f"- {prefix}：{_event_date(event).isoformat()}{time_text}{star_text}，{getattr(event, 'title', '')}"
+    return (
+        f"- {prefix}：{_event_date(event).isoformat()}{time_text}"
+        f"{importance_text}{star_text}，{getattr(event, 'title', '')}"
+    )
 
 
 def render_calendar_content(summary: MarketCalendarSyncSummary) -> str:
@@ -261,6 +311,10 @@ class MarketCalendarSyncService:
                     summary.updated_count += 1
                 else:
                     summary.skipped_duplicate_count += 1
+                if self._needs_importance_score(result):
+                    event_id = int(getattr(result.event, "id", 0) or 0)
+                    if event_id and event_id not in summary.importance_candidate_ids:
+                        summary.importance_candidate_ids.append(event_id)
 
         notification_candidates = self._notification_candidates(upsert_results, watch_symbols, start_date)
         summary.new_or_changed_important_events = notification_candidates
@@ -363,6 +417,11 @@ class MarketCalendarSyncService:
         from finance_analysis.notification.service import NotificationService
 
         return NotificationService()
+
+    def _needs_importance_score(self, result: FinanceEventUpsertResult) -> bool:
+        if result.created:
+            return True
+        return bool(IMPORTANCE_RELEVANT_FIELDS.intersection(result.changed_fields))
 
     def _record_calendar(self, summary: MarketCalendarSyncSummary) -> Optional[int]:
         try:

@@ -32,6 +32,13 @@ const mockEvent: FinanceEventItem = {
   star: 3,
   currency: 'USD',
   data_kv_json: null,
+  importance_score: 9,
+  importance_reason: '大型科技公司财报，市场关注度较高。',
+  importance_confidence: 0.88,
+  importance_model: 'test-model',
+  importance_prompt_version: 'v1',
+  importance_input_hash: 'hash-1',
+  importance_scored_at: '2026-06-20T01:00:00Z',
   first_seen_at: '2026-06-20T00:00:00Z',
   last_seen_at: '2026-06-20T00:00:00Z',
   notified_at: null,
@@ -93,6 +100,8 @@ describe('CalendarPage detail modal', () => {
     expect(dialog?.textContent).toContain('财经事件详情');
     expect(dialog?.textContent).toContain('Apple 财报发布');
     expect(dialog?.textContent).toContain('事件详情');
+    expect(dialog?.textContent).toContain('9/10');
+    expect(dialog?.textContent).toContain('大型科技公司财报');
 
     const closeButton = document.body.querySelector('button[aria-label="关闭弹窗"]');
     expect(closeButton).not.toBeNull();

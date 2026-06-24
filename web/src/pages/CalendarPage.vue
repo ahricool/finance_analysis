@@ -147,6 +147,14 @@ function eventTime(item: FinanceEventItem): string {
   return item.financial_market_time || formatDateOnly(item.event_date);
 }
 
+function importanceLabel(item: FinanceEventItem): string {
+  return item.importance_score !== null ? `${item.importance_score}/10` : '待评估';
+}
+
+function isHighImportance(item: FinanceEventItem): boolean {
+  return (item.importance_score ?? 0) >= 8;
+}
+
 function renderMarkdown(content: string | null): string {
   if (!content) return '';
   return renderMarkdownToHtml(content);
@@ -219,12 +227,19 @@ watch(displayTimezone, () => {
             :key="item.id"
             type="button"
             class="terminal-card terminal-card-hover flex h-full w-full cursor-pointer items-start justify-between gap-3 p-3 text-left"
+            :class="isHighImportance(item) ? 'border-warning/30' : ''"
             @click="openEventDetail(item)"
           >
             <span class="min-w-0 flex-1">
               <span class="mb-1 flex flex-wrap items-center gap-2 text-xs text-secondary-text">
                 <span class="rounded-full bg-hover px-2 py-0.5">{{ eventTypeLabel(item.calendar_type) }}</span>
                 <span>{{ eventName(item) }}</span>
+                <span
+                  class="rounded-full px-2 py-0.5"
+                  :class="isHighImportance(item) ? 'bg-warning/10 text-warning' : 'bg-hover text-secondary-text'"
+                >
+                  {{ importanceLabel(item) }}
+                </span>
                 <span v-if="item.star !== null">star {{ item.star }}</span>
                 <span>{{ eventTime(item) }}</span>
               </span>
@@ -284,12 +299,20 @@ watch(displayTimezone, () => {
             <p class="mt-1 text-sm text-foreground">{{ eventName(detail.item) }}</p>
           </div>
           <div v-if="detail.item.star !== null" class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-text">评级</p>
-            <p class="mt-1 text-sm text-foreground">star {{ detail.item.star }}</p>
+            <p class="text-xs text-muted-text">Provider star</p>
+            <p class="mt-1 text-sm text-foreground">{{ detail.item.star }}</p>
+          </div>
+          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+            <p class="text-xs text-muted-text">重要性</p>
+            <p class="mt-1 text-sm text-foreground">{{ importanceLabel(detail.item) }}</p>
           </div>
           <div class="rounded-xl border border-border/60 bg-background/60 p-3">
             <p class="text-xs text-muted-text">时间</p>
             <p class="mt-1 text-sm text-foreground">{{ eventTime(detail.item) }}</p>
+          </div>
+          <div v-if="detail.item.importance_reason" class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2">
+            <p class="text-xs text-muted-text">重要性原因</p>
+            <p class="mt-1 text-sm text-foreground">{{ detail.item.importance_reason }}</p>
           </div>
           <div class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2">
             <p class="text-xs text-muted-text">标题</p>

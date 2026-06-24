@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Market finance calendar ORM models."""
 
-from sqlalchemy import Column, Date, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, Date, DateTime, Float, Integer, String, Text, UniqueConstraint
 
 from finance_analysis.database.base import Base
 from finance_analysis.core.time import utc_now
@@ -32,6 +32,13 @@ class FinanceEvent(Base):
     currency = Column(String(16), nullable=True)
     data_kv_json = Column(Text, nullable=True)
     raw_payload_json = Column(Text, nullable=True)
+    importance_score = Column(Integer, nullable=True, index=True)
+    importance_reason = Column(Text, nullable=True)
+    importance_confidence = Column(Float, nullable=True)
+    importance_model = Column(String(128), nullable=True)
+    importance_prompt_version = Column(String(32), nullable=True)
+    importance_input_hash = Column(String(64), nullable=True, index=True)
+    importance_scored_at = Column(DateTime(timezone=True), nullable=True)
     first_seen_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     last_seen_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     notified_at = Column(DateTime(timezone=True), nullable=True)

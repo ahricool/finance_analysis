@@ -90,6 +90,21 @@ def test_sort_focus_events_prioritizes_watch_star_type_and_date():
     assert [event.id for event in sorted_events] == [2, 3, 1]
 
 
+def test_sort_focus_events_prioritizes_importance_score_then_watch_list():
+    events = [
+        _finance_event(event_id=1, calendar_type="earnings", symbol="AAA", star=3),
+        _finance_event(event_id=2, calendar_type="earnings", symbol="BBB", star=1),
+        _finance_event(event_id=3, calendar_type="earnings", symbol="CCC", star=2),
+    ]
+    events[0].importance_score = 8
+    events[1].importance_score = 10
+    events[2].importance_score = 8
+
+    sorted_events = sort_focus_events(events, ["CCC"])
+
+    assert [event.id for event in sorted_events] == [2, 3, 1]
+
+
 def test_service_continues_when_single_interface_fails_and_records_summary(monkeypatch):
     fetcher = MagicMock()
     fetcher.fetch_earnings_calendar.return_value = [
@@ -143,5 +158,50 @@ def test_service_continues_when_single_interface_fails_and_records_summary(monke
     assert any("split" in item for item in summary.errors)
     assert summary.calendar_id == 9
     assert summary.notification_sent_count == 1
+    assert summary.importance_candidate_ids == [1]
     assert repo.marked and repo.marked[0][0] == 1
     assert "scheduled_market_calendar" == calendar_repo.create.call_args.kwargs["type"]
+
+
+def test_importance_candidates_ignore_unrelated_timestamp_changes():
+    service = MarketCalendarSyncService(fetcher=MagicMock(), repo=_FakeRepo())
+    event = _finance_event()
+
+    assert service._needs_importance_score(
+        FinanceEventUpsertResult(event=event, created=False, updated=True, changed_fields=["last_seen_at"])
+    ) is False
+    assert service._needs_importance_score(
+        FinanceEventUpsertResult(event=event, created=False, updated=True, changed_fields=["raw_payload_json"])
+    ) is False
+    assert service._needs_importance_score(
+        FinanceEventUpsertResult(event=event, created=False, updated=True, changed_fields=["data_kv_json"])
+    ) is True
+    assert service._needs_importance_score(
+        FinanceEventUpsertResult(event=event, created=True, updated=False, changed_fields=[])
+    ) is True
+
+
+def test_importance_candidate_ids_are_deduped(monkeypatch):
+    fetcher = MagicMock()
+    fetcher.fetch_earnings_calendar.return_value = [
+        {"provider": "longbridge", "calendar_type": "earnings", "market": "US", "symbol": "NVDA", "event_date": "2026-06-19", "title": "A", "content_markdown": "A"},
+        {"provider": "longbridge", "calendar_type": "earnings", "market": "US", "symbol": "NVDA", "event_date": "2026-06-19", "title": "B", "content_markdown": "B"},
+    ]
+    fetcher.fetch_dividend_calendar.return_value = []
+    fetcher.fetch_split_calendar.return_value = []
+    fetcher.fetch_ipo_calendar.return_value = []
+    fetcher.fetch_macro_calendar.return_value = []
+    event = _finance_event(event_id=1)
+    repo = MagicMock()
+    repo.upsert_event.return_value = FinanceEventUpsertResult(event=event, created=True, updated=False)
+    repo.list_events_by_date_range.return_value = []
+    monkeypatch.setattr(
+        "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market",
+        MagicMock(return_value=[]),
+    )
+
+    summary = MarketCalendarSyncService(fetcher=fetcher, repo=repo, calendar_repo=MagicMock(), user_repo=MagicMock()).run(
+        now=datetime(2026, 6, 18, 19, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    )
+
+    assert summary.importance_candidate_ids == [1]

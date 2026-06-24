@@ -37,6 +37,13 @@ export interface FinanceEventItem {
   star: number | null;
   currency: string | null;
   data_kv_json: string | null;
+  importance_score: number | null;
+  importance_reason: string | null;
+  importance_confidence: number | null;
+  importance_model: string | null;
+  importance_prompt_version: string | null;
+  importance_input_hash: string | null;
+  importance_scored_at: string | null;
   first_seen_at: string;
   last_seen_at: string;
   notified_at: string | null;
