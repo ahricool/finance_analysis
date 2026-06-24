@@ -68,7 +68,7 @@ describe('stockPoolStore', () => {
     vi.mocked(historyApi.getList).mockResolvedValue({
       total: 1,
       page: 1,
-      limit: 20,
+      limit: 10,
       items: [historyItem],
     });
     vi.mocked(historyApi.getDetail).mockResolvedValue(historyReport);
@@ -77,76 +77,40 @@ describe('stockPoolStore', () => {
 
     const state = useStockPoolStore.getState();
     expect(state.historyItems).toHaveLength(1);
+    expect(state.historyTotal).toBe(1);
     expect(state.selectedReport?.meta.stockCode).toBe('600519');
     expect(state.isLoadingHistory).toBe(false);
     expect(state.isLoadingReport).toBe(false);
   });
 
-  it('deletes selected history and clears the selected report when nothing remains', async () => {
-    useStockPoolStore.setState({
-      historyItems: [historyItem],
-      selectedHistoryIds: [1],
-      selectedReport: historyReport,
-    });
-
-    vi.mocked(historyApi.deleteRecords).mockResolvedValue({ deleted: 1 });
-    vi.mocked(historyApi.getList).mockResolvedValue({
-      total: 0,
-      page: 1,
-      limit: 20,
-      items: [],
-    });
-
-    await useStockPoolStore.getState().deleteSelectedHistory();
-
-    const state = useStockPoolStore.getState();
-    expect(state.historyItems).toHaveLength(0);
-    expect(state.selectedHistoryIds).toHaveLength(0);
-    expect(state.selectedReport).toBeNull();
-    expect(historyApi.getList).toHaveBeenCalledTimes(1);
-  });
-
-  it('falls back to the next history report after deleting the currently selected item', async () => {
-    const nextHistoryItem = {
+  it('loads a specific history page', async () => {
+    const pageTwoItem = {
       ...historyItem,
-      id: 2,
-      queryId: 'q-2',
+      id: 11,
+      queryId: 'q-11',
       stockCode: 'AAPL',
       stockName: 'Apple',
     };
-    const nextHistoryReport = {
-      ...historyReport,
-      meta: {
-        ...historyReport.meta,
-        id: 2,
-        queryId: 'q-2',
-        stockCode: 'AAPL',
-        stockName: 'Apple',
-      },
-    };
 
     useStockPoolStore.setState({
-      historyItems: [historyItem, nextHistoryItem],
-      selectedHistoryIds: [1],
-      selectedReport: historyReport,
+      historyItems: [historyItem],
+      currentPage: 1,
+      historyTotal: 11,
     });
 
-    vi.mocked(historyApi.deleteRecords).mockResolvedValue({ deleted: 1 });
     vi.mocked(historyApi.getList).mockResolvedValue({
-      total: 1,
-      page: 1,
-      limit: 20,
-      items: [nextHistoryItem],
+      total: 11,
+      page: 2,
+      limit: 10,
+      items: [pageTwoItem],
     });
-    vi.mocked(historyApi.getDetail).mockResolvedValue(nextHistoryReport);
 
-    await useStockPoolStore.getState().deleteSelectedHistory();
+    await useStockPoolStore.getState().goToHistoryPage(2);
 
     const state = useStockPoolStore.getState();
-    expect(state.historyItems).toHaveLength(1);
-    expect(state.historyItems[0].id).toBe(2);
-    expect(state.selectedReport?.meta.id).toBe(2);
-    expect(state.selectedReport?.meta.stockCode).toBe('AAPL');
+    expect(state.currentPage).toBe(2);
+    expect(state.historyItems).toEqual([pageTwoItem]);
+    expect(historyApi.getList).toHaveBeenCalledWith(expect.objectContaining({ page: 2, limit: 10 }));
   });
 
   it('surfaces duplicate task errors without replacing the dashboard error state', async () => {
@@ -201,21 +165,26 @@ describe('stockPoolStore', () => {
     }));
   });
 
-  it('merges newly discovered history items during silent refresh', async () => {
+  it('refreshes the current history page during silent refresh', async () => {
     useStockPoolStore.setState({
       historyItems: [historyItem],
       currentPage: 1,
-      hasMore: true,
+      historyTotal: 2,
     });
+
+    const refreshedItem = {
+      ...historyItem,
+      id: 2,
+      queryId: 'q-2',
+      stockCode: 'AAPL',
+      stockName: 'Apple',
+    };
 
     vi.mocked(historyApi.getList).mockResolvedValue({
       total: 2,
       page: 1,
-      limit: 20,
-      items: [
-        { ...historyItem, id: 2, queryId: 'q-2', stockCode: 'AAPL', stockName: 'Apple' },
-        historyItem,
-      ],
+      limit: 10,
+      items: [refreshedItem, historyItem],
     });
 
     await useStockPoolStore.getState().refreshHistory(true);
@@ -223,6 +192,7 @@ describe('stockPoolStore', () => {
     const state = useStockPoolStore.getState();
     expect(state.historyItems.map((item) => item.id)).toEqual([2, 1]);
     expect(state.currentPage).toBe(1);
+    expect(state.historyTotal).toBe(2);
   });
 
   it('ignores late history responses after dashboard reset', async () => {
@@ -241,7 +211,7 @@ describe('stockPoolStore', () => {
     deferred.resolve({
       total: 1,
       page: 1,
-      limit: 20,
+      limit: 10,
       items: [historyItem],
     });
 
@@ -256,17 +226,19 @@ describe('stockPoolStore', () => {
   it('resets dashboard state', () => {
     useStockPoolStore.setState({
       query: 'AAPL',
-      selectedHistoryIds: [1],
       selectedReport: historyReport,
       markdownDrawerOpen: true,
+      currentPage: 2,
+      historyTotal: 12,
     });
 
     useStockPoolStore.getState().resetDashboardState();
     const state = useStockPoolStore.getState();
     expect(state.query).toBe('');
-    expect(state.selectedHistoryIds).toHaveLength(0);
     expect(state.selectedReport).toBeNull();
     expect(state.markdownDrawerOpen).toBe(false);
+    expect(state.currentPage).toBe(1);
+    expect(state.historyTotal).toBe(0);
   });
 
   it('triggers an analysis with the forceRefresh flag', async () => {

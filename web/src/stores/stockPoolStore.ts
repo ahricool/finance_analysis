@@ -7,13 +7,13 @@ import type { AnalysisReport, HistoryItem, HistoryListResponse } from '../types/
 import { getRecentStartDate, getTodayInShanghai } from '../utils/format';
 import { isObviouslyInvalidStockQuery, looksLikeStockCode, validateStockCode } from '../utils/validation';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 type SelectionSource = 'manual' | 'autocomplete' | 'import' | 'image';
 
 type FetchHistoryOptions = {
   autoSelectFirst?: boolean;
-  reset?: boolean;
+  page?: number;
   silent?: boolean;
 };
 
@@ -37,12 +37,9 @@ export interface StockPoolState {
   error: ParsedApiError | null;
   isAnalyzing: boolean;
   historyItems: HistoryItem[];
-  selectedHistoryIds: number[];
-  isDeletingHistory: boolean;
   isLoadingHistory: boolean;
-  isLoadingMore: boolean;
-  hasMore: boolean;
   currentPage: number;
+  historyTotal: number;
   selectedReport: AnalysisReport | null;
   isLoadingReport: boolean;
   markdownDrawerOpen: boolean;
@@ -53,11 +50,8 @@ export interface StockPoolState {
   closeMarkdownDrawer: () => void;
   loadInitialHistory: () => Promise<void>;
   refreshHistory: (silent?: boolean) => Promise<void>;
-  loadMoreHistory: () => Promise<void>;
+  goToHistoryPage: (page: number) => Promise<void>;
   selectHistoryItem: (recordId: number) => Promise<void>;
-  toggleHistorySelection: (recordId: number) => void;
-  toggleSelectAllVisible: () => void;
-  deleteSelectedHistory: () => Promise<void>;
   submitAnalysis: (options?: SubmitAnalysisOptions) => Promise<void>;
   resetDashboardState: () => void;
 }
@@ -70,12 +64,9 @@ const initialState = {
   error: null,
   isAnalyzing: false,
   historyItems: [] as HistoryItem[],
-  selectedHistoryIds: [] as number[],
-  isDeletingHistory: false,
   isLoadingHistory: false,
-  isLoadingMore: false,
-  hasMore: true,
   currentPage: 1,
+  historyTotal: 0,
   selectedReport: null as AnalysisReport | null,
   isLoadingReport: false,
   markdownDrawerOpen: false,
@@ -95,51 +86,24 @@ async function fetchHistory(
   set: (partial: Partial<StockPoolState>) => void,
   options: FetchHistoryOptions = {},
 ): Promise<HistoryListResponse | null> {
-  const { autoSelectFirst = false, reset = true, silent = false } = options;
-  const currentState = get();
-  const page = reset ? 1 : currentState.currentPage + 1;
+  const { autoSelectFirst = false, page, silent = false } = options;
+  const targetPage = page ?? get().currentPage;
   const requestId = ++historyRequestSeq;
 
   if (!silent) {
-    set(
-      reset
-        ? { isLoadingHistory: true, isLoadingMore: false, currentPage: 1 }
-        : { isLoadingMore: true },
-    );
+    set({ isLoadingHistory: true });
   }
 
   try {
-    const response = await historyApi.getList(buildHistoryParams(page));
+    const response = await historyApi.getList(buildHistoryParams(targetPage));
     if (requestId !== historyRequestSeq) {
       return null;
     }
 
-    if (silent && reset) {
-      const existingIds = new Set(get().historyItems.map((item) => item.id));
-      const newItems = response.items.filter((item) => !existingIds.has(item.id));
-      if (newItems.length > 0) {
-        set({ historyItems: [...newItems, ...get().historyItems] });
-      }
-    } else if (reset) {
-      set({
-        historyItems: response.items,
-        currentPage: 1,
-      });
-    } else {
-      set({
-        historyItems: [...get().historyItems, ...response.items],
-        currentPage: page,
-      });
-    }
-
-    if (!silent) {
-      const totalLoaded = reset ? response.items.length : get().historyItems.length;
-      set({ hasMore: totalLoaded < response.total });
-    }
-
-    const visibleIds = new Set(get().historyItems.map((item) => item.id));
     set({
-      selectedHistoryIds: get().selectedHistoryIds.filter((id) => visibleIds.has(id)),
+      historyItems: response.items,
+      currentPage: response.page,
+      historyTotal: response.total,
     });
 
     if (autoSelectFirst && response.items.length > 0 && !get().selectedReport) {
@@ -155,10 +119,7 @@ async function fetchHistory(
     return null;
   } finally {
     if (requestId === historyRequestSeq) {
-      set({
-        isLoadingHistory: false,
-        isLoadingMore: false,
-      });
+      set({ isLoadingHistory: false });
     }
   }
 }
@@ -184,19 +145,23 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
   closeMarkdownDrawer: () => set({ markdownDrawerOpen: false }),
 
   loadInitialHistory: async () => {
-    await fetchHistory(get, set, { autoSelectFirst: true, reset: true });
+    await fetchHistory(get, set, { autoSelectFirst: true, page: 1 });
   },
 
   refreshHistory: async (silent = false) => {
-    await fetchHistory(get, set, { reset: true, silent });
+    await fetchHistory(get, set, { page: get().currentPage, silent });
   },
 
-  loadMoreHistory: async () => {
-    const state = get();
-    if (state.isLoadingMore || !state.hasMore) {
+  goToHistoryPage: async (page) => {
+    const nextPage = Math.max(1, page);
+    const totalPages =
+      get().historyTotal > 0 ? Math.ceil(get().historyTotal / PAGE_SIZE) : null;
+    const targetPage = totalPages ? Math.min(nextPage, totalPages) : nextPage;
+
+    if (targetPage === get().currentPage && get().historyItems.length > 0) {
       return;
     }
-    await fetchHistory(get, set, { reset: false });
+    await fetchHistory(get, set, { page: targetPage });
   },
 
   selectHistoryItem: async (recordId) => {
@@ -227,64 +192,6 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
         error: getParsedApiError(error),
         isLoadingReport: false,
       });
-    }
-  },
-
-  toggleHistorySelection: (recordId) => {
-    const selected = new Set(get().selectedHistoryIds);
-    if (selected.has(recordId)) {
-      selected.delete(recordId);
-    } else {
-      selected.add(recordId);
-    }
-
-    set({ selectedHistoryIds: Array.from(selected) });
-  },
-
-  toggleSelectAllVisible: () => {
-    const visibleIds = get().historyItems.map((item) => item.id);
-    const selectedIds = get().selectedHistoryIds;
-    const visibleSet = new Set(visibleIds);
-    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
-
-    set({
-      selectedHistoryIds: allSelected
-        ? selectedIds.filter((id) => !visibleSet.has(id))
-        : Array.from(new Set([...selectedIds, ...visibleIds])),
-    });
-  },
-
-  deleteSelectedHistory: async () => {
-    const state = get();
-    const recordIds = Array.from(new Set(state.selectedHistoryIds));
-    if (recordIds.length === 0 || state.isDeletingHistory) {
-      return;
-    }
-
-    set({ isDeletingHistory: true });
-    try {
-      await historyApi.deleteRecords(recordIds);
-
-      const deletedIds = new Set(recordIds);
-      const selectedWasDeleted = state.selectedReport?.meta.id !== undefined
-        && deletedIds.has(state.selectedReport.meta.id);
-
-      set({ selectedHistoryIds: [] });
-
-      const freshPage = await fetchHistory(get, set, { reset: true });
-
-      if (selectedWasDeleted) {
-        const nextItem = freshPage?.items?.[0];
-        if (nextItem) {
-          await get().selectHistoryItem(nextItem.id);
-        } else {
-          set({ selectedReport: null });
-        }
-      }
-    } catch (error) {
-      set({ error: getParsedApiError(error) });
-    } finally {
-      set({ isDeletingHistory: false });
     }
   },
 
