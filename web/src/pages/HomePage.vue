@@ -3,7 +3,6 @@ import { analysisApi } from '@/api/analysis';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import InlineAlert from '@/components/common/InlineAlert.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
@@ -30,7 +29,6 @@ const router = useRouter();
 const timezoneStore = useTimezoneStore();
 const { displayTimezone } = storeToRefs(timezoneStore);
 const sidebarOpen = ref(false);
-const showDeleteConfirm = ref(false);
 const isSubmittingMarketReview = ref(false);
 const marketReviewNotice = ref<MarketReviewNotice>(null);
 const marketReviewError = ref<ParsedApiError | null>(null);
@@ -43,24 +41,19 @@ const {
   error,
   isAnalyzing,
   historyItems,
-  selectedHistoryIds,
-  isDeletingHistory,
   isLoadingHistory,
-  isLoadingMore,
-  hasMore,
+  currentPage,
+  historyTotal,
+  historyTotalPages,
   selectedReport,
   isLoadingReport,
   markdownDrawerOpen,
-  selectedIds,
   setQuery,
   clearError,
   loadInitialHistory,
   refreshHistory,
-  loadMoreHistory,
+  goToHistoryPage,
   selectHistoryItem,
-  toggleHistorySelection,
-  toggleSelectAllVisible,
-  deleteSelectedHistory,
   submitAnalysis,
   openMarkdownDrawer,
   closeMarkdownDrawer,
@@ -68,12 +61,6 @@ const {
 
 const reportLanguage = computed(() => normalizeReportLanguage(selectedReport.value?.meta.reportLanguage));
 const reportText = computed(() => getReportText(reportLanguage.value));
-const deleteConfirmMessage = computed(() => {
-  const n = unref(selectedHistoryIds).length;
-  return n === 1
-    ? '确认删除这条历史记录吗？删除后将不可恢复。'
-    : `确认删除选中的 ${n} 条历史记录吗？删除后将不可恢复。`;
-});
 
 useDashboardLifecycle({
   loadInitialHistory: async () => {
@@ -168,9 +155,8 @@ async function handleTriggerMarketReview() {
   }
 }
 
-function handleDeleteSelectedHistory() {
-  void unref(deleteSelectedHistory)();
-  showDeleteConfirm.value = false;
+function handleHistoryPageChange(page: number) {
+  void unref(goToHistoryPage)(page);
 }
 </script>
 
@@ -265,18 +251,14 @@ function handleDeleteSelectedHistory() {
             <HistoryList
               :items="historyItems"
               :is-loading="isLoadingHistory"
-              :is-loading-more="isLoadingMore"
-              :has-more="hasMore"
+              :current-page="currentPage"
+              :total-pages="historyTotalPages"
+              :total-count="historyTotal"
               :selected-id="selectedReport?.meta.id"
-              :selected-ids="selectedIds"
-              :is-deleting="isDeletingHistory"
               fit-height
               class="w-full overflow-hidden"
               @item-click="handleHistoryItemClick"
-              @load-more="() => unref(loadMoreHistory)()"
-              @toggle-item-selection="(id: number) => unref(toggleHistorySelection)(id)"
-              @toggle-select-all="() => unref(toggleSelectAllVisible)()"
-              @delete-selected="showDeleteConfirm = true"
+              @page-change="handleHistoryPageChange"
             />
           </div>
         </div>
@@ -295,17 +277,13 @@ function handleDeleteSelectedHistory() {
               <HistoryList
                 :items="historyItems"
                 :is-loading="isLoadingHistory"
-                :is-loading-more="isLoadingMore"
-                :has-more="hasMore"
+                :current-page="currentPage"
+                :total-pages="historyTotalPages"
+                :total-count="historyTotal"
                 :selected-id="selectedReport?.meta.id"
-                :selected-ids="selectedIds"
-                :is-deleting="isDeletingHistory"
                 class="min-h-0 flex-1 overflow-hidden"
                 @item-click="handleHistoryItemClick"
-                @load-more="() => unref(loadMoreHistory)()"
-                @toggle-item-selection="(id: number) => unref(toggleHistorySelection)(id)"
-                @toggle-select-all="() => unref(toggleSelectAllVisible)()"
-                @delete-selected="showDeleteConfirm = true"
+                @page-change="handleHistoryPageChange"
               />
             </div>
           </div>
@@ -423,15 +401,5 @@ function handleDeleteSelectedHistory() {
       @close="() => unref(closeMarkdownDrawer)()"
     />
 
-    <ConfirmDialog
-      :is-open="showDeleteConfirm"
-      title="删除历史记录"
-      :message="deleteConfirmMessage"
-      :confirm-text="isDeletingHistory ? '删除中...' : '确认删除'"
-      cancel-text="取消"
-      :is-danger="true"
-      @confirm="handleDeleteSelectedHistory"
-      @cancel="showDeleteConfirm = false"
-    />
   </div>
 </template>
