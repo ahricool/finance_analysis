@@ -142,6 +142,47 @@ class ScheduledJobRunnerTestCase(unittest.TestCase):
         service_instance.run.assert_called_once_with(send_notification=True)
         self.assertEqual(result["market_regime"], "risk_on")
 
+    def test_us_intraday_task_runs_service_and_sleeps_before_start(self) -> None:
+        fake_config_module = types.ModuleType("finance_analysis.analysis.pipeline_config")
+        fake_config_module.get_pipeline_config = MagicMock(return_value=MagicMock(name="config"))
+        fake_repo_module = types.ModuleType("finance_analysis.database.repositories.watch_list")
+        fake_repo_module.get_watch_list_codes_by_market = MagicMock(return_value=["AAPL", "TSLA"])
+        fake_service_module = types.ModuleType("finance_analysis.tasks.jobs.us_intraday_analysis")
+        service_instance = MagicMock()
+        service_instance.run.return_value = MagicMock(
+            market_open=True,
+            total_symbols=2,
+            processed_symbols=2,
+            stale_symbols=0,
+            skipped_symbols=0,
+            candidate_count=1,
+            llm_candidate_count=1,
+            signal_results=[],
+            notification_count=0,
+            timings={"duration_seconds": 1.2},
+            filter_failure_counts={},
+            to_dict=MagicMock(return_value={"market_open": True, "processed_symbols": 2}),
+        )
+        fake_service_module.USIntradayAnalysisService = MagicMock(return_value=service_instance)
+
+        with patch.dict(
+            sys.modules,
+            {
+                "finance_analysis.analysis.pipeline_config": fake_config_module,
+                "finance_analysis.database.repositories.watch_list": fake_repo_module,
+                "finance_analysis.tasks.jobs.us_intraday_analysis": fake_service_module,
+            },
+        ), patch.object(scheduled_jobs, "_sleep_random_start_delay", return_value=0.0) as sleep_mock:
+            result = scheduled_jobs.run_us_intraday_analysis()
+
+        sleep_mock.assert_called_once_with(task_name="美股盘中分析任务")
+        fake_repo_module.get_watch_list_codes_by_market.assert_called_once_with("US")
+        fake_service_module.USIntradayAnalysisService.assert_called_once_with(
+            config=fake_config_module.get_pipeline_config.return_value
+        )
+        service_instance.run.assert_called_once_with(["AAPL", "TSLA"])
+        self.assertEqual(result["processed_symbols"], 2)
+
     def test_a_share_intraday_task_runs_service_and_returns_summary(self) -> None:
         fake_config_module = types.ModuleType("finance_analysis.analysis.pipeline_config")
         fake_config_module.get_pipeline_config = MagicMock(return_value=MagicMock(name="config"))
@@ -160,14 +201,25 @@ class ScheduledJobRunnerTestCase(unittest.TestCase):
                 "finance_analysis.analysis.pipeline_config": fake_config_module,
                 "finance_analysis.tasks.jobs.a_share_intraday_analysis": fake_service_module,
             },
-        ):
+        ), patch.object(scheduled_jobs, "_sleep_random_start_delay", return_value=0.0) as sleep_mock:
             result = scheduled_jobs.run_a_share_intraday_analysis()
 
+        sleep_mock.assert_called_once_with(task_name="A股盘中分析任务")
         fake_service_module.AShareIntradayAnalysisService.assert_called_once_with(
             config=fake_config_module.get_pipeline_config.return_value
         )
         service_instance.run.assert_called_once_with(send_notification=True)
         self.assertEqual(result["market_regime"], "divergent")
+
+    def test_intraday_start_delay_sleeps_up_to_five_seconds(self) -> None:
+        with patch.object(scheduled_jobs.random, "uniform", return_value=3.25) as uniform_mock, patch.object(
+            scheduled_jobs.time, "sleep"
+        ) as sleep_mock:
+            delay = scheduled_jobs._sleep_random_start_delay(task_name="盘中测试任务")
+
+        uniform_mock.assert_called_once_with(0.0, scheduled_jobs.INTRADAY_START_DELAY_MAX_SECONDS)
+        sleep_mock.assert_called_once_with(3.25)
+        self.assertEqual(delay, 3.25)
 
     def test_market_calendar_task_runs_service(self) -> None:
         fake_service_module = types.ModuleType("finance_analysis.tasks.jobs.market_calendar_sync")

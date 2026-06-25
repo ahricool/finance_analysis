@@ -44,9 +44,8 @@ def test_all_original_jobs_enter_beat_schedule():
     task_names = {entry["task"] for entry in schedule.values()}
     for job_id in EXPECTED_JOBS:
         assert celery_task_name(job_id) in task_names
-    # A-share publishes one entry per cron window (morning + afternoon).
     a_share_entries = [k for k in schedule if k.startswith("analysis_a_share_intraday")]
-    assert len(a_share_entries) == 2
+    assert len(a_share_entries) == 5
     us_intraday_entries = [k for k in schedule if k.startswith("analysis_us_intraday")]
     assert len(us_intraday_entries) == 2
 
@@ -71,8 +70,20 @@ def test_us_intraday_uses_new_york_offset_windows():
     assert definition.timezone == "America/New_York"
     assert definition.expires == 10 * 60
     schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
-    assert ("9", "46", "mon-fri", "America/New_York") in schedules
-    assert ("10-15", "1,16,31,46", "mon-fri", "America/New_York") in schedules
+    assert ("9", "46,56", "mon-fri", "America/New_York") in schedules
+    assert ("10-15", "6,16,26,36,46,56", "mon-fri", "America/New_York") in schedules
+
+
+def test_a_share_intraday_uses_ten_minute_windows():
+    definition = get_scheduled_task_definition("analysis_a_share_intraday")
+
+    assert definition.timezone == "Asia/Shanghai"
+    schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
+    assert ("9", "45,55", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("10", "5,15,25,35,45,55", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("11", "5,15,25", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("13-14", "0,10,20,30,40,50", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("15", "0", "mon-fri", "Asia/Shanghai") in schedules
 
 
 def test_all_scheduled_celery_tasks_are_registered():
@@ -123,7 +134,7 @@ def test_a_share_window_skips_weekend():
     nxt = definition.next_run_time(now=friday_evening)
     local = nxt.astimezone(ZoneInfo("Asia/Shanghai"))
     assert local.isoweekday() == 1  # Monday
-    assert (local.hour, local.minute) == (9, 0)
+    assert (local.hour, local.minute) == (9, 45)
 
 
 def test_multi_cron_takes_earliest_window():
