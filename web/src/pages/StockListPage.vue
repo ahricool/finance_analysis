@@ -8,8 +8,12 @@ import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.
 import type { Market } from '@/types/stockIndex';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { looksLikeStockCode } from '@/utils/validation';
-import { Briefcase, Pencil, Plus, Trash2, X } from 'lucide-vue-next';
+import { ArrowDown, ArrowUp, ArrowUpDown, Briefcase, Pencil, Plus, Trash2, X } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
+
+type MarketFilter = MarketType | 'ALL';
+type SortDirection = 'asc' | 'desc';
+type StockListSortKey = 'code' | 'market_type' | 'name' | 'quantity' | 'notes' | 'created_at' | 'updated_at';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const items = ref<StockHolding[]>([]);
@@ -40,9 +44,71 @@ const marketOptions: { value: MarketType; label: string }[] = [
   { value: 'US', label: '美股' },
   { value: 'HK', label: '港股' },
 ];
+const marketFilterOptions: { value: MarketFilter; label: string }[] = [
+  { value: 'ALL', label: '所有' },
+  { value: 'US', label: '美股' },
+  { value: 'HK', label: '港股' },
+  { value: 'CN', label: 'A 股' },
+];
+const selectedMarket = ref<MarketFilter>('ALL');
+const sortKey = ref<StockListSortKey | null>(null);
+const sortDirection = ref<SortDirection>('asc');
+
+const visibleItems = computed(() => {
+  const filtered =
+    selectedMarket.value === 'ALL'
+      ? items.value
+      : items.value.filter((item) => item.market_type === selectedMarket.value);
+
+  const activeSortKey = sortKey.value;
+  if (!activeSortKey) {
+    return filtered;
+  }
+
+  const direction = sortDirection.value === 'asc' ? 1 : -1;
+  return [...filtered].sort(
+    (a, b) => compareSortValues(sortValue(a, activeSortKey), sortValue(b, activeSortKey)) * direction,
+  );
+});
+const visibleQuantity = computed(() => visibleItems.value.reduce((sum, item) => sum + item.quantity, 0));
 
 function marketLabel(value: MarketType): string {
   return marketOptions.find((option) => option.value === value)?.label ?? 'A股';
+}
+
+function sortValue(item: StockHolding, key: StockListSortKey): string | number | null | undefined {
+  return item[key];
+}
+
+function normalizeSortValue(value: string | number | null | undefined): string | number {
+  if (typeof value === 'number') return value;
+  return String(value ?? '').trim().toLocaleLowerCase();
+}
+
+function compareSortValues(left: string | number | null | undefined, right: string | number | null | undefined): number {
+  const normalizedLeft = normalizeSortValue(left);
+  const normalizedRight = normalizeSortValue(right);
+  if (typeof normalizedLeft === 'number' && typeof normalizedRight === 'number') {
+    return normalizedLeft - normalizedRight;
+  }
+  return String(normalizedLeft).localeCompare(String(normalizedRight), 'zh-Hans-CN', {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
+function toggleSort(key: StockListSortKey) {
+  if (sortKey.value === key) {
+    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  sortKey.value = key;
+  sortDirection.value = 'asc';
+}
+
+function sortAria(key: StockListSortKey): 'none' | 'ascending' | 'descending' {
+  if (sortKey.value !== key) return 'none';
+  return sortDirection.value === 'asc' ? 'ascending' : 'descending';
 }
 
 function marketToMarketType(market?: Market): MarketType | null {
@@ -231,70 +297,148 @@ onMounted(loadList);
       <p class="text-xs text-secondary-text/60">持仓股列表同时作为每日分析的目标股票</p>
     </div>
 
-    <!-- Table -->
-    <div v-else class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-      <table class="w-full min-w-[900px] text-left text-sm">
-        <thead class="border-b border-border/70 text-xs text-muted-text">
-          <tr>
-            <th class="min-w-[120px] px-4 py-3 font-medium">代码</th>
-            <th class="min-w-[80px] px-4 py-3 font-medium">市场</th>
-            <th class="min-w-[180px] px-4 py-3 font-medium">名称</th>
-            <th class="min-w-[120px] px-4 py-3 text-right font-medium">持仓数量</th>
-            <th class="min-w-[220px] px-4 py-3 font-medium">备注</th>
-            <th class="min-w-[150px] px-4 py-3 font-medium">添加时间</th>
-            <th class="min-w-[150px] px-4 py-3 font-medium">更新时间</th>
-            <th class="min-w-[96px] px-4 py-3 text-right font-medium">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="item in items"
-            :key="item.id"
-            class="border-b border-border/50 transition-colors last:border-0 hover:bg-hover/70"
-          >
-            <td class="px-4 py-3">
-              <span class="font-mono text-sm font-semibold text-primary">{{ item.code }}</span>
-            </td>
-            <td class="px-4 py-3">
-              <span class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-secondary-text">
-                {{ marketLabel(item.market_type) }}
-              </span>
-            </td>
-            <td class="px-4 py-3 font-medium text-foreground">{{ item.name || '—' }}</td>
-            <td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-foreground">
-              {{ item.quantity.toLocaleString() }} 股
-            </td>
-            <td class="max-w-xs px-4 py-3 text-secondary-text">
-              <span class="line-clamp-2">{{ item.notes || '—' }}</span>
-            </td>
-            <td class="whitespace-nowrap px-4 py-3 text-xs text-secondary-text">
-              {{ formatDateTimeInDisplayTimezone(item.created_at) }}
-            </td>
-            <td class="whitespace-nowrap px-4 py-3 text-xs text-secondary-text">
-              {{ formatDateTimeInDisplayTimezone(item.updated_at) }}
-            </td>
-            <td class="px-4 py-3 text-right">
-              <div class="flex justify-end gap-1">
-                <button
-                  class="rounded-lg p-1.5 text-secondary-text hover:bg-hover hover:text-foreground"
-                  aria-label="编辑"
-                  @click="openEdit(item)"
-                >
-                  <Pencil class="h-4 w-4" />
+    <template v-else>
+      <div class="mb-3 rounded-2xl border border-border/70 bg-card/94 p-4 shadow-soft-card">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <label class="block text-sm font-medium text-foreground">
+            <span class="mb-1 block text-xs text-muted-text">市场</span>
+            <select
+              v-model="selectedMarket"
+              class="h-9 w-full min-w-[180px] rounded-xl border border-border/70 bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary"
+            >
+              <option v-for="option in marketFilterOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <p class="text-xs text-muted-text">
+            显示 {{ visibleItems.length }} / {{ total }} 只 · 筛选持仓 {{ visibleQuantity.toLocaleString() }} 股
+          </p>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
+        <table class="w-full min-w-[900px] text-left text-sm">
+          <thead class="border-b border-border/70 text-xs text-muted-text">
+            <tr>
+              <th class="min-w-[120px] px-4 py-3 font-medium" :aria-sort="sortAria('code')">
+                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('code')">
+                  代码
+                  <ArrowUp v-if="sortKey === 'code' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
+                  <ArrowDown v-else-if="sortKey === 'code'" class="h-3.5 w-3.5" />
+                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
-                <button
-                  class="rounded-lg p-1.5 text-secondary-text hover:bg-destructive/10 hover:text-destructive"
-                  aria-label="删除"
-                  @click="openDelete(item)"
-                >
-                  <Trash2 class="h-4 w-4" />
+              </th>
+              <th class="min-w-[80px] px-4 py-3 font-medium" :aria-sort="sortAria('market_type')">
+                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('market_type')">
+                  市场
+                  <ArrowUp v-if="sortKey === 'market_type' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
+                  <ArrowDown v-else-if="sortKey === 'market_type'" class="h-3.5 w-3.5" />
+                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+              </th>
+              <th class="min-w-[180px] px-4 py-3 font-medium" :aria-sort="sortAria('name')">
+                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('name')">
+                  名称
+                  <ArrowUp v-if="sortKey === 'name' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
+                  <ArrowDown v-else-if="sortKey === 'name'" class="h-3.5 w-3.5" />
+                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
+                </button>
+              </th>
+              <th class="min-w-[120px] px-4 py-3 text-right font-medium" :aria-sort="sortAria('quantity')">
+                <button
+                  class="ml-auto flex items-center gap-1.5 transition-colors hover:text-foreground"
+                  @click="toggleSort('quantity')"
+                >
+                  持仓数量
+                  <ArrowUp v-if="sortKey === 'quantity' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
+                  <ArrowDown v-else-if="sortKey === 'quantity'" class="h-3.5 w-3.5" />
+                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
+                </button>
+              </th>
+              <th class="min-w-[220px] px-4 py-3 font-medium" :aria-sort="sortAria('notes')">
+                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('notes')">
+                  备注
+                  <ArrowUp v-if="sortKey === 'notes' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
+                  <ArrowDown v-else-if="sortKey === 'notes'" class="h-3.5 w-3.5" />
+                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
+                </button>
+              </th>
+              <th class="min-w-[150px] px-4 py-3 font-medium" :aria-sort="sortAria('created_at')">
+                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('created_at')">
+                  添加时间
+                  <ArrowUp v-if="sortKey === 'created_at' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
+                  <ArrowDown v-else-if="sortKey === 'created_at'" class="h-3.5 w-3.5" />
+                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
+                </button>
+              </th>
+              <th class="min-w-[150px] px-4 py-3 font-medium" :aria-sort="sortAria('updated_at')">
+                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('updated_at')">
+                  更新时间
+                  <ArrowUp v-if="sortKey === 'updated_at' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
+                  <ArrowDown v-else-if="sortKey === 'updated_at'" class="h-3.5 w-3.5" />
+                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
+                </button>
+              </th>
+              <th class="min-w-[96px] px-4 py-3 text-right font-medium">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="!visibleItems.length">
+              <td colspan="8" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无持仓股</td>
+            </tr>
+            <template v-else>
+              <tr
+                v-for="item in visibleItems"
+                :key="item.id"
+                class="border-b border-border/50 transition-colors last:border-0 hover:bg-hover/70"
+              >
+                <td class="px-4 py-3">
+                  <span class="font-mono text-sm font-semibold text-primary">{{ item.code }}</span>
+                </td>
+                <td class="px-4 py-3">
+                  <span class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-secondary-text">
+                    {{ marketLabel(item.market_type) }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 font-medium text-foreground">{{ item.name || '—' }}</td>
+                <td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-foreground">
+                  {{ item.quantity.toLocaleString() }} 股
+                </td>
+                <td class="max-w-xs px-4 py-3 text-secondary-text">
+                  <span class="line-clamp-2">{{ item.notes || '—' }}</span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-xs text-secondary-text">
+                  {{ formatDateTimeInDisplayTimezone(item.created_at) }}
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-xs text-secondary-text">
+                  {{ formatDateTimeInDisplayTimezone(item.updated_at) }}
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <div class="flex justify-end gap-1">
+                    <button
+                      class="rounded-lg p-1.5 text-secondary-text hover:bg-hover hover:text-foreground"
+                      aria-label="编辑"
+                      @click="openEdit(item)"
+                    >
+                      <Pencil class="h-4 w-4" />
+                    </button>
+                    <button
+                      class="rounded-lg p-1.5 text-secondary-text hover:bg-destructive/10 hover:text-destructive"
+                      aria-label="删除"
+                      @click="openDelete(item)"
+                    >
+                      <Trash2 class="h-4 w-4" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </template>
 
     <!-- Add / Edit Dialog -->
     <Teleport to="body">
