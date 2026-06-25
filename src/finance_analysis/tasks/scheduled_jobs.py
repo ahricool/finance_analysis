@@ -371,7 +371,7 @@ def run_market_calendar() -> dict:
         raise
 
 
-def run_us_intraday_analysis() -> None:
+def run_us_intraday_analysis() -> dict:
     """美股盘中定时任务：检测自选美股的盘中异动并按需提醒。"""
     started_at = _scheduled_now()
     logger.info("美股盘中分析任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
@@ -392,14 +392,20 @@ def run_us_intraday_analysis() -> None:
             raise TaskSkipped("当前不是美股盘中交易时段，跳过美股盘中分析任务")
 
         logger.info(
-            "美股盘中分析完成: total=%s processed=%s skipped=%s candidates=%s signals=%s errors=%s",
+            "美股盘中分析完成: total=%s processed=%s stale=%s skipped=%s candidates=%s "
+            "llm_candidates=%s signals=%s notifications=%s duration=%ss filter_failures=%s",
             summary.total_symbols,
             summary.processed_symbols,
+            summary.stale_symbols,
             summary.skipped_symbols,
             summary.candidate_count,
+            summary.llm_candidate_count,
             len(summary.signal_results),
-            len(summary.errors),
+            summary.notification_count,
+            summary.timings.get("duration_seconds"),
+            summary.filter_failure_counts,
         )
+        return summary.to_dict()
     except TaskSkipped:
         raise
     except Exception as exc:

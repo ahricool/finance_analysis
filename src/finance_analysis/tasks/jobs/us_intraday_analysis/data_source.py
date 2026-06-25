@@ -4,15 +4,21 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, time, timedelta
 from typing import Any, Dict, List, Optional
 
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
 from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, safe_float
 from finance_analysis.integrations.market_data.providers.yfinance import YfinanceFetcher
 
+from .config import DEFAULT_INTRADAY_BAR_COUNT, US_EASTERN
 from .bars import normalize_bars
+from .market_calendar import parse_timestamp
 
 logger = logging.getLogger(__name__)
+
+_REGULAR_SESSION_START = time(9, 30)
+_REGULAR_SESSION_END = time(16, 0)
 
 
 class IntradayDataSource:
@@ -33,12 +39,29 @@ class IntradayDataSource:
             return symbol[:-3]
         return symbol
 
-    def fetch_1m_bars(self, symbol: str) -> List[Dict[str, Any]]:
-        bars = normalize_bars(self.longbridge.get_minute_candlesticks(symbol, interval=1, count=1000))  # 先获取最大的 K 线，后面慢慢筛选
+    def fetch_1m_bars(
+        self,
+        symbol: str,
+        *,
+        now: Optional[datetime] = None,
+        include_incomplete: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Fetch current US/Eastern trading-day regular-session 1m bars."""
+        bars = filter_current_trading_day_bars(
+            normalize_bars(
+                self.longbridge.get_minute_candlesticks(
+                    symbol,
+                    interval=1,
+                    count=DEFAULT_INTRADAY_BAR_COUNT,
+                )
+            ),
+            now=now,
+            include_incomplete=include_incomplete,
+        )
         if bars:
             return bars
         logger.info("Longbridge 1m K线为空，使用 yfinance 兜底: %s", symbol)
-        return self._fetch_yfinance_1m_bars(symbol)
+        return self._fetch_yfinance_1m_bars(symbol, now=now, include_incomplete=include_incomplete)
 
     def fetch_quote(self, symbol: str) -> Optional[UnifiedRealtimeQuote]:
         quote = self.longbridge.get_realtime_quote(symbol)
@@ -47,7 +70,12 @@ class IntradayDataSource:
         return self.yfinance.get_realtime_quote(symbol)
 
     @staticmethod
-    def _fetch_yfinance_1m_bars(symbol: str) -> List[Dict[str, Any]]:
+    def _fetch_yfinance_1m_bars(
+        symbol: str,
+        *,
+        now: Optional[datetime] = None,
+        include_incomplete: bool = False,
+    ) -> List[Dict[str, Any]]:
         try:
             import yfinance as yf
 
@@ -70,7 +98,51 @@ class IntradayDataSource:
                         "turnover": turnover,
                     }
                 )
-            return normalize_bars(raw_bars)
+            return filter_current_trading_day_bars(
+                normalize_bars(raw_bars),
+                now=now,
+                include_incomplete=include_incomplete,
+            )
         except Exception as exc:
             logger.info("yfinance 1m K线兜底失败 %s: %s", symbol, exc)
             return []
+
+
+def filter_current_trading_day_bars(
+    bars: List[Dict[str, Any]],
+    *,
+    now: Optional[datetime] = None,
+    include_incomplete: bool = False,
+) -> List[Dict[str, Any]]:
+    """Keep only current Eastern trading-date regular-session 1m bars.
+
+    The provider may return bars spanning multiple dates or the still-forming
+    current minute. This function normalizes timestamps to America/New_York,
+    filters to 09:30 <= timestamp < 16:00 for ``now``'s Eastern date, and keeps
+    ascending order.
+    """
+    current = _eastern_now(now)
+    trading_date = current.date()
+    filtered: List[Dict[str, Any]] = []
+    for bar in bars:
+        ts = parse_timestamp(bar.get("timestamp"))
+        if ts is None:
+            continue
+        ts = ts.astimezone(US_EASTERN)
+        if ts.date() != trading_date:
+            continue
+        if not (_REGULAR_SESSION_START <= ts.time() < _REGULAR_SESSION_END):
+            continue
+        if not include_incomplete and ts + timedelta(minutes=1) > current:
+            continue
+        normalized = dict(bar)
+        normalized["timestamp"] = ts.isoformat()
+        filtered.append(normalized)
+    return sorted(filtered, key=lambda item: item["timestamp"])
+
+
+def _eastern_now(now: Optional[datetime] = None) -> datetime:
+    current = now or datetime.now(US_EASTERN)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=US_EASTERN)
+    return current.astimezone(US_EASTERN)

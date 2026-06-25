@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
-from typing import Any, Dict, Optional, Sequence
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Sequence
 
 from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, safe_float
 
@@ -18,16 +18,19 @@ def compute_intraday_metrics(
     quote: Optional[UnifiedRealtimeQuote],
     benchmark_metrics: Optional[Dict[str, Any]] = None,
     sector_metrics: Optional[Dict[str, Dict[str, Any]]] = None,
+    *,
+    now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """Compute the full metric snapshot used by rules, the LLM and rendering."""
-    bars_5m = aggregate_bars(bars_1m, 5)
+    bars_5m = aggregate_bars(bars_1m, 5, now=now, complete_only=True)
     bars_15m = aggregate_bars(bars_1m, 15)
 
     latest_price = safe_float(getattr(quote, "price", None)) if quote is not None else None
     if latest_price is None and bars_1m:
         latest_price = safe_float(bars_1m[-1].get("close"))
 
-    vwap_value = _vwap(bars_1m) 
+    vwap_series = cumulative_vwap_series(bars_1m)
+    vwap_value = next((value for value in reversed(vwap_series) if value is not None), None)
     intraday_high = max((float(bar["high"]) for bar in bars_1m), default=None)
     intraday_low = min((float(bar["low"]) for bar in bars_1m), default=None)
     high_distance_pct = None
@@ -60,6 +63,8 @@ def compute_intraday_metrics(
         "price_below_vwap": price_below_vwap,
         "crossed_above_vwap": _crossed_above_vwap(bars_1m, vwap_value),
         "crossed_below_vwap": _crossed_below_vwap(bars_1m, vwap_value),
+        "last_two_above_vwap": _last_n_closes_vs_vwap(bars_1m, vwap_series, 2, above=True),
+        "last_two_below_vwap": _last_n_closes_vs_vwap(bars_1m, vwap_series, 2, above=False),
         "intraday_high": intraday_high,
         "intraday_low": intraday_low,
         "near_intraday_high": bool(high_distance_pct is not None and high_distance_pct <= 0.25),
@@ -147,8 +152,25 @@ def _change_over_minutes(bars: Sequence[Dict[str, Any]], minutes: int) -> Option
             baseline = safe_float(bar.get("close"))
             break
     if baseline is None:
+        first_ts = parse_timestamp(bars[0].get("timestamp"))
+        if first_ts is None:
+            return None
+        covered_minutes = (latest_ts - first_ts).total_seconds() / 60.0 + 1.0
+        required_minutes = _required_coverage_minutes(minutes)
+        if covered_minutes < required_minutes:
+            return None
         baseline = safe_float(bars[0].get("open"))
     return _pct_change(safe_float(bars[-1].get("close")), baseline)
+
+
+def _required_coverage_minutes(minutes: int) -> float:
+    if minutes <= 5:
+        return 5.0
+    if minutes <= 15:
+        return 14.0
+    if minutes <= 60:
+        return 59.0
+    return float(minutes)
 
 
 def _volume_ratio_5m(bars_5m: Sequence[Dict[str, Any]], lookback: int = 12) -> Optional[float]:
@@ -160,7 +182,7 @@ def _volume_ratio_5m(bars_5m: Sequence[Dict[str, Any]], lookback: int = 12) -> O
         for bar in bars_5m[-lookback - 1:-1]
         if int(bar.get("volume") or 0) > 0
     ]
-    if not previous:
+    if len(previous) < 2:
         return None
     avg_volume = sum(previous) / len(previous)
     if avg_volume <= 0:
@@ -168,12 +190,19 @@ def _volume_ratio_5m(bars_5m: Sequence[Dict[str, Any]], lookback: int = 12) -> O
     return round(current_volume / avg_volume, 4)
 
 
-def _vwap(bars: Sequence[Dict[str, Any]]) -> Optional[float]:
+def cumulative_vwap_series(bars: Sequence[Dict[str, Any]]) -> List[Optional[float]]:
+    """Return the cumulative VWAP after each input bar.
+
+    Bars with zero or missing volume keep the previous cumulative VWAP. If no
+    positive volume has been seen yet, their value is ``None``.
+    """
     total_volume = 0
     total_value = 0.0
+    series: List[Optional[float]] = []
     for bar in bars:
         volume = int(bar.get("volume") or 0)
         if volume <= 0:
+            series.append(round(total_value / total_volume, 4) if total_volume > 0 else None)
             continue
         turnover = safe_float(bar.get("turnover"))
         if turnover is not None and turnover > 0:
@@ -183,9 +212,13 @@ def _vwap(bars: Sequence[Dict[str, Any]]) -> Optional[float]:
             value = typical * volume
         total_volume += volume
         total_value += value
-    if total_volume <= 0:
-        return None
-    return round(total_value / total_volume, 4)
+        series.append(round(total_value / total_volume, 4))
+    return series
+
+
+def _vwap(bars: Sequence[Dict[str, Any]]) -> Optional[float]:
+    series = cumulative_vwap_series(bars)
+    return next((value for value in reversed(series) if value is not None), None)
 
 
 def _first_hour_change(bars: Sequence[Dict[str, Any]]) -> Optional[float]:
@@ -208,14 +241,40 @@ def _first_hour_change(bars: Sequence[Dict[str, Any]]) -> Optional[float]:
 def _crossed_above_vwap(bars: Sequence[Dict[str, Any]], vwap_value: Optional[float]) -> bool:
     if vwap_value is None or len(bars) < 2:
         return False
+    series = cumulative_vwap_series(bars)
+    if len(series) < 2 or series[-2] is None or series[-1] is None:
+        return False
     previous = safe_float(bars[-2].get("close"))
     current = safe_float(bars[-1].get("close"))
-    return bool(previous is not None and current is not None and previous < vwap_value <= current)
+    return bool(previous is not None and current is not None and previous < series[-2] and current >= series[-1])
 
 
 def _crossed_below_vwap(bars: Sequence[Dict[str, Any]], vwap_value: Optional[float]) -> bool:
     if vwap_value is None or len(bars) < 2:
         return False
+    series = cumulative_vwap_series(bars)
+    if len(series) < 2 or series[-2] is None or series[-1] is None:
+        return False
     previous = safe_float(bars[-2].get("close"))
     current = safe_float(bars[-1].get("close"))
-    return bool(previous is not None and current is not None and previous > vwap_value >= current)
+    return bool(previous is not None and current is not None and previous > series[-2] and current <= series[-1])
+
+
+def _last_n_closes_vs_vwap(
+    bars: Sequence[Dict[str, Any]],
+    vwap_series: Sequence[Optional[float]],
+    count: int,
+    *,
+    above: bool,
+) -> bool:
+    if len(bars) < count or len(vwap_series) < count:
+        return False
+    for bar, vwap in zip(bars[-count:], vwap_series[-count:]):
+        close = safe_float(bar.get("close"))
+        if close is None or vwap is None:
+            return False
+        if above and close <= vwap:
+            return False
+        if not above and close >= vwap:
+            return False
+    return True

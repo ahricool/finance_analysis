@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from finance_analysis.integrations.market_data.realtime_types import safe_float
 
+from .config import US_EASTERN
 from .market_calendar import parse_timestamp
 
 
@@ -17,10 +18,29 @@ def normalize_bars(raw_bars: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted((bar for bar in bars if bar is not None), key=lambda item: item["timestamp"])
 
 
-def aggregate_bars(bars: Sequence[Dict[str, Any]], interval_minutes: int) -> List[Dict[str, Any]]:
-    """Aggregate normalized 1-minute bars into N-minute OHLCV bars."""
+def aggregate_bars(
+    bars: Sequence[Dict[str, Any]],
+    interval_minutes: int,
+    *,
+    now: Optional[datetime] = None,
+    complete_only: bool = False,
+) -> List[Dict[str, Any]]:
+    """Aggregate normalized 1-minute bars into N-minute OHLCV bars.
+
+    When ``complete_only`` is true, buckets whose end time is after ``now`` in
+    America/New_York are omitted. Buckets are also keyed by the parsed Eastern
+    timestamp, so aggregation never merges bars from different trading dates.
+    """
     if interval_minutes <= 1:
-        return list(bars)
+        if not complete_only:
+            return list(bars)
+        current = _eastern_now(now)
+        return [
+            bar
+            for bar in bars
+            if (ts := parse_timestamp(bar.get("timestamp"))) is not None
+            and ts + timedelta(minutes=1) <= current
+        ]
 
     grouped: Dict[datetime, List[Dict[str, Any]]] = {}
     for bar in bars:
@@ -31,8 +51,11 @@ def aggregate_bars(bars: Sequence[Dict[str, Any]], interval_minutes: int) -> Lis
         bucket = ts.replace(minute=bucket_minute, second=0, microsecond=0)
         grouped.setdefault(bucket, []).append(bar)
 
+    current = _eastern_now(now) if complete_only else None
     aggregated: List[Dict[str, Any]] = []
     for bucket in sorted(grouped):
+        if current is not None and bucket + timedelta(minutes=interval_minutes) > current:
+            continue
         items = sorted(grouped[bucket], key=lambda item: item["timestamp"])
         aggregated.append(
             {
@@ -46,6 +69,13 @@ def aggregate_bars(bars: Sequence[Dict[str, Any]], interval_minutes: int) -> Lis
             }
         )
     return aggregated
+
+
+def _eastern_now(now: Optional[datetime] = None) -> datetime:
+    current = now or datetime.now(US_EASTERN)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=US_EASTERN)
+    return current.astimezone(US_EASTERN)
 
 
 def _normalize_bar(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:

@@ -11,25 +11,28 @@ notification delivery.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
 from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsFetcher
 from finance_analysis.integrations.market_data.providers.yfinance import YfinanceFetcher
+from finance_analysis.tasks.lifecycle import TaskSkipped
 
-from .config import INTRADAY_NEWS_LIMIT, LLM_BATCH_SIZE, MARKET_ETFS, MARKET_NEWS_SYMBOL
+from .config import INTRADAY_NEWS_LIMIT, LLM_BATCH_SIZE, MARKET_ETFS, MARKET_NEWS_SYMBOL, STALE_BAR_SECONDS, US_EASTERN
 from .data_source import IntradayDataSource
 from .llm import IntradayLLMJudge, candidate_id, truthy
-from .market_calendar import is_us_market_open
+from .lock import release_us_intraday_running_lock, try_acquire_us_intraday_lock
+from .market_calendar import get_us_trading_date, is_us_market_open, parse_timestamp
 from .metrics import compute_intraday_metrics
 from .models import IntradaySignalResult, IntradayTaskSummary
 from .notifications import SignalReporter
-from .rules import DEFAULT_INTRADAY_SIGNAL_RULES, RulePredicate, evaluate_signal_candidates
+from .rules import DEFAULT_INTRADAY_SIGNAL_RULES, RulePredicate, evaluate_signal_candidates_with_diagnostics
 
 logger = logging.getLogger(__name__)
 
-_MIN_BARS_FOR_SYMBOL = 20
+_MIN_BARS_FOR_SYMBOL = 15
 _MIN_BARS_FOR_BENCHMARK = 10
 _NOTIFY_DECISIONS = {"watch", "risk"}
 
@@ -45,6 +48,8 @@ class USIntradayAnalysisService:
         yfinance_fetcher: Optional[YfinanceFetcher] = None,
         news_fetcher: Optional[LongbridgeNewsFetcher] = None,
         rules: Optional[Sequence[RulePredicate]] = None,
+        use_lock: bool = True,
+        lock_client: Any = None,
     ) -> None:
         self.config = config
         self.longbridge_fetcher = longbridge_fetcher or LongbridgeFetcher()
@@ -53,39 +58,63 @@ class USIntradayAnalysisService:
         self.llm_judge = IntradayLLMJudge(config)
         self.reporter = SignalReporter()
         self.rules: Sequence[RulePredicate] = rules if rules is not None else DEFAULT_INTRADAY_SIGNAL_RULES
+        self.use_lock = use_lock
+        self.lock_client = lock_client
         self._news_cache: Dict[str, List[Dict[str, Any]]] = {}
         self._run_query_id = ""
 
     def run(self, stock_codes: Sequence[str], now: Optional[datetime] = None) -> IntradayTaskSummary:
         if not is_us_market_open(now):
             return IntradayTaskSummary(market_open=False, total_symbols=len(stock_codes))
-       
 
-        run_time = now or datetime.now()
+        started = time.perf_counter()
+        run_time = _eastern_now(now)
         self._run_query_id = f"us_intraday_{run_time.strftime('%Y%m%d_%H%M%S')}"
         self._news_cache = {}
 
         summary = IntradayTaskSummary(market_open=True, total_symbols=len(stock_codes))
-        market_context = self._load_market_context()
-        market_context["market_news"] = self._get_symbol_news(MARKET_NEWS_SYMBOL, dimension="market_news")
-        qqq_metrics = market_context.get("QQQ", {})
-        sector_metrics = {
-            symbol: market_context[symbol]
-            for symbol in MARKET_ETFS
-            if symbol != "QQQ" and symbol in market_context
-        }
+        summary.timings["started_at"] = run_time.isoformat()
+        lock_token = None
+        try:
+            if self.use_lock:
+                lock_token = try_acquire_us_intraday_lock(
+                    trading_date=get_us_trading_date(run_time),
+                    window_time=run_time.strftime("%H:%M"),
+                    client=self.lock_client,
+                )
+                if lock_token is None:
+                    raise TaskSkipped("美股盘中分析任务正在执行或当前窗口已处理")
 
-        candidates: List[Dict[str, Any]] = []
-        for raw_code in stock_codes:
-            symbol = self.data_source.normalize_us_symbol(raw_code)
-            try:
-                candidates.extend(self._collect_candidates(symbol, qqq_metrics, sector_metrics, summary))
-            except Exception as exc:
-                logger.exception("美股盘中分析 %s 失败: %s", raw_code, exc)
-                summary.errors.append(f"{raw_code}: {exc}")
+            market_context = self._load_market_context(run_time)
+            market_context["market_news"] = self._get_symbol_news(MARKET_NEWS_SYMBOL, dimension="market_news")
+            qqq_metrics = market_context.get("QQQ", {})
+            sector_metrics = {
+                symbol: market_context[symbol]
+                for symbol in MARKET_ETFS
+                if symbol != "QQQ" and symbol in market_context
+            }
 
-        self._judge_candidates_in_batches(candidates, market_context, summary)
-        return summary
+            candidates: List[Dict[str, Any]] = []
+            for raw_code in stock_codes:
+                symbol = self.data_source.normalize_us_symbol(raw_code)
+                try:
+                    candidates.extend(self._collect_candidates(symbol, qqq_metrics, sector_metrics, summary, run_time))
+                except Exception as exc:
+                    logger.exception("美股盘中分析 %s 失败: %s", raw_code, exc)
+                    summary.errors.append(f"{raw_code}: {exc}")
+
+            self._judge_candidates_in_batches(candidates, market_context, summary)
+            if self._all_symbol_data_failed(summary):
+                summary.status = "failed"
+                raise RuntimeError("美股盘中分析失败：所有股票行情均不可用")
+            if summary.errors or summary.warnings:
+                summary.degraded = True
+                summary.status = "degraded"
+            return summary
+        finally:
+            if self.use_lock:
+                release_us_intraday_running_lock(lock_token)
+            summary.timings["duration_seconds"] = round(time.perf_counter() - started, 4)
 
     def _collect_candidates(
         self,
@@ -93,28 +122,58 @@ class USIntradayAnalysisService:
         qqq_metrics: Dict[str, Any],
         sector_metrics: Dict[str, Dict[str, Any]],
         summary: IntradayTaskSummary,
+        run_time: datetime,
     ) -> List[Dict[str, Any]]:
         """Fetch data, compute metrics, and return rule-matched candidates.
 
         Each candidate is a dict ``{"symbol", "signal_type", "metrics",
         "bars_1m"}`` to be judged later in batches by the LLM.
         """
-        bars_1m = self.data_source.fetch_1m_bars(symbol)
+        bars_1m = self.data_source.fetch_1m_bars(symbol, now=run_time)
         if len(bars_1m) < _MIN_BARS_FOR_SYMBOL:
             summary.skipped_symbols += 1
-            logger.info("美股盘中分析跳过 %s: 1m K线不足(%s)", symbol, len(bars_1m))
+            _incr(summary.filter_failure_counts, "insufficient_bars")
+            logger.debug("美股盘中分析跳过 %s: 1m K线不足(%s)", symbol, len(bars_1m))
+            return []
+
+        if _is_stale(bars_1m, run_time):
+            summary.skipped_symbols += 1
+            summary.stale_symbols += 1
+            _incr(summary.filter_failure_counts, "stale_bars")
+            logger.debug("美股盘中分析跳过 %s: 最新K线过旧 %s", symbol, bars_1m[-1].get("timestamp"))
             return []
 
         quote = self.data_source.fetch_quote(symbol)
-        metrics = compute_intraday_metrics(symbol, bars_1m, quote, qqq_metrics, sector_metrics)
+        if quote is None:
+            summary.skipped_symbols += 1
+            _incr(summary.filter_failure_counts, "missing_quote")
+            logger.debug("美股盘中分析跳过 %s: 缺少实时行情", symbol)
+            return []
 
-        matched = evaluate_signal_candidates(metrics, self.rules)
+        if not qqq_metrics:
+            _incr(summary.filter_failure_counts, "missing_qqq_context")
+
+        metrics = compute_intraday_metrics(symbol, bars_1m, quote, qqq_metrics, sector_metrics, now=run_time)
+
+        matched, failures = evaluate_signal_candidates_with_diagnostics(metrics, self.rules)
+        for failure in failures:
+            _incr(summary.filter_failure_counts, failure)
         summary.processed_symbols += 1
         summary.candidate_count += len(matched)
+        for candidate in matched:
+            _incr(summary.rule_match_counts, candidate["signal_type"])
         return [
             {
                 "symbol": symbol,
                 "signal_type": candidate["signal_type"],
+                "score": candidate.get("score"),
+                "max_score": candidate.get("max_score"),
+                "matched_conditions": candidate.get("matched_conditions", []),
+                "failed_conditions": candidate.get("failed_conditions", []),
+                "failed_condition_keys": candidate.get("failed_condition_keys", []),
+                "rule_version": candidate.get("rule_version"),
+                "rule_strength": candidate.get("rule_strength"),
+                "severity": candidate.get("severity"),
                 "metrics": metrics,
                 "bars_1m": bars_1m,
             }
@@ -128,11 +187,14 @@ class USIntradayAnalysisService:
         summary: IntradayTaskSummary,
     ) -> None:
         """Judge candidates in groups of ``LLM_BATCH_SIZE`` with one call each."""
+        summary.llm_candidate_count = len(candidates)
         for start in range(0, len(candidates), LLM_BATCH_SIZE):
             batch = candidates[start:start + LLM_BATCH_SIZE]
             for candidate in batch:
                 candidate["news"] = self._get_symbol_news(candidate["symbol"])
             verdicts = self.llm_judge.judge_batch(batch, market_context)
+            if not verdicts and batch:
+                summary.warnings.append(f"LLM 未返回可用判定: batch_start={start} size={len(batch)}")
             for candidate in batch:
                 verdict = verdicts.get(candidate_id(candidate["symbol"], candidate["signal_type"]))
                 if verdict is None:
@@ -140,18 +202,22 @@ class USIntradayAnalysisService:
                 result = self._build_signal(candidate, verdict)
                 if result:
                     summary.signal_results.append(result)
+                    if result.notification_sent:
+                        summary.notification_count += 1
+                    else:
+                        summary.notification_suppressed_count += 1
 
-    def _load_market_context(self) -> Dict[str, Dict[str, Any]]:
+    def _load_market_context(self, run_time: datetime) -> Dict[str, Dict[str, Any]]:
         """
         计算大盘指数，以及板块 ETF
         """
         context: Dict[str, Dict[str, Any]] = {}
         for symbol in MARKET_ETFS.keys():
-            bars_1m = self.data_source.fetch_1m_bars(symbol)
+            bars_1m = self.data_source.fetch_1m_bars(symbol, now=run_time)
             if len(bars_1m) < _MIN_BARS_FOR_BENCHMARK:
                 continue
             quote = self.data_source.fetch_quote(symbol)
-            context[symbol] = compute_intraday_metrics(symbol, bars_1m, quote)
+            context[symbol] = compute_intraday_metrics(symbol, bars_1m, quote, now=run_time)
         return context
 
     def _get_symbol_news(
@@ -196,12 +262,55 @@ class USIntradayAnalysisService:
             signal_type=candidate["signal_type"],
             need_notification=need_notification,
             llm_result=llm_result,
-            metrics=candidate["metrics"],
+            metrics={
+                **candidate["metrics"],
+                "score": candidate.get("score"),
+                "max_score": candidate.get("max_score"),
+                "matched_conditions": candidate.get("matched_conditions", []),
+                "failed_conditions": candidate.get("failed_conditions", []),
+                "rule_strength": candidate.get("rule_strength"),
+                "severity": candidate.get("severity"),
+                "rule_version": candidate.get("rule_version"),
+            },
         )
         signal.calendar_id = self.reporter.record_to_calendar(signal)
         if need_notification:
             signal.notification_sent = self.reporter.send_notification(signal)
         return signal
+
+    @staticmethod
+    def _all_symbol_data_failed(summary: IntradayTaskSummary) -> bool:
+        if summary.total_symbols <= 0 or summary.processed_symbols > 0:
+            return False
+        insufficient = summary.filter_failure_counts.get("insufficient_bars", 0)
+        if insufficient >= summary.total_symbols:
+            return False
+        data_failures = (
+            summary.filter_failure_counts.get("missing_quote", 0)
+            + summary.filter_failure_counts.get("stale_bars", 0)
+            + len(summary.errors)
+        )
+        return data_failures >= summary.total_symbols
+
+
+def _eastern_now(now: Optional[datetime] = None) -> datetime:
+    current = now or datetime.now(US_EASTERN)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=US_EASTERN)
+    return current.astimezone(US_EASTERN)
+
+
+def _is_stale(bars_1m: Sequence[Dict[str, Any]], now: datetime) -> bool:
+    if not bars_1m:
+        return False
+    latest = parse_timestamp(bars_1m[-1].get("timestamp"))
+    if latest is None:
+        return True
+    return latest + timedelta(minutes=1) < _eastern_now(now) - timedelta(seconds=STALE_BAR_SECONDS)
+
+
+def _incr(counter: Dict[str, int], key: str, amount: int = 1) -> None:
+    counter[key] = int(counter.get(key, 0) or 0) + amount
 
 
 
