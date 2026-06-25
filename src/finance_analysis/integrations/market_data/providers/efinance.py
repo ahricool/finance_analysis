@@ -109,6 +109,29 @@ class EfinanceRealtimeQuote:
 logger = logging.getLogger(__name__)
 
 EASTMONEY_HISTORY_ENDPOINT = "push2his.eastmoney.com/api/qt/stock/kline/get"
+EASTMONEY_REALTIME_SNAPSHOT_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+EASTMONEY_REALTIME_SNAPSHOT_FALLBACK_URLS = (
+    "https://push2delay.eastmoney.com/api/qt/clist/get",
+    EASTMONEY_REALTIME_SNAPSHOT_URL,
+)
+EASTMONEY_A_SHARE_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
+EASTMONEY_REALTIME_FIELDS = {
+    "f12": "代码",
+    "f14": "名称",
+    "f2": "最新价",
+    "f3": "涨跌幅",
+    "f4": "涨跌额",
+    "f18": "昨收",
+    "f17": "今开",
+    "f15": "最高",
+    "f16": "最低",
+    "f5": "成交量",
+    "f6": "成交额",
+    "f8": "换手率",
+    "f7": "振幅",
+}
+_EASTMONEY_REALTIME_PAGE_SIZE = 200
+_EASTMONEY_REALTIME_PAGE_RETRIES = 3
 
 
 # User-Agent 池，用于随机轮换
@@ -1098,6 +1121,9 @@ class EfinanceFetcher(BaseFetcher):
         source_key = "efinance"
         if not circuit_breaker.is_available(source_key):
             logger.info(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过全市场快照")
+            fallback_rows = self._get_all_realtime_quotes_https_fallback()
+            if fallback_rows:
+                return fallback_rows
             return []
 
         api_start = time.time()
@@ -1119,12 +1145,20 @@ class EfinanceFetcher(BaseFetcher):
 
             if df is None or df.empty:
                 logger.warning("[API返回] 全市场快照为空")
+                fallback_rows = self._get_all_realtime_quotes_https_fallback()
+                if fallback_rows:
+                    circuit_breaker.record_success(source_key)
+                    return fallback_rows
                 return []
 
             return self._snapshot_rows_from_df(df)
         except FuturesTimeoutError:
             logger.info(f"[超时] ef.stock.get_realtime_quotes() 超过 {_EF_CALL_TIMEOUT}s，跳过全市场快照")
             circuit_breaker.record_failure(source_key, "timeout")
+            fallback_rows = self._get_all_realtime_quotes_https_fallback()
+            if fallback_rows:
+                circuit_breaker.record_success(source_key)
+                return fallback_rows
             return []
         except Exception as e:
             log_external_call_exception(
@@ -1136,7 +1170,129 @@ class EfinanceFetcher(BaseFetcher):
                 elapsed=time.time() - api_start,
             )
             circuit_breaker.record_failure(source_key, str(e))
+            fallback_rows = self._get_all_realtime_quotes_https_fallback()
+            if fallback_rows:
+                circuit_breaker.record_success(source_key)
+                return fallback_rows
             return []
+
+    def _get_all_realtime_quotes_https_fallback(self) -> List[Dict[str, Any]]:
+        """Fetch the A-share snapshot directly from Eastmoney's HTTPS endpoint.
+
+        ``efinance`` 0.5.8 still uses the HTTP push2 endpoint internally. Some
+        deployments receive a 502 HTML page from that path, which then becomes
+        a JSONDecodeError. This fallback keeps the same Eastmoney data shape but
+        uses the HTTPS endpoint that remains reachable in those environments.
+        """
+        api_start = time.time()
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+            logger.info("[API调用] Eastmoney HTTPS fallback 获取全市场快照...")
+            df = self._fetch_eastmoney_realtime_snapshot_df()
+            if df.empty:
+                logger.warning("[API返回] Eastmoney HTTPS fallback 全市场快照为空")
+                return []
+
+            _realtime_cache["data"] = df
+            _realtime_cache["timestamp"] = time.time()
+            logger.info(
+                "[API返回] Eastmoney HTTPS fallback 获取全市场快照成功: rows=%s elapsed=%.2fs",
+                len(df),
+                time.time() - api_start,
+            )
+            return self._snapshot_rows_from_df(df)
+        except Exception as exc:
+            log_external_call_exception(
+                logger,
+                provider="eastmoney",
+                operation="push2_https_realtime_snapshot",
+                exc=exc,
+                params={"purpose": "market_snapshot", "endpoint": EASTMONEY_REALTIME_SNAPSHOT_URL},
+                elapsed=time.time() - api_start,
+            )
+            return []
+
+    def _fetch_eastmoney_realtime_snapshot_df(self) -> "pd.DataFrame":
+        """Return raw Eastmoney realtime rows as a DataFrame with Chinese columns."""
+
+        def fetch_page(page: int, page_size: int = _EASTMONEY_REALTIME_PAGE_SIZE) -> List[Dict[str, Any]]:
+            payload = request_page(page, page_size)
+            return list((payload.get("data") or {}).get("diff") or [])
+
+        def request_page(page: int, page_size: int) -> Dict[str, Any]:
+            params = {
+                "pn": page,
+                "pz": page_size,
+                "po": "1",
+                "np": "1",
+                "fltt": "2",
+                "invt": "2",
+                "fid": "f12",
+                "fs": EASTMONEY_A_SHARE_FS,
+                "fields": ",".join(EASTMONEY_REALTIME_FIELDS.keys()),
+            }
+            last_exc: Optional[Exception] = None
+            for attempt in range(1, _EASTMONEY_REALTIME_PAGE_RETRIES + 1):
+                for url in EASTMONEY_REALTIME_SNAPSHOT_FALLBACK_URLS:
+                    try:
+                        headers = {
+                            "User-Agent": random.choice(USER_AGENTS),
+                            "Accept": "application/json,text/plain,*/*",
+                            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                            "Referer": "https://quote.eastmoney.com/",
+                        }
+                        resp = requests.get(
+                            url,
+                            headers=headers,
+                            params=params,
+                            timeout=min(_EF_CALL_TIMEOUT, 15),
+                        )
+                        resp.raise_for_status()
+                        return resp.json()
+                    except Exception as exc:
+                        last_exc = exc
+                        logger.debug(
+                            "Eastmoney HTTPS fallback page=%s attempt=%s url=%s failed: %s",
+                            page,
+                            attempt,
+                            url,
+                            exc,
+                        )
+                time.sleep(min(0.5 * attempt, 2.0))
+            raise last_exc or RuntimeError(f"Eastmoney page {page} failed")
+
+        payload = request_page(1, _EASTMONEY_REALTIME_PAGE_SIZE)
+        data = payload.get("data") or {}
+        total = int(data.get("total") or 0)
+        first_rows = list(data.get("diff") or [])
+        if total <= 0 or not first_rows:
+            return pd.DataFrame()
+
+        page_size = max(1, len(first_rows))
+        pages = (total + page_size - 1) // page_size
+        rows = list(first_rows)
+        if pages > 1:
+            failed_pages: List[int] = []
+            for page in range(2, pages + 1):
+                try:
+                    page_rows = fetch_page(page, page_size)
+                    rows.extend(page_rows)
+                except Exception as exc:
+                    failed_pages.append(page)
+                    logger.warning("Eastmoney HTTPS fallback page=%s 获取失败，保留部分快照: %s", page, exc)
+            if failed_pages:
+                logger.warning(
+                    "Eastmoney HTTPS fallback 部分页失败: failed_pages=%s fetched_rows=%s expected_total=%s",
+                    failed_pages[:20],
+                    len(rows),
+                    total,
+                )
+
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return df
+        return df.rename(columns=EASTMONEY_REALTIME_FIELDS)
 
     @staticmethod
     def _snapshot_rows_from_df(df: "pd.DataFrame") -> List[Dict[str, Any]]:
