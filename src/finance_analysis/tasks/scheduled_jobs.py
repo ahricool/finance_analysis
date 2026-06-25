@@ -15,6 +15,8 @@ inside each business service; nothing here simulates a trading calendar.
 from __future__ import annotations
 
 import logging
+import random
+import time
 from datetime import datetime
 from typing import Any, List, Optional, Sequence
 from zoneinfo import ZoneInfo
@@ -23,11 +25,22 @@ from finance_analysis.tasks.celery.schedule import QUEUE_INGESTION, SCHEDULE_TIM
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
 logger = logging.getLogger(__name__)
+INTRADAY_START_DELAY_MAX_SECONDS = 5.0
 
 
 def _scheduled_now() -> datetime:
     """Return scheduler-local current time for calendar grouping."""
     return datetime.now(ZoneInfo(SCHEDULE_TIMEZONE))
+
+
+def _sleep_random_start_delay(*, task_name: str, max_seconds: float = INTRADAY_START_DELAY_MAX_SECONDS) -> float:
+    """Sleep for a small random delay before starting bursty intraday tasks."""
+    if max_seconds <= 0:
+        return 0.0
+    delay = random.uniform(0.0, max_seconds)
+    logger.info("%s启动前随机延迟 %.2f 秒", task_name, delay)
+    time.sleep(delay)
+    return delay
 
 
 def _resolve_report_type(config: Any):
@@ -373,6 +386,7 @@ def run_market_calendar() -> dict:
 
 def run_us_intraday_analysis() -> dict:
     """美股盘中定时任务：检测自选美股的盘中异动并按需提醒。"""
+    _sleep_random_start_delay(task_name="美股盘中分析任务")
     started_at = _scheduled_now()
     logger.info("美股盘中分析任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
     try:
@@ -433,6 +447,7 @@ def run_us_postmarket_review() -> dict:
 
 def run_a_share_intraday_analysis() -> dict:
     """A 股盘中定时任务：识别市场情绪、板块轮动与自选股异动并按需提醒。"""
+    _sleep_random_start_delay(task_name="A股盘中分析任务")
     started_at = _scheduled_now()
     logger.info("A股盘中分析任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S %Z"))
     try:
