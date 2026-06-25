@@ -22,6 +22,8 @@ def render_calendar_content(signal: IntradaySignalResult) -> str:
         f"## {signal.symbol} 盘中异动",
         "",
         f"- 信号类型：{signal.signal_type}",
+        f"- 规则强度：{metrics.get('rule_strength', '-')}",
+        f"- 规则评分：{metrics.get('score', '-')}/{metrics.get('max_score', '-')}",
         f"- 最终决策：{result.get('final_decision', '-')}",
         f"- 是否通知：{bool(result.get('need_notification'))}",
         f"- 置信度：{result.get('confidence', '-')}",
@@ -55,6 +57,10 @@ def render_notification(signal: IntradaySignalResult) -> str:
             f"**美股盘中异动：{signal.symbol}**",
             "",
             f"- 信号：{signal.signal_type}",
+            (
+                f"- 规则：{metrics.get('rule_strength', '-')} "
+                f"{metrics.get('score', '-')}/{metrics.get('max_score', '-')}"
+            ),
             f"- 决策：{result.get('final_decision', '-')}",
             f"- 置信度：{result.get('confidence', '-')}",
             f"- 摘要：{result.get('summary', '-')}",

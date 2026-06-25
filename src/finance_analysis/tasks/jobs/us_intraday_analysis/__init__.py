@@ -14,7 +14,8 @@ from .config import (
 )
 from .llm import build_intraday_llm_prompt, parse_llm_json_response
 from .market_calendar import get_us_trading_date, is_us_market_open
-from .metrics import compute_intraday_metrics
+from .data_source import filter_current_trading_day_bars
+from .metrics import compute_intraday_metrics, cumulative_vwap_series
 from .models import IntradaySignalResult, IntradayTaskSummary
 from .rules import (
     DEFAULT_INTRADAY_SIGNAL_RULES,
@@ -33,10 +34,12 @@ __all__ = [
     "IntradayTaskSummary",
     "aggregate_bars",
     "normalize_bars",
+    "filter_current_trading_day_bars",
     "build_intraday_llm_prompt",
     "parse_llm_json_response",
     "get_us_trading_date",
     "is_us_market_open",
     "compute_intraday_metrics",
+    "cumulative_vwap_series",
     "evaluate_signal_candidates",
 ]

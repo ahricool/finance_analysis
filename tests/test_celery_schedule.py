@@ -22,7 +22,7 @@ EXPECTED_JOBS = {
     "market_calendar": ("scheduled_market_calendar", "Asia/Shanghai"),
     "analysis_us_premarket_news": ("scheduled_us_premarket_news", "Asia/Shanghai"),
     "analysis_us_premarket": ("scheduled_us_premarket", "Asia/Shanghai"),
-    "analysis_us_intraday": ("scheduled_us_intraday", "Asia/Shanghai"),
+    "analysis_us_intraday": ("scheduled_us_intraday", "America/New_York"),
     "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
     "analysis_a_share_intraday": ("scheduled_a_share_intraday", "Asia/Shanghai"),
 }
@@ -47,6 +47,8 @@ def test_all_original_jobs_enter_beat_schedule():
     # A-share publishes one entry per cron window (morning + afternoon).
     a_share_entries = [k for k in schedule if k.startswith("analysis_a_share_intraday")]
     assert len(a_share_entries) == 2
+    us_intraday_entries = [k for k in schedule if k.startswith("analysis_us_intraday")]
+    assert len(us_intraday_entries) == 2
 
 
 def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
@@ -61,6 +63,16 @@ def test_beat_entries_carry_scheduler_kwargs_queue_and_expires():
 def test_intraday_expires_is_short():
     definition = get_scheduled_task_definition("analysis_us_intraday")
     assert definition.expires <= 10 * 60
+
+
+def test_us_intraday_uses_new_york_offset_windows():
+    definition = get_scheduled_task_definition("analysis_us_intraday")
+
+    assert definition.timezone == "America/New_York"
+    assert definition.expires == 10 * 60
+    schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
+    assert ("9", "46", "mon-fri", "America/New_York") in schedules
+    assert ("10-15", "1,16,31,46", "mon-fri", "America/New_York") in schedules
 
 
 def test_all_scheduled_celery_tasks_are_registered():
