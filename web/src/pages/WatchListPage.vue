@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { getParsedApiError, type ParsedApiError } from '@/api/error';
+import { createParsedApiError, getParsedApiError, type ParsedApiError } from '@/api/error';
+import { stockListApi } from '@/api/stockList';
 import { watchListApi, type MarketType, type WatchListItem, type WatchListItemCreate } from '@/api/watchList';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
@@ -8,8 +9,9 @@ import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.
 import type { Market } from '@/types/stockIndex';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { looksLikeStockCode } from '@/utils/validation';
-import { ArrowDown, ArrowUp, ArrowUpDown, Eye, Heart, Pencil, Plus, Star, Trash2, X } from 'lucide-vue-next';
+import { ArrowDown, ArrowUp, ArrowUpDown, Briefcase, Eye, Heart, Pencil, Plus, Star, Trash2, X } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
 type MarketFilter = MarketType | 'ALL';
 type SortDirection = 'asc' | 'desc';
@@ -20,6 +22,7 @@ const items = ref<WatchListItem[]>([]);
 const total = ref(0);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
+const router = useRouter();
 
 // Dialog state
 const showDialog = ref(false);
@@ -36,6 +39,7 @@ const showDeleteConfirm = ref(false);
 const deletingId = ref<number | null>(null);
 const deletingCode = ref('');
 const togglingFavoriteId = ref<number | null>(null);
+const openingPositionId = ref<number | null>(null);
 
 const marketOptions: { value: MarketType; label: string }[] = [
   { value: 'CN', label: 'A股' },
@@ -268,6 +272,38 @@ async function toggleFavorite(item: WatchListItem) {
   }
 }
 
+async function openPosition(item: WatchListItem) {
+  if (openingPositionId.value !== null) return;
+  openingPositionId.value = item.id;
+  try {
+    const holdings = await stockListApi.list();
+    const exists = holdings.items.some(
+      (holding) => holding.code.toUpperCase() === item.code.toUpperCase() && holding.market_type === item.market_type,
+    );
+    if (exists) {
+      error.value = createParsedApiError({
+        title: '该股票已经建仓',
+        message: `${marketLabel(item.market_type)} ${item.code} 已在持仓股中，请不要重复创建。`,
+        status: 409,
+        category: 'http_error',
+      });
+      return;
+    }
+    await router.push({
+      name: 'stock-list',
+      query: {
+        code: item.code,
+        name: item.name ?? '',
+        market_type: item.market_type,
+      },
+    });
+  } catch (e) {
+    error.value = getParsedApiError(e);
+  } finally {
+    openingPositionId.value = null;
+  }
+}
+
 onMounted(loadList);
 </script>
 
@@ -386,7 +422,7 @@ onMounted(loadList);
                   <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
               </th>
-              <th class="min-w-[96px] px-4 py-3 text-right font-medium">操作</th>
+              <th class="min-w-[136px] px-4 py-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -436,6 +472,15 @@ onMounted(loadList);
                 </td>
                 <td class="px-4 py-3 text-right">
                   <div class="flex justify-end gap-1">
+                    <button
+                      class="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-secondary-text hover:bg-hover hover:text-foreground disabled:opacity-50"
+                      :disabled="openingPositionId === item.id"
+                      aria-label="建仓"
+                      @click="openPosition(item)"
+                    >
+                      <Briefcase class="h-4 w-4" />
+                      <span class="text-xs">建仓</span>
+                    </button>
                     <button
                       class="rounded-lg p-1.5 text-secondary-text hover:bg-hover hover:text-foreground"
                       aria-label="编辑"

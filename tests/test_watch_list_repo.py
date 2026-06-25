@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for watch list repository field handling."""
 
+from finance_analysis.database.models import WatchListItem
 from finance_analysis.database.repositories.watch_list import WatchListRepo
 
 
@@ -30,6 +31,14 @@ class _FakeDB:
 
     def _run_write_transaction(self, operation_name, write_operation):
         return write_operation(self.session)
+
+
+def _unique_constraint_columns(model) -> set[tuple[str, ...]]:
+    return {
+        tuple(column.name for column in constraint.columns)
+        for constraint in model.__table__.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
 
 
 def test_watch_list_create_accepts_market_type_and_favorite_flag():
@@ -65,3 +74,7 @@ def test_watch_list_update_accepts_market_type_and_favorite_flag():
     assert updated is item
     assert updated.market_type == "HK"
     assert updated.is_favorite is False
+
+
+def test_watch_list_unique_identity_includes_market_type():
+    assert ("uid", "market_type", "code") in _unique_constraint_columns(WatchListItem)

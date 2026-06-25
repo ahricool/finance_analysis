@@ -45,7 +45,7 @@ def list_stock_list(http_request: Request):
 def create_stock_holding(http_request: Request, body: StockHoldingCreate):
     uid = get_effective_uid(http_request)
     repo = _repo()
-    if repo.get_by_code(body.code, uid=uid):
+    if repo.get_by_code(body.code, uid=uid, market_type=body.market_type):
         raise HTTPException(status_code=409, detail=f"股票 {body.code} 已在持仓股中")
     try:
         item = repo.create(
@@ -53,6 +53,8 @@ def create_stock_holding(http_request: Request, body: StockHoldingCreate):
             code=body.code,
             name=body.name,
             quantity=body.quantity,
+            avg_cost=body.avg_cost,
+            opened_at=body.opened_at,
             market_type=body.market_type,
             notes=body.notes,
         )
@@ -65,13 +67,15 @@ def create_stock_holding(http_request: Request, body: StockHoldingCreate):
 @router.put("/{item_id}", response_model=StockHoldingResponse, summary="更新持仓股")
 def update_stock_holding(http_request: Request, item_id: int, body: StockHoldingUpdate):
     uid = get_effective_uid(http_request)
+    update_data = body.model_dump(exclude_unset=True)
+    if update_data.get("notes") is None and "notes" in update_data:
+        update_data["notes"] = ""
+    if update_data.get("name") is None and "name" in update_data:
+        update_data["name"] = ""
     item = _repo().update(
         item_id,
         uid=uid,
-        name=body.name,
-        quantity=body.quantity,
-        market_type=body.market_type,
-        notes=body.notes,
+        **update_data,
     )
     if item is None:
         raise HTTPException(status_code=404, detail="未找到该持仓股")

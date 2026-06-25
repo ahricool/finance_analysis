@@ -6,6 +6,7 @@ Covers: is_code_like, normalize_code - including exchange prefix handling.
 
 import pytest
 
+from finance_analysis.stocks.markets import market_currency
 from finance_analysis.stocks.symbols import is_code_like, normalize_code
 
 
@@ -178,6 +179,12 @@ class TestNormalizeCode:
 
     def test_plain_text_returns_none(self):
         assert normalize_code("贵州茅台") is None
+
+
+def test_market_currency_mapping():
+    assert market_currency("CN") == "CNY"
+    assert market_currency("US") == "USD"
+    assert market_currency("HK") == "HKD"
 
     def test_partial_prefix_no_digits_returns_none(self):
         # SH followed by wrong digit count

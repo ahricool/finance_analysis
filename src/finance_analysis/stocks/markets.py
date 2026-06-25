@@ -9,6 +9,11 @@ from typing import Literal
 MarketType = Literal["CN", "US", "HK"]
 VALID_MARKET_TYPES: tuple[str, ...] = ("CN", "US", "HK")
 DEFAULT_MARKET_TYPE: MarketType = "CN"
+MARKET_CURRENCY_MAP: dict[MarketType, str] = {
+    "CN": "CNY",
+    "US": "USD",
+    "HK": "HKD",
+}
 
 
 def normalize_market_type(value: str | None, code: str | None = None) -> MarketType:
@@ -30,6 +35,11 @@ def normalize_market_type(value: str | None, code: str | None = None) -> MarketT
     if text in aliases:
         return aliases[text]  # type: ignore[return-value]
     return infer_market_type(code or "")
+
+
+def market_currency(market_type: str | None, code: str | None = None) -> str:
+    """Return the settlement currency code inferred from a normalized market."""
+    return MARKET_CURRENCY_MAP[normalize_market_type(market_type, code)]
 
 
 def infer_market_type(code: str) -> MarketType:

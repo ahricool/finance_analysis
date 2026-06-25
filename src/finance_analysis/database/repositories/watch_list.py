@@ -40,11 +40,18 @@ class WatchListRepo:
                 return None
             return obj
 
-    def get_by_code(self, code: str, uid: Optional[int] = None) -> Optional[WatchListItem]:
+    def get_by_code(
+        self,
+        code: str,
+        uid: Optional[int] = None,
+        market_type: Optional[str] = None,
+    ) -> Optional[WatchListItem]:
         with self.db.get_session() as session:
             stmt = select(WatchListItem).where(WatchListItem.code == code.upper())
             if uid is not None:
                 stmt = stmt.where(WatchListItem.uid == uid)
+            if market_type is not None:
+                stmt = stmt.where(WatchListItem.market_type == normalize_market_type(market_type, code))
             return session.execute(stmt).scalars().first()
 
     def get_codes(self, uid: Optional[int] = None, market_type: Optional[str] = None) -> List[str]:
