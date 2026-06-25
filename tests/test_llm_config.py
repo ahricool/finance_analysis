@@ -3,6 +3,7 @@
 
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from finance_analysis.agent.config import (
@@ -11,12 +12,15 @@ from finance_analysis.agent.config import (
 )
 from finance_analysis.llm.config import LLMConfig, get_llm_config
 from finance_analysis.llm.client import (
+    AllModelsFailedError,
+    LLMClient,
     LLMConfigError,
     build_completion_kwargs,
     completion_with_fallback,
     get_models_to_try,
     validate_llm_config,
 )
+from finance_analysis.llm.types import LLMRequest
 
 
 def _load_llm_config_from_env() -> LLMConfig:
@@ -85,6 +89,7 @@ class LiteLLMClientTestCase(unittest.TestCase):
             api_key="sk-test-key",
             temperature=0.7,
             fallback_models=["openai/gpt-4.1"],
+            max_retries=0,
         )
 
     def test_build_completion_kwargs_passes_api_base_and_key(self) -> None:
@@ -148,6 +153,115 @@ class LiteLLMClientTestCase(unittest.TestCase):
         self.assertEqual(call_kwargs["model"], "openai/gpt-5.5")
         self.assertEqual(call_kwargs["api_key"], "sk-test-key")
         self.assertEqual(call_kwargs["api_base"], "https://proxy.example/v1")
+
+    @patch("litellm.completion")
+    def test_client_empty_provider_uses_default_config(self, mock_completion) -> None:
+        mock_completion.return_value = SimpleNamespace(
+            choices=[{"message": {"content": "ok"}}],
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+        client = LLMClient(config=self._config())
+        result = client.complete_text(
+            LLMRequest(
+                messages=[{"role": "user", "content": "hi"}],
+                provider="",
+            )
+        )
+
+        self.assertEqual(result.text, "ok")
+        call_kwargs = mock_completion.call_args.kwargs
+        self.assertEqual(call_kwargs["model"], "openai/gpt-5.5")
+        self.assertEqual(call_kwargs["api_key"], "sk-test-key")
+        self.assertEqual(call_kwargs["api_base"], "https://proxy.example/v1")
+
+    @patch("litellm.completion")
+    def test_client_llm_web_provider_overrides_model_base_and_key(self, mock_completion) -> None:
+        mock_completion.return_value = SimpleNamespace(
+            choices=[{"message": {"content": "web ok"}}],
+            usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+        )
+        env = {
+            "LLM_WEB_MODEL": "custom-web-model",
+            "LLM_WEB_BASE_URL": "http://llm-web.example/v1",
+            "LLM_WEB_API_KEY": "web-key",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            client = LLMClient(config=self._config())
+            result = client.complete_text(
+                LLMRequest(
+                    messages=[{"role": "user", "content": "hi"}],
+                    provider="llm_web",
+                )
+            )
+
+        self.assertEqual(result.text, "web ok")
+        call_kwargs = mock_completion.call_args.kwargs
+        self.assertEqual(call_kwargs["model"], "openai/custom-web-model")
+        self.assertEqual(call_kwargs["api_base"], "http://llm-web.example/v1")
+        self.assertEqual(call_kwargs["api_key"], "web-key")
+
+    @patch("litellm.completion")
+    def test_client_llm_web_default_empty_key_uses_request_placeholder(self, mock_completion) -> None:
+        mock_completion.return_value = SimpleNamespace(
+            choices=[{"message": {"content": "web ok"}}],
+            usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            client = LLMClient(config=self._config())
+            client.complete_text(
+                LLMRequest(
+                    messages=[{"role": "user", "content": "hi"}],
+                    provider="llm_web",
+                )
+            )
+
+        call_kwargs = mock_completion.call_args.kwargs
+        self.assertEqual(call_kwargs["model"], "openai/gemini-3.5-flash")
+        self.assertEqual(call_kwargs["api_base"], "http://host.docker.internal:8001/v1")
+        self.assertEqual(call_kwargs["api_key"], "not-needed")
+
+    @patch("litellm.completion")
+    def test_client_llm_web_failure_does_not_try_openrouter_fallback_models(self, mock_completion) -> None:
+        mock_completion.side_effect = RuntimeError("down")
+        config = self._config()
+        config.fallback_models = ["openai/gpt-4.1", "anthropic/claude-sonnet-4-6"]
+        env = {
+            "LLM_WEB_MODEL": "custom-web-model",
+            "LLM_WEB_BASE_URL": "http://llm-web.example/v1",
+            "LLM_WEB_API_KEY": "web-key",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            client = LLMClient(config=config)
+            with self.assertRaises(AllModelsFailedError):
+                client.complete_text(
+                    LLMRequest(
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="llm_web",
+                    )
+                )
+
+        called_models = [call.kwargs["model"] for call in mock_completion.call_args_list]
+        self.assertEqual(called_models, ["openai/custom-web-model", "openai/gpt-5.5"])
+        for call in mock_completion.call_args_list:
+            self.assertEqual(call.kwargs["api_base"], "http://llm-web.example/v1")
+            self.assertEqual(call.kwargs["api_key"], "web-key")
+
+    def test_client_llm_web_missing_default_fallback_model_raises_clear_error(self) -> None:
+        config = self._config()
+        config.model = ""
+        with patch.dict(os.environ, {}, clear=True):
+            client = LLMClient(config=config)
+            with self.assertRaisesRegex(LLMConfigError, "LLM_MODEL.*llm_web fallback"):
+                client.complete_text(
+                    LLMRequest(
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="llm_web",
+                    )
+                )
 
 
 if __name__ == "__main__":

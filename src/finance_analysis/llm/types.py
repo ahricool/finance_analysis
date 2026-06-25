@@ -10,6 +10,7 @@ from typing import Any, Optional
 @dataclass
 class LLMRequest:
     messages: list[dict[str, Any]]
+    provider: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     stream: bool = False

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
@@ -11,6 +12,11 @@ from finance_analysis.llm.config import LLMConfig, get_llm_config, normalize_lit
 from finance_analysis.llm.types import LLMRequest, LLMResult
 
 logger = logging.getLogger(__name__)
+
+_LLM_WEB_PROVIDER = "llm_web"
+_LLM_WEB_MODEL_DEFAULT = "gemini-3.5-flash"
+_LLM_WEB_BASE_URL_DEFAULT = "http://host.docker.internal:8001/v1"
+_LLM_WEB_EMPTY_API_KEY_PLACEHOLDER = "not-needed"
 
 _AUTO_THINKING_MODELS: List[str] = ["deepseek-reasoner", "deepseek-r1", "qwq"]
 _OPT_IN_THINKING_MODELS: Dict[str, dict] = {
@@ -78,14 +84,21 @@ def _model_requires_api_key(model: str, base_url: Optional[str]) -> bool:
     return True
 
 
-def validate_llm_config(config: LLMConfig, *, model: Optional[str] = None) -> None:
+def validate_llm_config(
+    config: LLMConfig,
+    *,
+    model: Optional[str] = None,
+    api_base: Optional[str] = None,
+    api_key: Optional[str] = None,
+    allow_empty_api_key: bool = False,
+) -> None:
     resolved_model = (model or getattr(config, "llm_model", "") or "").strip()
     if not resolved_model:
         raise LLMConfigError("LLM_MODEL is not configured")
 
-    api_key = (getattr(config, "llm_api_key", "") or "").strip()
-    base_url = (getattr(config, "llm_base_url", "") or "").strip() or None
-    if _model_requires_api_key(resolved_model, base_url) and not api_key:
+    resolved_api_key = (api_key if api_key is not None else getattr(config, "llm_api_key", "") or "").strip()
+    base_url = (api_base if api_base is not None else getattr(config, "llm_base_url", "") or "").strip() or None
+    if not allow_empty_api_key and _model_requires_api_key(resolved_model, base_url) and not resolved_api_key:
         raise LLMConfigError("LLM_API_KEY is not configured")
 
 
@@ -108,10 +121,19 @@ def build_completion_kwargs(
     messages: List[Dict[str, Any]],
     *,
     temperature: Optional[float] = None,
+    api_base: Optional[str] = None,
+    api_key: Optional[str] = None,
+    allow_empty_api_key: bool = False,
     **extra: Any,
 ) -> Dict[str, Any]:
     """Build kwargs for the single LiteLLM completion entry point."""
-    validate_llm_config(config, model=model)
+    validate_llm_config(
+        config,
+        model=model,
+        api_base=api_base,
+        api_key=api_key,
+        allow_empty_api_key=allow_empty_api_key,
+    )
 
     request_overrides = extra.pop("request_overrides", None)
     effective_temperature = config.llm_temperature if temperature is None else temperature
@@ -125,11 +147,13 @@ def build_completion_kwargs(
             request_overrides=request_overrides,
         ),
     }
-    api_key = (getattr(config, "llm_api_key", "") or "").strip()
-    if api_key:
-        kwargs["api_key"] = api_key
+    resolved_api_key = (api_key if api_key is not None else getattr(config, "llm_api_key", "") or "").strip()
+    if resolved_api_key:
+        kwargs["api_key"] = resolved_api_key
+    elif allow_empty_api_key and api_key is not None:
+        kwargs["api_key"] = _LLM_WEB_EMPTY_API_KEY_PLACEHOLDER
 
-    base_url = (getattr(config, "llm_base_url", "") or "").strip()
+    base_url = (api_base if api_base is not None else getattr(config, "llm_base_url", "") or "").strip()
     if base_url:
         kwargs["api_base"] = base_url.rstrip("/")
 
@@ -235,6 +259,38 @@ class LLMClient:
         if self._models_to_try_override:
             return self._models_to_try_override
         return get_models_to_try(self.config)
+
+    def _resolve_request_config(
+        self,
+        request: LLMRequest,
+    ) -> tuple[list[str], Optional[str], Optional[str]]:
+        provider = (request.provider or "").strip().lower()
+        if not provider:
+            return self._models_to_try(), None, None
+
+        if provider != _LLM_WEB_PROVIDER:
+            raise LLMConfigError(f"Unsupported LLM provider: {request.provider}")
+
+        web_model = (os.getenv("LLM_WEB_MODEL") or _LLM_WEB_MODEL_DEFAULT).strip()
+        if not web_model:
+            raise LLMConfigError("LLM_WEB_MODEL is not configured")
+        if "/" not in web_model:
+            web_model = f"openai/{web_model}"
+
+        api_base = (os.getenv("LLM_WEB_BASE_URL") or _LLM_WEB_BASE_URL_DEFAULT).strip()
+        if not api_base:
+            raise LLMConfigError("LLM_WEB_BASE_URL is not configured")
+
+        default_model = (getattr(self.config, "llm_model", "") or "").strip()
+        if not default_model:
+            raise LLMConfigError("LLM_MODEL is not configured for llm_web fallback")
+
+        models_to_try: list[str] = []
+        for model in (web_model, default_model):
+            if model and model not in models_to_try:
+                models_to_try.append(model)
+
+        return models_to_try, api_base, (os.getenv("LLM_WEB_API_KEY") or "").strip()
 
     def _normalize_usage(self, usage_obj: Any) -> Dict[str, Any]:
         if not usage_obj:
@@ -352,7 +408,15 @@ class LLMClient:
 
         return response_text, usage
 
-    def _build_kwargs_for_model(self, model: str, request: LLMRequest, *, stream: bool = False) -> Dict[str, Any]:
+    def _build_kwargs_for_model(
+        self,
+        model: str,
+        request: LLMRequest,
+        *,
+        stream: bool = False,
+        api_base: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
         model_short = model.split("/")[-1] if "/" in model else model
         thinking_extra = get_thinking_extra_body(model_short)
         extra_body = request.extra_body if request.extra_body is not None else thinking_extra
@@ -362,6 +426,9 @@ class LLMClient:
             model,
             request.messages,
             temperature=request.temperature,
+            api_base=api_base,
+            api_key=api_key,
+            allow_empty_api_key=(request.provider or "").strip().lower() == _LLM_WEB_PROVIDER,
             max_tokens=request.max_tokens,
             stream=True if stream else None,
             tools=request.tools,
@@ -383,7 +450,7 @@ class LLMClient:
         stream_progress_callback: Optional[Callable[[int], None]] = None,
         response_validator: Optional[Callable[[str], None]] = None,
     ) -> LLMResult:
-        models_to_try = self._models_to_try()
+        models_to_try, api_base, api_key = self._resolve_request_config(request)
         if not models_to_try:
             raise LLMConfigError("LLM_MODEL is not configured")
 
@@ -406,7 +473,13 @@ class LLMClient:
                 try:
                     if request.stream:
                         try:
-                            stream_kwargs = self._build_kwargs_for_model(model, request, stream=True)
+                            stream_kwargs = self._build_kwargs_for_model(
+                                model,
+                                request,
+                                stream=True,
+                                api_base=api_base,
+                                api_key=api_key,
+                            )
                             stream_response = self._dispatch_completion(stream_kwargs)
                             text, usage = self._consume_stream(
                                 stream_response,
@@ -426,7 +499,13 @@ class LLMClient:
                             logger.warning("[LiteLLM] %s stream request failed, falling back to non-stream: %s", model, exc)
                             last_error = exc
 
-                    call_kwargs = self._build_kwargs_for_model(model, request, stream=False)
+                    call_kwargs = self._build_kwargs_for_model(
+                        model,
+                        request,
+                        stream=False,
+                        api_base=api_base,
+                        api_key=api_key,
+                    )
                     response = self._dispatch_completion(call_kwargs)
                     content = self._extract_text(response)
                     if content:
