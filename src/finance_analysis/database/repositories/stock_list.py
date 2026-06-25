@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from datetime import datetime
+from decimal import Decimal
+from typing import Any, List, Optional
 
 from sqlalchemy import select
 
@@ -14,9 +16,21 @@ from finance_analysis.database.session import DatabaseManager
 from finance_analysis.database.models import StockHolding
 from finance_analysis.core.time import utc_now
 
+ZERO_DECIMAL = Decimal("0")
+_UNSET = object()
+
 
 def get_db() -> DatabaseManager:
     return DatabaseManager.get_instance()
+
+
+def _to_non_negative_decimal(value: Decimal | int | str | None, *, field_name: str) -> Decimal:
+    if value is None:
+        return ZERO_DECIMAL
+    parsed = value if isinstance(value, Decimal) else Decimal(str(value))
+    if parsed < ZERO_DECIMAL:
+        raise ValueError(f"{field_name} must be greater than or equal to 0")
+    return parsed
 
 
 class StockListRepo:
@@ -41,11 +55,18 @@ class StockListRepo:
                 return None
             return obj
 
-    def get_by_code(self, code: str, uid: Optional[int] = None) -> Optional[StockHolding]:
+    def get_by_code(
+        self,
+        code: str,
+        uid: Optional[int] = None,
+        market_type: Optional[str] = None,
+    ) -> Optional[StockHolding]:
         with self.db.get_session() as session:
             stmt = select(StockHolding).where(StockHolding.code == code.upper())
             if uid is not None:
                 stmt = stmt.where(StockHolding.uid == uid)
+            if market_type is not None:
+                stmt = stmt.where(StockHolding.market_type == normalize_market_type(market_type, code))
             return session.execute(stmt).scalars().first()
 
     def get_codes(self, uid: Optional[int] = None) -> List[str]:
@@ -64,16 +85,25 @@ class StockListRepo:
         uid: int,
         code: str,
         name: Optional[str] = None,
-        quantity: int = 0,
+        quantity: Decimal | int | str = ZERO_DECIMAL,
+        avg_cost: Optional[Decimal | int | str] = None,
+        opened_at: Optional[datetime] = None,
         notes: Optional[str] = None,
         market_type: Optional[str] = None,
     ) -> StockHolding:
+        normalized_market = normalize_market_type(market_type, code)
         item = StockHolding(
             uid=uid,
             code=code.upper().strip(),
             name=(name or "").strip() or None,
-            quantity=max(0, quantity),
-            market_type=normalize_market_type(market_type, code),
+            quantity=_to_non_negative_decimal(quantity, field_name="quantity"),
+            avg_cost=(
+                _to_non_negative_decimal(avg_cost, field_name="avg_cost")
+                if avg_cost is not None
+                else None
+            ),
+            opened_at=opened_at,
+            market_type=normalized_market,
             notes=(notes or "").strip() or None,
             created_at=utc_now(),
             updated_at=utc_now(),
@@ -93,9 +123,10 @@ class StockListRepo:
         *,
         uid: Optional[int] = None,
         name: Optional[str] = None,
-        quantity: Optional[int] = None,
+        quantity: Optional[Decimal | int | str] = None,
+        avg_cost: Any = _UNSET,
+        opened_at: Any = _UNSET,
         notes: Optional[str] = None,
-        market_type: Optional[str] = None,
     ) -> Optional[StockHolding]:
         def _write(session: Session) -> Optional[StockHolding]:
             obj = session.get(StockHolding, item_id)
@@ -106,11 +137,17 @@ class StockListRepo:
             if name is not None:
                 obj.name = name.strip() or None
             if quantity is not None:
-                obj.quantity = max(0, quantity)
+                obj.quantity = _to_non_negative_decimal(quantity, field_name="quantity")
+            if avg_cost is not _UNSET:
+                obj.avg_cost = (
+                    _to_non_negative_decimal(avg_cost, field_name="avg_cost")
+                    if avg_cost is not None
+                    else None
+                )
+            if opened_at is not _UNSET:
+                obj.opened_at = opened_at
             if notes is not None:
                 obj.notes = notes.strip() or None
-            if market_type is not None:
-                obj.market_type = normalize_market_type(market_type, obj.code)
             obj.updated_at = utc_now()
             session.flush()
             session.refresh(obj)

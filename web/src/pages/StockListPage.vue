@@ -6,22 +6,35 @@ import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import type { Market } from '@/types/stockIndex';
-import { formatDateTimeInDisplayTimezone } from '@/utils/format';
+import {
+  formatDecimalText,
+  formatHoldingCostAmount,
+  formatMarketCurrencyAmount,
+  getMarketCurrencyCode,
+  parseDecimalInput,
+} from '@/utils/marketCurrency';
 import { looksLikeStockCode } from '@/utils/validation';
 import { ArrowDown, ArrowUp, ArrowUpDown, Briefcase, Pencil, Plus, Trash2, X } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 type MarketFilter = MarketType | 'ALL';
 type SortDirection = 'asc' | 'desc';
-type StockListSortKey = 'code' | 'market_type' | 'name' | 'quantity' | 'notes' | 'created_at' | 'updated_at';
+type StockListSortKey = 'code' | 'market_type' | 'name' | 'quantity' | 'avg_cost' | 'cost_amount' | 'notes';
+
+type HoldingPrefill = {
+  code: string;
+  name?: string | null;
+  marketType?: MarketType | null;
+};
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const items = ref<StockHolding[]>([]);
 const total = ref(0);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
-
-const totalQuantity = computed(() => items.value.reduce((s, i) => s + i.quantity, 0));
+const route = useRoute();
+const router = useRouter();
 
 // Dialog state
 const showDialog = ref(false);
@@ -30,6 +43,8 @@ const formStockQuery = ref('');
 const formCode = ref('');
 const formName = ref('');
 const formQuantity = ref('0');
+const formAvgCost = ref('');
+const formOpenedAt = ref('');
 const formMarketType = ref<MarketType>('CN');
 const formNotes = ref('');
 const formError = ref<string | null>(null);
@@ -70,13 +85,16 @@ const visibleItems = computed(() => {
     (a, b) => compareSortValues(sortValue(a, activeSortKey), sortValue(b, activeSortKey)) * direction,
   );
 });
-const visibleQuantity = computed(() => visibleItems.value.reduce((sum, item) => sum + item.quantity, 0));
+const formCurrencyCode = computed(() => getMarketCurrencyCode(formMarketType.value));
 
 function marketLabel(value: MarketType): string {
   return marketOptions.find((option) => option.value === value)?.label ?? 'A股';
 }
 
 function sortValue(item: StockHolding, key: StockListSortKey): string | number | null | undefined {
+  if (key === 'cost_amount') {
+    return item.avg_cost ? Number(item.quantity) * Number(item.avg_cost) : null;
+  }
   return item[key];
 }
 
@@ -125,6 +143,25 @@ function formatStockQuery(code: string, name?: string | null): string {
   return name ? `${name}（${code}）` : code;
 }
 
+function toDatetimeLocalValue(value: string | null | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const offsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function toIsoDatetime(value: string): string | null {
+  const text = value.trim();
+  if (!text) return null;
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function getQueryString(value: unknown): string {
+  return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '');
+}
+
 watch(formStockQuery, (value) => {
   if (!formCode.value) return;
   const selectedQuery = formatStockQuery(formCode.value, formName.value);
@@ -157,9 +194,20 @@ async function save() {
     formError.value = '请先搜索并选择股票';
     return;
   }
-  const qty = parseInt(formQuantity.value, 10);
-  if (isNaN(qty) || qty < 0) {
-    formError.value = '持仓数量必须为非负整数';
+  const qty = parseDecimalInput(formQuantity.value);
+  if (qty === null || qty < 0) {
+    formError.value = '持仓数量必须为大于等于 0 的数字';
+    return;
+  }
+  const avgCostText = formAvgCost.value.trim();
+  const avgCost = avgCostText ? parseDecimalInput(avgCostText) : null;
+  if (avgCostText && (avgCost === null || avgCost < 0)) {
+    formError.value = '平均持仓成本必须为大于等于 0 的数字';
+    return;
+  }
+  const openedAt = toIsoDatetime(formOpenedAt.value);
+  if (formOpenedAt.value.trim() && openedAt === null) {
+    formError.value = '首次建仓时间格式不正确';
     return;
   }
   saving.value = true;
@@ -167,9 +215,10 @@ async function save() {
     if (editingId.value !== null) {
       const updated = await stockListApi.update(editingId.value, {
         name: formName.value.trim() || undefined,
-        quantity: qty,
-        market_type: formMarketType.value,
-        notes: formNotes.value.trim() || undefined,
+        quantity: formQuantity.value.trim(),
+        avg_cost: avgCostText || null,
+        opened_at: openedAt,
+        notes: formNotes.value.trim(),
       });
       const idx = items.value.findIndex((i) => i.id === editingId.value);
       if (idx !== -1) items.value[idx] = updated;
@@ -177,7 +226,9 @@ async function save() {
       const body: StockHoldingCreate = {
         code,
         name: formName.value.trim() || undefined,
-        quantity: qty,
+        quantity: formQuantity.value.trim(),
+        avg_cost: avgCostText || null,
+        opened_at: openedAt,
         market_type: formMarketType.value,
         notes: formNotes.value.trim() || undefined,
       };
@@ -210,13 +261,15 @@ async function confirmDelete() {
 }
 
 // ── Dialog helpers ────────────────────────────────────────────────────────────
-function openCreate() {
+function openCreate(prefill?: HoldingPrefill) {
   editingId.value = null;
-  formStockQuery.value = '';
-  formCode.value = '';
-  formName.value = '';
+  formCode.value = prefill?.code ?? '';
+  formName.value = prefill?.name ?? '';
+  formStockQuery.value = prefill?.code ? formatStockQuery(prefill.code, prefill.name) : '';
   formQuantity.value = '0';
-  formMarketType.value = 'CN';
+  formAvgCost.value = '';
+  formOpenedAt.value = '';
+  formMarketType.value = prefill?.marketType ?? 'CN';
   formNotes.value = '';
   formError.value = null;
   showDialog.value = true;
@@ -228,6 +281,8 @@ function openEdit(item: StockHolding) {
   formName.value = item.name ?? '';
   formStockQuery.value = formatStockQuery(item.code, item.name);
   formQuantity.value = String(item.quantity);
+  formAvgCost.value = item.avg_cost ?? '';
+  formOpenedAt.value = toDatetimeLocalValue(item.opened_at);
   formMarketType.value = item.market_type;
   formNotes.value = item.notes ?? '';
   formError.value = null;
@@ -257,7 +312,34 @@ function openDelete(item: StockHolding) {
   showDeleteConfirm.value = true;
 }
 
-onMounted(loadList);
+function maybeOpenCreateFromRoute() {
+  const code = getQueryString(route.query.code).trim().toUpperCase();
+  if (!code) return;
+  const marketType = marketToMarketType(getQueryString(route.query.market_type) as Market) ?? 'CN';
+  const exists = items.value.some((item) => item.code.toUpperCase() === code && item.market_type === marketType);
+  if (exists) {
+    error.value = {
+      title: '该股票已经建仓',
+      message: `${code} 已在持仓股中，请编辑现有持仓。`,
+      rawMessage: `${code} 已在持仓股中，请编辑现有持仓。`,
+      category: 'http_error',
+      status: 409,
+    };
+    void router.replace({ name: 'stock-list' });
+    return;
+  }
+  openCreate({
+    code,
+    name: getQueryString(route.query.name).trim() || null,
+    marketType,
+  });
+  void router.replace({ name: 'stock-list' });
+}
+
+onMounted(async () => {
+  await loadList();
+  maybeOpenCreateFromRoute();
+});
 </script>
 
 <template>
@@ -270,7 +352,7 @@ onMounted(loadList);
         </div>
         <div>
           <h1 class="text-lg font-semibold text-foreground">持仓股</h1>
-          <p class="text-xs text-secondary-text">{{ total }} 只 · 总持仓 {{ totalQuantity.toLocaleString() }} 股</p>
+          <p class="text-xs text-secondary-text">持仓 {{ total }} 只</p>
         </div>
       </div>
       <Button variant="primary" size="sm" @click="openCreate">
@@ -311,15 +393,13 @@ onMounted(loadList);
               </option>
             </select>
           </label>
-          <p class="text-xs text-muted-text">
-            显示 {{ visibleItems.length }} / {{ total }} 只 · 筛选持仓 {{ visibleQuantity.toLocaleString() }} 股
-          </p>
+          <p class="text-xs text-muted-text">显示 {{ visibleItems.length }} / {{ total }} 只</p>
         </div>
       </div>
 
       <!-- Table -->
       <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-        <table class="w-full min-w-[900px] text-left text-sm">
+        <table class="w-full min-w-[1040px] text-left text-sm">
           <thead class="border-b border-border/70 text-xs text-muted-text">
             <tr>
               <th class="min-w-[120px] px-4 py-3 font-medium" :aria-sort="sortAria('code')">
@@ -330,19 +410,19 @@ onMounted(loadList);
                   <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
               </th>
-              <th class="min-w-[80px] px-4 py-3 font-medium" :aria-sort="sortAria('market_type')">
-                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('market_type')">
-                  市场
-                  <ArrowUp v-if="sortKey === 'market_type' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'market_type'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
               <th class="min-w-[180px] px-4 py-3 font-medium" :aria-sort="sortAria('name')">
                 <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('name')">
                   名称
                   <ArrowUp v-if="sortKey === 'name' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
                   <ArrowDown v-else-if="sortKey === 'name'" class="h-3.5 w-3.5" />
+                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
+                </button>
+              </th>
+              <th class="min-w-[80px] px-4 py-3 font-medium" :aria-sort="sortAria('market_type')">
+                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('market_type')">
+                  市场
+                  <ArrowUp v-if="sortKey === 'market_type' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
+                  <ArrowDown v-else-if="sortKey === 'market_type'" class="h-3.5 w-3.5" />
                   <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
               </th>
@@ -357,27 +437,33 @@ onMounted(loadList);
                   <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
               </th>
+              <th class="min-w-[120px] px-4 py-3 text-right font-medium" :aria-sort="sortAria('avg_cost')">
+                <button
+                  class="ml-auto flex items-center gap-1.5 transition-colors hover:text-foreground"
+                  @click="toggleSort('avg_cost')"
+                >
+                  平均成本
+                  <ArrowUp v-if="sortKey === 'avg_cost' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
+                  <ArrowDown v-else-if="sortKey === 'avg_cost'" class="h-3.5 w-3.5" />
+                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
+                </button>
+              </th>
+              <th class="min-w-[140px] px-4 py-3 text-right font-medium" :aria-sort="sortAria('cost_amount')">
+                <button
+                  class="ml-auto flex items-center gap-1.5 transition-colors hover:text-foreground"
+                  @click="toggleSort('cost_amount')"
+                >
+                  持仓成本金额
+                  <ArrowUp v-if="sortKey === 'cost_amount' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
+                  <ArrowDown v-else-if="sortKey === 'cost_amount'" class="h-3.5 w-3.5" />
+                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
+                </button>
+              </th>
               <th class="min-w-[220px] px-4 py-3 font-medium" :aria-sort="sortAria('notes')">
                 <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('notes')">
                   备注
                   <ArrowUp v-if="sortKey === 'notes' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
                   <ArrowDown v-else-if="sortKey === 'notes'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="min-w-[150px] px-4 py-3 font-medium" :aria-sort="sortAria('created_at')">
-                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('created_at')">
-                  添加时间
-                  <ArrowUp v-if="sortKey === 'created_at' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'created_at'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="min-w-[150px] px-4 py-3 font-medium" :aria-sort="sortAria('updated_at')">
-                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('updated_at')">
-                  更新时间
-                  <ArrowUp v-if="sortKey === 'updated_at' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'updated_at'" class="h-3.5 w-3.5" />
                   <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
               </th>
@@ -397,23 +483,23 @@ onMounted(loadList);
                 <td class="px-4 py-3">
                   <span class="font-mono text-sm font-semibold text-primary">{{ item.code }}</span>
                 </td>
+                <td class="px-4 py-3 font-medium text-foreground">{{ item.name || '—' }}</td>
                 <td class="px-4 py-3">
                   <span class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-secondary-text">
                     {{ marketLabel(item.market_type) }}
                   </span>
                 </td>
-                <td class="px-4 py-3 font-medium text-foreground">{{ item.name || '—' }}</td>
                 <td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-foreground">
-                  {{ item.quantity.toLocaleString() }} 股
+                  {{ formatDecimalText(item.quantity) }} 股
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums text-secondary-text">
+                  {{ formatMarketCurrencyAmount(item.avg_cost, item.market_type) }}
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground">
+                  {{ formatHoldingCostAmount(item.quantity, item.avg_cost, item.market_type) }}
                 </td>
                 <td class="max-w-xs px-4 py-3 text-secondary-text">
                   <span class="line-clamp-2">{{ item.notes || '—' }}</span>
-                </td>
-                <td class="whitespace-nowrap px-4 py-3 text-xs text-secondary-text">
-                  {{ formatDateTimeInDisplayTimezone(item.created_at) }}
-                </td>
-                <td class="whitespace-nowrap px-4 py-3 text-xs text-secondary-text">
-                  {{ formatDateTimeInDisplayTimezone(item.updated_at) }}
                 </td>
                 <td class="px-4 py-3 text-right">
                   <div class="flex justify-end gap-1">
@@ -471,7 +557,8 @@ onMounted(loadList);
               <label class="mb-1 block text-sm font-medium text-foreground">市场</label>
               <select
                 v-model="formMarketType"
-                class="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary"
+                class="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary disabled:cursor-not-allowed disabled:opacity-70"
+                :disabled="editingId !== null"
               >
                 <option v-for="option in marketOptions" :key="option.value" :value="option.value">
                   {{ option.label }}
@@ -479,8 +566,22 @@ onMounted(loadList);
               </select>
             </div>
             <div>
+              <label class="mb-1 block text-sm font-medium text-foreground">币种</label>
+              <div class="flex h-10 items-center rounded-xl border border-border bg-background px-3 text-sm font-medium text-secondary-text">
+                {{ formCurrencyCode }}
+              </div>
+            </div>
+            <div>
               <label class="mb-1 block text-sm font-medium text-foreground">持仓数量（股）</label>
-              <Input v-model="formQuantity" type="number" min="0" placeholder="0" />
+              <Input v-model="formQuantity" type="number" min="0" step="0.000001" placeholder="0" />
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-medium text-foreground">平均持仓成本</label>
+              <Input v-model="formAvgCost" type="number" min="0" step="0.000001" placeholder="可不填" />
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-medium text-foreground">首次建仓时间</label>
+              <Input v-model="formOpenedAt" type="datetime-local" />
             </div>
             <div>
               <label class="mb-1 block text-sm font-medium text-foreground">备注（可选）</label>

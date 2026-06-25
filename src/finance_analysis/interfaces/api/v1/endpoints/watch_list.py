@@ -45,7 +45,7 @@ def list_watch_list(http_request: Request):
 def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
     uid = get_effective_uid(http_request)
     repo = _repo()
-    if repo.get_by_code(body.code, uid=uid):
+    if repo.get_by_code(body.code, uid=uid, market_type=body.market_type):
         raise HTTPException(status_code=409, detail=f"股票 {body.code} 已在自选股中")
     try:
         item = repo.create(

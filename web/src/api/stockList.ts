@@ -6,7 +6,9 @@ export interface StockHolding {
   id: number;
   code: string;
   name: string | null;
-  quantity: number;
+  quantity: string;
+  avg_cost: string | null;
+  opened_at: string | null;
   market_type: MarketType;
   notes: string | null;
   created_at: string;
@@ -21,15 +23,18 @@ export interface StockListResponse {
 export interface StockHoldingCreate {
   code: string;
   name?: string;
-  quantity?: number;
+  quantity?: string;
+  avg_cost?: string | null;
+  opened_at?: string | null;
   market_type?: MarketType;
   notes?: string;
 }
 
 export interface StockHoldingUpdate {
   name?: string;
-  quantity?: number;
-  market_type?: MarketType;
+  quantity?: string;
+  avg_cost?: string | null;
+  opened_at?: string | null;
   notes?: string;
 }
 
