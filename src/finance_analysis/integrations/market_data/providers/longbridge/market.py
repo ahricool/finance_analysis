@@ -5,8 +5,8 @@ LongbridgeFetcher - 长桥兜底数据源 (Priority 5)
 ===================================
 
 数据来源：长桥 OpenAPI (https://open.longbridge.com)
-特点：覆盖美股 + 港股，可计算量比/换手率/PE 等 yfinance 缺失字段
-定位：美股/港股最后兜底数据源
+特点：覆盖美股 + 港股 + A 股已知标的，可计算量比/换手率/PE 等 yfinance 缺失字段
+定位：美股/港股兜底数据源；A 股日内任务可用它补充单标的 quote / minute bars
 
 关键策略：
 1. 组合 quote + static_info 接口计算 turnover_rate / pe_ratio / total_mv
@@ -30,6 +30,7 @@ from typing import Optional, Dict, Any, List
 import pandas as pd
 
 from finance_analysis.integrations.market_data.base import BaseFetcher, STANDARD_COLUMNS
+from finance_analysis.integrations.market_data.codes import is_bse_code, normalize_stock_code
 from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, RealtimeSource, safe_float
 from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code, is_us_index_code
 from finance_analysis.core.logging import log_external_call_exception
@@ -239,6 +240,8 @@ def _to_longbridge_symbol(stock_code: str) -> Optional[str]:
         AAPL      -> AAPL.US
         HK00700   -> 0700.HK
         00700     -> 0700.HK (5-digit pure number treated as HK)
+        600519    -> 600519.SH
+        000568    -> 000568.SZ
     """
     code = stock_code.strip()
     upper = code.upper()
@@ -247,6 +250,12 @@ def _to_longbridge_symbol(stock_code: str) -> Optional[str]:
         return upper
     if upper.endswith(".HK"):
         return upper
+    if upper.endswith(".SH") or upper.endswith(".SZ"):
+        return upper
+    if upper.endswith(".SS"):
+        base = upper[:-3]
+        if base.isdigit() and len(base) == 6:
+            return f"{base}.SH"
 
     if _is_us_code(code):
         return f"{upper}.US"
@@ -259,6 +268,12 @@ def _to_longbridge_symbol(stock_code: str) -> Optional[str]:
             digits = upper
         digits = digits.lstrip("0") or "0"
         return f"{digits.zfill(4)}.HK"
+
+    normalized = normalize_stock_code(code)
+    if normalized.isdigit() and len(normalized) == 6 and not is_bse_code(normalized):
+        if normalized.startswith(("6", "5", "9")):
+            return f"{normalized}.SH"
+        return f"{normalized}.SZ"
 
     return None
 

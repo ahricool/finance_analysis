@@ -5,7 +5,7 @@ Unit tests for LongbridgeFetcher integration.
 Real API / credentials: use ``tests/longbridge_live_smoke.py`` (not this file).
 
 Verifies:
-1. Symbol conversion logic (AAPL -> AAPL.US, HK00700 -> 0700.HK)
+1. Symbol conversion logic (AAPL -> AAPL.US, HK00700 -> 0700.HK, 600519 -> 600519.SH)
 2. get_realtime_quote builds correct UnifiedRealtimeQuote with computed fields
 3. _supplement_from_longbridge merges missing fields into yfinance quote
 4. Graceful degradation when credentials are missing
@@ -53,9 +53,15 @@ class TestSymbolConversion(unittest.TestCase):
     def test_hk_stock_already_suffixed(self):
         self.assertEqual(_to_longbridge_symbol("0700.HK"), "0700.HK")
 
-    def test_a_share_returns_none(self):
-        self.assertIsNone(_to_longbridge_symbol("600519"))
-        self.assertIsNone(_to_longbridge_symbol("000001"))
+    def test_a_share_stock(self):
+        self.assertEqual(_to_longbridge_symbol("600519"), "600519.SH")
+        self.assertEqual(_to_longbridge_symbol("SH600519"), "600519.SH")
+        self.assertEqual(_to_longbridge_symbol("600519.SS"), "600519.SH")
+        self.assertEqual(_to_longbridge_symbol("000568"), "000568.SZ")
+        self.assertEqual(_to_longbridge_symbol("SZ300750"), "300750.SZ")
+
+    def test_bse_a_share_returns_none(self):
+        self.assertIsNone(_to_longbridge_symbol("920748"))
 
     def test_code_detection(self):
         self.assertTrue(_is_us_code("AAPL"))
