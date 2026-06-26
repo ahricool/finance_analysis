@@ -117,7 +117,12 @@ function compareSortValues(left: string | number | null | undefined, right: stri
 
 function toggleSort(key: StockListSortKey) {
   if (sortKey.value === key) {
-    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
+    if (sortDirection.value === 'asc') {
+      sortDirection.value = 'desc';
+    } else {
+      sortKey.value = null;
+      sortDirection.value = 'asc';
+    }
     return;
   }
   sortKey.value = key;
