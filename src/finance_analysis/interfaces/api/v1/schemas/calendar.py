@@ -49,3 +49,15 @@ class CalendarEntryListResponse(BaseModel):
     date: str
     items: List[CalendarEntryResponse]
     total: int
+
+
+class CalendarSummaryItem(BaseModel):
+    date: str
+    finance_event_count: int
+    calendar_entry_count: int
+
+
+class CalendarSummaryResponse(BaseModel):
+    start_date: str
+    end_date: str
+    items: List[CalendarSummaryItem]

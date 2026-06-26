@@ -242,6 +242,19 @@ class MarketCalendarEventRepo:
                 session.expunge(row)
             return rows
 
+    def count_events_by_date_range(
+        self,
+        start: date,
+        end: date,
+    ) -> Dict[date, int]:
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(FinanceEvent.event_date, func.count())
+                .where(and_(FinanceEvent.event_date >= start, FinanceEvent.event_date <= end))
+                .group_by(FinanceEvent.event_date)
+            ).all()
+            return {event_date: int(count or 0) for event_date, count in rows}
+
     def list_events_by_ids(self, event_ids: List[int]) -> List[FinanceEvent]:
         ids = list(dict.fromkeys(int(event_id) for event_id in event_ids if event_id is not None))
         if not ids:

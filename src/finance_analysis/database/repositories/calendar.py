@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from typing import List, Optional
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
@@ -12,8 +13,13 @@ from sqlalchemy.orm import Session
 from finance_analysis.database.base import ensure_aware_datetime
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.database.models import CalendarEntry
-from finance_analysis.core.time import utc_now
-from finance_analysis.core.time import day_bounds_utc
+from finance_analysis.core.time import (
+    coerce_aware_utc,
+    date_range_bounds_utc,
+    day_bounds_utc,
+    utc_now,
+    validate_display_timezone,
+)
 
 
 def get_db() -> DatabaseManager:
@@ -40,6 +46,29 @@ class CalendarRepo:
             if uid is not None:
                 stmt = stmt.where(CalendarEntry.uid == uid)
             return session.execute(stmt).scalars().all()
+
+    def count_by_date_range(
+        self,
+        start: date,
+        end: date,
+        timezone_name: str = "Asia/Shanghai",
+        uid: Optional[int] = None,
+    ) -> Dict[date, int]:
+        timezone_name = validate_display_timezone(timezone_name)
+        start_dt, end_dt = date_range_bounds_utc(start, end, timezone_name)
+        tz = ZoneInfo(timezone_name)
+        counts = {start + timedelta(days=offset): 0 for offset in range((end - start).days + 1)}
+        with self.db.get_session() as session:
+            stmt = select(CalendarEntry.time).where(
+                and_(CalendarEntry.time >= start_dt, CalendarEntry.time < end_dt)
+            )
+            if uid is not None:
+                stmt = stmt.where(CalendarEntry.uid == uid)
+            for (entry_time,) in session.execute(stmt).all():
+                local_day = coerce_aware_utc(entry_time).astimezone(tz).date()
+                if local_day in counts:
+                    counts[local_day] += 1
+        return counts
 
     def get_by_type_and_date(
         self,
