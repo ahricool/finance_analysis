@@ -57,6 +57,18 @@ export interface FinanceEventListResponse {
   total: number;
 }
 
+export interface CalendarSummaryItem {
+  date: string;
+  finance_event_count: number;
+  calendar_entry_count: number;
+}
+
+export interface CalendarSummaryResponse {
+  start_date: string;
+  end_date: string;
+  items: CalendarSummaryItem[];
+}
+
 export const calendarApi = {
   async listByDate(date: string): Promise<CalendarEntryListResponse> {
     const res = await apiClient.get('/api/v1/calendar', {
@@ -69,5 +81,11 @@ export const calendarApi = {
       params: { date, timezone: getDisplayTimezone() },
     });
     return res.data as FinanceEventListResponse;
+  },
+  async getSummary(startDate: string, endDate: string): Promise<CalendarSummaryResponse> {
+    const res = await apiClient.get('/api/v1/calendar/summary', {
+      params: { start_date: startDate, end_date: endDate, timezone: getDisplayTimezone() },
+    });
+    return res.data as CalendarSummaryResponse;
   },
 };

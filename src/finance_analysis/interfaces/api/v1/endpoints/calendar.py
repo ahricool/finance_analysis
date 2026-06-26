@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date as date_type
+from datetime import date as date_type, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -10,6 +10,8 @@ from finance_analysis.interfaces.api.v1.schemas.calendar import (
     CalendarEntryCreate,
     CalendarEntryListResponse,
     CalendarEntryResponse,
+    CalendarSummaryItem,
+    CalendarSummaryResponse,
     CalendarEntryUpdate,
 )
 from finance_analysis.interfaces.api.v1.schemas.market_calendar import (
@@ -21,6 +23,7 @@ from finance_analysis.database.repositories.market_calendar_event import MarketC
 from finance_analysis.core.time import DEFAULT_DISPLAY_TIMEZONE, validate_display_timezone
 
 router = APIRouter()
+MAX_SUMMARY_DAYS = 31
 
 
 def _repo() -> CalendarRepo:
@@ -29,6 +32,10 @@ def _repo() -> CalendarRepo:
 
 def _event_repo() -> MarketCalendarEventRepo:
     return MarketCalendarEventRepo()
+
+
+def _date_span(start_date: date_type, end_date: date_type) -> list[date_type]:
+    return [start_date + timedelta(days=offset) for offset in range((end_date - start_date).days + 1)]
 
 
 @router.get('/events', response_model=FinanceEventListResponse, summary='按日期获取财经事件')
@@ -54,6 +61,52 @@ def list_finance_events(
         date=query_date.isoformat(),
         items=[FinanceEventResponse.model_validate(i) for i in items],
         total=len(items),
+    )
+
+
+@router.get('/summary', response_model=CalendarSummaryResponse, summary='按日期范围获取日历数量统计')
+def get_calendar_summary(
+    http_request: Request,
+    start_date: date_type = Query(..., description='开始日期 YYYY-MM-DD'),
+    end_date: date_type = Query(..., description='结束日期 YYYY-MM-DD'),
+    timezone: str = Query(DEFAULT_DISPLAY_TIMEZONE, description='Asia/Shanghai | America/New_York'),
+):
+    if end_date < start_date:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_date_range",
+                "message": "end_date must be greater than or equal to start_date",
+            },
+        )
+    day_count = (end_date - start_date).days + 1
+    if day_count > MAX_SUMMARY_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "date_range_too_large", "message": f"date range must be <= {MAX_SUMMARY_DAYS} days"},
+        )
+    try:
+        timezone_name = validate_display_timezone(timezone)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_timezone", "message": str(exc)},
+        ) from exc
+
+    uid = get_effective_uid(http_request)
+    event_counts = _event_repo().count_events_by_date_range(start_date, end_date)
+    entry_counts = _repo().count_by_date_range(start_date, end_date, timezone_name=timezone_name, uid=uid)
+    return CalendarSummaryResponse(
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        items=[
+            CalendarSummaryItem(
+                date=day.isoformat(),
+                finance_event_count=event_counts.get(day, 0),
+                calendar_entry_count=entry_counts.get(day, 0),
+            )
+            for day in _date_span(start_date, end_date)
+        ],
     )
 
 

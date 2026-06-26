@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { calendarApi, type CalendarEntryItem, type FinanceEventItem } from '@/api/calendar';
+import { calendarApi, type CalendarEntryItem, type CalendarSummaryItem, type FinanceEventItem } from '@/api/calendar';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Drawer from '@/components/common/Drawer.vue';
@@ -16,12 +16,14 @@ const timezoneStore = useTimezoneStore();
 const { displayTimezone } = storeToRefs(timezoneStore);
 const initialSelectedDate = getTodayInDisplayTimezone();
 const todayInDisplayTimezone = ref(initialSelectedDate);
-const weekStart = ref(startOfWeek(parseDateOnly(initialSelectedDate)));
+const dateRangeStart = ref(addDays(parseDateOnly(initialSelectedDate), -1));
 const selectedDate = ref(initialSelectedDate);
 const events = ref<FinanceEventItem[]>([]);
 const entries = ref<CalendarEntryItem[]>([]);
+const summaryByDate = ref<Record<string, CalendarSummaryItem>>({});
 const eventsLoading = ref(false);
 const entriesLoading = ref(false);
+const summaryLoading = ref(false);
 const error = ref<ParsedApiError | null>(null);
 
 type CalendarDetail =
@@ -35,35 +37,38 @@ const detailTitle = computed(() => {
   return detail.value.kind === 'event' ? '财经事件详情' : '日历记录详情';
 });
 
-const weekDates = computed(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart.value, i)));
+const rangeDates = computed(() => Array.from({ length: 7 }, (_, i) => addDays(dateRangeStart.value, i)));
+const rangeEnd = computed(() => addDays(dateRangeStart.value, 6));
+const rangeDisplay = computed(() => `${formatMonthDay(dateRangeStart.value)} - ${formatMonthDay(rangeEnd.value)}`);
+const isDefaultTodayView = computed(
+  () =>
+    formatDate(dateRangeStart.value) === defaultRangeStart(todayInDisplayTimezone.value) &&
+    selectedDate.value === todayInDisplayTimezone.value,
+);
 
-function startOfWeek(d: Date): Date {
-  const copy = new Date(d);
-  const day = copy.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  copy.setDate(copy.getDate() + diff);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
-}
 function addDays(d: Date, n: number): Date {
   const copy = new Date(d);
-  copy.setDate(copy.getDate() + n);
+  copy.setUTCDate(copy.getUTCDate() + n);
   return copy;
 }
 function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function formatMonthDay(d: Date): string {
+  return `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
 function parseDateOnly(value: string): Date {
   const [y, m, d] = value.split('-').map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1));
 }
 
 function weekdayCn(d: Date): string {
-  return WEEKDAY_CN[d.getDay()] ?? '';
+  return WEEKDAY_CN[d.getUTCDay()] ?? '';
 }
 
 /** 展示用：YYYY-MM-DD 星期x */
@@ -71,22 +76,26 @@ function dateWithWeekday(d: Date): string {
   return `${formatDate(d)} ${weekdayCn(d)}`;
 }
 
+function defaultRangeStart(today: string): string {
+  return formatDate(addDays(parseDateOnly(today), -1));
+}
+
 const selectedDateDisplay = computed(() => {
   const parts = selectedDate.value.split('-').map(Number);
   if (parts.length !== 3 || parts.some(Number.isNaN)) return selectedDate.value;
-  const [y, m, d] = parts;
-  return dateWithWeekday(new Date(y, m - 1, d));
+  return dateWithWeekday(parseDateOnly(selectedDate.value));
 });
 
-async function loadEntries() {
+async function loadSelectedDateDetails() {
   eventsLoading.value = true;
   entriesLoading.value = true;
   error.value = null;
   detail.value = null;
+  const date = selectedDate.value;
   try {
     const [eventRes, entryRes] = await Promise.all([
-      calendarApi.listEventsByDate(selectedDate.value),
-      calendarApi.listByDate(selectedDate.value),
+      calendarApi.listEventsByDate(date),
+      calendarApi.listByDate(date),
     ]);
     events.value = eventRes.items;
     entries.value = entryRes.items;
@@ -98,13 +107,71 @@ async function loadEntries() {
   }
 }
 
-function selectDate(d: Date) {
-  selectedDate.value = formatDate(d);
-  void loadEntries();
+async function loadRangeSummary() {
+  summaryLoading.value = true;
+  error.value = null;
+  try {
+    const result = await calendarApi.getSummary(formatDate(dateRangeStart.value), formatDate(rangeEnd.value));
+    summaryByDate.value = Object.fromEntries(result.items.map((item) => [item.date, item]));
+  } catch (e) {
+    error.value = getParsedApiError(e);
+  } finally {
+    summaryLoading.value = false;
+  }
 }
 
-function shiftWeek(step: number) {
-  weekStart.value = addDays(weekStart.value, step * 7);
+function selectDate(d: Date) {
+  const nextDate = formatDate(d);
+  if (nextDate === selectedDate.value) return;
+  selectedDate.value = nextDate;
+  void loadSelectedDateDetails();
+}
+
+function shiftRange(step: number) {
+  const currentIndex = rangeDates.value.findIndex((d) => formatDate(d) === selectedDate.value);
+  const selectedIndex = currentIndex >= 0 ? currentIndex : 1;
+  const nextStart = addDays(dateRangeStart.value, step * 7);
+  dateRangeStart.value = nextStart;
+  selectedDate.value = formatDate(addDays(nextStart, selectedIndex));
+  detail.value = null;
+  void Promise.all([loadSelectedDateDetails(), loadRangeSummary()]);
+}
+
+function goToday() {
+  const today = getTodayInDisplayTimezone();
+  todayInDisplayTimezone.value = today;
+  dateRangeStart.value = parseDateOnly(defaultRangeStart(today));
+  selectedDate.value = today;
+  detail.value = null;
+  void Promise.all([loadSelectedDateDetails(), loadRangeSummary()]);
+}
+
+function dateSummary(d: Date): CalendarSummaryItem {
+  const date = formatDate(d);
+  return summaryByDate.value[date] ?? { date, finance_event_count: 0, calendar_entry_count: 0 };
+}
+
+function countToneClass(count: number): string {
+  if (count <= 0) return 'text-muted-text';
+  if (count <= 2) return 'text-primary';
+  if (count <= 5) return 'text-warning';
+  return 'text-danger';
+}
+
+function countTone(count: number): string {
+  if (count <= 0) return 'muted';
+  if (count <= 2) return 'primary';
+  if (count <= 5) return 'warning';
+  return 'danger';
+}
+
+function dateButtonClass(d: Date) {
+  const date = formatDate(d);
+  const selected = selectedDate.value === date;
+  const today = todayInDisplayTimezone.value === date;
+  if (selected) return 'border-primary bg-primary/10 text-primary shadow-[0_0_0_1px_hsl(var(--primary)/0.18)]';
+  if (today) return 'border-primary/35 bg-primary/5 hover:bg-primary/10';
+  return 'border-border/60 hover:bg-hover';
 }
 
 function openEventDetail(item: FinanceEventItem) {
@@ -160,17 +227,17 @@ function renderMarkdown(content: string | null): string {
   return renderMarkdownToHtml(content);
 }
 
-onMounted(loadEntries);
+onMounted(() => {
+  void Promise.all([loadSelectedDateDetails(), loadRangeSummary()]);
+});
 
 watch(displayTimezone, () => {
-  const previousToday = todayInDisplayTimezone.value;
   const nextToday = getTodayInDisplayTimezone();
   todayInDisplayTimezone.value = nextToday;
-  if (selectedDate.value === previousToday) {
-    selectedDate.value = nextToday;
-    weekStart.value = startOfWeek(parseDateOnly(nextToday));
-  }
-  void loadEntries();
+  dateRangeStart.value = parseDateOnly(defaultRangeStart(nextToday));
+  selectedDate.value = nextToday;
+  detail.value = null;
+  void Promise.all([loadSelectedDateDetails(), loadRangeSummary()]);
 });
 </script>
 
@@ -182,32 +249,92 @@ watch(displayTimezone, () => {
       </div>
       <div>
         <h1 class="text-lg font-semibold text-foreground">日历记录</h1>
-        <p class="text-xs text-secondary-text">按周查看财经事件与自动化任务记录</p>
+        <p class="text-xs text-secondary-text">按 7 日视图查看财经事件与自动化任务记录</p>
       </div>
     </div>
 
     <div class="mb-4 rounded-2xl border border-border/60 bg-card p-4">
-      <div class="mb-3 flex items-center justify-between">
-        <button class="rounded-lg p-2 hover:bg-hover" @click="shiftWeek(-1)"><ChevronLeft class="h-4 w-4" /></button>
-        <p class="text-sm font-medium">当周日历</p>
-        <button class="rounded-lg p-2 hover:bg-hover" @click="shiftWeek(1)"><ChevronRight class="h-4 w-4" /></button>
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          class="rounded-lg p-2 text-secondary-text transition-colors hover:bg-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label="上一周期"
+          :disabled="summaryLoading"
+          @click="shiftRange(-1)"
+        >
+          <ChevronLeft class="h-4 w-4" />
+        </button>
+        <p class="text-center text-sm font-medium">
+          <span>7 日视图</span>
+          <span class="mx-2 text-secondary-text">/</span>
+          <span class="font-mono text-secondary-text">{{ rangeDisplay }}</span>
+        </p>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="isDefaultTodayView"
+            @click="goToday"
+          >
+            今天
+          </button>
+          <button
+            type="button"
+            class="rounded-lg p-2 text-secondary-text transition-colors hover:bg-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="下一周期"
+            :disabled="summaryLoading"
+            @click="shiftRange(1)"
+          >
+            <ChevronRight class="h-4 w-4" />
+          </button>
+        </div>
       </div>
       <div class="grid grid-cols-2 gap-1.5 min-[430px]:grid-cols-4 sm:grid-cols-7 sm:gap-2">
         <button
-          v-for="d in weekDates"
+          v-for="d in rangeDates"
           :key="formatDate(d)"
           type="button"
-          class="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2 text-center leading-tight sm:min-h-16"
-          :class="selectedDate === formatDate(d) ? 'border-primary bg-primary/10 text-primary' : 'border-border/60 hover:bg-hover'"
+          class="relative flex min-h-24 flex-col items-center justify-center gap-1.5 rounded-xl border px-2 py-2 text-center leading-tight transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-28"
+          :class="[dateButtonClass(d), summaryLoading ? 'animate-pulse' : '']"
+          :disabled="summaryLoading"
+          :aria-label="dateWithWeekday(d)"
+          data-testid="calendar-day"
           @click="selectDate(d)"
         >
-          <span class="block whitespace-nowrap text-[11px] font-medium sm:text-xs">{{ formatDate(d) }}</span>
+          <span class="block whitespace-nowrap text-sm font-semibold">{{ formatMonthDay(d) }}</span>
           <span
-            class="block whitespace-nowrap text-[10px] text-secondary-text sm:text-[11px]"
+            class="block whitespace-nowrap text-[11px] text-secondary-text"
             :class="selectedDate === formatDate(d) ? 'text-primary' : ''"
           >
             {{ weekdayCn(d) }}
           </span>
+          <span class="mt-1 flex w-full flex-col items-center gap-0.5 text-[11px] text-secondary-text min-[520px]:flex-row min-[520px]:justify-center min-[520px]:gap-2">
+            <span class="whitespace-nowrap">
+              财经
+              <span
+                class="font-semibold tabular-nums"
+                :class="countToneClass(dateSummary(d).finance_event_count)"
+                :data-count-tone="countTone(dateSummary(d).finance_event_count)"
+              >
+                {{ dateSummary(d).finance_event_count }}
+              </span>
+            </span>
+            <span class="whitespace-nowrap">
+              记录
+              <span
+                class="font-semibold tabular-nums"
+                :class="countToneClass(dateSummary(d).calendar_entry_count)"
+                :data-count-tone="countTone(dateSummary(d).calendar_entry_count)"
+              >
+                {{ dateSummary(d).calendar_entry_count }}
+              </span>
+            </span>
+          </span>
+          <span
+            v-if="todayInDisplayTimezone === formatDate(d) && selectedDate !== formatDate(d)"
+            class="absolute bottom-1.5 h-1.5 w-1.5 rounded-full bg-primary/70"
+            aria-hidden="true"
+          />
         </button>
       </div>
     </div>
