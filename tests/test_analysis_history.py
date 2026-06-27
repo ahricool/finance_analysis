@@ -35,7 +35,7 @@ from types import SimpleNamespace
 
 from finance_analysis.users.auth import COOKIE_NAME, create_session
 from finance_analysis.database.repositories.user import DEFAULT_ADMIN_EMAIL, UserRepository
-from finance_analysis.database import DatabaseManager, AnalysisHistory, BacktestResult
+from finance_analysis.database import DatabaseManager, AnalysisHistory
 from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
 from finance_analysis.analysis.history.service import HistoryService
 
@@ -716,30 +716,6 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         self.assertIsNotNone(markdown)
         self.assertIn("✅Safe", markdown)
         self.assertNotIn("🚨Safe", markdown)
-
-    def test_delete_analysis_history_records_also_cleans_backtests(self) -> None:
-        """删除历史记录时应一并清理关联回测结果。"""
-        record_id = self._save_history("query_delete_001")
-
-        with self.db.session_scope() as session:
-            session.add(BacktestResult(
-                analysis_history_id=record_id,
-                code="600519",
-                analysis_date=None,
-                eval_window_days=10,
-                engine_version="v1",
-                eval_status="pending",
-            ))
-
-        deleted = self.db.delete_analysis_history_records([record_id])
-        self.assertEqual(deleted, 1)
-
-        with self.db.get_session() as session:
-            self.assertIsNone(session.query(AnalysisHistory).filter(AnalysisHistory.id == record_id).first())
-            self.assertEqual(
-                session.query(BacktestResult).filter(BacktestResult.analysis_history_id == record_id).count(),
-                0,
-            )
 
     def test_delete_history_api_deletes_selected_records(self) -> None:
         """DELETE /api/v1/history should remove only the requested records."""

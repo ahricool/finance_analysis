@@ -21,7 +21,6 @@ from finance_analysis.database.base import ensure_aware_datetime
 from finance_analysis.database.bootstrap import bootstrap_database
 from finance_analysis.database.models import (
     AnalysisHistory,
-    BacktestResult,
     ConversationMessage,
     FundamentalSnapshot,
     LLMUsage,
@@ -790,9 +789,6 @@ class DatabaseManager(ConversationUsageMixin):
             if not owned_ids:
                 return 0
 
-            session.execute(
-                delete(BacktestResult).where(BacktestResult.analysis_history_id.in_(owned_ids))
-            )
             result = session.execute(
                 delete(AnalysisHistory).where(AnalysisHistory.id.in_(owned_ids))
             )

@@ -6,9 +6,8 @@ SkillAggregator — weighted aggregation of skill opinions.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-from finance_analysis.agent.memory import AgentMemory
 from finance_analysis.agent.protocols import AgentContext, AgentOpinion
 from finance_analysis.agent.skills.defaults import (
     SKILL_CONSENSUS_AGENT_NAME,
@@ -17,8 +16,6 @@ from finance_analysis.agent.skills.defaults import (
 )
 
 logger = logging.getLogger(__name__)
-
-_MIN_BACKTEST_SAMPLES = 30
 
 _SIGNAL_SCORES: Dict[str, float] = {
     "strong_buy": 5.0,
@@ -43,32 +40,14 @@ class SkillAggregator:
     def aggregate(
         self,
         ctx: AgentContext,
-        min_samples: int = _MIN_BACKTEST_SAMPLES,
-    ) -> Optional[AgentOpinion]:
+        min_samples: int = 30,
+    ) -> AgentOpinion | None:
+        del min_samples  # reserved for future performance-based weighting
         skill_opinions = [op for op in ctx.opinions if is_skill_agent_name(op.agent_name)]
         if not skill_opinions:
             return None
 
-        skill_ids = [extract_skill_id(op.agent_name) or op.agent_name for op in skill_opinions]
-        memory = AgentMemory.from_config()
-        perf_weights = (
-            memory.compute_skill_weights(
-                skill_ids,
-                use_backtest=self._use_backtest_autoweight(),
-            )
-            if memory.enabled
-            else {}
-        )
-
-        weights: List[float] = []
-        for op in skill_opinions:
-            skill_id = extract_skill_id(op.agent_name) or op.agent_name
-            weight = self._compute_weight(
-                op,
-                min_samples,
-                perf_weight=perf_weights.get(skill_id),
-            )
-            weights.append(weight)
+        weights: List[float] = [op.confidence for op in skill_opinions]
 
         total_weight = sum(weights) or 1.0
         weighted_score = sum(
@@ -115,46 +94,6 @@ class SkillAggregator:
                 },
             },
         )
-
-    def _compute_weight(
-        self,
-        opinion: AgentOpinion,
-        min_samples: int,
-        perf_weight: Optional[float] = None,
-    ) -> float:
-        base_weight = opinion.confidence
-        if perf_weight is not None:
-            return base_weight * perf_weight
-        return base_weight * self._backtest_factor(opinion.agent_name, min_samples)
-
-    @staticmethod
-    def _backtest_factor(agent_name: str, min_samples: int) -> float:
-        if not SkillAggregator._use_backtest_autoweight():
-            return 1.0
-
-        skill_id = extract_skill_id(agent_name) or agent_name
-        try:
-            from finance_analysis.backtest.service import BacktestService
-
-            service = BacktestService()
-            summary = service.get_skill_summary(skill_id)
-            if summary and summary.get("total_evaluations", 0) >= min_samples:
-                win_rate = summary.get("win_rate", 0.5)
-                return 0.5 + win_rate
-        except Exception:
-            logger.debug("Failed to compute backtest factor for %s", agent_name, exc_info=True)
-        return 1.0
-
-    @staticmethod
-    def _use_backtest_autoweight() -> bool:
-        try:
-            from finance_analysis.agent.config import get_agent_config
-
-            config = get_agent_config()
-            return getattr(config, "agent_skill_autoweight", True)
-        except Exception:
-            logger.debug("Failed to get backtest autoweight config, defaulting to True", exc_info=True)
-            return True
 
 
 StrategyAggregator = SkillAggregator

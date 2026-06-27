@@ -46,7 +46,6 @@ class AgentConfig:
     agent_deep_research_budget: int = 30000
     agent_deep_research_timeout: int = 180
     agent_memory_enabled: bool = False
-    agent_skill_autoweight: bool = True
     agent_skill_routing: str = "auto"
     agent_event_monitor_enabled: bool = False
     agent_event_alert_rules_json: str = ""
@@ -92,9 +91,6 @@ def get_agent_config() -> AgentConfig:
             agent_deep_research_budget=env_int("AGENT_DEEP_RESEARCH_BUDGET", 30000, minimum=1),
             agent_deep_research_timeout=env_int("AGENT_DEEP_RESEARCH_TIMEOUT", 180, minimum=30),
             agent_memory_enabled=env_bool("AGENT_MEMORY_ENABLED", False),
-            agent_skill_autoweight=(
-                env_bool("AGENT_SKILL_AUTOWEIGHT", env_bool("AGENT_STRATEGY_AUTOWEIGHT", True))
-            ),
             agent_skill_routing=(
                 env_str("AGENT_SKILL_ROUTING") or env_str("AGENT_STRATEGY_ROUTING", "auto") or "auto"
             ).lower(),

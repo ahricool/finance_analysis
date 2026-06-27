@@ -12,7 +12,6 @@ except ModuleNotFoundError:
 
     ensure_litellm_stub()
 
-from finance_analysis.agent.skills.aggregator import SkillAggregator
 from finance_analysis.agent.skills.router import SkillRouter
 
 
@@ -41,25 +40,6 @@ class SkillRouterWarningTests(unittest.TestCase):
                     result = SkillRouter._get_manual_skills(max_count=3)
         self.assertIsInstance(result, list)
         self.assertTrue(any("Failed to get manual skills config" in line for line in cm.output))
-
-
-class SkillAggregatorDebugLogTests(unittest.TestCase):
-    """SkillAggregator helpers must log at debug level on failure."""
-
-    def test_backtest_factor_logs_debug_on_exception(self) -> None:
-        with patch("finance_analysis.agent.skills.aggregator.SkillAggregator._use_backtest_autoweight", return_value=True):
-            with patch("finance_analysis.backtest.service.BacktestService", side_effect=ImportError("no backtest")):
-                with self.assertLogs("finance_analysis.agent.skills.aggregator", level=logging.DEBUG) as cm:
-                    result = SkillAggregator._backtest_factor("some_skill", 30)
-        self.assertEqual(result, 1.0)
-        self.assertTrue(any("backtest factor" in line.lower() for line in cm.output))
-
-    def test_use_backtest_autoweight_logs_debug_on_exception(self) -> None:
-        with patch("finance_analysis.agent.config.get_agent_config", side_effect=RuntimeError("cfg error")):
-            with self.assertLogs("finance_analysis.agent.skills.aggregator", level=logging.DEBUG) as cm:
-                result = SkillAggregator._use_backtest_autoweight()
-        self.assertTrue(result)
-        self.assertTrue(any("backtest autoweight" in line.lower() for line in cm.output))
 
 
 if __name__ == "__main__":

@@ -16,7 +16,6 @@ data/
 ├── celerybeat-schedule  # Celery Beat schedule state (auto-created by Beat)
 ├── reports/
 │   ├── analysis/     # Saved analysis and market-review reports
-│   ├── backtest/     # Backtest output
 │   ├── exports/      # CSV / Excel / JSON exports
 │   └── assets/       # Report-related images and attachments
 ├── uploads/          # User uploads (e.g. avatars)

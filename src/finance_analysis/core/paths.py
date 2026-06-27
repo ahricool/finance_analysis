@@ -22,7 +22,6 @@ _RUNTIME_SUBDIRS = (
     "logs/scheduler",
     "logs/access",
     "reports/analysis",
-    "reports/backtest",
     "reports/exports",
     "reports/assets",
     "uploads",
@@ -82,11 +81,6 @@ def get_report_dir() -> Path:
 def get_report_analysis_dir() -> Path:
     """Return ``data/reports/analysis`` for saved analysis / review reports."""
     return get_report_dir() / "analysis"
-
-
-def get_report_backtest_dir() -> Path:
-    """Return ``data/reports/backtest``."""
-    return get_report_dir() / "backtest"
 
 
 def get_report_exports_dir() -> Path:
@@ -192,7 +186,6 @@ __all__ = [
     "get_log_scheduler_dir",
     "get_report_analysis_dir",
     "get_report_assets_dir",
-    "get_report_backtest_dir",
     "get_report_dir",
     "get_report_exports_dir",
     "get_reports_dir",
