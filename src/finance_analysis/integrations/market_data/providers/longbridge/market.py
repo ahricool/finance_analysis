@@ -24,7 +24,6 @@ import os
 import time
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 import pandas as pd
@@ -32,189 +31,32 @@ import pandas as pd
 from finance_analysis.integrations.market_data.base import BaseFetcher, STANDARD_COLUMNS
 from finance_analysis.integrations.market_data.codes import is_bse_code, normalize_stock_code
 from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, RealtimeSource, safe_float
+from finance_analysis.integrations.market_data.providers.longbridge.config import (
+    get_longbridge_config,
+    get_longbridge_sdk_kwargs,
+    sanitize_longbridge_env,
+)
 from finance_analysis.integrations.market_data.providers.longbridge.normalizer import longbridge_datetime_to_utc
 from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code, is_us_index_code
 from finance_analysis.core.logging import log_external_call_exception
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_STATIC_INFO_TTL = 86400  # 24h
-_DEFAULT_CONNECTION_COOLDOWN_SECONDS = 15
-
-
-def _static_info_ttl_seconds() -> int:
-    """TTL for static_info cache; 0 disables caching (always fetch)."""
-    raw = os.getenv("LONGBRIDGE_STATIC_INFO_TTL_SECONDS", "").strip()
-    if raw == "":
-        return _DEFAULT_STATIC_INFO_TTL
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return _DEFAULT_STATIC_INFO_TTL
-
-
-def _connection_cooldown_seconds() -> int:
-    """Cooldown after connection-close errors to avoid reconnect thrashing."""
-    raw = os.getenv("LONGBRIDGE_CONNECTION_COOLDOWN_SECONDS", "").strip()
-    if raw == "":
-        return _DEFAULT_CONNECTION_COOLDOWN_SECONDS
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return _DEFAULT_CONNECTION_COOLDOWN_SECONDS
-
-
-_REGION_URL_MAP: Dict[str, Dict[str, str]] = {
-    "cn": {
-        "http_url": "https://openapi.longbridge.cn",
-        "quote_ws_url": "wss://openapi-quote.longbridge.cn/v2",
-        "trade_ws_url": "wss://openapi-trade.longbridge.cn/v2",
-    },
-    "hk": {
-        "http_url": "https://openapi.longbridge.com",
-        "quote_ws_url": "wss://openapi-quote.longbridge.com/v2",
-        "trade_ws_url": "wss://openapi-trade.longbridge.com/v2",
-    },
-}
-
 
 def _sanitize_longbridge_env() -> None:
-    """Remove empty-string LONGBRIDGE_*_URL env vars.
-
-    GitHub Actions sets ``LONGBRIDGE_HTTP_URL: ${{ vars.X || secrets.X }}``
-    which resolves to an empty string ``""`` when neither var nor secret is
-    configured.  The Rust SDK's ``Config.from_apikey()`` auto-reads these
-    env vars, and an empty string is *not* the same as "unset" — it causes
-    the SDK to use a blank URL, which breaks the WebSocket handshake and
-    results in "context dropped" / "Client is closed" within milliseconds.
-
-    Also mirrors ``LONGBRIDGE_REGION`` → ``LONGPORT_REGION`` because the
-    Rust SDK's internal ``is_cn()`` function only checks ``LONGPORT_REGION``
-    (not ``LONGBRIDGE_REGION``) when deciding which default endpoints to use.
-    """
-    for key in (
-        "LONGBRIDGE_HTTP_URL",
-        "LONGBRIDGE_QUOTE_WS_URL",
-        "LONGBRIDGE_TRADE_WS_URL",
-        "LONGBRIDGE_ENABLE_OVERNIGHT",
-        "LONGBRIDGE_PUSH_CANDLESTICK_MODE",
-        "LONGBRIDGE_PRINT_QUOTE_PACKAGES",
-        "LONGBRIDGE_REGION",
-        "LONGBRIDGE_STATIC_INFO_TTL_SECONDS",
-        "LONGBRIDGE_LOG_PATH",
-    ):
-        val = os.environ.get(key)
-        if val is not None and val.strip() == "":
-            del os.environ[key]
-            logger.debug("[Longbridge] 删除空环境变量 %s", key)
-
-    # App default: quiet (false). Matches README / docs/full-guide / .env.example; SDK alone may default verbose.
-    if "LONGBRIDGE_PRINT_QUOTE_PACKAGES" not in os.environ:
-        os.environ["LONGBRIDGE_PRINT_QUOTE_PACKAGES"] = "false"
-
-    if not os.environ.get("LONGBRIDGE_LOG_PATH"):
-        try:
-            from finance_analysis.core.paths import get_log_app_dir
-
-            p = get_log_app_dir()
-            p.mkdir(parents=True, exist_ok=True)
-            os.environ["LONGBRIDGE_LOG_PATH"] = str(p / "longbridge_sdk.log")
-            logger.debug("[Longbridge] 设置 LONGBRIDGE_LOG_PATH=%s",
-                         os.environ["LONGBRIDGE_LOG_PATH"])
-        except Exception:
-            pass
-
-    region = (os.getenv("LONGBRIDGE_REGION") or "").strip().lower()
-    if region:
-        if not os.environ.get("LONGPORT_REGION"):
-            os.environ["LONGPORT_REGION"] = region
-            logger.debug("[Longbridge] 同步 LONGPORT_REGION=%s", region)
-
-        urls = _REGION_URL_MAP.get(region, {})
-        for env_name, default_url in (
-            ("LONGBRIDGE_HTTP_URL", urls.get("http_url")),
-            ("LONGBRIDGE_QUOTE_WS_URL", urls.get("quote_ws_url")),
-            ("LONGBRIDGE_TRADE_WS_URL", urls.get("trade_ws_url")),
-        ):
-            if default_url and not os.environ.get(env_name):
-                os.environ[env_name] = default_url
-                logger.debug("[Longbridge] 根据 REGION=%s 设置 %s=%s",
-                             region, env_name, default_url)
+    sanitize_longbridge_env()
 
 
 def _longbridge_config_kwargs() -> Dict[str, Any]:
-    """Optional kwargs for ``Config.from_apikey`` (Longbridge OpenAPI SDK)."""
-    try:
-        import inspect
-        from longbridge.openapi import Config, Language, PushCandlestickMode
-    except Exception:
-        return {}
+    return get_longbridge_sdk_kwargs()
 
-    try:
-        params = inspect.signature(Config.from_apikey).parameters
-    except Exception:
-        return {}
 
-    kw: Dict[str, Any] = {}
+def _static_info_ttl_seconds() -> int:
+    return get_longbridge_config().static_info_ttl_seconds
 
-    if "enable_print_quote_packages" in params:
-        # Unset / empty → False (quiet); SDK default would be verbose — we opt in explicitly.
-        raw = os.getenv("LONGBRIDGE_PRINT_QUOTE_PACKAGES")
-        if raw is None or not str(raw).strip():
-            kw["enable_print_quote_packages"] = False
-        else:
-            raw_norm = str(raw).strip().lower()
-            kw["enable_print_quote_packages"] = raw_norm not in ("0", "false", "no")
 
-    for pname, envname in (
-        ("http_url", "LONGBRIDGE_HTTP_URL"),
-        ("quote_ws_url", "LONGBRIDGE_QUOTE_WS_URL"),
-        ("trade_ws_url", "LONGBRIDGE_TRADE_WS_URL"),
-    ):
-        if pname in params:
-            v = os.getenv(envname, "").strip()
-            if v:
-                kw[pname] = v
-
-    if "language" in params:
-        try:
-            from finance_analysis.reporting.localization import normalize_report_language
-
-            rl = normalize_report_language(os.getenv("REPORT_LANGUAGE"), default="zh")
-            if rl == "zh":
-                kw["language"] = Language.ZH_CN
-            elif rl == "en":
-                kw["language"] = Language.EN
-        except Exception as e:
-            logger.debug("Longbridge language from REPORT_LANGUAGE skipped: %s", e)
-
-    if "enable_overnight" in params:
-        o = os.getenv("LONGBRIDGE_ENABLE_OVERNIGHT", "").strip().lower()
-        if o:
-            kw["enable_overnight"] = o in ("1", "true", "yes")
-
-    if "push_candlestick_mode" in params:
-        cm = os.getenv("LONGBRIDGE_PUSH_CANDLESTICK_MODE", "").strip().lower()
-        if cm == "realtime":
-            kw["push_candlestick_mode"] = PushCandlestickMode.Realtime
-        elif cm == "confirmed":
-            kw["push_candlestick_mode"] = PushCandlestickMode.Confirmed
-        elif cm:
-            logger.warning(
-                "Unknown LONGBRIDGE_PUSH_CANDLESTICK_MODE=%r; use realtime or confirmed", cm
-            )
-
-    if "log_path" in params:
-        try:
-            from finance_analysis.core.paths import get_log_app_dir
-
-            p = get_log_app_dir()
-            p.mkdir(parents=True, exist_ok=True)
-            kw["log_path"] = str(p / "longbridge_sdk.log")
-        except Exception as e:
-            logger.debug("Longbridge log_path from data/logs/app skipped: %s", e)
-
-    return kw
+def _connection_cooldown_seconds() -> int:
+    return get_longbridge_config().connection_cooldown_seconds
 
 
 def build_longbridge_config() -> Any:
@@ -261,12 +103,13 @@ def build_longbridge_config() -> Any:
         config = Config.from_apikey(app_key, app_secret, access_token, **_longbridge_config_kwargs())
         logger.info("[Longbridge] Config.from_apikey() 创建成功")
 
-    region = os.getenv("LONGBRIDGE_REGION") or os.getenv("LONGPORT_REGION") or "(auto)"
+    longbridge_config = get_longbridge_config()
+    region = longbridge_config.region or os.getenv("LONGPORT_REGION") or "(auto)"
     logger.info(
         "[Longbridge] 配置: region=%s, http=%s, quote_ws=%s",
         region,
-        os.getenv("LONGBRIDGE_HTTP_URL", "(default)"),
-        os.getenv("LONGBRIDGE_QUOTE_WS_URL", "(default)"),
+        longbridge_config.http_url or "(default)",
+        longbridge_config.quote_ws_url or "(default)",
     )
     return config
 
