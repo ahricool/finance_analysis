@@ -11,7 +11,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Iterable
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.integrations.market_data.providers.longbridge.normalizer import MarketEvent, event_to_candle
@@ -82,6 +82,7 @@ class MarketStreamService:
         self.symbol_locks: dict[str, asyncio.Lock] = {}
         self.pending_quotes: dict[str, QuoteState] = {}
         self.pending_candles: dict[str, CandleState] = {}
+        self.pending_bars: dict[str, dict[tuple[datetime, str], CandleState]] = {}
         self.last_event_at: datetime | None = None
         self.redis_degraded = False
         self.stop_event = asyncio.Event()
@@ -224,8 +225,10 @@ class MarketStreamService:
         if candle.confirmed:
             try:
                 await self.repository.upsert_bars(candle.symbol, [candle])
+                self._discard_pending_bars(candle.symbol, [candle])
                 self.redis_degraded = False
             except Exception as exc:
+                self._queue_pending_bars(candle.symbol, [candle])
                 self.redis_degraded = True
                 logger.warning("Redis K 线写入失败: symbol=%s error=%s", candle.symbol, exc)
         if (
@@ -369,8 +372,10 @@ class MarketStreamService:
             await self.repository.upsert_bars(state.symbol, bars)
             if bars:
                 await self.repository.write_current_candle(bars[-1])
+            self._discard_pending_bars(state.symbol, bars)
             self.redis_degraded = False
         except Exception as exc:
+            self._queue_pending_bars(state.symbol, bars)
             self.redis_degraded = True
             logger.warning("Redis warmup 写入失败: symbol=%s error=%s", state.symbol, exc)
         logger.info(
@@ -388,20 +393,52 @@ class MarketStreamService:
         interval = self.config.redis_flush_interval_ms / 1000
         while not self.stop_event.is_set():
             await asyncio.sleep(interval)
-            quotes, candles = self.pending_quotes, self.pending_candles
-            self.pending_quotes, self.pending_candles = {}, {}
-            if not quotes and not candles:
-                continue
-            try:
-                await self.repository.write_batch(quotes, candles)
-                self.redis_degraded = False
-            except Exception as exc:
-                self.redis_degraded = True
-                for symbol, quote in quotes.items():
-                    self.pending_quotes.setdefault(symbol, quote)
-                for symbol, candle in candles.items():
-                    self.pending_candles.setdefault(symbol, candle)
-                logger.warning("Redis 批量写入失败，稍后重试: %s", exc)
+            await self._flush_pending_redis()
+
+    async def _flush_pending_redis(self) -> bool:
+        quotes, candles, bars = self.pending_quotes, self.pending_candles, self.pending_bars
+        self.pending_quotes, self.pending_candles, self.pending_bars = {}, {}, {}
+        if not quotes and not candles and not bars:
+            return True
+        try:
+            await self.repository.write_batch(quotes, candles)
+            await self.repository.upsert_bars_batch(
+                {symbol: list(items.values()) for symbol, items in bars.items()}
+            )
+            self.redis_degraded = False
+            return True
+        except Exception as exc:
+            self.redis_degraded = True
+            for symbol, quote in quotes.items():
+                self.pending_quotes.setdefault(symbol, quote)
+            for symbol, candle in candles.items():
+                self.pending_candles.setdefault(symbol, candle)
+            for symbol, items in bars.items():
+                self._queue_pending_bars(symbol, items.values())
+            logger.warning("Redis 批量写入失败，稍后重试: %s", exc)
+            return False
+
+    def _queue_pending_bars(self, symbol: str, bars: Iterable[CandleState]) -> None:
+        pending = self.pending_bars.setdefault(symbol, {})
+        for bar in bars:
+            existing = pending.get(bar.identity)
+            if existing is None or (bar.confirmed, bar.received_at) >= (
+                existing.confirmed,
+                existing.received_at,
+            ):
+                pending[bar.identity] = bar
+        if len(pending) > self.config.bar_limit:
+            retained = sorted(pending.items(), key=lambda item: item[0])[-self.config.bar_limit :]
+            self.pending_bars[symbol] = dict(retained)
+
+    def _discard_pending_bars(self, symbol: str, bars: Iterable[CandleState]) -> None:
+        pending = self.pending_bars.get(symbol)
+        if not pending:
+            return
+        for bar in bars:
+            pending.pop(bar.identity, None)
+        if not pending:
+            self.pending_bars.pop(symbol, None)
 
     async def _write_symbol_state(self, state: SymbolRuntimeState) -> None:
         try:
@@ -423,6 +460,7 @@ class MarketStreamService:
                 self.warming_buffers.pop(key, None)
             self.pending_quotes.pop(symbol, None)
             self.pending_candles.pop(symbol, None)
+            self.pending_bars.pop(symbol, None)
         try:
             await self.repository.expire_symbol_cache(
                 symbol,
@@ -433,6 +471,11 @@ class MarketStreamService:
             logger.warning("设置已删除标的缓存 TTL 失败: symbol=%s error=%s", symbol, exc)
 
     async def _cleanup_connection_buffers(self, connection_generation: int) -> None:
+        # Quote sequence values are connection-scoped. Keep the merged fields
+        # for partial pushes, but let the new connection establish a baseline.
+        for symbol, quote in self.quotes.items():
+            quote.sequence = None
+            self.pending_quotes.pop(symbol, None)
         symbols = {
             key.symbol
             for key in self.warming_buffers

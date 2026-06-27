@@ -103,6 +103,32 @@ async def test_batch_write_uses_one_pipeline_and_removed_cache_ttl() -> None:
 
 
 @pytest.mark.asyncio
+async def test_multi_symbol_bars_use_one_write_pipeline() -> None:
+    redis = FakeRedis()
+    repo = RealtimeStateRepository(redis)
+    apple = candle(1)
+    tesla = CandleState(
+        symbol="TSLA.US",
+        bar_time=apple.bar_time,
+        open=apple.open,
+        high=apple.high,
+        low=apple.low,
+        close=apple.close,
+        volume=apple.volume,
+        turnover=apple.turnover,
+        trade_session=apple.trade_session,
+        confirmed=apple.confirmed,
+        received_at=apple.received_at,
+    )
+
+    await repo.upsert_bars_batch({"AAPL.US": [apple], "TSLA.US": [tesla]})
+
+    assert redis.pipeline_executes == 1
+    assert len(await repo.get_recent_bars("AAPL.US", 10)) == 1
+    assert len(await repo.get_recent_bars("TSLA.US", 10)) == 1
+
+
+@pytest.mark.asyncio
 async def test_heartbeat_has_ttl() -> None:
     redis = FakeRedis()
     repo = RealtimeStateRepository(redis)
