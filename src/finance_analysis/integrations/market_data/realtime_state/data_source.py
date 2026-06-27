@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import atexit
 import logging
+import os
 import threading
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -222,16 +224,34 @@ class SyncRealtimeMarketDataSource:
     def __init__(
         self,
         source_factory: Callable[[], RealtimeMarketDataSource] | None = None,
+        *,
+        operation_timeout_seconds: float = 3.0,
     ) -> None:
         self._source_factory = source_factory or _default_async_source
+        self.operation_timeout_seconds = max(0.1, float(operation_timeout_seconds))
         self._source: RealtimeMarketDataSource | None = None
-        self._loop = asyncio.new_event_loop()
-        self._started = threading.Event()
+        self._pid = os.getpid()
         self._closed = False
         self._local = threading.local()
+        self._start_runner()
+
+    def _start_runner(self) -> None:
+        self._loop = asyncio.new_event_loop()
+        self._started = threading.Event()
         self._thread = threading.Thread(target=self._run_loop, name="realtime-market-data", daemon=True)
         self._thread.start()
         self._started.wait()
+
+    def _ensure_process(self) -> None:
+        """Recreate loop-owned resources after a Celery prefork."""
+        current_pid = os.getpid()
+        if current_pid == self._pid:
+            return
+        self._pid = current_pid
+        self._source = None
+        self._closed = False
+        self._local = threading.local()
+        self._start_runner()
 
     @property
     def fallback_reason(self) -> str | None:
@@ -274,13 +294,18 @@ class SyncRealtimeMarketDataSource:
     def close(self) -> None:
         if self._closed:
             return
+        if os.getpid() != self._pid:
+            # A forked child cannot drive or close the parent's event loop.
+            self._closed = True
+            return
         try:
             self._submit(self._close_source())
         finally:
             self._closed = True
             self._loop.call_soon_threadsafe(self._loop.stop)
             self._thread.join(timeout=2)
-            self._loop.close()
+            if not self._thread.is_alive():
+                self._loop.close()
 
     async def _quote_lookup(self, symbol: str, **kwargs: Any) -> MarketDataLookup[UnifiedRealtimeQuote]:
         source = self._get_source()
@@ -300,10 +325,18 @@ class SyncRealtimeMarketDataSource:
         return self._source
 
     def _submit(self, coroutine: Any) -> Any:
+        self._ensure_process()
         if self._closed:
             coroutine.close()
             raise RuntimeError("realtime market data source is closed")
-        return asyncio.run_coroutine_threadsafe(coroutine, self._loop).result()
+        future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
+        try:
+            return future.result(timeout=self.operation_timeout_seconds)
+        except FutureTimeoutError as exc:
+            future.cancel()
+            raise TimeoutError(
+                f"realtime market data read exceeded {self.operation_timeout_seconds:.1f}s"
+            ) from exc
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
@@ -317,13 +350,19 @@ def _default_async_source() -> RealtimeMarketDataSource:
 
 
 @lru_cache(maxsize=1)
-def get_default_sync_realtime_source() -> SyncRealtimeMarketDataSource:
+def _cached_default_sync_realtime_source() -> SyncRealtimeMarketDataSource:
     return SyncRealtimeMarketDataSource()
 
 
+def get_default_sync_realtime_source() -> SyncRealtimeMarketDataSource:
+    source = _cached_default_sync_realtime_source()
+    source._ensure_process()
+    return source
+
+
 def _close_default_source() -> None:
-    if get_default_sync_realtime_source.cache_info().currsize:
-        get_default_sync_realtime_source().close()
+    if _cached_default_sync_realtime_source.cache_info().currsize:
+        _cached_default_sync_realtime_source().close()
 
 
 atexit.register(_close_default_source)
@@ -442,13 +481,24 @@ def _merge_current(
     market_type: MarketType,
     now: datetime,
 ) -> list[CandleState]:
+    spec = market_spec(market_type)
+    current_local = current.bar_time.astimezone(spec.timezone) if current.bar_time.tzinfo else None
+    now_local = now.astimezone(spec.timezone)
     if (
         current.symbol != symbol
         or current.bar_time.tzinfo is None
+        or current.received_at.tzinfo is None
         or not current.is_valid()
-        or current.bar_time.astimezone(market_timezone(market_type)).date()
-        != now.astimezone(market_timezone(market_type)).date()
+        or current_local is None
+        or current_local.date() != now_local.date()
+        or not any(start <= current_local.time() < end for start, end in spec.regular_sessions)
     ):
+        return bars
+    if current.confirmed:
+        expected = latest_completed_bar_time(now, market_type)
+        if expected is None or current.bar_time.astimezone(timezone.utc) > expected:
+            return bars
+    elif current_local.replace(second=0, microsecond=0) != now_local.replace(second=0, microsecond=0):
         return bars
     by_identity = {bar.identity: bar for bar in bars}
     existing = by_identity.get(current.identity)

@@ -98,19 +98,35 @@ class RealtimeStateRepository:
         return CandleState.from_mapping(raw) if raw else None
 
     async def upsert_bars(self, symbol: str, bars: Iterable[CandleState]) -> None:
-        valid = {self._bar_field(bar): bar for bar in bars if bar.symbol == symbol and bar.is_valid()}
-        if not valid:
+        await self.upsert_bars_batch({symbol: bars})
+
+    async def upsert_bars_batch(
+        self,
+        bars_by_symbol: Mapping[str, Iterable[CandleState]],
+    ) -> None:
+        valid_by_symbol = {
+            symbol: {
+                self._bar_field(bar): bar
+                for bar in bars
+                if bar.symbol == symbol and bar.is_valid()
+            }
+            for symbol, bars in bars_by_symbol.items()
+        }
+        valid_by_symbol = {symbol: bars for symbol, bars in valid_by_symbol.items() if bars}
+        if not valid_by_symbol:
             return
-        index_key = keys.bars_index_key(symbol)
-        data_key = keys.bars_data_key(symbol)
         pipe = self.redis.pipeline(transaction=False)
-        for field, bar in valid.items():
-            pipe.zadd(index_key, {field: bar.bar_time.timestamp()})
-            pipe.hset(data_key, field, _candle_json(bar))
-        pipe.expire(index_key, self.bars_ttl_seconds)
-        pipe.expire(data_key, self.bars_ttl_seconds)
+        for symbol, valid in valid_by_symbol.items():
+            index_key = keys.bars_index_key(symbol)
+            data_key = keys.bars_data_key(symbol)
+            for field, bar in valid.items():
+                pipe.zadd(index_key, {field: bar.bar_time.timestamp()})
+                pipe.hset(data_key, field, _candle_json(bar))
+            pipe.expire(index_key, self.bars_ttl_seconds)
+            pipe.expire(data_key, self.bars_ttl_seconds)
         await pipe.execute()
-        await self._trim_bars(index_key, data_key)
+        for symbol in valid_by_symbol:
+            await self._trim_bars(keys.bars_index_key(symbol), keys.bars_data_key(symbol))
 
     async def _trim_bars(self, index_key: str, data_key: str) -> None:
         count = int(await self.redis.zcard(index_key))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -7,8 +8,10 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from finance_analysis.integrations.market_data.realtime_state.data_source import (
+    MarketDataLookup,
     RealtimeMarketDataSource,
     RealtimeReadPolicy,
+    SyncRealtimeMarketDataSource,
 )
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
@@ -195,6 +198,44 @@ async def test_bar_count_and_current_candle_merge_are_validated() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stale_current_candle_is_not_merged() -> None:
+    now = datetime(2026, 6, 26, 10, 0, 20, tzinfo=ZoneInfo("America/New_York"))
+    repo = RealtimeStateRepository(FakeRedis())
+    await _seed_health(repo, "AAPL.US", "US", now)
+    historical = _bars("AAPL.US", now, "US")
+    await repo.upsert_bars("AAPL.US", historical)
+    stale_time = datetime(2026, 6, 26, 9, 30, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
+    await repo.write_current_candle(
+        CandleState(
+            symbol="AAPL.US",
+            bar_time=stale_time,
+            open=Decimal("99"),
+            high=Decimal("101"),
+            low=Decimal("98"),
+            close=Decimal("100"),
+            volume=100,
+            turnover=Decimal("10000"),
+            trade_session="Intraday",
+            confirmed=False,
+            received_at=stale_time + timedelta(seconds=30),
+        )
+    )
+
+    bars = await RealtimeMarketDataSource(repo).get_recent_bars(
+        "AAPL",
+        20,
+        market_type="US",
+        minimum_count=15,
+        include_incomplete=True,
+        now=now,
+    )
+
+    assert bars is not None
+    assert len(bars) == 15
+    assert all(not bar["timestamp"].endswith("09:30:00-04:00") for bar in bars)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("market_type", "symbol", "now", "timezone_name"),
     [
@@ -234,3 +275,57 @@ async def test_redis_failure_is_a_cache_miss() -> None:
 
     assert lookup.data is None
     assert lookup.fallback_reason == "redis_error"
+
+
+def test_sync_adapter_times_out_instead_of_blocking_worker() -> None:
+    class BlockingSource:
+        async def get_quote_lookup(self, symbol, **kwargs):
+            await asyncio.Event().wait()
+
+        async def close(self):
+            return None
+
+    source = SyncRealtimeMarketDataSource(
+        lambda: BlockingSource(),  # type: ignore[arg-type]
+        operation_timeout_seconds=0.05,
+    )
+    try:
+        with pytest.raises(TimeoutError, match="realtime market data read exceeded"):
+            source.get_quote("AAPL", market_type="US")
+    finally:
+        source.close()
+
+
+def test_sync_adapter_recreates_loop_resources_after_process_change(monkeypatch) -> None:
+    created = []
+
+    class Source:
+        async def get_quote_lookup(self, symbol, **kwargs):
+            return MarketDataLookup(None, "redis_missing")
+
+        async def close(self):
+            return None
+
+    def factory():
+        instance = Source()
+        created.append(instance)
+        return instance
+
+    source = SyncRealtimeMarketDataSource(factory)
+    old_loop = source._loop
+    old_thread = source._thread
+    original_pid = source._pid
+    try:
+        assert source.get_quote("AAPL", market_type="US") is None
+        monkeypatch.setattr(
+            "finance_analysis.integrations.market_data.realtime_state.data_source.os.getpid",
+            lambda: original_pid + 1,
+        )
+        assert source.get_quote("AAPL", market_type="US") is None
+        assert len(created) == 2
+        assert source._loop is not old_loop
+    finally:
+        source.close()
+        old_loop.call_soon_threadsafe(old_loop.stop)
+        old_thread.join(timeout=1)
+        old_loop.close()

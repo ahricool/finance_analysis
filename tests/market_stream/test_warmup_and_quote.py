@@ -67,6 +67,20 @@ def candle_event(candle: CandleState, connection_generation: int) -> MarketEvent
     )
 
 
+def quote_event(price: str, sequence: int, connection_generation: int) -> MarketEvent:
+    received_at = BASE + timedelta(seconds=sequence)
+    return MarketEvent(
+        "quote",
+        "AAPL.US",
+        received_at,
+        received_at,
+        sequence,
+        "Intraday",
+        {"last_price": price, "sequence": sequence, "trade_session": "Intraday"},
+        connection_generation,
+    )
+
+
 def service(redis: FakeRedis | None = None, repository=None) -> MarketStreamService:
     redis = redis or FakeRedis()
     config = MarketStreamConfig(redis_url="redis://fake", bar_limit=420)
@@ -223,6 +237,12 @@ async def test_redis_failure_after_activation_does_not_lose_memory_bars() -> Non
     assert [item.close for item in app.bars_1m["AAPL.US"]] == [Decimal("10"), Decimal("12")]
     assert finalized[0][0] == 2
     assert app.redis_degraded
+    assert len(app.pending_bars["AAPL.US"]) == 2
+
+    assert await app._flush_pending_redis()
+    assert "AAPL.US" not in app.pending_bars
+    restored = await app.repository.get_recent_bars("AAPL.US", 10)
+    assert [item.close for item in restored] == [Decimal("10"), Decimal("12")]
 
 
 @pytest.mark.asyncio
@@ -235,6 +255,34 @@ async def test_connection_cleanup_removes_only_old_generation_buffers() -> None:
     await app._cleanup_connection_buffers(1)
     assert old not in app.warming_buffers
     assert current in app.warming_buffers
+
+
+@pytest.mark.asyncio
+async def test_connection_cleanup_resets_quote_sequence_for_new_connection() -> None:
+    app = service()
+    target = SubscriptionTarget("AAPL.US", "US")
+    state = SymbolRuntimeState(
+        symbol=target.symbol,
+        market_type=target.market_type,
+        status=SymbolStatus.ACTIVE,
+        generation=1,
+    )
+    app.manager.desired_targets = {target.symbol: target}
+    app.manager.symbol_states[target.symbol] = state
+    app.manager.connection_generation = 2
+
+    await app._handle_event(quote_event("100", 100, 2))
+    assert app.quotes["AAPL.US"].sequence == 100
+    assert "AAPL.US" in app.pending_quotes
+
+    app.manager.connection_generation = 3
+    await app._cleanup_connection_buffers(2)
+    assert app.quotes["AAPL.US"].sequence is None
+    assert "AAPL.US" not in app.pending_quotes
+
+    await app._handle_event(quote_event("101", 1, 3))
+    assert app.quotes["AAPL.US"].last_price == Decimal("101")
+    assert app.quotes["AAPL.US"].sequence == 1
 
 
 @pytest.mark.asyncio
