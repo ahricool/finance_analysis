@@ -108,8 +108,7 @@ services:
         "-A",
         "finance_analysis.tasks.celery.app:celery_app",
         "beat",
-        "--loglevel=INFO",
-        "--schedule=/workspace/data/celerybeat-schedule",
+        "--loglevel=INFO"
       ]
     depends_on:
       postgres:
