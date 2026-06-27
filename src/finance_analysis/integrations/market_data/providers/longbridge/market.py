@@ -216,6 +216,60 @@ def _longbridge_config_kwargs() -> Dict[str, Any]:
     return kw
 
 
+def build_longbridge_config() -> Any:
+    """Build the shared SDK Config used by synchronous and streaming clients."""
+    from longbridge.openapi import Config
+
+    _sanitize_longbridge_env()
+    try:
+        from finance_analysis.integrations.market_data.config import get_data_provider_config
+
+        app_config = get_data_provider_config()
+        app_key = app_config.longbridge_app_key
+        app_secret = app_config.longbridge_app_secret
+        access_token = app_config.longbridge_access_token
+    except Exception:
+        app_key = os.getenv("LONGBRIDGE_APP_KEY")
+        app_secret = os.getenv("LONGBRIDGE_APP_SECRET")
+        access_token = os.getenv("LONGBRIDGE_ACCESS_TOKEN")
+
+    if not (app_key and app_secret and access_token):
+        raise RuntimeError("Longbridge credentials are not configured")
+
+    for key, value in {
+        "LONGBRIDGE_APP_KEY": app_key,
+        "LONGBRIDGE_APP_SECRET": app_secret,
+        "LONGBRIDGE_ACCESS_TOKEN": access_token,
+    }.items():
+        if value and not os.environ.get(key):
+            os.environ[key] = value
+
+    config = None
+    for factory_name in ("from_apikey_env", "from_env"):
+        factory = getattr(Config, factory_name, None)
+        if factory is None:
+            continue
+        try:
+            config = factory()
+            logger.info("[Longbridge] Config.%s() 成功", factory_name)
+            break
+        except Exception as exc:
+            logger.debug("[Longbridge] Config.%s() 失败: %s", factory_name, exc)
+
+    if config is None:
+        config = Config.from_apikey(app_key, app_secret, access_token, **_longbridge_config_kwargs())
+        logger.info("[Longbridge] Config.from_apikey() 创建成功")
+
+    region = os.getenv("LONGBRIDGE_REGION") or os.getenv("LONGPORT_REGION") or "(auto)"
+    logger.info(
+        "[Longbridge] 配置: region=%s, http=%s, quote_ws=%s",
+        region,
+        os.getenv("LONGBRIDGE_HTTP_URL", "(default)"),
+        os.getenv("LONGBRIDGE_QUOTE_WS_URL", "(default)"),
+    )
+    return config
+
+
 def _is_us_code(stock_code: str) -> bool:
     normalized = stock_code.strip().upper()
     return is_us_stock_code(normalized) or is_us_index_code(normalized)
@@ -374,72 +428,10 @@ class LongbridgeFetcher(BaseFetcher):
             if not self._is_available():
                 return None
             try:
-                from longbridge.openapi import QuoteContext, Config
+                from longbridge.openapi import QuoteContext
 
-                # ── 1. Clean up empty URL env vars & apply REGION mapping ──
-                _sanitize_longbridge_env()
-
-                # ── 2. Ensure credentials are available in env ──
-                try:
-                    from finance_analysis.integrations.market_data.config import get_data_provider_config
-                    app_config = get_data_provider_config()
-                    app_key = app_config.longbridge_app_key
-                    app_secret = app_config.longbridge_app_secret
-                    access_token = app_config.longbridge_access_token
-                except Exception:
-                    app_key = os.getenv("LONGBRIDGE_APP_KEY")
-                    app_secret = os.getenv("LONGBRIDGE_APP_SECRET")
-                    access_token = os.getenv("LONGBRIDGE_ACCESS_TOKEN")
-
-                for k, v in {
-                    "LONGBRIDGE_APP_KEY": app_key,
-                    "LONGBRIDGE_APP_SECRET": app_secret,
-                    "LONGBRIDGE_ACCESS_TOKEN": access_token,
-                }.items():
-                    if v and not os.environ.get(k):
-                        os.environ[k] = v
-
-                # ── 3. Build Config ──
-                extra_kw = _longbridge_config_kwargs()
-                lb_config = None
-
-                # Prefer from_apikey_env() — reads all LONGBRIDGE_* env vars
-                # (credentials + URLs + options) including .env files.
-                # Available in longbridge >= 4.x.  from_env() only exists on
-                # the unreleased master branch.
-                for factory_name in ("from_apikey_env", "from_env"):
-                    factory = getattr(Config, factory_name, None)
-                    if factory is None:
-                        continue
-                    try:
-                        lb_config = factory()
-                        logger.info("[Longbridge] Config.%s() 成功", factory_name)
-                        break
-                    except Exception as e:
-                        logger.debug(
-                            "[Longbridge] Config.%s() 失败: %s", factory_name, e
-                        )
-
-                if lb_config is None:
-                    lb_config = Config.from_apikey(
-                        app_key,
-                        app_secret,
-                        access_token,
-                        **extra_kw,
-                    )
-                    logger.info("[Longbridge] Config.from_apikey() 创建成功")
-
-                # Diagnostic logging
-                region = os.getenv("LONGBRIDGE_REGION") or os.getenv("LONGPORT_REGION") or "(auto)"
-                logger.info(
-                    "[Longbridge] 配置: region=%s, http=%s, quote_ws=%s",
-                    region,
-                    os.getenv("LONGBRIDGE_HTTP_URL", "(default)"),
-                    os.getenv("LONGBRIDGE_QUOTE_WS_URL", "(default)"),
-                )
-
-                self._config = lb_config
-                self._ctx = QuoteContext(lb_config)
+                self._config = build_longbridge_config()
+                self._ctx = QuoteContext(self._config)
                 logger.info("[Longbridge] QuoteContext 初始化成功")
                 return self._ctx
             except Exception as e:
