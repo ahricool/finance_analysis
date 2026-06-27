@@ -109,3 +109,45 @@ async def test_heartbeat_has_ttl() -> None:
     await repo.write_heartbeat({"status": "READY"}, ttl_seconds=30)
     assert redis.hashes[keys.STREAMER_HEARTBEAT_KEY]["status"] == "READY"
     assert await redis.ttl(keys.STREAMER_HEARTBEAT_KEY) == 30
+
+
+@pytest.mark.asyncio
+async def test_subscription_write_uses_hset_and_expire_in_one_pipeline() -> None:
+    redis = FakeRedis()
+    repo = RealtimeStateRepository(redis)
+    await repo.write_subscription(
+        "AAPL.US",
+        {"status": "ACTIVE", "market_type": "US"},
+        ttl_seconds=60,
+    )
+    assert redis.pipeline_executes == 1
+    assert redis.hashes[keys.subscription_key("AAPL.US")]["status"] == "ACTIVE"
+    assert await redis.ttl(keys.subscription_key("AAPL.US")) == 60
+
+
+@pytest.mark.asyncio
+async def test_subscription_state_expires_without_renewal() -> None:
+    redis = FakeRedis()
+    repo = RealtimeStateRepository(redis)
+    await repo.write_subscription("AAPL.US", {"status": "ACTIVE"}, ttl_seconds=60)
+    redis.advance(61)
+    assert keys.subscription_key("AAPL.US") not in redis.hashes
+
+
+@pytest.mark.asyncio
+async def test_refresh_subscription_ttls_is_single_pipeline() -> None:
+    redis = FakeRedis()
+    repo = RealtimeStateRepository(redis)
+    symbols = [f"S{index}.US" for index in range(200)]
+    await repo.refresh_subscription_ttls(symbols, ttl_seconds=60)
+    assert redis.pipeline_executes == 1
+    assert all(redis.expires[keys.subscription_key(symbol)] == 60 for symbol in symbols)
+
+
+@pytest.mark.asyncio
+async def test_inactive_subscription_uses_removed_cache_ttl() -> None:
+    redis = FakeRedis()
+    repo = RealtimeStateRepository(redis)
+    await repo.write_subscription("AAPL.US", {"status": "INACTIVE"}, ttl_seconds=60)
+    await repo.expire_symbol_cache("AAPL.US", ttl_seconds=120)
+    assert await redis.ttl(keys.subscription_key("AAPL.US")) == 120

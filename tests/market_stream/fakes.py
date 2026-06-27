@@ -39,6 +39,20 @@ class FakeRedis:
         self.fail_execute = False
         self.closed = False
 
+    def advance(self, seconds: int) -> None:
+        expired = []
+        for key, ttl in list(self.expires.items()):
+            remaining = ttl - seconds
+            if remaining <= 0:
+                expired.append(key)
+            else:
+                self.expires[key] = remaining
+        for key in expired:
+            self.expires.pop(key, None)
+            self.hashes.pop(key, None)
+            self.zsets.pop(key, None)
+            self.strings.pop(key, None)
+
     def pipeline(self, transaction: bool = False) -> FakePipeline:
         return FakePipeline(self)
 

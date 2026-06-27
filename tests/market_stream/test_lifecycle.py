@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -12,6 +12,7 @@ from finance_analysis.integrations.market_data.realtime_state.repository import 
 from finance_analysis.market_stream.config import MarketStreamConfig
 from finance_analysis.market_stream.leader_lock import LeaderLock
 from finance_analysis.market_stream.service import MarketStreamService
+from finance_analysis.market_stream.symbol_state import SubscriptionTarget, SymbolRuntimeState, SymbolStatus
 from finance_analysis.market_stream.watchlist_monitor import WatchListMonitor
 from tests.market_stream.fakes import FakeRedis, FakeStreamingClient, wait_until
 
@@ -36,7 +37,7 @@ async def test_service_request_stop_is_graceful_and_heartbeat_has_ttl() -> None:
     repo = RealtimeStateRepository(redis)
 
     class History:
-        async def fetch(self, symbol, count):
+        async def fetch(self, symbol, market_type, count):
             return []
 
     config = MarketStreamConfig(
@@ -50,7 +51,9 @@ async def test_service_request_stop_is_graceful_and_heartbeat_has_ttl() -> None:
     service = MarketStreamService(
         config=config,
         repository=repo,
-        watchlist_monitor=WatchListMonitor(lambda: {"AAPL.US"}),
+        watchlist_monitor=WatchListMonitor(
+            lambda: {"AAPL.US": SubscriptionTarget("AAPL.US", "US")}
+        ),
         client_factory=FakeStreamingClient,
         history_loader=History(),
     )
@@ -62,6 +65,82 @@ async def test_service_request_stop_is_graceful_and_heartbeat_has_ttl() -> None:
     assert FakeStreamingClient.instances[0].closed
     assert redis.closed
     assert await redis.ttl(keys.STREAMER_HEARTBEAT_KEY) == 30
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_refreshes_subscription_ttls_in_one_pipeline_for_200_symbols() -> None:
+    redis = FakeRedis()
+    service = MarketStreamService(
+        config=MarketStreamConfig(redis_url="redis://fake", heartbeat_seconds=1),
+        repository=RealtimeStateRepository(redis),
+        client_factory=FakeStreamingClient,
+    )
+    for index in range(200):
+        symbol = f"S{index}.US"
+        service.manager.symbol_states[symbol] = SymbolRuntimeState(
+            symbol=symbol,
+            market_type="US",
+            status=SymbolStatus.ACTIVE,
+        )
+        redis.hashes[keys.subscription_key(symbol)]["status"] = "ACTIVE"
+        redis.expires[keys.subscription_key(symbol)] = 1
+    before = redis.pipeline_executes
+    task = asyncio.create_task(service._heartbeat())
+    await asyncio.sleep(0.02)
+    service.request_stop()
+    await asyncio.wait_for(task, timeout=1.2)
+
+    assert redis.pipeline_executes - before == 2
+    assert all(
+        redis.expires[keys.subscription_key(f"S{index}.US")] == 60
+        for index in range(200)
+    )
+
+
+@pytest.mark.asyncio
+async def test_subscription_state_persists_market_and_trading_date_with_ttl() -> None:
+    redis = FakeRedis()
+    service = MarketStreamService(
+        config=MarketStreamConfig(redis_url="redis://fake"),
+        repository=RealtimeStateRepository(redis),
+        client_factory=FakeStreamingClient,
+    )
+    state = SymbolRuntimeState(
+        symbol="600519.SH",
+        market_type="CN",
+        trading_date=date(2026, 6, 26),
+        status=SymbolStatus.ACTIVE,
+    )
+    await service._write_symbol_state(state)
+    stored = redis.hashes[keys.subscription_key("600519.SH")]
+    assert stored["market_type"] == "CN"
+    assert stored["trading_date"] == "2026-06-26"
+    assert redis.expires[keys.subscription_key("600519.SH")] == 60
+
+
+@pytest.mark.asyncio
+async def test_inactive_subscription_is_not_renewed_and_expires() -> None:
+    redis = FakeRedis()
+    service = MarketStreamService(
+        config=MarketStreamConfig(redis_url="redis://fake", heartbeat_seconds=1),
+        repository=RealtimeStateRepository(redis),
+        client_factory=FakeStreamingClient,
+    )
+    symbol = "AAPL.US"
+    service.manager.symbol_states[symbol] = SymbolRuntimeState(
+        symbol=symbol,
+        market_type="US",
+        status=SymbolStatus.INACTIVE,
+    )
+    redis.hashes[keys.subscription_key(symbol)]["status"] = "INACTIVE"
+    redis.expires[keys.subscription_key(symbol)] = 1
+    task = asyncio.create_task(service._heartbeat())
+    await asyncio.sleep(0.02)
+    service.request_stop()
+    await asyncio.wait_for(task, timeout=1.2)
+    assert redis.expires[keys.subscription_key(symbol)] == 1
+    redis.advance(2)
+    assert keys.subscription_key(symbol) not in redis.hashes
 
 
 @pytest.mark.asyncio

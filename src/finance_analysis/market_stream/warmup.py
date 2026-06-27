@@ -7,10 +7,11 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable
-from zoneinfo import ZoneInfo
 
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
+from finance_analysis.market_stream.config import latest_completed_bar_time, market_trading_date
+from finance_analysis.stocks.markets import MarketType
 
 
 def _parse_time(value: Any) -> datetime:
@@ -25,7 +26,7 @@ class LongbridgeHistoryLoader:
     def __init__(self, fetcher: LongbridgeFetcher | None = None) -> None:
         self.fetcher = fetcher or LongbridgeFetcher()
 
-    async def fetch(self, symbol: str, count: int) -> list[CandleState]:
+    async def fetch(self, symbol: str, market_type: MarketType, count: int) -> list[CandleState]:
         raw = await asyncio.to_thread(
             self.fetcher.get_minute_candlesticks,
             symbol,
@@ -34,7 +35,7 @@ class LongbridgeHistoryLoader:
             False,
         )
         received_at = datetime.now(timezone.utc)
-        current_minute = received_at.replace(second=0, microsecond=0)
+        expected_completed = latest_completed_bar_time(received_at, market_type)
         bars: list[CandleState] = []
         for item in raw:
             try:
@@ -49,7 +50,7 @@ class LongbridgeHistoryLoader:
                     volume=int(item.get("volume") or 0),
                     turnover=Decimal(str(item["turnover"])) if item.get("turnover") is not None else None,
                     trade_session=str(item.get("trade_session") or "") or None,
-                    confirmed=bar_time < current_minute,
+                    confirmed=expected_completed is not None and bar_time <= expected_completed,
                     received_at=received_at,
                 )
                 if bar.is_valid():
@@ -58,9 +59,8 @@ class LongbridgeHistoryLoader:
                 continue
         if not bars:
             return []
-        market_tz = ZoneInfo("America/New_York")
-        latest_session = max(bar.bar_time.astimezone(market_tz).date() for bar in bars)
-        return [bar for bar in bars if bar.bar_time.astimezone(market_tz).date() == latest_session]
+        latest_session = max(market_trading_date(bar.bar_time, market_type) for bar in bars)
+        return [bar for bar in bars if market_trading_date(bar.bar_time, market_type) == latest_session]
 
 
 def merge_warmup_bars(

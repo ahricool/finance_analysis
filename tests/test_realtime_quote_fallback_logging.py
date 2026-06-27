@@ -126,6 +126,20 @@ def test_pipeline_warns_once_when_all_realtime_sources_fail(caplog):
     assert downgrade_logs == ["贵州茅台(600519) 所有实时行情数据源均不可用，已降级为历史收盘价继续分析"]
 
 
+def test_pipeline_prefers_market_streamer_quote_without_calling_manager():
+    quote = UnifiedRealtimeQuote(
+        code="600519",
+        source=RealtimeSource.MARKET_STREAMER,
+        price=1689.0,
+    )
+    pipeline = _make_pipeline(enable_realtime_quote=True)
+    pipeline.realtime_source = SimpleNamespace(get_quote=MagicMock(return_value=quote))
+
+    assert pipeline._fetch_realtime_quote("600519") is quote
+    pipeline.realtime_source.get_quote.assert_called_once_with("600519")
+    pipeline.fetcher_manager.get_realtime_quote.assert_not_called()
+
+
 @patch("finance_analysis.integrations.market_data.config.get_data_provider_config")
 def test_event_monitor_keeps_manager_failure_summary_for_direct_quote_call(mock_get_config, caplog):
     from finance_analysis.agent.events import EventMonitor, PriceAlert

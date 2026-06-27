@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
+
+from finance_analysis.stocks.markets import MarketType
 
 
 class SymbolStatus(StrEnum):
@@ -30,6 +32,8 @@ class ConnectionStatus(StrEnum):
 @dataclass(slots=True)
 class SymbolRuntimeState:
     symbol: str
+    market_type: MarketType
+    trading_date: date | None = None
     status: SymbolStatus = SymbolStatus.PENDING
     generation: int = 0
     quote_subscribed: bool = False
@@ -42,6 +46,8 @@ class SymbolRuntimeState:
 
     def redis_mapping(self, updated_at: datetime) -> dict[str, object]:
         return {
+            "market_type": self.market_type,
+            "trading_date": self.trading_date,
             "status": self.status,
             "quote_subscribed": self.quote_subscribed,
             "candlestick_1m_subscribed": self.candlestick_1m_subscribed,
@@ -53,3 +59,9 @@ class SymbolRuntimeState:
             "error": self.error,
             "updated_at": updated_at,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class SubscriptionTarget:
+    symbol: str
+    market_type: MarketType
