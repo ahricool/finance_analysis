@@ -185,7 +185,7 @@ class TaskQueueLifecycleIntegrationTestCase(unittest.TestCase):
         repository = FakeTaskRecordRepository()
         queue = AnalysisTaskQueue(max_workers=1, repository=repository)
 
-        from finance_analysis.tasks.celery.jobs.analysis import run_stock_analysis
+        from finance_analysis.tasks.celery.jobs.stock_analysis.tasks import run_stock_analysis
 
         with patch.object(run_stock_analysis, "apply_async"):
             accepted, duplicates = queue.submit_tasks_batch(["600519"], report_type="detailed")

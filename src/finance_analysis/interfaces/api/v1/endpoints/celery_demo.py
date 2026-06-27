@@ -8,7 +8,7 @@ import logging
 from fastapi import APIRouter
 
 from finance_analysis.interfaces.api.v1.schemas.celery_demo import CeleryAddRequest, CeleryAddResponse
-from finance_analysis.tasks.celery.jobs.demo import add
+from finance_analysis.tasks.celery.jobs.demo_add.tasks import add
 
 logger = logging.getLogger(__name__)
 

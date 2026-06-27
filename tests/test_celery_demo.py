@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 from finance_analysis.interfaces.api.v1.endpoints.celery_demo import submit_add_task
 from finance_analysis.interfaces.api.v1.schemas.celery_demo import CeleryAddRequest
 from finance_analysis.tasks.celery.app import celery_app
-from finance_analysis.tasks.celery.jobs.demo import add
+from finance_analysis.tasks.celery.jobs.demo_add.tasks import add
 
 class CeleryDemoTaskTestCase(unittest.TestCase):
     """Unit tests for the demo add Celery task."""

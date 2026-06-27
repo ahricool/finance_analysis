@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from finance_analysis.tasks.celery.app import celery_app
-from finance_analysis.tasks.celery.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab
+from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab
 from finance_analysis.tasks.celery.schedule import (
     ALL_QUEUES,
     build_beat_schedule,
@@ -181,11 +181,15 @@ def test_compute_next_run_handles_localized_per_schedule_timezone():
 
 
 def test_scheduled_celery_tasks_are_lifecycle_tracked():
-    from finance_analysis.tasks.celery.jobs.scheduled import SCHEDULED_CELERY_TASKS
     from finance_analysis.tasks.lifecycle import is_tracked_callable
 
-    assert set(SCHEDULED_CELERY_TASKS) == set(EXPECTED_JOBS)
-    for task in SCHEDULED_CELERY_TASKS.values():
+    celery_app.loader.import_default_modules()
+    tasks = {
+        definition.job_id: celery_app.tasks[definition.celery_task_name]
+        for definition in get_scheduled_task_definitions()
+    }
+    assert set(tasks) == set(EXPECTED_JOBS)
+    for task in tasks.values():
         assert is_tracked_callable(task)
 
 
@@ -250,3 +254,27 @@ def test_before_publish_carries_manual_trigger_metadata():
     metadata = events[0]["metadata"]
     assert metadata.trigger_source == "manual"
     assert metadata.triggered_by_uid == 42
+
+
+def test_before_publish_uses_importance_task_metadata():
+    from unittest.mock import patch
+
+    from finance_analysis.tasks.celery import app as app_module
+
+    events = []
+
+    class _RecordingService:
+        def create_pending(self, **kwargs):
+            events.append(kwargs)
+
+    with patch.object(app_module, "get_task_lifecycle_service", return_value=_RecordingService()):
+        app_module._create_pending_task_record(
+            sender="analysis.market_calendar_importance",
+            headers={"id": "importance-1"},
+            body=([], {"event_ids": [1, 2]}, {}),
+        )
+
+    metadata = events[0]["metadata"]
+    assert metadata.task_type == "market_calendar_importance"
+    assert metadata.task_name == "财经日历重要性评分"
+    assert metadata.source == "celery"

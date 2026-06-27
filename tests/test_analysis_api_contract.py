@@ -155,7 +155,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         task_queue.submit_market_review.assert_not_called()
 
     def test_market_review_celery_task_uses_configured_pipeline(self) -> None:
-        from finance_analysis.tasks.celery.jobs.analysis import run_market_review
+        from finance_analysis.tasks.celery.jobs.market_review.tasks import run_market_review
         from finance_analysis.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
 
         reset_task_state_for_tests()
@@ -191,7 +191,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         reset_task_state_for_tests()
 
     def test_market_review_celery_task_marks_failed_when_report_is_empty(self) -> None:
-        from finance_analysis.tasks.celery.jobs.analysis import run_market_review
+        from finance_analysis.tasks.celery.jobs.market_review.tasks import run_market_review
         from finance_analysis.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
 
         reset_task_state_for_tests()

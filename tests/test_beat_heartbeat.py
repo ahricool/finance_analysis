@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from finance_analysis.tasks.celery import heartbeat
+from finance_analysis.tasks.celery.schedule import heartbeat
 
 
 class _FakeRedis:

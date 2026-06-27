@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Lightweight Celery Beat health check via a Redis heartbeat key.
-
-The Beat process writes a short-lived key to Redis on a fixed interval; the
-task center reads that key to decide whether scheduling is ``active`` or
-``unavailable``. This avoids publishing a real Celery task for liveness (which
-would create a TaskRecord) and never touches the Beat schedule file.
-"""
+"""Redis heartbeat used by Celery Beat and the task center."""
 
 from __future__ import annotations
 
@@ -17,8 +11,6 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_KEY = "finance_analysis:celery:beat:heartbeat"
 HEARTBEAT_INTERVAL_SECONDS = 30
-# TTL is comfortably larger than the write interval so a single missed write
-# (e.g. a brief GC pause) does not flap the status to unavailable.
 HEARTBEAT_TTL_SECONDS = 90
 
 _heartbeat_thread: Optional[threading.Thread] = None
@@ -26,20 +18,18 @@ _heartbeat_stop = threading.Event()
 
 
 def _redis_client():
-    """Return a Redis client from the configured broker URL, or ``None``."""
     try:
         import redis
 
         from finance_analysis.database.config import get_database_config
 
         return redis.Redis.from_url(get_database_config().redis_url)
-    except Exception as exc:  # pragma: no cover - defensive import/connection guard
+    except Exception as exc:  # pragma: no cover - defensive connection guard
         logger.warning("无法创建 Redis 客户端用于 Beat 心跳: %s", exc)
         return None
 
 
 def write_beat_heartbeat(client=None) -> bool:
-    """Write a fresh heartbeat with TTL. Returns ``True`` on success."""
     from finance_analysis.core.time import utc_isoformat, utc_now
 
     client = client or _redis_client()
@@ -54,7 +44,6 @@ def write_beat_heartbeat(client=None) -> bool:
 
 
 def read_beat_status(client=None) -> str:
-    """Return ``"active"`` if a fresh heartbeat exists, else ``"unavailable"``."""
     client = client or _redis_client()
     if client is None:
         return "unavailable"
@@ -75,7 +64,6 @@ def _heartbeat_loop() -> None:
 
 
 def start_beat_heartbeat() -> None:
-    """Start the background heartbeat writer (idempotent)."""
     global _heartbeat_thread
     if _heartbeat_thread is not None and _heartbeat_thread.is_alive():
         return
@@ -90,13 +78,12 @@ def start_beat_heartbeat() -> None:
 
 
 def stop_beat_heartbeat() -> None:
-    """Stop the background heartbeat writer."""
     _heartbeat_stop.set()
 
 
 __all__ = [
-    "HEARTBEAT_KEY",
     "HEARTBEAT_INTERVAL_SECONDS",
+    "HEARTBEAT_KEY",
     "HEARTBEAT_TTL_SECONDS",
     "read_beat_status",
     "start_beat_heartbeat",

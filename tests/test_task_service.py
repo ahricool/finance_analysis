@@ -12,7 +12,7 @@ from tests.litellm_stub import ensure_litellm_stub
 
 ensure_litellm_stub()
 
-from finance_analysis.tasks.celery.jobs.analysis import run_stock_analysis
+from finance_analysis.tasks.celery.jobs.stock_analysis.tasks import run_stock_analysis
 from finance_analysis.tasks.queue import AnalysisTaskQueue, TaskStatus, reset_task_state_for_tests
 from tests.task_repo_fakes import FakeTaskRecordRepository
 
@@ -63,7 +63,7 @@ class TestCeleryTaskService(unittest.TestCase):
 
         task = accepted[0]
         with patch(
-            "finance_analysis.tasks.celery.jobs.analysis._run_api_stock_analysis",
+            "finance_analysis.tasks.celery.jobs.stock_analysis.service.StockAnalysisTaskService._run_api_analysis",
             side_effect=RuntimeError("JSON 解析失败"),
         ), patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=_FakeLifecycleService(repository)):
             with self.assertRaisesRegex(RuntimeError, "JSON 解析失败"):
