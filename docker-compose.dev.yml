@@ -140,6 +140,28 @@ services:
       - ./src:/workspace/src
       - ./main.py:/workspace/main.py
 
+  streamer:
+    image: ghcr.io/ahricool/finance_analysis:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finance-analysis-dev-streamer
+    restart: unless-stopped
+    command: ["finance-analysis-stream"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./data:/workspace/data
+      - ./.env:/workspace/.env:ro
+      - ./src:/workspace/src
+
 volumes:
   postgres_data_dev:
     name: finance-analysis-dev-postgres-data

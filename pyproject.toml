@@ -49,6 +49,7 @@ dependencies = [
 
 [project.scripts]
 finance-analysis = "finance_analysis.__main__:main"
+finance-analysis-stream = "finance_analysis.market_stream.__main__:main"
 
 [build-system]
 requires = ["setuptools>=77"]
