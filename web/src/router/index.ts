@@ -12,7 +12,6 @@ declare module 'vue-router' {
 
 const HomePage = () => import('@/pages/HomePage.vue');
 const ChatPage = () => import('@/pages/ChatPage.vue');
-const BacktestPage = () => import('@/pages/BacktestPage.vue');
 const WatchListPage = () => import('@/pages/WatchListPage.vue');
 const StockListPage = () => import('@/pages/StockListPage.vue');
 const LoginPage = () => import('@/pages/LoginPage.vue');
@@ -32,7 +31,6 @@ const router = createRouter({
         { path: 'chat', name: 'chat', component: ChatPage, meta: { title: '问股' } },
         { path: 'watch-list', name: 'watch-list', component: WatchListPage, meta: { title: '自选股' } },
         { path: 'stock-list', name: 'stock-list', component: StockListPage, meta: { title: '持仓股' } },
-        { path: 'backtest', name: 'backtest', component: BacktestPage, meta: { title: '策略回测' } },
         { path: 'calendar', name: 'calendar', component: CalendarPage, meta: { title: '日历记录' } },
         { path: 'profile', name: 'profile', component: ProfilePage, meta: { title: '个人中心' } },
         { path: 'tasks', name: 'tasks', component: TasksPage, meta: { title: '任务中心' } },

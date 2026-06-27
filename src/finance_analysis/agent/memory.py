@@ -7,12 +7,9 @@ Provides:
    enabling agents to learn from their own track record.
 2. **Confidence calibration** — adjusts agent confidence based on
    historical accuracy (only after sufficient sample count).
-3. **Skill performance tracking** — per-skill win-rate and
-   signal accuracy for auto-weighting.
 
 Storage uses the existing SQLAlchemy database layer
-(``AnalysisHistory`` + ``BacktestResult`` tables) rather than
-introducing a new store.
+(``AnalysisHistory`` table) rather than introducing a new store.
 
 .. note::
    Memory features are gated behind ``AGENT_MEMORY_ENABLED=true``.
@@ -30,8 +27,6 @@ logger = logging.getLogger(__name__)
 
 # Default minimum samples before calibration kicks in
 _MIN_CALIBRATION_SAMPLES = 30
-# Rolling window size for recent accuracy calculation
-_ROLLING_WINDOW = 50
 
 
 @dataclass
@@ -169,9 +164,6 @@ class AgentMemory:
 
             if result.total_samples >= self.min_samples:
                 result.calibrated = True
-                # Calibration: scale confidence towards historical accuracy
-                # If agent is overconfident: factor < 1
-                # If agent is underconfident: factor > 1
                 if result.avg_confidence > 0:
                     result.calibration_factor = min(
                         1.5,
@@ -204,29 +196,9 @@ class AgentMemory:
     # -----------------------------------------------------------------
 
     def get_skill_performance(self, skill_id: str) -> Dict[str, Any]:
-        """Get performance metrics for a skill.
-
-        Used by :class:`SkillAggregator` for weight computation.
-        """
-        if not self.enabled:
-            return {"available": False}
-
-        try:
-            from finance_analysis.backtest.service import BacktestService
-            service = BacktestService()
-            summary = service.get_skill_summary(skill_id)
-            if summary:
-                return {
-                    "available": True,
-                    "win_rate": summary.get("win_rate", 0.5),
-                    "total_evaluations": summary.get("total_evaluations", 0),
-                    "avg_return": summary.get("avg_return", 0.0),
-                    "direction_accuracy": summary.get("direction_accuracy", 0.5),
-                    "sufficient_samples": summary.get("total_evaluations", 0) >= self.min_samples,
-                }
-            return {"available": False}
-        except Exception:
-            return {"available": False}
+        """Get performance metrics for a skill."""
+        del skill_id
+        return {"available": False}
 
     def get_strategy_performance(self, strategy_id: str) -> Dict[str, Any]:
         """Compatibility wrapper for legacy strategy-based callers."""
@@ -236,46 +208,16 @@ class AgentMemory:
     # Auto-weighting
     # -----------------------------------------------------------------
 
-    def compute_skill_weights(
-        self,
-        skill_ids: List[str],
-        use_backtest: bool = True,
-    ) -> Dict[str, float]:
+    def compute_skill_weights(self, skill_ids: List[str]) -> Dict[str, float]:
         """Compute normalized weights for a set of skills.
 
-        Skills with higher historical performance get higher weights.
-        Skills with insufficient samples get neutral weight (1.0).
-
-        Returns:
-            Dict mapping skill_id → weight (normalized so mean ≈ 1.0)
+        Returns neutral weights until a dedicated performance source exists.
         """
-        if not self.enabled or not use_backtest:
-            return {sid: 1.0 for sid in skill_ids}
-
-        raw_weights: Dict[str, float] = {}
-        for sid in skill_ids:
-            perf = self.get_skill_performance(sid)
-            if perf.get("sufficient_samples"):
-                # Weight = 0.5 + win_rate (range: 0.5 to 1.5)
-                raw_weights[sid] = 0.5 + perf.get("win_rate", 0.5)
-            else:
-                raw_weights[sid] = 1.0
-
-        # Normalize so mean = 1.0
-        if raw_weights:
-            mean_w = sum(raw_weights.values()) / len(raw_weights)
-            if mean_w > 0:
-                return {sid: w / mean_w for sid, w in raw_weights.items()}
-
         return {sid: 1.0 for sid in skill_ids}
 
-    def compute_strategy_weights(
-        self,
-        strategy_ids: List[str],
-        use_backtest: bool = True,
-    ) -> Dict[str, float]:
+    def compute_strategy_weights(self, strategy_ids: List[str]) -> Dict[str, float]:
         """Compatibility wrapper for legacy strategy-based callers."""
-        return self.compute_skill_weights(strategy_ids, use_backtest=use_backtest)
+        return self.compute_skill_weights(strategy_ids)
 
     # -----------------------------------------------------------------
     # Internal
@@ -287,26 +229,6 @@ class AgentMemory:
         stock_code: Optional[str],
         skill_id: Optional[str],
     ) -> Dict[str, Any]:
-        """Aggregate accuracy statistics from backtest history."""
-        try:
-            from finance_analysis.backtest.service import BacktestService
-            service = BacktestService()
-
-            if skill_id:
-                summary = service.get_skill_summary(skill_id)
-            elif stock_code:
-                summary = service.get_stock_summary(stock_code)
-            else:
-                # Global summary across all analyses
-                summary = service.get_global_summary() if hasattr(service, "get_global_summary") else None
-
-            if summary:
-                return {
-                    "total": summary.get("total_evaluations", 0),
-                    "accuracy": summary.get("win_rate", 0.5),
-                    "direction_accuracy": summary.get("direction_accuracy", 0.5),
-                    "avg_confidence": 0.6,  # approximate from historical data
-                }
-        except Exception:
-            pass
+        """Aggregate accuracy statistics from analysis history."""
+        del agent_name, stock_code, skill_id
         return {"total": 0, "accuracy": 0.5, "direction_accuracy": 0.5, "avg_confidence": 0.5}

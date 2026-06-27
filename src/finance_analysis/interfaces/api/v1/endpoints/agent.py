@@ -32,9 +32,6 @@ TOOL_DISPLAY_NAMES: Dict[str, str] = {
     "analyze_pattern":            "识别K线形态",
     "get_market_indices":         "获取市场指数",
     "get_sector_rankings":        "分析行业板块",
-    "get_skill_backtest_summary": "获取技能回测概览",
-    "get_strategy_backtest_summary": "获取策略回测概览",
-    "get_stock_backtest_summary": "获取个股回测数据",
 }
 
 logger = logging.getLogger(__name__)

@@ -123,7 +123,6 @@ def test_ensure_data_directories_creates_layout(monkeypatch: pytest.MonkeyPatch,
     assert (root / "logs" / "scheduler").is_dir()
     assert (root / "logs" / "access").is_dir()
     assert (root / "reports" / "analysis").is_dir()
-    assert (root / "reports" / "backtest").is_dir()
     assert (root / "reports" / "exports").is_dir()
     assert (root / "reports" / "assets").is_dir()
     assert (root / "uploads" / "avatars").is_dir()

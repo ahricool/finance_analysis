@@ -8,7 +8,6 @@ describe('router document titles', () => {
     ['/watch-list', '自选股 - Finance Analysis'],
     ['/stock-list', '持仓股 - Finance Analysis'],
     ['/chat', '问股 - Finance Analysis'],
-    ['/backtest', '策略回测 - Finance Analysis'],
     ['/profile', '个人中心 - Finance Analysis'],
     ['/tasks', '任务中心 - Finance Analysis'],
     ['/tasks/scheduled', '任务中心 - Finance Analysis'],

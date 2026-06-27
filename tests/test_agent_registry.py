@@ -416,115 +416,14 @@ class TestBuiltinToolDefinitions(unittest.TestCase):
             self.assertIsInstance(td, ToolDefinition)
             self.assertEqual(td.category, "market")
 
-    def test_import_backtest_tools(self):
-        from finance_analysis.agent.tools.backtest_tools import ALL_BACKTEST_TOOLS
-
-        self.assertGreater(len(ALL_BACKTEST_TOOLS), 0, "ALL_BACKTEST_TOOLS must not be empty")
-        names = {td.name for td in ALL_BACKTEST_TOOLS}
-        self.assertIn("get_skill_backtest_summary", names)
-        self.assertIn("get_strategy_backtest_summary", names)
-        self.assertIn("get_stock_backtest_summary", names)
-        for td in ALL_BACKTEST_TOOLS:
-            self.assertIsInstance(td, ToolDefinition)
-            self.assertEqual(td.category, "data")
-
-    def test_skill_backtest_tool_reports_specific_skill_as_unsupported_until_persisted(self):
-        from finance_analysis.agent.tools.backtest_tools import _handle_get_skill_backtest_summary
-
-        svc = MagicMock()
-        svc.get_skill_summary.return_value = None
-
-        with patch("finance_analysis.agent.tools.backtest_tools._get_backtest_service", return_value=svc):
-            payload = _handle_get_skill_backtest_summary(skill_id="bull_trend", eval_window_days=20)
-
-        svc.get_skill_summary.assert_called_once_with("bull_trend", eval_window_days=20)
-        self.assertEqual(payload["skill_id"], "bull_trend")
-        self.assertFalse(payload["supported"])
-        self.assertIn("not available", payload["info"])
-
-    def test_skill_backtest_tool_requires_skill_id(self):
-        from finance_analysis.agent.tools.backtest_tools import (
-            _handle_get_skill_backtest_summary,
-            get_skill_backtest_summary_tool,
-        )
-
-        payload = _handle_get_skill_backtest_summary(skill_id="")
-        schema = get_skill_backtest_summary_tool.to_openai_tool()["function"]["parameters"]
-
-        self.assertEqual(
-            payload,
-            {
-                "supported": False,
-                "error": "skill_id is required. Use get_strategy_backtest_summary for overall metrics.",
-            },
-        )
-        self.assertIn("skill_id", schema["required"])
-
-    def test_skill_backtest_tool_success_payload_keeps_normalized_metrics_and_pct_aliases(self):
-        from finance_analysis.agent.tools.backtest_tools import _handle_get_skill_backtest_summary
-
-        svc = MagicMock()
-        svc.get_skill_summary.return_value = {
-            "scope": "skill",
-            "eval_window_days": 20,
-            "total_evaluations": 7,
-            "completed_count": 6,
-            "win_rate": 0.64,
-            "direction_accuracy": 0.71,
-            "avg_return": 0.083,
-            "win_rate_pct": 64.0,
-            "direction_accuracy_pct": 71.0,
-            "avg_stock_return_pct": 6.8,
-            "avg_simulated_return_pct": 8.3,
-            "computed_at": "2026-03-20T07:00:00+00:00",
-        }
-
-        with patch("finance_analysis.agent.tools.backtest_tools._get_backtest_service", return_value=svc):
-            payload = _handle_get_skill_backtest_summary(skill_id="bull_trend", eval_window_days=20)
-
-        self.assertEqual(
-            payload,
-            {
-                "scope": "skill",
-                "skill_id": "bull_trend",
-                "supported": True,
-                "eval_window_days": 20,
-                "total_evaluations": 7,
-                "completed_count": 6,
-                "win_rate": 0.64,
-                "direction_accuracy": 0.71,
-                "avg_return": 0.083,
-                "win_rate_pct": 64.0,
-                "direction_accuracy_pct": 71.0,
-                "avg_stock_return_pct": 6.8,
-                "avg_simulated_return_pct": 8.3,
-                "computed_at": "2026-03-20T07:00:00+00:00",
-            },
-        )
-
-    def test_backtest_tool_errors_do_not_expose_raw_exception_text(self):
-        from finance_analysis.agent.tools.backtest_tools import _handle_get_skill_backtest_summary, _handle_get_stock_backtest_summary
-
-        svc = MagicMock()
-        svc.get_skill_summary.side_effect = RuntimeError("db path: /tmp/secret.db")
-        svc.get_summary.side_effect = RuntimeError("db path: /tmp/secret.db")
-
-        with patch("finance_analysis.agent.tools.backtest_tools._get_backtest_service", return_value=svc):
-            skill_payload = _handle_get_skill_backtest_summary(skill_id="bull_trend")
-            stock_payload = _handle_get_stock_backtest_summary(stock_code="600519")
-
-        self.assertEqual(skill_payload, {"error": "Failed to retrieve backtest summary."})
-        self.assertEqual(stock_payload, {"error": "Failed to retrieve backtest data."})
-
     def test_all_tools_have_valid_schemas(self):
         """All tools should generate valid OpenAI-format schemas (used by litellm)."""
         from finance_analysis.agent.tools.data_tools import ALL_DATA_TOOLS
         from finance_analysis.agent.tools.analysis_tools import ALL_ANALYSIS_TOOLS
         from finance_analysis.agent.tools.search_tools import ALL_SEARCH_TOOLS
         from finance_analysis.agent.tools.market_tools import ALL_MARKET_TOOLS
-        from finance_analysis.agent.tools.backtest_tools import ALL_BACKTEST_TOOLS
 
-        all_tools = ALL_DATA_TOOLS + ALL_ANALYSIS_TOOLS + ALL_SEARCH_TOOLS + ALL_MARKET_TOOLS + ALL_BACKTEST_TOOLS
+        all_tools = ALL_DATA_TOOLS + ALL_ANALYSIS_TOOLS + ALL_SEARCH_TOOLS + ALL_MARKET_TOOLS
         for td in all_tools:
             oai = td.to_openai_tool()
             self.assertEqual(oai["type"], "function")
