@@ -10,15 +10,40 @@ from typing import Any
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 
 
-def _time(value: Any, fallback: datetime) -> datetime:
-    if isinstance(value, datetime):
-        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+def longbridge_datetime_to_utc(value: Any, fallback: datetime) -> datetime:
     if value is None:
         return fallback
+
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            return value.astimezone(timezone.utc)
+
+        # Longbridge SDK's naive datetime represents the system local time.
+        return datetime.fromtimestamp(value.timestamp(), tz=timezone.utc)
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return fallback
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                return datetime.fromtimestamp(float(text), tz=timezone.utc)
+            except (TypeError, ValueError, OSError):
+                return fallback
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(timezone.utc)
+        return datetime.fromtimestamp(parsed.timestamp(), tz=timezone.utc)
+
     try:
         return datetime.fromtimestamp(float(value), tz=timezone.utc)
     except (TypeError, ValueError, OSError):
         return fallback
+
+
+def _time(value: Any, fallback: datetime) -> datetime:
+    return longbridge_datetime_to_utc(value, fallback)
 
 
 def _session(value: Any) -> str | None:

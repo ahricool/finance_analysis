@@ -23,7 +23,7 @@ import logging
 import os
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -32,6 +32,7 @@ import pandas as pd
 from finance_analysis.integrations.market_data.base import BaseFetcher, STANDARD_COLUMNS
 from finance_analysis.integrations.market_data.codes import is_bse_code, normalize_stock_code
 from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, RealtimeSource, safe_float
+from finance_analysis.integrations.market_data.providers.longbridge.normalizer import longbridge_datetime_to_utc
 from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code, is_us_index_code
 from finance_analysis.core.logging import log_external_call_exception
 
@@ -629,12 +630,13 @@ class LongbridgeFetcher(BaseFetcher):
     def _candle_to_dict(candle: Any) -> Dict[str, Any]:
         """Convert a Longbridge Candlestick object into a JSON-serializable bar."""
         timestamp = getattr(candle, "timestamp", None)
-        if hasattr(timestamp, "isoformat"):
-            timestamp_value = timestamp.isoformat()
-        elif timestamp is not None:
-            timestamp_value = str(timestamp)
-        else:
+        if timestamp is None:
             timestamp_value = ""
+        else:
+            timestamp_value = longbridge_datetime_to_utc(
+                timestamp,
+                datetime.fromtimestamp(0, tz=timezone.utc),
+            ).isoformat()
 
         return {
             "timestamp": timestamp_value,
