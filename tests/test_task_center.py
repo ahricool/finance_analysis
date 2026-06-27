@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -9,7 +10,10 @@ from finance_analysis.tasks.service import (
     ScheduledTaskService,
     SchedulerUnavailableError,
     TaskQueryService,
+    _default_task_submitter,
 )
+from finance_analysis.tasks.celery.app import celery_app
+from finance_analysis.tasks.celery.schedule import get_scheduled_task_definition
 from finance_analysis.core.time import utc_now
 
 
@@ -201,6 +205,27 @@ def test_manual_run_marks_record_cancelled_when_submission_fails():
 
     assert repo.updated
     assert repo.updated[-1]["status"] == "cancelled"
+
+
+def test_default_manual_submitter_uses_registered_task_for_definition():
+    definition = get_scheduled_task_definition("analysis_us_premarket")
+    assert definition is not None
+    celery_app.loader.import_default_modules()
+    celery_task = celery_app.tasks[definition.celery_task_name]
+
+    with patch.object(celery_task, "apply_async") as submit:
+        _default_task_submitter(definition, task_id="task-1", triggered_by_uid=7)
+
+    submit.assert_called_once_with(
+        task_id="task-1",
+        kwargs={
+            "scheduler_job_id": definition.job_id,
+            "_trigger_source": "manual",
+            "_triggered_by_uid": 7,
+        },
+        queue=definition.queue,
+        expires=definition.expires,
+    )
 
 
 def test_task_run_list_scopes_regular_user_and_keeps_admin_unscoped():

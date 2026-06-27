@@ -17,6 +17,8 @@ from finance_analysis.config import load_env
 from finance_analysis.database.config import get_database_config
 from finance_analysis.core.logging import ensure_backend_logging, task_logging_context
 from finance_analysis.core.paths import ensure_data_directories
+from finance_analysis.tasks.celery.jobs import TASK_MODULES
+from finance_analysis.tasks.celery.metadata import get_on_demand_task_metadata
 from finance_analysis.tasks.celery.schedule import (
     QUEUE_DEFAULT,
     build_beat_schedule,
@@ -132,12 +134,16 @@ def _create_pending_task_record(
         )
         return
 
+    task_metadata = get_on_demand_task_metadata(task_name)
+    inferred_task_type = task_metadata.task_type if task_metadata is not None else task_name
+    inferred_task_name = task_metadata.display_name if task_metadata is not None else task_name
+    inferred_source = task_metadata.source if task_metadata is not None else "celery"
     get_task_lifecycle_service().create_pending(
         task_id=task_id,
         metadata=TaskLifecycleMetadata(
-            task_type=str(kwargs.get("task_type") or _infer_task_type(task_name)),
-            task_name=task_name,
-            source=str(kwargs.get("source") or ("celery_manual" if task_name.startswith("analysis.") else "celery")),
+            task_type=str(kwargs.get("task_type") or inferred_task_type),
+            task_name=inferred_task_name,
+            source=str(kwargs.get("source") or inferred_source),
             uid=_safe_int(kwargs.get("owner_uid")),
         ),
         payload=payload,
@@ -149,7 +155,7 @@ def _create_pending_task_record(
 @beat_init.connect
 def _on_beat_init(**_: Any) -> None:
     """Start the Redis heartbeat writer when the Beat process boots."""
-    from finance_analysis.tasks.celery.heartbeat import start_beat_heartbeat
+    from finance_analysis.tasks.celery.schedule.heartbeat import start_beat_heartbeat
 
     configure_celery_logging()
     start_beat_heartbeat()
@@ -161,16 +167,6 @@ def _extract_publish_payload(body: Any) -> Dict[str, Any]:
     if isinstance(body, dict):
         return body
     return {"body": repr(body)}
-
-
-def _infer_task_type(task_name: str) -> str:
-    mapping = {
-        "analysis.run_stock_analysis": "stock_analysis",
-        "analysis.run_market_review": "market_review",
-        "analysis.run_batch_analysis": "batch_analysis",
-        "demo.add": "demo_add",
-    }
-    return mapping.get(task_name, task_name)
 
 
 def _safe_int(value: Any) -> Optional[int]:
@@ -190,12 +186,7 @@ def create_celery_app() -> Celery:
         CELERY_APP_NAME,
         broker=config.redis_url,
         backend=config.redis_url,
-        include=[
-            "finance_analysis.tasks.celery.jobs.demo",
-            "finance_analysis.tasks.celery.jobs.analysis",
-            "finance_analysis.tasks.celery.jobs.scheduled",
-            "finance_analysis.tasks.celery.jobs.market_calendar",
-        ],
+        include=list(TASK_MODULES),
     )
     app.conf.update(
         task_serializer="json",

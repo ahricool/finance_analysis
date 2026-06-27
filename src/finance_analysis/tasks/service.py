@@ -86,9 +86,10 @@ def _default_task_submitter(
     triggered_by_uid: int,
 ) -> None:
     """Publish a manual scheduled run to Celery via ``apply_async``."""
-    from finance_analysis.tasks.celery.jobs.scheduled import get_scheduled_celery_task
+    from finance_analysis.tasks.celery.app import celery_app
 
-    celery_task = get_scheduled_celery_task(definition.job_id)
+    celery_app.loader.import_default_modules()
+    celery_task = celery_app.tasks.get(definition.celery_task_name)
     if celery_task is None:
         raise SchedulerUnavailableError(f"Celery task for job {definition.job_id} is not registered")
     celery_task.apply_async(
@@ -104,7 +105,7 @@ def _default_task_submitter(
 
 
 def _default_beat_status_reader() -> str:
-    from finance_analysis.tasks.celery.heartbeat import read_beat_status
+    from finance_analysis.tasks.celery.schedule.heartbeat import read_beat_status
 
     return read_beat_status()
 

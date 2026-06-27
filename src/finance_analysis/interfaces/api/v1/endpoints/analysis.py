@@ -539,7 +539,6 @@ def _task_record_to_task_info(record: Any) -> TaskInfo:
     stock_code = (
         kwargs.get("stock_code")
         or ("market_review" if record.task_type == "market_review" else None)
-        or ("batch_analysis" if record.task_type == "batch_analysis" else None)
         or record.task_type
     )
     completed_at = getattr(record, "finished_at", None)

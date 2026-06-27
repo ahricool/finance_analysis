@@ -223,7 +223,7 @@ class AnalysisTaskQueue:
         accepted: List[TaskInfo] = []
         duplicates: List[DuplicateTaskError] = []
 
-        from finance_analysis.tasks.celery.jobs.analysis import run_stock_analysis
+        from finance_analysis.tasks.celery.jobs.stock_analysis.tasks import run_stock_analysis
 
         for raw_code in stock_codes:
             stock_code = canonical_stock_code(raw_code)
@@ -289,7 +289,7 @@ class AnalysisTaskQueue:
         bot_message: Optional[Dict[str, Any]] = None,
         save_context_snapshot: Optional[bool] = None,
     ) -> TaskInfo:
-        from finance_analysis.tasks.celery.jobs.analysis import run_stock_analysis
+        from finance_analysis.tasks.celery.jobs.stock_analysis.tasks import run_stock_analysis
 
         stock_code = canonical_stock_code(stock_code)
         if not stock_code:
@@ -338,7 +338,7 @@ class AnalysisTaskQueue:
         override_region: Optional[str] = None,
         bot_message: Optional[Dict[str, Any]] = None,
     ) -> TaskInfo:
-        from finance_analysis.tasks.celery.jobs.analysis import run_market_review
+        from finance_analysis.tasks.celery.jobs.market_review.tasks import run_market_review
 
         task = TaskInfo(
             task_id=uuid.uuid4().hex,
@@ -373,43 +373,6 @@ class AnalysisTaskQueue:
             raise
         return task.copy()
 
-    def submit_bot_batch_analysis(
-        self,
-        *,
-        stock_codes: List[str],
-        bot_message: Optional[Dict[str, Any]] = None,
-    ) -> TaskInfo:
-        from finance_analysis.tasks.celery.jobs.analysis import run_batch_analysis
-
-        task = TaskInfo(
-            task_id=uuid.uuid4().hex,
-            stock_code="batch_analysis",
-            stock_name=f"批量分析 {len(stock_codes)} 只",
-            status=TaskStatus.PENDING,
-            message="Bot 批量分析任务已加入队列",
-            report_type="simple",
-            task_type="batch_analysis",
-            source="celery_manual",
-            trigger_source="bot",
-            dedupe_key=_dedupe_key_for_task("batch_analysis", "batch_analysis"),
-        )
-        if not self._create_pending_record(task, {"stock_codes": stock_codes, "task_source": "bot"}):
-            raise DuplicateTaskError("batch_analysis", task.task_id)
-        try:
-            self._apply_celery_task(
-                run_batch_analysis,
-                task_id=task.task_id,
-                kwargs={
-                    "task_id": task.task_id,
-                    "stock_codes": stock_codes,
-                    "bot_message": bot_message,
-                },
-            )
-        except Exception:
-            self._mark_cancelled_record(task, "Celery 任务提交失败，已取消")
-            raise
-        return task.copy()
-
     def _task_metadata(self, task: TaskInfo) -> TaskLifecycleMetadata:
         return TaskLifecycleMetadata(
             task_type=task.task_type or self._infer_task_type(task.stock_code),
@@ -423,16 +386,12 @@ class AnalysisTaskQueue:
     def _infer_task_type(stock_code: str) -> str:
         if stock_code == "market_review":
             return "market_review"
-        if stock_code == "batch_analysis":
-            return "batch_analysis"
         return "stock_analysis"
 
     @staticmethod
     def _infer_task_name(stock_code: str, task_type: str) -> str:
         if task_type == "market_review":
             return "大盘复盘"
-        if task_type == "batch_analysis":
-            return "批量分析"
         return f"股票分析 {stock_code}"
 
     def _create_pending_record(self, task: TaskInfo, payload: Optional[Dict[str, Any]] = None) -> bool:
@@ -559,7 +518,6 @@ def _task_info_from_record(record: Any) -> TaskInfo:
     stock_code = (
         kwargs.get("stock_code")
         or ("market_review" if record.task_type == "market_review" else None)
-        or ("batch_analysis" if record.task_type == "batch_analysis" else None)
         or record.task_type
     )
     status = TaskStatus(record.status) if record.status in TaskStatus._value2member_map_ else TaskStatus.PENDING
