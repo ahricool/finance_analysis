@@ -68,22 +68,24 @@ def test_us_intraday_uses_new_york_offset_windows():
     definition = get_scheduled_task_definition("analysis_us_intraday")
 
     assert definition.timezone == "America/New_York"
-    assert definition.expires == 10 * 60
+    assert definition.expires == 4 * 60
     schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
-    assert ("9", "46,56", "mon-fri", "America/New_York") in schedules
-    assert ("10-15", "6,16,26,36,46,56", "mon-fri", "America/New_York") in schedules
+    assert ("9", "45,50,55", "mon-fri", "America/New_York") in schedules
+    assert ("10-15", "*/5", "mon-fri", "America/New_York") in schedules
+    assert "每5分钟" in definition.schedule_text
 
 
-def test_a_share_intraday_uses_ten_minute_windows():
+def test_a_share_intraday_uses_five_minute_windows_and_skips_lunch():
     definition = get_scheduled_task_definition("analysis_a_share_intraday")
 
     assert definition.timezone == "Asia/Shanghai"
     schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
-    assert ("9", "45,55", "mon-fri", "Asia/Shanghai") in schedules
-    assert ("10", "5,15,25,35,45,55", "mon-fri", "Asia/Shanghai") in schedules
-    assert ("11", "5,15,25", "mon-fri", "Asia/Shanghai") in schedules
-    assert ("13-14", "0,10,20,30,40,50", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("9", "45,50,55", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("10", "*/5", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("11", "0,5,10,15,20,25,30", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("13-14", "*/5", "mon-fri", "Asia/Shanghai") in schedules
     assert ("15", "0", "mon-fri", "Asia/Shanghai") in schedules
+    assert "午休不运行" in definition.schedule_text
 
 
 def test_all_scheduled_celery_tasks_are_registered():
@@ -159,6 +161,16 @@ def test_us_postmarket_review_follows_new_york_dst():
     winter = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
     winter_next = definition.next_run_time(now=winter)
     assert winter_next == datetime(2026, 1, 5, 21, 30, tzinfo=timezone.utc)
+
+
+def test_us_intraday_schedule_follows_new_york_dst():
+    definition = get_scheduled_task_definition("analysis_us_intraday")
+
+    summer = datetime(2026, 7, 1, 13, 44, tzinfo=timezone.utc)
+    winter = datetime(2026, 1, 5, 14, 44, tzinfo=timezone.utc)
+
+    assert definition.next_run_time(now=summer) == datetime(2026, 7, 1, 13, 45, tzinfo=timezone.utc)
+    assert definition.next_run_time(now=winter) == datetime(2026, 1, 5, 14, 45, tzinfo=timezone.utc)
 
 
 def test_compute_next_run_handles_localized_per_schedule_timezone():

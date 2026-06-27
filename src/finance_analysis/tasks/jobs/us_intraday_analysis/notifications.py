@@ -107,13 +107,18 @@ class SignalReporter:
         try:
             from finance_analysis.notification.service import NotificationService
 
+            rule_severity = str(signal.metrics.get("severity") or "").lower()
+            severity = "warning"
+            if signal.signal_type == "relative_strength_failure" and rule_severity == "high":
+                severity = "error"
+            generation = int(signal.metrics.get("state_generation") or 1)
             return NotificationService().send(
                 render_notification(signal),
                 email_stock_codes=[signal.symbol],
                 route_type="alert",
-                severity="warning",
-                dedup_key=f"us_intraday:{signal.symbol}:{signal.signal_type}",
-                cooldown_key=f"us_intraday:{signal.symbol}",
+                severity=severity,
+                dedup_key=f"us_intraday:{signal.symbol}:{signal.signal_type}:{generation}",
+                cooldown_key=f"us_intraday:{signal.symbol}:{signal.signal_type}:{generation}",
             )
         except Exception as exc:
             logger.warning("发送美股盘中信号通知失败: %s", exc)

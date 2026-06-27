@@ -24,6 +24,10 @@ from finance_analysis.market_review.trading_calendar import (
     is_a_share_intraday_analysis_time,
     is_a_share_trading_day,
 )
+from finance_analysis.tasks.jobs.intraday_signal_state import (
+    IntradaySignalStateStore,
+    build_notification_signature,
+)
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
 from .config import (
@@ -86,6 +90,7 @@ class AShareIntradayAnalysisService:
         watchlist_provider: Optional[Callable[[], Sequence[str]]] = None,
         rules: Optional[Sequence[SignalRule]] = None,
         use_lock: bool = True,
+        signal_state_store: Optional[IntradaySignalStateStore] = None,
     ) -> None:
         self.config = config
         self.data_source = data_source or AShareIntradayDataSource()
@@ -96,7 +101,9 @@ class AShareIntradayAnalysisService:
             rules if rules is not None else DEFAULT_A_SHARE_INTRADAY_SIGNAL_RULES
         )
         self.use_lock = use_lock
+        self.signal_state_store = signal_state_store or IntradaySignalStateStore()
         self._benchmark_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+        self._state_observed_symbols: set[str] = set()
 
     # ------------------------------------------------------------------
     # Entry point
@@ -122,12 +129,13 @@ class AShareIntradayAnalysisService:
         lock_key = f"a_share_intraday:{trading_date.isoformat()}:{run_time.strftime('%H:%M')}"
         lock_token = try_acquire_a_share_intraday_lock(lock_key) if self.use_lock else object()
         if lock_token is None:
-            raise TaskSkipped("同一窗口的 A 股盘中分析任务正在执行")
+            raise TaskSkipped("已有 A 股盘中分析任务正在执行")
 
         timings: Dict[str, Any] = {"external_api_calls": 0, "llm_calls": 0}
         total_start = _time.time()
         try:
             self._benchmark_cache = {}
+            self._state_observed_symbols = set()
             rows = self._load_snapshot_rows(summary, timings)
             if not rows:
                 raise RuntimeError("A 股全市场实时快照获取失败")
@@ -146,8 +154,15 @@ class AShareIntradayAnalysisService:
             )
             summary.rule_candidate_count = len(rule_candidates)
 
-            verdicts = self._judge(rule_candidates, market_snapshot, summary, timings)
-            signals = self._build_signal_results(rule_candidates, verdicts, phase)
+            review_candidates = self.signal_state_store.filter_candidates_for_review(
+                "cn",
+                rule_candidates,
+                session_id=trading_date.isoformat(),
+                now=run_time,
+                observed_symbols=self._state_observed_symbols,
+            )
+            verdicts = self._judge(review_candidates, market_snapshot, summary, timings)
+            signals = self._build_signal_results(review_candidates, verdicts, phase)
             summary.signal_results = signals
 
             self._report(summary, market_snapshot, signals, send_notification)
@@ -430,6 +445,7 @@ class AShareIntradayAnalysisService:
         )
 
         matched = evaluate_signal_candidates(metrics, phase, self.rules)
+        self._state_observed_symbols.add(candidate.code)
         return [
             {
                 "id": candidate_id(candidate.code, item["signal_type"]),
@@ -437,6 +453,8 @@ class AShareIntradayAnalysisService:
                 "name": candidate.name,
                 "board": candidate.board,
                 "signal_type": item["signal_type"],
+                "category": SIGNAL_CATEGORY.get(item["signal_type"], "info"),
+                "severity": SIGNAL_SEVERITY.get(item["signal_type"], "info"),
                 "market_phase": phase,
                 "metrics": metrics,
                 "recent_bars": _recent_bars_payload(bars),
@@ -529,7 +547,7 @@ class AShareIntradayAnalysisService:
             board=candidate["board"],
             need_notification=need,
             final_decision=decision,
-            metrics=candidate["metrics"],
+            metrics=_signal_metrics(candidate),
             llm_result=verdict,
             severity=severity,
         )
@@ -561,7 +579,7 @@ class AShareIntradayAnalysisService:
             board=candidate["board"],
             need_notification=is_risk,
             final_decision="risk" if is_risk else "watch",
-            metrics=candidate["metrics"],
+            metrics=_signal_metrics(candidate),
             llm_result=fallback_result,
             severity=severity if is_risk else "info",
             fallback_used=True,
@@ -585,8 +603,13 @@ class AShareIntradayAnalysisService:
     ) -> None:
         summary.calendar_id = self.reporter.record_summary(summary, snapshot)
 
+        state_selected = [
+            signal
+            for signal in signals
+            if self._should_notify_state_change(signal, summary.snapshot_time)
+        ]
         to_notify = self.reporter.filter_signals_for_notification(
-            signals,
+            state_selected,
             trading_date=summary.trading_date.isoformat(),
             phase=summary.market_phase,
         )
@@ -597,6 +620,8 @@ class AShareIntradayAnalysisService:
             )
             if notified:
                 self.reporter.mark_notified(to_notify)
+                for signal in to_notify:
+                    self._mark_notification_state(signal, summary.snapshot_time)
                 summary.notification_count = len(to_notify)
 
         # Per-signal calendar entries for notified or high-risk signals.
@@ -607,6 +632,37 @@ class AShareIntradayAnalysisService:
         for signal in important:
             signal.notification_sent = notified and signal in to_notify
             signal.calendar_id = self.reporter.record_signal(signal, summary.snapshot_time)
+
+    def _should_notify_state_change(self, signal: AShareSignalResult, now: datetime) -> bool:
+        if not signal.need_notification:
+            return False
+        signature = self._notification_signature(signal)
+        return self.signal_state_store.should_notify(
+            "cn",
+            symbol=signal.code,
+            signal_type=signal.signal_type,
+            notification_signature=signature,
+            severity=signal.severity,
+            now=now,
+        )
+
+    def _mark_notification_state(self, signal: AShareSignalResult, now: datetime) -> None:
+        self.signal_state_store.mark_notified(
+            "cn",
+            symbol=signal.code,
+            signal_type=signal.signal_type,
+            notification_signature=self._notification_signature(signal),
+            severity=signal.severity,
+            now=now,
+        )
+
+    @staticmethod
+    def _notification_signature(signal: AShareSignalResult) -> str:
+        return build_notification_signature(
+            decision=signal.final_decision,
+            severity=signal.severity,
+            candidate_signature=str(signal.metrics.get("state_signature") or ""),
+        )
 
 
 # ----------------------------------------------------------------------
@@ -628,6 +684,15 @@ def _recent_bars_payload(bars: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         "bars_1m_tail": list(bars[-30:]),
         "bars_5m_tail": aggregate_bars(bars, 5)[-12:],
         "bars_15m_tail": aggregate_bars(bars, 15)[-8:],
+    }
+
+
+def _signal_metrics(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        **candidate["metrics"],
+        "state_signature": candidate.get("state_signature"),
+        "state_transition": candidate.get("state_transition"),
+        "state_generation": candidate.get("state_generation"),
     }
 
 

@@ -9,6 +9,7 @@ escalations can still surface immediately.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time as _time
@@ -27,8 +28,9 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_COOLDOWN_SECONDS = 30 * 60
 
-# Process-level cooldown store so dedup persists across scheduled runs.
-_COOLDOWN_STORE: Dict[str, float] = {}
+# Process-level fallback guard. Redis-backed state in the service is the
+# cross-worker source of truth; this also prevents duplicates inside one worker.
+_COOLDOWN_STORE: Dict[str, tuple[float, int, str]] = {}
 
 _SEVERITY_ORDER = {"info": 0, "warning": 1, "error": 2}
 
@@ -83,9 +85,14 @@ class AShareIntradayReporter:
             if dedup in seen_in_run:
                 continue
             cooldown = signal_cooldown_key(signal.code, signal.signal_type)
-            escalated = signal.severity == "error"
+            generation = int(signal.metrics.get("state_generation") or 1)
             last = _COOLDOWN_STORE.get(cooldown)
-            if last is not None and not escalated and (now - last) < self.cooldown_seconds:
+            escalated = last is not None and _SEVERITY_ORDER.get(
+                signal.severity,
+                0,
+            ) > _SEVERITY_ORDER.get(last[2], 0)
+            same_generation = last is not None and last[1] == generation
+            if last is not None and same_generation and not escalated and (now - last[0]) < self.cooldown_seconds:
                 continue
             seen_in_run.add(dedup)
             selected.append(signal)
@@ -94,7 +101,12 @@ class AShareIntradayReporter:
     def mark_notified(self, signals: Sequence[AShareSignalResult]) -> None:
         now = self._clock()
         for signal in signals:
-            _COOLDOWN_STORE[signal_cooldown_key(signal.code, signal.signal_type)] = now
+            generation = int(signal.metrics.get("state_generation") or 1)
+            _COOLDOWN_STORE[signal_cooldown_key(signal.code, signal.signal_type)] = (
+                now,
+                generation,
+                signal.severity,
+            )
 
     # ------------------------------------------------------------------
     # Calendar
@@ -177,10 +189,12 @@ class AShareIntradayReporter:
         if service is None:
             return False
         codes = [signal.code for signal in signals]
-        dedup = (
-            f"a_share_intraday_agg:{summary.trading_date.isoformat()}:{summary.market_phase}:"
-            + ",".join(sorted({s.signal_type for s in signals}))
+        state_parts = sorted(
+            f"{signal.code}:{signal.signal_type}:{int(signal.metrics.get('state_generation') or 1)}"
+            for signal in signals
         )
+        state_digest = hashlib.sha256("|".join(state_parts).encode("utf-8")).hexdigest()[:16]
+        dedup = f"a_share_intraday_agg:{summary.trading_date.isoformat()}:{state_digest}"
         try:
             return bool(
                 service.send(
@@ -189,7 +203,7 @@ class AShareIntradayReporter:
                     route_type="alert",
                     severity=severity,
                     dedup_key=dedup,
-                    cooldown_key=f"a_share_intraday_agg:{summary.market_phase}",
+                    cooldown_key=f"a_share_intraday_agg:{state_digest}",
                 )
             )
         except Exception as exc:

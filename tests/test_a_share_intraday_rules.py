@@ -60,6 +60,19 @@ def test_normalize_bars_filters_lunch_and_future_and_dedupes():
     assert times == sorted(times)
 
 
+def test_normalize_bars_excludes_still_forming_current_minute():
+    now = datetime(2026, 6, 24, 11, 30, tzinfo=SH)
+    bars = normalize_bars(
+        [
+            _bar(datetime(2026, 6, 24, 11, 29, tzinfo=SH), 10.0, 10.1),
+            _bar(datetime(2026, 6, 24, 11, 30, tzinfo=SH), 10.1, 10.2),
+        ],
+        now=now,
+    )
+
+    assert [bar["timestamp"] for bar in bars] == ["2026-06-24T11:29:00+08:00"]
+
+
 def test_aggregate_bars_builds_5m_ohlcv():
     start = datetime(2026, 6, 24, 10, 0, tzinfo=SH)
     bars = [_bar(start + timedelta(minutes=i), 10 + i * 0.1, 10.05 + i * 0.1, volume=100 + i) for i in range(6)]
