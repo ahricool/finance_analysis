@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable
 
+from finance_analysis.integrations.market_data.providers.longbridge.normalizer import longbridge_datetime_to_utc
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 from finance_analysis.market_stream.config import latest_completed_bar_time, market_trading_date
@@ -16,10 +17,18 @@ from finance_analysis.stocks.markets import MarketType
 
 def _parse_time(value: Any) -> datetime:
     if isinstance(value, datetime):
-        result = value
-    else:
-        result = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    return result.replace(tzinfo=timezone.utc) if result.tzinfo is None else result.astimezone(timezone.utc)
+        return longbridge_datetime_to_utc(value, datetime.fromtimestamp(value.timestamp(), tz=timezone.utc))
+
+    text = str(value).strip()
+    if not text:
+        raise ValueError("empty timestamp")
+
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return longbridge_datetime_to_utc(float(text), datetime.fromtimestamp(float(text), tz=timezone.utc))
+
+    return longbridge_datetime_to_utc(parsed, datetime.fromtimestamp(parsed.timestamp(), tz=timezone.utc))
 
 
 class LongbridgeHistoryLoader:
