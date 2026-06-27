@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote
+from finance_analysis.tasks.jobs.intraday_signal_state import IntradaySignalStateStore
 from finance_analysis.tasks.jobs.us_intraday_analysis import (
     USIntradayAnalysisService,
     aggregate_bars,
@@ -23,6 +24,7 @@ from finance_analysis.tasks.jobs.us_intraday_analysis.lock import (
     try_acquire_us_intraday_lock,
 )
 from finance_analysis.tasks.jobs.us_intraday_analysis.metrics import _change_over_minutes, _volume_ratio_5m
+from finance_analysis.tasks.jobs.us_intraday_analysis.models import IntradayTaskSummary
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
 
@@ -148,6 +150,47 @@ def test_us_data_source_prefers_market_streamer_for_quote_and_bars():
 
     assert source.fetch_quote("NVDA") is realtime_quote
     assert source.fetch_1m_bars("NVDA") == realtime_bars
+
+
+def test_us_data_source_redis_failure_falls_back_to_longbridge():
+    now = datetime(2026, 6, 10, 10, 0, tzinfo=US_EASTERN)
+    longbridge = _FakeLongbridge(
+        {"NVDA": [_bar(datetime(2026, 6, 10, 9, 59, tzinfo=US_EASTERN), 149, 150)]}
+    )
+
+    class _BrokenRealtime:
+        fallback_reason = "redis_error"
+
+        def get_quote(self, *_args, **_kwargs):
+            raise RuntimeError("redis unavailable")
+
+        def get_recent_bars(self, *_args, **_kwargs):
+            raise RuntimeError("redis unavailable")
+
+    source = IntradayDataSource(
+        longbridge,
+        object(),  # type: ignore[arg-type]
+        realtime_source=_BrokenRealtime(),
+    )
+
+    assert source.fetch_quote("NVDA") is not None
+    assert source.fetch_1m_bars("NVDA", now=now)[0]["close"] == 150
+
+
+def test_no_rule_candidates_do_not_fetch_market_news():
+    class _AvailableNews:
+        def is_available(self):
+            raise AssertionError("news availability should not be checked without candidates")
+
+    service = USIntradayAnalysisService(
+        config=object(),
+        longbridge_fetcher=_FakeLongbridge({}),
+        news_fetcher=_AvailableNews(),
+        use_lock=False,
+        signal_state_store=IntradaySignalStateStore(redis_client=False),
+    )
+
+    service._judge_candidates_in_batches([], {}, IntradayTaskSummary(market_open=True))
 
 
 def test_aggregate_bars_builds_5m_ohlcv():
@@ -474,6 +517,7 @@ def _service(now: datetime, bars_by_symbol: dict[str, list[dict]], missing_quote
         longbridge_fetcher=longbridge,
         news_fetcher=_FakeNewsFetcher(),
         use_lock=False,
+        signal_state_store=IntradaySignalStateStore(redis_client=False),
     )
     judge = _FakeJudge()
     service.llm_judge = judge

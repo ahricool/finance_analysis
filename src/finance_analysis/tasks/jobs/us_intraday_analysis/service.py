@@ -18,6 +18,10 @@ from typing import Any, Dict, List, Optional, Sequence
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
 from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsFetcher
 from finance_analysis.integrations.market_data.providers.yfinance import YfinanceFetcher
+from finance_analysis.tasks.jobs.intraday_signal_state import (
+    IntradaySignalStateStore,
+    build_notification_signature,
+)
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
 from .config import INTRADAY_NEWS_LIMIT, LLM_BATCH_SIZE, MARKET_ETFS, MARKET_NEWS_SYMBOL, STALE_BAR_SECONDS, US_EASTERN
@@ -50,6 +54,7 @@ class USIntradayAnalysisService:
         rules: Optional[Sequence[RulePredicate]] = None,
         use_lock: bool = True,
         lock_client: Any = None,
+        signal_state_store: Optional[IntradaySignalStateStore] = None,
     ) -> None:
         self.config = config
         self.longbridge_fetcher = longbridge_fetcher or LongbridgeFetcher()
@@ -60,8 +65,11 @@ class USIntradayAnalysisService:
         self.rules: Sequence[RulePredicate] = rules if rules is not None else DEFAULT_INTRADAY_SIGNAL_RULES
         self.use_lock = use_lock
         self.lock_client = lock_client
+        self.signal_state_store = signal_state_store or IntradaySignalStateStore()
         self._news_cache: Dict[str, List[Dict[str, Any]]] = {}
         self._run_query_id = ""
+        self._run_time: Optional[datetime] = None
+        self._state_observed_symbols: set[str] = set()
 
     def run(self, stock_codes: Sequence[str], now: Optional[datetime] = None) -> IntradayTaskSummary:
         if not is_us_market_open(now):
@@ -69,8 +77,10 @@ class USIntradayAnalysisService:
 
         started = time.perf_counter()
         run_time = _eastern_now(now)
+        self._run_time = run_time
         self._run_query_id = f"us_intraday_{run_time.strftime('%Y%m%d_%H%M%S')}"
         self._news_cache = {}
+        self._state_observed_symbols = set()
 
         summary = IntradayTaskSummary(market_open=True, total_symbols=len(stock_codes))
         summary.timings["started_at"] = run_time.isoformat()
@@ -86,7 +96,6 @@ class USIntradayAnalysisService:
                     raise TaskSkipped("美股盘中分析任务正在执行或当前窗口已处理")
 
             market_context = self._load_market_context(run_time)
-            market_context["market_news"] = self._get_symbol_news(MARKET_NEWS_SYMBOL, dimension="market_news")
             qqq_metrics = market_context.get("QQQ", {})
             sector_metrics = {
                 symbol: market_context[symbol]
@@ -103,10 +112,17 @@ class USIntradayAnalysisService:
                     logger.exception("美股盘中分析 %s 失败: %s", raw_code, exc)
                     summary.errors.append(f"{raw_code}: {exc}")
 
-            self._judge_candidates_in_batches(candidates, market_context, summary)
             if self._all_symbol_data_failed(summary):
                 summary.status = "failed"
                 raise RuntimeError("美股盘中分析失败：所有股票行情均不可用")
+            review_candidates = self.signal_state_store.filter_candidates_for_review(
+                "us",
+                candidates,
+                session_id=get_us_trading_date(run_time),
+                now=run_time,
+                observed_symbols=self._state_observed_symbols,
+            )
+            self._judge_candidates_in_batches(review_candidates, market_context, summary)
             if summary.errors or summary.warnings:
                 summary.degraded = True
                 summary.status = "degraded"
@@ -156,6 +172,7 @@ class USIntradayAnalysisService:
         metrics = compute_intraday_metrics(symbol, bars_1m, quote, qqq_metrics, sector_metrics, now=run_time)
 
         matched, failures = evaluate_signal_candidates_with_diagnostics(metrics, self.rules)
+        self._state_observed_symbols.add(symbol)
         for failure in failures:
             _incr(summary.filter_failure_counts, failure)
         summary.processed_symbols += 1
@@ -174,6 +191,7 @@ class USIntradayAnalysisService:
                 "rule_version": candidate.get("rule_version"),
                 "rule_strength": candidate.get("rule_strength"),
                 "severity": candidate.get("severity"),
+                "category": "risk" if candidate["signal_type"] == "relative_strength_failure" else "opportunity",
                 "metrics": metrics,
                 "bars_1m": bars_1m,
             }
@@ -188,6 +206,11 @@ class USIntradayAnalysisService:
     ) -> None:
         """Judge candidates in groups of ``LLM_BATCH_SIZE`` with one call each."""
         summary.llm_candidate_count = len(candidates)
+        if candidates:
+            market_context["market_news"] = self._get_symbol_news(
+                MARKET_NEWS_SYMBOL,
+                dimension="market_news",
+            )
         for start in range(0, len(candidates), LLM_BATCH_SIZE):
             batch = candidates[start:start + LLM_BATCH_SIZE]
             for candidate in batch:
@@ -271,11 +294,39 @@ class USIntradayAnalysisService:
                 "rule_strength": candidate.get("rule_strength"),
                 "severity": candidate.get("severity"),
                 "rule_version": candidate.get("rule_version"),
+                "state_signature": candidate.get("state_signature"),
+                "state_transition": candidate.get("state_transition"),
+                "state_generation": candidate.get("state_generation"),
             },
         )
         signal.calendar_id = self.reporter.record_to_calendar(signal)
         if need_notification:
-            signal.notification_sent = self.reporter.send_notification(signal)
+            severity = _notification_severity(candidate)
+            notification_signature = build_notification_signature(
+                decision=final_decision,
+                severity=severity,
+                candidate_signature=str(candidate.get("state_signature") or ""),
+            )
+            now = self._run_time or datetime.now(US_EASTERN)
+            should_notify = self.signal_state_store.should_notify(
+                "us",
+                symbol=signal.symbol,
+                signal_type=signal.signal_type,
+                notification_signature=notification_signature,
+                severity=severity,
+                now=now,
+            )
+            if should_notify:
+                signal.notification_sent = self.reporter.send_notification(signal)
+                if signal.notification_sent:
+                    self.signal_state_store.mark_notified(
+                        "us",
+                        symbol=signal.symbol,
+                        signal_type=signal.signal_type,
+                        notification_signature=notification_signature,
+                        severity=severity,
+                        now=now,
+                    )
         return signal
 
     @staticmethod
@@ -311,6 +362,12 @@ def _is_stale(bars_1m: Sequence[Dict[str, Any]], now: datetime) -> bool:
 
 def _incr(counter: Dict[str, int], key: str, amount: int = 1) -> None:
     counter[key] = int(counter.get(key, 0) or 0) + amount
+
+
+def _notification_severity(candidate: Dict[str, Any]) -> str:
+    if candidate.get("signal_type") == "relative_strength_failure":
+        return "error" if candidate.get("severity") == "high" else "warning"
+    return "warning" if candidate.get("severity") == "high" else "info"
 
 
 

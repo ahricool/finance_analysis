@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Execution lock for A-share intraday analysis runs (per time-window key)."""
+"""Execution lock for A-share intraday analysis runs."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - Windows fallback
 logger = logging.getLogger(__name__)
 _lock_guard = threading.Lock()
 _running_keys: set[str] = set()
+RUNNING_LOCK_KEY = "a_share_intraday:running"
 
 
 @dataclass
@@ -46,11 +47,11 @@ def _write_metadata(handle: Any, key: str) -> None:
 
 
 def try_acquire_a_share_intraday_lock(key: str) -> Optional[AShareIntradayExecutionLock]:
-    """Acquire an in-process and same-host lock for a time-window key."""
-    normalized_key = key.strip()
-    lock_path = _lock_path(normalized_key)
+    """Acquire a same-host global running lock and record the requested window."""
+    window_key = key.strip()
+    lock_path = _lock_path(RUNNING_LOCK_KEY)
     with _lock_guard:
-        if normalized_key in _running_keys:
+        if RUNNING_LOCK_KEY in _running_keys:
             return None
         lock_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -75,10 +76,10 @@ def try_acquire_a_share_intraday_lock(key: str) -> Optional[AShareIntradayExecut
             handle = os.fdopen(fd, "w+", encoding="utf-8")
             uses_flock = False
 
-        _write_metadata(handle, normalized_key)
-        _running_keys.add(normalized_key)
+        _write_metadata(handle, window_key)
+        _running_keys.add(RUNNING_LOCK_KEY)
         return AShareIntradayExecutionLock(
-            key=normalized_key,
+            key=RUNNING_LOCK_KEY,
             handle=handle,
             path=lock_path,
             uses_flock=uses_flock,

@@ -47,7 +47,8 @@ US_TIMEZONE = "America/New_York"
 
 # === Expiry windows (seconds) ===
 # Expired intraday deliveries must not run tens of minutes late.
-EXPIRES_INTRADAY = 10 * 60
+# A five-minute window must expire before the next normal window is delivered.
+EXPIRES_INTRADAY = 4 * 60
 EXPIRES_PREMARKET = 30 * 60
 EXPIRES_NEWS = 30 * 60
 EXPIRES_CALENDAR = 60 * 60
@@ -169,14 +170,14 @@ _DEFINITIONS: List[ScheduledTaskDefinition] = [
     ScheduledTaskDefinition(
         job_id=JOB_US_INTRADAY_ANALYSIS,
         name="美股盘中分析",
-        description="检测自选美股盘中异动并按需提醒",
+        description="每5分钟使用实时行情检测自选美股、QQQ及板块异动，按信号状态变化提醒",
         task_type="scheduled_us_intraday",
         celery_task_name=celery_task_name(JOB_US_INTRADAY_ANALYSIS),
         schedules=[
-            CronSchedule(minute="46,56", hour="9", day_of_week="mon-fri", timezone=US_TIMEZONE),
-            CronSchedule(minute="6,16,26,36,46,56", hour="10-15", day_of_week="mon-fri", timezone=US_TIMEZONE),
+            CronSchedule(minute="45,50,55", hour="9", day_of_week="mon-fri", timezone=US_TIMEZONE),
+            CronSchedule(minute="*/5", hour="10-15", day_of_week="mon-fri", timezone=US_TIMEZONE),
         ],
-        schedule_text="美股交易日 09:46-15:56 America/New_York，每10分钟",
+        schedule_text="美股交易日 09:45-15:55 America/New_York，每5分钟",
         timezone=US_TIMEZONE,
         queue=QUEUE_ALERTS,
         expires=EXPIRES_INTRADAY,
@@ -196,30 +197,30 @@ _DEFINITIONS: List[ScheduledTaskDefinition] = [
     ScheduledTaskDefinition(
         job_id=JOB_A_SHARE_INTRADAY_ANALYSIS,
         name="A股盘中分析",
-        description="分析A股市场情绪、板块轮动和自选股异动，识别涨停、炸板、强弱转换及风险信号",
+        description="每5分钟初筛A股全市场并精析有限候选，按信号状态变化提醒",
         task_type="scheduled_a_share_intraday",
         celery_task_name=celery_task_name(JOB_A_SHARE_INTRADAY_ANALYSIS),
         schedules=[
             CronSchedule(
-                minute="45,55",
+                minute="45,50,55",
                 hour="9",
                 day_of_week="mon-fri",
                 timezone=SCHEDULE_TIMEZONE,
             ),
             CronSchedule(
-                minute="5,15,25,35,45,55",
+                minute="*/5",
                 hour="10",
                 day_of_week="mon-fri",
                 timezone=SCHEDULE_TIMEZONE,
             ),
             CronSchedule(
-                minute="5,15,25",
+                minute="0,5,10,15,20,25,30",
                 hour="11",
                 day_of_week="mon-fri",
                 timezone=SCHEDULE_TIMEZONE,
             ),
             CronSchedule(
-                minute="0,10,20,30,40,50",
+                minute="*/5",
                 hour="13-14",
                 day_of_week="mon-fri",
                 timezone=SCHEDULE_TIMEZONE,
@@ -231,7 +232,7 @@ _DEFINITIONS: List[ScheduledTaskDefinition] = [
                 timezone=SCHEDULE_TIMEZONE,
             ),
         ],
-        schedule_text="A股交易日 09:45-11:25、13:00-15:00，每10分钟",
+        schedule_text="A股交易日 09:45-11:30、13:00-15:00，每5分钟（午休不运行）",
         timezone=SCHEDULE_TIMEZONE,
         queue=QUEUE_ALERTS,
         expires=EXPIRES_INTRADAY,

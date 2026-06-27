@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from finance_analysis.integrations.market_data.realtime_types import safe_float
@@ -24,7 +24,7 @@ def normalize_bars(
 
     - converts timestamps to Asia/Shanghai;
     - drops bars stamped inside the lunch break;
-    - drops bars stamped in the future (relative to ``now``);
+    - drops the still-forming current minute and future bars relative to ``now``;
     - removes duplicate timestamps (keeping the last);
     - returns ascending by timestamp.
     """
@@ -40,7 +40,7 @@ def normalize_bars(
         ts = parse_a_share_timestamp(bar["timestamp"])
         if ts is None or is_lunch_break_time(ts):
             continue
-        if cutoff is not None and ts > cutoff:
+        if cutoff is not None and ts + timedelta(minutes=1) > cutoff:
             continue
         by_ts[bar["timestamp"]] = bar
     return sorted(by_ts.values(), key=lambda item: item["timestamp"])

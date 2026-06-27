@@ -23,11 +23,19 @@ from finance_analysis.tasks.jobs.a_share_intraday_analysis.llm import (
     parse_llm_batch_results,
     parse_llm_json_response,
 )
+from finance_analysis.tasks.jobs.a_share_intraday_analysis.lock import (
+    release_a_share_intraday_lock,
+    try_acquire_a_share_intraday_lock,
+)
+from finance_analysis.tasks.jobs.a_share_intraday_analysis.market_calendar import (
+    is_a_share_intraday_analysis_time,
+)
+from finance_analysis.tasks.jobs.a_share_intraday_analysis.models import AShareSignalResult
 from finance_analysis.tasks.jobs.a_share_intraday_analysis.notifications import (
     AShareIntradayReporter,
     reset_cooldown_store,
 )
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.models import AShareSignalResult
+from finance_analysis.tasks.jobs.intraday_signal_state import IntradaySignalStateStore
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
 SH = ZoneInfo("Asia/Shanghai")
@@ -166,6 +174,7 @@ def _make_service(data_source, llm, reporter, watchlist):
         reporter=reporter,
         watchlist_provider=lambda: watchlist,
         use_lock=False,
+        signal_state_store=IntradaySignalStateStore(redis_client=False),
     )
 
 
@@ -270,6 +279,28 @@ def test_skips_during_lunch():
     with patch(f"{SERVICE_MODULE}.is_a_share_trading_day", return_value=True):
         with pytest.raises(TaskSkipped):
             service.run(now=lunch)
+
+
+def test_a_share_intraday_time_boundaries_include_session_end_but_not_lunch():
+    assert is_a_share_intraday_analysis_time(datetime(2026, 6, 24, 11, 30, tzinfo=SH))
+    assert not is_a_share_intraday_analysis_time(datetime(2026, 6, 24, 11, 31, tzinfo=SH))
+    assert is_a_share_intraday_analysis_time(datetime(2026, 6, 24, 13, 0, tzinfo=SH))
+    assert is_a_share_intraday_analysis_time(datetime(2026, 6, 24, 15, 0, tzinfo=SH))
+    assert not is_a_share_intraday_analysis_time(datetime(2026, 6, 24, 15, 1, tzinfo=SH))
+
+
+def test_a_share_running_lock_blocks_overlapping_five_minute_windows(tmp_path):
+    with patch(
+        "finance_analysis.tasks.jobs.a_share_intraday_analysis.lock._lock_path",
+        return_value=tmp_path / "a-share.lock",
+    ):
+        first = try_acquire_a_share_intraday_lock("a_share_intraday:2026-06-24:10:30")
+        second = try_acquire_a_share_intraday_lock("a_share_intraday:2026-06-24:10:35")
+        try:
+            assert first is not None
+            assert second is None
+        finally:
+            release_a_share_intraday_lock(first)
 
 
 def test_skips_pre_market():
@@ -517,6 +548,49 @@ def test_risk_escalation_error_bypasses_cooldown():
     escalated = _signal(severity="error")
     passed = reporter.filter_signals_for_notification([escalated], trading_date="2026-06-24", phase="morning")
     assert len(passed) == 1
+
+
+def test_signal_state_generation_change_bypasses_process_cooldown():
+    reporter = AShareIntradayReporter()
+    first = _signal(severity="warning")
+    first.metrics["state_generation"] = 1
+    reporter.mark_notified([first])
+
+    changed = _signal(severity="warning")
+    changed.metrics["state_generation"] = 2
+    passed = reporter.filter_signals_for_notification(
+        [changed],
+        trading_date="2026-06-24",
+        phase="morning",
+    )
+
+    assert len(passed) == 1
+
+
+def test_five_minute_repeat_does_not_repeat_llm_or_notification_for_unchanged_signal():
+    rows, bars_by_code = _scenario_with_watchlist_signal()
+    data = FakeDataSource(rows, bars_by_code)
+    notifier = FakeNotifier()
+    llm = FakeLLM(
+        {
+            candidate_id("600519", "near_limit_down_risk"): {
+                "final_decision": "risk",
+                "need_notification": True,
+                "summary": "接近跌停",
+            }
+        }
+    )
+    service = _make_service(data, llm, _make_reporter(notifier), ["600519"])
+
+    with patch(f"{SERVICE_MODULE}.is_a_share_trading_day", return_value=True):
+        first = service.run(now=_run_now())
+        repeated = service.run(now=_run_now() + timedelta(minutes=5))
+
+    assert first.llm_candidate_count >= 1
+    assert repeated.rule_candidate_count >= 1
+    assert repeated.llm_candidate_count == 0
+    assert len(llm.batches) == 1
+    assert len(notifier.calls) == 1
 
 
 def test_aggregated_notification_failure_does_not_raise():
