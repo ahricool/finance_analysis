@@ -24,6 +24,6 @@ git pull --ff-only origin main
 
 echo "==> 使用生产配置启动容器"
 "${COMPOSE[@]}" pull
-"${COMPOSE[@]}" up -d --remove-orphans
+"${COMPOSE[@]}" up -d --remove-orphans --wait --wait-timeout "${DEPLOY_WAIT_TIMEOUT:-120}"
 
 echo "✅ 生产环境部署完成"

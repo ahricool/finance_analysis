@@ -102,15 +102,7 @@ services:
     image: ghcr.io/ahricool/finance_analysis:latest
     container_name: finance-analysis-celery-beat
     restart: unless-stopped
-    command:
-      [
-        "celery",
-        "-A",
-        "finance_analysis.tasks.celery.app:celery_app",
-        "beat",
-        "--loglevel=INFO",
-        "--schedule=/workspace/data/celerybeat-schedule",
-      ]
+    command: ["/bin/sh", "/workspace/scripts/start_celery_beat.sh"]
     depends_on:
       postgres:
         condition: service_healthy
