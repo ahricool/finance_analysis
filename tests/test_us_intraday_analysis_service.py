@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote
+from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote
 from finance_analysis.tasks.jobs.us_intraday_analysis import (
     USIntradayAnalysisService,
     aggregate_bars,
@@ -85,6 +85,12 @@ def test_yfinance_fallback_bars_are_filtered(monkeypatch):
     class _FakeYfinanceFetcher:
         pass
 
+    class _NoRealtime:
+        fallback_reason = "redis_missing"
+
+        def get_recent_bars(self, *_args, **_kwargs):
+            return None
+
     def fake_yfinance(symbol: str, *, now=None, include_incomplete=False):
         assert symbol == "NVDA"
         return filter_current_trading_day_bars(
@@ -98,12 +104,50 @@ def test_yfinance_fallback_bars_are_filtered(monkeypatch):
         )
 
     monkeypatch.setattr(IntradayDataSource, "_fetch_yfinance_1m_bars", staticmethod(fake_yfinance))
-    source = IntradayDataSource(_FakeLongbridge(), _FakeYfinanceFetcher())
+    source = IntradayDataSource(
+        _FakeLongbridge(),
+        _FakeYfinanceFetcher(),
+        realtime_source=_NoRealtime(),
+    )
 
     result = source.fetch_1m_bars("NVDA", now=now)
 
     assert len(result) == 1
     assert result[0]["timestamp"].endswith("10:14:00-04:00")
+
+
+def test_us_data_source_prefers_market_streamer_for_quote_and_bars():
+    realtime_quote = UnifiedRealtimeQuote(
+        code="NVDA",
+        source=RealtimeSource.MARKET_STREAMER,
+        price=150.0,
+    )
+    realtime_bars = [_bar(datetime(2026, 6, 10, 10, 14, tzinfo=US_EASTERN), 149, 150)]
+
+    class _Realtime:
+        fallback_reason = None
+
+        def get_quote(self, *_args, **_kwargs):
+            return realtime_quote
+
+        def get_recent_bars(self, *_args, **_kwargs):
+            return realtime_bars
+
+    class _Longbridge:
+        def get_realtime_quote(self, *_args, **_kwargs):
+            raise AssertionError("Longbridge quote should not be called")
+
+        def get_minute_candlesticks(self, *_args, **_kwargs):
+            raise AssertionError("Longbridge bars should not be called")
+
+    source = IntradayDataSource(
+        _Longbridge(),
+        object(),  # type: ignore[arg-type]
+        realtime_source=_Realtime(),
+    )
+
+    assert source.fetch_quote("NVDA") is realtime_quote
+    assert source.fetch_1m_bars("NVDA") == realtime_bars
 
 
 def test_aggregate_bars_builds_5m_ohlcv():

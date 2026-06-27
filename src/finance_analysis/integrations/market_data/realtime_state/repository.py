@@ -149,15 +149,46 @@ class RealtimeStateRepository:
         session = (bar.trade_session or "").replace(":", "_")
         return f"{int(bar.bar_time.timestamp())}:{session}"
 
-    async def write_subscription(self, symbol: str, state: Mapping[str, Any]) -> None:
+    async def write_subscription(
+        self,
+        symbol: str,
+        state: Mapping[str, Any],
+        *,
+        ttl_seconds: int,
+    ) -> None:
         mapping = {"symbol": symbol, **state}
-        await self.redis.hset(keys.subscription_key(symbol), mapping=_mapping(mapping))
+        pipe = self.redis.pipeline(transaction=False)
+        pipe.hset(keys.subscription_key(symbol), mapping=_mapping(mapping))
+        pipe.expire(keys.subscription_key(symbol), ttl_seconds)
+        await pipe.execute()
+
+    async def get_subscription(self, symbol: str) -> dict[str, str] | None:
+        state = await self.redis.hgetall(keys.subscription_key(symbol))
+        return dict(state) if state else None
+
+    async def refresh_subscription_ttls(
+        self,
+        symbols: Iterable[str],
+        *,
+        ttl_seconds: int,
+    ) -> None:
+        unique_symbols = sorted(set(symbols))
+        if not unique_symbols:
+            return
+        pipe = self.redis.pipeline(transaction=False)
+        for symbol in unique_symbols:
+            pipe.expire(keys.subscription_key(symbol), ttl_seconds)
+        await pipe.execute()
 
     async def write_heartbeat(self, state: Mapping[str, Any], *, ttl_seconds: int = 30) -> None:
         pipe = self.redis.pipeline(transaction=False)
         pipe.hset(keys.STREAMER_HEARTBEAT_KEY, mapping=_mapping(state))
         pipe.expire(keys.STREAMER_HEARTBEAT_KEY, ttl_seconds)
         await pipe.execute()
+
+    async def get_heartbeat(self) -> dict[str, str] | None:
+        state = await self.redis.hgetall(keys.STREAMER_HEARTBEAT_KEY)
+        return dict(state) if state else None
 
     async def write_batch(
         self,
@@ -175,7 +206,8 @@ class RealtimeStateRepository:
             pipe.expire(keys.current_candle_key(symbol), self.bars_ttl_seconds)
         await pipe.execute()
 
-    async def expire_symbol_cache(self, symbol: str) -> None:
+    async def expire_symbol_cache(self, symbol: str, *, ttl_seconds: int | None = None) -> None:
+        ttl_seconds = ttl_seconds or self.removed_ttl_seconds
         pipe = self.redis.pipeline(transaction=False)
         for key in (
             keys.quote_key(symbol),
@@ -184,5 +216,5 @@ class RealtimeStateRepository:
             keys.bars_data_key(symbol),
             keys.subscription_key(symbol),
         ):
-            pipe.expire(key, self.removed_ttl_seconds)
+            pipe.expire(key, ttl_seconds)
         await pipe.execute()

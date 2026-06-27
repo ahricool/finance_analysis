@@ -26,6 +26,7 @@ from finance_analysis.analysis.pipeline_config import PipelineConfig, get_pipeli
 from finance_analysis.database import get_db
 from finance_analysis.integrations.market_data import DataFetcherManager
 from finance_analysis.integrations.market_data.base import normalize_stock_code
+from finance_analysis.integrations.market_data.realtime_state.data_source import get_default_sync_realtime_source
 from finance_analysis.integrations.market_data.realtime_types import ChipDistribution
 from finance_analysis.analysis.stock_report_analyzer import (
     StockReportAnalyzer,
@@ -86,6 +87,7 @@ class StockAnalysisPipeline(AgentResultMixin):
         save_context_snapshot: Optional[bool] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
         owner_uid: Optional[int] = None,
+        realtime_source: Any = None,
     ):
         """
         初始化调度器
@@ -110,6 +112,7 @@ class StockAnalysisPipeline(AgentResultMixin):
         # 初始化各模块
         self.db = get_db()
         self.fetcher_manager = DataFetcherManager()
+        self.realtime_source = realtime_source or get_default_sync_realtime_source()
         # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
         self.trend_analyzer = StockTrendAnalyzer()  # 技术分析器
         self.analyzer = StockReportAnalyzer(config=self.config)
@@ -245,7 +248,19 @@ class StockAnalysisPipeline(AgentResultMixin):
             error_msg = f"获取/保存数据失败: {str(e)}"
             logger.exception(f"{stock_name}({code}) {error_msg}")
             return False, error_msg
-    
+
+    def _fetch_realtime_quote(self, code: str):
+        """Prefer validated streamer state, preserving the existing provider chain."""
+        realtime_source = getattr(self, "realtime_source", None)
+        if realtime_source is not None:
+            try:
+                quote = realtime_source.get_quote(code)
+                if quote is not None:
+                    return quote
+            except Exception as exc:
+                logger.warning("symbol=%s source=market_streamer fallback_reason=redis_error error=%s", code, exc)
+        return self.fetcher_manager.get_realtime_quote(code, log_final_failure=False)
+
     def analyze_stock(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
         """
         分析单只股票（增强版：含量比、换手率、筹码分析、多维度情报）
@@ -276,7 +291,7 @@ class StockAnalysisPipeline(AgentResultMixin):
             realtime_quote = None
             try:
                 if self.config.enable_realtime_quote:
-                    realtime_quote = self.fetcher_manager.get_realtime_quote(code, log_final_failure=False)
+                    realtime_quote = self._fetch_realtime_quote(code)
                     if realtime_quote:
                         # 使用实时行情返回的真实股票名称
                         if realtime_quote.name:

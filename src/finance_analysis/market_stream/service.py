@@ -1,4 +1,4 @@
-"""Standalone Longbridge market streamer orchestration."""
+"""Standalone multi-market Longbridge streamer orchestration."""
 
 from __future__ import annotations
 
@@ -10,21 +10,36 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.integrations.market_data.providers.longbridge.normalizer import MarketEvent, event_to_candle
 from finance_analysis.integrations.market_data.providers.longbridge.streaming import LongbridgeStreamingClient
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
-from finance_analysis.market_stream.config import MarketStreamConfig
+from finance_analysis.market_stream.config import (
+    MarketStreamConfig,
+    completed_regular_minutes,
+    latest_completed_bar_time,
+    market_spec,
+    market_trading_date,
+)
 from finance_analysis.market_stream.leader_lock import LeaderLock
-from finance_analysis.market_stream.subscription_manager import SubscriptionManager
-from finance_analysis.market_stream.symbol_state import ConnectionStatus, SymbolRuntimeState, SymbolStatus
+from finance_analysis.market_stream.subscription_manager import (
+    SubscriptionManager,
+    WarmupFinalizer,
+    WarmupTaskKey,
+)
+from finance_analysis.market_stream.symbol_state import (
+    ConnectionStatus,
+    SubscriptionTarget,
+    SymbolRuntimeState,
+    SymbolStatus,
+)
 from finance_analysis.market_stream.warmup import LongbridgeHistoryLoader, merge_warmup_bars
 from finance_analysis.market_stream.watchlist_monitor import WatchListMonitor
+from finance_analysis.stocks.markets import MarketType
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +47,7 @@ logger = logging.getLogger(__name__)
 @dataclass(slots=True)
 class WarmupResult:
     symbol: str
+    market_type: MarketType
     cached: list[CandleState]
     historical: list[CandleState]
     elapsed_seconds: float
@@ -49,15 +65,21 @@ class MarketStreamService:
     ) -> None:
         self.config = config or MarketStreamConfig.from_env()
         self.repository = repository or RealtimeStateRepository.from_url(
-            self.config.redis_url, bar_limit=self.config.bar_limit
+            self.config.redis_url,
+            bar_limit=self.config.bar_limit,
+            removed_ttl_seconds=self.config.removed_symbol_cache_ttl_seconds,
         )
         self.watchlist_monitor = watchlist_monitor or WatchListMonitor()
         self.history_loader = history_loader or LongbridgeHistoryLoader()
-        self.event_queue: asyncio.Queue[MarketEvent] = asyncio.Queue()
+        self.event_queue: asyncio.Queue[MarketEvent] = asyncio.Queue(maxsize=self.config.event_queue_size)
         self.quotes: dict[str, QuoteState] = {}
         self.bars_1m: dict[str, deque[CandleState]] = {}
         self.current_candles: dict[str, CandleState] = {}
-        self.warming_buffers: dict[str, dict[tuple[datetime, str], CandleState]] = {}
+        self.warming_buffers: dict[
+            WarmupTaskKey,
+            dict[tuple[datetime, str], CandleState],
+        ] = {}
+        self.symbol_locks: dict[str, asyncio.Lock] = {}
         self.pending_quotes: dict[str, QuoteState] = {}
         self.pending_candles: dict[str, CandleState] = {}
         self.last_event_at: datetime | None = None
@@ -72,13 +94,17 @@ class MarketStreamService:
             warmup_apply=self._apply_warmup,
             state_callback=self._write_symbol_state,
             removal_callback=self._remove_symbol_state,
-            desired_loader=self._reload_desired_symbols,
+            desired_loader=self._reload_desired_targets,
+            connection_cleanup_callback=self._cleanup_connection_buffers,
             minimum_history_bars=self.config.minimum_history_bars,
         )
         self.leader_lock = LeaderLock(
             self.repository.redis,
             ttl_seconds=self.config.leader_lock_ttl_seconds,
         )
+
+    def _symbol_lock(self, symbol: str) -> asyncio.Lock:
+        return self.symbol_locks.setdefault(symbol, asyncio.Lock())
 
     def request_stop(self) -> None:
         self.stop_event.set()
@@ -98,8 +124,8 @@ class MarketStreamService:
             asyncio.create_task(self._heartbeat(), name="market-stream-heartbeat"),
         ]
         try:
-            desired, _, _ = await self.watchlist_monitor.poll()
-            self.manager.desired_symbols = desired
+            snapshot = await self.watchlist_monitor.poll()
+            self.manager.desired_targets = snapshot.targets
             tasks.extend(
                 [
                     asyncio.create_task(self.manager.start(), name="market-stream-connect"),
@@ -122,22 +148,24 @@ class MarketStreamService:
         return True
 
     def _enqueue_event(self, event: MarketEvent) -> None:
-        self.event_queue.put_nowait(event)
+        try:
+            self.event_queue.put_nowait(event)
+        except asyncio.QueueFull:
+            logger.warning("行情事件队列已满，丢弃事件: type=%s symbol=%s", event.event_type, event.symbol)
 
     async def _poll_watchlist(self) -> None:
         while not self.stop_event.is_set():
             try:
-                desired, _, _ = await self.watchlist_monitor.poll()
-                await self.manager.reconcile(desired)
+                snapshot = await self.watchlist_monitor.poll()
+                await self.manager.reconcile(snapshot.targets)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logger.warning("读取或同步 WatchList 失败: %s", exc)
             await asyncio.sleep(self.config.watchlist_poll_seconds)
 
-    async def _reload_desired_symbols(self) -> set[str]:
-        desired, _, _ = await self.watchlist_monitor.poll()
-        return desired
+    async def _reload_desired_targets(self) -> dict[str, SubscriptionTarget]:
+        return (await self.watchlist_monitor.poll()).targets
 
     async def _consume_events(self) -> None:
         while not self.stop_event.is_set():
@@ -153,7 +181,7 @@ class MarketStreamService:
         if event.connection_generation != self.manager.connection_generation:
             return
         state = self.manager.symbol_states.get(event.symbol)
-        if state is None or event.symbol not in self.manager.desired_symbols:
+        if state is None or event.symbol not in self.manager.desired_targets:
             return
         if state.status in {SymbolStatus.REMOVING, SymbolStatus.INACTIVE, SymbolStatus.PENDING}:
             return
@@ -165,28 +193,34 @@ class MarketStreamService:
                 self.pending_quotes[event.symbol] = quote
         elif event.event_type == "candle_1m":
             candle = event_to_candle(event)
-            if not candle.is_valid():
+            if candle.is_valid():
+                await self._handle_candle(candle, event.connection_generation)
+        logger.debug("行情事件: type=%s symbol=%s", event.event_type, event.symbol)
+
+    async def _handle_candle(self, candle: CandleState, connection_generation: int) -> None:
+        state: SymbolRuntimeState | None = None
+        accepted = False
+        count = 0
+        async with self._symbol_lock(candle.symbol):
+            if connection_generation != self.manager.connection_generation:
                 return
-            state.last_candle_at = event.received_at
+            state = self.manager.symbol_states.get(candle.symbol)
+            if state is None or candle.symbol not in self.manager.desired_targets:
+                return
+            if state.status in {SymbolStatus.REMOVING, SymbolStatus.INACTIVE, SymbolStatus.PENDING}:
+                return
+            state.last_candle_at = candle.received_at
             if state.status == SymbolStatus.WARMING:
-                buffer = self.warming_buffers.setdefault(event.symbol, {})
+                key = WarmupTaskKey(candle.symbol, state.generation, connection_generation)
+                buffer = self.warming_buffers.setdefault(key, {})
                 existing = buffer.get(candle.identity)
                 if existing is None or candle.received_at >= existing.received_at:
                     buffer[candle.identity] = candle
                 return
-            await self._apply_live_candle(candle, state)
-        logger.debug("行情事件: type=%s symbol=%s", event.event_type, event.symbol)
+            accepted, count = self._update_live_candle_memory(candle, state)
 
-    async def _apply_live_candle(self, candle: CandleState, state: SymbolRuntimeState) -> None:
-        bars = self.bars_1m.setdefault(candle.symbol, deque(maxlen=self.config.bar_limit))
-        existing = {bar.identity: bar for bar in bars}
-        previous = existing.get(candle.identity)
-        if previous is None or candle.received_at >= previous.received_at:
-            existing[candle.identity] = candle
-        ordered = sorted(existing.values(), key=lambda item: (item.bar_time, item.trade_session or ""))
-        self.bars_1m[candle.symbol] = deque(ordered[-self.config.bar_limit :], maxlen=self.config.bar_limit)
-        self.current_candles[candle.symbol] = candle
-        self.pending_candles[candle.symbol] = candle
+        if not accepted or state is None:
+            return
         if candle.confirmed:
             try:
                 await self.repository.upsert_bars(candle.symbol, [candle])
@@ -194,18 +228,51 @@ class MarketStreamService:
             except Exception as exc:
                 self.redis_degraded = True
                 logger.warning("Redis K 线写入失败: symbol=%s error=%s", candle.symbol, exc)
-        count = len(self.bars_1m[candle.symbol])
         if (
             state.status in {SymbolStatus.INSUFFICIENT_HISTORY, SymbolStatus.ERROR}
             and count >= self.config.minimum_history_bars
         ):
             await self.manager.bars_updated(candle.symbol, count, symbol_generation=state.generation)
 
-    async def _load_warmup(self, symbol: str, symbol_generation: int, connection_generation: int) -> WarmupResult:
+    def _update_live_candle_memory(
+        self,
+        candle: CandleState,
+        state: SymbolRuntimeState,
+    ) -> tuple[bool, int]:
+        candle_date = market_trading_date(candle.bar_time, state.market_type)
+        if state.trading_date is not None and candle_date < state.trading_date:
+            return False, len(self.bars_1m.get(candle.symbol, ()))
+        if state.trading_date is not None and candle_date > state.trading_date:
+            self.bars_1m.pop(candle.symbol, None)
+            self.current_candles.pop(candle.symbol, None)
+        state.trading_date = candle_date
+
+        bars = self.bars_1m.setdefault(candle.symbol, deque(maxlen=self.config.bar_limit))
+        existing = {bar.identity: bar for bar in bars}
+        previous = existing.get(candle.identity)
+        if previous is not None and candle.received_at < previous.received_at:
+            return False, len(bars)
+        existing[candle.identity] = candle
+        ordered = sorted(existing.values(), key=lambda item: (item.bar_time, item.trade_session or ""))
+        updated = deque(ordered[-self.config.bar_limit :], maxlen=self.config.bar_limit)
+        self.bars_1m[candle.symbol] = updated
+        current = updated[-1]
+        self.current_candles[candle.symbol] = current
+        self.pending_candles[candle.symbol] = current
+        return True, len(updated)
+
+    async def _load_warmup(
+        self,
+        symbol: str,
+        market_type: MarketType,
+        symbol_generation: int,
+        connection_generation: int,
+    ) -> WarmupResult:
         started = time.monotonic()
         logger.info(
-            "warmup 开始: %s symbol_generation=%s connection_generation=%s",
+            "warmup 开始: %s market=%s symbol_generation=%s connection_generation=%s",
             symbol,
+            market_type,
             symbol_generation,
             connection_generation,
         )
@@ -217,53 +284,105 @@ class MarketStreamService:
                 self.redis_degraded = True
                 logger.warning("Redis warmup 恢复失败: symbol=%s error=%s", symbol, exc)
             historical: list[CandleState] = []
-            if not self._cache_has_current_session(cached):
-                historical = await self.history_loader.fetch(symbol, self.config.bar_limit)
-            return WarmupResult(symbol, cached, historical, time.monotonic() - started)
+            if not self._cache_has_current_session(cached, market_type):
+                historical = await self.history_loader.fetch(symbol, market_type, self.config.bar_limit)
+            return WarmupResult(
+                symbol,
+                market_type,
+                cached,
+                historical,
+                time.monotonic() - started,
+            )
 
-    def _cache_has_current_session(self, bars: list[CandleState]) -> bool:
-        if not bars:
+    def _cache_has_current_session(
+        self,
+        bars: list[CandleState],
+        market_type: MarketType,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        now = now or utc_now()
+        expected = latest_completed_bar_time(now, market_type)
+        if not bars or expected is None:
             return False
-        market_today = utc_now().astimezone(ZoneInfo("America/New_York")).date()
-        today_count = sum(
-            bar.bar_time.astimezone(ZoneInfo("America/New_York")).date() == market_today for bar in bars
+        current_date = market_trading_date(now, market_type)
+        completed = [
+            bar
+            for bar in bars
+            if market_trading_date(bar.bar_time, market_type) == current_date and bar.bar_time <= expected
+        ]
+        if not completed:
+            return False
+        newest = max(bar.bar_time for bar in completed)
+        gap = expected - newest
+        if gap.total_seconds() < 0 or gap > market_spec(market_type).cache_gap_tolerance:
+            return False
+        required = min(
+            self.config.minimum_history_bars,
+            completed_regular_minutes(now, market_type),
         )
-        return today_count >= self.config.minimum_history_bars
+        return required > 0 and len(completed) >= required
 
     async def _apply_warmup(
         self,
-        symbol: str,
-        symbol_generation: int,
-        result: WarmupResult,
+        state: SymbolRuntimeState,
+        connection_generation: int,
+        result: WarmupResult | None,
         error: Exception | None,
-    ) -> int:
-        state = self.manager.symbol_states.get(symbol)
-        if state is None or state.generation != symbol_generation or symbol not in self.manager.desired_symbols:
-            return 0
-        buffered = list(self.warming_buffers.pop(symbol, {}).values())
-        bars = merge_warmup_bars(result.cached + result.historical, buffered, limit=self.config.bar_limit)
-        self.bars_1m[symbol] = deque(bars, maxlen=self.config.bar_limit)
-        if bars:
-            self.current_candles[symbol] = bars[-1]
-            self.pending_candles[symbol] = bars[-1]
+        finalize: WarmupFinalizer,
+    ) -> bool:
+        key = WarmupTaskKey(state.symbol, state.generation, connection_generation)
+        buffered_count = 0
+        bars: list[CandleState] = []
+        trading_date: date | None = None
+        async with self._symbol_lock(state.symbol):
+            current = self.manager.symbol_states.get(state.symbol)
+            target = self.manager.desired_targets.get(state.symbol)
+            if (
+                current is not state
+                or target is None
+                or target.market_type != state.market_type
+                or connection_generation != self.manager.connection_generation
+                or state.status != SymbolStatus.WARMING
+            ):
+                return False
+            buffered = list(self.warming_buffers.pop(key, {}).values())
+            buffered_count = len(buffered)
+            base_bars = [] if result is None else result.cached + result.historical
+            bars = merge_warmup_bars(base_bars, buffered, limit=self.config.bar_limit)
+            if bars:
+                trading_date = max(market_trading_date(bar.bar_time, state.market_type) for bar in bars)
+                bars = [
+                    bar
+                    for bar in bars
+                    if market_trading_date(bar.bar_time, state.market_type) == trading_date
+                ]
+            else:
+                trading_date = market_trading_date(utc_now(), state.market_type)
+            self.bars_1m[state.symbol] = deque(bars, maxlen=self.config.bar_limit)
+            if bars:
+                self.current_candles[state.symbol] = bars[-1]
+                self.pending_candles[state.symbol] = bars[-1]
+            finalize(len(bars), error, trading_date)
+
         try:
-            await self.repository.upsert_bars(symbol, bars)
+            await self.repository.upsert_bars(state.symbol, bars)
             if bars:
                 await self.repository.write_current_candle(bars[-1])
             self.redis_degraded = False
         except Exception as exc:
             self.redis_degraded = True
-            logger.warning("Redis warmup 写入失败: symbol=%s error=%s", symbol, exc)
+            logger.warning("Redis warmup 写入失败: symbol=%s error=%s", state.symbol, exc)
         logger.info(
             "warmup 数据合并: %s cache=%s history=%s realtime=%s final=%s elapsed=%.3fs",
-            symbol,
-            len(result.cached),
-            len(result.historical),
-            len(buffered),
+            state.symbol,
+            len(result.cached) if result is not None else 0,
+            len(result.historical) if result is not None else 0,
+            buffered_count,
             len(bars),
-            result.elapsed_seconds,
+            result.elapsed_seconds if result is not None else 0.0,
         )
-        return len(bars)
+        return True
 
     async def _flush_redis(self) -> None:
         interval = self.config.redis_flush_interval_ms / 1000
@@ -286,25 +405,57 @@ class MarketStreamService:
 
     async def _write_symbol_state(self, state: SymbolRuntimeState) -> None:
         try:
-            await self.repository.write_subscription(state.symbol, state.redis_mapping(utc_now()))
+            await self.repository.write_subscription(
+                state.symbol,
+                state.redis_mapping(utc_now()),
+                ttl_seconds=self.config.subscription_state_ttl_seconds,
+            )
         except Exception:
             self.redis_degraded = True
             raise
 
     async def _remove_symbol_state(self, symbol: str) -> None:
-        self.quotes.pop(symbol, None)
-        self.bars_1m.pop(symbol, None)
-        self.current_candles.pop(symbol, None)
-        self.warming_buffers.pop(symbol, None)
-        self.pending_quotes.pop(symbol, None)
-        self.pending_candles.pop(symbol, None)
+        async with self._symbol_lock(symbol):
+            self.quotes.pop(symbol, None)
+            self.bars_1m.pop(symbol, None)
+            self.current_candles.pop(symbol, None)
+            for key in [key for key in self.warming_buffers if key.symbol == symbol]:
+                self.warming_buffers.pop(key, None)
+            self.pending_quotes.pop(symbol, None)
+            self.pending_candles.pop(symbol, None)
         try:
-            await self.repository.expire_symbol_cache(symbol)
+            await self.repository.expire_symbol_cache(
+                symbol,
+                ttl_seconds=self.config.removed_symbol_cache_ttl_seconds,
+            )
         except Exception as exc:
             self.redis_degraded = True
             logger.warning("设置已删除标的缓存 TTL 失败: symbol=%s error=%s", symbol, exc)
 
+    async def _cleanup_connection_buffers(self, connection_generation: int) -> None:
+        symbols = {
+            key.symbol
+            for key in self.warming_buffers
+            if key.connection_generation <= connection_generation
+        }
+        for symbol in symbols:
+            async with self._symbol_lock(symbol):
+                for key in [
+                    key
+                    for key in self.warming_buffers
+                    if key.symbol == symbol and key.connection_generation <= connection_generation
+                ]:
+                    self.warming_buffers.pop(key, None)
+
     async def _heartbeat(self) -> None:
+        renewable_statuses = {
+            SymbolStatus.PENDING,
+            SymbolStatus.WARMING,
+            SymbolStatus.ACTIVE,
+            SymbolStatus.INSUFFICIENT_HISTORY,
+            SymbolStatus.ERROR,
+            SymbolStatus.REMOVING,
+        }
         while not self.stop_event.is_set():
             status = ConnectionStatus.DEGRADED if self.redis_degraded else self.manager.connection_status
             try:
@@ -313,14 +464,24 @@ class MarketStreamService:
                         "instance_id": self.instance_id,
                         "status": status,
                         "connection_generation": self.manager.connection_generation,
-                        "desired_symbols": ",".join(sorted(self.manager.desired_symbols)),
+                        "desired_symbols": ",".join(sorted(self.manager.desired_targets)),
                         "active_symbols": ",".join(sorted(self.manager.active_symbols)),
                         "warming_symbols": ",".join(sorted(self.manager.warming_symbols)),
                         "last_event_at": self.last_event_at,
                         "updated_at": utc_now(),
                     },
-                    ttl_seconds=30,
+                    ttl_seconds=self.config.heartbeat_ttl_seconds,
                 )
+                renewable = [
+                    state.symbol
+                    for state in self.manager.symbol_states.values()
+                    if state.status in renewable_statuses
+                ]
+                await self.repository.refresh_subscription_ttls(
+                    renewable,
+                    ttl_seconds=self.config.subscription_state_ttl_seconds,
+                )
+                self.redis_degraded = False
             except Exception as exc:
                 self.redis_degraded = True
                 logger.warning("streamer 心跳写入失败: %s", exc)
@@ -342,7 +503,7 @@ class MarketStreamService:
 
     async def _check_connection(self) -> None:
         while not self.stop_event.is_set():
-            await asyncio.sleep(max(5, self.config.heartbeat_seconds))
+            await asyncio.sleep(max(self.config.heartbeat_seconds, self.config.watchlist_poll_seconds))
             if self.manager.connection_status in {ConnectionStatus.READY, ConnectionStatus.DEGRADED}:
                 try:
                     healthy = await self.manager.health_check()
