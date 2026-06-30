@@ -12,8 +12,10 @@ declare module 'vue-router' {
 
 const HomePage = () => import('@/pages/HomePage.vue');
 const ChatPage = () => import('@/pages/ChatPage.vue');
-const WatchListPage = () => import('@/pages/WatchListPage.vue');
-const StockListPage = () => import('@/pages/StockListPage.vue');
+const MarketPage = () => import('@/pages/MarketPage.vue');
+const MarketWatchListPage = () => import('@/pages/WatchListPage.vue');
+const MarketHoldingsPage = () => import('@/pages/StockListPage.vue');
+const SignalEvaluationPage = () => import('@/pages/market/SignalEvaluationPage.vue');
 const LoginPage = () => import('@/pages/LoginPage.vue');
 const CalendarPage = () => import('@/pages/CalendarPage.vue');
 const ProfilePage = () => import('@/pages/ProfilePage.vue');
@@ -29,8 +31,31 @@ const router = createRouter({
       children: [
         { path: '', name: 'home', component: HomePage },
         { path: 'chat', name: 'chat', component: ChatPage, meta: { title: '问股' } },
-        { path: 'watch-list', name: 'watch-list', component: WatchListPage, meta: { title: '自选股' } },
-        { path: 'stock-list', name: 'stock-list', component: StockListPage, meta: { title: '持仓股' } },
+        {
+          path: 'market',
+          component: MarketPage,
+          meta: { title: '市场' },
+          children: [
+            {
+              path: 'watch-list',
+              name: 'market-watch-list',
+              component: MarketWatchListPage,
+              meta: { title: '自选股' },
+            },
+            {
+              path: 'holdings',
+              name: 'market-holdings',
+              component: MarketHoldingsPage,
+              meta: { title: '持仓股' },
+            },
+            {
+              path: 'signals',
+              name: 'market-signals',
+              component: SignalEvaluationPage,
+              meta: { title: '信号评估' },
+            },
+          ],
+        },
         { path: 'calendar', name: 'calendar', component: CalendarPage, meta: { title: '日历记录' } },
         { path: 'profile', name: 'profile', component: ProfilePage, meta: { title: '个人中心' } },
         { path: 'tasks', name: 'tasks', component: TasksPage, meta: { title: '任务中心' } },

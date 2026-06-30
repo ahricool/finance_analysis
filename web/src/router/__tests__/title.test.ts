@@ -5,8 +5,9 @@ describe('router document titles', () => {
   it.each([
     ['/', 'Finance Analysis'],
     ['/calendar', '日历记录 - Finance Analysis'],
-    ['/watch-list', '自选股 - Finance Analysis'],
-    ['/stock-list', '持仓股 - Finance Analysis'],
+    ['/market/watch-list', '自选股 - Finance Analysis'],
+    ['/market/holdings', '持仓股 - Finance Analysis'],
+    ['/market/signals', '信号评估 - Finance Analysis'],
     ['/chat', '问股 - Finance Analysis'],
     ['/profile', '个人中心 - Finance Analysis'],
     ['/tasks', '任务中心 - Finance Analysis'],
@@ -16,5 +17,12 @@ describe('router document titles', () => {
     ['/missing-page', '页面未找到 - Finance Analysis'],
   ])('resolves %s to %s', (path, expectedTitle) => {
     expect(resolveDocumentTitle({ matched: router.resolve(path).matched })).toBe(expectedTitle);
+  });
+
+  it('does not register the removed top-level stock routes', () => {
+    expect(router.hasRoute('watch-list')).toBe(false);
+    expect(router.hasRoute('stock-list')).toBe(false);
+    expect(router.resolve('/watch-list').name).toBe('not-found');
+    expect(router.resolve('/stock-list').name).toBe('not-found');
   });
 });

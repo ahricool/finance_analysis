@@ -19,6 +19,7 @@ from finance_analysis.interfaces.api.v1.endpoints import (
     celery_demo,
     history,
     market_data,
+    signals,
     stock_list,
     stocks,
     tasks,
@@ -99,4 +100,10 @@ router.include_router(
     tasks.router,
     prefix="/tasks",
     tags=["Tasks"],
+)
+
+router.include_router(
+    signals.router,
+    prefix="/signals",
+    tags=["Signals"],
 )
