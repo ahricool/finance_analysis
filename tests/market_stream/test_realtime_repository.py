@@ -6,6 +6,9 @@ from decimal import Decimal
 import pytest
 
 from finance_analysis.integrations.market_data.realtime_state import keys
+from finance_analysis.integrations.market_data.realtime_state.data_source import (
+    RealtimeMarketDataSource,
+)
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from tests.market_stream.fakes import FakeRedis
@@ -96,6 +99,25 @@ async def test_bars_sorted_replaced_trimmed_and_queried() -> None:
     ranged = await repo.get_bars_by_time("AAPL.US", candle(2).bar_time, candle(3).bar_time)
     assert [bar.bar_time.minute for bar in ranged] == [2, 3]
     assert await redis.ttl(keys.bars_data_key("AAPL.US")) == 3 * 86400
+
+
+@pytest.mark.asyncio
+async def test_post_close_stored_bars_keep_multiple_days_without_heartbeat() -> None:
+    redis = FakeRedis()
+    repository = RealtimeStateRepository(redis)
+    first_day = candle(1)
+    second_day = candle(2)
+    second_day.bar_time += timedelta(days=3)
+    second_day.received_at += timedelta(days=3)
+    premarket = candle(3)
+    premarket.bar_time = premarket.bar_time.replace(hour=12)
+    premarket.received_at = premarket.bar_time
+    await repository.upsert_bars("AAPL.US", [first_day, second_day, premarket])
+    source = RealtimeMarketDataSource(repository)
+
+    bars = await source.get_stored_bars("AAPL", 10, market_type="US")
+
+    assert [bar["timestamp"][:10] for bar in bars] == ["2026-06-26", "2026-06-29"]
 
 
 @pytest.mark.asyncio

@@ -25,6 +25,8 @@ EXPECTED_JOBS = {
     "analysis_us_intraday": ("scheduled_us_intraday", "America/New_York"),
     "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
     "analysis_a_share_intraday": ("scheduled_a_share_intraday", "Asia/Shanghai"),
+    "signal_evaluation_cn": ("scheduled_signal_evaluation_cn", "Asia/Shanghai"),
+    "signal_evaluation_us": ("scheduled_signal_evaluation_us", "America/New_York"),
 }
 
 
@@ -86,6 +88,20 @@ def test_a_share_intraday_uses_five_minute_windows_and_skips_lunch():
     assert ("13-14", "*/5", "mon-fri", "Asia/Shanghai") in schedules
     assert ("15", "0", "mon-fri", "Asia/Shanghai") in schedules
     assert "午休不运行" in definition.schedule_text
+
+
+def test_signal_evaluation_jobs_are_market_scoped_and_independently_scheduled():
+    cn = get_scheduled_task_definition("signal_evaluation_cn")
+    us = get_scheduled_task_definition("signal_evaluation_us")
+
+    assert cn.allow_manual_run is True
+    assert us.allow_manual_run is True
+    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in cn.schedules} == {
+        ("18", "30", "mon-fri", "Asia/Shanghai")
+    }
+    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in us.schedules} == {
+        ("17", "0", "mon-fri", "America/New_York")
+    }
 
 
 def test_all_scheduled_celery_tasks_are_registered():

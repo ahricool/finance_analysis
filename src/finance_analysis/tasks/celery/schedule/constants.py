@@ -24,6 +24,7 @@ EXPIRES_NEWS = 30 * 60
 EXPIRES_CALENDAR = 60 * 60
 EXPIRES_POSTMARKET_REVIEW = 90 * 60
 EXPIRES_DAILY = 6 * 60 * 60
+EXPIRES_SIGNAL_EVALUATION = 60 * 60
 
 JOB_DAILY_ANALYSIS = "analysis_daily"
 JOB_MARKET_CALENDAR = "market_calendar"
@@ -32,6 +33,8 @@ JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
 JOB_US_INTRADAY_ANALYSIS = "analysis_us_intraday"
 JOB_US_POSTMARKET_REVIEW = "analysis_us_postmarket_review"
 JOB_A_SHARE_INTRADAY_ANALYSIS = "analysis_a_share_intraday"
+JOB_SIGNAL_EVALUATION_CN = "signal_evaluation_cn"
+JOB_SIGNAL_EVALUATION_US = "signal_evaluation_us"
 
 
 def celery_task_name(job_id: str) -> str:

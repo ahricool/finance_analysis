@@ -6,6 +6,7 @@ from finance_analysis.database.models.calendar import CalendarEntry
 from finance_analysis.database.models.conversation import ConversationMessage, LLMUsage
 from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.news import FundamentalSnapshot, NewsIntel
+from finance_analysis.database.models.signal import Signal
 from finance_analysis.database.models.stock import StockDaily
 from finance_analysis.database.models.task import TaskRecord
 from finance_analysis.database.models.user import User
@@ -19,6 +20,7 @@ __all__ = [
     "FundamentalSnapshot",
     "LLMUsage",
     "NewsIntel",
+    "Signal",
     "StockDaily",
     "StockHolding",
     "TaskRecord",
