@@ -23,15 +23,27 @@ def _symbol_matches_market(symbol: str, market_type: MarketType) -> bool:
     return symbol.endswith((".SH", ".SZ"))
 
 
-def load_watchlist_targets(repo: Any | None = None) -> dict[str, SubscriptionTarget]:
-    """Load the union of all users' CN/HK/US WatchList entries."""
-    if repo is None:
+def load_watchlist_targets(
+    repo: Any | None = None,
+    holdings_repo: Any | None = None,
+) -> dict[str, SubscriptionTarget]:
+    """Load the union of all users' watch-list and holding entries.
+
+    Passing an explicit ``repo`` without ``holdings_repo`` retains the original
+    single-repository behavior for callers that inject a custom source.
+    """
+    if repo is None and holdings_repo is None:
         from finance_analysis.database.repositories.watch_list import WatchListRepo
+        from finance_analysis.database.repositories.stock_list import StockListRepo
 
         repo = WatchListRepo()
+        holdings_repo = StockListRepo()
 
     targets: dict[str, SubscriptionTarget] = {}
-    for item in repo.list_all():
+    items = list(repo.list_all()) if repo is not None else []
+    if holdings_repo is not None:
+        items.extend(holdings_repo.list_all())
+    for item in items:
         code = str(getattr(item, "code", "") or "").strip()
         raw_market = getattr(item, "market_type", None)
         try:

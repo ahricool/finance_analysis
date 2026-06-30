@@ -4,7 +4,10 @@ import { stockListApi, type MarketType, type StockHolding, type StockHoldingCrea
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
+import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
+import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
+import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import {
   formatDecimalText,
@@ -20,7 +23,7 @@ import { useRoute, useRouter } from 'vue-router';
 
 type MarketFilter = MarketType | 'ALL';
 type SortDirection = 'asc' | 'desc';
-type StockListSortKey = 'code' | 'market_type' | 'name' | 'quantity' | 'avg_cost' | 'cost_amount' | 'notes';
+type StockListSortKey = 'code' | 'market_type' | 'name' | 'quantity' | 'avg_cost' | 'cost_amount';
 
 type HoldingPrefill = {
   code: string;
@@ -53,6 +56,8 @@ const saving = ref(false);
 const showDeleteConfirm = ref(false);
 const deletingId = ref<number | null>(null);
 const deletingCode = ref('');
+const detailItem = ref<StockHolding | null>(null);
+const { status: realtimeStatus, getQuote } = useRealtimeQuotes();
 
 const marketOptions: { value: MarketType; label: string }[] = [
   { value: 'CN', label: 'A股' },
@@ -89,6 +94,22 @@ const formCurrencyCode = computed(() => getMarketCurrencyCode(formMarketType.val
 
 function marketLabel(value: MarketType): string {
   return marketOptions.find((option) => option.value === value)?.label ?? 'A股';
+}
+
+function formatQuoteNumber(value: number | null | undefined, suffix = ''): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  return `${value.toFixed(2)}${suffix}`;
+}
+
+function formatSignedQuoteNumber(value: number | null | undefined, suffix = ''): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  return `${value > 0 ? '+' : ''}${value.toFixed(2)}${suffix}`;
+}
+
+function movementClass(value: number | null | undefined): string {
+  if (value && value > 0) return 'text-red-500';
+  if (value && value < 0) return 'text-emerald-500';
+  return 'text-secondary-text';
 }
 
 function sortValue(item: StockHolding, key: StockListSortKey): string | number | null | undefined {
@@ -398,16 +419,31 @@ onMounted(async () => {
               </option>
             </select>
           </label>
-          <p class="text-xs text-muted-text">显示 {{ visibleItems.length }} / {{ total }} 只</p>
+          <div class="flex items-center gap-3">
+            <RealtimeStatus :status="realtimeStatus" />
+            <p class="whitespace-nowrap text-xs text-muted-text">显示 {{ visibleItems.length }} / {{ total }} 只</p>
+          </div>
         </div>
       </div>
 
       <!-- Table -->
       <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-        <table class="w-full min-w-[1040px] text-left text-sm">
+        <table class="w-full min-w-[1220px] table-fixed text-left text-sm">
+          <colgroup>
+            <col class="w-[120px]" />
+            <col class="w-[160px]" />
+            <col class="w-[90px]" />
+            <col class="w-[115px]" />
+            <col class="w-[120px]" />
+            <col class="w-[110px]" />
+            <col class="w-[130px]" />
+            <col class="w-[130px]" />
+            <col class="w-[145px]" />
+            <col class="w-[100px]" />
+          </colgroup>
           <thead class="border-b border-border/70 text-xs text-muted-text">
             <tr>
-              <th class="min-w-[120px] px-4 py-3 font-medium" :aria-sort="sortAria('code')">
+              <th class="whitespace-nowrap px-4 py-3 font-medium" :aria-sort="sortAria('code')">
                 <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('code')">
                   代码
                   <ArrowUp v-if="sortKey === 'code' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
@@ -415,7 +451,7 @@ onMounted(async () => {
                   <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
               </th>
-              <th class="min-w-[180px] px-4 py-3 font-medium" :aria-sort="sortAria('name')">
+              <th class="whitespace-nowrap px-4 py-3 font-medium" :aria-sort="sortAria('name')">
                 <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('name')">
                   名称
                   <ArrowUp v-if="sortKey === 'name' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
@@ -423,7 +459,7 @@ onMounted(async () => {
                   <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
               </th>
-              <th class="min-w-[80px] px-4 py-3 font-medium" :aria-sort="sortAria('market_type')">
+              <th class="whitespace-nowrap px-4 py-3 font-medium" :aria-sort="sortAria('market_type')">
                 <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('market_type')">
                   市场
                   <ArrowUp v-if="sortKey === 'market_type' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
@@ -431,7 +467,10 @@ onMounted(async () => {
                   <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
               </th>
-              <th class="min-w-[120px] px-4 py-3 text-right font-medium" :aria-sort="sortAria('quantity')">
+              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">最新价</th>
+              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">今日涨跌额</th>
+              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">今日涨跌幅</th>
+              <th class="whitespace-nowrap px-4 py-3 text-right font-medium" :aria-sort="sortAria('quantity')">
                 <button
                   class="ml-auto flex items-center gap-1.5 transition-colors hover:text-foreground"
                   @click="toggleSort('quantity')"
@@ -442,7 +481,7 @@ onMounted(async () => {
                   <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
               </th>
-              <th class="min-w-[120px] px-4 py-3 text-right font-medium" :aria-sort="sortAria('avg_cost')">
+              <th class="whitespace-nowrap px-4 py-3 text-right font-medium" :aria-sort="sortAria('avg_cost')">
                 <button
                   class="ml-auto flex items-center gap-1.5 transition-colors hover:text-foreground"
                   @click="toggleSort('avg_cost')"
@@ -453,7 +492,7 @@ onMounted(async () => {
                   <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
               </th>
-              <th class="min-w-[140px] px-4 py-3 text-right font-medium" :aria-sort="sortAria('cost_amount')">
+              <th class="whitespace-nowrap px-4 py-3 text-right font-medium" :aria-sort="sortAria('cost_amount')">
                 <button
                   class="ml-auto flex items-center gap-1.5 transition-colors hover:text-foreground"
                   @click="toggleSort('cost_amount')"
@@ -464,20 +503,12 @@ onMounted(async () => {
                   <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
                 </button>
               </th>
-              <th class="min-w-[220px] px-4 py-3 font-medium" :aria-sort="sortAria('notes')">
-                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('notes')">
-                  备注
-                  <ArrowUp v-if="sortKey === 'notes' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'notes'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="min-w-[96px] px-4 py-3 text-right font-medium">操作</th>
+              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!visibleItems.length">
-              <td colspan="8" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无持仓股</td>
+              <td colspan="10" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无持仓股</td>
             </tr>
             <template v-else>
               <tr
@@ -486,13 +517,26 @@ onMounted(async () => {
                 class="border-b border-border/50 transition-colors last:border-0 hover:bg-hover/70"
               >
                 <td class="px-4 py-3">
-                  <span class="font-mono text-sm font-semibold text-primary">{{ item.code }}</span>
+                  <button class="font-mono text-sm font-semibold text-primary hover:underline" @click="detailItem = item">
+                    {{ item.code }}
+                  </button>
                 </td>
-                <td class="px-4 py-3 font-medium text-foreground">{{ item.name || '—' }}</td>
+                <td class="truncate px-4 py-3 font-medium text-foreground">
+                  <button class="max-w-full truncate text-left hover:text-primary hover:underline" @click="detailItem = item">{{ item.name || '—' }}</button>
+                </td>
                 <td class="px-4 py-3">
                   <span class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-secondary-text">
                     {{ marketLabel(item.market_type) }}
                   </span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground">
+                  {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)">
+                  {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount) }}
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)">
+                  {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%') }}
                 </td>
                 <td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-foreground">
                   {{ formatDecimalText(item.quantity) }} 股
@@ -502,9 +546,6 @@ onMounted(async () => {
                 </td>
                 <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground">
                   {{ formatHoldingCostAmount(item.quantity, item.avg_cost, item.market_type) }}
-                </td>
-                <td class="max-w-xs px-4 py-3 text-secondary-text">
-                  <span class="line-clamp-2">{{ item.notes || '—' }}</span>
                 </td>
                 <td class="px-4 py-3 text-right">
                   <div class="flex justify-end gap-1">
@@ -530,6 +571,13 @@ onMounted(async () => {
         </table>
       </div>
     </template>
+
+    <StockDetailDialog
+      :stock="detailItem"
+      :quote="detailItem ? getQuote(detailItem.code, detailItem.market_type) : undefined"
+      kind="holding"
+      @close="detailItem = null"
+    />
 
     <!-- Add / Edit Dialog -->
     <Teleport to="body">

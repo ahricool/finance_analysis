@@ -73,17 +73,34 @@ class RealtimeStateRepository:
 
     async def get_quote(self, symbol: str) -> QuoteState | None:
         raw = await self.redis.hgetall(keys.quote_key(symbol))
-        if not raw:
-            return None
-        quote = QuoteState(symbol=raw.get("symbol") or symbol)
+        return self._quote_from_mapping(symbol, raw) if raw else None
+
+    async def get_quotes(self, symbols: Iterable[str]) -> dict[str, QuoteState]:
+        """Load several quote hashes in one Redis round trip."""
+        unique_symbols = list(dict.fromkeys(symbols))
+        if not unique_symbols:
+            return {}
+        pipe = self.redis.pipeline(transaction=False)
+        for symbol in unique_symbols:
+            pipe.hgetall(keys.quote_key(symbol))
+        values = await pipe.execute()
+        quotes: dict[str, QuoteState] = {}
+        for symbol, raw in zip(unique_symbols, values):
+            if raw:
+                quotes[symbol] = self._quote_from_mapping(symbol, raw)
+        return quotes
+
+    @staticmethod
+    def _quote_from_mapping(symbol: str, raw: Mapping[str, Any]) -> QuoteState:
+        quote = QuoteState(symbol=str(raw.get("symbol") or symbol))
         quote.merge(
             {
                 key: value
                 for key, value in raw.items()
                 if key not in {"symbol", "event_time", "received_at"} and value != ""
             },
-            event_time=datetime.fromisoformat(raw["event_time"].replace("Z", "+00:00")),
-            received_at=datetime.fromisoformat(raw["received_at"].replace("Z", "+00:00")),
+            event_time=datetime.fromisoformat(str(raw["event_time"]).replace("Z", "+00:00")),
+            received_at=datetime.fromisoformat(str(raw["received_at"]).replace("Z", "+00:00")),
         )
         return quote
 
