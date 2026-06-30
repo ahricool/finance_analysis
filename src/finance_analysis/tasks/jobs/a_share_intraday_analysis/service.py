@@ -603,6 +603,11 @@ class AShareIntradayAnalysisService:
     ) -> None:
         summary.calendar_id = self.reporter.record_summary(summary, snapshot)
 
+        persist_signal = getattr(self.reporter, "persist_signal", None)
+        if callable(persist_signal):
+            for signal in signals:
+                persist_signal(signal, summary.snapshot_time)
+
         state_selected = [
             signal
             for signal in signals

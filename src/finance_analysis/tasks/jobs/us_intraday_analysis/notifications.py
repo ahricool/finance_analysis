@@ -102,6 +102,28 @@ class SignalReporter:
             logger.warning("写入美股盘中信号日历失败: %s", exc)
             return None
 
+    def persist_signal(self, signal: IntradaySignalResult, signal_at: datetime) -> Optional[int]:
+        """Store an intraday signal with minute evaluation enabled."""
+        try:
+            from finance_analysis.analysis.signal_evaluation import build_initial_evaluation
+            from finance_analysis.database.repositories.signal import SignalRepository
+
+            price = float(signal.metrics.get("price") or 0)
+            if price <= 0:
+                raise ValueError("signal price is missing")
+            row = SignalRepository().create(
+                market="US",
+                code=signal.symbol,
+                signal_type=signal.signal_type,
+                price=price,
+                signal_at=signal_at,
+                evaluation=build_initial_evaluation(supports_intraday=True),
+            )
+            return int(row.id)
+        except Exception as exc:
+            logger.warning("写入美股 Signal 失败: %s", exc)
+            return None
+
     def send_notification(self, signal: IntradaySignalResult) -> bool:
         """Send the alert through the notification service; report success."""
         try:

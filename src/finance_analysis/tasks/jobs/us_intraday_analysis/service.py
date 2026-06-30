@@ -299,6 +299,10 @@ class USIntradayAnalysisService:
                 "state_generation": candidate.get("state_generation"),
             },
         )
+        now = self._run_time or datetime.now(US_EASTERN)
+        persist_signal = getattr(self.reporter, "persist_signal", None)
+        if callable(persist_signal):
+            persist_signal(signal, now)
         signal.calendar_id = self.reporter.record_to_calendar(signal)
         if need_notification:
             severity = _notification_severity(candidate)
@@ -307,7 +311,6 @@ class USIntradayAnalysisService:
                 severity=severity,
                 candidate_signature=str(candidate.get("state_signature") or ""),
             )
-            now = self._run_time or datetime.now(US_EASTERN)
             should_notify = self.signal_state_store.should_notify(
                 "us",
                 symbol=signal.symbol,

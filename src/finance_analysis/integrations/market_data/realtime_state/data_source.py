@@ -181,6 +181,49 @@ class RealtimeMarketDataSource:
         logger.info("symbol=%s source=market_streamer bars=%s", canonical_symbol, len(result))
         return MarketDataLookup(result)
 
+    async def get_stored_bars(
+        self,
+        symbol: str,
+        count: int,
+        *,
+        market_type: MarketType,
+    ) -> list[dict[str, Any]]:
+        """Read confirmed Redis bars without requiring a live market heartbeat.
+
+        Post-close jobs need the stored history after the streamer has stopped.
+        Unlike ``get_recent_bars``, this method intentionally keeps bars from
+        multiple trading dates so a late-session signal can mature next session.
+        """
+        target = _target(symbol, market_type)
+        if target is None:
+            return []
+        canonical_symbol, normalized_market = target
+        bars = await self.repository.get_recent_bars(canonical_symbol, max(1, int(count)))
+        spec = market_spec(normalized_market)
+        by_identity: dict[tuple[datetime, str], CandleState] = {}
+        for bar in bars:
+            local_time = (
+                bar.bar_time.astimezone(spec.timezone).time()
+                if bar.bar_time.tzinfo
+                else None
+            )
+            if (
+                bar.symbol != canonical_symbol
+                or bar.bar_time.tzinfo is None
+                or not bar.confirmed
+                or not bar.is_valid()
+                or local_time is None
+                or not any(start <= local_time < end for start, end in spec.regular_sessions)
+            ):
+                continue
+            existing = by_identity.get(bar.identity)
+            if existing is None or _prefer_candle(bar, existing):
+                by_identity[bar.identity] = bar
+        return [
+            _candle_to_bar(bar, normalized_market)
+            for bar in sorted(by_identity.values(), key=lambda item: item.bar_time)
+        ]
+
     async def _availability_reason(
         self,
         symbol: str,
@@ -291,6 +334,15 @@ class SyncRealtimeMarketDataSource:
         self._local.fallback_reason = lookup.fallback_reason
         return lookup.data
 
+    def get_stored_bars(
+        self,
+        symbol: str,
+        count: int,
+        *,
+        market_type: MarketType,
+    ) -> list[dict[str, Any]]:
+        return self._submit(self._stored_bars(symbol, count, market_type=market_type))
+
     def close(self) -> None:
         if self._closed:
             return
@@ -314,6 +366,10 @@ class SyncRealtimeMarketDataSource:
     async def _bars_lookup(self, symbol: str, count: int, **kwargs: Any) -> MarketDataLookup[list[dict[str, Any]]]:
         source = self._get_source()
         return await source.get_recent_bars_lookup(symbol, count, **kwargs)
+
+    async def _stored_bars(self, symbol: str, count: int, **kwargs: Any) -> list[dict[str, Any]]:
+        source = self._get_source()
+        return await source.get_stored_bars(symbol, count, **kwargs)
 
     async def _close_source(self) -> None:
         if self._source is not None:
