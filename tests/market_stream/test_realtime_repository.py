@@ -49,6 +49,26 @@ async def test_quote_hash_round_trip_and_ttl() -> None:
 
 
 @pytest.mark.asyncio
+async def test_quotes_batch_load_uses_one_pipeline_and_skips_missing() -> None:
+    redis = FakeRedis()
+    repo = RealtimeStateRepository(redis)
+    now = datetime.now(timezone.utc)
+    apple = QuoteState(symbol="AAPL.US")
+    apple.merge({"last_price": "201.25"}, event_time=now, received_at=now)
+    tesla = QuoteState(symbol="TSLA.US")
+    tesla.merge({"last_price": "350.50"}, event_time=now, received_at=now)
+    await repo.write_quote(apple)
+    await repo.write_quote(tesla)
+    before = redis.pipeline_executes
+
+    quotes = await repo.get_quotes(["AAPL.US", "MISSING.US", "TSLA.US", "AAPL.US"])
+
+    assert set(quotes) == {"AAPL.US", "TSLA.US"}
+    assert quotes["TSLA.US"].last_price == Decimal("350.50")
+    assert redis.pipeline_executes == before + 1
+
+
+@pytest.mark.asyncio
 async def test_current_candle_overwrites_and_serializes_decimal_datetime() -> None:
     redis = FakeRedis()
     repo = RealtimeStateRepository(redis)

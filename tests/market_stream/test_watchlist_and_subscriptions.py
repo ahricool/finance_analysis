@@ -42,6 +42,20 @@ def test_load_watchlist_targets_supports_cn_hk_us_dedup_and_invalid(caplog) -> N
     assert "跳过" in caplog.text
 
 
+def test_load_watchlist_targets_includes_holdings_and_deduplicates() -> None:
+    watch_repo = SimpleNamespace(list_all=lambda: [SimpleNamespace(code="AAPL", market_type="US")])
+    holdings_repo = SimpleNamespace(
+        list_all=lambda: [
+            SimpleNamespace(code="AAPL", market_type="US"),
+            SimpleNamespace(code="HK00700", market_type="HK"),
+        ]
+    )
+
+    loaded = load_watchlist_targets(watch_repo, holdings_repo)
+
+    assert loaded == targets(("AAPL.US", "US"), ("0700.HK", "HK"))
+
+
 @pytest.mark.asyncio
 async def test_watchlist_snapshot_detects_add_remove_and_market_metadata_change() -> None:
     current = targets(("AAPL.US", "US"), ("0700.HK", "HK"))
