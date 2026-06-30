@@ -315,7 +315,7 @@ async function openPosition(item: WatchListItem) {
       return;
     }
     await router.push({
-      name: 'stock-list',
+      name: 'market-holdings',
       query: {
         code: item.code,
         name: item.name ?? '',
@@ -333,7 +333,7 @@ onMounted(loadList);
 </script>
 
 <template>
-  <div class="mx-auto w-full px-4 py-6 sm:px-6">
+  <div class="w-full">
     <!-- Header -->
     <div class="mb-6 flex items-center justify-between">
       <div class="flex items-center gap-3">

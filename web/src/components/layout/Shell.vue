@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ChevronRight, ClipboardList, LogOut, User, UserRound } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
-import { RouterLink, RouterView } from 'vue-router';
+import { RouterLink, RouterView, useRoute } from 'vue-router';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import StatusDot from '@/components/common/StatusDot.vue';
 import TimezoneSwitcher from '@/components/timezone/TimezoneSwitcher.vue';
@@ -18,6 +18,16 @@ const { currentUser } = storeToRefs(authStore);
 const { logout } = useAuth();
 const completionBadge = useAgentChatStore((s) => s.completionBadge);
 const showLogoutConfirm = ref(false);
+const route = useRoute();
+
+function isNavItemActive(
+  item: (typeof mainNavItems)[number],
+  isActive: boolean,
+  isExactActive: boolean,
+): boolean {
+  if (item.activePathPrefix) return route.path.startsWith(item.activePathPrefix);
+  return item.exact ? isExactActive : isActive;
+}
 
 const genderLabel = computed(() => {
   switch (currentUser.value?.extra?.gender) {
@@ -59,7 +69,11 @@ async function onLogoutConfirm() {
           aria-label="回到首页"
         >
           <span class="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card">
-            <img src="/flower.svg" alt="" class="h-10 w-10" />
+            <img
+              src="/flower.svg"
+              alt=""
+              class="h-10 w-10"
+            />
           </span>
           <span class="hidden font-display text-lg leading-none text-black md:block">{{ APP_NAME }}</span>
         </RouterLink>
@@ -81,17 +95,20 @@ async function onLogoutConfirm() {
               :class="
                 cn(
                   'group relative inline-flex h-10 min-w-max items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium transition-colors',
-                  (item.exact ? isExactActive : isActive)
+                  isNavItemActive(item, isActive, isExactActive)
                     ? 'bg-[var(--nav-active-bg)] text-[hsl(var(--primary))]'
                     : 'text-secondary-text hover:bg-[var(--nav-hover-bg)] hover:text-foreground',
                 )
               "
               @click="navigate"
             >
-              <component :is="item.icon" class="h-4 w-4 shrink-0" />
+              <component
+                :is="item.icon"
+                class="h-4 w-4 shrink-0"
+              />
               <span>{{ item.label }}</span>
               <span
-                v-if="item.exact ? isExactActive : isActive"
+                v-if="isNavItemActive(item, isActive, isExactActive)"
                 class="absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-[var(--nav-indicator-bg)]"
               />
               <StatusDot

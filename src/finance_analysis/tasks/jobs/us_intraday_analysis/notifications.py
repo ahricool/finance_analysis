@@ -111,10 +111,13 @@ class SignalReporter:
             price = float(signal.metrics.get("price") or 0)
             if price <= 0:
                 raise ValueError("signal price is missing")
+            llm_result = getattr(signal, "llm_result", {}) or {}
             row = SignalRepository().create(
                 market="US",
                 code=signal.symbol,
                 signal_type=signal.signal_type,
+                signal_version=str(signal.metrics.get("rule_version") or "v1"),
+                direction=str(llm_result.get("direction") or "neutral"),
                 price=price,
                 signal_at=signal_at,
                 evaluation=build_initial_evaluation(supports_intraday=True),

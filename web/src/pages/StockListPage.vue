@@ -351,7 +351,7 @@ function maybeOpenCreateFromRoute() {
       category: 'http_error',
       status: 409,
     };
-    void router.replace({ name: 'stock-list' });
+    void router.replace({ name: 'market-holdings' });
     return;
   }
   openCreate({
@@ -359,7 +359,7 @@ function maybeOpenCreateFromRoute() {
     name: getQueryString(route.query.name).trim() || null,
     marketType,
   });
-  void router.replace({ name: 'stock-list' });
+  void router.replace({ name: 'market-holdings' });
 }
 
 onMounted(async () => {
@@ -369,7 +369,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="mx-auto w-full px-4 py-6 sm:px-6">
+  <div class="w-full">
     <!-- Header -->
     <div class="mb-6 flex items-center justify-between">
       <div class="flex items-center gap-3">

@@ -73,4 +73,23 @@ describe('Shell user menu', () => {
     expect(popup.find('a[href="/tasks"]').text()).toContain('任务中心');
     expect(popup.get('button').text()).toBe('退出');
   });
+
+  it.each(['/market/watch-list', '/market/holdings', '/market/signals'])(
+    'keeps market navigation active on %s',
+    async (path) => {
+      const router = createTestRouter();
+      await router.push(path);
+      await router.isReady();
+
+      const wrapper = mount(Shell, {
+        global: {
+          plugins: [router],
+        },
+      });
+
+      const marketLink = wrapper.get('a[aria-label="市场"]');
+      expect(marketLink.classes()).toContain('text-[hsl(var(--primary))]');
+      expect(marketLink.find('span.absolute').exists()).toBe(true);
+    },
+  );
 });
