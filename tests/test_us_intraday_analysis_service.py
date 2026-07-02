@@ -7,24 +7,29 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote
-from finance_analysis.tasks.jobs.intraday_signal_state import IntradaySignalStateStore
-from finance_analysis.tasks.jobs.us_intraday_analysis import (
-    USIntradayAnalysisService,
-    aggregate_bars,
-    compute_intraday_metrics,
-    cumulative_vwap_series,
-    evaluate_signal_candidates,
+from finance_analysis.tasks.celery.jobs.intraday_signal_state import IntradaySignalStateStore
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.bars import aggregate_bars
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.data_source import (
+    IntradayDataSource,
     filter_current_trading_day_bars,
-    is_us_market_open,
-    parse_llm_json_response,
 )
-from finance_analysis.tasks.jobs.us_intraday_analysis.data_source import IntradayDataSource
-from finance_analysis.tasks.jobs.us_intraday_analysis.lock import (
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.llm import parse_llm_json_response
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.lock import (
     release_us_intraday_running_lock,
     try_acquire_us_intraday_lock,
 )
-from finance_analysis.tasks.jobs.us_intraday_analysis.metrics import _change_over_minutes, _volume_ratio_5m
-from finance_analysis.tasks.jobs.us_intraday_analysis.models import IntradayTaskSummary
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.market_calendar import is_us_market_open
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.metrics import (
+    _change_over_minutes,
+    _volume_ratio_5m,
+    compute_intraday_metrics,
+    cumulative_vwap_series,
+)
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.models import IntradayTaskSummary
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.rules import evaluate_signal_candidates
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.domain_service import (
+    USIntradayAnalysisService,
+)
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
 
@@ -403,7 +408,7 @@ def test_compute_intraday_metrics_relative_strength_and_vwap():
 
 
 def test_relative_to_sectors_ignores_non_metric_entries():
-    from finance_analysis.tasks.jobs.us_intraday_analysis.metrics import _relative_to_sectors
+    from finance_analysis.tasks.celery.jobs.us_intraday_analysis.metrics import _relative_to_sectors
 
     relative = _relative_to_sectors(
         1.5,

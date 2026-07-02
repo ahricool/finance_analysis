@@ -1,4 +1,4 @@
-"""Business service for scheduled A-share intraday analysis."""
+"""Celery orchestration for scheduled A-share intraday analysis."""
 
 from __future__ import annotations
 
@@ -19,7 +19,8 @@ class AShareIntradayAnalysisTaskService:
         logger.info("A股盘中分析任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S %Z"))
         try:
             from finance_analysis.analysis.pipeline_config import get_pipeline_config
-            from finance_analysis.tasks.jobs.a_share_intraday_analysis import AShareIntradayAnalysisService
+
+            from .domain_service import AShareIntradayAnalysisService
 
             summary = AShareIntradayAnalysisService(config=get_pipeline_config()).run(send_notification=True)
             return summary.to_dict()

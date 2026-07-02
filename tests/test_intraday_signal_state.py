@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from finance_analysis.tasks.jobs.intraday_signal_state import (
+from finance_analysis.tasks.celery.jobs.intraday_signal_state import (
     IntradaySignalStateStore,
     build_notification_signature,
 )

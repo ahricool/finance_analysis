@@ -8,18 +8,18 @@ from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsRecord
-from finance_analysis.tasks.jobs.us_premarket_news.llm import (
+from finance_analysis.tasks.celery.jobs.us_premarket_news.llm import (
     normalize_impact_results,
     normalize_importance_results,
 )
-from finance_analysis.tasks.jobs.us_premarket_news.notifications import render_calendar_content
-from finance_analysis.tasks.jobs.us_premarket_news.service import (
+from finance_analysis.tasks.celery.jobs.us_premarket_news.notifications import render_calendar_content
+from finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service import (
     build_premarket_symbol_universe,
     normalize_us_symbol,
     premarket_news_window,
     USPremarketNewsService,
 )
-from finance_analysis.tasks.jobs.us_premarket_news.models import PremarketNewsSummary
+from finance_analysis.tasks.celery.jobs.us_premarket_news.models import PremarketNewsSummary
 
 
 def test_normalize_us_symbol_strips_us_suffix_and_preserves_share_class():

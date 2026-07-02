@@ -1,4 +1,4 @@
-"""Business service for scheduled US premarket news intelligence."""
+"""Celery orchestration for scheduled US premarket news intelligence."""
 
 from __future__ import annotations
 
@@ -23,7 +23,8 @@ class USPremarketNewsTaskService:
         try:
             from finance_analysis.analysis.pipeline_config import get_pipeline_config
             from finance_analysis.database.repositories.watch_list import get_watch_list_codes_by_market
-            from finance_analysis.tasks.jobs.us_premarket_news.service import USPremarketNewsService
+
+            from .domain_service import USPremarketNewsService
 
             watch_symbols = get_watch_list_codes_by_market("US")
             summary = USPremarketNewsService(config=get_pipeline_config()).run(watch_symbols, now=started_at)

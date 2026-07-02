@@ -1,4 +1,4 @@
-"""Business service for scheduled US postmarket review."""
+"""Celery orchestration for scheduled US postmarket review."""
 
 from __future__ import annotations
 
@@ -19,7 +19,8 @@ class USPostmarketReviewTaskService:
         logger.info("美股收盘复盘任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S %Z"))
         try:
             from finance_analysis.analysis.pipeline_config import get_pipeline_config
-            from finance_analysis.tasks.jobs.us_postmarket_review import USPostmarketReviewService
+
+            from .domain_service import USPostmarketReviewService
 
             summary = USPostmarketReviewService(config=get_pipeline_config()).run(send_notification=True)
             return summary.to_dict()

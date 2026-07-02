@@ -12,10 +12,10 @@ from finance_analysis.analysis.signal_evaluation import (
     build_initial_evaluation,
 )
 from finance_analysis.database.models.signal import Signal
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.notifications import (
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.notifications import (
     AShareIntradayReporter,
 )
-from finance_analysis.tasks.jobs.us_intraday_analysis.notifications import SignalReporter
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.notifications import SignalReporter
 
 UTC = timezone.utc
 

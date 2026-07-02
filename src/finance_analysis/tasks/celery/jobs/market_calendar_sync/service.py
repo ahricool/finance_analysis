@@ -1,4 +1,4 @@
-"""Business service for scheduled market-calendar synchronization."""
+"""Celery orchestration for scheduled market-calendar synchronization."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ class MarketCalendarSyncTaskService:
         started_at = scheduled_now()
         logger.info("美股财经日历任务开始执行 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
         try:
-            from finance_analysis.tasks.jobs.market_calendar_sync import MarketCalendarSyncService
+            from .domain_service import MarketCalendarSyncService
 
             summary = MarketCalendarSyncService().run(now=started_at)
             if summary.all_interfaces_failed:

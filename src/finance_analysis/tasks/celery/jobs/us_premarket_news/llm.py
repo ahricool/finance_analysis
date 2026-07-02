@@ -8,7 +8,7 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence
 
 from finance_analysis.llm import LLMClient, LLMRequest
-from finance_analysis.tasks.jobs.us_intraday_analysis.llm import parse_llm_batch_results
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.llm import parse_llm_batch_results
 
 from .models import NewsCandidate
 

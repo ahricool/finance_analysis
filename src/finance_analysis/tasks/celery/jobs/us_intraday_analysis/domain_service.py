@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
 from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsFetcher
 from finance_analysis.integrations.market_data.providers.yfinance import YfinanceFetcher
-from finance_analysis.tasks.jobs.intraday_signal_state import (
+from finance_analysis.tasks.celery.jobs.intraday_signal_state import (
     IntradaySignalStateStore,
     build_notification_signature,
 )
