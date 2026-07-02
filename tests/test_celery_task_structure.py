@@ -80,6 +80,7 @@ def test_removed_legacy_modules_and_batch_business_references_are_absent():
     project_root = Path(__file__).resolve().parents[1]
     source_root = project_root / "src" / "finance_analysis"
     removed_paths = (
+        source_root / "tasks" / "jobs",
         source_root / "tasks" / "scheduled_jobs.py",
         source_root / "tasks" / "celery" / "heartbeat.py",
         source_root / "tasks" / "celery" / "schedule.py",
@@ -103,5 +104,6 @@ def test_removed_legacy_modules_and_batch_business_references_are_absent():
         "finance_analysis.tasks.celery.heartbeat",
         "finance_analysis.tasks.celery.jobs.demo import",
         "finance_analysis.tasks.celery.jobs.market_calendar import",
+        "finance_analysis.tasks.jobs",
     )
     assert not any(fragment in source_text for fragment in forbidden_imports)

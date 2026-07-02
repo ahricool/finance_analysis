@@ -6,17 +6,17 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.bars import (
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.bars import (
     aggregate_bars,
     normalize_bars,
 )
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.metrics import (
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.metrics import (
     compute_a_share_intraday_metrics,
 )
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.price_limits import (
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.price_limits import (
     resolve_price_limit_rule,
 )
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.rules import (
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.rules import (
     evaluate_signal_candidates,
 )
 

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from finance_analysis.database.models import FinanceEvent
 from finance_analysis.llm.types import LLMResult
-from finance_analysis.tasks.jobs.market_calendar_sync.importance import (
+from finance_analysis.tasks.celery.jobs.market_calendar_sync.importance import (
     EventCompanyContext,
     MarketCalendarImportanceService,
     PROMPT_VERSION,

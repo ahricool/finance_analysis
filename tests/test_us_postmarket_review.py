@@ -9,12 +9,14 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from finance_analysis.tasks.jobs.us_postmarket_review.models import (
+from finance_analysis.tasks.celery.jobs.us_postmarket_review.models import (
     US_POSTMARKET_BENCHMARKS,
     US_POSTMARKET_SECTOR_ETFS,
 )
-from finance_analysis.tasks.jobs.us_postmarket_review.reporter import USPostmarketReviewReporter
-from finance_analysis.tasks.jobs.us_postmarket_review.service import USPostmarketReviewService
+from finance_analysis.tasks.celery.jobs.us_postmarket_review.reporter import USPostmarketReviewReporter
+from finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service import (
+    USPostmarketReviewService,
+)
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
 
@@ -199,15 +201,15 @@ def _service(
 @pytest.fixture(autouse=True)
 def market_open_after_close(monkeypatch):
     monkeypatch.setattr(
-        "finance_analysis.tasks.jobs.us_postmarket_review.service.is_market_open",
+        "finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service.is_market_open",
         lambda market, day: True,
     )
     monkeypatch.setattr(
-        "finance_analysis.tasks.jobs.us_postmarket_review.service.is_market_session_closed",
+        "finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service.is_market_session_closed",
         lambda market, current_time=None, check_date=None: True,
     )
     monkeypatch.setattr(
-        "finance_analysis.tasks.jobs.us_postmarket_review.service.get_effective_trading_date",
+        "finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service.get_effective_trading_date",
         lambda market, current_time=None: current_time.astimezone(ZoneInfo("America/New_York")).date(),
     )
 
@@ -233,7 +235,7 @@ def test_normal_trading_day_after_close_generates_report_and_sends_notification(
 
 def test_weekend_or_holiday_skips_without_report(monkeypatch) -> None:
     monkeypatch.setattr(
-        "finance_analysis.tasks.jobs.us_postmarket_review.service.is_market_open",
+        "finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service.is_market_open",
         lambda market, day: False,
     )
     with pytest.raises(TaskSkipped, match="当天不是美股交易日"):
@@ -242,7 +244,7 @@ def test_weekend_or_holiday_skips_without_report(monkeypatch) -> None:
 
 def test_before_close_skips(monkeypatch) -> None:
     monkeypatch.setattr(
-        "finance_analysis.tasks.jobs.us_postmarket_review.service.is_market_session_closed",
+        "finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service.is_market_session_closed",
         lambda market, current_time=None, check_date=None: False,
     )
     with pytest.raises(TaskSkipped, match="美股尚未收盘"):

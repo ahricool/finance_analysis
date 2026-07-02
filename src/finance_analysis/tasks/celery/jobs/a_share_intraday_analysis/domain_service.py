@@ -24,7 +24,7 @@ from finance_analysis.market_review.trading_calendar import (
     is_a_share_intraday_analysis_time,
     is_a_share_trading_day,
 )
-from finance_analysis.tasks.jobs.intraday_signal_state import (
+from finance_analysis.tasks.celery.jobs.intraday_signal_state import (
     IntradaySignalStateStore,
     build_notification_signature,
 )

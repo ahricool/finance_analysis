@@ -1,4 +1,4 @@
-"""Business service for scheduled US intraday analysis."""
+"""Celery orchestration for scheduled US intraday analysis."""
 
 from __future__ import annotations
 
@@ -20,7 +20,8 @@ class USIntradayAnalysisTaskService:
         try:
             from finance_analysis.analysis.pipeline_config import get_pipeline_config
             from finance_analysis.database.repositories.watch_list import get_watch_list_codes_by_market
-            from finance_analysis.tasks.jobs.us_intraday_analysis import USIntradayAnalysisService
+
+            from .domain_service import USIntradayAnalysisService
 
             stock_codes = get_watch_list_codes_by_market("US")
             if not stock_codes:

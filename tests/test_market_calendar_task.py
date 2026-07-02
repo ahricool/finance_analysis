@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from finance_analysis.database.models import FinanceEvent
 from finance_analysis.database.repositories.market_calendar_event import FinanceEventUpsertResult
-from finance_analysis.tasks.jobs.market_calendar_sync.service import (
+from finance_analysis.tasks.celery.jobs.market_calendar_sync.domain_service import (
     MarketCalendarSyncService,
     is_important_for_notification,
     sort_focus_events,

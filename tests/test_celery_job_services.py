@@ -94,7 +94,7 @@ def test_us_premarket_news_service_runs_domain_service():
             return_value=["AAPL", "TSLA"],
         ),
         patch(
-            "finance_analysis.tasks.jobs.us_premarket_news.service.USPremarketNewsService",
+            "finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service.USPremarketNewsService",
             return_value=domain_service,
         ) as service_class,
     ):
@@ -110,7 +110,7 @@ def test_us_postmarket_service_returns_domain_summary():
     with (
         patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()) as config,
         patch(
-            "finance_analysis.tasks.jobs.us_postmarket_review.USPostmarketReviewService",
+            "finance_analysis.tasks.celery.jobs.us_postmarket_review.domain_service.USPostmarketReviewService",
             return_value=domain_service,
         ) as service_class,
     ):
@@ -146,7 +146,7 @@ def test_us_intraday_service_sleeps_and_runs_domain_service():
             return_value=["AAPL", "TSLA"],
         ),
         patch(
-            "finance_analysis.tasks.jobs.us_intraday_analysis.USIntradayAnalysisService",
+            "finance_analysis.tasks.celery.jobs.us_intraday_analysis.domain_service.USIntradayAnalysisService",
             return_value=domain_service,
         ),
     ):
@@ -164,7 +164,7 @@ def test_a_share_intraday_service_sleeps_and_returns_summary():
         patch.object(a_share_module, "sleep_random_start_delay") as delay,
         patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
         patch(
-            "finance_analysis.tasks.jobs.a_share_intraday_analysis.AShareIntradayAnalysisService",
+            "finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.domain_service.AShareIntradayAnalysisService",
             return_value=domain_service,
         ),
     ):
@@ -203,7 +203,7 @@ def test_market_calendar_service_runs_sync_and_submits_importance():
     task_service = calendar_module.MarketCalendarSyncTaskService()
     with (
         patch(
-            "finance_analysis.tasks.jobs.market_calendar_sync.MarketCalendarSyncService",
+            "finance_analysis.tasks.celery.jobs.market_calendar_sync.domain_service.MarketCalendarSyncService",
             return_value=domain_service,
         ),
         patch.object(task_service, "_submit_importance_task") as submit,

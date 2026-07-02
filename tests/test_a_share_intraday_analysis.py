@@ -10,12 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from finance_analysis.tasks.jobs.a_share_intraday_analysis import (
-    AShareIntradayAnalysisService,
-    compute_market_breadth,
-    determine_market_regime,
-)
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.llm import (
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.llm import (
     AShareIntradayLLMJudge,
     build_batch_prompt,
     candidate_id,
@@ -23,23 +18,28 @@ from finance_analysis.tasks.jobs.a_share_intraday_analysis.llm import (
     parse_llm_batch_results,
     parse_llm_json_response,
 )
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.lock import (
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.lock import (
     release_a_share_intraday_lock,
     try_acquire_a_share_intraday_lock,
 )
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.market_calendar import (
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.market_calendar import (
     is_a_share_intraday_analysis_time,
 )
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.models import AShareSignalResult
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.notifications import (
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.models import AShareSignalResult
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.notifications import (
     AShareIntradayReporter,
     reset_cooldown_store,
 )
-from finance_analysis.tasks.jobs.intraday_signal_state import IntradaySignalStateStore
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.domain_service import (
+    AShareIntradayAnalysisService,
+    compute_market_breadth,
+    determine_market_regime,
+)
+from finance_analysis.tasks.celery.jobs.intraday_signal_state import IntradaySignalStateStore
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
 SH = ZoneInfo("Asia/Shanghai")
-SERVICE_MODULE = "finance_analysis.tasks.jobs.a_share_intraday_analysis.service"
+SERVICE_MODULE = "finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.domain_service"
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +291,7 @@ def test_a_share_intraday_time_boundaries_include_session_end_but_not_lunch():
 
 def test_a_share_running_lock_blocks_overlapping_five_minute_windows(tmp_path):
     with patch(
-        "finance_analysis.tasks.jobs.a_share_intraday_analysis.lock._lock_path",
+        "finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.lock._lock_path",
         return_value=tmp_path / "a-share.lock",
     ):
         first = try_acquire_a_share_intraday_lock("a_share_intraday:2026-06-24:10:30")
@@ -467,7 +467,7 @@ def test_prompt_mentions_t1_and_forbids_absolute_orders():
     prompt = build_batch_prompt([{"id": "x|y", "code": "600519"}], {"market_phase": "morning"})
     assert "T+1" in prompt
     assert "追涨" in prompt
-    from finance_analysis.tasks.jobs.a_share_intraday_analysis.llm import _SYSTEM_PROMPT
+    from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.llm import _SYSTEM_PROMPT
 
     assert "必涨" in _SYSTEM_PROMPT
     assert "JSON" in _SYSTEM_PROMPT

@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Sequence
 
-from finance_analysis.tasks.jobs.market_calendar_sync import MarketCalendarImportanceService
+from finance_analysis.tasks.celery.jobs.market_calendar_sync.importance import (
+    MarketCalendarImportanceService,
+)
 
 logger = logging.getLogger(__name__)
 

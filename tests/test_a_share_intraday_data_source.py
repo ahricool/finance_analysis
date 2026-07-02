@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote
-from finance_analysis.tasks.jobs.a_share_intraday_analysis.data_source import AShareIntradayDataSource
+from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.data_source import AShareIntradayDataSource
 
 
 class _FakeLongbridge:
