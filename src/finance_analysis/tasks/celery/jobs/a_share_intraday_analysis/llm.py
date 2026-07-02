@@ -19,7 +19,7 @@ from .config import LLM_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
-_VALID_DECISIONS = {"watch", "risk", "ignore"}
+_VALID_FINAL_DECISIONS = {"accept", "observe", "ignore"}
 _VALID_DIRECTIONS = {"bullish", "bearish", "neutral"}
 _VALID_DRIVERS = {"stock_specific", "sector", "index_beta", "policy", "unknown"}
 _VALID_QUALITY = {"high", "medium", "low"}
@@ -89,7 +89,7 @@ def parse_llm_batch_results(text: Optional[str]) -> List[Dict[str, Any]]:
 def normalize_verdict(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Validate and clamp a single verdict's enum/range fields."""
     decision = str(raw.get("final_decision") or "").strip().lower()
-    if decision not in _VALID_DECISIONS:
+    if decision not in _VALID_FINAL_DECISIONS:
         decision = "ignore"
     direction = str(raw.get("direction") or "neutral").strip().lower()
     if direction not in _VALID_DIRECTIONS:
@@ -109,7 +109,7 @@ def normalize_verdict(raw: Dict[str, Any]) -> Dict[str, Any]:
         "id": str(raw.get("id") or "").strip(),
         "final_decision": decision,
         "direction": direction,
-        "need_notification": truthy(raw.get("need_notification")) and decision in {"watch", "risk"},
+        "need_notification": truthy(raw.get("need_notification")) and decision in {"accept", "observe"},
         "confidence": round(confidence, 4),
         "driver_type": driver,
         "signal_quality": quality,
@@ -136,12 +136,18 @@ def build_batch_prompt(
         "请逐个判断每个候选：信号是否真实、驱动类型、是否可持续、风险（含 T+1）、是否值得通知。\n"
         "由于 A 股股票存在 T+1 约束，新增仓位无法当日卖出，必须分别给出已持仓者与未持仓观察者的建议，"
         "且不得输出“立即买入”“追涨”“当日止损”等绝对化指令。\n"
+        "final_decision 只判断候选信号的质量和有效性，与 bullish / bearish 无关；bearish 信号同样可以是 accept，"
+        "不得根据方向、信号类别或规则类型固定输出某个 final_decision。\n"
+        "final_decision 定义：\n"
+        "accept：候选信号成立，指标与市场上下文基本一致，值得重点关注。\n"
+        "observe：候选信号有部分依据，但存在冲突、确认不足或持续性不明确，适合继续观察。\n"
+        "ignore：候选信号质量不足、指标明显冲突、缺少关键确认或更可能是噪声。\n"
         "只输出一个 JSON object，不要 markdown。顶层是 results 数组，每个元素必须原样回传输入里的 id 字段，格式：\n"
         "{\n"
         '  "results": [\n'
         "    {\n"
         '      "id": "600519|strong_to_weak_failure",\n'
-        '      "final_decision": "watch|risk|ignore",\n'
+        '      "final_decision": "accept | observe | ignore",\n'
         '      "direction": "bullish|bearish|neutral",\n'
         '      "need_notification": true,\n'
         '      "confidence": 0.82,\n'

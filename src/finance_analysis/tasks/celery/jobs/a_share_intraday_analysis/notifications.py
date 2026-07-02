@@ -260,7 +260,7 @@ class AShareIntradayReporter:
         risk_count = sum(
             1
             for s in summary.signal_results
-            if s.final_decision == "risk" or s.severity in ("warning", "error")
+            if s.severity in ("warning", "error")
         )
         regime = _REGIME_LABELS.get(summary.market_regime, summary.market_regime)
         return (

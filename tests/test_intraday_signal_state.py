@@ -160,7 +160,7 @@ def test_notification_requires_state_change_and_respects_cooldown_except_escalat
         "us", [_candidate()], session_id="2026-06-26", now=now
     )[0]
     first_signature = build_notification_signature(
-        decision="watch",
+        decision="accept",
         severity="warning",
         candidate_signature=candidate["state_signature"],
     )
@@ -191,7 +191,7 @@ def test_notification_requires_state_change_and_respects_cooldown_except_escalat
     )
 
     changed_signature = build_notification_signature(
-        decision="risk",
+        decision="observe",
         severity="warning",
         candidate_signature=candidate["state_signature"],
     )

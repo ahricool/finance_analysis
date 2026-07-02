@@ -42,7 +42,7 @@ from .config import (
     MIN_BARS_FOR_SYMBOL,
 )
 from .data_source import AShareIntradayDataSource
-from .llm import AShareIntradayLLMJudge, candidate_id
+from .llm import AShareIntradayLLMJudge, candidate_id, normalize_verdict
 from .lock import (
     release_a_share_intraday_lock,
     try_acquire_a_share_intraday_lock,
@@ -72,7 +72,7 @@ from .rules import (
 
 logger = logging.getLogger(__name__)
 
-_NOTIFY_DECISIONS = {"watch", "risk"}
+_NOTIFY_DECISIONS = {"accept", "observe"}
 # Boards excluded from limit-statistics and stock-sentiment counts.
 _NON_STOCK_BOARDS = {BOARD_ETF, BOARD_CONVERTIBLE_BOND}
 
@@ -537,9 +537,10 @@ class AShareIntradayAnalysisService:
         candidate: Dict[str, Any],
         verdict: Dict[str, Any],
     ) -> AShareSignalResult:
+        verdict = normalize_verdict(verdict)
         decision = str(verdict.get("final_decision") or "ignore").lower()
         need = bool(verdict.get("need_notification")) and decision in _NOTIFY_DECISIONS
-        severity = self._resolve_severity(candidate["signal_type"], decision)
+        severity = self._resolve_severity(candidate["signal_type"])
         return AShareSignalResult(
             code=candidate["code"],
             name=candidate["name"],
@@ -555,9 +556,9 @@ class AShareIntradayAnalysisService:
     def _signal_from_fallback(self, candidate: Dict[str, Any]) -> Optional[AShareSignalResult]:
         signal_type = candidate["signal_type"]
         is_risk = signal_type in FALLBACK_RISK_SIGNALS
-        severity = self._resolve_severity(signal_type, "risk" if is_risk else "watch")
+        severity = self._resolve_severity(signal_type)
         fallback_result = {
-            "final_decision": "risk" if is_risk else "watch",
+            "final_decision": "accept",
             "direction": "bearish" if is_risk else "neutral",
             "need_notification": is_risk,
             "confidence": 0.0,
@@ -578,18 +579,15 @@ class AShareIntradayAnalysisService:
             signal_type=signal_type,
             board=candidate["board"],
             need_notification=is_risk,
-            final_decision="risk" if is_risk else "watch",
+            final_decision="accept",
             metrics=_signal_metrics(candidate),
             llm_result=fallback_result,
             severity=severity if is_risk else "info",
             fallback_used=True,
         )
 
-    def _resolve_severity(self, signal_type: str, decision: str) -> str:
-        base = SIGNAL_SEVERITY.get(signal_type, "info")
-        if decision == "risk" and base == "info":
-            return "warning"
-        return base
+    def _resolve_severity(self, signal_type: str) -> str:
+        return SIGNAL_SEVERITY.get(signal_type, "info")
 
     # ------------------------------------------------------------------
     # Reporting

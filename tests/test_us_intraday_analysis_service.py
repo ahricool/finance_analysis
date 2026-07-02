@@ -13,7 +13,12 @@ from finance_analysis.tasks.celery.jobs.us_intraday_analysis.data_source import 
     IntradayDataSource,
     filter_current_trading_day_bars,
 )
-from finance_analysis.tasks.celery.jobs.us_intraday_analysis.llm import parse_llm_json_response
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.llm import (
+    build_intraday_batch_llm_prompt,
+    build_intraday_llm_prompt,
+    normalize_verdict,
+    parse_llm_json_response,
+)
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.lock import (
     release_us_intraday_running_lock,
     try_acquire_us_intraday_lock,
@@ -25,7 +30,14 @@ from finance_analysis.tasks.celery.jobs.us_intraday_analysis.metrics import (
     compute_intraday_metrics,
     cumulative_vwap_series,
 )
-from finance_analysis.tasks.celery.jobs.us_intraday_analysis.models import IntradayTaskSummary
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.models import (
+    IntradaySignalResult,
+    IntradayTaskSummary,
+)
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.notifications import (
+    render_calendar_content,
+    render_notification,
+)
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.rules import evaluate_signal_candidates
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.domain_service import (
     USIntradayAnalysisService,
@@ -426,7 +438,7 @@ def test_parse_llm_json_response_repairs_fenced_json():
     parsed = parse_llm_json_response(
         """```json
         {
-          "final_decision": "watch",
+          "final_decision": "accept",
           "need_notification": true,
           "confidence": 0.7,
         }
@@ -434,8 +446,57 @@ def test_parse_llm_json_response_repairs_fenced_json():
     )
 
     assert parsed is not None
-    assert parsed["final_decision"] == "watch"
+    assert parsed["final_decision"] == "accept"
     assert parsed["need_notification"] is True
+
+
+@pytest.mark.parametrize("decision", ["accept", "observe", "ignore"])
+def test_normalize_verdict_accepts_new_final_decisions(decision):
+    verdict = normalize_verdict({"final_decision": decision, "need_notification": True})
+
+    assert verdict["final_decision"] == decision
+
+
+@pytest.mark.parametrize("decision", ["watch", "risk", "unexpected", None])
+def test_normalize_verdict_rejects_legacy_and_invalid_final_decisions(decision):
+    verdict = normalize_verdict({"final_decision": decision, "need_notification": True})
+
+    assert verdict["final_decision"] == "ignore"
+    assert verdict["need_notification"] is False
+
+
+def test_us_intraday_prompts_use_only_new_final_decisions():
+    single = build_intraday_llm_prompt("NVDA", "breakout", {}, {})
+    batch = build_intraday_batch_llm_prompt(
+        [
+            {
+                "id": "NVDA|breakout",
+                "symbol": "NVDA",
+                "signal_type": "breakout",
+                "metrics": {},
+                "raw_context": {},
+            }
+        ],
+        {},
+    )
+
+    for prompt in (single, batch):
+        assert '"final_decision": "accept | observe | ignore"' in prompt
+        assert '"final_decision": "watch|ignore|risk"' not in prompt
+        assert "bearish 信号同样可以是 accept" in prompt
+
+
+def test_us_calendar_and_notification_render_new_final_decision_value():
+    signal = IntradaySignalResult(
+        symbol="NVDA",
+        signal_type="relative_strength_breakout",
+        need_notification=True,
+        llm_result={"final_decision": "observe"},
+        metrics={},
+    )
+
+    assert "最终决策：observe" in render_calendar_content(signal)
+    assert "决策：observe" in render_notification(signal)
 
 
 def test_is_us_market_open_regular_session():
@@ -477,7 +538,7 @@ class _FakeJudge:
         return {
             f"{item['symbol']}|{item['signal_type']}": {
                 "id": f"{item['symbol']}|{item['signal_type']}",
-                "final_decision": "watch",
+                "final_decision": "accept",
                 "need_notification": True,
                 "confidence": 0.8,
             }
@@ -528,6 +589,33 @@ def _service(now: datetime, bars_by_symbol: dict[str, list[dict]], missing_quote
     service.llm_judge = judge
     service.reporter = _FakeReporter()
     return service, judge
+
+
+@pytest.mark.parametrize(
+    ("decision", "expected"),
+    [("accept", True), ("observe", True), ("ignore", False)],
+)
+def test_service_notification_eligibility_uses_new_final_decisions(decision, expected):
+    service, _judge = _service(
+        datetime(2026, 6, 10, 10, 0, tzinfo=US_EASTERN),
+        {},
+    )
+    signal = service._build_signal(
+        {
+            "symbol": "NVDA",
+            "signal_type": "relative_strength_breakout",
+            "metrics": {},
+        },
+        {
+            "final_decision": decision,
+            "direction": "bearish",
+            "need_notification": True,
+        },
+    )
+
+    assert signal is not None
+    assert signal.need_notification is expected
+    assert signal.notification_sent is expected
 
 
 def test_service_processes_0946_with_15_complete_bars():
