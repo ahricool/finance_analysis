@@ -81,6 +81,20 @@ def quote_event(price: str, sequence: int, connection_generation: int) -> Market
     )
 
 
+def quote_reference_event(pre_close: str, connection_generation: int) -> MarketEvent:
+    received_at = BASE + timedelta(seconds=30)
+    return MarketEvent(
+        "quote_reference",
+        "AAPL.US",
+        received_at,
+        received_at,
+        None,
+        None,
+        {"pre_close": pre_close},
+        connection_generation,
+    )
+
+
 def service(redis: FakeRedis | None = None, repository=None) -> MarketStreamService:
     redis = redis or FakeRedis()
     config = MarketStreamConfig(redis_url="redis://fake", bar_limit=420)
@@ -283,6 +297,46 @@ async def test_connection_cleanup_resets_quote_sequence_for_new_connection() -> 
     await app._handle_event(quote_event("101", 1, 3))
     assert app.quotes["AAPL.US"].last_price == Decimal("101")
     assert app.quotes["AAPL.US"].sequence == 1
+
+
+@pytest.mark.asyncio
+async def test_quote_reference_merge_does_not_replace_newer_push_price() -> None:
+    app = service()
+    set_warming(app, connection=2)
+
+    await app._handle_event(quote_event("101", 10, 2))
+    push_time = app.quotes["AAPL.US"].event_time
+    await app._handle_event(quote_reference_event("100", 2))
+
+    quote = app.quotes["AAPL.US"]
+    assert quote.last_price == Decimal("101")
+    assert quote.pre_close == Decimal("100")
+    assert quote.event_time == push_time
+
+
+@pytest.mark.asyncio
+async def test_quote_reference_is_refreshed_when_market_date_changes() -> None:
+    app = service()
+    state = set_warming(app)
+    state.status = SymbolStatus.ACTIVE
+    state.quote_subscribed = True
+    app.quote_reference_dates[state.symbol] = date(2026, 6, 25)
+    requested = []
+
+    async def refresh_quotes(symbols):
+        requested.append(set(symbols))
+        return set(symbols)
+
+    app.manager.refresh_quotes = refresh_quotes
+    now = datetime(2026, 6, 26, 14, 0, tzinfo=timezone.utc)
+    state.last_quote_at = now
+
+    assert await app._refresh_quote_references_once(now=now) == {"AAPL.US"}
+    assert requested == [{"AAPL.US"}]
+    assert app.quote_reference_dates["AAPL.US"] == date(2026, 6, 26)
+
+    assert await app._refresh_quote_references_once(now=now + timedelta(seconds=5)) == set()
+    assert requested == [{"AAPL.US"}]
 
 
 @pytest.mark.asyncio

@@ -71,6 +71,7 @@ def normalize_quote(symbol: str, push: Any, *, generation: int) -> MarketEvent:
     payload: dict[str, Any] = {}
     for source, target in (
         ("last_done", "last_price"),
+        ("prev_close", "pre_close"),
         ("open", "open"),
         ("high", "high"),
         ("low", "low"),
@@ -93,6 +94,31 @@ def normalize_quote(symbol: str, push: Any, *, generation: int) -> MarketEvent:
         payload=payload,
         connection_generation=generation,
     )
+
+
+def normalize_quote_reference(symbol: str, quote: Any, *, generation: int) -> MarketEvent:
+    """Normalize fields that are available from snapshots but absent from quote pushes."""
+    received_at = datetime.now(timezone.utc)
+    event_time = _time(getattr(quote, "timestamp", None), received_at)
+    prev_close = getattr(quote, "prev_close", None)
+    payload = {"pre_close": prev_close} if prev_close is not None else {}
+    return MarketEvent(
+        event_type="quote_reference",
+        symbol=symbol,
+        event_time=event_time,
+        received_at=received_at,
+        sequence=None,
+        trade_session=None,
+        payload=payload,
+        connection_generation=generation,
+    )
+
+
+def normalize_quote_snapshot(symbol: str, quote: Any, *, generation: int) -> MarketEvent:
+    """Normalize a full pre-subscription snapshot without treating it as a live push."""
+    event = normalize_quote(symbol, quote, generation=generation)
+    event.event_type = "quote_snapshot"
+    return event
 
 
 def normalize_candlestick(symbol: str, push: Any, *, generation: int) -> MarketEvent:
