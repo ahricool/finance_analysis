@@ -10,7 +10,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Iterable
 
 from finance_analysis.core.time import utc_now
@@ -42,6 +42,7 @@ from finance_analysis.market_stream.watchlist_monitor import WatchListMonitor
 from finance_analysis.stocks.markets import MarketType
 
 logger = logging.getLogger(__name__)
+QUOTE_REFERENCE_RETRY_SECONDS = 60
 
 
 @dataclass(slots=True)
@@ -83,6 +84,8 @@ class MarketStreamService:
         self.pending_quotes: dict[str, QuoteState] = {}
         self.pending_candles: dict[str, CandleState] = {}
         self.pending_bars: dict[str, dict[tuple[datetime, str], CandleState]] = {}
+        self.quote_reference_dates: dict[str, date] = {}
+        self.quote_reference_attempts: dict[str, datetime] = {}
         self.last_event_at: datetime | None = None
         self.redis_degraded = False
         self.stop_event = asyncio.Event()
@@ -123,6 +126,7 @@ class MarketStreamService:
             asyncio.create_task(self._consume_events(), name="market-stream-events"),
             asyncio.create_task(self._flush_redis(), name="market-stream-redis"),
             asyncio.create_task(self._heartbeat(), name="market-stream-heartbeat"),
+            asyncio.create_task(self._refresh_quote_references(), name="market-stream-quote-references"),
         ]
         try:
             snapshot = await self.watchlist_monitor.poll()
@@ -187,10 +191,25 @@ class MarketStreamService:
         if state.status in {SymbolStatus.REMOVING, SymbolStatus.INACTIVE, SymbolStatus.PENDING}:
             return
         self.last_event_at = event.received_at
-        if event.event_type == "quote":
+        if event.event_type in {"quote", "quote_snapshot", "quote_reference"}:
             quote = self.quotes.setdefault(event.symbol, QuoteState(symbol=event.symbol))
-            if quote.merge(event.payload, event_time=event.event_time, received_at=event.received_at):
-                state.last_quote_at = event.received_at
+            event_time = (
+                quote.event_time
+                if event.event_type == "quote_reference" and quote.event_time
+                else event.event_time
+            )
+            received_at = (
+                quote.received_at
+                if event.event_type == "quote_reference" and quote.received_at
+                else event.received_at
+            )
+            if quote.merge(event.payload, event_time=event_time, received_at=received_at):
+                if event.event_type == "quote":
+                    state.last_quote_at = event.received_at
+                if event.event_type == "quote_reference" and event.payload.get("pre_close") is not None:
+                    self.quote_reference_dates[event.symbol] = market_trading_date(
+                        utc_now(), state.market_type
+                    )
                 self.pending_quotes[event.symbol] = quote
         elif event.event_type == "candle_1m":
             candle = event_to_candle(event)
@@ -461,6 +480,8 @@ class MarketStreamService:
             self.pending_quotes.pop(symbol, None)
             self.pending_candles.pop(symbol, None)
             self.pending_bars.pop(symbol, None)
+            self.quote_reference_dates.pop(symbol, None)
+            self.quote_reference_attempts.pop(symbol, None)
         try:
             await self.repository.expire_symbol_cache(
                 symbol,
@@ -529,6 +550,53 @@ class MarketStreamService:
                 self.redis_degraded = True
                 logger.warning("streamer 心跳写入失败: %s", exc)
             await asyncio.sleep(self.config.heartbeat_seconds)
+
+    async def _refresh_quote_references(self) -> None:
+        interval = max(1, self.config.heartbeat_seconds)
+        while not self.stop_event.is_set():
+            await asyncio.sleep(interval)
+            try:
+                await self._refresh_quote_references_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("刷新跨日昨收价失败: %s", exc)
+
+    async def _refresh_quote_references_once(self, *, now: datetime | None = None) -> set[str]:
+        current = now or utc_now()
+        dates: dict[str, date] = {}
+        stale: set[str] = set()
+        retry_after = timedelta(seconds=QUOTE_REFERENCE_RETRY_SECONDS)
+        for state in self.manager.symbol_states.values():
+            if not state.quote_subscribed or state.status in {
+                SymbolStatus.INACTIVE,
+                SymbolStatus.REMOVING,
+            }:
+                continue
+            reference_date = market_trading_date(current, state.market_type)
+            if state.last_quote_at is None or market_trading_date(
+                state.last_quote_at, state.market_type
+            ) != reference_date:
+                # Do not refresh merely because the local calendar rolled over.
+                # The first push of the new market date proves that Longbridge
+                # has started publishing that session's quote state.
+                continue
+            dates[state.symbol] = reference_date
+            last_attempt = self.quote_reference_attempts.get(state.symbol)
+            if (
+                self.quote_reference_dates.get(state.symbol) != reference_date
+                and (last_attempt is None or current - last_attempt >= retry_after)
+            ):
+                stale.add(state.symbol)
+        if not stale:
+            return set()
+        for symbol in stale:
+            self.quote_reference_attempts[symbol] = current
+        refreshed = await self.manager.refresh_quotes(stale)
+        for symbol in refreshed:
+            if symbol in dates:
+                self.quote_reference_dates[symbol] = dates[symbol]
+        return refreshed
 
     async def _renew_leader_lock(self) -> None:
         interval = max(1, self.config.leader_lock_ttl_seconds // 3)
