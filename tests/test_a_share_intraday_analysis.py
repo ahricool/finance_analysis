@@ -28,6 +28,7 @@ from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.market_calenda
 from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.models import AShareSignalResult
 from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.notifications import (
     AShareIntradayReporter,
+    render_signal_content,
     reset_cooldown_store,
 )
 from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.domain_service import (
@@ -373,7 +374,7 @@ def test_watchlist_enters_candidate_and_only_candidates_fetch_minute_bars():
     data = FakeDataSource(rows, bars_by_code)
     verdicts = {
         candidate_id("600519", "near_limit_down_risk"): {
-            "final_decision": "risk",
+            "final_decision": "accept",
             "need_notification": True,
             "summary": "接近跌停",
             "severity": "warning",
@@ -419,7 +420,7 @@ def test_insufficient_minute_bars_skipped():
 def test_llm_batch_maps_by_id_and_ignores_missing():
     cand = {"id": "600519|near_limit_down_risk"}
     results = parse_llm_batch_results(
-        '{"results": [{"id": "600519|near_limit_down_risk", "final_decision": "risk", '
+        '{"results": [{"id": "600519|near_limit_down_risk", "final_decision": "accept", '
         '"need_notification": true, "confidence": 0.8}]}'
     )
     assert results[0]["id"] == cand["id"]
@@ -427,7 +428,7 @@ def test_llm_batch_maps_by_id_and_ignores_missing():
 
 def test_llm_judge_drops_unknown_ids():
     judge = AShareIntradayLLMJudge(config=None, client=_StubClient(
-        '{"results": [{"id": "GHOST|x", "final_decision": "risk", "need_notification": true}]}'
+        '{"results": [{"id": "GHOST|x", "final_decision": "accept", "need_notification": true}]}'
     ))
     verdicts = judge.judge_batch([{"id": "600519|near_limit_down_risk"}], {})
     # Positional fallback maps the single ghost result to the real candidate id.
@@ -437,11 +438,49 @@ def test_llm_judge_drops_unknown_ids():
 def test_parse_llm_json_repairs_fenced_and_trailing_comma():
     parsed = parse_llm_json_response(
         """```json
-        {"final_decision": "watch", "need_notification": true, "confidence": 0.7,}
+        {"final_decision": "accept", "need_notification": true, "confidence": 0.7,}
         ```"""
     )
     assert parsed is not None
-    assert parsed["final_decision"] == "watch"
+    assert parsed["final_decision"] == "accept"
+
+
+@pytest.mark.parametrize("decision", ["accept", "observe", "ignore"])
+def test_normalize_verdict_accepts_new_final_decisions(decision):
+    verdict = normalize_verdict({"final_decision": decision, "need_notification": True})
+
+    assert verdict["final_decision"] == decision
+
+
+@pytest.mark.parametrize("decision", ["watch", "risk", "unexpected", ""])
+def test_normalize_verdict_rejects_legacy_and_invalid_final_decisions(decision):
+    verdict = normalize_verdict({"final_decision": decision, "need_notification": True})
+
+    assert verdict["final_decision"] == "ignore"
+    assert verdict["need_notification"] is False
+
+
+@pytest.mark.parametrize(
+    ("direction", "decision"),
+    [
+        ("bullish", "accept"),
+        ("bearish", "accept"),
+        ("bullish", "observe"),
+        ("bearish", "observe"),
+    ],
+)
+def test_final_decision_is_independent_of_direction(direction, decision):
+    verdict = normalize_verdict(
+        {
+            "direction": direction,
+            "final_decision": decision,
+            "need_notification": True,
+        }
+    )
+
+    assert verdict["direction"] == direction
+    assert verdict["final_decision"] == decision
+    assert verdict["need_notification"] is True
 
 
 def test_normalize_verdict_clamps_enums_and_confidence():
@@ -467,6 +506,9 @@ def test_prompt_mentions_t1_and_forbids_absolute_orders():
     prompt = build_batch_prompt([{"id": "x|y", "code": "600519"}], {"market_phase": "morning"})
     assert "T+1" in prompt
     assert "追涨" in prompt
+    assert '"final_decision": "accept | observe | ignore"' in prompt
+    assert '"final_decision": "watch|risk|ignore"' not in prompt
+    assert "bearish 信号同样可以是 accept" in prompt
     from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.llm import _SYSTEM_PROMPT
 
     assert "必涨" in _SYSTEM_PROMPT
@@ -482,6 +524,7 @@ def test_llm_unavailable_risk_signal_falls_back_to_notification():
         summary = service.run(now=_run_now())
     risk_signals = [s for s in summary.signal_results if s.signal_type == "near_limit_down_risk"]
     assert risk_signals and risk_signals[0].fallback_used is True
+    assert risk_signals[0].final_decision == "accept"
     assert risk_signals[0].need_notification is True
     assert notifier.calls  # fallback risk alert was sent
     assert "确定性" in notifier.calls[0]["content"]
@@ -499,8 +542,40 @@ def test_llm_unavailable_opportunity_signal_not_strongly_alerted():
             "metrics": {},
         }
     )
+    assert fallback.final_decision == "accept"
     assert fallback.need_notification is False
     assert fallback.fallback_used is True
+
+
+@pytest.mark.parametrize(
+    ("decision", "expected"),
+    [("accept", True), ("observe", True), ("ignore", False)],
+)
+def test_notification_eligibility_uses_new_final_decisions(decision, expected):
+    service = _make_service(FakeDataSource([], {}), FakeLLM(), _make_reporter(), [])
+    signal = service._signal_from_verdict(
+        {
+            "code": "600519",
+            "name": "贵州茅台",
+            "board": "main_board",
+            "signal_type": "abnormal_volume_breakout",
+            "metrics": {},
+        },
+        {
+            "final_decision": decision,
+            "direction": "bearish",
+            "need_notification": True,
+        },
+    )
+
+    assert signal.need_notification is expected
+
+
+def test_calendar_renders_new_final_decision_value():
+    signal = _signal()
+    signal.llm_result["final_decision"] = "accept"
+
+    assert "最终决策：accept" in render_signal_content(signal)
 
 
 # ---------------------------------------------------------------------------
@@ -513,7 +588,7 @@ def _signal(code="600519", signal_type="near_limit_down_risk", severity="warning
         signal_type=signal_type,
         board="main_board",
         need_notification=True,
-        final_decision="risk",
+        final_decision="accept",
         metrics={},
         llm_result={"summary": "x"},
         severity=severity,
@@ -574,7 +649,7 @@ def test_five_minute_repeat_does_not_repeat_llm_or_notification_for_unchanged_si
     llm = FakeLLM(
         {
             candidate_id("600519", "near_limit_down_risk"): {
-                "final_decision": "risk",
+                "final_decision": "accept",
                 "need_notification": True,
                 "summary": "接近跌停",
             }
@@ -598,7 +673,7 @@ def test_aggregated_notification_failure_does_not_raise():
     data = FakeDataSource(rows, bars_by_code)
     verdicts = {
         candidate_id("600519", "near_limit_down_risk"): {
-            "final_decision": "risk",
+            "final_decision": "accept",
             "need_notification": True,
             "summary": "接近跌停",
         }
@@ -617,7 +692,7 @@ def test_summary_and_signal_calendar_written_and_json_serializable():
     data = FakeDataSource(rows, bars_by_code)
     verdicts = {
         candidate_id("600519", "near_limit_down_risk"): {
-            "final_decision": "risk",
+            "final_decision": "accept",
             "need_notification": True,
             "summary": "接近跌停",
         }

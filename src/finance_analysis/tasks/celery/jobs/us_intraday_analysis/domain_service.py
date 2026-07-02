@@ -26,7 +26,7 @@ from finance_analysis.tasks.lifecycle import TaskSkipped
 
 from .config import INTRADAY_NEWS_LIMIT, LLM_BATCH_SIZE, MARKET_ETFS, MARKET_NEWS_SYMBOL, STALE_BAR_SECONDS, US_EASTERN
 from .data_source import IntradayDataSource
-from .llm import IntradayLLMJudge, candidate_id, truthy
+from .llm import IntradayLLMJudge, candidate_id, normalize_verdict
 from .lock import release_us_intraday_running_lock, try_acquire_us_intraday_lock
 from .market_calendar import get_us_trading_date, is_us_market_open, parse_timestamp
 from .metrics import compute_intraday_metrics
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 _MIN_BARS_FOR_SYMBOL = 15
 _MIN_BARS_FOR_BENCHMARK = 10
-_NOTIFY_DECISIONS = {"watch", "risk"}
+_NOTIFY_DECISIONS = {"accept", "observe"}
 
 
 class USIntradayAnalysisService:
@@ -275,7 +275,8 @@ class USIntradayAnalysisService:
         llm_result: Dict[str, Any],
     ) -> Optional[IntradaySignalResult]:
         """Turn a candidate + its LLM verdict into a reported signal result."""
-        need_notification = truthy(llm_result.get("need_notification"))
+        llm_result = normalize_verdict(llm_result)
+        need_notification = bool(llm_result.get("need_notification"))
         final_decision = str(llm_result.get("final_decision") or "").lower()
         if final_decision not in _NOTIFY_DECISIONS:
             need_notification = False

@@ -13,6 +13,8 @@ from .bars import aggregate_bars
 
 logger = logging.getLogger(__name__)
 
+_VALID_FINAL_DECISIONS = {"accept", "observe", "ignore"}
+
 
 def candidate_id(symbol: str, signal_type: str) -> str:
     """Stable identifier used to map batched LLM verdicts back to candidates."""
@@ -43,9 +45,15 @@ def build_intraday_llm_prompt(
         "3. 当前是否有明显新闻催化，或新闻与价格行为是否一致？\n"
         "4. 当前追高或追空风险大不大？\n"
         "5. 是否值得发通知？\n\n"
+        "final_decision 只判断候选信号的质量和有效性，与 bullish / bearish 无关；bearish 信号同样可以是 accept，"
+        "不得根据方向、信号类别或规则类型固定输出某个 final_decision。\n"
+        "final_decision 定义：\n"
+        "accept：候选信号成立，指标与市场上下文基本一致，值得重点关注。\n"
+        "observe：候选信号有部分依据，但存在冲突、确认不足或持续性不明确，适合继续观察。\n"
+        "ignore：候选信号质量不足、指标明显冲突、缺少关键确认或更可能是噪声。\n\n"
         "只输出一个 JSON object，不要 markdown，不要解释 JSON 之外的文字。格式如下：\n"
         "{\n"
-        '  "final_decision": "watch|ignore|risk",\n'
+        '  "final_decision": "accept | observe | ignore",\n'
         '  "need_notification": true,\n'
         '  "confidence": 0.76,\n'
         '  "summary": "一句话摘要",\n'
@@ -100,13 +108,19 @@ def build_intraday_batch_llm_prompt(
         "3. 当前是否有明显新闻催化，或新闻与价格行为是否一致？\n"
         "4. 当前追高或追空风险大不大？\n"
         "5. 是否值得发通知？\n\n"
+        "final_decision 只判断候选信号的质量和有效性，与 bullish / bearish 无关；bearish 信号同样可以是 accept，"
+        "不得根据方向、信号类别或规则类型固定输出某个 final_decision。\n"
+        "final_decision 定义：\n"
+        "accept：候选信号成立，指标与市场上下文基本一致，值得重点关注。\n"
+        "observe：候选信号有部分依据，但存在冲突、确认不足或持续性不明确，适合继续观察。\n"
+        "ignore：候选信号质量不足、指标明显冲突、缺少关键确认或更可能是噪声。\n\n"
         "只输出一个 JSON object，不要 markdown，不要解释 JSON 之外的文字。\n"
         "顶层是 results 数组，数组每个元素对应一个候选信号，必须原样回传输入里的 id 字段。格式如下：\n"
         "{\n"
         '  "results": [\n'
         "    {\n"
         '      "id": "NVDA|relative_strength_breakout",\n'
-        '      "final_decision": "watch|ignore|risk",\n'
+        '      "final_decision": "accept | observe | ignore",\n'
         '      "need_notification": true,\n'
         '      "confidence": 0.76,\n'
         '      "summary": "一句话摘要",\n'
@@ -191,6 +205,17 @@ def truthy(value: Any) -> bool:
     return bool(value)
 
 
+def normalize_verdict(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate the final decision while preserving the remaining verdict fields."""
+    verdict = dict(raw)
+    decision = str(raw.get("final_decision") or "").strip().lower()
+    if decision not in _VALID_FINAL_DECISIONS:
+        decision = "ignore"
+    verdict["final_decision"] = decision
+    verdict["need_notification"] = truthy(raw.get("need_notification")) and decision in {"accept", "observe"}
+    return verdict
+
+
 class IntradayLLMJudge:
     """Uses the configured LLM client to score a single signal candidate."""
 
@@ -257,6 +282,7 @@ class IntradayLLMJudge:
             valid_ids = {item["id"] for item in prompt_items}
             verdicts: Dict[str, Dict[str, Any]] = {}
             for index, result in enumerate(results):
+                result = normalize_verdict(result)
                 rid = str(result.get("id") or "").strip()
                 if rid not in valid_ids and index < len(prompt_items):
                     # Fall back to positional mapping when the model drops the id.
@@ -317,7 +343,7 @@ class IntradayLLMJudge:
             if parsed is None:
                 logger.warning("美股盘中 LLM 返回无法解析: %s %s", symbol, signal_type)
                 return None
-            return parsed
+            return normalize_verdict(parsed)
         except Exception as exc:
             logger.warning("美股盘中 LLM 调用失败 %s %s: %s", symbol, signal_type, exc)
             return None
