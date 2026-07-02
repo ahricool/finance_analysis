@@ -10,7 +10,7 @@ export const SIGNAL_PERIODS: SignalEvaluationPeriod[] = ['30m', '1h', '1d', '3d'
 
 export const SIGNAL_TYPE_LABELS: Record<string, string> = {
   relative_strength_breakout: '相对强势突破',
-  relative_strength_failure: '相对强势失效',
+  relative_weakness_breakdown: '相对弱势破位',
   weak_to_strong_reversal: '弱转强',
   strong_to_weak_failure: '强转弱',
   near_limit_up_acceleration: '临近涨停加速',

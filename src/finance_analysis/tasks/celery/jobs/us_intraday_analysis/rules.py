@@ -10,7 +10,8 @@ from finance_analysis.integrations.market_data.realtime_types import safe_float
 
 from .config import (
     RELATIVE_STRENGTH_BREAKOUT_RULE,
-    RELATIVE_STRENGTH_FAILURE_RULE,
+    RELATIVE_WEAKNESS_BREAKDOWN_RULE,
+    STRONG_TO_WEAK_FAILURE_RULE,
     WEAK_TO_STRONG_REVERSAL_RULE,
 )
 
@@ -19,7 +20,14 @@ Candidate = Dict[str, Any]
 RuleEvaluator = Callable[[Metrics], Tuple[Optional[Candidate], List[str]]]
 RulePredicate = Callable[[Metrics], bool]
 
-RULE_VERSION = "v2"
+RULE_VERSION = "v3"
+
+_PRIMARY_SIGNAL_ORDER = (
+    "relative_strength_breakout",
+    "relative_weakness_breakdown",
+    "weak_to_strong_reversal",
+    "strong_to_weak_failure",
+)
 
 
 @dataclass
@@ -126,6 +134,45 @@ def evaluate_relative_strength_breakout(metrics: Metrics) -> Tuple[Optional[Cand
     return _candidate("relative_strength_breakout", score, scored, failures, is_strong), failures
 
 
+def evaluate_relative_weakness_breakdown(metrics: Metrics) -> Tuple[Optional[Candidate], List[str]]:
+    normal = RELATIVE_WEAKNESS_BREAKDOWN_RULE["normal"]
+    strong = RELATIVE_WEAKNESS_BREAKDOWN_RULE["strong"]
+    required = [_condition("vwap_position", bool(metrics.get("price_below_vwap")), "price_below_vwap")]
+    scored = [
+        _condition("change_5m", _lte(metrics.get("change_5m"), normal["change_5m_max"]), "change_5m<=-0.35"),
+        _condition("change_15m", _lte(metrics.get("change_15m"), normal["change_15m_max"]), "change_15m<=-0.8"),
+        _condition(
+            "relative_to_qqq",
+            _lte(metrics.get("relative_to_qqq_15m"), normal["relative_to_qqq_15m_max"]),
+            "relative_to_qqq_15m<=-0.35",
+        ),
+        _condition(
+            "volume_ratio",
+            _gte(metrics.get("volume_ratio_5m"), normal["volume_ratio_5m_min"]),
+            "volume_ratio_5m>=1.3",
+        ),
+        _condition(
+            "near_low",
+            bool(metrics.get("near_intraday_low")) or _lte(metrics.get("low_distance_pct"), normal["near_low_pct"]),
+            "low_distance_pct<=0.8",
+        ),
+    ]
+    score = float(sum(1 for item in scored if item.matched))
+    failures = [item.key for item in required + scored if not item.matched]
+    if not all(item.matched for item in required) or score < float(normal["min_score"]):
+        return None, failures
+
+    is_strong = (
+        _lte(metrics.get("change_5m"), strong["change_5m_max"])
+        and _lte(metrics.get("change_15m"), strong["change_15m_max"])
+        and _lte(metrics.get("relative_to_qqq_15m"), strong["relative_to_qqq_15m_max"])
+        and _gte(metrics.get("volume_ratio_5m"), strong["volume_ratio_5m_min"])
+        and bool(metrics.get("price_below_vwap"))
+        and (bool(metrics.get("near_intraday_low")) or _lte(metrics.get("low_distance_pct"), strong["near_low_pct"]))
+    )
+    return _candidate("relative_weakness_breakdown", score, scored, failures, is_strong), failures
+
+
 def evaluate_weak_to_strong_reversal(metrics: Metrics) -> Tuple[Optional[Candidate], List[str]]:
     normal = WEAK_TO_STRONG_REVERSAL_RULE["normal"]
     required = [_condition("vwap_position", bool(metrics.get("price_above_vwap")), "price_above_vwap")]
@@ -165,8 +212,8 @@ def evaluate_weak_to_strong_reversal(metrics: Metrics) -> Tuple[Optional[Candida
     ), failures
 
 
-def evaluate_relative_strength_failure(metrics: Metrics) -> Tuple[Optional[Candidate], List[str]]:
-    normal = RELATIVE_STRENGTH_FAILURE_RULE["normal"]
+def evaluate_strong_to_weak_failure(metrics: Metrics) -> Tuple[Optional[Candidate], List[str]]:
+    normal = STRONG_TO_WEAK_FAILURE_RULE["normal"]
     required = [_condition("vwap_position", bool(metrics.get("price_below_vwap")), "price_below_vwap")]
     scored = [
         _condition(
@@ -196,11 +243,11 @@ def evaluate_relative_strength_failure(metrics: Metrics) -> Tuple[Optional[Candi
     if not all(item.matched for item in required) or score < float(normal["min_score"]):
         return None, failures
     return _candidate(
-        "relative_strength_failure",
+        "strong_to_weak_failure",
         score,
         scored,
         failures,
-        is_relative_strength_failure(metrics),
+        is_strong_to_weak_failure(metrics),
     ), failures
 
 
@@ -219,6 +266,18 @@ def is_relative_strength_breakout(metrics: Metrics) -> bool:
     )
 
 
+def is_relative_weakness_breakdown(metrics: Metrics) -> bool:
+    strong = RELATIVE_WEAKNESS_BREAKDOWN_RULE["strong"]
+    return (
+        _lte(metrics.get("change_5m"), strong["change_5m_max"])
+        and _lte(metrics.get("change_15m"), strong["change_15m_max"])
+        and _lte(metrics.get("relative_to_qqq_15m"), strong["relative_to_qqq_15m_max"])
+        and _gte(metrics.get("volume_ratio_5m"), strong["volume_ratio_5m_min"])
+        and bool(metrics.get("price_below_vwap"))
+        and (bool(metrics.get("near_intraday_low")) or _lte(metrics.get("low_distance_pct"), strong["near_low_pct"]))
+    )
+
+
 def is_weak_to_strong_reversal(metrics: Metrics) -> bool:
     strong = WEAK_TO_STRONG_REVERSAL_RULE["strong"]
     return (
@@ -230,8 +289,8 @@ def is_weak_to_strong_reversal(metrics: Metrics) -> bool:
     )
 
 
-def is_relative_strength_failure(metrics: Metrics) -> bool:
-    strong = RELATIVE_STRENGTH_FAILURE_RULE["strong"]
+def is_strong_to_weak_failure(metrics: Metrics) -> bool:
+    strong = STRONG_TO_WEAK_FAILURE_RULE["strong"]
     return (
         _gte(metrics.get("early_relative_to_qqq"), strong["early_relative_to_qqq_min"])
         and _lte(metrics.get("relative_to_qqq_15m"), strong["relative_to_qqq_15m_max"])
@@ -274,9 +333,49 @@ def _candidate(
 
 DEFAULT_INTRADAY_SIGNAL_RULES: List[SignalRule] = [
     SignalRule("relative_strength_breakout", evaluate_relative_strength_breakout),
+    SignalRule("relative_weakness_breakdown", evaluate_relative_weakness_breakdown),
     SignalRule("weak_to_strong_reversal", evaluate_weak_to_strong_reversal),
-    SignalRule("relative_strength_failure", evaluate_relative_strength_failure),
+    SignalRule("strong_to_weak_failure", evaluate_strong_to_weak_failure),
 ]
+
+
+def select_primary_candidate(candidates: Sequence[Candidate]) -> Optional[Candidate]:
+    """Select one deterministic primary candidate from a single symbol scan."""
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    selected = list(candidates)
+    signal_types = {str(candidate.get("signal_type") or "") for candidate in selected}
+    if {"weak_to_strong_reversal", "relative_strength_breakout"} <= signal_types:
+        selected = [candidate for candidate in selected if candidate.get("signal_type") != "relative_strength_breakout"]
+    if {"strong_to_weak_failure", "relative_weakness_breakdown"} <= signal_types:
+        selected = [
+            candidate for candidate in selected if candidate.get("signal_type") != "relative_weakness_breakdown"
+        ]
+
+    if len(selected) == 1:
+        return selected[0]
+
+    order = {signal_type: index for index, signal_type in enumerate(_PRIMARY_SIGNAL_ORDER)}
+    return max(
+        enumerate(selected),
+        key=lambda item: (
+            _candidate_score_ratio(item[1]),
+            item[1].get("rule_strength") == "strong",
+            -order.get(str(item[1].get("signal_type") or ""), len(order)),
+            -item[0],
+        ),
+    )[1]
+
+
+def _candidate_score_ratio(candidate: Candidate) -> float:
+    score = safe_float(candidate.get("score"))
+    max_score = safe_float(candidate.get("max_score"))
+    if score is None or max_score is None or max_score <= 0:
+        return 0.0
+    return score / max_score
 
 
 def _gte(value: Any, threshold: float) -> bool:

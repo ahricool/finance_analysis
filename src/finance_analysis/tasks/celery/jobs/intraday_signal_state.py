@@ -48,6 +48,7 @@ _SIGNATURE_NUMERIC_FIELDS = (
     "relative_to_board_index_15m",
     "drawdown_from_high_pct",
     "rebound_from_low_pct",
+    "low_distance_pct",
     "distance_to_limit_up_pct",
     "distance_to_limit_down_pct",
 )

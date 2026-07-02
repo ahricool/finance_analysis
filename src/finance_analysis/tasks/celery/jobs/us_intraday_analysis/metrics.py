@@ -36,6 +36,9 @@ def compute_intraday_metrics(
     high_distance_pct = None
     if latest_price is not None and intraday_high and intraday_high > 0:
         high_distance_pct = round((intraday_high - latest_price) / intraday_high * 100, 4)
+    low_distance_pct = None
+    if latest_price is not None and intraday_low is not None and intraday_low > 0:
+        low_distance_pct = round((latest_price - intraday_low) / intraday_low * 100, 4)
 
     change_5m = _change_over_minutes(bars_1m, 5)
     change_15m = _change_over_minutes(bars_1m, 15)
@@ -69,6 +72,8 @@ def compute_intraday_metrics(
         "intraday_low": intraday_low,
         "near_intraday_high": bool(high_distance_pct is not None and high_distance_pct <= 0.25),
         "high_distance_pct": high_distance_pct,
+        "near_intraday_low": bool(low_distance_pct is not None and low_distance_pct <= 0.25),
+        "low_distance_pct": low_distance_pct,
         "relative_to_qqq_15m": relative_to_qqq_15m,
         "early_relative_to_qqq": early_relative_to_qqq,
         "relative_to_sector_15m": relative_to_sector_15m,

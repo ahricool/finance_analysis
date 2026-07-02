@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from .config import US_EASTERN
+from .config import BEARISH_SIGNAL_TYPES, US_EASTERN
 from .models import IntradaySignalResult
 
 logger = logging.getLogger(__name__)
@@ -134,7 +134,7 @@ class SignalReporter:
 
             rule_severity = str(signal.metrics.get("severity") or "").lower()
             severity = "warning"
-            if signal.signal_type == "relative_strength_failure" and rule_severity == "high":
+            if signal.signal_type in BEARISH_SIGNAL_TYPES and rule_severity == "high":
                 severity = "error"
             generation = int(signal.metrics.get("state_generation") or 1)
             return NotificationService().send(

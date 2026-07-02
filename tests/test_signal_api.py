@@ -77,7 +77,7 @@ def test_signal_repository_filters_sorts_and_paginates_without_related_queries()
         code="AAPL",
         market="US",
         direction="bearish",
-        signal_type="relative_strength_failure",
+        signal_type="strong_to_weak_failure",
         signal_at=now - timedelta(hours=1),
     )
     _create_signal(
