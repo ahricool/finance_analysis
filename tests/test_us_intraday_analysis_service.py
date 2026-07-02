@@ -9,9 +9,14 @@ import pytest
 from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote
 from finance_analysis.tasks.celery.jobs.intraday_signal_state import IntradaySignalStateStore
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.bars import aggregate_bars
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.config import BEARISH_SIGNAL_TYPES
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.data_source import (
     IntradayDataSource,
     filter_current_trading_day_bars,
+)
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.domain_service import (
+    USIntradayAnalysisService,
+    _notification_severity,
 )
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.llm import (
     build_intraday_batch_llm_prompt,
@@ -35,15 +40,17 @@ from finance_analysis.tasks.celery.jobs.us_intraday_analysis.models import (
     IntradayTaskSummary,
 )
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.notifications import (
+    SignalReporter,
     render_calendar_content,
     render_notification,
 )
-from finance_analysis.tasks.celery.jobs.us_intraday_analysis.rules import evaluate_signal_candidates
-from finance_analysis.tasks.celery.jobs.us_intraday_analysis.domain_service import (
-    USIntradayAnalysisService,
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.rules import (
+    DEFAULT_INTRADAY_SIGNAL_RULES,
+    RULE_VERSION,
+    evaluate_signal_candidates,
+    select_primary_candidate,
 )
 from finance_analysis.tasks.lifecycle import TaskSkipped
-
 
 US_EASTERN = ZoneInfo("America/New_York")
 
@@ -298,6 +305,32 @@ def test_cumulative_vwap_down_cross_and_zero_volume_are_safe():
     assert metrics["crossed_below_vwap"] is True
 
 
+def test_low_distance_pct_and_near_intraday_low_are_computed():
+    start = datetime(2026, 6, 10, 9, 30, tzinfo=US_EASTERN)
+    bars = [
+        _bar(start, 100, 101),
+        _bar(start + timedelta(minutes=1), 101, 99),
+    ]
+    bars[0]["low"] = 98.0
+    bars[1]["low"] = 99.0
+
+    metrics = compute_intraday_metrics("NVDA", bars, quote=None)
+
+    assert metrics["low_distance_pct"] == round((99.0 - 98.0) / 98.0 * 100, 4)
+    assert metrics["near_intraday_low"] is False
+
+
+def test_low_distance_is_zero_at_intraday_low():
+    start = datetime(2026, 6, 10, 9, 30, tzinfo=US_EASTERN)
+    bars = [_bar(start, 100, 100)]
+    bars[0]["low"] = 100.0
+
+    metrics = compute_intraday_metrics("NVDA", bars, quote=None)
+
+    assert metrics["low_distance_pct"] == 0.0
+    assert metrics["near_intraday_low"] is True
+
+
 def test_change_over_minutes_requires_real_coverage():
     start = datetime(2026, 6, 10, 9, 30, tzinfo=US_EASTERN)
     thirteen_bars = _bars(start, 13)
@@ -343,6 +376,56 @@ def test_evaluate_signal_candidates_detects_strong_breakout():
     assert candidates[0]["severity"] == "high"
 
 
+def test_evaluate_signal_candidates_detects_normal_weakness_breakdown():
+    metrics = {
+        "change_5m": -0.4,
+        "change_15m": -0.9,
+        "relative_to_qqq_15m": -0.4,
+        "volume_ratio_5m": 1.0,
+        "price_below_vwap": True,
+        "low_distance_pct": 0.7,
+    }
+
+    candidates = evaluate_signal_candidates(metrics)
+
+    assert candidates[0]["signal_type"] == "relative_weakness_breakdown"
+    assert candidates[0]["rule_strength"] == "normal"
+    assert candidates[0]["score"] == 4.0
+
+
+def test_evaluate_signal_candidates_detects_strong_weakness_breakdown():
+    metrics = {
+        "change_5m": -0.9,
+        "change_15m": -1.6,
+        "relative_to_qqq_15m": -0.9,
+        "volume_ratio_5m": 2.2,
+        "price_below_vwap": True,
+        "near_intraday_low": True,
+    }
+
+    candidates = evaluate_signal_candidates(metrics)
+
+    assert candidates[0]["signal_type"] == "relative_weakness_breakdown"
+    assert candidates[0]["rule_strength"] == "strong"
+    assert candidates[0]["severity"] == "high"
+
+
+def test_weakness_breakdown_requires_price_below_vwap():
+    metrics = {
+        "change_5m": -0.9,
+        "change_15m": -1.6,
+        "relative_to_qqq_15m": -0.9,
+        "volume_ratio_5m": 2.2,
+        "price_below_vwap": False,
+        "price_above_vwap": True,
+        "near_intraday_low": True,
+    }
+
+    signal_types = {candidate["signal_type"] for candidate in evaluate_signal_candidates(metrics)}
+
+    assert "relative_weakness_breakdown" not in signal_types
+
+
 def test_breakout_requires_at_least_four_scored_conditions():
     metrics = {
         "change_5m": 0.4,
@@ -375,7 +458,102 @@ def test_weak_to_strong_and_strong_to_weak_candidates():
     }
 
     assert evaluate_signal_candidates(weak_to_strong)[0]["signal_type"] == "weak_to_strong_reversal"
-    assert evaluate_signal_candidates(strong_to_weak)[0]["signal_type"] == "relative_strength_failure"
+    assert evaluate_signal_candidates(strong_to_weak)[0]["signal_type"] == "strong_to_weak_failure"
+
+
+def test_strong_to_weak_renamed_rule_preserves_strong_thresholds():
+    metrics = {
+        "price_below_vwap": True,
+        "early_relative_to_qqq": 0.6,
+        "relative_to_qqq_15m": -0.4,
+        "change_5m": -0.9,
+        "crossed_below_vwap": True,
+        "volume_ratio_5m": 2.2,
+    }
+
+    candidate = evaluate_signal_candidates(metrics)[0]
+
+    assert candidate["signal_type"] == "strong_to_weak_failure"
+    assert candidate["rule_strength"] == "strong"
+    assert candidate["severity"] == "high"
+
+
+def test_default_rules_use_only_the_four_supported_signal_types():
+    assert RULE_VERSION == "v3"
+    assert [rule.signal_type for rule in DEFAULT_INTRADAY_SIGNAL_RULES] == [
+        "relative_strength_breakout",
+        "relative_weakness_breakdown",
+        "weak_to_strong_reversal",
+        "strong_to_weak_failure",
+    ]
+
+
+def test_primary_candidate_prefers_bullish_reversal_over_continuation():
+    metrics = {
+        "price_above_vwap": True,
+        "early_relative_to_qqq": -0.4,
+        "relative_to_qqq_15m": 0.9,
+        "change_5m": 0.9,
+        "change_15m": 1.6,
+        "crossed_above_vwap": True,
+        "volume_ratio_5m": 2.2,
+        "near_intraday_high": True,
+    }
+    candidates = evaluate_signal_candidates(metrics)
+
+    assert {candidate["signal_type"] for candidate in candidates} == {
+        "relative_strength_breakout",
+        "weak_to_strong_reversal",
+    }
+    assert select_primary_candidate(candidates)["signal_type"] == "weak_to_strong_reversal"
+
+
+def test_primary_candidate_prefers_bearish_reversal_over_continuation():
+    metrics = {
+        "price_below_vwap": True,
+        "early_relative_to_qqq": 0.6,
+        "relative_to_qqq_15m": -0.9,
+        "change_5m": -0.9,
+        "change_15m": -1.6,
+        "crossed_below_vwap": True,
+        "volume_ratio_5m": 2.2,
+        "near_intraday_low": True,
+    }
+    candidates = evaluate_signal_candidates(metrics)
+
+    assert {candidate["signal_type"] for candidate in candidates} == {
+        "relative_weakness_breakdown",
+        "strong_to_weak_failure",
+    }
+    assert select_primary_candidate(candidates)["signal_type"] == "strong_to_weak_failure"
+
+
+def test_primary_candidate_resolves_opposite_directions_deterministically():
+    bullish = {
+        "signal_type": "relative_strength_breakout",
+        "score": 4.0,
+        "max_score": 5.0,
+        "rule_strength": "normal",
+    }
+    bearish = {
+        "signal_type": "relative_weakness_breakdown",
+        "score": 4.5,
+        "max_score": 5.0,
+        "rule_strength": "normal",
+    }
+
+    assert select_primary_candidate([bullish, bearish]) is bearish
+    bearish.update(score=4.0, rule_strength="strong")
+    assert select_primary_candidate([bullish, bearish]) is bearish
+    bearish["rule_strength"] = "normal"
+    assert select_primary_candidate([bullish, bearish]) is bullish
+
+
+def test_primary_candidate_handles_empty_and_single_inputs():
+    candidate = {"signal_type": "relative_strength_breakout"}
+
+    assert select_primary_candidate([]) is None
+    assert select_primary_candidate([candidate]) is candidate
 
 
 def test_none_metrics_do_not_score():
@@ -484,6 +662,10 @@ def test_us_intraday_prompts_use_only_new_final_decisions():
         assert '"final_decision": "accept | observe | ignore"' in prompt
         assert '"final_decision": "watch|ignore|risk"' not in prompt
         assert "bearish 信号同样可以是 accept" in prompt
+        assert "relative_strength_breakout：相对强势突破" in prompt
+        assert "relative_weakness_breakdown：相对弱势破位" in prompt
+        assert "weak_to_strong_reversal：弱转强" in prompt
+        assert "strong_to_weak_failure：强转弱" in prompt
 
 
 def test_us_calendar_and_notification_render_new_final_decision_value():
@@ -589,6 +771,106 @@ def _service(now: datetime, bars_by_symbol: dict[str, list[dict]], missing_quote
     service.llm_judge = judge
     service.reporter = _FakeReporter()
     return service, judge
+
+
+def test_collect_candidates_counts_raw_matches_but_returns_only_primary(monkeypatch):
+    now = datetime(2026, 6, 10, 9, 46, tzinfo=US_EASTERN)
+    bars = _bars(datetime(2026, 6, 10, 9, 30, tzinfo=US_EASTERN), 15)
+    metrics = {
+        "price_above_vwap": True,
+        "early_relative_to_qqq": -0.4,
+        "relative_to_qqq_15m": 0.9,
+        "change_5m": 0.9,
+        "change_15m": 1.6,
+        "crossed_above_vwap": True,
+        "volume_ratio_5m": 2.2,
+        "near_intraday_high": True,
+    }
+    monkeypatch.setattr(
+        "finance_analysis.tasks.celery.jobs.us_intraday_analysis.domain_service.compute_intraday_metrics",
+        lambda *_args, **_kwargs: metrics,
+    )
+    service, _judge = _service(now, {"NVDA": bars})
+    summary = IntradayTaskSummary(market_open=True)
+
+    candidates = service._collect_candidates("NVDA", {}, {}, summary, now)
+
+    assert [candidate["signal_type"] for candidate in candidates] == ["weak_to_strong_reversal"]
+    assert summary.candidate_count == 1
+    assert summary.rule_match_counts["relative_strength_breakout"] == 1
+    assert summary.rule_match_counts["weak_to_strong_reversal"] == 1
+
+
+def test_bearish_signal_types_do_not_add_a_decision_category(monkeypatch):
+    now = datetime(2026, 6, 10, 9, 46, tzinfo=US_EASTERN)
+    bars = _bars(datetime(2026, 6, 10, 9, 30, tzinfo=US_EASTERN), 15)
+    cases = [
+        (
+            "relative_weakness_breakdown",
+            {
+                "change_5m": -0.4,
+                "change_15m": -0.9,
+                "relative_to_qqq_15m": -0.4,
+                "volume_ratio_5m": 1.0,
+                "price_below_vwap": True,
+                "low_distance_pct": 0.7,
+            },
+        ),
+        (
+            "strong_to_weak_failure",
+            {
+                "price_below_vwap": True,
+                "early_relative_to_qqq": 0.4,
+                "relative_to_qqq_15m": -0.2,
+                "change_5m": -0.5,
+                "change_15m": 0.0,
+                "last_two_below_vwap": True,
+                "volume_ratio_5m": 1.4,
+                "low_distance_pct": 5.0,
+            },
+        ),
+    ]
+
+    for signal_type, metrics in cases:
+        monkeypatch.setattr(
+            "finance_analysis.tasks.celery.jobs.us_intraday_analysis.domain_service.compute_intraday_metrics",
+            lambda *_args, _metrics=metrics, **_kwargs: _metrics,
+        )
+        service, _judge = _service(now, {"NVDA": bars})
+        candidates = service._collect_candidates("NVDA", {}, {}, IntradayTaskSummary(market_open=True), now)
+
+        assert candidates[0]["signal_type"] == signal_type
+        assert "category" not in candidates[0]
+
+
+def test_bearish_signal_types_use_existing_bearish_notification_severity(monkeypatch):
+    assert BEARISH_SIGNAL_TYPES == frozenset({"relative_weakness_breakdown", "strong_to_weak_failure"})
+    for signal_type in BEARISH_SIGNAL_TYPES:
+        assert _notification_severity({"signal_type": signal_type, "severity": "high"}) == "error"
+        assert _notification_severity({"signal_type": signal_type, "severity": "medium"}) == "warning"
+
+    sent = []
+
+    class _NotificationService:
+        def send(self, _content, **kwargs):
+            sent.append(kwargs)
+            return True
+
+    monkeypatch.setattr(
+        "finance_analysis.notification.service.NotificationService",
+        _NotificationService,
+    )
+    reporter = SignalReporter()
+    for signal_type in BEARISH_SIGNAL_TYPES:
+        signal = IntradaySignalResult(
+            symbol="NVDA",
+            signal_type=signal_type,
+            need_notification=True,
+            llm_result={},
+            metrics={"severity": "high"},
+        )
+        assert reporter.send_notification(signal) is True
+        assert sent[-1]["severity"] == "error"
 
 
 @pytest.mark.parametrize(

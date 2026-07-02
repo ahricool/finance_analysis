@@ -24,7 +24,15 @@ from finance_analysis.tasks.celery.jobs.intraday_signal_state import (
 )
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
-from .config import INTRADAY_NEWS_LIMIT, LLM_BATCH_SIZE, MARKET_ETFS, MARKET_NEWS_SYMBOL, STALE_BAR_SECONDS, US_EASTERN
+from .config import (
+    BEARISH_SIGNAL_TYPES,
+    INTRADAY_NEWS_LIMIT,
+    LLM_BATCH_SIZE,
+    MARKET_ETFS,
+    MARKET_NEWS_SYMBOL,
+    STALE_BAR_SECONDS,
+    US_EASTERN,
+)
 from .data_source import IntradayDataSource
 from .llm import IntradayLLMJudge, candidate_id, normalize_verdict
 from .lock import release_us_intraday_running_lock, try_acquire_us_intraday_lock
@@ -32,7 +40,12 @@ from .market_calendar import get_us_trading_date, is_us_market_open, parse_times
 from .metrics import compute_intraday_metrics
 from .models import IntradaySignalResult, IntradayTaskSummary
 from .notifications import SignalReporter
-from .rules import DEFAULT_INTRADAY_SIGNAL_RULES, RulePredicate, evaluate_signal_candidates_with_diagnostics
+from .rules import (
+    DEFAULT_INTRADAY_SIGNAL_RULES,
+    RulePredicate,
+    evaluate_signal_candidates_with_diagnostics,
+    select_primary_candidate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -176,26 +189,28 @@ class USIntradayAnalysisService:
         for failure in failures:
             _incr(summary.filter_failure_counts, failure)
         summary.processed_symbols += 1
-        summary.candidate_count += len(matched)
         for candidate in matched:
             _incr(summary.rule_match_counts, candidate["signal_type"])
+        primary_candidate = select_primary_candidate(matched)
+        if primary_candidate is None:
+            return []
+        summary.candidate_count += 1
+        signal_type = primary_candidate["signal_type"]
         return [
             {
                 "symbol": symbol,
-                "signal_type": candidate["signal_type"],
-                "score": candidate.get("score"),
-                "max_score": candidate.get("max_score"),
-                "matched_conditions": candidate.get("matched_conditions", []),
-                "failed_conditions": candidate.get("failed_conditions", []),
-                "failed_condition_keys": candidate.get("failed_condition_keys", []),
-                "rule_version": candidate.get("rule_version"),
-                "rule_strength": candidate.get("rule_strength"),
-                "severity": candidate.get("severity"),
-                "category": "risk" if candidate["signal_type"] == "relative_strength_failure" else "opportunity",
+                "signal_type": signal_type,
+                "score": primary_candidate.get("score"),
+                "max_score": primary_candidate.get("max_score"),
+                "matched_conditions": primary_candidate.get("matched_conditions", []),
+                "failed_conditions": primary_candidate.get("failed_conditions", []),
+                "failed_condition_keys": primary_candidate.get("failed_condition_keys", []),
+                "rule_version": primary_candidate.get("rule_version"),
+                "rule_strength": primary_candidate.get("rule_strength"),
+                "severity": primary_candidate.get("severity"),
                 "metrics": metrics,
                 "bars_1m": bars_1m,
             }
-            for candidate in matched
         ]
 
     def _judge_candidates_in_batches(
@@ -369,7 +384,7 @@ def _incr(counter: Dict[str, int], key: str, amount: int = 1) -> None:
 
 
 def _notification_severity(candidate: Dict[str, Any]) -> str:
-    if candidate.get("signal_type") == "relative_strength_failure":
+    if candidate.get("signal_type") in BEARISH_SIGNAL_TYPES:
         return "error" if candidate.get("severity") == "high" else "warning"
     return "warning" if candidate.get("severity") == "high" else "info"
 
@@ -377,6 +392,7 @@ def _notification_severity(candidate: Dict[str, Any]) -> str:
 
 if __name__ == "__main__":
     import logging
+
     from finance_analysis.analysis.pipeline_config import get_pipeline_config
     logging.basicConfig(level=logging.DEBUG)
     service = USIntradayAnalysisService(config=get_pipeline_config())

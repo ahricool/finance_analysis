@@ -34,7 +34,10 @@ describe('signal display utilities', () => {
   it('formats signed returns and falls back to raw unknown signal types', () => {
     expect(formatReturnPct(-0.82)).toBe('-0.82%');
     expect(formatReturnPct(0)).toBe('0.00%');
+    expect(signalTypeLabel('relative_strength_breakout')).toBe('相对强势突破');
+    expect(signalTypeLabel('relative_weakness_breakdown')).toBe('相对弱势破位');
     expect(signalTypeLabel('weak_to_strong_reversal')).toBe('弱转强');
+    expect(signalTypeLabel('strong_to_weak_failure')).toBe('强转弱');
     expect(signalTypeLabel('custom_signal')).toBe('custom_signal');
   });
 });

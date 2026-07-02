@@ -64,6 +64,24 @@ RELATIVE_STRENGTH_BREAKOUT_RULE = {
     },
 }
 
+RELATIVE_WEAKNESS_BREAKDOWN_RULE = {
+    "normal": {
+        "change_5m_max": -0.35,
+        "change_15m_max": -0.8,
+        "relative_to_qqq_15m_max": -0.35,
+        "volume_ratio_5m_min": 1.3,
+        "near_low_pct": 0.8,
+        "min_score": 4.0,
+    },
+    "strong": {
+        "change_5m_max": -0.8,
+        "change_15m_max": -1.5,
+        "relative_to_qqq_15m_max": -0.8,
+        "volume_ratio_5m_min": 2.0,
+        "near_low_pct": 0.25,
+    },
+}
+
 WEAK_TO_STRONG_REVERSAL_RULE = {
     "normal": {
         "early_relative_to_qqq_max": -0.2,
@@ -80,7 +98,7 @@ WEAK_TO_STRONG_REVERSAL_RULE = {
     },
 }
 
-RELATIVE_STRENGTH_FAILURE_RULE = {
+STRONG_TO_WEAK_FAILURE_RULE = {
     "normal": {
         "early_relative_to_qqq_min": 0.3,
         "relative_to_qqq_15m_max": -0.1,
@@ -95,3 +113,10 @@ RELATIVE_STRENGTH_FAILURE_RULE = {
         "volume_ratio_5m_min": 2.0,
     },
 }
+
+BEARISH_SIGNAL_TYPES = frozenset(
+    {
+        "relative_weakness_breakdown",
+        "strong_to_weak_failure",
+    }
+)

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from finance_analysis.tasks.celery.jobs.intraday_signal_state import (
     IntradaySignalStateStore,
+    build_candidate_state_signature,
     build_notification_signature,
 )
 
@@ -87,18 +88,25 @@ def test_unchanged_candidate_is_not_re_reviewed_every_five_minutes():
     assert periodic[0]["state_transition"] == "unchanged"
 
 
+def test_low_distance_pct_affects_candidate_state_signature():
+    near_low = _candidate()
+    near_low["metrics"]["low_distance_pct"] = 0.1
+    away_from_low = _candidate()
+    away_from_low["metrics"]["low_distance_pct"] = 0.8
+
+    assert build_candidate_state_signature(near_low) != build_candidate_state_signature(away_from_low)
+
+
 def test_risk_is_re_reviewed_sooner_and_escalation_is_immediate():
     store = IntradaySignalStateStore(redis_client=False)
     now = datetime(2026, 6, 26, 10, 0, tzinfo=NY)
     risk = _candidate(severity="warning", category="risk")
 
     store.filter_candidates_for_review("us", [risk], session_id="2026-06-26", now=now)
-    assert store.filter_candidates_for_review(
-        "us", [risk], session_id="2026-06-26", now=now + timedelta(minutes=5)
-    ) == []
-    assert store.filter_candidates_for_review(
-        "us", [risk], session_id="2026-06-26", now=now + timedelta(minutes=10)
+    assert (
+        store.filter_candidates_for_review("us", [risk], session_id="2026-06-26", now=now + timedelta(minutes=5)) == []
     )
+    assert store.filter_candidates_for_review("us", [risk], session_id="2026-06-26", now=now + timedelta(minutes=10))
 
     escalated = _candidate(severity="high", category="risk", strength="strong", change_5m=2.0)
     changed = store.filter_candidates_for_review(
