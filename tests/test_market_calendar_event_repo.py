@@ -7,10 +7,15 @@ from datetime import date, datetime, timezone
 
 from fastapi import HTTPException
 
-from finance_analysis.interfaces.api.v1.endpoints.calendar import list_finance_events
-from finance_analysis.interfaces.api.v1.schemas.market_calendar import FinanceEventResponse
+from finance_analysis.interfaces.api.v1.endpoints import calendar as calendar_endpoint
+from finance_analysis.interfaces.api.v1.endpoints.calendar import create_finance_event, list_finance_events
+from finance_analysis.interfaces.api.v1.schemas.market_calendar import FinanceEventCreate, FinanceEventResponse
 from finance_analysis.database.models import FinanceEvent
-from finance_analysis.database.repositories.market_calendar_event import MarketCalendarEventRepo, normalize_event_key
+from finance_analysis.database.repositories.market_calendar_event import (
+    FinanceEventUpsertResult,
+    MarketCalendarEventRepo,
+    normalize_event_key,
+)
 
 
 class _ScalarResult:
@@ -404,3 +409,51 @@ def test_list_finance_events_rejects_invalid_timezone():
         assert exc.detail["error"] == "invalid_timezone"
     else:
         raise AssertionError("expected invalid timezone HTTPException")
+
+
+def test_create_finance_event_marks_manual_source_and_generates_identity(monkeypatch):
+    now = datetime(2026, 7, 3, 1, 30, tzinfo=timezone.utc)
+    captured = {}
+    stored_event = FinanceEvent(
+        id=9,
+        provider="manual",
+        provider_event_id="manual-id",
+        event_key="manual:macro:id:key",
+        calendar_type="macro",
+        market="US",
+        symbol="MSFT",
+        event_date=date(2026, 7, 3),
+        event_datetime=now,
+        title="Microsoft 发布会",
+        content="产品发布详情",
+        star=4,
+        first_seen_at=now,
+        last_seen_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+
+    class _Repo:
+        def upsert_event(self, event):
+            captured.update(event)
+            return FinanceEventUpsertResult(event=stored_event, created=True, updated=False)
+
+    monkeypatch.setattr(calendar_endpoint, "_event_repo", lambda: _Repo())
+
+    result = create_finance_event(
+        FinanceEventCreate(
+            calendar_type="macro",
+            market="US",
+            symbol="MSFT",
+            event_date=date(2026, 7, 3),
+            event_datetime=now,
+            title="Microsoft 发布会",
+            content="产品发布详情",
+            star=4,
+        )
+    )
+
+    assert result.id == 9
+    assert captured["provider"] == "manual"
+    assert captured["provider_event_id"]
+    assert captured["event_datetime"] == now

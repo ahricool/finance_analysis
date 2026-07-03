@@ -17,6 +17,13 @@ export interface CalendarEntryListResponse {
   total: number;
 }
 
+export interface CalendarEntryCreate {
+  time: string;
+  title: string;
+  content?: string | null;
+  type?: string | null;
+}
+
 export interface FinanceEventItem {
   id: number;
   provider: string;
@@ -57,6 +64,23 @@ export interface FinanceEventListResponse {
   total: number;
 }
 
+export interface FinanceEventCreate {
+  calendar_type: string;
+  market: string;
+  symbol?: string | null;
+  counter_name?: string | null;
+  event_type?: string | null;
+  activity_type?: string | null;
+  event_date: string;
+  event_datetime?: string | null;
+  date_type?: string | null;
+  financial_market_time?: string | null;
+  title: string;
+  content: string;
+  star?: number | null;
+  currency?: string | null;
+}
+
 export interface CalendarSummaryItem {
   date: string;
   finance_event_count: number;
@@ -70,6 +94,14 @@ export interface CalendarSummaryResponse {
 }
 
 export const calendarApi = {
+  async createEntry(payload: CalendarEntryCreate): Promise<CalendarEntryItem> {
+    const res = await apiClient.post('/api/v1/calendar', payload);
+    return res.data as CalendarEntryItem;
+  },
+  async createEvent(payload: FinanceEventCreate): Promise<FinanceEventItem> {
+    const res = await apiClient.post('/api/v1/calendar/events', payload);
+    return res.data as FinanceEventItem;
+  },
   async listByDate(date: string): Promise<CalendarEntryListResponse> {
     const res = await apiClient.get('/api/v1/calendar', {
       params: { date, timezone: getDisplayTimezone() },

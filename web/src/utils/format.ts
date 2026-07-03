@@ -16,6 +16,46 @@ export const toUtcIsoString = (value: string | Date): string => {
   return date.toISOString();
 };
 
+/** Convert a datetime-local value in an IANA timezone to an ISO UTC instant. */
+export const localDateTimeToUtcIso = (
+  value: string,
+  timeZone: DisplayTimezone = getDisplayTimezone(),
+): string => {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!match) return value;
+
+  const [, year, month, day, hour, minute] = match;
+  const targetUtc = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+
+  const offsetAt = (timestamp: number): number => {
+    const parts = Object.fromEntries(
+      formatter.formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]),
+    );
+    const representedUtc = Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
+      Number(parts.second),
+    );
+    return representedUtc - timestamp;
+  };
+
+  const firstPass = targetUtc - offsetAt(targetUtc);
+  return new Date(targetUtc - offsetAt(firstPass)).toISOString();
+};
+
 export const formatDateTimeInDisplayTimezone = (value?: string | null): string => {
   if (!value) return '—';
   const date = new Date(value);
