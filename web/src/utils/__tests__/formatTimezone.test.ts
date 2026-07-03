@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import {
   formatDateOnly,
   formatDateTimeInDisplayTimezone,
+  localDateTimeToUtcIso,
   toUtcIsoString,
 } from '../format';
 import { useTimezoneStore } from '../../stores/timezoneStore';
@@ -41,5 +42,11 @@ describe('timezone display formatting', () => {
 
   it('serializes datetime inputs to UTC ISO strings for API payloads', () => {
     expect(toUtcIsoString('2026-06-10T09:30:00+08:00')).toBe('2026-06-10T01:30:00.000Z');
+  });
+
+  it('converts datetime-local values using the selected timezone and DST rules', () => {
+    expect(localDateTimeToUtcIso('2026-06-10T09:30', 'Asia/Shanghai')).toBe('2026-06-10T01:30:00.000Z');
+    expect(localDateTimeToUtcIso('2026-06-10T09:30', 'America/New_York')).toBe('2026-06-10T13:30:00.000Z');
+    expect(localDateTimeToUtcIso('2026-01-10T09:30', 'America/New_York')).toBe('2026-01-10T14:30:00.000Z');
   });
 });
