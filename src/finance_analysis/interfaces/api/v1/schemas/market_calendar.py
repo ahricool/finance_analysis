@@ -3,9 +3,36 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
-from finance_analysis.core.time import utc_isoformat
+from finance_analysis.core.time import ensure_aware_utc, utc_isoformat
+
+
+class FinanceEventCreate(BaseModel):
+    calendar_type: str = Field(..., min_length=1, max_length=32)
+    market: str = Field("US", min_length=1, max_length=16)
+    symbol: Optional[str] = Field(None, max_length=32)
+    counter_name: Optional[str] = Field(None, max_length=128)
+    event_type: Optional[str] = Field(None, max_length=64)
+    activity_type: Optional[str] = Field(None, max_length=64)
+    event_date: date
+    event_datetime: Optional[datetime] = None
+    date_type: Optional[str] = Field(None, max_length=32)
+    financial_market_time: Optional[str] = Field(None, max_length=64)
+    title: str = Field(..., min_length=1, max_length=120)
+    content: str = ""
+    star: Optional[int] = Field(None, ge=0, le=5)
+    currency: Optional[str] = Field(None, max_length=16)
+
+    @field_validator("event_datetime")
+    @classmethod
+    def require_timezone(cls, value: Optional[datetime]) -> Optional[datetime]:
+        if value is None:
+            return None
+        try:
+            return ensure_aware_utc(value)
+        except ValueError as exc:
+            raise ValueError("event_datetime must include timezone information") from exc
 
 
 class FinanceEventResponse(BaseModel):

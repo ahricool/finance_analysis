@@ -1,13 +1,25 @@
 <script setup lang="ts">
-import { calendarApi, type CalendarEntryItem, type CalendarSummaryItem, type FinanceEventItem } from '@/api/calendar';
+import {
+  calendarApi,
+  type CalendarEntryItem,
+  type CalendarSummaryItem,
+  type FinanceEventItem,
+} from '@/api/calendar';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
+import Button from '@/components/common/Button.vue';
 import Drawer from '@/components/common/Drawer.vue';
+import Input from '@/components/common/Input.vue';
 import { useTimezoneStore } from '@/stores/timezoneStore';
-import { formatDateOnly, formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/utils/format';
+import {
+  formatDateOnly,
+  formatDateTimeInDisplayTimezone,
+  getTodayInDisplayTimezone,
+  localDateTimeToUtcIso,
+} from '@/utils/format';
 import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
-import { CalendarDays, ChevronLeft, ChevronRight, FileSearch } from 'lucide-vue-next';
-import { computed, onMounted, ref, watch } from 'vue';
+import { CalendarDays, ChevronLeft, ChevronRight, FileSearch, Plus } from 'lucide-vue-next';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 
 const WEEKDAY_CN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'] as const;
@@ -25,6 +37,27 @@ const eventsLoading = ref(false);
 const entriesLoading = ref(false);
 const summaryLoading = ref(false);
 const error = ref<ParsedApiError | null>(null);
+const createMode = ref<'event' | 'entry' | null>(null);
+const createSaving = ref(false);
+const createError = ref<ParsedApiError | null>(null);
+const eventForm = reactive({
+  eventDate: initialSelectedDate,
+  eventTime: '',
+  calendarType: 'macro',
+  market: 'US',
+  symbol: '',
+  counterName: '',
+  title: '',
+  content: '',
+  star: '',
+  currency: '',
+});
+const entryForm = reactive({
+  time: `${initialSelectedDate}T09:00`,
+  title: '',
+  type: '',
+  content: '',
+});
 
 type CalendarDetail =
   | { kind: 'event'; item: FinanceEventItem }
@@ -36,6 +69,7 @@ const detailTitle = computed(() => {
   if (!detail.value) return '';
   return detail.value.kind === 'event' ? '财经事件详情' : '日历记录详情';
 });
+const createTitle = computed(() => (createMode.value === 'event' ? '新增财经事件' : '新增日历记录'));
 
 const rangeDates = computed(() => Array.from({ length: 7 }, (_, i) => addDays(dateRangeStart.value, i)));
 const rangeEnd = computed(() => addDays(dateRangeStart.value, 6));
@@ -127,6 +161,18 @@ function selectDate(d: Date) {
   void loadSelectedDateDetails();
 }
 
+function goToDate(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  selectedDate.value = date;
+  dateRangeStart.value = addDays(parseDateOnly(date), -1);
+  detail.value = null;
+  void Promise.all([loadSelectedDateDetails(), loadRangeSummary()]);
+}
+
+function selectDisplayDate(event: Event) {
+  goToDate((event.target as HTMLInputElement).value);
+}
+
 function shiftRange(step: number) {
   const currentIndex = rangeDates.value.findIndex((d) => formatDate(d) === selectedDate.value);
   const selectedIndex = currentIndex >= 0 ? currentIndex : 1;
@@ -186,6 +232,82 @@ function closeDetail() {
   detail.value = null;
 }
 
+function openCreate(mode: 'event' | 'entry') {
+  createMode.value = mode;
+  createError.value = null;
+  if (mode === 'event') {
+    Object.assign(eventForm, {
+      eventDate: selectedDate.value,
+      eventTime: '',
+      calendarType: 'macro',
+      market: 'US',
+      symbol: '',
+      counterName: '',
+      title: '',
+      content: '',
+      star: '',
+      currency: '',
+    });
+  } else {
+    Object.assign(entryForm, {
+      time: `${selectedDate.value}T09:00`,
+      title: '',
+      type: '',
+      content: '',
+    });
+  }
+}
+
+function closeCreate() {
+  if (createSaving.value) return;
+  createMode.value = null;
+  createError.value = null;
+}
+
+function optionalText(value: string): string | null {
+  return value.trim() || null;
+}
+
+async function submitCreate() {
+  if (!createMode.value) return;
+  createSaving.value = true;
+  createError.value = null;
+  try {
+    let createdDate: string;
+    if (createMode.value === 'event') {
+      await calendarApi.createEvent({
+        calendar_type: eventForm.calendarType,
+        market: eventForm.market.trim(),
+        symbol: optionalText(eventForm.symbol),
+        counter_name: optionalText(eventForm.counterName),
+        event_date: eventForm.eventDate,
+        event_datetime: eventForm.eventTime
+          ? localDateTimeToUtcIso(eventForm.eventTime, displayTimezone.value)
+          : null,
+        title: eventForm.title.trim(),
+        content: eventForm.content.trim(),
+        star: eventForm.star ? Number(eventForm.star) : null,
+        currency: optionalText(eventForm.currency),
+      });
+      createdDate = eventForm.eventDate;
+    } else {
+      await calendarApi.createEntry({
+        time: localDateTimeToUtcIso(entryForm.time, displayTimezone.value),
+        title: entryForm.title.trim(),
+        content: optionalText(entryForm.content),
+        type: optionalText(entryForm.type),
+      });
+      createdDate = entryForm.time.slice(0, 10);
+    }
+    createMode.value = null;
+    goToDate(createdDate);
+  } catch (e) {
+    createError.value = getParsedApiError(e);
+  } finally {
+    createSaving.value = false;
+  }
+}
+
 function entryTypeLabel(type: string | null): string {
   if (type === 'scheduled_daily') return '定时全量';
   if (type === 'scheduled_market_calendar') return '财经日历';
@@ -243,14 +365,26 @@ watch(displayTimezone, () => {
 
 <template>
   <div class="mx-auto w-full px-4 py-6 sm:px-6">
-    <div class="mb-6 flex items-center gap-3">
-      <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary-gradient text-[hsl(var(--primary-foreground))] shadow-soft-card">
-        <CalendarDays class="h-5 w-5" />
+    <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary-gradient text-[hsl(var(--primary-foreground))] shadow-soft-card">
+          <CalendarDays class="h-5 w-5" />
+        </div>
+        <div>
+          <h1 class="text-lg font-semibold text-foreground">日历记录</h1>
+          <p class="text-xs text-secondary-text">按 7 日视图查看财经事件与自动化任务记录</p>
+        </div>
       </div>
-      <div>
-        <h1 class="text-lg font-semibold text-foreground">日历记录</h1>
-        <p class="text-xs text-secondary-text">按 7 日视图查看财经事件与自动化任务记录</p>
-      </div>
+      <label class="flex items-center gap-2 text-xs font-medium text-secondary-text">
+        展示日期
+        <input
+          :value="selectedDate"
+          type="date"
+          aria-label="展示日期"
+          class="h-9 rounded-xl border border-border/70 bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary"
+          @change="selectDisplayDate"
+        />
+      </label>
     </div>
 
     <div class="mb-4 rounded-2xl border border-border/60 bg-card p-4">
@@ -342,7 +476,13 @@ watch(displayTimezone, () => {
     <ApiErrorAlert v-if="error" :error="error" class="mb-4" />
 
     <div class="mb-4 rounded-2xl border border-border/60 bg-card p-4">
-      <h2 class="mb-3 text-xs font-semibold sm:text-sm">{{ selectedDateDisplay }} 财经事件</h2>
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-xs font-semibold sm:text-sm">{{ selectedDateDisplay }} 财经事件</h2>
+        <Button size="xsm" variant="secondary" data-testid="add-finance-event" @click="openCreate('event')">
+          <Plus class="h-3.5 w-3.5" />
+          新增事件
+        </Button>
+      </div>
       <div v-if="eventsLoading" class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <div v-for="n in 3" :key="n" class="h-16 animate-pulse rounded-xl bg-hover" />
       </div>
@@ -382,7 +522,13 @@ watch(displayTimezone, () => {
     </div>
 
     <div class="rounded-2xl border border-border/60 bg-card p-4">
-      <h2 class="mb-3 text-xs font-semibold sm:text-sm">{{ selectedDateDisplay }} 日历记录</h2>
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-xs font-semibold sm:text-sm">{{ selectedDateDisplay }} 日历记录</h2>
+        <Button size="xsm" variant="secondary" data-testid="add-calendar-entry" @click="openCreate('entry')">
+          <Plus class="h-3.5 w-3.5" />
+          新增记录
+        </Button>
+      </div>
       <div v-if="entriesLoading" class="space-y-2"><div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-xl bg-hover" /></div>
       <div v-else-if="!entries.length" class="py-6 text-sm text-secondary-text">当天暂无日历记录</div>
       <div v-else class="space-y-3 p-2">
@@ -407,6 +553,86 @@ watch(displayTimezone, () => {
         </button>
       </div>
     </div>
+
+    <Drawer
+      :is-open="!!createMode"
+      :title="createTitle"
+      width="max-w-2xl"
+      variant="modal"
+      @close="closeCreate"
+    >
+      <form class="space-y-4" data-testid="calendar-create-form" @submit.prevent="submitCreate">
+        <ApiErrorAlert v-if="createError" :error="createError" />
+
+        <template v-if="createMode === 'event'">
+          <div class="grid gap-4 sm:grid-cols-2">
+            <Input v-model="eventForm.eventDate" label="事件日期 *" type="date" required />
+            <Input
+              v-model="eventForm.eventTime"
+              label="具体时间（可选）"
+              type="datetime-local"
+              :hint="`按 ${displayTimezone} 录入`"
+            />
+            <Input
+              v-model="eventForm.calendarType"
+              label="事件类型 *"
+              list="calendar-event-types"
+              maxlength="32"
+              placeholder="例如 macro"
+              required
+            />
+            <datalist id="calendar-event-types">
+              <option value="macro">宏观</option>
+              <option value="earnings">财报</option>
+              <option value="dividend">分红</option>
+              <option value="split">拆股</option>
+              <option value="ipo">IPO</option>
+            </datalist>
+            <Input v-model="eventForm.market" label="市场 *" maxlength="16" required />
+            <Input v-model="eventForm.symbol" label="股票代码" maxlength="32" placeholder="例如 AAPL" />
+            <Input v-model="eventForm.counterName" label="标的名称" maxlength="128" />
+            <Input v-model="eventForm.currency" label="币种" maxlength="16" placeholder="例如 USD" />
+            <Input v-model="eventForm.star" label="星级（0-5）" type="number" min="0" max="5" />
+          </div>
+          <Input v-model="eventForm.title" label="标题 *" maxlength="120" required />
+          <div>
+            <label class="mb-2 block text-sm font-medium text-foreground" for="event-content">详情内容</label>
+            <textarea
+              id="event-content"
+              v-model="eventForm.content"
+              class="input-surface input-focus-glow min-h-32 w-full rounded-xl border bg-transparent px-4 py-3 text-sm text-foreground focus:outline-none"
+              placeholder="支持 Markdown"
+            />
+          </div>
+        </template>
+
+        <template v-else-if="createMode === 'entry'">
+          <Input
+            v-model="entryForm.time"
+            label="记录时间 *"
+            type="datetime-local"
+            :hint="`按 ${displayTimezone} 录入`"
+            required
+          />
+          <Input v-model="entryForm.title" label="标题 *" maxlength="120" required />
+          <Input v-model="entryForm.type" label="记录类型" maxlength="32" placeholder="例如 manual_note" />
+          <div>
+            <label class="mb-2 block text-sm font-medium text-foreground" for="entry-content">详情内容</label>
+            <textarea
+              id="entry-content"
+              v-model="entryForm.content"
+              class="input-surface input-focus-glow min-h-32 w-full rounded-xl border bg-transparent px-4 py-3 text-sm text-foreground focus:outline-none"
+              placeholder="支持 Markdown"
+            />
+          </div>
+        </template>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <Button variant="ghost" :disabled="createSaving" @click="closeCreate">取消</Button>
+          <Button type="submit" :is-loading="createSaving" loading-text="保存中…">保存</Button>
+        </div>
+      </form>
+    </Drawer>
 
     <Drawer
       :is-open="!!detail"

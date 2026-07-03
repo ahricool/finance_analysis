@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date as date_type, timedelta
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -15,6 +16,7 @@ from finance_analysis.interfaces.api.v1.schemas.calendar import (
     CalendarEntryUpdate,
 )
 from finance_analysis.interfaces.api.v1.schemas.market_calendar import (
+    FinanceEventCreate,
     FinanceEventListResponse,
     FinanceEventResponse,
 )
@@ -62,6 +64,18 @@ def list_finance_events(
         items=[FinanceEventResponse.model_validate(i) for i in items],
         total=len(items),
     )
+
+
+@router.post('/events', response_model=FinanceEventResponse, status_code=201, summary='手动新增财经事件')
+def create_finance_event(body: FinanceEventCreate):
+    result = _event_repo().upsert_event(
+        {
+            **body.model_dump(),
+            "provider": "manual",
+            "provider_event_id": str(uuid4()),
+        }
+    )
+    return FinanceEventResponse.model_validate(result.event)
 
 
 @router.get('/summary', response_model=CalendarSummaryResponse, summary='按日期范围获取日历数量统计')
