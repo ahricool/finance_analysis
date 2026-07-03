@@ -213,6 +213,46 @@ class MarketCalendarEventRepo:
                 session.expunge(row)
             return _sort_events_for_display(rows)
 
+    def list_events_by_date_paginated(
+        self,
+        day: date,
+        *,
+        market: Optional[str] = None,
+        calendar_type: Optional[str] = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> tuple[List[FinanceEvent], int]:
+        conditions = [FinanceEvent.event_date == day]
+        if market:
+            conditions.append(FinanceEvent.market == market.upper())
+        if calendar_type:
+            conditions.append(FinanceEvent.calendar_type == calendar_type)
+
+        with self.db.get_session() as session:
+            total = int(
+                session.execute(
+                    select(func.count()).select_from(FinanceEvent).where(and_(*conditions))
+                ).scalar_one()
+                or 0
+            )
+            stmt = (
+                select(FinanceEvent)
+                .where(and_(*conditions))
+                .order_by(
+                    FinanceEvent.importance_score.desc().nulls_last(),
+                    FinanceEvent.star.desc().nulls_last(),
+                    FinanceEvent.calendar_type.asc(),
+                    FinanceEvent.symbol.asc(),
+                    FinanceEvent.title.asc(),
+                )
+                .offset((page - 1) * limit)
+                .limit(limit)
+            )
+            rows = session.execute(stmt).scalars().all()
+            for row in rows:
+                session.expunge(row)
+            return list(rows), total
+
     def list_events_by_date_range(
         self,
         start: date,

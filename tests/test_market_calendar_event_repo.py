@@ -411,6 +411,58 @@ def test_list_finance_events_rejects_invalid_timezone():
         raise AssertionError("expected invalid timezone HTTPException")
 
 
+def test_list_finance_events_forwards_pagination(monkeypatch):
+    now = datetime(2026, 6, 18, 12, tzinfo=timezone.utc)
+    event = FinanceEvent(
+        id=1,
+        provider="longbridge",
+        event_key="event-1",
+        calendar_type="earnings",
+        market="US",
+        symbol="AAPL",
+        event_date=date(2026, 6, 20),
+        title="Apple earnings",
+        content="AAPL",
+        first_seen_at=now,
+        last_seen_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+
+    class _Repo:
+        calls = []
+
+        def list_events_by_date_paginated(self, day, **kwargs):
+            self.calls.append({"day": day, **kwargs})
+            return [event], 44
+
+    repo = _Repo()
+    monkeypatch.setattr(calendar_endpoint, "_event_repo", lambda: repo)
+
+    result = list_finance_events(
+        query_date=date(2026, 6, 20),
+        timezone="Asia/Shanghai",
+        market="US",
+        calendar_type="earnings",
+        page=2,
+        limit=20,
+    )
+
+    assert result.total == 44
+    assert result.page == 2
+    assert result.limit == 20
+    assert [item.id for item in result.items] == [1]
+    assert repo.calls == [
+        {
+            "day": date(2026, 6, 20),
+            "market": "US",
+            "calendar_type": "earnings",
+            "page": 2,
+            "limit": 20,
+        }
+    ]
+
+
 def test_create_finance_event_marks_manual_source_and_generates_identity(monkeypatch):
     now = datetime(2026, 7, 3, 1, 30, tzinfo=timezone.utc)
     captured = {}

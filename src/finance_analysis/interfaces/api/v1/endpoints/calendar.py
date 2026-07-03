@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from finance_analysis.interfaces.api.deps import get_effective_uid
 from finance_analysis.interfaces.api.v1.schemas.calendar import (
+    CalendarEntryCategory,
     CalendarEntryCreate,
     CalendarEntryListResponse,
     CalendarEntryResponse,
@@ -46,6 +47,8 @@ def list_finance_events(
     timezone: str = Query(DEFAULT_DISPLAY_TIMEZONE, description='Asia/Shanghai | America/New_York'),
     market: Optional[str] = Query(None, description='市场，例如 US'),
     calendar_type: Optional[str] = Query(None, description='事件类型，例如 earnings'),
+    page: int = Query(1, ge=1, description='页码'),
+    limit: int = Query(20, ge=1, le=100, description='每页数量'),
 ):
     try:
         validate_display_timezone(timezone)
@@ -54,15 +57,19 @@ def list_finance_events(
             status_code=400,
             detail={"error": "invalid_timezone", "message": str(exc)},
         ) from exc
-    items = _event_repo().list_events_by_date(
+    items, total = _event_repo().list_events_by_date_paginated(
         query_date,
         market=market,
         calendar_type=calendar_type,
+        page=page,
+        limit=limit,
     )
     return FinanceEventListResponse(
         date=query_date.isoformat(),
         items=[FinanceEventResponse.model_validate(i) for i in items],
-        total=len(items),
+        total=total,
+        page=page,
+        limit=limit,
     )
 
 
@@ -130,6 +137,9 @@ def list_calendar_entries(
     query_date: Optional[date_type] = Query(None, alias='date', description='查询日期 YYYY-MM-DD'),
     legacy_time: Optional[date_type] = Query(None, alias='time', description='兼容旧参数；请改用 date'),
     timezone: str = Query(DEFAULT_DISPLAY_TIMEZONE, description='Asia/Shanghai | America/New_York'),
+    category: Optional[CalendarEntryCategory] = Query(None, description='a_share | us | news | other'),
+    page: int = Query(1, ge=1, description='页码'),
+    limit: int = Query(20, ge=1, le=100, description='每页数量'),
 ):
     uid = get_effective_uid(http_request)
     day = query_date or legacy_time
@@ -145,11 +155,20 @@ def list_calendar_entries(
             status_code=400,
             detail={"error": "invalid_timezone", "message": str(exc)},
         ) from exc
-    items = _repo().list_by_date(day, timezone_name=timezone_name, uid=uid)
+    items, total = _repo().list_by_date_paginated(
+        day,
+        timezone_name=timezone_name,
+        uid=uid,
+        category=category,
+        page=page,
+        limit=limit,
+    )
     return CalendarEntryListResponse(
         date=day.isoformat(),
         items=[CalendarEntryResponse.model_validate(i) for i in items],
-        total=len(items),
+        total=total,
+        page=page,
+        limit=limit,
     )
 
 

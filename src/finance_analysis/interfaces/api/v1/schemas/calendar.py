@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from finance_analysis.core.time import ensure_aware_utc, utc_isoformat
+
+CalendarEntryCategory = Literal["a_share", "us", "news", "other"]
 
 
 class CalendarEntryCreate(BaseModel):
@@ -49,6 +51,8 @@ class CalendarEntryListResponse(BaseModel):
     date: str
     items: List[CalendarEntryResponse]
     total: int
+    page: int = 1
+    limit: int = 20
 
 
 class CalendarSummaryItem(BaseModel):

@@ -91,3 +91,5 @@ class FinanceEventListResponse(BaseModel):
     date: str
     items: List[FinanceEventResponse]
     total: int
+    page: int = 1
+    limit: int = 20

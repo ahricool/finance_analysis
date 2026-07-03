@@ -104,11 +104,18 @@ describe('CalendarPage', () => {
       date: '2026-06-22',
       items: [mockEvent],
       total: 1,
+      page: 1,
+      limit: 20,
     });
-    vi.mocked(calendarApi.listByDate).mockResolvedValue({
-      date: '2026-06-22',
-      items: [mockEntry],
-      total: 1,
+    vi.mocked(calendarApi.listByDate).mockImplementation(async (_date, options = {}) => {
+      const isUs = options.category === 'us';
+      return {
+        date: '2026-06-22',
+        items: isUs ? [mockEntry] : [],
+        total: isUs ? 1 : 0,
+        page: options.page ?? 1,
+        limit: options.limit ?? 20,
+      };
     });
     vi.mocked(calendarApi.getSummary).mockResolvedValue(summaryFor());
     vi.mocked(calendarApi.createEvent).mockResolvedValue(mockEvent);
@@ -128,8 +135,12 @@ describe('CalendarPage', () => {
     expect(buttons[0].text()).toContain('06/25');
     expect(buttons[1].text()).toContain('06/26');
     expect(buttons[1].classes()).toContain('text-primary');
-    expect(calendarApi.listEventsByDate).toHaveBeenCalledWith('2026-06-26');
-    expect(calendarApi.listByDate).toHaveBeenCalledWith('2026-06-26');
+    expect(calendarApi.listEventsByDate).toHaveBeenCalledWith('2026-06-26', 1, 20);
+    expect(calendarApi.listByDate).toHaveBeenCalledWith('2026-06-26', {
+      category: 'us',
+      page: 1,
+      limit: 20,
+    });
     expect(calendarApi.getSummary).toHaveBeenCalledWith('2026-06-25', '2026-07-01');
   });
 
@@ -148,7 +159,7 @@ describe('CalendarPage', () => {
     expect(buttons[0].text()).toContain('06/25');
     expect(buttons[1].text()).toContain('06/26');
     expect(buttons[1].classes()).toContain('text-primary');
-    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-06-26');
+    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-06-26', 1, 20);
     expect(calendarApi.getSummary).toHaveBeenLastCalledWith('2026-06-25', '2026-07-01');
   });
 
@@ -176,8 +187,12 @@ describe('CalendarPage', () => {
 
     expect(dayButtons(wrapper)[0].text()).toContain('08/11');
     expect(dayButtons(wrapper)[1].text()).toContain('08/12');
-    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-08-12');
-    expect(calendarApi.listByDate).toHaveBeenLastCalledWith('2026-08-12');
+    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-08-12', 1, 20);
+    expect(calendarApi.listByDate).toHaveBeenCalledWith('2026-08-12', {
+      category: 'us',
+      page: 1,
+      limit: 20,
+    });
     expect(calendarApi.getSummary).toHaveBeenLastCalledWith('2026-08-11', '2026-08-17');
   });
 
@@ -194,6 +209,61 @@ describe('CalendarPage', () => {
     expect(buttons[1].find('[data-count-tone="muted"]').text()).toBe('0');
   });
 
+  it('renders collapsible finance, A-share, US, news, and fallback calendar sections', async () => {
+    const wrapper = mount(CalendarPage);
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="finance-events-section"]').text()).toContain('财经事件');
+    expect(wrapper.get('[data-testid="a_share-calendar-section"]').text()).toContain('A股日历');
+    expect(wrapper.get('[data-testid="us-calendar-section"]').text()).toContain('美股日历');
+    expect(wrapper.get('[data-testid="news-calendar-section"]').text()).toContain('新闻日历');
+    expect(wrapper.get('[data-testid="other-calendar-section"]').text()).toContain('其他日历');
+    expect(calendarApi.listByDate).toHaveBeenCalledTimes(4);
+    for (const category of ['a_share', 'us', 'news', 'other'] as const) {
+      expect(calendarApi.listByDate).toHaveBeenCalledWith('2026-06-26', { category, page: 1, limit: 20 });
+    }
+
+    const financeSection = wrapper.get('[data-testid="finance-events-section"]');
+    const toggle = financeSection.get('button[aria-expanded]');
+    expect(toggle.attributes('aria-expanded')).toBe('true');
+    await toggle.trigger('click');
+    expect(toggle.attributes('aria-expanded')).toBe('false');
+    expect(financeSection.get('#finance-events-section-content').attributes('style')).toContain('display: none');
+  });
+
+  it('paginates finance events and every calendar category independently', async () => {
+    vi.mocked(calendarApi.listEventsByDate).mockImplementation(async (_date, page = 1, limit = 20) => ({
+      date: '2026-06-26',
+      items: [mockEvent],
+      total: 45,
+      page,
+      limit,
+    }));
+    vi.mocked(calendarApi.listByDate).mockImplementation(async (_date, options = {}) => ({
+      date: '2026-06-26',
+      items: options.category === 'us' ? [mockEntry] : [],
+      total: options.category === 'us' ? 45 : 0,
+      page: options.page ?? 1,
+      limit: options.limit ?? 20,
+    }));
+    const wrapper = mount(CalendarPage);
+    await flushPromises();
+
+    const financeSection = wrapper.get('[data-testid="finance-events-section"]');
+    await financeSection.findAll('button').find((button) => button.text() === '2')!.trigger('click');
+    await flushPromises();
+    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-06-26', 2, 20);
+
+    const usSection = wrapper.get('[data-testid="us-calendar-section"]');
+    await usSection.findAll('button').find((button) => button.text() === '2')!.trigger('click');
+    await flushPromises();
+    expect(calendarApi.listByDate).toHaveBeenLastCalledWith('2026-06-26', {
+      category: 'us',
+      page: 2,
+      limit: 20,
+    });
+  });
+
   it('only reloads single-day details when switching dates', async () => {
     const wrapper = mount(CalendarPage);
     await flushPromises();
@@ -202,8 +272,8 @@ describe('CalendarPage', () => {
     await flushPromises();
 
     expect(calendarApi.listEventsByDate).toHaveBeenCalledTimes(2);
-    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-06-27');
-    expect(calendarApi.listByDate).toHaveBeenCalledTimes(2);
+    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-06-27', 1, 20);
+    expect(calendarApi.listByDate).toHaveBeenCalledTimes(8);
     expect(calendarApi.getSummary).toHaveBeenCalledTimes(1);
   });
 
@@ -216,7 +286,7 @@ describe('CalendarPage', () => {
 
     expect(calendarApi.getSummary).toHaveBeenCalledTimes(2);
     expect(calendarApi.getSummary).toHaveBeenLastCalledWith('2026-07-02', '2026-07-08');
-    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-07-03');
+    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-07-03', 1, 20);
   });
 
   it('recomputes today and the range when timezone changes', async () => {
@@ -229,7 +299,7 @@ describe('CalendarPage', () => {
     const buttons = dayButtons(wrapper);
     expect(buttons[0].text()).toContain('06/24');
     expect(buttons[1].text()).toContain('06/25');
-    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-06-25');
+    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-06-25', 1, 20);
     expect(calendarApi.getSummary).toHaveBeenLastCalledWith('2026-06-24', '2026-06-30');
   });
 
@@ -350,7 +420,7 @@ describe('CalendarPage', () => {
       star: 4,
       currency: 'USD',
     });
-    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-07-03');
+    expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-07-03', 1, 20);
     expect(calendarApi.getSummary).toHaveBeenLastCalledWith('2026-07-02', '2026-07-08');
     expect(findDialog()).toBeNull();
   });
@@ -385,7 +455,11 @@ describe('CalendarPage', () => {
       content: '补充当天复盘',
       type: 'manual_note',
     });
-    expect(calendarApi.listByDate).toHaveBeenLastCalledWith('2026-06-27');
+    expect(calendarApi.listByDate).toHaveBeenCalledWith('2026-06-27', {
+      category: 'other',
+      page: 1,
+      limit: 20,
+    });
     expect(calendarApi.getSummary).toHaveBeenLastCalledWith('2026-06-26', '2026-07-02');
     expect(findDialog()).toBeNull();
   });
