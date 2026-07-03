@@ -450,7 +450,12 @@ onMounted(loadList);
               <tr
                 v-for="item in visibleItems"
                 :key="item.id"
-                class="border-b border-border/50 transition-colors last:border-0 hover:bg-hover/70"
+                class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-hover/70 focus-visible:bg-hover/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                tabindex="0"
+                :aria-label="`查看 ${item.name || item.code} 详情`"
+                @click="detailItem = item"
+                @keydown.enter.self="detailItem = item"
+                @keydown.space.self.prevent="detailItem = item"
               >
                 <td class="px-4 py-3">
                   <button
@@ -464,18 +469,18 @@ onMounted(loadList);
                     :disabled="togglingFavoriteId === item.id"
                     :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
                     :aria-pressed="item.is_favorite"
-                    @click="toggleFavorite(item)"
+                    @click.stop="toggleFavorite(item)"
                   >
                     <Heart class="h-4 w-4" :class="{ 'fill-current': item.is_favorite }" />
                   </button>
                 </td>
                 <td class="px-4 py-3">
-                  <button class="font-mono text-sm font-semibold text-primary hover:underline" @click="detailItem = item">
+                  <button class="font-mono text-sm font-semibold text-primary hover:underline" @click.stop="detailItem = item">
                     {{ item.code }}
                   </button>
                 </td>
                 <td class="truncate px-4 py-3 font-medium text-foreground">
-                  <button class="max-w-full truncate text-left hover:text-primary hover:underline" @click="detailItem = item">{{ item.name || '—' }}</button>
+                  <button class="max-w-full truncate text-left hover:text-primary hover:underline" @click.stop="detailItem = item">{{ item.name || '—' }}</button>
                 </td>
                 <td class="px-4 py-3">
                   <span class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-secondary-text">
@@ -497,7 +502,7 @@ onMounted(loadList);
                       class="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-secondary-text hover:bg-hover hover:text-foreground disabled:opacity-50"
                       :disabled="openingPositionId === item.id"
                       aria-label="建仓"
-                      @click="openPosition(item)"
+                      @click.stop="openPosition(item)"
                     >
                       <Briefcase class="h-4 w-4" />
                       <span class="text-xs">建仓</span>
@@ -505,14 +510,14 @@ onMounted(loadList);
                     <button
                       class="rounded-lg p-1.5 text-secondary-text hover:bg-hover hover:text-foreground"
                       aria-label="编辑"
-                      @click="openEdit(item)"
+                      @click.stop="openEdit(item)"
                     >
                       <Pencil class="h-4 w-4" />
                     </button>
                     <button
                       class="rounded-lg p-1.5 text-secondary-text hover:bg-destructive/10 hover:text-destructive"
                       aria-label="删除"
-                      @click="openDelete(item)"
+                      @click.stop="openDelete(item)"
                     >
                       <Trash2 class="h-4 w-4" />
                     </button>
