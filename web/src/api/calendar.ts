@@ -15,6 +15,16 @@ export interface CalendarEntryListResponse {
   date: string;
   items: CalendarEntryItem[];
   total: number;
+  page: number;
+  limit: number;
+}
+
+export type CalendarEntryCategory = 'a_share' | 'us' | 'news' | 'other';
+
+export interface CalendarListOptions {
+  category?: CalendarEntryCategory;
+  page?: number;
+  limit?: number;
 }
 
 export interface CalendarEntryCreate {
@@ -62,6 +72,8 @@ export interface FinanceEventListResponse {
   date: string;
   items: FinanceEventItem[];
   total: number;
+  page: number;
+  limit: number;
 }
 
 export interface FinanceEventCreate {
@@ -102,15 +114,15 @@ export const calendarApi = {
     const res = await apiClient.post('/api/v1/calendar/events', payload);
     return res.data as FinanceEventItem;
   },
-  async listByDate(date: string): Promise<CalendarEntryListResponse> {
+  async listByDate(date: string, options: CalendarListOptions = {}): Promise<CalendarEntryListResponse> {
     const res = await apiClient.get('/api/v1/calendar', {
-      params: { date, timezone: getDisplayTimezone() },
+      params: { date, timezone: getDisplayTimezone(), ...options },
     });
     return res.data as CalendarEntryListResponse;
   },
-  async listEventsByDate(date: string): Promise<FinanceEventListResponse> {
+  async listEventsByDate(date: string, page = 1, limit = 20): Promise<FinanceEventListResponse> {
     const res = await apiClient.get('/api/v1/calendar/events', {
-      params: { date, timezone: getDisplayTimezone() },
+      params: { date, timezone: getDisplayTimezone(), page, limit },
     });
     return res.data as FinanceEventListResponse;
   },
