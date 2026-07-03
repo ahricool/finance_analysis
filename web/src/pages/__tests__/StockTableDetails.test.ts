@@ -130,6 +130,7 @@ describe('stock table details', () => {
   it('opens complete watch-list details by clicking the row or pressing Enter', async () => {
     const page = await mountPage(WatchListPage, '/market/watch-list');
     const row = page.get('tbody tr[tabindex="0"]');
+    expect(page.find('button[aria-label="建仓"]').exists()).toBe(false);
 
     await row.trigger('click');
     let dialog = document.body.querySelector<HTMLElement>('[role="dialog"]');
