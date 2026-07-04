@@ -38,17 +38,17 @@ class TestPipelinePrefetchBehavior(unittest.TestCase):
     def test_run_dry_run_skips_stock_name_prefetch(self):
         pipeline = self._build_pipeline(process_result=None)
 
-        pipeline.run(stock_codes=["000001"], dry_run=True, send_notification=False)
+        pipeline.run(stock_codes=["000001.SZ"], dry_run=True, send_notification=False)
 
         pipeline.fetcher_manager.prefetch_stock_names.assert_not_called()
 
     def test_run_non_dry_run_prefetches_stock_names(self):
-        pipeline = self._build_pipeline(process_result=SimpleNamespace(code="000001"))
+        pipeline = self._build_pipeline(process_result=SimpleNamespace(code="000001.SZ"))
 
-        pipeline.run(stock_codes=["000001"], dry_run=False, send_notification=False)
+        pipeline.run(stock_codes=["000001.SZ"], dry_run=False, send_notification=False)
 
         pipeline.fetcher_manager.prefetch_stock_names.assert_called_once_with(
-            ["000001"], use_bulk=False
+            ["000001.SZ"], use_bulk=False
         )
 
     def test_run_dry_run_counts_existing_data_by_effective_trading_date(self):
@@ -59,7 +59,7 @@ class TestPipelinePrefetchBehavior(unittest.TestCase):
         pipeline.db.has_today_data.side_effect = [True, False]
 
         pipeline.run(
-            stock_codes=["600519", "AAPL"],
+            stock_codes=["600519.SH", "AAPL.US"],
             dry_run=True,
             send_notification=False,
         )
@@ -67,8 +67,8 @@ class TestPipelinePrefetchBehavior(unittest.TestCase):
         self.assertEqual(
             pipeline.db.has_today_data.call_args_list,
             [
-                call("600519", date(2026, 3, 27)),
-                call("AAPL", date(2026, 3, 26)),
+                call("600519.SH", date(2026, 3, 27)),
+                call("AAPL.US", date(2026, 3, 26)),
             ],
         )
 
@@ -80,7 +80,7 @@ class TestPipelinePrefetchBehavior(unittest.TestCase):
         pipeline.db.has_today_data.side_effect = [True, False]
 
         pipeline.run(
-            stock_codes=["600519", "AAPL"],
+            stock_codes=["600519.SH", "AAPL.US"],
             dry_run=True,
             send_notification=False,
         )

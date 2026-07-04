@@ -199,13 +199,11 @@ class StockAnalysisPipeline(AgentResultMixin):
         force_refresh: bool = False,
         current_time: Optional[datetime] = None,
     ) -> Tuple[bool, Optional[str]]:
-        """
-        获取并保存单只股票数据
-        
-        断点续传逻辑：
-        1. 检查数据库是否已有最新可复用交易日数据
-        2. 如果有且不强制刷新，则跳过网络请求
-        3. 否则从数据源获取并保存
+        """Verify that required historical bars already exist in PostgreSQL.
+
+        Historical network access is exclusively owned by the scheduled market
+        data synchronization job. ``force_refresh`` is retained in this public
+        call signature but cannot bypass that boundary.
         
         Args:
             code: 股票代码
@@ -215,38 +213,18 @@ class StockAnalysisPipeline(AgentResultMixin):
         Returns:
             Tuple[是否成功, 错误信息]
         """
-        stock_name = code
+        del force_refresh
         try:
-            # 首先获取股票名称
-            stock_name = self.fetcher_manager.get_stock_name(code, allow_realtime=False)
-
             target_date = self._resolve_resume_target_date(
                 code, current_time=current_time
             )
+            from finance_analysis.analysis.history.loader import load_history_df
 
-            # 断点续传检查：如果最新可复用交易日的数据已存在，则跳过
-            if not force_refresh and self.db.has_today_data(code, target_date):
-                logger.info(
-                    f"{stock_name}({code}) {target_date} 数据已存在，跳过获取（断点续传）"
-                )
-                return True, None
-
-            # 从数据源获取数据
-            logger.info(f"{stock_name}({code}) 开始从数据源获取数据...")
-            df, source_name = self.fetcher_manager.get_daily_data(code, days=30)
-
-            if df is None or df.empty:
-                return False, "获取数据为空"
-
-            # 保存到数据库
-            saved_count = self.db.save_daily_data(df, code, source_name)
-            logger.info(f"{stock_name}({code}) 数据保存成功（来源: {source_name}，新增 {saved_count} 条）")
-
+            load_history_df(code, days=30, target_date=target_date)
             return True, None
-
-        except Exception as e:
-            error_msg = f"获取/保存数据失败: {str(e)}"
-            logger.exception(f"{stock_name}({code}) {error_msg}")
+        except Exception as exc:
+            error_msg = str(exc)
+            logger.error("[%s] database historical data unavailable: %s", code, exc)
             return False, error_msg
 
     def _fetch_realtime_quote(self, code: str):
@@ -749,7 +727,7 @@ class StockAnalysisPipeline(AgentResultMixin):
         boards_coverage = coverage.get("boards") if isinstance(coverage, dict) else None
         market = enriched_context.get("market")
         if not isinstance(market, str) or not market.strip():
-            market = get_market_for_stock(normalize_stock_code(code))
+            market = get_market_for_stock(code)
 
         if (
             market != "cn"
@@ -771,24 +749,15 @@ class StockAnalysisPipeline(AgentResultMixin):
         return enriched_context
 
     def _ensure_agent_history(self, code: str, min_days: int = 240) -> None:
-        """Ensure at least *min_days* of K-line history is in DB for agent tools."""
+        """Require complete DB history; never prefetch from a provider."""
         from finance_analysis.analysis.history.loader import get_frozen_target_date
 
         target = get_frozen_target_date()
         if target is None:
             target = self._resolve_resume_target_date(code)
-        start = target - timedelta(days=int(min_days * 1.8))
-        bars = self.db.get_data_range(code, start, target)
-        if bars and len(bars) >= min(min_days, 200):
-            logger.debug("[%s] Agent history: %d bars in DB, sufficient", code, len(bars))
-            return
-        try:
-            df, source = self.fetcher_manager.get_daily_data(code, days=min_days)
-            if df is not None and not df.empty:
-                self.db.save_daily_data(df, code, source)
-                logger.info("[%s] Prefetched %d rows of history for agent (source: %s)", code, len(df), source)
-        except Exception as e:
-            logger.warning("[%s] Agent history prefetch failed: %s", code, e)
+        from finance_analysis.analysis.history.loader import load_history_df
+
+        load_history_df(code, days=min_days, target_date=target)
 
     def _analyze_with_agent(
         self, 
@@ -1091,7 +1060,9 @@ class StockAnalysisPipeline(AgentResultMixin):
         """
         Resolve the trading date used by checkpoint/resume checks.
         """
-        market = get_market_for_stock(normalize_stock_code(code))
+        market = get_market_for_stock(code)
+        if market is None:
+            raise ValueError(f"Canonical ticker.region code required: {code!r}")
         return get_effective_trading_date(market, current_time=current_time)
 
     @staticmethod
@@ -1205,8 +1176,7 @@ class StockAnalysisPipeline(AgentResultMixin):
             )
             
             if not success:
-                logger.warning(f"[{code}] 数据获取失败: {error}")
-                # 即使获取失败，也尝试用已有数据分析
+                raise RuntimeError(error or f"Historical market data missing for {code}")
             else:
                 self._emit_progress(16, f"{code}：行情数据准备完成")
             

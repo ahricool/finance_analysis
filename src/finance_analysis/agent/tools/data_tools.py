@@ -86,19 +86,6 @@ def _normalize_history_days(days: Any) -> Tuple[int, Dict[str, Any]]:
     return effective_days, metadata
 
 
-def _history_code_candidates(stock_code: str) -> Tuple[List[str], str]:
-    """Return cache lookup candidates plus canonical write code."""
-    from finance_analysis.integrations.market_data.base import canonical_stock_code, normalize_stock_code
-
-    raw_code = str(stock_code or "").strip()
-    normalized_code = canonical_stock_code(normalize_stock_code(raw_code))
-    candidates: List[str] = []
-    for candidate in (canonical_stock_code(raw_code), normalized_code):
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
-    return candidates, normalized_code
-
-
 def _append_history_metadata(response: dict, metadata: Dict[str, Any]) -> dict:
     if metadata:
         response.update(metadata)
@@ -199,30 +186,13 @@ def _handle_get_daily_history(stock_code: str, days: int = 60) -> dict:
     effective_days, metadata = _normalize_history_days(days)
 
     from finance_analysis.analysis.history.loader import load_history_df
-    df, source = load_history_df(stock_code, days=effective_days)
-
-    if df is None or df.empty:
+    try:
+        df, source = load_history_df(stock_code, days=effective_days)
+    except Exception as exc:
         return _append_history_metadata(
-            {"error": f"No historical data available for {stock_code}"},
+            {"error": str(exc)},
             metadata,
         )
-
-    if source != "db_cache":
-        _, normalized_code = _history_code_candidates(stock_code)
-        try:
-            saved_count = _get_db().save_daily_data(df, normalized_code, source)
-            logger.info(
-                "Agent daily history persisted for %s (source=%s, new_records=%s)",
-                normalized_code,
-                source,
-                saved_count,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Agent daily history persistence failed for %s: %s",
-                normalized_code,
-                exc,
-            )
 
     # Convert DataFrame to list of dicts (last N records)
     records = df.tail(min(effective_days, len(df))).to_dict(orient="records")
@@ -232,17 +202,17 @@ def _handle_get_daily_history(stock_code: str, days: int = 60) -> dict:
             r["date"] = str(r["date"])
 
     response_code = stock_code
-    if source == "db_cache" and records:
+    if source == "database" and records:
         response_code = records[-1].get("code") or response_code
 
     return _append_history_metadata({
         "code": response_code,
         "source": source,
-        "cache_hit": source == "db_cache",
+        "cache_hit": source == "database",
         "requested_days": effective_days,
         "effective_days": effective_days,
         "actual_records": len(records),
-        "partial_cache": source == "db_cache" and len(records) < effective_days,
+        "partial_cache": False,
         "total_records": len(records),
         "data": records,
     }, metadata)
@@ -251,12 +221,12 @@ def _handle_get_daily_history(stock_code: str, days: int = 60) -> dict:
 get_daily_history_tool = ToolDefinition(
     name="get_daily_history",
     description="Get daily OHLCV (open, high, low, close, volume) historical data "
-                "with MA5/MA10/MA20 indicators. Returns the last N trading days.",
+                "with dynamically calculated MA5/MA10/MA20 indicators from database-only raw bars.",
     parameters=[
         ToolParameter(
             name="stock_code",
             type="string",
-            description="Stock code, e.g., '600519' (A-share), 'AAPL' (US)",
+            description="Canonical stock code, e.g., '600519.SH', '000001.SZ', or 'AAPL.US'",
         ),
         ToolParameter(
             name="days",

@@ -22,3 +22,6 @@ def __getattr__(name: str):
 
         return TaskRecordRepository
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+from finance_analysis.database.repositories.stock import MarketDataSymbolRepository, StockRepository, UpsertStats
+
+__all__ = ["MarketDataSymbolRepository", "StockRepository", "UpsertStats"]

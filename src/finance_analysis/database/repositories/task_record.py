@@ -330,6 +330,30 @@ class TaskRecordRepository:
             ).scalar_one_or_none()
             return self._detach(session, record) if record is not None else None
 
+    def claim_active_dedupe_key(self, task_id: str, dedupe_key: str) -> bool:
+        """Atomically claim a cross-process active-task key for an existing record."""
+        try:
+            with self.db.session_scope() as session:
+                record = self._get_for_update(session, task_id)
+                if record is None:
+                    return False
+                if record.dedupe_key == dedupe_key:
+                    return True
+                existing = session.execute(
+                    select(TaskRecord.id).where(
+                        TaskRecord.dedupe_key == dedupe_key,
+                        TaskRecord.status.in_(self.ACTIVE_STATUSES),
+                        TaskRecord.task_id != task_id,
+                    ).limit(1)
+                ).scalar_one_or_none()
+                if existing is not None:
+                    return False
+                record.dedupe_key = dedupe_key
+                session.flush()  # partial unique index closes the concurrent race
+                return True
+        except IntegrityError:
+            return False
+
     def get_active_by_scheduler_job_id(self, scheduler_job_id: str) -> Optional[TaskRecord]:
         with self.db.get_session() as session:
             record = session.execute(

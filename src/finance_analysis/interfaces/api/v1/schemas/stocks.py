@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 class StockQuote(BaseModel):
     """股票实时行情"""
     
-    stock_code: str = Field(..., description="股票代码")
+    stock_code: str = Field(..., description="统一证券代码（ticker.region）")
     stock_name: Optional[str] = Field(None, description="股票名称")
     current_price: float = Field(..., description="当前价格")
     change: Optional[float] = Field(None, description="涨跌额")
@@ -33,7 +33,7 @@ class StockQuote(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "stock_code": "600519",
+                "stock_code": "600519.SH",
                 "stock_name": "贵州茅台",
                 "current_price": 1800.00,
                 "change": 15.00,

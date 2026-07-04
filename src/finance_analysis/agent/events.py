@@ -336,18 +336,12 @@ class EventMonitor:
         """Check volume spike against recent average."""
         try:
             def _fetch_daily_data():
-                from finance_analysis.integrations.market_data import DataFetcherManager
+                from finance_analysis.analysis.history.loader import load_history_df
 
-                fm = DataFetcherManager()
-                return fm.get_daily_data(rule.stock_code, days=20)
+                return load_history_df(rule.stock_code, days=20)
 
             result = await asyncio.to_thread(_fetch_daily_data)
-            # get_daily_data returns (df, source) tuple or None
-            if result is None:
-                return None
             df, _source = result
-            if df is None or df.empty:
-                return None
 
             avg_vol = df["volume"].mean()
             latest_vol = df["volume"].iloc[-1]
@@ -360,6 +354,10 @@ class EventMonitor:
                             f"{latest_vol:,.0f} ({latest_vol / avg_vol:.1f}× avg)",
                 )
         except Exception as exc:
+            from finance_analysis.analysis.history.errors import HistoricalMarketDataMissingError
+
+            if isinstance(exc, HistoricalMarketDataMissingError):
+                raise
             logger.debug("[EventMonitor] _check_volume error: %s", exc)
         return None
 

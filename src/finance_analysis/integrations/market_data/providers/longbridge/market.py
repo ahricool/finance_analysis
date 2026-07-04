@@ -23,9 +23,10 @@ import logging
 import os
 import time
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -333,6 +334,22 @@ def _to_longbridge_symbol(stock_code: str) -> Optional[str]:
     return None
 
 
+def to_longbridge_symbol(code: str) -> str:
+    """Longbridge already uses the application's canonical symbol format."""
+    from finance_analysis.database.models.stock import validate_market_data_code
+
+    canonical = str(code or "").strip().upper()
+    if canonical.endswith(".US"):
+        market = "US"
+    elif canonical.endswith(".HK"):
+        market = "HK"
+    elif canonical.endswith((".SH", ".SZ")):
+        market = "CN"
+    else:
+        raise ValueError(f"Canonical market suffix required for Longbridge: {code}")
+    return validate_market_data_code(market, canonical)
+
+
 class LongbridgeFetcher(BaseFetcher):
     """
     长桥 OpenAPI 数据源实现
@@ -348,6 +365,9 @@ class LongbridgeFetcher(BaseFetcher):
 
     name = "LongbridgeFetcher"
     priority = int(os.getenv("LONGBRIDGE_PRIORITY", "5"))
+    from finance_analysis.integrations.market_data.history import SOURCE_PRIORITY as _SOURCE_PRIORITY
+    source_priority = _SOURCE_PRIORITY[name]
+    _HISTORY_PAGE_SIZE = 1000
 
     _CONNECTION_ERRORS = ("client is closed", "context closed", "connection closed")
 
@@ -360,6 +380,141 @@ class LongbridgeFetcher(BaseFetcher):
         # {symbol: (StaticInfo, timestamp)}
         self._static_cache: Dict[str, Any] = {}
         self._static_cache_lock = threading.Lock()
+
+    @staticmethod
+    def to_longbridge_symbol(code: str) -> str:
+        return to_longbridge_symbol(code)
+
+    def fetch_daily_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
+        """Page the SDK history endpoint; never use recent ``candlesticks``."""
+        candles = self._fetch_history_pages(
+            symbol=symbol,
+            period_name="Day",
+            start_time=datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc),
+            end_time=datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc),
+            data_type="daily",
+        )
+        rows = [self._history_candle_row(item, minute=False, market=symbol.market) for item in candles]
+        frame = pd.DataFrame(rows)
+        if not frame.empty:
+            frame = frame[(frame["date"] >= start_date) & (frame["date"] <= end_date)]
+            frame = frame.drop_duplicates("date", keep="last").sort_values("date").reset_index(drop=True)
+        return frame
+
+    def fetch_minute_bars(
+        self,
+        symbol,
+        start_time: datetime,
+        end_time: datetime,
+        session_type: str = "regular",
+    ) -> pd.DataFrame:
+        if session_type != "regular":
+            raise ValueError("Only regular minute sessions are supported")
+        candles = self._fetch_history_pages(
+            symbol=symbol,
+            period_name="Min_1",
+            start_time=start_time,
+            end_time=end_time,
+            data_type="minute",
+        )
+        frame = pd.DataFrame([self._history_candle_row(item, minute=True, market=symbol.market) for item in candles])
+        if not frame.empty:
+            times = pd.to_datetime(frame["bar_time"], utc=True)
+            frame["bar_time"] = times
+            frame = frame[(times >= start_time.astimezone(timezone.utc)) & (times < end_time.astimezone(timezone.utc))]
+            frame = frame.drop_duplicates("bar_time", keep="last").sort_values("bar_time").reset_index(drop=True)
+        return frame
+
+    def _fetch_history_pages(self, *, symbol, period_name: str, start_time: datetime, end_time: datetime, data_type: str):
+        from longbridge.openapi import AdjustType, Period, TradeSessions
+
+        from finance_analysis.integrations.market_data.history import HistoricalProviderError
+
+        ctx = self._get_ctx()
+        if ctx is None:
+            raise HistoricalProviderError(
+                self.name, symbol.market, symbol.code, data_type,
+                f"{start_time.isoformat()}..{end_time.isoformat()}",
+                "Longbridge credentials or QuoteContext unavailable", False,
+            )
+        provider_symbol = self.to_longbridge_symbol(symbol.code)
+        period = getattr(Period, period_name)
+        cursor = end_time
+        collected: list[Any] = []
+        seen_timestamps: set[datetime] = set()
+        try:
+            while cursor > start_time:
+                # SDK 4.3.2 signature is positional-only:
+                # (symbol, period, adjust_type, forward, count, time, trade_sessions).
+                page = ctx.history_candlesticks_by_offset(
+                    provider_symbol,
+                    period,
+                    AdjustType.NoAdjust,
+                    False,
+                    self._HISTORY_PAGE_SIZE,
+                    cursor,
+                    TradeSessions.Intraday,
+                )
+                if not page:
+                    break
+                oldest: Optional[datetime] = None
+                new_count = 0
+                for candle in page:
+                    timestamp = longbridge_datetime_to_utc(getattr(candle, "timestamp", None), cursor)
+                    if timestamp in seen_timestamps:
+                        continue
+                    seen_timestamps.add(timestamp)
+                    collected.append(candle)
+                    new_count += 1
+                    oldest = timestamp if oldest is None or timestamp < oldest else oldest
+                if oldest is None or new_count == 0 or oldest <= start_time:
+                    break
+                cursor = oldest - timedelta(microseconds=1)
+                if len(page) < self._HISTORY_PAGE_SIZE:
+                    break
+        except Exception as exc:
+            reason = str(exc)
+            error_code = getattr(exc, "code", None)
+            retryable = error_code in (301602, 301606) or self._is_connection_error(exc) or any(
+                token in reason.lower() for token in ("timeout", "429", "rate limit", "tempor", "context dropped")
+            )
+            if error_code in (301600, 301604, 301607):
+                retryable = False
+            if self._is_connection_error(exc):
+                self._mark_connection_cooldown(exc)
+            raise HistoricalProviderError(
+                self.name, symbol.market, symbol.code, data_type,
+                f"{start_time.isoformat()}..{end_time.isoformat()}", reason, retryable,
+            ) from exc
+        return collected
+
+    @staticmethod
+    def _history_candle_row(candle: Any, *, minute: bool, market: str) -> dict[str, Any]:
+        raw_timestamp = getattr(candle, "timestamp", None)
+        timestamp = longbridge_datetime_to_utc(raw_timestamp, datetime.now(timezone.utc))
+        row = {
+            "open": getattr(candle, "open", None),
+            "high": getattr(candle, "high", None),
+            "low": getattr(candle, "low", None),
+            "close": getattr(candle, "close", None),
+            "volume": getattr(candle, "volume", None),
+            "amount": getattr(candle, "turnover", None),
+        }
+        if minute:
+            row["bar_time"] = timestamp
+        elif isinstance(raw_timestamp, datetime):
+            # SDK history daily timestamps are calendar labels represented as a
+            # local datetime. Converting midnight to UTC before taking .date()
+            # can shift HK/CN bars to the previous day.
+            row["date"] = raw_timestamp.date()
+        else:
+            market_timezone = {
+                "US": ZoneInfo("America/New_York"),
+                "HK": ZoneInfo("Asia/Hong_Kong"),
+                "CN": ZoneInfo("Asia/Shanghai"),
+            }[market]
+            row["date"] = timestamp.astimezone(market_timezone).date()
+        return row
 
     def _is_connection_error(self, exc: Exception) -> bool:
         msg = str(exc).lower()

@@ -12,6 +12,7 @@ TASK_PACKAGES = (
     "finance_analysis.tasks.celery.jobs.us_premarket_analysis",
     "finance_analysis.tasks.celery.jobs.us_intraday_analysis",
     "finance_analysis.tasks.celery.jobs.us_postmarket_review",
+    "finance_analysis.tasks.celery.jobs.us_market_data_sync",
     "finance_analysis.tasks.celery.jobs.a_share_intraday_analysis",
     "finance_analysis.tasks.celery.jobs.signal_evaluation_cn",
     "finance_analysis.tasks.celery.jobs.signal_evaluation_us",

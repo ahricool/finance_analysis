@@ -113,18 +113,12 @@ class StockService:
             )
         
         try:
-            # 调用数据获取器获取历史数据
-            from finance_analysis.integrations.market_data.base import DataFetcherManager
-            
-            manager = DataFetcherManager()
-            df, source = manager.get_daily_data(stock_code, days=days)
-            
-            if df is None or df.empty:
-                logger.warning(f"获取 {stock_code} 历史数据失败")
-                return {"stock_code": stock_code, "period": period, "data": []}
-            
-            # 获取股票名称
-            stock_name = manager.get_stock_name(stock_code)
+            from finance_analysis.analysis.history.loader import load_history_df
+            from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
+
+            df, source = load_history_df(stock_code, days=days)
+            symbol = MarketDataSymbolRepository().get_by_code(stock_code)
+            stock_name = symbol.name if symbol else stock_code
             
             # 转换为响应格式
             data = []
@@ -153,12 +147,9 @@ class StockService:
                 "data": data,
             }
             
-        except ImportError:
-            logger.warning("DataFetcherManager 未找到，返回空数据")
-            return {"stock_code": stock_code, "period": period, "data": []}
         except Exception as e:
             logger.exception(f"获取历史数据失败: {e}", exc_info=True)
-            return {"stock_code": stock_code, "period": period, "data": []}
+            raise
     
     def _get_placeholder_quote(self, stock_code: str) -> Dict[str, Any]:
         """

@@ -159,36 +159,17 @@ class TestPrefetchStockNames(unittest.TestCase):
         self.assertEqual(name, "平安银行")
         manager.get_realtime_quote.assert_called_once_with("000001.SZ", log_final_failure=False)
 
-    def test_fetch_and_save_stock_data_uses_lightweight_name_lookup(self):
+    def test_fetch_and_save_stock_data_is_database_only(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         pipeline.fetcher_manager = MagicMock()
         pipeline.db = MagicMock()
-        pipeline.fetcher_manager.get_stock_name.return_value = "贵州茅台"
-        pipeline.db.has_today_data.return_value = False
-        pipeline.fetcher_manager.get_daily_data.return_value = (
-            pd.DataFrame(
-                [
-                    {
-                        "date": "2026-03-27",
-                        "open": 1.0,
-                        "high": 1.0,
-                        "low": 1.0,
-                        "close": 1.0,
-                        "volume": 1,
-                        "amount": 1.0,
-                        "pct_chg": 0.0,
-                    }
-                ]
-            ),
-            "dummy",
-        )
-        pipeline.db.save_daily_data.return_value = 1
-
-        success, error = StockAnalysisPipeline.fetch_and_save_stock_data(pipeline, "600519")
+        with patch("finance_analysis.analysis.history.loader.load_history_df", return_value=(pd.DataFrame(), "database")):
+            success, error = StockAnalysisPipeline.fetch_and_save_stock_data(pipeline, "600519.SH")
 
         self.assertTrue(success)
         self.assertIsNone(error)
-        pipeline.fetcher_manager.get_stock_name.assert_called_once_with("600519", allow_realtime=False)
+        pipeline.fetcher_manager.get_stock_name.assert_not_called()
+        pipeline.fetcher_manager.get_daily_data.assert_not_called()
 
     def test_pytdx_get_stock_name_reads_all_security_list_pages(self):
         fetcher = PytdxFetcher(hosts=[])

@@ -24,6 +24,7 @@ EXPECTED_JOBS = {
     "analysis_us_premarket": ("scheduled_us_premarket", "Asia/Shanghai"),
     "analysis_us_intraday": ("scheduled_us_intraday", "America/New_York"),
     "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
+    "market_data_sync_us": ("scheduled_us_market_data_sync", "America/New_York"),
     "analysis_a_share_intraday": ("scheduled_a_share_intraday", "Asia/Shanghai"),
     "signal_evaluation_cn": ("scheduled_signal_evaluation_cn", "Asia/Shanghai"),
     "signal_evaluation_us": ("scheduled_signal_evaluation_us", "America/New_York"),
@@ -177,6 +178,15 @@ def test_us_postmarket_review_follows_new_york_dst():
     winter = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
     winter_next = definition.next_run_time(now=winter)
     assert winter_next == datetime(2026, 1, 5, 21, 30, tzinfo=timezone.utc)
+
+
+def test_us_market_data_sync_schedule_and_queue():
+    definition = get_scheduled_task_definition("market_data_sync_us")
+    assert definition.queue == "ingestion"
+    assert definition.allow_manual_run is True
+    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules} == {
+        ("18", "0", "mon-fri", "America/New_York")
+    }
 
 
 def test_us_intraday_schedule_follows_new_york_dst():

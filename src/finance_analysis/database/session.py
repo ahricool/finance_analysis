@@ -12,7 +12,6 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Tuple, Ty
 
 import pandas as pd
 from sqlalchemy import and_, create_engine, delete, desc, event, func, or_, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -179,20 +178,6 @@ class DatabaseManager(ConversationUsageMixin):
             session.close()
 
     @staticmethod
-    def _normalize_daily_date(value: Any) -> Any:
-        if isinstance(value, str):
-            return datetime.strptime(value, '%Y-%m-%d').date()
-        if isinstance(value, pd.Timestamp):
-            return value.date()
-        if isinstance(value, datetime):
-            return value.date()
-        return value
-
-    @staticmethod
-    def _normalize_sql_value(value: Any) -> Any:
-        return None if pd.isna(value) else value
-
-    @staticmethod
     def _normalize_market(value: Optional[str] = None, code: Optional[str] = None) -> str:
         return normalize_market_type(value, code)
 
@@ -251,23 +236,10 @@ class DatabaseManager(ConversationUsageMixin):
         """
         if target_date is None:
             target_date = date.today()
-        normalized_market = self._normalize_market(market, code)
-        # 注意：这里的 target_date 语义是“自然日”，而不是“最新交易日”。
-        # 在周末/节假日/非交易日运行时，即使数据库已有最新交易日数据，这里也会返回 False。
-        # 该行为目前保留（按需求不改逻辑）。
+        del market
+        from finance_analysis.database.repositories.stock import StockRepository
 
-        with self.get_session() as session:
-            result = session.execute(
-                select(StockDaily).where(
-                    and_(
-                        StockDaily.code == code,
-                        StockDaily.market == normalized_market,
-                        StockDaily.date == target_date
-                    )
-                )
-            ).scalar_one_or_none()
-
-            return result is not None
+        return bool(StockRepository(self).get_range(code, target_date, target_date))
 
     def get_latest_data(
         self,
@@ -288,16 +260,9 @@ class DatabaseManager(ConversationUsageMixin):
         Returns:
             StockDaily 对象列表（按日期降序）
         """
-        normalized_market = self._normalize_market(market, code)
-        with self.get_session() as session:
-            results = session.execute(
-                select(StockDaily)
-                .where(and_(StockDaily.code == code, StockDaily.market == normalized_market))
-                .order_by(desc(StockDaily.date))
-                .limit(days)
-            ).scalars().all()
+        from finance_analysis.database.repositories.stock import StockRepository
 
-            return list(results)
+        return StockRepository(self).get_latest(code, days, market)
 
     def save_news_intel(
         self,
@@ -839,124 +804,9 @@ class DatabaseManager(ConversationUsageMixin):
         Returns:
             StockDaily 对象列表
         """
-        normalized_market = self._normalize_market(market, code)
-        with self.get_session() as session:
-            results = session.execute(
-                select(StockDaily)
-                .where(
-                    and_(
-                        StockDaily.code == code,
-                        StockDaily.market == normalized_market,
-                        StockDaily.date >= start_date,
-                        StockDaily.date <= end_date
-                    )
-                )
-                .order_by(StockDaily.date)
-            ).scalars().all()
+        from finance_analysis.database.repositories.stock import StockRepository
 
-            return list(results)
-
-    def save_daily_data(
-        self,
-        df: pd.DataFrame,
-        code: str,
-        data_source: str = "Unknown",
-        market: Optional[str] = None,
-    ) -> int:
-        """
-        保存日线数据到数据库
-
-        策略：
-        - 按 `(market, code, date)` 做批量 UPSERT，已存在记录会覆盖更新
-        - 同一批次内若存在重复日期，以最后一条记录为准
-        - 使用 PostgreSQL ON CONFLICT DO UPDATE
-
-        Args:
-            df: 包含日线数据的 DataFrame
-            code: 股票代码
-            data_source: 数据来源名称
-            market: 市场类型（CN/US/HK，默认按 code 推断）
-
-        Returns:
-            本次实际新增的记录数（不含更新）
-        """
-        if df is None or df.empty:
-            logger.warning(f"保存数据为空，跳过 {code}")
-            return 0
-
-        normalized_market = self._normalize_market(market, code)
-        now = utc_now()
-        records_by_date: Dict[date, Dict[str, Any]] = {}
-        for row in df.to_dict(orient='records'):
-            row_date = self._normalize_daily_date(row.get('date'))
-            records_by_date[row_date] = {
-                'code': code,
-                'market': normalized_market,
-                'date': row_date,
-                'open': self._normalize_sql_value(row.get('open')),
-                'high': self._normalize_sql_value(row.get('high')),
-                'low': self._normalize_sql_value(row.get('low')),
-                'close': self._normalize_sql_value(row.get('close')),
-                'volume': self._normalize_sql_value(row.get('volume')),
-                'amount': self._normalize_sql_value(row.get('amount')),
-                'pct_chg': self._normalize_sql_value(row.get('pct_chg')),
-                'ma5': self._normalize_sql_value(row.get('ma5')),
-                'ma10': self._normalize_sql_value(row.get('ma10')),
-                'ma20': self._normalize_sql_value(row.get('ma20')),
-                'volume_ratio': self._normalize_sql_value(row.get('volume_ratio')),
-                'data_source': data_source,
-                'created_at': now,
-                'updated_at': now,
-            }
-
-        if not records_by_date:
-            return 0
-
-        records = list(records_by_date.values())
-        batch_dates = list(records_by_date.keys())
-
-        _UPSERT_COLUMNS = {
-            'open', 'high', 'low', 'close', 'volume', 'amount',
-            'pct_chg', 'ma5', 'ma10', 'ma20', 'volume_ratio',
-            'data_source', 'updated_at',
-        }
-
-        def _upsert_chunk(session: Session, chunk: list) -> None:
-            """Execute an INSERT … ON CONFLICT DO UPDATE for one batch (PostgreSQL)."""
-            stmt = pg_insert(StockDaily).values(chunk)
-            session.execute(
-                stmt.on_conflict_do_update(
-                    constraint='uix_stock_daily_market_code_date',
-                    set_={col: stmt.excluded[col] for col in _UPSERT_COLUMNS},
-                )
-            )
-
-        def _write(session: Session) -> int:
-            existing_dates = set(
-                session.execute(
-                    select(StockDaily.date).where(
-                        and_(
-                            StockDaily.code == code,
-                            StockDaily.market == normalized_market,
-                            StockDaily.date.in_(batch_dates),
-                        )
-                    )
-                ).scalars().all()
-            )
-            new_count = sum(1 for r in records if r['date'] not in existing_dates)
-            _upsert_chunk(session, records)
-            return new_count
-
-        try:
-            saved_count = self._run_write_transaction(
-                f"save_daily_data[{code}]",
-                _write,
-            )
-            logger.info(f"保存 {code} 数据成功，新增 {saved_count} 条")
-            return saved_count
-        except Exception as e:
-            logger.exception(f"保存 {code} 数据失败: {e}")
-            raise
+        return StockRepository(self).get_range(code, start_date, end_date, market)
 
     def get_analysis_context(
         self,
@@ -982,8 +832,8 @@ class DatabaseManager(ConversationUsageMixin):
         # 因此若未来需要支持“按历史某天复盘/重算”的可解释性，这里需要调整。
         # 该行为目前保留（按需求不改逻辑）。
 
-        # 获取最近2天数据
-        recent_data = self.get_latest_data(code, days=2)
+        # Read enough complete raw history to derive indicators in memory.
+        recent_data = self.get_latest_data(code, days=21)
 
         if not recent_data:
             logger.warning(f"未找到 {code} 的数据")
@@ -992,10 +842,21 @@ class DatabaseManager(ConversationUsageMixin):
         today_data = recent_data[0]
         yesterday_data = recent_data[1] if len(recent_data) > 1 else None
 
+        ordered = list(reversed(recent_data))
+        closes = [float(item.close) for item in ordered]
+        volumes = [float(item.volume) for item in ordered]
+        ma5 = sum(closes[-5:]) / min(5, len(closes))
+        ma10 = sum(closes[-10:]) / min(10, len(closes))
+        ma20 = sum(closes[-20:]) / min(20, len(closes))
+        prior_volumes = volumes[-6:-1]
+        volume_ratio = volumes[-1] / (sum(prior_volumes) / len(prior_volumes)) if prior_volumes else None
+        today_payload = today_data.to_dict()
+        today_payload.update({"ma5": ma5, "ma10": ma10, "ma20": ma20, "volume_ratio": volume_ratio})
+
         context = {
             'code': code,
             'date': today_data.date.isoformat(),
-            'today': today_data.to_dict(),
+            'today': today_payload,
         }
 
         if yesterday_data:
@@ -1013,11 +874,12 @@ class DatabaseManager(ConversationUsageMixin):
                 )
 
             # 均线形态判断
-            context['ma_status'] = self._analyze_ma_status(today_data)
+            context['ma_status'] = self._analyze_ma_status(today_data.close, ma5, ma10, ma20)
 
         return context
 
-    def _analyze_ma_status(self, data: StockDaily) -> str:
+    @staticmethod
+    def _analyze_ma_status(close: float, ma5: float, ma10: float, ma20: float) -> str:
         """
         分析均线形态
 
@@ -1026,14 +888,6 @@ class DatabaseManager(ConversationUsageMixin):
         - 空头排列：close < ma5 < ma10 < ma20
         - 震荡整理：其他情况
         """
-        # 注意：这里的均线形态判断基于“close/ma5/ma10/ma20”静态比较，
-        # 未考虑均线拐点、斜率、或不同数据源复权口径差异。
-        # 该行为目前保留（按需求不改逻辑）。
-        close = data.close or 0
-        ma5 = data.ma5 or 0
-        ma10 = data.ma10 or 0
-        ma20 = data.ma20 or 0
-
         if close > ma5 > ma10 > ma20 > 0:
             return "多头排列 📈"
         elif close < ma5 < ma10 < ma20 and ma20 > 0:

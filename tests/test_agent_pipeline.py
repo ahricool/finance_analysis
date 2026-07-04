@@ -354,6 +354,7 @@ class TestAgentResultConversion(unittest.TestCase):
 
             from finance_analysis.analysis.pipeline import StockAnalysisPipeline
             pipeline = StockAnalysisPipeline(config=mock_cfg)
+            pipeline._ensure_agent_history = MagicMock()
             return pipeline
 
     def test_convert_success_dashboard(self):
@@ -1144,6 +1145,7 @@ class TestPipelineRouting(unittest.TestCase):
             from finance_analysis.analysis.pipeline import StockAnalysisPipeline
             from finance_analysis.reporting.types import ReportType
             pipeline = StockAnalysisPipeline(config=mock_cfg)
+            pipeline._ensure_agent_history = MagicMock()
 
             # Mock _analyze_with_agent to verify it gets called
             pipeline._analyze_with_agent = MagicMock(return_value=None)
@@ -1244,6 +1246,7 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             from finance_analysis.agent.executor import AgentResult
             from finance_analysis.reporting.types import ReportType
             pipeline = StockAnalysisPipeline(config=mock_cfg)
+            pipeline._ensure_agent_history = MagicMock()
 
             agent_result = AgentResult(
                 success=True,
@@ -1324,6 +1327,7 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             from finance_analysis.reporting.types import ReportType
             from finance_analysis.analysis.technical.analyzer import TrendAnalysisResult, TrendStatus, BuySignal
             pipeline = StockAnalysisPipeline(config=mock_cfg)
+            pipeline._ensure_agent_history = MagicMock()
 
             agent_result = AgentResult(
                 success=True,

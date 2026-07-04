@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Task execution record ORM model."""
 
-from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint, text
 
 from finance_analysis.database.base import Base
 from finance_analysis.core.time import utc_now
@@ -42,4 +42,10 @@ class TaskRecord(Base):
         Index("ix_task_status_created_at", "status", "created_at"),
         Index("ix_task_uid_created_at", "uid", "created_at"),
         Index("ix_task_dedupe_status", "dedupe_key", "status"),
+        Index(
+            "uix_task_active_dedupe",
+            "dedupe_key",
+            unique=True,
+            postgresql_where=text("dedupe_key IS NOT NULL AND status IN ('pending','processing','retrying')"),
+        ),
     )

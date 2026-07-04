@@ -57,7 +57,7 @@ class FakeDataManager:
         self.changes = changes or {}
         self.fail = fail or set()
 
-    def get_daily_data(self, symbol: str, start_date=None, end_date=None, days: int = 30):
+    def load_history_df(self, symbol: str, target_date=None, days: int = 30):
         if symbol in self.fail:
             raise RuntimeError(f"{symbol} down")
         change = self.changes.get(symbol, 0.0)
@@ -77,7 +77,7 @@ class FakeDataManager:
                     "high": close * 1.01,
                     "low": close * 0.98,
                     "close": close,
-                    "volume": 1000 + index * 10 + (2000 if symbol == "NVDA" and index == 21 else 0),
+                    "volume": 1000 + index * 10 + (2000 if symbol == "NVDA.US" and index == 21 else 0),
                     "pct_chg": pct,
                 }
             )
@@ -166,34 +166,34 @@ def _service(
     search: FakeSearchService | None = None,
 ) -> USPostmarketReviewService:
     default_changes = {
-        "SPY": 0.8,
-        "QQQ": 1.2,
-        "DIA": 0.4,
-        "IWM": 0.2,
-        "XLK": 1.5,
-        "SOXX": 2.0,
-        "XLF": -0.3,
-        "XLE": -1.1,
-        "XLY": 0.9,
-        "XLP": -0.1,
-        "XLV": 0.1,
-        "XLI": 0.2,
-        "XLU": -0.2,
-        "XLB": -0.4,
-        "XLRE": -0.5,
-        "AAPL": 1.0,
-        "NVDA": 3.0,
-        "TSLA": -2.0,
+        "SPY.US": 0.8,
+        "QQQ.US": 1.2,
+        "DIA.US": 0.4,
+        "IWM.US": 0.2,
+        "XLK.US": 1.5,
+        "SOXX.US": 2.0,
+        "XLF.US": -0.3,
+        "XLE.US": -1.1,
+        "XLY.US": 0.9,
+        "XLP.US": -0.1,
+        "XLV.US": 0.1,
+        "XLI.US": 0.2,
+        "XLU.US": -0.2,
+        "XLB.US": -0.4,
+        "XLRE.US": -0.5,
+        "AAPL.US": 1.0,
+        "NVDA.US": 3.0,
+        "TSLA.US": -2.0,
     }
     if changes:
         default_changes.update(changes)
     return USPostmarketReviewService(
         config=SimpleNamespace(report_language="zh", has_search_capability_enabled=lambda: True),
-        data_manager=FakeDataManager(default_changes, fail),
+        history_loader=FakeDataManager(default_changes, fail).load_history_df,
         search_service=search or FakeSearchService(),
         llm_client=llm or FakeLLM(_complete_markdown()),
         reporter=reporter or FakeReporter(),
-        watch_symbols_provider=lambda: watch_symbols if watch_symbols is not None else ["AAPL", "NVDA", "TSLA"],
+        watch_symbols_provider=lambda: watch_symbols if watch_symbols is not None else ["AAPL.US", "NVDA.US", "TSLA.US"],
         db=EmptyDb(),
     )
 
@@ -261,11 +261,11 @@ def test_dst_and_winter_dates_use_new_york_timezone() -> None:
 
 
 def test_partial_index_failure_degrades_but_completes() -> None:
-    summary = _service(fail={"DIA"}, llm=FakeLLM(available=False)).run(now=TRADING_DATE)
+    summary = _service(fail={"DIA.US"}, llm=FakeLLM(available=False)).run(now=TRADING_DATE)
 
     assert summary.benchmark_count == 3
     assert summary.fallback_used is True
-    assert any("DIA 行情获取失败" in item for item in summary.warnings)
+    assert any("DIA.US 行情获取失败" in item for item in summary.warnings)
     assert "AI 分析暂不可用" in summary.report
 
 
@@ -282,22 +282,22 @@ def test_no_watchlist_still_completes() -> None:
 
 
 def test_single_watchlist_symbol_failure_does_not_stop_others() -> None:
-    summary = _service(fail={"TSLA"}).run(now=TRADING_DATE)
+    summary = _service(fail={"TSLA.US"}).run(now=TRADING_DATE)
 
     assert summary.watchlist_count == 2
     assert summary.watchlist_down_count == 0
-    assert any("TSLA 自选股行情获取失败" in item for item in summary.warnings)
+    assert any("TSLA.US 自选股行情获取失败" in item for item in summary.warnings)
 
 
 def test_sector_rankings_and_relative_returns_are_computed() -> None:
     context = _service()._build_context(TRADING_DATE.date())
 
-    assert [item.symbol for item in context.sector_top3] == ["SOXX", "XLK", "XLY"]
-    assert [item.symbol for item in context.sector_bottom3] == ["XLE", "XLRE", "XLB"]
-    qqq = next(item for item in context.benchmarks if item.symbol == "QQQ")
+    assert [item.symbol for item in context.sector_top3] == ["SOXX.US", "XLK.US", "XLY.US"]
+    assert [item.symbol for item in context.sector_bottom3] == ["XLE.US", "XLRE.US", "XLB.US"]
+    qqq = next(item for item in context.benchmarks if item.symbol == "QQQ.US")
     assert qqq.relative_to_spy == pytest.approx(0.4)
     nvda = context.watchlist_summary.gainers[0]
-    assert nvda.symbol == "NVDA"
+    assert nvda.symbol == "NVDA.US"
     assert nvda.relative_to_qqq == pytest.approx(1.8)
     assert context.style_bias == "成长"
 
@@ -395,5 +395,5 @@ def test_reporter_reuses_existing_calendar_entry_and_uses_dedup_key() -> None:
 
 
 def test_required_symbols_constants_are_complete() -> None:
-    assert set(US_POSTMARKET_BENCHMARKS) == {"SPY", "QQQ", "DIA", "IWM"}
-    assert {"XLK", "SOXX", "XLF", "XLE", "XLRE"}.issubset(US_POSTMARKET_SECTOR_ETFS)
+    assert set(US_POSTMARKET_BENCHMARKS) == {"SPY.US", "QQQ.US", "DIA.US", "IWM.US"}
+    assert {"XLK.US", "SOXX.US", "XLF.US", "XLE.US", "XLRE.US"}.issubset(US_POSTMARKET_SECTOR_ETFS)

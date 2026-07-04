@@ -17,7 +17,7 @@ YfinanceFetcher - 兜底数据源 (Priority 4)
 import csv
 import logging
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from io import StringIO
 from typing import Optional, List, Dict, Any
 from urllib.error import HTTPError, URLError
@@ -79,6 +79,96 @@ class YfinanceFetcher(BaseFetcher):
     def __init__(self):
         """初始化 YfinanceFetcher"""
         pass
+
+    from finance_analysis.integrations.market_data.history import SOURCE_PRIORITY as _SOURCE_PRIORITY
+    source_priority = _SOURCE_PRIORITY[name]
+
+    @staticmethod
+    def to_yfinance_symbol(code: str) -> str:
+        """Convert one canonical code at the provider boundary."""
+        canonical = str(code or "").strip().upper()
+        if canonical.endswith(".US"):
+            return canonical[:-3]
+        if canonical.endswith(".HK"):
+            digits = canonical[:-3]
+            if not digits.isdigit():
+                raise ValueError(f"Invalid HK canonical code: {code}")
+            return f"{int(digits):04d}.HK"
+        if canonical.endswith(".SH"):
+            return f"{canonical[:-3]}.SS"
+        if canonical.endswith(".SZ"):
+            return canonical
+        raise ValueError(f"Canonical market suffix required for yfinance: {code}")
+
+    def fetch_daily_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
+        """Fetch unadjusted daily OHLCV; Yahoo does not expose turnover."""
+        return self._download_history(
+            symbol,
+            start=start_date,
+            end=end_date + timedelta(days=1),
+            interval="1d",
+            data_type="daily",
+        )
+
+    def fetch_minute_bars(
+        self,
+        symbol,
+        start_time: datetime,
+        end_time: datetime,
+        session_type: str = "regular",
+    ) -> pd.DataFrame:
+        if session_type != "regular":
+            raise ValueError("Only regular minute sessions are supported")
+        return self._download_history(
+            symbol,
+            start=start_time,
+            end=end_time,
+            interval="1m",
+            data_type="minute",
+        )
+
+    def _download_history(self, symbol, *, start, end, interval: str, data_type: str) -> pd.DataFrame:
+        import yfinance as yf
+
+        from finance_analysis.integrations.market_data.history import HistoricalProviderError
+
+        yf_symbol = self.to_yfinance_symbol(symbol.code)
+        try:
+            raw = yf.download(
+                tickers=yf_symbol,
+                start=start,
+                end=end,
+                interval=interval,
+                progress=False,
+                auto_adjust=False,  # persisted prices are explicitly unadjusted
+                prepost=False,
+                actions=False,
+                multi_level_index=False,
+                threads=False,
+            )
+        except Exception as exc:
+            reason = str(exc)
+            retryable = any(token in reason.lower() for token in ("timeout", "connection", "tempor", "429"))
+            raise HistoricalProviderError(
+                self.name, symbol.market, symbol.code, data_type, f"{start}..{end}", reason, retryable
+            ) from exc
+        if raw is None or raw.empty:
+            return pd.DataFrame()
+        frame = raw.copy().reset_index()
+        frame.columns = [str(column).lower().replace("datetime", "bar_time") for column in frame.columns]
+        if data_type == "daily":
+            if "date" not in frame and "bar_time" in frame:
+                frame = frame.rename(columns={"bar_time": "date"})
+            frame["date"] = pd.to_datetime(frame["date"]).dt.date
+            columns = ["date", "open", "high", "low", "close", "volume"]
+        else:
+            if "bar_time" not in frame and "date" in frame:
+                frame = frame.rename(columns={"date": "bar_time"})
+            times = pd.to_datetime(frame["bar_time"], utc=True)
+            frame["bar_time"] = times
+            columns = ["bar_time", "open", "high", "low", "close", "volume"]
+        frame["amount"] = None  # never fabricate turnover as close * volume
+        return frame[columns + ["amount"]]
 
     def _convert_stock_code(self, stock_code: str) -> str:
         """
@@ -184,7 +274,7 @@ class YfinanceFetcher(BaseFetcher):
                 start=start_date,
                 end=end_date,
                 progress=False,  # 禁止进度条
-                auto_adjust=True,  # 自动调整价格（复权）
+                auto_adjust=False,  # 历史 OHLC 明确保存未复权原始价格
                 multi_level_index=True
             )
 
@@ -256,12 +346,8 @@ class YfinanceFetcher(BaseFetcher):
             df['pct_chg'] = df['close'].pct_change() * 100
             df['pct_chg'] = df['pct_chg'].fillna(0).round(2)
 
-        # 计算成交额（yfinance 不提供，使用估算值）
-        # 成交额 ≈ 成交量 * 平均价格
-        if 'volume' in df.columns and 'close' in df.columns:
-            df['amount'] = df['volume'] * df['close']
-        else:
-            df['amount'] = 0
+        # Yahoo 不提供逐周期准确成交额；不得使用 close * volume 伪造。
+        df['amount'] = None
 
         # 添加股票代码列
         df['code'] = stock_code

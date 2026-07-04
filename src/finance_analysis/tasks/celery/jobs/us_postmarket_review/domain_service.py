@@ -13,7 +13,6 @@ from sqlalchemy import desc, or_, select
 from finance_analysis.core.time import utc_now
 from finance_analysis.database import DatabaseManager, ensure_aware_datetime
 from finance_analysis.database.models import NewsIntel
-from finance_analysis.integrations.market_data.base import DataFetcherManager
 from finance_analysis.integrations.market_data.realtime_types import safe_float, safe_int
 from finance_analysis.market_review.trading_calendar import (
     get_effective_trading_date,
@@ -50,7 +49,7 @@ class USPostmarketReviewService:
         self,
         *,
         config: Optional[Any] = None,
-        data_manager: Optional[DataFetcherManager] = None,
+        history_loader: Optional[Callable[..., Any]] = None,
         search_service: Optional[Any] = None,
         llm_client: Optional[Any] = None,
         reporter: Optional[USPostmarketReviewReporter] = None,
@@ -58,7 +57,11 @@ class USPostmarketReviewService:
         db: Optional[DatabaseManager] = None,
     ) -> None:
         self.config = config or self._load_config()
-        self.data_manager = data_manager or DataFetcherManager()
+        if history_loader is None:
+            from finance_analysis.analysis.history.loader import load_history_df
+
+            history_loader = load_history_df
+        self.history_loader = history_loader
         self.search_service = search_service
         self.llm_client = llm_client
         self.reporter = reporter or USPostmarketReviewReporter()
@@ -147,8 +150,8 @@ class USPostmarketReviewService:
             trading_date,
             warnings,
         )
-        spy_change = self._find_change_pct(benchmarks, "SPY")
-        qqq_change = self._find_change_pct(benchmarks, "QQQ")
+        spy_change = self._find_change_pct(benchmarks, "SPY.US")
+        qqq_change = self._find_change_pct(benchmarks, "QQQ.US")
         self._apply_relative_returns(benchmarks, spy_change=spy_change, qqq_change=qqq_change)
 
         sectors = self._load_performance_group(
@@ -205,10 +208,7 @@ class USPostmarketReviewService:
         name: str,
         trading_date: date,
     ) -> InstrumentPerformance:
-        end_date = (trading_date + timedelta(days=1)).isoformat()
-        df, source = self.data_manager.get_daily_data(symbol, end_date=end_date, days=35)
-        if df is None or df.empty:
-            raise RuntimeError("日线数据为空")
+        df, source = self.history_loader(symbol, target_date=trading_date, days=35)
 
         rows = self._rows_until_trading_date(df, trading_date)
         if not rows:
@@ -362,7 +362,7 @@ class USPostmarketReviewService:
         try:
             end_utc = utc_now()
             start_utc = end_utc - timedelta(hours=24)
-            codes = {"market", "SPY", "QQQ", *watch_symbols}
+            codes = {"market", "SPY.US", "QQQ.US", *watch_symbols}
             with self.db.get_session() as session:
                 stmt = (
                     select(NewsIntel)
@@ -639,10 +639,10 @@ class USPostmarketReviewService:
     @staticmethod
     def _determine_style_bias(items: Sequence[InstrumentPerformance]) -> str:
         scores = {
-            "成长": ["XLK", "SOXX", "XLY"],
-            "价值": ["XLF", "XLE"],
-            "周期": ["XLE", "XLI", "XLB", "XLRE"],
-            "防御": ["XLP", "XLV", "XLU"],
+            "成长": ["XLK.US", "SOXX.US", "XLY.US"],
+            "价值": ["XLF.US", "XLE.US"],
+            "周期": ["XLE.US", "XLI.US", "XLB.US", "XLRE.US"],
+            "防御": ["XLP.US", "XLV.US", "XLU.US"],
         }
         change_by_symbol = {item.symbol: item.change_pct for item in items}
         averages: Dict[str, float] = {}
@@ -664,9 +664,9 @@ class USPostmarketReviewService:
         style_bias: str,
     ) -> str:
         changes = {item.symbol: item.change_pct for item in benchmarks}
-        spy = changes.get("SPY", 0.0)
-        qqq = changes.get("QQQ", 0.0)
-        iwm = changes.get("IWM", 0.0)
+        spy = changes.get("SPY.US", 0.0)
+        qqq = changes.get("QQQ.US", 0.0)
+        iwm = changes.get("IWM.US", 0.0)
         defensive_lead = style_bias == "防御" and spy <= 0.2
         sector_avg = sum(item.change_pct for item in sectors) / len(sectors) if sectors else 0.0
         if spy >= 0.5 and qqq >= 0.3 and iwm >= -0.2 and sector_avg >= 0:
@@ -685,9 +685,7 @@ class USPostmarketReviewService:
         symbol = str(raw_symbol or "").strip().upper()
         if symbol.startswith("$"):
             symbol = symbol[1:]
-        if symbol.endswith(".US"):
-            symbol = symbol[:-3]
-        return symbol
+        return symbol if symbol.endswith(".US") else ""
 
     @staticmethod
     def _field(item: Any, field: str) -> str:
