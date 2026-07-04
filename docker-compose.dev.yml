@@ -54,7 +54,6 @@ services:
       TZ: Asia/Shanghai
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
-      QLIB_WORKER_URL: http://qlib-worker:8010
       QUANT_ARTIFACT_ROOT: /workspace/data/quant
     expose:
       - "8000"
@@ -103,7 +102,6 @@ services:
       TZ: Asia/Shanghai
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
-      QLIB_WORKER_URL: http://qlib-worker:8010
       QUANT_ARTIFACT_ROOT: /workspace/data/quant
     volumes:
       - ./data:/workspace/data
@@ -150,17 +148,24 @@ services:
       dockerfile: qlib_worker/Dockerfile
     container_name: finance-analysis-dev-qlib-worker
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
+      REDIS_URL: redis://redis:6379/0
       QUANT_ARTIFACT_ROOT: /workspace/data/quant
     volumes:
-      - ./data:/workspace/data
-    expose:
-      - "8010"
+      - ./data/quant:/workspace/data/quant
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import qlib; assert qlib.__version__ == '0.9.7'\" && celery -A qlib_worker.celery_app:celery_app inspect ping -d celery@$$HOSTNAME --timeout=5 | grep -q pong",
+        ]
       interval: 20s
-      timeout: 5s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   streamer:
     image: ghcr.io/ahricool/finance_analysis:latest

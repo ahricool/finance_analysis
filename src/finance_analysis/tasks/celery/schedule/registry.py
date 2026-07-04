@@ -57,11 +57,20 @@ def build_beat_schedule() -> dict[str, dict[str, Any]]:
 
 
 def build_task_routes() -> dict[str, dict[str, str]]:
-    routes = {
-        definition.celery_task_name: {"queue": definition.queue}
-        for definition in SCHEDULED_TASK_DEFINITIONS
-    }
+    routes = {definition.celery_task_name: {"queue": definition.queue} for definition in SCHEDULED_TASK_DEFINITIONS}
     routes["backtest.run"] = {"queue": "analysis"}
+    routes.update(
+        {
+            "qlib.model.train": {"queue": "qlib"},
+            "qlib.model.predict": {"queue": "qlib"},
+            "qlib.dataset.validate": {"queue": "qlib"},
+            "qlib.artifact.inspect": {"queue": "qlib"},
+            "quant.model.train.finalize": {"queue": "analysis"},
+            "quant.model.train.failed": {"queue": "analysis"},
+            "quant.daily.finalize": {"queue": "analysis"},
+            "quant.daily.failed": {"queue": "analysis"},
+        }
+    )
     return routes
 
 

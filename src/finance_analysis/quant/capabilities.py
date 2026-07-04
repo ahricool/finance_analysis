@@ -2,29 +2,27 @@
 
 from __future__ import annotations
 
-import importlib.util
+import os
 import sys
-
-from finance_analysis.quant.config import get_quant_config
 
 
 def get_quant_capabilities() -> dict:
-    config = get_quant_config()
-    qlib_configured = bool(config.qlib_worker_url)
-    qlib = {"status": "unavailable", "version": "0.9.7", "execution": "worker", "reason": "QLIB_WORKER_URL is not configured"}
-    if qlib_configured:
-        from finance_analysis.quant.datasets.qlib_adapter import QlibAdapter
-        state = QlibAdapter().capability()
-        qlib = {"status": state.get("status", "unavailable"), "version": state.get("qlib_version", "0.9.7"),
-                "execution": "worker", "reason": state.get("reason")}
+    broker_configured = bool(os.getenv("REDIS_URL"))
+    qlib = {
+        "status": "configured" if broker_configured else "unavailable",
+        "version": "0.9.7",
+        "execution": "celery_queue",
+        "queue": "qlib",
+        "reason": None if broker_configured else "REDIS_URL is not configured",
+    }
     return {
-        "status": "available" if qlib.get("status") == "available" else "degraded",
+        "status": "available" if broker_configured else "degraded",
         "python_version": ".".join(map(str, sys.version_info[:3])),
         "price_modes": ["raw"],
         "markets": {"US": "available", "HK": "data_dependent", "CN": "data_dependent"},
         "qlib": qlib,
-        "lightgbm": "available" if importlib.util.find_spec("lightgbm") else "unavailable",
-        "sklearn": "available" if importlib.util.find_spec("sklearn") else "unavailable",
+        "lightgbm": "isolated_in_qlib_worker",
+        "sklearn": "isolated_in_qlib_worker",
         "adjusted_prices": {
             "status": "unavailable",
             "reason": "stock_daily currently stores raw prices and no corporate-action factor",

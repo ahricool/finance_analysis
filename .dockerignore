@@ -7,6 +7,7 @@ __pycache__/
 # 忽略虚拟环境（uv creates these; must not be copied into the build context）
 venv/
 .venv/
+**/.venv/
 env/
 .env.local
 
@@ -17,7 +18,7 @@ env/
 *.swo
 
 # 忽略数据文件（可选，如果想持久化就注释掉）
-# data/
+data/
 # logs/
 # reports/
 
@@ -33,4 +34,5 @@ node_modules
 web/node_modules
 web/dist
 web/.vite
+qlib_worker/tests/
 .pnpm-store

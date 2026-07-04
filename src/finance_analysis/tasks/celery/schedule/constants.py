@@ -6,6 +6,7 @@ QUEUE_ANALYSIS = "analysis"
 QUEUE_INGESTION = "ingestion"
 QUEUE_MAINTENANCE = "maintenance"
 QUEUE_DEFAULT = "celery"
+QUEUE_QLIB = "qlib"
 
 ALL_QUEUES = (
     QUEUE_ALERTS,
@@ -13,6 +14,7 @@ ALL_QUEUES = (
     QUEUE_INGESTION,
     QUEUE_MAINTENANCE,
     QUEUE_DEFAULT,
+    QUEUE_QLIB,
 )
 
 SCHEDULE_TIMEZONE = "Asia/Shanghai"

@@ -29,7 +29,11 @@ EXPECTED_CUSTOM_TASKS = {
     "backtest.run",
     "quant.dataset.build",
     "quant.model.train",
+    "quant.model.train.finalize",
+    "quant.model.train.failed",
     "scheduled.quant_daily_pipeline_us",
+    "quant.daily.finalize",
+    "quant.daily.failed",
     "scheduled.quant_model_training_us",
 }
 
@@ -48,14 +52,15 @@ def test_worker_registers_exactly_the_expected_custom_tasks():
     assert "analysis.run_batch_analysis" not in celery_app.tasks
 
 
-def test_each_task_package_has_one_explicit_tasks_module_and_one_task():
+def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
     assert len(TASK_PACKAGES) == 19
     assert len(TASK_MODULES) == 19
     for package, module_name in zip(TASK_PACKAGES, TASK_MODULES):
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)
         source = Path(module.__file__).read_text(encoding="utf-8")
-        assert source.count("@celery_app.task") == 1
+        expected_count = 3 if package.endswith(("quant_training", "quant_daily")) else 1
+        assert source.count("@celery_app.task") == expected_count
 
 
 def test_all_custom_task_names_and_job_ids_are_unique():

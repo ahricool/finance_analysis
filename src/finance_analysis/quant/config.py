@@ -68,8 +68,9 @@ class QuantConfig:
     event_feature_version: str = "event-v1"
     regime_model_version: str = "regime-rules-v1"
     sector_model_version: str = "sector-rules-v1"
-    artifact_root: Path = field(default_factory=lambda: Path(os.getenv("QUANT_ARTIFACT_ROOT", get_data_dir() / "quant")))
-    qlib_worker_url: str | None = field(default_factory=lambda: os.getenv("QLIB_WORKER_URL"))
+    artifact_root: Path = field(
+        default_factory=lambda: Path(os.getenv("QUANT_ARTIFACT_ROOT", get_data_dir() / "quant"))
+    )
     cache_ttl_seconds: int = field(default_factory=lambda: int(os.getenv("QUANT_CACHE_TTL_SECONDS", "86400")))
     regime: RegimeConfig = field(default_factory=RegimeConfig)
     fusion: FusionConfig = field(default_factory=FusionConfig)

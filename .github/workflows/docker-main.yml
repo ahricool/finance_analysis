@@ -14,6 +14,7 @@ env:
   GHCR_REGISTRY: ghcr.io
   GHCR_IMAGE_NAME: ${{ github.repository }}
   GHCR_WEB_IMAGE_NAME: ${{ github.repository }}_web
+  GHCR_QLIB_IMAGE_NAME: ${{ github.repository }}_qlib
   BUILDKIT_IMAGE: moby/buildkit:v0.31.0
 
 jobs:
@@ -70,6 +71,17 @@ jobs:
             type=sha,format=short
             type=sha,format=long
 
+      - name: Extract Qlib worker metadata
+        id: meta-qlib
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_QLIB_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=main
+            type=sha,format=short
+            type=sha,format=long
+
       - name: Build and push backend image
         uses: docker/build-push-action@v7
         with:
@@ -94,10 +106,23 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
+      - name: Build and push Qlib worker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: qlib_worker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta-qlib.outputs.tags }}
+          labels: ${{ steps.meta-qlib.outputs.labels }}
+          cache-from: type=gha,scope=qlib
+          cache-to: type=gha,mode=max,scope=qlib
+
       - name: Publish summary
         run: |
           echo "### Docker main images published" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Backend GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Web GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_WEB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Qlib GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_QLIB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tags: \`latest\`, \`main\`, commit SHA tags" >> "$GITHUB_STEP_SUMMARY"
