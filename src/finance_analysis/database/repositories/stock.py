@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any, Iterable, Optional, Sequence
 
-from sqlalchemy import and_, desc, func, literal_column, select
+from sqlalchemy import desc, func, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
@@ -66,6 +66,25 @@ class MarketDataSymbolRepository:
                 session.expunge(row)
             return list(rows)
 
+    def search_enabled_symbols(self, market: str, keyword: str = "", limit: int = 20) -> list[MarketDataSymbol]:
+        normalized = str(market).upper()
+        needle = str(keyword or "").strip()
+        with self.db.get_session() as session:
+            query = select(MarketDataSymbol).where(
+                MarketDataSymbol.market == normalized,
+                MarketDataSymbol.enabled.is_(True),
+                MarketDataSymbol.sync_daily.is_(True),
+            )
+            if needle:
+                pattern = f"%{needle}%"
+                query = query.where(
+                    or_(MarketDataSymbol.code.ilike(pattern), MarketDataSymbol.name.ilike(pattern))
+                )
+            rows = session.execute(query.order_by(MarketDataSymbol.code).limit(limit)).scalars().all()
+            for row in rows:
+                session.expunge(row)
+            return list(rows)
+
     def _list_enabled(self, market: str, sync_column) -> list[MarketDataSymbol]:
         normalized = str(market).upper()
         with self.db.get_session() as session:
@@ -96,6 +115,7 @@ class MarketDataSymbolRepository:
                     "enabled": bool(item.get("enabled", True)),
                     "sync_daily": bool(item.get("sync_daily", True)),
                     "sync_minute": bool(item.get("sync_minute", True)),
+                    "lot_size": item.get("lot_size"),
                     "created_at": now,
                     "updated_at": now,
                 }
@@ -107,7 +127,11 @@ class MarketDataSymbolRepository:
             session.execute(
                 stmt.on_conflict_do_update(
                     constraint="uix_market_data_symbol_code",
-                    set_={"name": stmt.excluded.name, "updated_at": stmt.excluded.updated_at},
+                    set_={
+                        "name": stmt.excluded.name,
+                        "lot_size": func.coalesce(stmt.excluded.lot_size, MarketDataSymbol.lot_size),
+                        "updated_at": stmt.excluded.updated_at,
+                    },
                 )
             )
         return len(records)
@@ -184,6 +208,56 @@ class StockRepository:
                     .order_by(StockDaily.date)
                 ).scalars().unique().all()
             )
+
+    def get_with_warmup(self, code: str, start_date: date, end_date: date, warmup_days: int) -> list[StockDaily]:
+        canonical = self._canonical_code(code)
+        with self.db.get_session() as session:
+            warmup = list(
+                session.execute(
+                    select(StockDaily)
+                    .join(MarketDataSymbol)
+                    .where(MarketDataSymbol.code == canonical, StockDaily.date < start_date)
+                    .order_by(StockDaily.date.desc())
+                    .limit(warmup_days)
+                ).scalars().unique().all()
+            )
+            requested = list(
+                session.execute(
+                    select(StockDaily)
+                    .join(MarketDataSymbol)
+                    .where(
+                        MarketDataSymbol.code == canonical,
+                        StockDaily.date >= start_date,
+                        StockDaily.date <= end_date,
+                    )
+                    .order_by(StockDaily.date)
+                ).scalars().unique().all()
+            )
+            return list(reversed(warmup)) + requested
+
+    def daily_coverage(self, symbol_id: int, start_date: date, end_date: date) -> dict[str, Any]:
+        with self.db.get_session() as session:
+            bounds = session.execute(
+                select(func.min(StockDaily.date), func.max(StockDaily.date)).where(
+                    StockDaily.symbol_id == symbol_id
+                )
+            ).one()
+            row = session.execute(
+                select(
+                    func.count(StockDaily.id),
+                    func.count(StockDaily.id).filter(StockDaily.open <= 0),
+                ).where(
+                    StockDaily.symbol_id == symbol_id,
+                    StockDaily.date >= start_date,
+                    StockDaily.date <= end_date,
+                )
+            ).one()
+            return {
+                "available_date_from": bounds[0],
+                "available_date_to": bounds[1],
+                "available_trading_days": int(row[0] or 0),
+                "missing_open_days": int(row[1] or 0),
+            }
 
     def get_minute_range(self, code: str, start_time: datetime, end_time: datetime) -> list[StockMinute]:
         canonical = self._canonical_code(code)
@@ -267,7 +341,10 @@ class StockRepository:
             StockDaily,
             records,
             "uix_stock_daily_symbol_date",
-            ("open", "high", "low", "close", "volume", "amount", "data_source", "source_priority", "updated_at"),
+            (
+                "open", "high", "low", "close", "volume", "amount", "limit_up", "limit_down", "suspended",
+                "data_source", "source_priority", "updated_at",
+            ),
         )
 
     def upsert_minute(self, symbol_id: int, bars: Sequence[dict[str, Any]], source: str, priority: int) -> UpsertStats:
@@ -283,7 +360,9 @@ class StockRepository:
         )
 
     @staticmethod
-    def _daily_records(symbol_id: int, bars: Sequence[dict[str, Any]], source: str, priority: int) -> list[dict[str, Any]]:
+    def _daily_records(
+        symbol_id: int, bars: Sequence[dict[str, Any]], source: str, priority: int
+    ) -> list[dict[str, Any]]:
         now = utc_now()
         return [
             {
@@ -291,6 +370,8 @@ class StockRepository:
                 "date": row["date"],
                 "open": row["open"], "high": row["high"], "low": row["low"], "close": row["close"],
                 "volume": row["volume"], "amount": row.get("amount"),
+                "limit_up": row.get("limit_up"), "limit_down": row.get("limit_down"),
+                "suspended": bool(row.get("suspended", False)),
                 "data_source": source, "source_priority": priority,
                 "created_at": now, "updated_at": now,
             }
@@ -298,7 +379,9 @@ class StockRepository:
         ]
 
     @staticmethod
-    def _minute_records(symbol_id: int, bars: Sequence[dict[str, Any]], source: str, priority: int) -> list[dict[str, Any]]:
+    def _minute_records(
+        symbol_id: int, bars: Sequence[dict[str, Any]], source: str, priority: int
+    ) -> list[dict[str, Any]]:
         now = utc_now()
         return [
             {
@@ -312,7 +395,9 @@ class StockRepository:
             for row in bars
         ]
 
-    def _upsert(self, model, records: list[dict[str, Any]], constraint: str, update_columns: tuple[str, ...]) -> UpsertStats:
+    def _upsert(
+        self, model, records: list[dict[str, Any]], constraint: str, update_columns: tuple[str, ...]
+    ) -> UpsertStats:
         if not records:
             return UpsertStats()
         # PostgreSQL performs the priority comparison atomically in the conflict
