@@ -110,9 +110,13 @@ class TestStorage(unittest.TestCase):
         db_url = os.environ.get("DATABASE_URL", "").strip()
         self.assertTrue(db_url, "DATABASE_URL must be set for storage tests")
         db = DatabaseManager(db_url=db_url)
-        code = f"T{uuid.uuid4().hex[:6].upper()}"
-        with db._engine.begin() as conn:
-            conn.execute(text("DELETE FROM stock_daily WHERE code = :c"), {"c": code})
+        from finance_analysis.database.repositories.stock import MarketDataSymbolRepository, StockRepository
+
+        code = f"T{uuid.uuid4().hex[:6].upper()}.US"
+        symbols = MarketDataSymbolRepository(db)
+        symbols.upsert_symbols([{"market": "US", "code": code, "name": code}])
+        symbol = symbols.get_by_code(code)
+        repository = StockRepository(db)
 
         results = []
         results_lock = threading.Lock()
@@ -120,30 +124,12 @@ class TestStorage(unittest.TestCase):
 
         def worker() -> None:
             start_barrier.wait()
-            count = db.save_daily_data(
-                pd.DataFrame(
-                    [
-                        {
-                            'date': date(2026, 4, 1),
-                            'open': 10,
-                            'high': 11,
-                            'low': 9,
-                            'close': 10.5,
-                            'volume': 100,
-                            'amount': 1050,
-                            'pct_chg': 1.2,
-                            'ma5': 10.1,
-                            'ma10': 10.2,
-                            'ma20': 10.3,
-                            'volume_ratio': 1.0,
-                        }
-                    ]
-                ),
-                code=code,
-                data_source='test',
-            )
+            stats = repository.upsert_daily(symbol.id, [{
+                'date': date(2026, 4, 1), 'open': 10, 'high': 11, 'low': 9,
+                'close': 10.5, 'volume': 100, 'amount': 1050,
+            }], 'test', 10)
             with results_lock:
-                results.append(count)
+                results.append(stats.inserted_rows)
 
         threads = [threading.Thread(target=worker) for _ in range(2)]
         for thread in threads:
@@ -158,7 +144,7 @@ class TestStorage(unittest.TestCase):
                 total = session.execute(
                     select(func.count()).select_from(StockDaily).where(
                         and_(
-                            StockDaily.code == code,
+                            StockDaily.symbol_id == symbol.id,
                             StockDaily.date == date(2026, 4, 1),
                         )
                     )
@@ -167,7 +153,7 @@ class TestStorage(unittest.TestCase):
             self.assertEqual(total, 1)
         finally:
             with db._engine.begin() as conn:
-                conn.execute(text("DELETE FROM stock_daily WHERE code = :c"), {"c": code})
+                conn.execute(text("DELETE FROM market_data_symbol WHERE id = :id"), {"id": symbol.id})
             DatabaseManager.reset_instance()
 
 if __name__ == '__main__':

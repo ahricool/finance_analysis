@@ -90,7 +90,7 @@ class PipelineRelatedBoardsTestCase(unittest.TestCase):
         self.assertEqual(enriched["belong_boards"], [])
         pipeline.fetcher_manager.get_belong_boards.assert_not_called()
 
-    def test_attach_belong_boards_uses_normalized_a_share_code_when_market_missing(self) -> None:
+    def test_attach_belong_boards_uses_canonical_a_share_code_when_market_missing(self) -> None:
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         pipeline.fetcher_manager = MagicMock()
         pipeline.fetcher_manager.get_belong_boards.return_value = [{"name": "白酒"}]
@@ -101,10 +101,10 @@ class PipelineRelatedBoardsTestCase(unittest.TestCase):
             "boards": {"status": "ok", "data": {"top": [], "bottom": []}},
         }
 
-        enriched = pipeline._attach_belong_boards_to_fundamental_context("SH600519", context)
+        enriched = pipeline._attach_belong_boards_to_fundamental_context("600519.SH", context)
 
         self.assertEqual(enriched["belong_boards"], [{"name": "白酒"}])
-        pipeline.fetcher_manager.get_belong_boards.assert_called_once_with("SH600519")
+        pipeline.fetcher_manager.get_belong_boards.assert_called_once_with("600519.SH")
 
 if __name__ == "__main__":
     unittest.main()

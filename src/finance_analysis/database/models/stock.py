@@ -1,85 +1,204 @@
 # -*- coding: utf-8 -*-
-"""Stock market ORM models."""
+"""Canonical market-data symbols and raw OHLCV ORM models."""
+
+from __future__ import annotations
 
 from typing import Any, Dict
 
-from sqlalchemy import CheckConstraint, Column, Date, DateTime, Float, Index, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    event,
+)
+from sqlalchemy.orm import relationship
 
-from finance_analysis.database.base import Base
 from finance_analysis.core.time import utc_now
+from finance_analysis.database.base import Base
+
+SUPPORTED_MARKETS = ("US", "HK", "CN")
+
+
+def validate_market_data_code(market: str, code: str) -> str:
+    """Validate and return the canonical ``ticker.region`` security code."""
+    normalized_market = str(market or "").strip().upper()
+    normalized_code = str(code or "").strip().upper()
+    if normalized_market not in SUPPORTED_MARKETS:
+        raise ValueError(f"Unsupported market {market!r}; expected US, HK, or CN")
+    suffixes = {"US": (".US",), "HK": (".HK",), "CN": (".SH", ".SZ")}[normalized_market]
+    if not normalized_code.endswith(suffixes) or normalized_code.startswith("."):
+        expected = "/".join(suffixes)
+        raise ValueError(f"Invalid canonical code {code!r} for market={normalized_market}; expected suffix {expected}")
+    base = normalized_code.rsplit(".", 1)[0]
+    if normalized_market == "HK" and (not base.isdigit() or base.startswith("0")):
+        raise ValueError(f"Invalid canonical HK code {code!r}; use an unpadded code such as 700.HK")
+    if normalized_market == "CN" and (not base.isdigit() or len(base) != 6):
+        raise ValueError(f"Invalid canonical CN code {code!r}; expected six digits plus .SH/.SZ")
+    return normalized_code
+
+
+class MarketDataSymbol(Base):
+    """Runtime configuration and canonical identity for one security."""
+
+    __tablename__ = "market_data_symbol"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    market = Column(String(8), nullable=False, index=True)
+    code = Column(String(32), nullable=False)
+    name = Column(String(255), nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    sync_daily = Column(Boolean, nullable=False, default=True)
+    sync_minute = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+    daily_bars = relationship("StockDaily", back_populates="symbol", cascade="all, delete-orphan")
+    minute_bars = relationship("StockMinute", back_populates="symbol", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("code", name="uix_market_data_symbol_code"),
+        UniqueConstraint("market", "code", name="uix_market_data_symbol_market_code"),
+        CheckConstraint("market IN ('US', 'HK', 'CN')", name="ck_market_data_symbol_market"),
+        CheckConstraint(
+            "(market = 'US' AND code LIKE '%.US') OR "
+            "(market = 'HK' AND code ~ '^[1-9][0-9]*\\.HK$') OR "
+            "(market = 'CN' AND code ~ '^[0-9]{6}\\.(SH|SZ)$')",
+            name="ck_market_data_symbol_code_suffix",
+        ),
+        Index("ix_market_data_symbol_sync", "market", "enabled", "sync_daily", "sync_minute"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<MarketDataSymbol(market={self.market}, code={self.code})>"
+
+
+@event.listens_for(MarketDataSymbol, "before_insert")
+@event.listens_for(MarketDataSymbol, "before_update")
+def _validate_symbol(_mapper: Any, _connection: Any, target: MarketDataSymbol) -> None:
+    target.market = str(target.market or "").strip().upper()
+    target.code = validate_market_data_code(target.market, target.code)
 
 
 class StockDaily(Base):
-    """
-    股票日线数据模型
+    """Unadjusted raw daily OHLCV. Derived indicators are never persisted."""
 
-    存储每日行情数据和计算的技术指标
-    支持多股票、多日期的唯一约束
-    """
-    __tablename__ = 'stock_daily'
+    __tablename__ = "stock_daily"
 
-    # 主键
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
+    date = Column(Date, nullable=False)
+    open = Column(Float, nullable=False)
+    high = Column(Float, nullable=False)
+    low = Column(Float, nullable=False)
+    close = Column(Float, nullable=False)
+    volume = Column(Float, nullable=False)
+    amount = Column(Float, nullable=True)
+    data_source = Column(String(50), nullable=False)
+    source_priority = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
-    # 股票代码（如 600519, AAPL, HK00700）
-    code = Column(String(16), nullable=False, index=True)
+    symbol = relationship("MarketDataSymbol", back_populates="daily_bars", lazy="joined")
 
-    # 市场类型：CN / US / HK
-    market = Column(String(8), nullable=False, default="CN", index=True)
-
-    # 交易日期
-    date = Column(Date, nullable=False, index=True)
-
-    # OHLC 数据
-    open = Column(Float)
-    high = Column(Float)
-    low = Column(Float)
-    close = Column(Float)
-
-    # 成交数据
-    volume = Column(Float)  # 成交量（股）
-    amount = Column(Float)  # 成交额（元）
-    pct_chg = Column(Float)  # 涨跌幅（%）
-
-    # 技术指标
-    ma5 = Column(Float)
-    ma10 = Column(Float)
-    ma20 = Column(Float)
-    volume_ratio = Column(Float)  # 量比
-
-    # 数据来源
-    data_source = Column(String(50))  # 记录数据来源（如 AkshareFetcher）
-
-    # 更新时间
-    created_at = Column(DateTime(timezone=True), default=utc_now)
-    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
-
-    # 唯一约束：同一市场、同一股票、同一日期只能有一条数据
     __table_args__ = (
-        UniqueConstraint('market', 'code', 'date', name='uix_stock_daily_market_code_date'),
-        CheckConstraint("market IN ('CN', 'US', 'HK')", name='ck_stock_daily_market'),
-        Index('ix_stock_daily_market_code_date', 'market', 'code', 'date'),
+        UniqueConstraint("symbol_id", "date", name="uix_stock_daily_symbol_date"),
+        CheckConstraint("volume >= 0", name="ck_stock_daily_volume_nonnegative"),
+        CheckConstraint("amount IS NULL OR amount >= 0", name="ck_stock_daily_amount_nonnegative"),
+        Index("ix_stock_daily_symbol_date", "symbol_id", "date"),
     )
 
-    def __repr__(self):
-        return f"<StockDaily(market={self.market}, code={self.code}, date={self.date}, close={self.close})>"
+    @property
+    def code(self) -> str:
+        return self.symbol.code
+
+    @property
+    def market(self) -> str:
+        return self.symbol.market
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
         return {
-            'code': self.code,
-            'market': self.market,
-            'date': self.date,
-            'open': self.open,
-            'high': self.high,
-            'low': self.low,
-            'close': self.close,
-            'volume': self.volume,
-            'amount': self.amount,
-            'pct_chg': self.pct_chg,
-            'ma5': self.ma5,
-            'ma10': self.ma10,
-            'ma20': self.ma20,
-            'volume_ratio': self.volume_ratio,
-            'data_source': self.data_source,
+            "code": self.code,
+            "market": self.market,
+            "date": self.date,
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "volume": self.volume,
+            "amount": self.amount,
+            "data_source": self.data_source,
+            "source_priority": self.source_priority,
         }
+
+
+class StockMinute(Base):
+    """Unadjusted raw one-minute OHLCV; ``bar_time`` is the UTC bar start."""
+
+    __tablename__ = "stock_minute"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
+    bar_time = Column(DateTime(timezone=True), nullable=False)
+    open = Column(Float, nullable=False)
+    high = Column(Float, nullable=False)
+    low = Column(Float, nullable=False)
+    close = Column(Float, nullable=False)
+    volume = Column(Float, nullable=False)
+    amount = Column(Float, nullable=True)
+    session_type = Column(String(16), nullable=False, default="regular")
+    data_source = Column(String(50), nullable=False)
+    source_priority = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+    symbol = relationship("MarketDataSymbol", back_populates="minute_bars", lazy="joined")
+
+    __table_args__ = (
+        UniqueConstraint("symbol_id", "bar_time", name="uix_stock_minute_symbol_time"),
+        CheckConstraint("volume >= 0", name="ck_stock_minute_volume_nonnegative"),
+        CheckConstraint("amount IS NULL OR amount >= 0", name="ck_stock_minute_amount_nonnegative"),
+        CheckConstraint("session_type = 'regular'", name="ck_stock_minute_regular_session"),
+        Index("ix_stock_minute_symbol_time", "symbol_id", "bar_time"),
+    )
+
+    @property
+    def code(self) -> str:
+        return self.symbol.code
+
+    @property
+    def market(self) -> str:
+        return self.symbol.market
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "code": self.code,
+            "market": self.market,
+            "bar_time": self.bar_time,
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "volume": self.volume,
+            "amount": self.amount,
+            "session_type": self.session_type,
+            "data_source": self.data_source,
+            "source_priority": self.source_priority,
+        }
+
+
+__all__ = [
+    "MarketDataSymbol",
+    "StockDaily",
+    "StockMinute",
+    "SUPPORTED_MARKETS",
+    "validate_market_data_code",
+]

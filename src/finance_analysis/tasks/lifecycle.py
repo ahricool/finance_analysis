@@ -230,6 +230,19 @@ class TaskLifecycleService:
             ),
         )
 
+    def claim_active_dedupe_key(self, *, task_id: str, dedupe_key: str) -> bool:
+        if (
+            self.repository is None
+            and os.getenv("PYTEST_CURRENT_TEST")
+            and not os.getenv("FINANCE_TASK_RECORD_DB_TEST")
+        ):
+            return True
+        try:
+            return self._get_repository().claim_active_dedupe_key(task_id, dedupe_key)
+        except Exception:
+            logger.warning("Task lifecycle DB write failed while claiming dedupe key", exc_info=True)
+            raise
+
     def mark_progress(self, *, task_id: str, progress: int, message: Optional[str] = None) -> None:
         self._safe_write(
             "update task progress",
@@ -446,6 +459,7 @@ def track_task(
     record_result: bool = True,
     success_message: Optional[str] = None,
     strip_lifecycle_kwargs: bool = False,
+    dedupe_key: Optional[str] = None,
 ) -> Callable[[F], F]:
     """Decorate task functions with persistent lifecycle tracking and task log context."""
 
@@ -481,6 +495,15 @@ def track_task(
                     task_log=task_log,
                     retry_count=retry_count,
                 )
+                if dedupe_key and not service.claim_active_dedupe_key(task_id=task_id, dedupe_key=dedupe_key):
+                    service.mark_skipped(
+                        task_id=task_id,
+                        metadata=metadata,
+                        message=f"已有运行中的同类任务: {dedupe_key}",
+                        result={"sync_status": "skipped", "dedupe_key": dedupe_key},
+                    )
+                    CURRENT_TASK_ID.reset(token)
+                    return None
                 try:
                     call_kwargs = _strip_lifecycle_kwargs(kwargs) if strip_lifecycle_kwargs else kwargs
                     result = func(*args, **call_kwargs)

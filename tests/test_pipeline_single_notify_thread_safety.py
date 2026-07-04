@@ -100,7 +100,7 @@ class TestPipelineSingleNotifyThreadSafety(unittest.TestCase):
 
         threads = [
             threading.Thread(target=_worker, args=(code,), name=f"notify-{code}")
-            for code in ("000001", "600519")
+            for code in ("000001.SZ", "600519.SH")
         ]
 
         for thread in threads:
@@ -116,10 +116,10 @@ class TestPipelineSingleNotifyThreadSafety(unittest.TestCase):
         self.assertCountEqual(
             [(stage, code) for stage, code, _ in pipeline.notifier.calls],
             [
-                ("generate", "000001"),
-                ("send", "000001"),
-                ("generate", "600519"),
-                ("send", "600519"),
+                ("generate", "000001.SZ"),
+                ("send", "000001.SZ"),
+                ("generate", "600519.SH"),
+                ("send", "600519.SH"),
             ],
         )
 

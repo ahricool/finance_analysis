@@ -132,11 +132,11 @@ class TestPipelineSingleStockNotify(unittest.TestCase):
     def test_process_single_stock_direct_path_keeps_notify_compatibility(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         pipeline.fetch_and_save_stock_data = MagicMock(return_value=(True, None))
-        pipeline.analyze_stock = MagicMock(return_value=_make_result("600519"))
+        pipeline.analyze_stock = MagicMock(return_value=_make_result("600519.SH"))
         pipeline.notifier = _TrackingNotifier()
 
         result = pipeline.process_single_stock(
-            code="600519",
+            code="600519.SH",
             skip_analysis=False,
             single_stock_notify=True,
             report_type=ReportType.BRIEF,
@@ -146,22 +146,22 @@ class TestPipelineSingleStockNotify(unittest.TestCase):
         self.assertIsNotNone(result)
         pipeline.notifier.generate_brief_report.assert_called_once_with([result])
         pipeline.notifier.send.assert_called_once_with(
-            "brief:600519",
-            email_stock_codes=["600519"],
+            "brief:600519.SH",
+            email_stock_codes=["600519.SH"],
             route_type="report",
             severity="info",
-            dedup_key="report:single:600519:brief",
-            cooldown_key="report:single:600519:brief",
+            dedup_key="report:single:600519.SH:brief",
+            cooldown_key="report:single:600519.SH:brief",
         )
 
     def test_process_single_stock_direct_path_does_not_notify_when_failed(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         pipeline.fetch_and_save_stock_data = MagicMock(return_value=(True, None))
-        pipeline.analyze_stock = MagicMock(return_value=_make_result("600519", success=False))
+        pipeline.analyze_stock = MagicMock(return_value=_make_result("600519.SH", success=False))
         pipeline.notifier = _TrackingNotifier()
 
         result = pipeline.process_single_stock(
-            code="600519",
+            code="600519.SH",
             skip_analysis=False,
             single_stock_notify=True,
             report_type=ReportType.BRIEF,

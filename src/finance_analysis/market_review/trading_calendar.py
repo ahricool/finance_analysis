@@ -13,7 +13,7 @@
 """
 
 import logging
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Optional, Set
 from zoneinfo import ZoneInfo
 
@@ -52,14 +52,11 @@ def get_market_for_stock(code: str) -> Optional[str]:
         return None
     code = (code or "").strip().upper()
 
-    from finance_analysis.integrations.market_data import is_us_stock_code, is_us_index_code, is_hk_stock_code
-
-    if is_us_stock_code(code) or is_us_index_code(code):
+    if code.endswith(".US") and len(code) > 3:
         return "us"
-    if is_hk_stock_code(code):
+    if code.endswith(".HK") and code[:-3].isdigit() and not code.startswith("0"):
         return "hk"
-    # A-share: 6-digit numeric
-    if code.isdigit() and len(code) == 6:
+    if code.endswith((".SH", ".SZ")) and code[:-3].isdigit() and len(code[:-3]) == 6:
         return "cn"
     return None
 
@@ -188,7 +185,6 @@ def get_market_session_close(
     ex = MARKET_EXCHANGE.get(market or "")
     if not ex or not tz_name:
         return fallback_close
-
     try:
         cal = xcals.get_calendar(ex)
         if not cal.is_session(check_date):
@@ -204,6 +200,66 @@ def get_market_session_close(
         logger.warning("trading_calendar.get_market_session_close fallback: %s", e)
         return fallback_close
 
+
+def get_market_session_bounds(market: str, check_date: date) -> tuple[datetime, datetime]:
+    """Return real regular-session open/close in the market timezone."""
+    tz_name = MARKET_TIMEZONE.get(market)
+    if not tz_name:
+        raise ValueError(f"Unsupported market calendar: {market}")
+    tz = ZoneInfo(tz_name)
+    fallback = (
+        datetime.combine(check_date, time(9, 30), tzinfo=tz),
+        datetime.combine(check_date, time(16, 0), tzinfo=tz),
+    )
+    if not _XCALS_AVAILABLE:
+        return fallback
+    cal = xcals.get_calendar(MARKET_EXCHANGE[market])
+    if not cal.is_session(check_date):
+        raise ValueError(f"{check_date} is not a {market} trading session")
+    session = cal.date_to_session(check_date, direction="none")
+    return (
+        cal.session_open(session).tz_convert(tz_name).to_pydatetime(),
+        cal.session_close(session).tz_convert(tz_name).to_pydatetime(),
+    )
+
+
+def get_trading_days_between(market: str, start_date: date, end_date: date) -> list[date]:
+    """Return exchange-calendar sessions inclusively; never synthesize weekends."""
+    if start_date > end_date:
+        return []
+    if not _XCALS_AVAILABLE:
+        return [
+            start_date + timedelta(days=offset)
+            for offset in range((end_date - start_date).days + 1)
+            if (start_date + timedelta(days=offset)).weekday() < 5
+        ]
+    cal = xcals.get_calendar(MARKET_EXCHANGE[market])
+    return [stamp.date() for stamp in cal.sessions_in_range(start_date, end_date)]
+
+
+def get_completed_trading_days(
+    market: str,
+    count: int,
+    current_time: Optional[datetime] = None,
+) -> list[date]:
+    """Return the latest ``count`` completed sessions, oldest first."""
+    if count <= 0:
+        return []
+    end = get_effective_trading_date(market, current_time=current_time)
+    if not _XCALS_AVAILABLE:
+        days: list[date] = []
+        cursor = end
+        while len(days) < count:
+            if cursor.weekday() < 5:
+                days.append(cursor)
+            cursor -= timedelta(days=1)
+        return sorted(days)
+    cal = xcals.get_calendar(MARKET_EXCHANGE[market])
+    session = cal.date_to_session(end, direction="previous")
+    if count == 1:
+        return [session.date()]
+    sessions = cal.sessions_window(session, -count)
+    return [stamp.date() for stamp in sessions]
 
 def is_market_session_closed(
     market: str,
