@@ -17,6 +17,10 @@ TASK_PACKAGES = (
     "finance_analysis.tasks.celery.jobs.signal_evaluation_cn",
     "finance_analysis.tasks.celery.jobs.signal_evaluation_us",
     "finance_analysis.tasks.celery.jobs.backtest",
+    "finance_analysis.tasks.celery.jobs.quant_dataset",
+    "finance_analysis.tasks.celery.jobs.quant_training",
+    "finance_analysis.tasks.celery.jobs.quant_daily",
+    "finance_analysis.tasks.celery.jobs.quant_scheduled_training",
 )
 TASK_MODULES = tuple(f"{package}.tasks" for package in TASK_PACKAGES)
 

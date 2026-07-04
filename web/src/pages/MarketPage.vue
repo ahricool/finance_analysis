@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Activity, FlaskConical, Star, Wallet } from 'lucide-vue-next';
+import { Activity, FlaskConical, Sigma, Star, Wallet } from 'lucide-vue-next';
 import { computed } from 'vue';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 
-type MarketTab = 'watch-list' | 'holdings' | 'signals' | 'backtests';
+type MarketTab = 'watch-list' | 'holdings' | 'signals' | 'backtests' | 'quant';
 
 const route = useRoute();
 const navItems = [
@@ -11,10 +11,19 @@ const navItems = [
   { key: 'holdings' as const, label: '持仓股', icon: Wallet, to: '/market/holdings' },
   { key: 'signals' as const, label: '信号评估', icon: Activity, to: '/market/signals' },
   { key: 'backtests' as const, label: '策略回测', icon: FlaskConical, to: '/market/backtests' },
+  { key: 'quant' as const, label: '量化研究', icon: Sigma, to: '/market/quant' },
+];
+const quantNavItems = [
+  { label: '总览', to: '/market/quant' },
+  { label: '模型选股', to: '/market/quant/signals' },
+  { label: '模型运行', to: '/market/quant/models' },
+  { label: '事件', to: '/market/quant/events' },
+  { label: '组合建议', to: '/market/quant/portfolios' },
 ];
 
 const activeTab = computed<MarketTab>(() => {
   if (route.path.startsWith('/market/backtests')) return 'backtests';
+  if (route.path.startsWith('/market/quant')) return 'quant';
   if (route.path.endsWith('/holdings')) return 'holdings';
   if (route.path.endsWith('/signals')) return 'signals';
   return 'watch-list';
@@ -42,7 +51,7 @@ function navClass(key: MarketTab): string[] {
     </header>
 
     <nav
-      class="grid grid-cols-4 gap-1 overflow-x-auto rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm lg:hidden"
+      class="grid grid-cols-5 gap-1 overflow-x-auto rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm lg:hidden"
       aria-label="市场页面导航"
       data-testid="market-mobile-nav"
     >
@@ -80,6 +89,17 @@ function navClass(key: MarketTab): string[] {
       </aside>
 
       <section class="min-w-0">
+        <nav v-if="activeTab === 'quant'" class="mb-4 flex gap-2 overflow-x-auto" aria-label="量化研究导航">
+          <RouterLink
+            v-for="item in quantNavItems"
+            :key="item.to"
+            :to="item.to"
+            class="whitespace-nowrap rounded-lg px-3 py-2 text-xs text-secondary-text hover:bg-hover"
+            :class="route.path === item.to || (item.to !== '/market/quant' && route.path.startsWith(`${item.to}/`)) ? 'bg-primary/12 text-primary' : ''"
+          >
+            {{ item.label }}
+          </RouterLink>
+        </nav>
         <RouterView />
       </section>
     </div>

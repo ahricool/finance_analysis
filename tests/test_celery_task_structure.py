@@ -27,6 +27,10 @@ EXPECTED_CUSTOM_TASKS = {
     "scheduled.signal_evaluation_cn",
     "scheduled.signal_evaluation_us",
     "backtest.run",
+    "quant.dataset.build",
+    "quant.model.train",
+    "scheduled.quant_daily_pipeline_us",
+    "scheduled.quant_model_training_us",
 }
 
 
@@ -35,7 +39,7 @@ def _custom_registered_tasks() -> set[str]:
     return {
         name
         for name in celery_app.tasks
-        if name.startswith(("demo.", "analysis.", "scheduled.", "backtest."))
+        if name.startswith(("demo.", "analysis.", "scheduled.", "backtest.", "quant."))
     }
 
 
@@ -45,8 +49,8 @@ def test_worker_registers_exactly_the_expected_custom_tasks():
 
 
 def test_each_task_package_has_one_explicit_tasks_module_and_one_task():
-    assert len(TASK_PACKAGES) == 15
-    assert len(TASK_MODULES) == 15
+    assert len(TASK_PACKAGES) == 19
+    assert len(TASK_MODULES) == 19
     for package, module_name in zip(TASK_PACKAGES, TASK_MODULES):
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)
@@ -60,7 +64,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 15
+    assert len(celery_names) == len(set(celery_names)) == 19
     assert len(job_ids) == len(set(job_ids))
 
 

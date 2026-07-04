@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -18,6 +20,7 @@ from .constants import (
     EXPIRES_PREMARKET,
     EXPIRES_SIGNAL_EVALUATION,
     EXPIRES_MARKET_DATA_SYNC,
+    EXPIRES_QUANT,
     JOB_A_SHARE_INTRADAY_ANALYSIS,
     JOB_DAILY_ANALYSIS,
     JOB_MARKET_CALENDAR,
@@ -28,6 +31,8 @@ from .constants import (
     JOB_US_MARKET_DATA_SYNC,
     JOB_US_PREMARKET_ANALYSIS,
     JOB_US_PREMARKET_NEWS,
+    JOB_QUANT_DAILY_PIPELINE_US,
+    JOB_QUANT_MODEL_TRAINING_US,
     QUEUE_ALERTS,
     QUEUE_ANALYSIS,
     QUEUE_INGESTION,
@@ -167,6 +172,33 @@ SCHEDULED_TASK_DEFINITIONS = (
         timezone=US_TIMEZONE,
         queue=QUEUE_INGESTION,
         expires=EXPIRES_MARKET_DATA_SYNC,
+        allow_manual_run=True,
+    ),
+    ScheduledTaskDefinition(
+        job_id=JOB_QUANT_DAILY_PIPELINE_US,
+        name="美股量化日频流水线",
+        description="在日线同步后计算市场、排名、融合信号和组合建议",
+        task_type="scheduled_quant_daily_us",
+        celery_task_name=celery_task_name(JOB_QUANT_DAILY_PIPELINE_US),
+        schedules=(CronSchedule(minute="0", hour="19", day_of_week="mon-fri", timezone=US_TIMEZONE),),
+        schedule_text="周一至周五 19:00 America/New_York",
+        timezone=US_TIMEZONE,
+        queue=QUEUE_ANALYSIS,
+        expires=EXPIRES_QUANT,
+        allow_manual_run=True,
+    ),
+    ScheduledTaskDefinition(
+        job_id=JOB_QUANT_MODEL_TRAINING_US,
+        name="美股量化模型训练",
+        description="使用已就绪数据集运行 Qlib walk-forward 训练；不会自动发布",
+        task_type="scheduled_quant_training_us",
+        celery_task_name=celery_task_name(JOB_QUANT_MODEL_TRAINING_US),
+        schedules=(CronSchedule(minute="0", hour="10", day_of_week="sun", timezone=US_TIMEZONE),),
+        schedule_text="周日 10:00 America/New_York（默认关闭）",
+        timezone=US_TIMEZONE,
+        queue=QUEUE_ANALYSIS,
+        expires=EXPIRES_QUANT,
+        enabled=os.getenv("QUANT_TRAINING_SCHEDULE_ENABLED", "false").lower() in {"1", "true", "yes"},
         allow_manual_run=True,
     ),
     ScheduledTaskDefinition(

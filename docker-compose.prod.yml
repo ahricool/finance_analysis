@@ -51,6 +51,8 @@ services:
       TZ: Asia/Shanghai
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+      QLIB_WORKER_URL: http://qlib-worker:8010
+      QUANT_ARTIFACT_ROOT: /workspace/data/quant
     expose:
       - "8000"
     volumes:
@@ -93,6 +95,8 @@ services:
       TZ: Asia/Shanghai
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+      QLIB_WORKER_URL: http://qlib-worker:8010
+      QUANT_ARTIFACT_ROOT: /workspace/data/quant
     volumes:
       - ./data:/workspace/data
       - ./.env:/workspace/.env:ro
@@ -123,6 +127,25 @@ services:
       - ./data:/workspace/data
       - ./.env:/workspace/.env:ro
       - ./strategies:/workspace/strategies:ro
+
+  qlib-worker:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: qlib_worker/Dockerfile
+    container_name: finance-analysis-qlib-worker
+    restart: unless-stopped
+    environment:
+      QUANT_ARTIFACT_ROOT: /workspace/data/quant
+    volumes:
+      - ./data:/workspace/data
+    expose:
+      - "8010"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
 
   streamer:
     image: ghcr.io/ahricool/finance_analysis:latest
