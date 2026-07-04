@@ -58,6 +58,7 @@ class MarketDataSymbol(Base):
     enabled = Column(Boolean, nullable=False, default=True)
     sync_daily = Column(Boolean, nullable=False, default=True)
     sync_minute = Column(Boolean, nullable=False, default=True)
+    lot_size = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
@@ -68,6 +69,7 @@ class MarketDataSymbol(Base):
         UniqueConstraint("code", name="uix_market_data_symbol_code"),
         UniqueConstraint("market", "code", name="uix_market_data_symbol_market_code"),
         CheckConstraint("market IN ('US', 'HK', 'CN')", name="ck_market_data_symbol_market"),
+        CheckConstraint("lot_size IS NULL OR lot_size > 0", name="ck_market_data_symbol_lot_size"),
         CheckConstraint(
             "(market = 'US' AND code LIKE '%.US') OR "
             "(market = 'HK' AND code ~ '^[1-9][0-9]*\\.HK$') OR "
@@ -102,6 +104,9 @@ class StockDaily(Base):
     close = Column(Float, nullable=False)
     volume = Column(Float, nullable=False)
     amount = Column(Float, nullable=True)
+    limit_up = Column(Float, nullable=True)
+    limit_down = Column(Float, nullable=True)
+    suspended = Column(Boolean, nullable=False, default=False)
     data_source = Column(String(50), nullable=False)
     source_priority = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
@@ -135,6 +140,9 @@ class StockDaily(Base):
             "close": self.close,
             "volume": self.volume,
             "amount": self.amount,
+            "limit_up": self.limit_up,
+            "limit_down": self.limit_down,
+            "suspended": self.suspended,
             "data_source": self.data_source,
             "source_priority": self.source_priority,
         }

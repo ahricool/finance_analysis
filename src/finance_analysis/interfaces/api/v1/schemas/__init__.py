@@ -69,3 +69,4 @@ __all__ = [
     "StockHistoryResponse",
     "KLineData",
 ]
+"""API v1 schemas."""

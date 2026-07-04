@@ -16,6 +16,8 @@ const MarketPage = () => import('@/pages/MarketPage.vue');
 const MarketWatchListPage = () => import('@/pages/WatchListPage.vue');
 const MarketHoldingsPage = () => import('@/pages/StockListPage.vue');
 const SignalEvaluationPage = () => import('@/pages/market/SignalEvaluationPage.vue');
+const BacktestPage = () => import('@/pages/market/BacktestPage.vue');
+const BacktestDetailPage = () => import('@/pages/market/BacktestDetailPage.vue');
 const LoginPage = () => import('@/pages/LoginPage.vue');
 const CalendarPage = () => import('@/pages/CalendarPage.vue');
 const ProfilePage = () => import('@/pages/ProfilePage.vue');
@@ -53,6 +55,18 @@ const router = createRouter({
               name: 'market-signals',
               component: SignalEvaluationPage,
               meta: { title: '信号评估' },
+            },
+            {
+              path: 'backtests',
+              name: 'market-backtests',
+              component: BacktestPage,
+              meta: { title: '策略回测' },
+            },
+            {
+              path: 'backtests/:runId',
+              name: 'market-backtest-detail',
+              component: BacktestDetailPage,
+              meta: { title: '回测详情' },
             },
           ],
         },

@@ -1,18 +1,20 @@
 <script setup lang="ts">
-import { Activity, Star, Wallet } from 'lucide-vue-next';
+import { Activity, FlaskConical, Star, Wallet } from 'lucide-vue-next';
 import { computed } from 'vue';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 
-type MarketTab = 'watch-list' | 'holdings' | 'signals';
+type MarketTab = 'watch-list' | 'holdings' | 'signals' | 'backtests';
 
 const route = useRoute();
 const navItems = [
   { key: 'watch-list' as const, label: '自选股', icon: Star, to: '/market/watch-list' },
   { key: 'holdings' as const, label: '持仓股', icon: Wallet, to: '/market/holdings' },
   { key: 'signals' as const, label: '信号评估', icon: Activity, to: '/market/signals' },
+  { key: 'backtests' as const, label: '策略回测', icon: FlaskConical, to: '/market/backtests' },
 ];
 
 const activeTab = computed<MarketTab>(() => {
+  if (route.path.startsWith('/market/backtests')) return 'backtests';
   if (route.path.endsWith('/holdings')) return 'holdings';
   if (route.path.endsWith('/signals')) return 'signals';
   return 'watch-list';
@@ -35,12 +37,12 @@ function navClass(key: MarketTab): string[] {
         市场
       </h1>
       <p class="text-sm text-muted-text">
-        管理自选股、持仓股并查看历史信号表现。
+        管理自选股、持仓股，查看历史信号并执行策略回测。
       </p>
     </header>
 
     <nav
-      class="grid grid-cols-3 gap-1 overflow-x-auto rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm lg:hidden"
+      class="grid grid-cols-4 gap-1 overflow-x-auto rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm lg:hidden"
       aria-label="市场页面导航"
       data-testid="market-mobile-nav"
     >

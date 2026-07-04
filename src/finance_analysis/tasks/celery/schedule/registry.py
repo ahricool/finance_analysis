@@ -57,10 +57,12 @@ def build_beat_schedule() -> dict[str, dict[str, Any]]:
 
 
 def build_task_routes() -> dict[str, dict[str, str]]:
-    return {
+    routes = {
         definition.celery_task_name: {"queue": definition.queue}
         for definition in SCHEDULED_TASK_DEFINITIONS
     }
+    routes["backtest.run"] = {"queue": "analysis"}
+    return routes
 
 
 def get_task_queues() -> tuple[str, ...]:

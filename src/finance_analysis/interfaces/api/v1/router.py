@@ -15,6 +15,7 @@ from finance_analysis.interfaces.api.v1.endpoints import (
     agent,
     analysis,
     auth,
+    backtests,
     calendar,
     celery_demo,
     history,
@@ -46,6 +47,12 @@ router.include_router(
     analysis.router,
     prefix="/analysis",
     tags=["Analysis"]
+)
+
+router.include_router(
+    backtests.router,
+    prefix="/backtests",
+    tags=["Backtests"],
 )
 
 router.include_router(
