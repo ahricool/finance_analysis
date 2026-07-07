@@ -28,6 +28,8 @@ EXPECTED_JOBS = {
     "analysis_a_share_intraday": ("scheduled_a_share_intraday", "Asia/Shanghai"),
     "signal_evaluation_cn": ("scheduled_signal_evaluation_cn", "Asia/Shanghai"),
     "signal_evaluation_us": ("scheduled_signal_evaluation_us", "America/New_York"),
+    "quant_daily_pipeline_us": ("scheduled_quant_daily_us", "America/New_York"),
+    "quant_model_training_us": ("scheduled_quant_training_us", "America/New_York"),
 }
 
 
@@ -46,7 +48,9 @@ def test_all_original_jobs_enter_beat_schedule():
     schedule = build_beat_schedule()
     task_names = {entry["task"] for entry in schedule.values()}
     for job_id in EXPECTED_JOBS:
-        assert celery_task_name(job_id) in task_names
+        definition = get_scheduled_task_definition(job_id)
+        if definition.enabled:
+            assert celery_task_name(job_id) in task_names
     a_share_entries = [k for k in schedule if k.startswith("analysis_a_share_intraday")]
     assert len(a_share_entries) == 5
     us_intraday_entries = [k for k in schedule if k.startswith("analysis_us_intraday")]

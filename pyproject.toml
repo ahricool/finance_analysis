@@ -47,6 +47,7 @@ dependencies = [
     "ipdb>=0.13.13",
     "backtrader==1.9.78.123",
     "rqalpha==6.2.0",
+    "pyarrow>=20.0.0,<24.0.0",
 ]
 
 [project.scripts]

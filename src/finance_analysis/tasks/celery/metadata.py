@@ -47,6 +47,12 @@ BACKTEST_TASK = CeleryTaskMetadata(
     display_name="策略回测",
     source="celery_manual",
 )
+QUANT_DATASET_TASK = CeleryTaskMetadata(
+    celery_name="quant.dataset.build", task_type="quant_dataset", display_name="构建量化数据集", source="celery_manual"
+)
+QUANT_TRAINING_TASK = CeleryTaskMetadata(
+    celery_name="quant.model.train", task_type="quant_training", display_name="训练量化模型", source="celery_manual"
+)
 
 ON_DEMAND_TASKS = (
     BACKTEST_TASK,
@@ -54,6 +60,8 @@ ON_DEMAND_TASKS = (
     STOCK_ANALYSIS_TASK,
     MARKET_REVIEW_TASK,
     MARKET_CALENDAR_IMPORTANCE_TASK,
+    QUANT_DATASET_TASK,
+    QUANT_TRAINING_TASK,
 )
 _ON_DEMAND_TASKS_BY_NAME = {item.celery_name: item for item in ON_DEMAND_TASKS}
 
@@ -68,6 +76,8 @@ __all__ = [
     "DEMO_ADD_TASK",
     "MARKET_CALENDAR_IMPORTANCE_TASK",
     "MARKET_REVIEW_TASK",
+    "QUANT_DATASET_TASK",
+    "QUANT_TRAINING_TASK",
     "ON_DEMAND_TASKS",
     "STOCK_ANALYSIS_TASK",
     "get_on_demand_task_metadata",

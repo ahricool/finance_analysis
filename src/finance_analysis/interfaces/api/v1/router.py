@@ -20,6 +20,7 @@ from finance_analysis.interfaces.api.v1.endpoints import (
     celery_demo,
     history,
     market_data,
+    quant,
     signals,
     stock_list,
     stocks,
@@ -114,3 +115,5 @@ router.include_router(
     prefix="/signals",
     tags=["Signals"],
 )
+
+router.include_router(quant.router, prefix="/quant", tags=["Quant"])

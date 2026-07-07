@@ -5,6 +5,7 @@ __all__ = [
     "AnalysisRepository",
     "BacktestRepository",
     "MarketDataSymbolRepository",
+    "QuantRepository",
     "StockRepository",
     "TaskRecordRepository",
     "UpsertStats",
@@ -20,6 +21,10 @@ def __getattr__(name: str):
         from finance_analysis.database.repositories.backtest import BacktestRepository
 
         return BacktestRepository
+    if name == "QuantRepository":
+        from finance_analysis.database.repositories.quant import QuantRepository
+
+        return QuantRepository
     if name in {"MarketDataSymbolRepository", "StockRepository", "UpsertStats"}:
         from finance_analysis.database.repositories.stock import (
             MarketDataSymbolRepository,

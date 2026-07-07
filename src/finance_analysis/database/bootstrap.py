@@ -28,6 +28,9 @@ def bootstrap_database(manager: "DatabaseManager") -> None:
 
         if not MarketDataSymbolRepository(manager).list_enabled_symbols("US"):
             seed_nasdaq100_market_data_symbols(manager)
+        from finance_analysis.database.seed import seed_quant_reference_data
+
+        seed_quant_reference_data(manager)
     except Exception:
         manager._initialized = False
         raise
