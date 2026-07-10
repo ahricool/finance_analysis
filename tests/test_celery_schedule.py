@@ -26,6 +26,7 @@ EXPECTED_JOBS = {
     "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
     "market_data_sync_us": ("scheduled_us_market_data_sync", "America/New_York"),
     "analysis_a_share_intraday": ("scheduled_a_share_intraday", "Asia/Shanghai"),
+    "analysis_a_share_pre_close_review": ("scheduled_a_share_pre_close_review", "Asia/Shanghai"),
     "signal_evaluation_cn": ("scheduled_signal_evaluation_cn", "Asia/Shanghai"),
     "signal_evaluation_us": ("scheduled_signal_evaluation_us", "America/New_York"),
     "quant_daily_pipeline_us": ("scheduled_quant_daily_us", "America/New_York"),
@@ -93,6 +94,16 @@ def test_a_share_intraday_uses_five_minute_windows_and_skips_lunch():
     assert ("13-14", "*/5", "mon-fri", "Asia/Shanghai") in schedules
     assert ("15", "0", "mon-fri", "Asia/Shanghai") in schedules
     assert "午休不运行" in definition.schedule_text
+
+
+def test_a_share_pre_close_review_runs_once_at_1430():
+    definition = get_scheduled_task_definition("analysis_a_share_pre_close_review")
+
+    assert definition.timezone == "Asia/Shanghai"
+    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules} == {
+        ("14", "30", "mon-fri", "Asia/Shanghai")
+    }
+    assert "14:30" in definition.schedule_text
 
 
 def test_signal_evaluation_jobs_are_market_scoped_and_independently_scheduled():
