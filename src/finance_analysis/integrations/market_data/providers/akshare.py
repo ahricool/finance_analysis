@@ -402,13 +402,13 @@ class AkshareFetcher(BaseFetcher):
                 adjust="qfq"
             )
 
-            # 标准化腾讯数据列名
-            # 腾讯返回：date, open, close, high, low, volume, amount
+            # 标准化腾讯数据列名。AKShare 将腾讯第六列命名为 amount，
+            # 但该列实际是成交量（例如股票日线为数万手），不是成交额。
             if df is not None and not df.empty:
                 rename_map = {
                     'date': '日期', 'open': '开盘', 'high': '最高',
                     'low': '最低', 'close': '收盘', 'volume': '成交量',
-                    'amount': '成交额'
+                    'amount': '成交量'
                 }
                 df = df.rename(columns=rename_map)
 
@@ -655,6 +655,9 @@ class AkshareFetcher(BaseFetcher):
         需要映射到标准列名：
         date, open, high, low, close, volume, amount, pct_chg
         """
+        if df is None or df.empty:
+            return pd.DataFrame(columns=['code'] + STANDARD_COLUMNS)
+
         df = df.copy()
         
         # 列名映射（Akshare 中文列名 -> 标准英文列名）
@@ -671,14 +674,24 @@ class AkshareFetcher(BaseFetcher):
         
         # 重命名列
         df = df.rename(columns=column_mapping)
+
+        required_columns = {'date', 'open', 'high', 'low', 'close', 'volume'}
+        missing = sorted(required_columns.difference(df.columns))
+        if missing:
+            raise DataFetchError(f"Akshare 历史行情缺少必要字段: {', '.join(missing)}")
+
+        # Upstream endpoints do not all expose turnover or percentage change.
+        # Keep a stable provider schema without fabricating either value.
+        for column in ('amount', 'pct_chg'):
+            if column not in df.columns:
+                df[column] = pd.NA
         
         # 添加股票代码列
         df['code'] = stock_code
         
         # 只保留需要的列
         keep_cols = ['code'] + STANDARD_COLUMNS
-        existing_cols = [col for col in keep_cols if col in df.columns]
-        df = df[existing_cols]
+        df = df[keep_cols]
         
         return df
     
@@ -1576,6 +1589,18 @@ class AkshareFetcher(BaseFetcher):
         close_col = next((c for c in ['最新价', '最新价', 'close','lastPrice'] if c in df.columns), None)
         pre_close_col = next((c for c in ['昨收', '昨日收盘', 'pre_close','lastClose'] if c in df.columns), None)
         amount_col = next((c for c in ['成交额', '成交额', 'amount','amount'] if c in df.columns), None) 
+
+        required = {
+            'code': code_col,
+            'name': name_col,
+            'close': close_col,
+            'pre_close': pre_close_col,
+            'amount': amount_col,
+        }
+        missing = [name for name, column in required.items() if column is None]
+        if missing:
+            logger.warning("[Akshare] 行情统计缺少必要字段: %s", ", ".join(missing))
+            return None
         
         limit_up_count = 0
         limit_down_count = 0

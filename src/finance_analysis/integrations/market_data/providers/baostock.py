@@ -35,6 +35,28 @@ import os
 logger = logging.getLogger(__name__)
 
 
+def _result_to_dataframe(result) -> pd.DataFrame:
+    """Convert a Baostock cursor to a DataFrame with explicit contract checks."""
+    error_code = getattr(result, "error_code", None)
+    if error_code != "0":
+        error_msg = getattr(result, "error_msg", "unknown error")
+        raise DataFetchError(f"Baostock 查询失败: {error_msg}")
+
+    fields = list(getattr(result, "fields", None) or [])
+    if not fields:
+        raise DataFetchError("Baostock 查询结果缺少 fields")
+
+    rows = []
+    while result.next():
+        row = result.get_row_data()
+        if len(row) != len(fields):
+            raise DataFetchError(
+                f"Baostock 查询结果字段数量不匹配: fields={len(fields)}, row={len(row)}"
+            )
+        rows.append(row)
+    return pd.DataFrame(rows, columns=fields)
+
+
 def _is_us_code(stock_code: str) -> bool:
     """
     判断代码是否为美股
@@ -216,19 +238,11 @@ class BaostockFetcher(BaseFetcher):
                     adjustflag="2"  # 前复权
                 )
                 
-                if rs.error_code != '0':
-                    raise DataFetchError(f"Baostock 查询失败: {rs.error_msg}")
-                
-                # 转换为 DataFrame
-                data_list = []
-                while rs.next():
-                    data_list.append(rs.get_row_data())
-                
-                if not data_list:
+                df = _result_to_dataframe(rs)
+
+                if df.empty:
                     raise DataFetchError(f"Baostock 未查询到 {stock_code} 的数据")
-                
-                df = pd.DataFrame(data_list, columns=rs.fields)
-                
+
                 return df
                 
             except Exception as e:
@@ -246,6 +260,9 @@ class BaostockFetcher(BaseFetcher):
         需要映射到标准列名：
         date, open, high, low, close, volume, amount, pct_chg
         """
+        if df is None or df.empty:
+            return pd.DataFrame(columns=['code'] + STANDARD_COLUMNS)
+
         df = df.copy()
         
         # 列名映射（只需要处理 pctChg）
@@ -254,6 +271,15 @@ class BaostockFetcher(BaseFetcher):
         }
         
         df = df.rename(columns=column_mapping)
+
+        required_columns = {'date', 'open', 'high', 'low', 'close', 'volume'}
+        missing = sorted(required_columns.difference(df.columns))
+        if missing:
+            raise DataFetchError(f"Baostock 历史行情缺少必要字段: {', '.join(missing)}")
+
+        for column in ('amount', 'pct_chg'):
+            if column not in df.columns:
+                df[column] = pd.NA
         
         # 数值类型转换（Baostock 返回的都是字符串）
         numeric_cols = ['open', 'high', 'low', 'close', 'volume', 'amount', 'pct_chg']
@@ -266,8 +292,7 @@ class BaostockFetcher(BaseFetcher):
         
         # 只保留需要的列
         keep_cols = ['code'] + STANDARD_COLUMNS
-        existing_cols = [col for col in keep_cols if col in df.columns]
-        df = df[existing_cols]
+        df = df[keep_cols]
         
         return df
 

@@ -317,6 +317,9 @@ class YfinanceFetcher(BaseFetcher):
         需要映射到标准列名：
         date, open, high, low, close, volume, amount, pct_chg
         """
+        if df is None or df.empty:
+            return pd.DataFrame(columns=['code'] + STANDARD_COLUMNS)
+
         df = df.copy()
 
         # 处理 MultiIndex 列名（新版 yfinance 返回格式）
@@ -341,6 +344,11 @@ class YfinanceFetcher(BaseFetcher):
 
         df = df.rename(columns=column_mapping)
 
+        required_columns = {'date', 'open', 'high', 'low', 'close', 'volume'}
+        missing = sorted(required_columns.difference(df.columns))
+        if missing:
+            raise DataFetchError(f"Yahoo Finance 历史行情缺少必要字段: {', '.join(missing)}")
+
         # 计算涨跌幅（因为 yfinance 不直接提供）
         if 'close' in df.columns:
             df['pct_chg'] = df['close'].pct_change() * 100
@@ -354,8 +362,7 @@ class YfinanceFetcher(BaseFetcher):
 
         # 只保留需要的列
         keep_cols = ['code'] + STANDARD_COLUMNS
-        existing_cols = [col for col in keep_cols if col in df.columns]
-        df = df[existing_cols]
+        df = df[keep_cols]
 
         return df
 
