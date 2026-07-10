@@ -10,7 +10,6 @@ from finance_analysis.agent.config import (
     get_effective_agent_models_to_try,
     get_effective_agent_primary_model,
 )
-from finance_analysis.llm.config import LLMConfig, get_llm_config
 from finance_analysis.llm.client import (
     AllModelsFailedError,
     LLMClient,
@@ -20,6 +19,7 @@ from finance_analysis.llm.client import (
     get_models_to_try,
     validate_llm_config,
 )
+from finance_analysis.llm.config import LLMConfig, get_llm_config
 from finance_analysis.llm.types import LLMRequest
 
 
@@ -201,6 +201,7 @@ class LiteLLMClientTestCase(unittest.TestCase):
         self.assertEqual(call_kwargs["model"], "openai/custom-web-model")
         self.assertEqual(call_kwargs["api_base"], "http://llm-web.example/v1")
         self.assertEqual(call_kwargs["api_key"], "web-key")
+        self.assertEqual(call_kwargs["num_retries"], 0)
 
     @patch("litellm.completion")
     def test_client_llm_web_default_empty_key_uses_request_placeholder(self, mock_completion) -> None:
@@ -224,7 +225,7 @@ class LiteLLMClientTestCase(unittest.TestCase):
         self.assertEqual(call_kwargs["api_key"], "not-needed")
 
     @patch("litellm.completion")
-    def test_client_llm_web_failure_does_not_try_openrouter_fallback_models(self, mock_completion) -> None:
+    def test_client_llm_web_failure_only_tries_web_model_once(self, mock_completion) -> None:
         mock_completion.side_effect = RuntimeError("down")
         config = self._config()
         config.fallback_models = ["openai/gpt-4.1", "anthropic/claude-sonnet-4-6"]
@@ -245,23 +246,30 @@ class LiteLLMClientTestCase(unittest.TestCase):
                 )
 
         called_models = [call.kwargs["model"] for call in mock_completion.call_args_list]
-        self.assertEqual(called_models, ["openai/custom-web-model", "openai/gpt-5.5"])
+        self.assertEqual(called_models, ["openai/custom-web-model"])
         for call in mock_completion.call_args_list:
             self.assertEqual(call.kwargs["api_base"], "http://llm-web.example/v1")
             self.assertEqual(call.kwargs["api_key"], "web-key")
+            self.assertEqual(call.kwargs["num_retries"], 0)
 
-    def test_client_llm_web_missing_default_fallback_model_raises_clear_error(self) -> None:
+    @patch("litellm.completion")
+    def test_client_llm_web_does_not_require_default_fallback_model(self, mock_completion) -> None:
+        mock_completion.return_value = SimpleNamespace(
+            choices=[{"message": {"content": "web ok"}}],
+            usage={"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+        )
         config = self._config()
         config.model = ""
         with patch.dict(os.environ, {}, clear=True):
             client = LLMClient(config=config)
-            with self.assertRaisesRegex(LLMConfigError, "LLM_MODEL.*llm_web fallback"):
-                client.complete_text(
-                    LLMRequest(
-                        messages=[{"role": "user", "content": "hi"}],
-                        provider="llm_web",
-                    )
+            result = client.complete_text(
+                LLMRequest(
+                    messages=[{"role": "user", "content": "hi"}],
+                    provider="llm_web",
                 )
+            )
+
+        self.assertEqual(result.text, "web ok")
 
 
 if __name__ == "__main__":

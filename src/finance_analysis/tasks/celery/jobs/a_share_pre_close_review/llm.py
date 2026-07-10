@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Any, Optional, Sequence
 
 from finance_analysis.llm import LLMClient, LLMRequest
@@ -40,36 +41,32 @@ class ASharePreCloseWebLLM:
         *,
         trading_date: str,
         warnings: list[str],
+        deadline: Optional[float] = None,
     ) -> list[dict[str, Any]]:
         bounded = list(entities[: self.limits.max_news_entities])
         if not bounded:
             return []
-        results: list[dict[str, Any]] = []
-        for start in range(0, len(bounded), self.limits.news_batch_size):
-            batch = bounded[start : start + self.limits.news_batch_size]
-            payload = {
-                "trading_date": trading_date,
-                "entities": batch,
-                "existing_recent_news": [
-                    item for item in existing_news if item.get("entity_key") in {e["key"] for e in batch}
-                ][:20],
-            }
-            parsed = self._complete_json(
-                system=(
-                    "你是 A 股收盘前新闻研究员。使用 Web 搜索核对输入实体最近 7 天的重要新闻、公告、政策和风险。"
-                    "只研究输入实体，不扩展全市场扫描；不得编造行情、新闻、来源或 URL。只输出 JSON。"
-                ),
-                user=(
-                    "按 entity_key 返回 items 数组。每项包含 entity_key、summary、impact(bullish/bearish/neutral/unknown)、"
-                    "coverage(complete/partial/none)、sources；sources 最多 3 条，每条仅含 title、url、published_at。\n"
-                    f"输入：{json.dumps(payload, ensure_ascii=False)}"
-                ),
-                call_type="a_share_pre_close_news",
-                warnings=warnings,
-            )
-            if parsed is None:
-                continue
-            results.extend(self._validate_news_items(parsed, batch))
+        entity_keys = {item["key"] for item in bounded}
+        payload = {
+            "trading_date": trading_date,
+            "entities": bounded,
+            "existing_recent_news": [item for item in existing_news if item.get("entity_key") in entity_keys][:20],
+        }
+        parsed = self._complete_json(
+            system=(
+                "你是 A 股收盘前新闻研究员。使用 Web 搜索核对输入实体最近 7 天的重要新闻、公告、政策和风险。"
+                "只研究输入实体，不扩展全市场扫描；不得编造行情、新闻、来源或 URL。只输出 JSON。"
+            ),
+            user=(
+                "按 entity_key 返回 items 数组。每项包含 entity_key、summary、impact(bullish/bearish/neutral/unknown)、"
+                "coverage(complete/partial/none)、sources；sources 最多 3 条，每条仅含 title、url、published_at。\n"
+                f"输入：{json.dumps(payload, ensure_ascii=False)}"
+            ),
+            call_type="a_share_pre_close_news",
+            warnings=warnings,
+            deadline=deadline,
+        )
+        results = self._validate_news_items(parsed, bounded) if parsed is not None else []
         if not results:
             warnings.append("Web LLM 新闻研究不可用或无结果，最终判断不使用未核实新闻")
         return results
@@ -82,6 +79,7 @@ class ASharePreCloseWebLLM:
         data_quality: DataQuality,
         *,
         warnings: list[str],
+        deadline: Optional[float] = None,
     ) -> tuple[dict[str, Any], bool]:
         parsed = self._complete_json(
             system=(
@@ -92,6 +90,7 @@ class ASharePreCloseWebLLM:
             user=self._decision_prompt(context),
             call_type="a_share_pre_close_decision",
             warnings=warnings,
+            deadline=deadline,
         )
         if parsed is None:
             warnings.append("最终 Web LLM 判断不可用，已生成确定性降级建议")
@@ -109,11 +108,19 @@ class ASharePreCloseWebLLM:
         user: str,
         call_type: str,
         warnings: list[str],
+        deadline: Optional[float] = None,
     ) -> Optional[dict[str, Any]]:
         client = self._get_client()
         if client is None:
             return None
         for attempt in range(self.limits.web_llm_attempts):
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                warnings.append(f"{call_type} 未执行或停止重试: 任务时间预算已耗尽")
+                return None
+            timeout = float(self.limits.web_llm_timeout_seconds)
+            if remaining is not None:
+                timeout = min(timeout, max(1.0, remaining))
             try:
                 self.call_count += 1
                 result = client.complete_json(
@@ -125,7 +132,7 @@ class ASharePreCloseWebLLM:
                         provider="llm_web",
                         temperature=0.1,
                         max_tokens=6000,
-                        timeout=self.limits.web_llm_timeout_seconds,
+                        timeout=timeout,
                         call_type=call_type,
                     )
                 )

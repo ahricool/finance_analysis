@@ -281,16 +281,7 @@ class LLMClient:
         if not api_base:
             raise LLMConfigError("LLM_WEB_BASE_URL is not configured")
 
-        default_model = (getattr(self.config, "llm_model", "") or "").strip()
-        if not default_model:
-            raise LLMConfigError("LLM_MODEL is not configured for llm_web fallback")
-
-        models_to_try: list[str] = []
-        for model in (web_model, default_model):
-            if model and model not in models_to_try:
-                models_to_try.append(model)
-
-        return models_to_try, api_base, (os.getenv("LLM_WEB_API_KEY") or "").strip()
+        return [web_model], api_base, (os.getenv("LLM_WEB_API_KEY") or "").strip()
 
     def _normalize_usage(self, usage_obj: Any) -> Dict[str, Any]:
         if not usage_obj:
@@ -433,6 +424,7 @@ class LLMClient:
             stream=True if stream else None,
             tools=request.tools,
             timeout=request.timeout,
+            num_retries=0 if (request.provider or "").strip().lower() == _LLM_WEB_PROVIDER else None,
             extra_body=extra_body,
             request_overrides=request_overrides,
         )
@@ -464,7 +456,8 @@ class LLMClient:
         last_model: Optional[str] = None
         last_usage: Dict[str, Any] = {}
 
-        max_retries = int(getattr(self.config, "llm_max_retries", 0) or 0)
+        is_web_request = (request.provider or "").strip().lower() == _LLM_WEB_PROVIDER
+        max_retries = 0 if is_web_request else int(getattr(self.config, "llm_max_retries", 0) or 0)
         retry_delay = float(getattr(self.config, "llm_retry_delay", 0) or 0)
 
         for model in models_to_try:
@@ -496,7 +489,9 @@ class LLMClient:
                             logger.warning("[LiteLLM] %s stream failed, falling back to non-stream: %s", model, exc)
                             last_error = exc
                         except Exception as exc:
-                            logger.warning("[LiteLLM] %s stream request failed, falling back to non-stream: %s", model, exc)
+                            logger.warning(
+                                "[LiteLLM] %s stream request failed, falling back to non-stream: %s", model, exc
+                            )
                             last_error = exc
 
                     call_kwargs = self._build_kwargs_for_model(

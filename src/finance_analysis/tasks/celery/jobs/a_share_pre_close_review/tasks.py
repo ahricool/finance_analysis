@@ -11,12 +11,17 @@ from finance_analysis.tasks.celery.schedule import (
 )
 from finance_analysis.tasks.lifecycle import track_task
 
+from .config import DEFAULT_CONFIG
 from .service import ASharePreCloseReviewService
 
 DEFINITION = require_scheduled_task_definition(JOB_A_SHARE_PRE_CLOSE_REVIEW)
 
 
-@celery_app.task(name=DEFINITION.celery_task_name)
+@celery_app.task(
+    name=DEFINITION.celery_task_name,
+    soft_time_limit=DEFAULT_CONFIG.task_time_limit_seconds - DEFAULT_CONFIG.task_completion_reserve_seconds,
+    time_limit=DEFAULT_CONFIG.task_time_limit_seconds,
+)
 @track_task(
     task_type=DEFINITION.task_type,
     task_name=DEFINITION.name,

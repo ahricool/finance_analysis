@@ -36,7 +36,6 @@ def _limits(**overrides):
         "max_candidates": 2,
         "max_board_lookups": 10,
         "max_news_entities": 4,
-        "news_batch_size": 2,
         "web_llm_attempts": 1,
     }
     values.update(overrides)
@@ -310,14 +309,53 @@ def test_stale_quotes_force_low_confidence_and_only_safe_actions():
 
 def test_web_llm_only_receives_bounded_final_entities():
     client = FakeWebClient()
-    summary = _service(client=client, limits=_limits(max_news_entities=4, news_batch_size=2)).run(now=NOW)
+    summary = _service(client=client, limits=_limits(max_news_entities=4)).run(now=NOW)
+
+    news_requests = [item for item in client.requests if item.call_type == "a_share_pre_close_news"]
+    decision_requests = [item for item in client.requests if item.call_type == "a_share_pre_close_decision"]
+    assert len(news_requests) == 1
+    assert len(decision_requests) == 1
+    assert all(item.provider == "llm_web" for item in client.requests)
+    assert news_requests[0].timeout == 180
+    payload = json.loads(news_requests[0].messages[1]["content"].split("输入：", 1)[1])
+    assert len(payload["entities"]) == 4
+    assert summary.llm_calls == 2
+
+
+def test_each_web_llm_stage_retries_at_most_once():
+    client = FakeWebClient(fail=True)
+    summary = _service(client=client, limits=_limits(web_llm_attempts=2)).run(now=NOW)
 
     news_requests = [item for item in client.requests if item.call_type == "a_share_pre_close_news"]
     decision_requests = [item for item in client.requests if item.call_type == "a_share_pre_close_decision"]
     assert len(news_requests) == 2
-    assert len(decision_requests) == 1
-    assert all(item.provider == "llm_web" for item in client.requests)
-    assert summary.llm_calls == 3
+    assert len(decision_requests) == 2
+    assert summary.llm_calls == 4
+    assert summary.fallback_used is True
+
+
+def test_web_llm_stops_retrying_when_task_budget_is_exhausted(monkeypatch):
+    client = FakeWebClient(fail=True)
+    limits = _limits(web_llm_attempts=2)
+    web_llm = ASharePreCloseWebLLM(SimpleNamespace(), limits, client=client)
+    monkeypatch.setattr(
+        "finance_analysis.tasks.celery.jobs.a_share_pre_close_review.llm.time.monotonic",
+        iter([0.0, 181.0]).__next__,
+    )
+    warnings = []
+
+    result = web_llm.research_news(
+        [{"key": "market:cn", "type": "market", "name": "A股市场", "code": ""}],
+        [],
+        trading_date="2026-06-23",
+        warnings=warnings,
+        deadline=180.0,
+    )
+
+    assert result == []
+    assert len(client.requests) == 1
+    assert client.requests[0].timeout == 180
+    assert any("时间预算已耗尽" in item for item in warnings)
 
 
 def test_web_llm_failure_still_completes_with_fallback():
@@ -378,3 +416,7 @@ def test_existing_intraday_task_and_new_task_are_both_registered():
     celery_app.loader.import_default_modules()
     assert "scheduled.analysis_a_share_intraday" in celery_app.tasks
     assert "scheduled.analysis_a_share_pre_close_review" in celery_app.tasks
+
+    task = celery_app.tasks["scheduled.analysis_a_share_pre_close_review"]
+    assert task.soft_time_limit == 570
+    assert task.time_limit == 600
