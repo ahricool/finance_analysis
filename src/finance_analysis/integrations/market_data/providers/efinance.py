@@ -129,6 +129,7 @@ EASTMONEY_REALTIME_FIELDS = {
     "f6": "成交额",
     "f8": "换手率",
     "f7": "振幅",
+    "f124": "更新时间戳",
 }
 _EASTMONEY_REALTIME_PAGE_SIZE = 200
 _EASTMONEY_REALTIME_PAGE_RETRIES = 3
@@ -1088,14 +1089,24 @@ class EfinanceFetcher(BaseFetcher):
             top = df.nlargest(n, change_col)
             bottom = df.nsmallest(n, change_col)
 
-            top_sectors = [
-                {'name': str(row[name_col]), 'change_pct': float(row[change_col])}
-                for _, row in top.iterrows()
-            ]
-            bottom_sectors = [
-                {'name': str(row[name_col]), 'change_pct': float(row[change_col])}
-                for _, row in bottom.iterrows()
-            ]
+            def normalize_sector(row: pd.Series) -> Dict[str, Any]:
+                def value(*columns: str) -> Optional[float]:
+                    column = next((item for item in columns if item in df.columns), None)
+                    return safe_float(row.get(column)) if column else None
+
+                return {
+                    'name': str(row[name_col]),
+                    'change_pct': float(row[change_col]),
+                    'price': value('最新价', 'price', 'close'),
+                    'open': value('今开', '开盘', 'open'),
+                    'high': value('最高', 'high'),
+                    'low': value('最低', 'low'),
+                    'amount': value('成交额', 'amount'),
+                    'turnover_rate': value('换手率', 'turnover_rate'),
+                }
+
+            top_sectors = [normalize_sector(row) for _, row in top.iterrows()]
+            bottom_sectors = [normalize_sector(row) for _, row in bottom.iterrows()]
             return top_sectors, bottom_sectors
         except Exception as e:
             log_external_call_exception(
@@ -1108,7 +1119,7 @@ class EfinanceFetcher(BaseFetcher):
             )
             return None
 
-    def get_all_realtime_quotes(self) -> List[Dict[str, Any]]:
+    def get_all_realtime_quotes(self, *, force_refresh: bool = False) -> List[Dict[str, Any]]:
         """Return a normalized full-market A-share realtime snapshot.
 
         One ``ef.stock.get_realtime_quotes()`` call (shared cache) yields the
@@ -1130,7 +1141,8 @@ class EfinanceFetcher(BaseFetcher):
         try:
             current_time = time.time()
             if (
-                _realtime_cache['data'] is not None
+                not force_refresh
+                and _realtime_cache['data'] is not None
                 and current_time - _realtime_cache['timestamp'] < _realtime_cache['ttl']
             ):
                 df = _realtime_cache['data']
@@ -1151,7 +1163,7 @@ class EfinanceFetcher(BaseFetcher):
                     return fallback_rows
                 return []
 
-            return self._snapshot_rows_from_df(df)
+            return self._snapshot_rows_from_df(df, snapshot_timestamp=_realtime_cache['timestamp'])
         except FuturesTimeoutError:
             logger.info(f"[超时] ef.stock.get_realtime_quotes() 超过 {_EF_CALL_TIMEOUT}s，跳过全市场快照")
             circuit_breaker.record_failure(source_key, "timeout")
@@ -1201,7 +1213,7 @@ class EfinanceFetcher(BaseFetcher):
                 len(df),
                 time.time() - api_start,
             )
-            return self._snapshot_rows_from_df(df)
+            return self._snapshot_rows_from_df(df, snapshot_timestamp=_realtime_cache['timestamp'])
         except Exception as exc:
             log_external_call_exception(
                 logger,
@@ -1295,7 +1307,11 @@ class EfinanceFetcher(BaseFetcher):
         return df.rename(columns=EASTMONEY_REALTIME_FIELDS)
 
     @staticmethod
-    def _snapshot_rows_from_df(df: "pd.DataFrame") -> List[Dict[str, Any]]:
+    def _snapshot_rows_from_df(
+        df: "pd.DataFrame",
+        *,
+        snapshot_timestamp: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
         """Map a full-market realtime DataFrame to normalized snapshot dicts."""
         columns = df.columns
 
@@ -1318,10 +1334,12 @@ class EfinanceFetcher(BaseFetcher):
         amt_col = pick('成交额', 'amount')
         turn_col = pick('换手率', 'turnover_rate')
         amp_col = pick('振幅', 'amplitude')
+        update_timestamp_col = pick('更新时间戳', 'update_timestamp')
         if code_col is None or name_col is None:
             return []
 
         rows: List[Dict[str, Any]] = []
+        captured_at = datetime.fromtimestamp(snapshot_timestamp or time.time()).astimezone().isoformat()
         records = df.to_dict("records")
         for record in records:
             raw_code = str(record.get(code_col, "")).strip()
@@ -1333,6 +1351,10 @@ class EfinanceFetcher(BaseFetcher):
             if pre_close is None and price is not None and change_pct is not None:
                 denom = 1 + change_pct / 100.0
                 pre_close = round(price / denom, 4) if denom else None
+            quote_time = None
+            update_timestamp = safe_int(record.get(update_timestamp_col)) if update_timestamp_col else None
+            if update_timestamp and update_timestamp > 1_000_000_000:
+                quote_time = datetime.fromtimestamp(update_timestamp).astimezone().isoformat()
             rows.append(
                 {
                     "code": raw_code,
@@ -1348,6 +1370,8 @@ class EfinanceFetcher(BaseFetcher):
                     "amount": safe_float(record.get(amt_col)) if amt_col else None,
                     "turnover_rate": safe_float(record.get(turn_col)) if turn_col else None,
                     "amplitude": safe_float(record.get(amp_col)) if amp_col else None,
+                    "snapshot_time": captured_at,
+                    "quote_time": quote_time,
                 }
             )
         return rows
