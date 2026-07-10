@@ -6,6 +6,7 @@ import json
 import logging
 from datetime import datetime, time, timedelta
 from decimal import Decimal
+from time import monotonic
 from typing import Any, Callable, Optional, Sequence
 
 from finance_analysis.core.time import utc_now
@@ -69,6 +70,8 @@ class ASharePreCloseReviewService:
         now: Optional[datetime] = None,
         send_notification: bool = True,
     ) -> PreCloseReviewSummary:
+        task_deadline = monotonic() + self.limits.task_time_limit_seconds
+        llm_deadline = task_deadline - self.limits.task_completion_reserve_seconds
         run_time = get_a_share_market_now(now)
         self._validate_trading_time(run_time)
         token = try_acquire_lock() if self.use_lock else object()
@@ -155,6 +158,7 @@ class ASharePreCloseReviewService:
                 existing_news,
                 trading_date=run_time.date().isoformat(),
                 warnings=warnings,
+                deadline=llm_deadline,
             )
             quality.news_coverage = sum(1 for item in news if item.get("coverage") != "none")
             required_news_keys = {"market:cn", *[f"stock:{item.code}" for item in holding_reviews]}
@@ -186,6 +190,7 @@ class ASharePreCloseReviewService:
                 candidate_reviews,
                 quality,
                 warnings=warnings,
+                deadline=llm_deadline,
             )
 
             summary = PreCloseReviewSummary(
