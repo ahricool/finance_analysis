@@ -48,6 +48,20 @@ def market_trading_date(value: datetime, market_type: MarketType) -> date:
     return value.astimezone(market_timezone(market_type)).date()
 
 
+def is_regular_session_minute(value: datetime, market_type: MarketType) -> bool:
+    """Return whether a minute start belongs to a regular market session."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("market datetime must be timezone-aware")
+    local_time = value.astimezone(market_timezone(market_type)).time().replace(tzinfo=None)
+    return any(start <= local_time < end for start, end in market_spec(market_type).regular_sessions)
+
+
+def is_regular_trade_session(value: str | None) -> bool:
+    """Reject Longbridge extended-hours session labels while accepting regular/unknown history labels."""
+    normalized = (value or "").strip().lower()
+    return not any(token in normalized for token in ("pre", "post", "overnight", "night"))
+
+
 def latest_completed_bar_time(value: datetime, market_type: MarketType) -> datetime | None:
     """Return the expected latest regular-session minute start in UTC."""
     if value.tzinfo is None or value.utcoffset() is None:

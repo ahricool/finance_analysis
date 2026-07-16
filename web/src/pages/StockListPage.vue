@@ -6,6 +6,7 @@ import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
+import TrendStatus from '@/components/stocks/TrendStatus.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
@@ -428,7 +429,7 @@ onMounted(async () => {
 
       <!-- Table -->
       <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-        <table class="w-full min-w-[1220px] table-fixed text-left text-sm">
+        <table class="w-full min-w-[1340px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[120px]" />
             <col class="w-[160px]" />
@@ -436,6 +437,7 @@ onMounted(async () => {
             <col class="w-[115px]" />
             <col class="w-[120px]" />
             <col class="w-[110px]" />
+            <col class="w-[120px]" />
             <col class="w-[130px]" />
             <col class="w-[130px]" />
             <col class="w-[145px]" />
@@ -470,6 +472,7 @@ onMounted(async () => {
               <th class="whitespace-nowrap px-4 py-3 text-right font-medium">最新价</th>
               <th class="whitespace-nowrap px-4 py-3 text-right font-medium">今日涨跌额</th>
               <th class="whitespace-nowrap px-4 py-3 text-right font-medium">今日涨跌幅</th>
+              <th class="whitespace-nowrap px-4 py-3 font-medium">趋势持续</th>
               <th class="whitespace-nowrap px-4 py-3 text-right font-medium" :aria-sort="sortAria('quantity')">
                 <button
                   class="ml-auto flex items-center gap-1.5 transition-colors hover:text-foreground"
@@ -508,7 +511,7 @@ onMounted(async () => {
           </thead>
           <tbody>
             <tr v-if="!visibleItems.length">
-              <td colspan="10" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无持仓股</td>
+              <td colspan="11" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无持仓股</td>
             </tr>
             <template v-else>
               <tr
@@ -542,6 +545,9 @@ onMounted(async () => {
                 </td>
                 <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)">
                   {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%') }}
+                </td>
+                <td class="px-4 py-3">
+                  <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
                 </td>
                 <td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-foreground">
                   {{ formatDecimalText(item.quantity) }} 股

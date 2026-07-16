@@ -3,6 +3,24 @@ import type { MarketType } from './watchList';
 
 export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'unauthorized';
 
+export type TrendDirection = 'above' | 'below' | 'neutral' | 'insufficient';
+
+export interface RealtimeTrend {
+  timeframe: '1m';
+  target_period: number;
+  effective_period: number;
+  minimum_period: number;
+  state: TrendDirection;
+  streak: number;
+  ma_value?: number | null;
+  close?: number | null;
+  distance_pct?: number | null;
+  bar_time?: string | null;
+  trading_date?: string | null;
+  trade_session?: string | null;
+  confirmed: boolean;
+}
+
 export interface RealtimeQuote {
   code: string;
   market_type: MarketType;
@@ -20,6 +38,7 @@ export interface RealtimeQuote {
   trade_session?: string | null;
   event_time?: string | null;
   received_at?: string | null;
+  trend_1m?: RealtimeTrend | null;
 }
 
 export interface RealtimeQuoteMessage {

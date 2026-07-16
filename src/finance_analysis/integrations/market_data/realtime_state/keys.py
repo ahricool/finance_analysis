@@ -20,5 +20,9 @@ def bars_data_key(symbol: str) -> str:
     return f"rt:bars:1m:{symbol}:data"
 
 
+def trend_key(symbol: str) -> str:
+    return f"rt:trend:1m:{symbol}"
+
+
 def subscription_key(symbol: str) -> str:
     return f"rt:subscription:{symbol}"

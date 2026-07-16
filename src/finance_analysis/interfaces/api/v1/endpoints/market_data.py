@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import asdict, dataclass
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Iterable
+from typing import Any, Iterable, cast
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -16,8 +17,15 @@ from finance_analysis.database.repositories.stock_list import StockListRepo
 from finance_analysis.database.repositories.user import UserRepository
 from finance_analysis.database.repositories.watch_list import WatchListRepo
 from finance_analysis.integrations.market_data.providers.longbridge.market import _to_longbridge_symbol
-from finance_analysis.integrations.market_data.realtime_state.models import QuoteState
+from finance_analysis.integrations.market_data.realtime_state.models import QuoteState, TrendState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
+from finance_analysis.market_review.trading_calendar import get_completed_trading_days, is_market_open
+from finance_analysis.market_stream.config import (
+    is_regular_session_minute,
+    is_regular_trade_session,
+    market_trading_date,
+)
+from finance_analysis.stocks.markets import MarketType
 from finance_analysis.users.auth import COOKIE_NAME, parse_session_uid
 
 logger = logging.getLogger(__name__)
@@ -37,7 +45,7 @@ def _load_tracked_stocks(uid: int) -> list[TrackedStock]:
         *WatchListRepo().list_all(uid=uid),
         *StockListRepo().list_all(uid=uid),
     ]
-    tracked: dict[tuple[str, str], TrackedStock] = {}
+    tracked: dict[str, TrackedStock] = {}
     for item in items:
         code = str(item.code).strip().upper()
         market_type = str(item.market_type).strip().upper()
@@ -47,7 +55,7 @@ def _load_tracked_stocks(uid: int) -> list[TrackedStock]:
             logger.warning("无法转换实时行情代码: code=%s market=%s error=%s", code, market_type, exc)
             continue
         if symbol:
-            tracked[(market_type, code)] = TrackedStock(code=code, market_type=market_type, symbol=symbol)
+            tracked[symbol.upper()] = TrackedStock(code=code, market_type=market_type, symbol=symbol)
     return list(tracked.values())
 
 
@@ -61,8 +69,61 @@ def _number(value: Decimal | int | None) -> float | int | None:
     return int(value) if isinstance(value, int) else float(value)
 
 
-def _quote_payload(stock: TrackedStock, quote: QuoteState | None) -> dict[str, Any]:
-    base: dict[str, Any] = {**asdict(stock), "available": quote is not None}
+def _trend_payload(trend: TrendState) -> dict[str, Any]:
+    return {
+        "timeframe": trend.timeframe,
+        "target_period": trend.target_period,
+        "effective_period": trend.effective_period,
+        "minimum_period": trend.minimum_period,
+        "state": trend.state,
+        "streak": trend.streak,
+        "ma_value": _number(trend.ma_value),
+        "close": _number(trend.close),
+        "distance_pct": _number(trend.distance_pct),
+        "bar_time": utc_isoformat(trend.bar_time),
+        "trading_date": trend.trading_date.isoformat() if trend.trading_date else None,
+        "trade_session": trend.trade_session,
+        "confirmed": trend.confirmed,
+    }
+
+
+def _display_trading_date(market_type: str, now: datetime) -> date:
+    market = market_type.lower()
+    local_date = market_trading_date(now, cast(MarketType, market_type))
+    if is_market_open(market, local_date):
+        return local_date
+    return get_completed_trading_days(market, 1, now)[-1]
+
+
+def _quote_payload(
+    stock: TrackedStock,
+    quote: QuoteState | None,
+    trend: TrendState | None,
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    try:
+        display_date = _display_trading_date(stock.market_type, now)
+        trend_is_current = trend is not None and trend.trading_date == display_date
+        if trend_is_current and trend is not None and trend.bar_time is not None:
+            trend_is_current = (
+                market_trading_date(trend.bar_time, cast(MarketType, stock.market_type)) == display_date
+                and is_regular_session_minute(trend.bar_time, cast(MarketType, stock.market_type))
+                and is_regular_trade_session(trend.trade_session)
+            )
+        if trend_is_current and trend is not None and trend.state != "insufficient":
+            trend_is_current = trend.confirmed and trend.bar_time is not None
+    except Exception as exc:
+        logger.warning("趋势交易日校验失败: symbol=%s error=%s", stock.symbol, exc)
+        display_date = None
+        trend_is_current = False
+    if not trend_is_current:
+        trend = TrendState(symbol=stock.symbol, trading_date=display_date)
+    base: dict[str, Any] = {
+        **asdict(stock),
+        "available": quote is not None,
+        "trend_1m": _trend_payload(trend),
+    }
     if quote is None:
         return base
 
@@ -92,11 +153,27 @@ def _quote_payload(stock: TrackedStock, quote: QuoteState | None) -> dict[str, A
 
 async def _build_snapshot(uid: int, repository: RealtimeStateRepository) -> dict[str, Any]:
     stocks = await asyncio.to_thread(_load_tracked_stocks, uid)
-    quotes = await repository.get_quotes(stock.symbol for stock in stocks)
+    symbols = [stock.symbol for stock in stocks]
+    quotes_result, trends_result = await asyncio.gather(
+        repository.get_quotes(symbols),
+        repository.get_trend_states(symbols),
+        return_exceptions=True,
+    )
+    if isinstance(quotes_result, BaseException):
+        raise quotes_result
+    quotes = quotes_result
+    if isinstance(trends_result, BaseException):
+        logger.warning("批量读取实时趋势失败: %s", trends_result)
+        trends: dict[str, TrendState] = {}
+    else:
+        trends = trends_result
+    now = utc_now()
     return {
         "type": "quotes",
-        "generated_at": utc_isoformat(utc_now()),
-        "quotes": [_quote_payload(stock, quotes.get(stock.symbol)) for stock in stocks],
+        "generated_at": utc_isoformat(now),
+        "quotes": [
+            _quote_payload(stock, quotes.get(stock.symbol), trends.get(stock.symbol), now=now) for stock in stocks
+        ],
     }
 
 

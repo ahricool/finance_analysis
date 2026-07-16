@@ -1,27 +1,34 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
-from finance_analysis.integrations.market_data.realtime_state.models import QuoteState
+from finance_analysis.integrations.market_data.realtime_state.models import QuoteState, TrendState
 from finance_analysis.interfaces.api.app import create_app
 from finance_analysis.interfaces.api.v1.endpoints import market_data
 from finance_analysis.users.auth import COOKIE_NAME
 
 
 class FakeQuoteRepository:
-    def __init__(self, quotes: dict[str, QuoteState]) -> None:
+    def __init__(self, quotes: dict[str, QuoteState], trends: dict[str, TrendState] | None = None) -> None:
         self.quotes = quotes
+        self.trends = trends or {}
         self.requested: list[str] = []
+        self.trend_requested: list[str] = []
         self.closed = False
 
     async def get_quotes(self, symbols):
         self.requested = list(symbols)
         return {symbol: self.quotes[symbol] for symbol in self.requested if symbol in self.quotes}
+
+    async def get_trend_states(self, symbols):
+        self.trend_requested = list(symbols)
+        return {symbol: self.trends[symbol] for symbol in self.trend_requested if symbol in self.trends}
 
     async def close(self) -> None:
         self.closed = True
@@ -45,6 +52,16 @@ def quote(symbol: str, last_price: str, pre_close: str) -> QuoteState:
     return value
 
 
+def test_tracked_stocks_deduplicate_watchlist_and_holdings_by_symbol(monkeypatch) -> None:
+    item = SimpleNamespace(code="aapl", market_type="us")
+    monkeypatch.setattr(market_data, "WatchListRepo", lambda: SimpleNamespace(list_all=lambda uid: [item]))
+    monkeypatch.setattr(market_data, "StockListRepo", lambda: SimpleNamespace(list_all=lambda uid: [item]))
+
+    stocks = market_data._load_tracked_stocks(7)
+
+    assert stocks == [market_data.TrackedStock("AAPL", "US", "AAPL.US")]
+
+
 @pytest.mark.asyncio
 async def test_snapshot_calculates_change_and_keeps_missing_quotes(monkeypatch) -> None:
     stocks = [
@@ -53,18 +70,102 @@ async def test_snapshot_calculates_change_and_keeps_missing_quotes(monkeypatch) 
     ]
     repository = FakeQuoteRepository({"AAPL.US": quote("AAPL.US", "102", "100")})
     monkeypatch.setattr(market_data, "_load_tracked_stocks", lambda uid: stocks)
+    monkeypatch.setattr(market_data, "utc_now", lambda: datetime(2026, 7, 16, 15, 0, tzinfo=timezone.utc))
 
     snapshot = await market_data._build_snapshot(7, repository)
 
     assert repository.requested == ["AAPL.US", "0700.HK"]
+    assert repository.trend_requested == ["AAPL.US", "0700.HK"]
     assert snapshot["quotes"][0]["change_amount"] == 2.0
     assert snapshot["quotes"][0]["change_pct"] == 2.0
-    assert snapshot["quotes"][1] == {
-        "code": "00700",
-        "market_type": "HK",
-        "symbol": "0700.HK",
-        "available": False,
-    }
+    assert snapshot["quotes"][1]["available"] is False
+    assert snapshot["quotes"][1]["trend_1m"]["state"] == "insufficient"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_serializes_current_trend_and_expires_previous_session(monkeypatch) -> None:
+    now = datetime(2026, 7, 16, 15, 0, tzinfo=timezone.utc)
+    current = TrendState(
+        symbol="AAPL.US",
+        effective_period=8,
+        state="above",
+        streak=2,
+        ma_value=Decimal("132.48"),
+        close=Decimal("132.96"),
+        distance_pct=Decimal("0.36"),
+        bar_time=datetime(2026, 7, 16, 14, 31, tzinfo=timezone.utc),
+        trading_date=date(2026, 7, 16),
+        trade_session="Intraday",
+        confirmed=True,
+    )
+    stale = replace(current, symbol="TSLA.US", trading_date=date(2026, 7, 15))
+    stocks = [
+        market_data.TrackedStock("AAPL", "US", "AAPL.US"),
+        market_data.TrackedStock("TSLA", "US", "TSLA.US"),
+    ]
+    repository = FakeQuoteRepository({}, {"AAPL.US": current, "TSLA.US": stale})
+    monkeypatch.setattr(market_data, "_load_tracked_stocks", lambda uid: stocks)
+    monkeypatch.setattr(market_data, "utc_now", lambda: now)
+
+    snapshot = await market_data._build_snapshot(7, repository)
+
+    assert snapshot["quotes"][0]["trend_1m"]["ma_value"] == 132.48
+    assert snapshot["quotes"][0]["trend_1m"]["confirmed"] is True
+    assert snapshot["quotes"][1]["trend_1m"]["state"] == "insufficient"
+    assert snapshot["quotes"][1]["available"] is False
+
+
+@pytest.mark.asyncio
+async def test_trend_read_failure_does_not_hide_quote(monkeypatch) -> None:
+    repository = FakeQuoteRepository({"AAPL.US": quote("AAPL.US", "102", "100")})
+
+    async def fail(symbols):
+        raise RuntimeError("trend redis unavailable")
+
+    repository.get_trend_states = fail
+    monkeypatch.setattr(
+        market_data,
+        "_load_tracked_stocks",
+        lambda uid: [market_data.TrackedStock("AAPL", "US", "AAPL.US")],
+    )
+    monkeypatch.setattr(market_data, "utc_now", lambda: datetime(2026, 7, 16, 15, 0, tzinfo=timezone.utc))
+
+    snapshot = await market_data._build_snapshot(7, repository)
+
+    assert snapshot["quotes"][0]["available"] is True
+    assert snapshot["quotes"][0]["last_price"] == 102.0
+    assert snapshot["quotes"][0]["trend_1m"]["state"] == "insufficient"
+
+
+@pytest.mark.asyncio
+async def test_weekend_keeps_latest_completed_trading_session(monkeypatch) -> None:
+    friday = date(2026, 7, 17)
+    current = TrendState(
+        symbol="AAPL.US",
+        effective_period=20,
+        state="above",
+        streak=5,
+        ma_value=Decimal("100"),
+        close=Decimal("101"),
+        bar_time=datetime(2026, 7, 17, 19, 59, tzinfo=timezone.utc),
+        trading_date=friday,
+        trade_session="Intraday",
+        confirmed=True,
+    )
+    repository = FakeQuoteRepository({}, {"AAPL.US": current})
+    monkeypatch.setattr(
+        market_data,
+        "_load_tracked_stocks",
+        lambda uid: [market_data.TrackedStock("AAPL", "US", "AAPL.US")],
+    )
+    monkeypatch.setattr(
+        market_data, "utc_now", lambda: datetime(2026, 7, 18, 15, 0, tzinfo=timezone.utc)
+    )
+
+    snapshot = await market_data._build_snapshot(7, repository)
+
+    assert snapshot["quotes"][0]["trend_1m"]["state"] == "above"
+    assert snapshot["quotes"][0]["trend_1m"]["trading_date"] == friday.isoformat()
 
 
 def test_websocket_requires_session(monkeypatch) -> None:

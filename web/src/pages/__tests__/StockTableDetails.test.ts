@@ -83,6 +83,15 @@ const quote = {
   trade_session: 'Regular',
   event_time: '2026-07-03T15:00:00Z',
   received_at: '2026-07-03T15:00:01Z',
+  trend_1m: {
+    timeframe: '1m' as const,
+    target_period: 20,
+    effective_period: 8,
+    minimum_period: 5,
+    state: 'above' as const,
+    streak: 2,
+    confirmed: true,
+  },
 };
 
 let wrapper: VueWrapper | null = null;
@@ -148,6 +157,33 @@ describe('stock table details', () => {
     await row.trigger('keydown', { key: 'Enter' });
     dialog = document.body.querySelector<HTMLElement>('[role="dialog"]');
     expect(dialog?.textContent).toContain('自选信息');
+  });
+
+  it.each([
+    [WatchListPage, '/market/watch-list'],
+    [StockListPage, '/market/holdings'],
+  ] as const)('shows the shared trend column without changing realtime prices', async (component, path) => {
+    const page = await mountPage(component, path);
+    expect(page.text()).toContain('趋势持续');
+    expect(page.text()).toContain('多 2');
+    expect(page.text()).toContain('12.00');
+    expect(page.findComponent({ name: 'TrendStatus' }).exists()).toBe(true);
+  });
+
+  it('handles old websocket quotes without trend data', async () => {
+    mocks.getQuote.mockReturnValue({ ...quote, trend_1m: undefined });
+    const page = await mountPage(WatchListPage, '/market/watch-list');
+    expect(page.text()).toContain('数据不足');
+    expect(page.text()).toContain('12.00');
+  });
+
+  it.each([
+    [WatchListPage, '/market/watch-list', '9'],
+    [StockListPage, '/market/holdings', '11'],
+  ] as const)('keeps filtered empty-row colspan aligned', async (component, path, colspan) => {
+    const page = await mountPage(component, path);
+    await page.find('select').setValue('CN');
+    expect(page.get('tbody td').attributes('colspan')).toBe(colspan);
   });
 
   it('opens holding details with calculated market value and profit fields', async () => {
