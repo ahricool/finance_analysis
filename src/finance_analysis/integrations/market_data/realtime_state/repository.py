@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Sequence
 
 from finance_analysis.core.time import utc_isoformat
 from finance_analysis.integrations.market_data.realtime_state import keys
-from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
+from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState, TrendState
 
 
 def _encode(value: Any) -> str:
@@ -22,6 +22,8 @@ def _encode(value: Any) -> str:
         return str(value)
     if isinstance(value, datetime):
         return utc_isoformat(value) or ""
+    if isinstance(value, date):
+        return value.isoformat()
     return str(value)
 
 
@@ -44,12 +46,14 @@ class RealtimeStateRepository:
         bar_limit: int = 420,
         quote_ttl_seconds: int = 2 * 86400,
         bars_ttl_seconds: int = 3 * 86400,
+        trend_ttl_seconds: int | None = None,
         removed_ttl_seconds: int = 2 * 3600,
     ) -> None:
         self.redis = redis
         self.bar_limit = max(1, min(int(bar_limit), 1000))
         self.quote_ttl_seconds = quote_ttl_seconds
         self.bars_ttl_seconds = bars_ttl_seconds
+        self.trend_ttl_seconds = trend_ttl_seconds or bars_ttl_seconds
         self.removed_ttl_seconds = removed_ttl_seconds
 
     @classmethod
@@ -90,6 +94,33 @@ class RealtimeStateRepository:
                 quotes[symbol] = self._quote_from_mapping(symbol, raw)
         return quotes
 
+    async def write_trend_state(self, trend: TrendState) -> None:
+        await self.write_trend_states_batch({trend.symbol: trend})
+
+    async def write_trend_states_batch(self, trends: Mapping[str, TrendState]) -> None:
+        valid = {symbol: trend for symbol, trend in trends.items() if symbol and trend.symbol == symbol}
+        if not valid:
+            return
+        pipe = self.redis.pipeline(transaction=False)
+        for symbol, trend in valid.items():
+            pipe.hset(keys.trend_key(symbol), mapping=_mapping(trend))
+            pipe.expire(keys.trend_key(symbol), self.trend_ttl_seconds)
+        await pipe.execute()
+
+    async def get_trend_state(self, symbol: str) -> TrendState | None:
+        raw = await self.redis.hgetall(keys.trend_key(symbol))
+        return TrendState.from_mapping(raw) if raw else None
+
+    async def get_trend_states(self, symbols: Iterable[str]) -> dict[str, TrendState]:
+        unique_symbols = list(dict.fromkeys(symbols))
+        if not unique_symbols:
+            return {}
+        pipe = self.redis.pipeline(transaction=False)
+        for symbol in unique_symbols:
+            pipe.hgetall(keys.trend_key(symbol))
+        values = await pipe.execute()
+        return {symbol: TrendState.from_mapping(raw) for symbol, raw in zip(unique_symbols, values) if raw}
+
     @staticmethod
     def _quote_from_mapping(symbol: str, raw: Mapping[str, Any]) -> QuoteState:
         quote = QuoteState(symbol=str(raw.get("symbol") or symbol))
@@ -122,11 +153,7 @@ class RealtimeStateRepository:
         bars_by_symbol: Mapping[str, Iterable[CandleState]],
     ) -> None:
         valid_by_symbol = {
-            symbol: {
-                self._bar_field(bar): bar
-                for bar in bars
-                if bar.symbol == symbol and bar.is_valid()
-            }
+            symbol: {self._bar_field(bar): bar for bar in bars if bar.symbol == symbol and bar.is_valid()}
             for symbol, bars in bars_by_symbol.items()
         }
         valid_by_symbol = {symbol: bars for symbol, bars in valid_by_symbol.items() if bars}
@@ -165,9 +192,7 @@ class RealtimeStateRepository:
         return await self._load_bar_fields(symbol, fields)
 
     async def get_bars_by_time(self, symbol: str, start: datetime, end: datetime) -> list[CandleState]:
-        fields = await self.redis.zrangebyscore(
-            keys.bars_index_key(symbol), start.timestamp(), end.timestamp()
-        )
+        fields = await self.redis.zrangebyscore(keys.bars_index_key(symbol), start.timestamp(), end.timestamp())
         return await self._load_bar_fields(symbol, fields)
 
     async def _load_bar_fields(self, symbol: str, fields: Sequence[str]) -> list[CandleState]:
@@ -227,8 +252,9 @@ class RealtimeStateRepository:
         self,
         quotes: Mapping[str, QuoteState],
         current_candles: Mapping[str, CandleState],
+        trends: Mapping[str, TrendState] | None = None,
     ) -> None:
-        if not quotes and not current_candles:
+        if not quotes and not current_candles and not trends:
             return
         pipe = self.redis.pipeline(transaction=False)
         for symbol, quote in quotes.items():
@@ -237,6 +263,11 @@ class RealtimeStateRepository:
         for symbol, candle in current_candles.items():
             pipe.hset(keys.current_candle_key(symbol), mapping=_mapping(candle))
             pipe.expire(keys.current_candle_key(symbol), self.bars_ttl_seconds)
+        for symbol, trend in (trends or {}).items():
+            if trend.symbol != symbol:
+                continue
+            pipe.hset(keys.trend_key(symbol), mapping=_mapping(trend))
+            pipe.expire(keys.trend_key(symbol), self.trend_ttl_seconds)
         await pipe.execute()
 
     async def expire_symbol_cache(self, symbol: str, *, ttl_seconds: int | None = None) -> None:
@@ -247,6 +278,7 @@ class RealtimeStateRepository:
             keys.current_candle_key(symbol),
             keys.bars_index_key(symbol),
             keys.bars_data_key(symbol),
+            keys.trend_key(symbol),
             keys.subscription_key(symbol),
         ):
             pipe.expire(key, ttl_seconds)

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping, cast
+
+TrendDirection = Literal["above", "below", "neutral", "insufficient"]
 
 
 def _decimal(value: Any) -> Decimal | None:
@@ -107,4 +109,49 @@ class CandleState:
             trade_session=str(value.get("trade_session") or "") or None,
             confirmed=str(value.get("confirmed", "1")).lower() in {"1", "true", "yes"},
             received_at=received_at,
+        )
+
+
+@dataclass(slots=True)
+class TrendState:
+    symbol: str
+    timeframe: Literal["1m"] = "1m"
+    target_period: int = 20
+    effective_period: int = 0
+    minimum_period: int = 5
+    state: TrendDirection = "insufficient"
+    streak: int = 0
+    ma_value: Decimal | None = None
+    close: Decimal | None = None
+    distance_pct: Decimal | None = None
+    bar_time: datetime | None = None
+    trading_date: date | None = None
+    trade_session: str | None = None
+    confirmed: bool = False
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> "TrendState":
+        trading_date = value.get("trading_date")
+        state = str(value.get("state") or "insufficient")
+        if state not in {"above", "below", "neutral", "insufficient"}:
+            state = "insufficient"
+        return cls(
+            symbol=str(value["symbol"]),
+            timeframe="1m",
+            target_period=int(value.get("target_period") or 20),
+            effective_period=int(value.get("effective_period") or 0),
+            minimum_period=int(value.get("minimum_period") or 5),
+            state=cast(TrendDirection, state),
+            streak=int(value.get("streak") or 0),
+            ma_value=_decimal(value.get("ma_value")),
+            close=_decimal(value.get("close")),
+            distance_pct=_decimal(value.get("distance_pct")),
+            bar_time=_datetime(value.get("bar_time")),
+            trading_date=(
+                (trading_date if isinstance(trading_date, date) else date.fromisoformat(str(trading_date)))
+                if trading_date
+                else None
+            ),
+            trade_session=str(value.get("trade_session") or "") or None,
+            confirmed=str(value.get("confirmed", "0")).lower() in {"1", "true", "yes"},
         )

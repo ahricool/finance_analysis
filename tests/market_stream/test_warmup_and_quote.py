@@ -7,6 +7,7 @@ from decimal import Decimal
 import pytest
 
 from finance_analysis.integrations.market_data.providers.longbridge.normalizer import MarketEvent
+from finance_analysis.integrations.market_data.realtime_state import keys
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.market_stream.config import MarketStreamConfig
@@ -15,7 +16,6 @@ from finance_analysis.market_stream.subscription_manager import SubscriptionComm
 from finance_analysis.market_stream.symbol_state import SubscriptionTarget, SymbolRuntimeState, SymbolStatus
 from finance_analysis.market_stream.warmup import merge_warmup_bars
 from tests.market_stream.fakes import FakeRedis, FakeStreamingClient
-
 
 BASE = datetime(2026, 6, 26, 13, 30, tzinfo=timezone.utc)
 
@@ -297,6 +297,81 @@ async def test_connection_cleanup_resets_quote_sequence_for_new_connection() -> 
     await app._handle_event(quote_event("101", 1, 3))
     assert app.quotes["AAPL.US"].last_price == Decimal("101")
     assert app.quotes["AAPL.US"].sequence == 1
+
+
+def activate(app: MarketStreamService, *, connection: int = 2) -> SymbolRuntimeState:
+    state = set_warming(app, connection=connection)
+    state.status = SymbolStatus.ACTIVE
+    app.manager.warming_symbols.discard(state.symbol)
+    app.manager.active_symbols.add(state.symbol)
+    return state
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_candle_does_not_update_trend_but_confirmation_does() -> None:
+    redis = FakeRedis()
+    app = service(redis)
+    activate(app)
+    for index in range(4):
+        await app._handle_event(candle_event(bar(index, close=str(10 + index / 10)), 2))
+    before = redis.pipeline_executes
+    stored_before = dict(redis.hashes[keys.trend_key("AAPL.US")])
+    await app._handle_event(candle_event(bar(4, close="10.4", confirmed=False), 2))
+    assert redis.hashes[keys.trend_key("AAPL.US")] == stored_before
+    assert redis.pipeline_executes == before
+
+    await app._handle_event(candle_event(bar(4, close="10.4", confirmed=True, received=61), 2))
+    restored = await app.repository.get_trend_state("AAPL.US")
+    assert restored is not None
+    assert restored.state == "above"
+    assert restored.effective_period == 5
+
+
+@pytest.mark.asyncio
+async def test_duplicate_confirmed_candle_does_not_write_trend_twice() -> None:
+    redis = FakeRedis()
+    app = service(redis)
+    activate(app)
+    value = bar(0, confirmed=True, received=61)
+    await app._handle_event(candle_event(value, 2))
+    before = redis.pipeline_executes
+    await app._handle_event(candle_event(bar(0, confirmed=True, received=120), 2))
+    assert redis.pipeline_executes == before
+
+
+@pytest.mark.asyncio
+async def test_trend_calculation_failure_does_not_stop_event_processing(monkeypatch) -> None:
+    redis = FakeRedis()
+    app = service(redis)
+    activate(app)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("bad trend")
+
+    monkeypatch.setattr("finance_analysis.market_stream.service.calculate_ma_trend", fail)
+    await app._handle_event(candle_event(bar(0, confirmed=True, received=61), 2))
+    assert len(app.bars_1m["AAPL.US"]) == 1
+    assert len(await app.repository.get_recent_bars("AAPL.US", 10)) == 1
+    assert not app.stop_event.is_set()
+
+
+class FailingTrendRepository(RealtimeStateRepository):
+    async def write_trend_state(self, trend) -> None:
+        raise RuntimeError("redis unavailable")
+
+
+@pytest.mark.asyncio
+async def test_trend_redis_failure_is_pending_and_recovers() -> None:
+    redis = FakeRedis()
+    repository = FailingTrendRepository(redis)
+    app = service(redis, repository)
+    activate(app)
+    await app._handle_event(candle_event(bar(0, confirmed=True, received=61), 2))
+    assert app.redis_degraded
+    assert "AAPL.US" in app.pending_trends
+    assert await app._flush_pending_redis()
+    assert "AAPL.US" not in app.pending_trends
+    assert await app.repository.get_trend_state("AAPL.US") is not None
 
 
 @pytest.mark.asyncio

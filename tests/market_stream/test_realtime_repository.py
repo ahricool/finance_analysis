@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -9,7 +9,7 @@ from finance_analysis.integrations.market_data.realtime_state import keys
 from finance_analysis.integrations.market_data.realtime_state.data_source import (
     RealtimeMarketDataSource,
 )
-from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
+from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState, TrendState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from tests.market_stream.fakes import FakeRedis
 
@@ -28,6 +28,22 @@ def candle(minute: int, close: str = "10", *, received_offset: int = 0) -> Candl
         trade_session="Intraday",
         confirmed=True,
         received_at=when + timedelta(seconds=received_offset),
+    )
+
+
+def trend(symbol: str = "AAPL.US", *, state: str = "above") -> TrendState:
+    return TrendState(
+        symbol=symbol,
+        effective_period=8,
+        state=state,
+        streak=3 if state != "insufficient" else 0,
+        ma_value=Decimal("132.48") if state != "insufficient" else None,
+        close=Decimal("132.96"),
+        distance_pct=Decimal("0.3623195939009661835748792") if state != "insufficient" else None,
+        bar_time=datetime(2026, 7, 16, 14, 31, tzinfo=timezone.utc),
+        trading_date=date(2026, 7, 16),
+        trade_session="Intraday",
+        confirmed=state != "insufficient",
     )
 
 
@@ -69,6 +85,30 @@ async def test_quotes_batch_load_uses_one_pipeline_and_skips_missing() -> None:
     assert set(quotes) == {"AAPL.US", "TSLA.US"}
     assert quotes["TSLA.US"].last_price == Decimal("350.50")
     assert redis.pipeline_executes == before + 1
+
+
+@pytest.mark.asyncio
+async def test_trend_single_and_batch_round_trip_serializes_typed_fields_and_ttl() -> None:
+    redis = FakeRedis()
+    repo = RealtimeStateRepository(redis, trend_ttl_seconds=123)
+    await repo.write_trend_state(trend())
+    await repo.write_trend_states_batch({"TSLA.US": trend("TSLA.US", state="insufficient")})
+
+    restored = await repo.get_trend_state("AAPL.US")
+    assert restored is not None
+    assert restored.ma_value == Decimal("132.48")
+    assert restored.bar_time == datetime(2026, 7, 16, 14, 31, tzinfo=timezone.utc)
+    assert restored.trading_date == date(2026, 7, 16)
+    assert restored.confirmed is True
+    before = redis.pipeline_executes
+    values = await repo.get_trend_states(["AAPL.US", "MISSING.US", "TSLA.US", "AAPL.US"])
+    assert set(values) == {"AAPL.US", "TSLA.US"}
+    assert values["TSLA.US"].state == "insufficient"
+    assert values["TSLA.US"].ma_value is None
+    assert values["TSLA.US"].confirmed is False
+    assert redis.pipeline_executes == before + 1
+    assert await repo.get_trend_state("MISSING.US") is None
+    assert await redis.ttl(keys.trend_key("AAPL.US")) == 123
 
 
 @pytest.mark.asyncio
@@ -137,11 +177,12 @@ async def test_batch_write_uses_one_pipeline_and_removed_cache_ttl() -> None:
     redis = FakeRedis()
     repo = RealtimeStateRepository(redis)
     quote = QuoteState(symbol="AAPL.US", last_price=Decimal("1"))
-    await repo.write_batch({"AAPL.US": quote}, {"AAPL.US": candle(1)})
+    await repo.write_batch({"AAPL.US": quote}, {"AAPL.US": candle(1)}, {"AAPL.US": trend()})
     assert redis.pipeline_executes == 1
     await repo.expire_symbol_cache("AAPL.US")
     assert await redis.ttl(keys.bars_index_key("AAPL.US")) == 7200
     assert await redis.ttl(keys.subscription_key("AAPL.US")) == 7200
+    assert await redis.ttl(keys.trend_key("AAPL.US")) == 7200
 
 
 @pytest.mark.asyncio

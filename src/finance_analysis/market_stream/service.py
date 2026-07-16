@@ -16,11 +16,13 @@ from typing import Any, Iterable
 from finance_analysis.core.time import utc_now
 from finance_analysis.integrations.market_data.providers.longbridge.normalizer import MarketEvent, event_to_candle
 from finance_analysis.integrations.market_data.providers.longbridge.streaming import LongbridgeStreamingClient
-from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
+from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState, TrendState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.market_stream.config import (
     MarketStreamConfig,
     completed_regular_minutes,
+    is_regular_session_minute,
+    is_regular_trade_session,
     latest_completed_bar_time,
     market_spec,
     market_trading_date,
@@ -37,6 +39,7 @@ from finance_analysis.market_stream.symbol_state import (
     SymbolRuntimeState,
     SymbolStatus,
 )
+from finance_analysis.market_stream.trend import calculate_ma_trend
 from finance_analysis.market_stream.warmup import LongbridgeHistoryLoader, merge_warmup_bars
 from finance_analysis.market_stream.watchlist_monitor import WatchListMonitor
 from finance_analysis.stocks.markets import MarketType
@@ -84,6 +87,7 @@ class MarketStreamService:
         self.pending_quotes: dict[str, QuoteState] = {}
         self.pending_candles: dict[str, CandleState] = {}
         self.pending_bars: dict[str, dict[tuple[datetime, str], CandleState]] = {}
+        self.pending_trends: dict[str, TrendState] = {}
         self.quote_reference_dates: dict[str, date] = {}
         self.quote_reference_attempts: dict[str, datetime] = {}
         self.last_event_at: datetime | None = None
@@ -194,22 +198,16 @@ class MarketStreamService:
         if event.event_type in {"quote", "quote_snapshot", "quote_reference"}:
             quote = self.quotes.setdefault(event.symbol, QuoteState(symbol=event.symbol))
             event_time = (
-                quote.event_time
-                if event.event_type == "quote_reference" and quote.event_time
-                else event.event_time
+                quote.event_time if event.event_type == "quote_reference" and quote.event_time else event.event_time
             )
             received_at = (
-                quote.received_at
-                if event.event_type == "quote_reference" and quote.received_at
-                else event.received_at
+                quote.received_at if event.event_type == "quote_reference" and quote.received_at else event.received_at
             )
             if quote.merge(event.payload, event_time=event_time, received_at=received_at):
                 if event.event_type == "quote":
                     state.last_quote_at = event.received_at
                 if event.event_type == "quote_reference" and event.payload.get("pre_close") is not None:
-                    self.quote_reference_dates[event.symbol] = market_trading_date(
-                        utc_now(), state.market_type
-                    )
+                    self.quote_reference_dates[event.symbol] = market_trading_date(utc_now(), state.market_type)
                 self.pending_quotes[event.symbol] = quote
         elif event.event_type == "candle_1m":
             candle = event_to_candle(event)
@@ -250,6 +248,14 @@ class MarketStreamService:
                 self._queue_pending_bars(candle.symbol, [candle])
                 self.redis_degraded = True
                 logger.warning("Redis K 线写入失败: symbol=%s error=%s", candle.symbol, exc)
+            if is_regular_session_minute(candle.bar_time, state.market_type) and is_regular_trade_session(
+                candle.trade_session
+            ):
+                await self._update_trend_state(
+                    candle.symbol,
+                    state.market_type,
+                    as_of=max(candle.received_at, candle.bar_time + timedelta(minutes=1)),
+                )
         if (
             state.status in {SymbolStatus.INSUFFICIENT_HISTORY, SymbolStatus.ERROR}
             and count >= self.config.minimum_history_bars
@@ -272,6 +278,26 @@ class MarketStreamService:
         bars = self.bars_1m.setdefault(candle.symbol, deque(maxlen=self.config.bar_limit))
         existing = {bar.identity: bar for bar in bars}
         previous = existing.get(candle.identity)
+        if previous is not None and (
+            previous.symbol,
+            previous.open,
+            previous.high,
+            previous.low,
+            previous.close,
+            previous.volume,
+            previous.turnover,
+            previous.confirmed,
+        ) == (
+            candle.symbol,
+            candle.open,
+            candle.high,
+            candle.low,
+            candle.close,
+            candle.volume,
+            candle.turnover,
+            candle.confirmed,
+        ):
+            return False, len(bars)
         if previous is not None and candle.received_at < previous.received_at:
             return False, len(bars)
         existing[candle.identity] = candle
@@ -282,6 +308,30 @@ class MarketStreamService:
         self.current_candles[candle.symbol] = current
         self.pending_candles[candle.symbol] = current
         return True, len(updated)
+
+    async def _update_trend_state(
+        self,
+        symbol: str,
+        market_type: MarketType,
+        *,
+        as_of: datetime,
+    ) -> None:
+        try:
+            trend = calculate_ma_trend(
+                list(self.bars_1m.get(symbol, ())),
+                market_type=market_type,
+                as_of=as_of,
+            )
+        except Exception as exc:
+            logger.warning("1 分钟趋势计算失败: symbol=%s error=%s", symbol, exc, exc_info=True)
+            return
+        try:
+            await self.repository.write_trend_state(trend)
+            self.pending_trends.pop(symbol, None)
+        except Exception as exc:
+            self.pending_trends[symbol] = trend
+            self.redis_degraded = True
+            logger.warning("Redis 趋势写入失败: symbol=%s error=%s", symbol, exc)
 
     async def _load_warmup(
         self,
@@ -374,11 +424,7 @@ class MarketStreamService:
             bars = merge_warmup_bars(base_bars, buffered, limit=self.config.bar_limit)
             if bars:
                 trading_date = max(market_trading_date(bar.bar_time, state.market_type) for bar in bars)
-                bars = [
-                    bar
-                    for bar in bars
-                    if market_trading_date(bar.bar_time, state.market_type) == trading_date
-                ]
+                bars = [bar for bar in bars if market_trading_date(bar.bar_time, state.market_type) == trading_date]
             else:
                 trading_date = market_trading_date(utc_now(), state.market_type)
             self.bars_1m[state.symbol] = deque(bars, maxlen=self.config.bar_limit)
@@ -397,6 +443,12 @@ class MarketStreamService:
             self._queue_pending_bars(state.symbol, bars)
             self.redis_degraded = True
             logger.warning("Redis warmup 写入失败: symbol=%s error=%s", state.symbol, exc)
+        if bars:
+            await self._update_trend_state(
+                state.symbol,
+                state.market_type,
+                as_of=bars[-1].bar_time + timedelta(minutes=1),
+            )
         logger.info(
             "warmup 数据合并: %s cache=%s history=%s realtime=%s final=%s elapsed=%.3fs",
             state.symbol,
@@ -415,15 +467,18 @@ class MarketStreamService:
             await self._flush_pending_redis()
 
     async def _flush_pending_redis(self) -> bool:
-        quotes, candles, bars = self.pending_quotes, self.pending_candles, self.pending_bars
-        self.pending_quotes, self.pending_candles, self.pending_bars = {}, {}, {}
-        if not quotes and not candles and not bars:
+        quotes, candles, bars, trends = (
+            self.pending_quotes,
+            self.pending_candles,
+            self.pending_bars,
+            self.pending_trends,
+        )
+        self.pending_quotes, self.pending_candles, self.pending_bars, self.pending_trends = {}, {}, {}, {}
+        if not quotes and not candles and not bars and not trends:
             return True
         try:
-            await self.repository.write_batch(quotes, candles)
-            await self.repository.upsert_bars_batch(
-                {symbol: list(items.values()) for symbol, items in bars.items()}
-            )
+            await self.repository.write_batch(quotes, candles, trends)
+            await self.repository.upsert_bars_batch({symbol: list(items.values()) for symbol, items in bars.items()})
             self.redis_degraded = False
             return True
         except Exception as exc:
@@ -434,6 +489,7 @@ class MarketStreamService:
                 self.pending_candles.setdefault(symbol, candle)
             for symbol, items in bars.items():
                 self._queue_pending_bars(symbol, items.values())
+            self.pending_trends.update(trends)
             logger.warning("Redis 批量写入失败，稍后重试: %s", exc)
             return False
 
@@ -480,6 +536,7 @@ class MarketStreamService:
             self.pending_quotes.pop(symbol, None)
             self.pending_candles.pop(symbol, None)
             self.pending_bars.pop(symbol, None)
+            self.pending_trends.pop(symbol, None)
             self.quote_reference_dates.pop(symbol, None)
             self.quote_reference_attempts.pop(symbol, None)
         try:
@@ -497,11 +554,7 @@ class MarketStreamService:
         for symbol, quote in self.quotes.items():
             quote.sequence = None
             self.pending_quotes.pop(symbol, None)
-        symbols = {
-            key.symbol
-            for key in self.warming_buffers
-            if key.connection_generation <= connection_generation
-        }
+        symbols = {key.symbol for key in self.warming_buffers if key.connection_generation <= connection_generation}
         for symbol in symbols:
             async with self._symbol_lock(symbol):
                 for key in [
@@ -537,9 +590,7 @@ class MarketStreamService:
                     ttl_seconds=self.config.heartbeat_ttl_seconds,
                 )
                 renewable = [
-                    state.symbol
-                    for state in self.manager.symbol_states.values()
-                    if state.status in renewable_statuses
+                    state.symbol for state in self.manager.symbol_states.values() if state.status in renewable_statuses
                 ]
                 await self.repository.refresh_subscription_ttls(
                     renewable,
@@ -574,18 +625,18 @@ class MarketStreamService:
             }:
                 continue
             reference_date = market_trading_date(current, state.market_type)
-            if state.last_quote_at is None or market_trading_date(
-                state.last_quote_at, state.market_type
-            ) != reference_date:
+            if (
+                state.last_quote_at is None
+                or market_trading_date(state.last_quote_at, state.market_type) != reference_date
+            ):
                 # Do not refresh merely because the local calendar rolled over.
                 # The first push of the new market date proves that Longbridge
                 # has started publishing that session's quote state.
                 continue
             dates[state.symbol] = reference_date
             last_attempt = self.quote_reference_attempts.get(state.symbol)
-            if (
-                self.quote_reference_dates.get(state.symbol) != reference_date
-                and (last_attempt is None or current - last_attempt >= retry_after)
+            if self.quote_reference_dates.get(state.symbol) != reference_date and (
+                last_attempt is None or current - last_attempt >= retry_after
             ):
                 stale.add(state.symbol)
         if not stale:
