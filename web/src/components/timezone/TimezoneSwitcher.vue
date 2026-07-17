@@ -81,7 +81,7 @@ onUnmounted(() => {
 <template>
   <div
     ref="containerRef"
-    class="fixed bottom-4 right-4 z-[90]"
+    class="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3 z-[90] md:bottom-4 md:right-4"
     @mouseenter="openMenu"
     @mouseleave="scheduleClose"
     @focusin="openMenu"

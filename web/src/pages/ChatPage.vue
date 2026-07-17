@@ -482,7 +482,7 @@ function onTextareaInput(e: Event) {
 <template>
   <div
     data-testid="chat-workspace"
-    class="flex h-[calc(100vh-5rem)] w-full min-w-0 gap-4 overflow-hidden sm:h-[calc(100vh-5.5rem)] lg:h-[calc(100vh-6rem)]"
+    class="flex h-[calc(100dvh-9rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full min-w-0 gap-4 overflow-hidden md:h-[calc(100vh-5.5rem)] lg:h-[calc(100vh-6rem)]"
   >
     <div class="hidden w-[clamp(18rem,22vw,22rem)] flex-shrink-0 self-start flex-col overflow-hidden rounded-[1.25rem] border border-white/8 bg-card/82 shadow-soft-card md:flex">
       <div class="flex items-center justify-between border-b border-white/5 bg-white/2 p-3.5">

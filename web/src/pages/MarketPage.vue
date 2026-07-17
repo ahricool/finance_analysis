@@ -31,7 +31,7 @@ const activeTab = computed<MarketTab>(() => {
 
 function navClass(key: MarketTab): string[] {
   return [
-    'flex h-11 items-center justify-center gap-2 rounded-xl px-3 text-sm font-medium transition-colors lg:w-full lg:justify-start',
+    'flex h-11 min-w-0 items-center justify-center gap-2 rounded-xl px-2 text-sm font-medium transition-colors lg:w-full lg:justify-start lg:px-3',
     activeTab.value === key
       ? 'bg-primary/12 text-primary'
       : 'text-secondary-text hover:bg-hover hover:text-foreground',
@@ -51,7 +51,7 @@ function navClass(key: MarketTab): string[] {
     </header>
 
     <nav
-      class="grid grid-cols-5 gap-1 overflow-x-auto rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm lg:hidden"
+      class="grid grid-cols-2 gap-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm min-[360px]:grid-cols-3 sm:grid-cols-5 lg:hidden"
       aria-label="市场页面导航"
       data-testid="market-mobile-nav"
     >
@@ -89,7 +89,7 @@ function navClass(key: MarketTab): string[] {
       </aside>
 
       <section class="min-w-0">
-        <nav v-if="activeTab === 'quant'" class="mb-4 flex gap-2 overflow-x-auto" aria-label="量化研究导航">
+        <nav v-if="activeTab === 'quant'" class="mb-4 flex flex-wrap gap-2" aria-label="量化研究导航">
           <RouterLink
             v-for="item in quantNavItems"
             :key="item.to"

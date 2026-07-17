@@ -50,20 +50,61 @@ async function login(page: Page) {
   await page.waitForTimeout(1000);
 }
 
+async function mockAuthenticatedSession(page: Page) {
+  await page.route('**/api/v1/**', async (route) => {
+    const url = new URL(route.request().url());
+    let body: object = {};
+
+    if (url.pathname === '/api/v1/auth/status') {
+      body = {
+        loggedIn: true,
+        user: {
+          uid: 1,
+          username: 'Mobile Tester',
+          email: 'mobile@example.com',
+          avatarUrl: null,
+          role: 'user',
+          extra: { gender: 'unknown' },
+        },
+      };
+    } else if (url.pathname === '/api/v1/calendar/summary') {
+      body = {
+        start_date: url.searchParams.get('start_date'),
+        end_date: url.searchParams.get('end_date'),
+        items: [],
+      };
+    } else if (url.pathname === '/api/v1/calendar' || url.pathname === '/api/v1/calendar/events') {
+      body = {
+        date: url.searchParams.get('date'),
+        items: [],
+        total: 0,
+        page: 1,
+        limit: 20,
+      };
+    } else if (url.pathname === '/api/v1/watch-list') {
+      body = { items: [], total: 0 };
+    }
+
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+}
+
 test.describe('web smoke', () => {
-  test('login page renders password form', async ({ page }) => {
+  test('login page renders the email step', async ({ page }) => {
+    await page.route('**/api/v1/auth/status', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ loggedIn: false, user: null }),
+      }),
+    );
     await page.goto('/login');
     await page.waitForLoadState('domcontentloaded');
 
-    // Check for branding
-    await expect(page.getByText('DAILY STOCK').first()).toBeVisible();
-    await expect(page.getByText('Analysis Engine')).toBeVisible();
-
-    // Check for password input
-    await expect(page.locator('#password')).toBeVisible();
-
-    // Check for submit button
-    await expect(page.getByRole('button', { name: /授权进入工作台|完成设置并登录/ })).toBeVisible();
+    await expect(page.getByText('Finance Analysis')).toBeVisible();
+    await expect(page.getByTestId('login-email')).toBeVisible();
+    await expect(page.getByTestId('login-password')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '继续' })).toBeVisible();
   });
 
   test('home page shows analysis entry and history panel after login', async ({ page }) => {
@@ -120,16 +161,41 @@ test.describe('web smoke', () => {
     await expect(composer).not.toHaveAttribute('title', /.+/);
   });
 
-  test('mobile shell keeps top navigation accessible after login', async ({ page }) => {
+  test('mobile shell exposes every main destination and navigates from calendar to market', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await login(page);
+    await mockAuthenticatedSession(page);
+    await page.goto('/calendar');
 
-    await page
-      .getByRole('navigation', { name: '主导航' })
-      .evaluate((el) => {
-        el.scrollLeft = el.scrollWidth;
-      });
-    await expect(page.getByRole('link', { name: '问股' })).toBeVisible({ timeout: 5000 });
+    const mobileNav = page.getByTestId('mobile-main-nav');
+    await expect(mobileNav).toBeVisible();
+    for (const label of ['首页', '日历', '市场', '问股']) {
+      await expect(mobileNav.getByRole('link', { name: label })).toBeVisible();
+    }
+
+    await expect(mobileNav.getByRole('link', { name: '日历' })).toHaveAttribute('aria-current', 'page');
+
+    await mobileNav.getByRole('link', { name: '市场' }).click();
+    await expect(page).toHaveURL(/\/market\/watch-list$/);
+    await expect(mobileNav.getByRole('link', { name: '市场' })).toHaveAttribute('aria-current', 'page');
+
+    const marketNav = page.getByTestId('market-mobile-nav');
+    await expect(marketNav).toBeVisible();
+    await expect(marketNav.getByRole('link')).toHaveCount(5);
+    expect(
+      await marketNav.evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
+
+    await page.setViewportSize({ width: 320, height: 568 });
+    for (const link of await marketNav.getByRole('link').all()) {
+      await expect(link).toBeVisible();
+    }
+    expect(
+      await marketNav.evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
+
+    await page.setViewportSize({ width: 844, height: 390 });
+    await expect(mobileNav).toBeHidden();
+    await expect(page.getByTestId('desktop-main-nav').getByRole('link', { name: '市场' })).toBeVisible();
   });
 
   test('settings and theme navigation entries are removed after login', async ({ page }) => {

@@ -163,7 +163,7 @@ function handleHistoryPageChange(page: number) {
 <template>
   <div
     data-testid="home-dashboard"
-    class="flex h-[calc(100vh-5rem)] w-full flex-col overflow-hidden sm:h-[calc(100vh-5.5rem)] md:flex-row lg:h-[calc(100vh-6rem)]"
+    class="flex h-[calc(100dvh-9rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full flex-col overflow-hidden md:h-[calc(100vh-5.5rem)] md:flex-row lg:h-[calc(100vh-6rem)]"
   >
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-1 flex-col">
       <header class="flex min-w-0 flex-shrink-0 items-center overflow-hidden px-3 py-3 md:px-4 md:py-4">
