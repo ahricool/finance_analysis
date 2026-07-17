@@ -40,7 +40,7 @@ class DataProviderConfig:
     fundamental_retry_max: int = 1
     fundamental_cache_ttl_seconds: int = 120
     fundamental_cache_max_entries: int = 256
-    market_data_initial_daily_days: int = 3 * 365
+    market_data_initial_daily_days: int = 5 * 365
     market_data_initial_minute_days: int = 3
     market_data_repair_daily_days: int = 14
     market_data_repair_minute_days: int = 3
@@ -61,7 +61,7 @@ def get_data_provider_config() -> DataProviderConfig:
         longbridge_access_token=env_str("LONGBRIDGE_ACCESS_TOKEN") or None,
         enable_eastmoney_patch=env_bool("ENABLE_EASTMONEY_PATCH", False),
         realtime_source_priority=_resolve_realtime_source_priority(tushare_token),
-        market_data_initial_daily_days=env_int("MARKET_DATA_INITIAL_DAILY_DAYS", 3 * 365, minimum=1),
+        market_data_initial_daily_days=env_int("MARKET_DATA_INITIAL_DAILY_DAYS", 5 * 365, minimum=1),
         market_data_initial_minute_days=env_int("MARKET_DATA_INITIAL_MINUTE_DAYS", 3, minimum=1),
         market_data_repair_daily_days=env_int("MARKET_DATA_REPAIR_DAILY_DAYS", 14, minimum=1),
         market_data_repair_minute_days=env_int("MARKET_DATA_REPAIR_MINUTE_DAYS", 3, minimum=1),

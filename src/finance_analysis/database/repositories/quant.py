@@ -14,7 +14,7 @@ from finance_analysis.database.models.quant import (
     ModelRun, ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem,
     QuantDatasetSnapshot, QuantUniverse, QuantUniverseMember, SectorRegimeSnapshot,
 )
-from finance_analysis.database.models.stock import MarketDataSymbol
+from finance_analysis.database.models.stock import MarketDataSymbol, StockDaily
 
 
 class QuantRepository:
@@ -63,6 +63,19 @@ class QuantRepository:
             for member, symbol in rows:
                 session.expunge(member); session.expunge(symbol)
             return rows
+
+    def daily_bar_codes(self, codes: set[str], trade_date: date) -> set[str]:
+        """Return universe codes with a daily bar on the requested trading date."""
+        if not codes:
+            return set()
+        with self.db.get_session() as session:
+            return set(
+                session.execute(
+                    select(MarketDataSymbol.code)
+                    .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
+                    .where(MarketDataSymbol.code.in_(codes), StockDaily.date == trade_date)
+                ).scalars()
+            )
 
     def create_dataset(self, values: dict[str, Any]) -> QuantDatasetSnapshot:
         with self.db.session_scope() as session:
@@ -135,9 +148,21 @@ class QuantRepository:
                 EventFeatureDaily.trade_date==DailyFeatureSnapshot.trade_date,EventFeatureDaily.symbol_id==DailyFeatureSnapshot.symbol_id
             )).where(DailyFeatureSnapshot.trade_date==trade_date,DailyFeatureSnapshot.feature_version==feature_version,
                       EventFeatureDaily.feature_version==event_feature_version)).all()
-            return {daily.symbol_id:{"sector_score":daily.sector_score,"event_score":event.event_score,
-                "negative_event_veto":event.negative_event_veto,"event_payload":event.feature_payload,
-                "sector_key":(daily.features or {}).get("sector_key")} for daily,event in rows}
+            result = {}
+            for daily, event in rows:
+                features = daily.features or {}
+                result[daily.symbol_id] = {
+                    "sector_score": daily.sector_score,
+                    "event_score": event.event_score,
+                    "negative_event_veto": event.negative_event_veto,
+                    "event_payload": event.feature_payload,
+                    "sector_key": features.get("sector_key"),
+                    "has_sufficient_data": features.get("has_sufficient_data"),
+                    "liquidity": features.get("liquidity"),
+                    "risk_penalty": features.get("risk_penalty"),
+                    "close": features.get("close"),
+                }
+            return result
 
     def save_market_regime(self, values: dict[str, Any]) -> MarketRegimeSnapshot:
         with self.db.session_scope() as session:
