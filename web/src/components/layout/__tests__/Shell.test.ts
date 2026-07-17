@@ -87,9 +87,39 @@ describe('Shell user menu', () => {
         },
       });
 
-      const marketLink = wrapper.get('a[aria-label="市场"]');
-      expect(marketLink.classes()).toContain('text-[hsl(var(--primary))]');
-      expect(marketLink.find('span.absolute').exists()).toBe(true);
+      const marketLinks = wrapper.findAll('a[aria-label="市场"]');
+      expect(marketLinks).toHaveLength(2);
+      expect(marketLinks.every((link) => link.classes().includes('text-[hsl(var(--primary))]'))).toBe(true);
+      expect(marketLinks.every((link) => link.attributes('aria-current') === 'page')).toBe(true);
+      expect(marketLinks.every((link) => link.find('span.absolute').exists())).toBe(true);
     },
   );
+
+  it('shows every core destination in the mobile nav and navigates from calendar to market', async () => {
+    const router = createTestRouter();
+    await router.push('/calendar');
+    await router.isReady();
+
+    const wrapper = mount(Shell, {
+      global: {
+        plugins: [router],
+      },
+    });
+
+    const mobileNav = wrapper.get('[data-testid="mobile-main-nav"]');
+    expect(mobileNav.findAll('a').map((link) => link.attributes('aria-label'))).toEqual([
+      '首页',
+      '日历',
+      '市场',
+      '问股',
+    ]);
+    expect(mobileNav.get('a[aria-label="日历"]').attributes('aria-current')).toBe('page');
+
+    await mobileNav.get('a[aria-label="市场"]').trigger('click');
+
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.path).toBe('/market/watch-list');
+    });
+    expect(mobileNav.get('a[aria-label="市场"]').attributes('aria-current')).toBe('page');
+  });
 });

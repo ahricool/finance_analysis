@@ -60,9 +60,9 @@ async function onLogoutConfirm() {
 <template>
   <div class="min-h-screen bg-background text-foreground">
     <header
-      class="fixed inset-x-0 top-0 z-50 border-b border-border/70 bg-card/90 shadow-soft-card backdrop-blur-xl"
+      class="fixed inset-x-0 top-0 z-50 border-b border-border/70 bg-card/90 pt-[env(safe-area-inset-top)] shadow-soft-card backdrop-blur-xl md:pt-0"
     >
-      <div class="mx-auto flex h-16 w-full max-w-[1280px] items-center gap-3 px-3 sm:px-4 lg:px-6">
+      <div class="shell-safe-inline mx-auto flex h-16 w-full max-w-[1280px] items-center gap-3">
         <RouterLink
           to="/"
           class="flex min-w-max items-center gap-2.5 rounded-xl px-2 py-1.5 text-foreground transition-colors hover:bg-hover"
@@ -79,8 +79,9 @@ async function onLogoutConfirm() {
         </RouterLink>
 
         <nav
-          class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          class="hidden min-w-0 flex-1 items-center gap-1 px-1 md:flex"
           aria-label="主导航"
+          data-testid="desktop-main-nav"
         >
           <RouterLink
             v-for="item in mainNavItems"
@@ -92,6 +93,7 @@ async function onLogoutConfirm() {
             <a
               :href="href"
               :aria-label="item.label"
+              :aria-current="isNavItemActive(item, isActive, isExactActive) ? 'page' : undefined"
               :class="
                 cn(
                   'group relative inline-flex h-10 min-w-max items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium transition-colors',
@@ -197,9 +199,59 @@ async function onLogoutConfirm() {
       </div>
     </header>
 
-    <main class="mx-auto min-h-screen w-full max-w-[1280px] px-3 pb-4 pt-20 sm:px-4 lg:px-6">
+    <main
+      class="shell-safe-inline mx-auto min-h-screen w-full max-w-[1280px] pb-[calc(5rem+env(safe-area-inset-bottom))] pt-[calc(5rem+env(safe-area-inset-top))] md:pb-4 md:pt-20"
+    >
       <RouterView />
     </main>
+
+    <nav
+      class="fixed inset-x-0 bottom-0 z-50 border-t border-border/70 bg-card/95 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] shadow-[0_-8px_20px_hsl(var(--foreground)/0.06)] backdrop-blur-xl md:hidden"
+      aria-label="主导航"
+      data-testid="mobile-main-nav"
+    >
+      <div class="mx-auto grid h-16 max-w-lg grid-cols-4 px-1">
+        <RouterLink
+          v-for="item in mainNavItems"
+          :key="item.key"
+          v-slot="{ href, navigate, isActive, isExactActive }"
+          :to="item.to"
+          custom
+        >
+          <a
+            :href="href"
+            :aria-label="item.label"
+            :aria-current="isNavItemActive(item, isActive, isExactActive) ? 'page' : undefined"
+            :class="
+              cn(
+                'group relative mx-0.5 my-1.5 flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-xs font-medium transition-colors',
+                isNavItemActive(item, isActive, isExactActive)
+                  ? 'bg-[var(--nav-active-bg)] text-[hsl(var(--primary))]'
+                  : 'text-secondary-text hover:bg-[var(--nav-hover-bg)] hover:text-foreground',
+              )
+            "
+            @click="navigate"
+          >
+            <component
+              :is="item.icon"
+              class="h-5 w-5 shrink-0"
+            />
+            <span class="truncate">{{ item.label }}</span>
+            <span
+              v-if="isNavItemActive(item, isActive, isExactActive)"
+              class="absolute inset-x-4 bottom-0 h-0.5 rounded-full bg-[var(--nav-indicator-bg)]"
+            />
+            <StatusDot
+              v-if="item.badge === 'completion' && completionBadge"
+              tone="info"
+              data-testid="chat-completion-badge-mobile"
+              class="absolute right-[calc(50%-1rem)] top-1.5 border-2 border-background shadow-[0_0_10px_var(--nav-indicator-shadow)]"
+              aria-label="问股有新消息"
+            />
+          </a>
+        </RouterLink>
+      </div>
+    </nav>
 
     <TimezoneSwitcher />
 
@@ -215,3 +267,24 @@ async function onLogoutConfirm() {
     />
   </div>
 </template>
+
+<style scoped>
+.shell-safe-inline {
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+}
+
+@media (min-width: 640px) {
+  .shell-safe-inline {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+}
+
+@media (min-width: 1024px) {
+  .shell-safe-inline {
+    padding-left: max(1.5rem, env(safe-area-inset-left));
+    padding-right: max(1.5rem, env(safe-area-inset-right));
+  }
+}
+</style>
