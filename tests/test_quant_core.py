@@ -92,12 +92,16 @@ def test_fusion_gating_and_veto_are_explicit():
     fused = SignalFusion().fuse(.8, .7, .4, "neutral", risk_penalty=.1)
     assert fused.raw_final_score == pytest.approx(.8*.45 + .7*.30 + .4*.25 - .1)
     assert fused.gated_final_score == pytest.approx(fused.raw_final_score * .7)
+    strong_sector = SignalFusion().fuse(.8, .7, .4, "neutral", sector_score=.9, risk_penalty=.1)
+    weak_sector = SignalFusion().fuse(.8, .7, .4, "neutral", sector_score=.1, risk_penalty=.1)
+    assert strong_sector.raw_final_score > weak_sector.raw_final_score
+    assert strong_sector.score_components["sector_contribution"] == pytest.approx(.04)
     vetoed = SignalFusion().fuse(.9, .9, .9, "risk_on", negative_event_veto=True)
     assert vetoed.vetoed and vetoed.target_position == 0 and vetoed.signal == "blocked"
 
 
 def test_portfolio_respects_veto_single_stock_and_sector_caps():
-    signals = [{"code":f"S{i}.US","symbol_id":i,"final_score":1-i*.05,"sector_key":"semiconductor","signal":"buy","reasons":[],"vetoed":i==0,"liquidity":2_000_000} for i in range(8)]
+    signals = [{"code":f"S{i}.US","symbol_id":i,"final_score":1-i*.05,"sector_key":"semiconductor","signal":"buy","reasons":[],"vetoed":i==0,"has_sufficient_data":True,"liquidity":2_000_000} for i in range(8)]
     result = PortfolioBuilder().build(signals, .8)
     assert all(item["code"] != "S0.US" or item["action"] == "blocked" for item in result["items"])
     assert all(item["target_weight"] <= .08 for item in result["items"])

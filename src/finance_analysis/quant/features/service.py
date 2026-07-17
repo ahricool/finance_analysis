@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -33,8 +34,27 @@ class DailyResearchService:
         if missing: raise BenchmarkDataMissingError(f"Missing benchmark history: {sorted(missing)}")
         stale={code for code in benchmarks if pd.Timestamp(frames[code]["date"].iloc[-1]).date()!=trade_date}
         if stale: raise BenchmarkDataMissingError(f"Benchmark data is not ready for {trade_date}: {sorted(stale)}")
-        member_frames={symbol.code:frames[symbol.code] for _,symbol in members if symbol.code in frames and len(frames[symbol.code])>=61}
-        if not member_frames: raise FeatureDataMissingError("No universe member has sufficient daily history")
+        missing_members = {
+            symbol.code
+            for _, symbol in members
+            if symbol.code not in frames
+            or frames[symbol.code].empty
+            or pd.Timestamp(frames[symbol.code]["date"].iloc[-1]).date() != trade_date
+        }
+        if missing_members:
+            raise FeatureDataMissingError(
+                f"Universe daily data is not ready for {trade_date}: {sorted(missing_members)}"
+            )
+        missing_sector_mapping = {
+            symbol.code
+            for member, symbol in members
+            if not member.sector_key or not member.sector_benchmark_code
+        }
+        if missing_sector_mapping:
+            raise FeatureDataMissingError(
+                f"Universe members have no sector mapping: {sorted(missing_sector_mapping)}"
+            )
+        member_frames={symbol.code:frames[symbol.code] for _,symbol in members}
         market_result=MarketRegimeService(self.config.regime).calculate(frames["QQQ.US"],frames["SPY.US"],frames["SOXX.US"],member_frames)
         regime=self.repository.save_market_regime({"market":market,"trade_date":trade_date,"model_version":self.config.regime_model_version,
             "regime":market_result.regime,"market_score":market_result.market_score,"max_equity_exposure":market_result.max_equity_exposure,
@@ -46,23 +66,72 @@ class DailyResearchService:
         sectors=SectorRegimeService().rank({key:(value[0],value[1],value[2]) for key,value in sector_inputs.items()},frames["QQQ.US"],market_result.regime)
         self.repository.save_sector_regimes([{"market":market,"trade_date":trade_date,"model_version":self.config.sector_model_version,**row} for row in sectors])
         sector_scores={row["sector_key"]:row["sector_score"] for row in sectors}; daily_values=[]; event_values=[]
+        missing_sector_scores = {
+            symbol.code for member, symbol in members if member.sector_key not in sector_scores
+        }
+        if missing_sector_scores:
+            raise FeatureDataMissingError(
+                f"Sector score is unavailable for universe members: {sorted(missing_sector_scores)}"
+            )
         cutoff=datetime.combine(trade_date,time(16,0),ZoneInfo("America/New_York"))
         for member,symbol in members:
-            bars=member_frames.get(symbol.code)
-            if bars is None: continue
-            sector_bars=frames.get(member.sector_benchmark_code)
-            if sector_bars is None: continue
+            bars=member_frames[symbol.code]
+            sector_bars=frames[member.sector_benchmark_code]
             features=add_relative_strength(build_daily_features(bars),frames["QQQ.US"],sector_bars).iloc[-1]
+            portfolio_metadata = self._portfolio_metadata(bars, features, trade_date)
             events=self.repository.available_events(symbol.id,cutoff,cutoff-timedelta(days=90)); event=score_events(events,cutoff)
             explicit={key:(None if pd.isna(features.get(key)) else float(features[key])) for key in (
                 "ret_1d","ret_5d","ret_20d","ret_60d","price_ma20_ratio","price_ma60_ratio","volume_ratio_5d","atr_14","realized_vol_20d","distance_from_20d_high","gap_return","rsi_14","relative_5d_to_market","relative_20d_to_market","relative_5d_to_sector","relative_20d_to_sector")}
             daily_values.append({"trade_date":trade_date,"symbol_id":symbol.id,"feature_version":self.config.feature_version,**explicit,
-                "market_score":market_result.market_score,"sector_score":sector_scores.get(member.sector_key),"event_score":event["event_score"],"features":{"sector_key":member.sector_key,"price_mode":"raw"}})
+                "market_score":market_result.market_score,"sector_score":sector_scores[member.sector_key],"event_score":event["event_score"],
+                "features":{"sector_key":member.sector_key,"price_mode":"raw",**portfolio_metadata}})
             event_values.append({"trade_date":trade_date,"symbol_id":symbol.id,"feature_version":self.config.event_feature_version,
                 "positive_event_count_3d":event["positive_event_count_3d"],"negative_event_count_3d":event["negative_event_count_3d"],
                 "event_score":event["event_score"],"negative_event_veto":event["negative_event_veto"],"feature_payload":{"components":event["components"]}})
         self.repository.save_daily_features(daily_values);self.repository.save_event_features(event_values)
         return {"market_regime":regime,"sectors":sectors,"feature_count":len(daily_values),"warnings":["price_mode=raw"]}
+
+    @staticmethod
+    def _portfolio_metadata(bars: pd.DataFrame, features: pd.Series, trade_date: date) -> dict:
+        """Derive explicit portfolio eligibility, liquidity and volatility risk inputs."""
+        ordered = bars.sort_values("date").reset_index(drop=True)
+        close = pd.to_numeric(ordered["close"], errors="coerce")
+        volume = pd.to_numeric(ordered["volume"], errors="coerce")
+        if "amount" in ordered:
+            amount = pd.to_numeric(ordered["amount"], errors="coerce")
+        else:
+            amount = pd.Series(float("nan"), index=ordered.index)
+        turnover = amount.where(amount > 0, close * volume)
+        recent_turnover = turnover.tail(20).dropna()
+        liquidity = float(recent_turnover.mean()) if not recent_turnover.empty else 0.0
+
+        realized_volatility = features.get("realized_vol_20d")
+        if pd.isna(realized_volatility):
+            realized_volatility = close.pct_change().tail(20).std(ddof=1) * math.sqrt(252)
+        risk_penalty = (
+            0.15
+            if pd.isna(realized_volatility)
+            else min(0.15, max(0.0, float(realized_volatility)) * 0.10)
+        )
+        required_features = (
+            "ret_60d",
+            "price_ma60_ratio",
+            "realized_vol_20d",
+            "relative_20d_to_market",
+            "relative_20d_to_sector",
+        )
+        latest_date = pd.Timestamp(ordered["date"].iloc[-1]).date()
+        has_sufficient_data = (
+            len(ordered) >= 61
+            and latest_date == trade_date
+            and all(pd.notna(features.get(key)) for key in required_features)
+        )
+        return {
+            "has_sufficient_data": bool(has_sufficient_data),
+            "liquidity": liquidity,
+            "risk_penalty": risk_penalty,
+            "close": float(close.iloc[-1]),
+        }
 
     def _load(self,codes:set[str],start:date,end:date)->dict[str,pd.DataFrame]:
         with self.repository.db.get_session() as session:

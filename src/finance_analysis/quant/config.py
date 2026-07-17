@@ -27,6 +27,7 @@ class FusionConfig:
     cross_section_weight: float = 0.45
     time_series_weight: float = 0.30
     event_weight: float = 0.25
+    sector_weight: float = 0.10
     regime_multipliers: dict[str, float] = field(
         default_factory=lambda: {"risk_on": 1.0, "neutral": 0.7, "risk_off": 0.3}
     )
@@ -38,6 +39,8 @@ class FusionConfig:
         total = self.cross_section_weight + self.time_series_weight + self.event_weight
         if abs(total - 1.0) > 1e-9:
             raise ValueError(f"Fusion weights must sum to 1, got {total}")
+        if not 0 <= self.sector_weight <= 1:
+            raise ValueError("sector_weight must be between 0 and 1")
 
 
 @dataclass(frozen=True)
