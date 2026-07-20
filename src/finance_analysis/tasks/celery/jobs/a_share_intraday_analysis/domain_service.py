@@ -125,7 +125,8 @@ class AShareIntradayAnalysisService:
             market_phase=phase,
             market_open=True,
         )
-
+        
+        # Todo：改成 redis 锁
         lock_key = f"a_share_intraday:{trading_date.isoformat()}:{run_time.strftime('%H:%M')}"
         lock_token = try_acquire_a_share_intraday_lock(lock_key) if self.use_lock else object()
         if lock_token is None:
@@ -731,6 +732,7 @@ def compute_market_breadth(rows: Sequence[Dict[str, Any]], trading_date: date) -
         if price is None or pre_close is None or price <= 0 or pre_close <= 0:
             continue
         counted += 1
+        # 计算涨跌
         if price > pre_close:
             up += 1
         elif price < pre_close:
@@ -746,8 +748,8 @@ def compute_market_breadth(rows: Sequence[Dict[str, Any]], trading_date: date) -
         ratio = _limit_ratio_for_row(code, name)
         if ratio is None:
             continue
-        limit_up_price = round(pre_close * (1 + ratio), 2)
-        limit_down_price = round(pre_close * (1 - ratio), 2)
+        limit_up_price = round(pre_close * (1 + ratio), 2)  # 涨停价
+        limit_down_price = round(pre_close * (1 - ratio), 2) # 跌停价
         high = safe_float(row.get("high"))
         low = safe_float(row.get("low"))
         open_price = safe_float(row.get("open"))
