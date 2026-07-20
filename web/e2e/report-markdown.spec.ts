@@ -33,7 +33,7 @@ async function login(page: Page) {
     page.getByTestId('login-submit').click(),
   ]);
 
-  await page.waitForURL('/', { timeout: 15_000 });
+  await page.waitForURL('**/analysis', { timeout: 15_000 });
   await page.waitForLoadState('domcontentloaded');
   const stockInput = page.getByPlaceholder('输入股票代码或名称，如 600519、贵州茅台、AAPL');
   await expect(stockInput).toBeVisible({ timeout: 10_000 });
@@ -47,7 +47,7 @@ test.describe('ReportMarkdown component', () => {
     await login(page);
 
     // Navigate to history page
-    await page.getByRole('link', { name: '首页' }).click();
+    await page.getByRole('link', { name: '分析' }).click();
     await page.waitForLoadState('domcontentloaded');
     // Wait for history panel to load
     await expect(page.getByText('历史分析')).toBeVisible({ timeout: 10_000 });
@@ -92,7 +92,7 @@ test.describe('ReportMarkdown component', () => {
     await login(page);
 
     // Navigate to history page
-    await page.getByRole('link', { name: '首页' }).click();
+    await page.getByRole('link', { name: '分析' }).click();
     await page.waitForLoadState('domcontentloaded');
     // Wait for history panel to load
     await expect(page.getByText('历史分析')).toBeVisible({ timeout: 10_000 });
@@ -174,7 +174,7 @@ test.describe('ReportMarkdown component', () => {
     await login(page);
 
     // Navigate to history page
-    await page.getByRole('link', { name: '首页' }).click();
+    await page.getByRole('link', { name: '分析' }).click();
     await page.waitForLoadState('domcontentloaded');
     // Wait for history panel to load
     await expect(page.getByText('历史分析')).toBeVisible({ timeout: 10_000 });

@@ -18,6 +18,7 @@ const MarketHoldingsPage = () => import('@/pages/StockListPage.vue');
 const SignalEvaluationPage = () => import('@/pages/market/SignalEvaluationPage.vue');
 const BacktestPage = () => import('@/pages/market/BacktestPage.vue');
 const BacktestDetailPage = () => import('@/pages/market/BacktestDetailPage.vue');
+const QuantPage = () => import('@/pages/market/QuantPage.vue');
 const QuantDashboardPage = () => import('@/pages/market/quant/QuantDashboardPage.vue');
 const QuantSignalsPage = () => import('@/pages/market/quant/QuantSignalsPage.vue');
 const QuantSignalDetailPage = () => import('@/pages/market/quant/QuantSignalDetailPage.vue');
@@ -38,7 +39,8 @@ const router = createRouter({
       path: '/',
       component: Shell,
       children: [
-        { path: '', name: 'home', component: HomePage },
+        { path: '', redirect: { name: 'analysis' } },
+        { path: 'analysis', name: 'analysis', component: HomePage, meta: { title: '分析' } },
         { path: 'chat', name: 'chat', component: ChatPage, meta: { title: '问股' } },
         {
           path: 'market',
@@ -63,25 +65,32 @@ const router = createRouter({
               component: SignalEvaluationPage,
               meta: { title: '信号评估' },
             },
-            {
-              path: 'backtests',
-              name: 'market-backtests',
-              component: BacktestPage,
-              meta: { title: '策略回测' },
-            },
-            {
-              path: 'backtests/:runId',
-              name: 'market-backtest-detail',
-              component: BacktestDetailPage,
-              meta: { title: '回测详情' },
-            },
-            { path: 'quant', name: 'market-quant', component: QuantDashboardPage, meta: { title: '量化研究' } },
-            { path: 'quant/signals', name: 'market-quant-signals', component: QuantSignalsPage, meta: { title: '模型选股' } },
-            { path: 'quant/signals/:code', name: 'market-quant-signal-detail', component: QuantSignalDetailPage, meta: { title: '选股详情' } },
-            { path: 'quant/models', name: 'market-quant-models', component: QuantModelsPage, meta: { title: '量化模型' } },
-            { path: 'quant/models/:runId', name: 'market-quant-model-run', component: QuantModelRunPage, meta: { title: '模型运行详情' } },
-            { path: 'quant/events', name: 'market-quant-events', component: QuantEventsPage, meta: { title: '市场事件' } },
-            { path: 'quant/portfolios', name: 'market-quant-portfolios', component: QuantPortfoliosPage, meta: { title: '组合建议' } },
+          ],
+        },
+        {
+          path: 'market/backtests',
+          name: 'market-backtests',
+          component: BacktestPage,
+          meta: { title: '策略回测' },
+        },
+        {
+          path: 'market/backtests/:runId',
+          name: 'market-backtest-detail',
+          component: BacktestDetailPage,
+          meta: { title: '回测详情' },
+        },
+        {
+          path: 'market/quant',
+          component: QuantPage,
+          meta: { title: '量化研究' },
+          children: [
+            { path: '', name: 'market-quant', component: QuantDashboardPage },
+            { path: 'signals', name: 'market-quant-signals', component: QuantSignalsPage, meta: { title: '模型选股' } },
+            { path: 'signals/:code', name: 'market-quant-signal-detail', component: QuantSignalDetailPage, meta: { title: '选股详情' } },
+            { path: 'models', name: 'market-quant-models', component: QuantModelsPage, meta: { title: '量化模型' } },
+            { path: 'models/:runId', name: 'market-quant-model-run', component: QuantModelRunPage, meta: { title: '模型运行详情' } },
+            { path: 'events', name: 'market-quant-events', component: QuantEventsPage, meta: { title: '市场事件' } },
+            { path: 'portfolios', name: 'market-quant-portfolios', component: QuantPortfoliosPage, meta: { title: '组合建议' } },
           ],
         },
         { path: 'calendar', name: 'calendar', component: CalendarPage, meta: { title: '日历记录' } },
@@ -117,7 +126,7 @@ router.beforeEach(async (to) => {
   }
 
   if (to.path === '/login' && auth.loggedIn) {
-    return { path: '/', replace: true };
+    return { path: '/analysis', replace: true };
   }
 
   return true;
