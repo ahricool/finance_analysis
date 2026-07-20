@@ -321,6 +321,9 @@ class EfinanceFetcher(BaseFetcher):
             return pd.DataFrame()
         frame = frame.copy()
         frame["date"] = pd.to_datetime(frame["date"]).dt.date
+        if symbol.market == "CN":
+            # Eastmoney reports A-share historical volume in lots (手).
+            frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce") * 100.0
         columns = ["date", "open", "high", "low", "close", "volume", "amount"]
         return frame[columns].sort_values("date").reset_index(drop=True)
 
@@ -654,7 +657,7 @@ class EfinanceFetcher(BaseFetcher):
         if 'volume' not in df.columns:
             df['volume'] = 0
         if 'amount' not in df.columns:
-            df['amount'] = 0
+            df['amount'] = pd.NA
 
         
         # 如果没有 code 列，手动添加

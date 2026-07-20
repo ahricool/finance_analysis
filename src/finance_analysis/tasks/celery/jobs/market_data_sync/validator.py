@@ -9,6 +9,13 @@ from typing import Any, Iterable
 
 import pandas as pd
 
+PROVIDER_VWAP_SOURCES = {
+    "LongbridgeFetcher": "longbridge",
+    "EfinanceFetcher": "efinance",
+    "AkshareFetcher": "akshare",
+    "YfinanceFetcher": "yfinance",
+}
+
 
 @dataclass(frozen=True)
 class MarketDataValidationError(ValueError):
@@ -82,4 +89,51 @@ def missing_daily_days(rows: Iterable[dict[str, Any]], requested_days: Iterable[
     return sorted(set(requested_days) - actual)
 
 
-__all__ = ["MarketDataValidationError", "missing_daily_days", "validate_daily_bars"]
+def enrich_daily_vwap(rows: Iterable[dict[str, Any]], provider: str) -> list[dict[str, Any]]:
+    """Set VWAP once per provider row without synthesizing turnover."""
+    enriched: list[dict[str, Any]] = []
+    provider_source = PROVIDER_VWAP_SOURCES.get(provider, provider.lower())
+    for raw in rows:
+        row = dict(raw)
+        vwap = _optional_positive_number(row.get("vwap"))
+        if vwap is not None:
+            row.update(vwap=vwap, vwap_source=provider_source, vwap_quality="provider")
+            enriched.append(row)
+            continue
+
+        amount = _optional_nonnegative_number(row.get("amount"))
+        volume = _optional_nonnegative_number(row.get("volume"))
+        if amount is not None and volume is not None and volume > 0:
+            calculated = amount / volume
+            if math.isfinite(calculated) and calculated > 0:
+                row.update(vwap=calculated, vwap_source="amount_div_volume", vwap_quality="calculated")
+                enriched.append(row)
+                continue
+
+        high = _optional_positive_number(row.get("high"))
+        low = _optional_positive_number(row.get("low"))
+        close = _optional_positive_number(row.get("close"))
+        if high is not None and low is not None and close is not None:
+            row.update(vwap=(high + low + close) / 3.0, vwap_source="hlc3", vwap_quality="estimated")
+        else:
+            row.update(vwap=None, vwap_source=None, vwap_quality="missing")
+        enriched.append(row)
+    return enriched
+
+
+def _optional_positive_number(value: Any) -> float | None:
+    number = _optional_nonnegative_number(value)
+    return number if number is not None and number > 0 else None
+
+
+def _optional_nonnegative_number(value: Any) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number >= 0 else None
+
+
+__all__ = ["MarketDataValidationError", "enrich_daily_vwap", "missing_daily_days", "validate_daily_bars"]

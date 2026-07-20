@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import pytest
 import yaml
 
 from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
@@ -18,22 +20,55 @@ def test_main_environment_does_not_install_qlib() -> None:
     assert importlib.util.find_spec("qlib") is None
 
 
-def test_vwap_uses_normalized_turnover_and_never_zero_fills() -> None:
+def test_vwap_prefers_database_values_and_reports_hlc3_fallback_ratio() -> None:
     frame = pd.DataFrame(
         {
-            "low": [9.0, 19.0, 29.0, 39.0],
-            "high": [11.0, 21.0, 31.0, 41.0],
-            "close": [10.0, 20.0, 30.0, 40.0],
+            "low": [9.0, 19.0, 29.0, np.nan],
+            "high": [11.0, 21.0, 31.0, np.nan],
+            "close": [10.0, 20.0, 30.0, np.nan],
             "volume": [100.0, 100.0, 100.0, 0.0],
-            "amount": [1_000.0, 2.0, np.nan, 4_000.0],
+            "amount": [1_000.0, np.nan, np.nan, np.nan],
+            "vwap": [10.25, 20.5, np.nan, np.nan],
+            "vwap_quality": ["calculated", "estimated", None, "missing"],
         }
     )
     result, report = QlibDatasetExporter._with_vwap(frame)
-    assert result.loc[0, "vwap"] == 10.0
-    assert result.loc[1, "vwap"] == 20.0  # legacy amount-in-thousands correction
-    assert result.loc[2, "vwap"] == 30.0  # documented OHLC proxy when turnover is absent
+    assert result.loc[0, "vwap"] == 10.25
+    assert result.loc[1, "vwap"] == 20.5
+    assert result.loc[2, "vwap"] == 30.0
     assert np.isnan(result.loc[3, "vwap"])
-    assert report == {"valid_rows": 3, "turnover_rows": 2, "proxy_rows": 1, "invalid_rows": 1}
+    assert report == {
+        "valid_rows": 3,
+        "provider_calculated_rows": 1,
+        "estimated_rows": 2,
+        "missing_rows": 1,
+        "provider_calculated_ratio": 0.25,
+        "estimated_ratio": 0.5,
+        "missing_ratio": 0.25,
+    }
+    assert "vwap" in QlibDatasetExporter.FIELDS
+
+
+def test_qlib_writer_exports_persisted_vwap_field(tmp_path: Path) -> None:
+    frame = pd.DataFrame({
+        "instrument": ["AAPL.US"],
+        "datetime": [pd.Timestamp("2026-07-17")],
+        "open": [10.0],
+        "high": [11.0],
+        "low": [9.0],
+        "close": [10.5],
+        "volume": [100.0],
+        "amount": [np.nan],
+        "factor": [1.0],
+        "vwap": [10.25],
+        "vwap_source": ["hlc3"],
+        "vwap_quality": ["estimated"],
+    })
+    exporter = object.__new__(QlibDatasetExporter)
+    with patch.object(QlibDatasetExporter, "_custom_features", return_value=pd.DataFrame()):
+        exporter._write_qlib(tmp_path, frame, {"AAPL.US"}, None, {})
+    values = np.fromfile(tmp_path / "features" / "aapl.us" / "vwap.day.bin", dtype="<f4")
+    assert values.tolist() == pytest.approx([0.0, 10.25])
 
 
 def test_qlib_tasks_have_explicit_queue_routes() -> None:

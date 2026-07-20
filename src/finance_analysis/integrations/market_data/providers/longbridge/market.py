@@ -499,6 +499,7 @@ class LongbridgeFetcher(BaseFetcher):
             "close": getattr(candle, "close", None),
             "volume": getattr(candle, "volume", None),
             "amount": getattr(candle, "turnover", None),
+            "vwap": getattr(candle, "vwap", None),
         }
         if minute:
             row["bar_time"] = timestamp

@@ -242,6 +242,9 @@ class AkshareFetcher(BaseFetcher):
             return pd.DataFrame()
         frame = frame.copy()
         frame["date"] = pd.to_datetime(frame["date"]).dt.date
+        if symbol.market == "CN":
+            # stock_zh_a_hist reports volume in lots (手); persist shares.
+            frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce") * 100.0
         columns = ["date", "open", "high", "low", "close", "volume", "amount"]
         return frame[columns].sort_values("date").reset_index(drop=True)
 

@@ -40,6 +40,7 @@ class AdjustmentData:
     corporate_actions: list[dict[str, Any]]
     adjustment_factors: list[dict[str, Any]]
     corporate_actions_complete: bool = True
+    adjustment_factors_complete: bool = True
 
 
 class HistoricalMarketDataProvider(ABC):

@@ -43,6 +43,8 @@ class DailyResult:
     skipped_lower_priority_rows: int = 0
     providers: list[str] = field(default_factory=list)
     missing_amount: bool = False
+    vwap_qualities: set[str] = field(default_factory=set)
+    deleted_rows: int = 0
     reason: str = ""
     fallback_reasons: list[str] = field(default_factory=list)
 
@@ -53,6 +55,7 @@ class AdjustmentResult:
     changed: bool = False
     corporate_action_rows: int = 0
     adjustment_factor_rows: int = 0
+    deleted_rows: int = 0
     provider: str | None = None
     reason: str = ""
     fallback_reasons: list[str] = field(default_factory=list)

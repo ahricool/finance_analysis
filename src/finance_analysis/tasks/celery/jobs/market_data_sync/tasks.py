@@ -1,4 +1,4 @@
-"""Celery entry points for the two market-close daily synchronization schedules."""
+"""Celery entry points for the CN and US market-close daily sync schedules."""
 
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ def _run_markets(markets: tuple[str, ...]) -> dict[str, Any]:
         providers.update(summary["provider_counts"])
     fallbacks = [item for summary in summaries for item in summary["fallback_reasons"]]
     fallbacks.extend(errors)
+    unsupported = [item for summary in summaries for item in summary["unsupported_symbols"]]
     return {
         "sync_status": "partial" if errors or any(s["sync_status"] == "partial" for s in summaries) else "success",
         "market": ",".join(markets),
@@ -48,6 +49,20 @@ def _run_markets(markets: tuple[str, ...]) -> dict[str, Any]:
         "missing_amount_symbols": sorted(
             code for summary in summaries for code in summary["missing_amount_symbols"]
         ),
+        "provider_vwap_symbols": sorted(
+            code for summary in summaries for code in summary["provider_vwap_symbols"]
+        ),
+        "calculated_vwap_symbols": sorted(
+            code for summary in summaries for code in summary["calculated_vwap_symbols"]
+        ),
+        "estimated_vwap_symbols": sorted(
+            code for summary in summaries for code in summary["estimated_vwap_symbols"]
+        ),
+        "missing_vwap_symbols": sorted(
+            code for summary in summaries for code in summary["missing_vwap_symbols"]
+        ),
+        "unsupported_symbol_count": len(unsupported),
+        "unsupported_symbols": unsupported,
         "fallback_reasons": fallbacks[:20],
         "per_market": {summary["market"]: summary for summary in summaries},
         "market_errors": errors,
@@ -67,7 +82,7 @@ def _run_markets(markets: tuple[str, ...]) -> dict[str, Any]:
 )
 def sync_cn_hk_market_data(scheduler_job_id: Optional[str] = None, **_: Any) -> dict[str, Any]:
     del scheduler_job_id
-    return _run_markets(("CN", "HK"))
+    return _run_markets(("CN",))
 
 
 @celery_app.task(name=US_DEFINITION.celery_task_name)

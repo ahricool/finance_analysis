@@ -166,8 +166,8 @@ SCHEDULED_TASK_DEFINITIONS = (
     ),
     ScheduledTaskDefinition(
         job_id=JOB_MARKET_DATA_SYNC_CN_HK,
-        name="A股/港股日线行情同步",
-        description="同步沪深300及自选A股、港股自选股的未复权日线、公司行动和复权因子",
+        name="A股日线行情同步",
+        description="同步沪深300及自选A股的未复权日线、VWAP、公司行动和复权因子；港股自选股仅记录为暂不支持",
         task_type="scheduled_market_data_sync_cn_hk",
         celery_task_name=celery_task_name(JOB_MARKET_DATA_SYNC_CN_HK),
         schedules=(CronSchedule(minute="0", hour="18", day_of_week="mon-fri"),),

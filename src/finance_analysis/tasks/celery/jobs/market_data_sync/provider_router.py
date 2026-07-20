@@ -15,14 +15,14 @@ from finance_analysis.integrations.market_data.config import DataProviderConfig,
 from finance_analysis.integrations.market_data.history import HistoricalProviderError
 
 from .models import ProviderBars, RoutedAdjustment, RoutedBars
-from .validator import missing_daily_days, validate_daily_bars
+from .validator import enrich_daily_vwap, missing_daily_days, validate_daily_bars
 
 logger = logging.getLogger(__name__)
 
 MARKET_PROVIDER_PRIORITY = {
     "CN": {"EfinanceFetcher": 300, "AkshareFetcher": 200, "LongbridgeFetcher": 100},
     "HK": {"AkshareFetcher": 300, "EfinanceFetcher": 200, "LongbridgeFetcher": 100},
-    "US": {"YfinanceFetcher": 300, "LongbridgeFetcher": 100},
+    "US": {"LongbridgeFetcher": 400, "YfinanceFetcher": 300},
 }
 
 
@@ -35,7 +35,7 @@ def default_providers(market: str) -> list[Any]:
     return {
         "CN": [EfinanceFetcher(), AkshareFetcher(), LongbridgeFetcher()],
         "HK": [AkshareFetcher(), EfinanceFetcher(), LongbridgeFetcher()],
-        "US": [YfinanceFetcher(), LongbridgeFetcher()],
+        "US": [LongbridgeFetcher(), YfinanceFetcher()],
     }[market]
 
 
@@ -58,44 +58,74 @@ class MarketDataProviderRouter:
             provider.name: threading.BoundedSemaphore(self._concurrency(provider.name))
             for provider in self.providers
         }
-        self._daily_batch: dict[str, pd.DataFrame] = {}
-        self._daily_batch_prepared = False
-        self._daily_batch_error = ""
-        self._adjustment_batch: dict[str, Any] = {}
-        self._adjustment_batch_prepared = False
-        self._adjustment_batch_error = ""
+        self._daily_batches: dict[str, dict[str, pd.DataFrame]] = {}
+        self._daily_batch_errors: dict[str, dict[str, str]] = {}
+        self._daily_batch_prepared_codes: dict[str, set[str]] = {}
+        self._adjustment_batches: dict[str, dict[str, Any]] = {}
+        self._adjustment_batch_errors: dict[str, str] = {}
 
     def prepare_batches(
         self,
         symbols: list[Any],
-        daily_days: list[date],
+        daily_days_by_code: dict[str, list[date]],
         adjustment_days: list[date],
     ) -> None:
         if not symbols:
             return
-        first = self.providers[0]
-        if daily_days and hasattr(first, "fetch_daily_bars_batch"):
-            self._daily_batch_prepared = True
+        self._daily_batches.clear()
+        self._daily_batch_errors.clear()
+        self._daily_batch_prepared_codes.clear()
+        self._adjustment_batches.clear()
+        self._adjustment_batch_errors.clear()
+        for provider in self.providers:
+            if hasattr(provider, "fetch_daily_bars_batch"):
+                self._prepare_daily_batch(provider, symbols, daily_days_by_code)
+            if adjustment_days and hasattr(provider, "fetch_adjustment_data_batch"):
+                try:
+                    self._adjustment_batches[provider.name] = self._call(
+                        provider,
+                        "adjustment_batch",
+                        lambda p=provider: p.fetch_adjustment_data_batch(symbols, adjustment_days),
+                    )
+                except Exception as exc:
+                    self._adjustment_batch_errors[provider.name] = f"{provider.name} batch: {str(exc)[:240]}"
+                    logger.exception(
+                        "market=%s provider=%s data_type=adjustment_batch failed", self.market, provider.name
+                    )
+
+    def _prepare_daily_batch(
+        self,
+        provider: Any,
+        symbols: list[Any],
+        daily_days_by_code: dict[str, list[date]],
+    ) -> None:
+        grouped: dict[tuple[date, date], list[Any]] = {}
+        for symbol in symbols:
+            days = daily_days_by_code.get(symbol.code, [])
+            if days:
+                grouped.setdefault((min(days), max(days)), []).append(symbol)
+        combined: dict[str, pd.DataFrame] = {}
+        prepared_codes: set[str] = set()
+        errors: dict[str, str] = {}
+        for (start_date, end_date), group in grouped.items():
             try:
-                self._daily_batch = self._call(
-                    first,
-                    "daily_batch",
-                    lambda: first.fetch_daily_bars_batch(symbols, min(daily_days), max(daily_days)),
+                combined.update(
+                    self._call(
+                        provider,
+                        "daily_batch",
+                        lambda p=provider, items=group, start=start_date, end=end_date: p.fetch_daily_bars_batch(
+                            items, start, end
+                        ),
+                    )
                 )
+                prepared_codes.update(symbol.code for symbol in group)
             except Exception as exc:
-                self._daily_batch_error = f"{first.name} batch: {str(exc)[:240]}"
-                logger.exception("market=%s provider=%s data_type=daily_batch failed", self.market, first.name)
-        if adjustment_days and hasattr(first, "fetch_adjustment_data_batch"):
-            self._adjustment_batch_prepared = True
-            try:
-                self._adjustment_batch = self._call(
-                    first,
-                    "adjustment_batch",
-                    lambda: first.fetch_adjustment_data_batch(symbols, adjustment_days),
-                )
-            except Exception as exc:
-                self._adjustment_batch_error = f"{first.name} batch: {str(exc)[:240]}"
-                logger.exception("market=%s provider=%s data_type=adjustment_batch failed", self.market, first.name)
+                reason = f"{provider.name} batch: {str(exc)[:240]}"
+                errors.update({symbol.code: reason for symbol in group})
+                logger.exception("market=%s provider=%s data_type=daily_batch failed", self.market, provider.name)
+        self._daily_batches[provider.name] = combined
+        self._daily_batch_prepared_codes[provider.name] = prepared_codes
+        self._daily_batch_errors[provider.name] = errors
 
     def fetch_daily(self, symbol: Any, requested_days: list[date]) -> RoutedBars:
         if not requested_days:
@@ -104,22 +134,23 @@ class MarketDataProviderRouter:
         batches: list[ProviderBars] = []
         providers_used: list[str] = []
         fallback_reasons: list[str] = []
-        for index, provider in enumerate(self.providers):
+        for provider in self.providers:
             if not missing:
                 break
             target = list(missing)
             try:
-                if index == 0 and self._daily_batch_prepared and not self._daily_batch_error:
-                    frame = self._daily_batch.get(symbol.code, pd.DataFrame())
-                elif index == 0 and self._daily_batch_error:
-                    raise RuntimeError(self._daily_batch_error)
+                provider_errors = self._daily_batch_errors.get(provider.name, {})
+                if symbol.code in provider_errors:
+                    raise RuntimeError(provider_errors[symbol.code])
+                if symbol.code in self._daily_batch_prepared_codes.get(provider.name, set()):
+                    frame = self._daily_batches[provider.name].get(symbol.code, pd.DataFrame())
                 else:
                     frame = self._call(
                         provider,
                         "daily",
                         lambda p=provider: p.fetch_daily_bars(symbol, min(target), max(target)),
                     )
-                rows = validate_daily_bars(frame, target)
+                rows = enrich_daily_vwap(validate_daily_bars(frame, target), provider.name)
             except Exception as exc:
                 fallback_reasons.append(f"{provider.name}: {str(exc)[:240]}")
                 logger.warning(
@@ -152,16 +183,18 @@ class MarketDataProviderRouter:
 
     def fetch_adjustment(self, symbol: Any, requested_days: list[date]) -> RoutedAdjustment:
         fallback_reasons: list[str] = []
-        for index, provider in enumerate(self.providers):
-            if not hasattr(provider, "fetch_adjustment_data") and not (
-                index == 0 and hasattr(provider, "fetch_adjustment_data_batch")
+        for provider in self.providers:
+            if (
+                not hasattr(provider, "fetch_adjustment_data")
+                and provider.name not in self._adjustment_batches
+                and provider.name not in self._adjustment_batch_errors
             ):
                 continue
             try:
-                if index == 0 and self._adjustment_batch_prepared and not self._adjustment_batch_error:
-                    data = self._adjustment_batch.get(symbol.code)
-                elif index == 0 and self._adjustment_batch_error:
-                    raise RuntimeError(self._adjustment_batch_error)
+                if provider.name in self._adjustment_batches:
+                    data = self._adjustment_batches[provider.name].get(symbol.code)
+                elif provider.name in self._adjustment_batch_errors:
+                    raise RuntimeError(self._adjustment_batch_errors[provider.name])
                 else:
                     data = self._call(
                         provider,

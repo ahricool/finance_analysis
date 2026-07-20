@@ -77,6 +77,99 @@ class StockAdjustmentRepository:
             source,
         )
 
+    def upsert_corporate_actions(
+        self,
+        symbol_id: int,
+        start_date: date,
+        end_date: date,
+        rows: Sequence[dict[str, Any]],
+        source: str,
+    ) -> AdjustmentWriteStats:
+        return self._upsert_window(
+            StockCorporateAction,
+            symbol_id,
+            "action_date",
+            ("action_date", "action_type"),
+            "uix_stock_corporate_action_symbol_date_type",
+            start_date,
+            end_date,
+            rows,
+            source,
+        )
+
+    def upsert_adjustment_factors(
+        self,
+        symbol_id: int,
+        start_date: date,
+        end_date: date,
+        rows: Sequence[dict[str, Any]],
+        source: str,
+    ) -> AdjustmentWriteStats:
+        return self._upsert_window(
+            StockAdjustmentFactor,
+            symbol_id,
+            "trade_date",
+            ("trade_date",),
+            "uix_stock_adjustment_factor_symbol_date",
+            start_date,
+            end_date,
+            rows,
+            source,
+        )
+
+    def has_corporate_action_changes(
+        self,
+        symbol_id: int,
+        start_date: date,
+        end_date: date,
+        rows: Sequence[dict[str, Any]],
+        source: str,
+        *,
+        complete: bool = False,
+    ) -> bool:
+        normalized = self._normalize_rows(
+            rows,
+            symbol_id=symbol_id,
+            date_column_name="action_date",
+            start_date=start_date,
+            end_date=end_date,
+            source=source,
+        )
+        if not normalized and not complete:
+            return False
+        incoming = {(row["action_date"], row["action_type"]): row["source_hash"] for row in normalized}
+        with self.db.get_session() as session:
+            existing = list(
+                session.execute(
+                    select(StockCorporateAction).where(
+                        StockCorporateAction.symbol_id == symbol_id,
+                        StockCorporateAction.action_date >= start_date,
+                        StockCorporateAction.action_date <= end_date,
+                    )
+                ).scalars()
+            )
+        stored = {(row.action_date, row.action_type): row.source_hash for row in existing}
+        if complete:
+            return stored != incoming
+        return any(stored.get(key) != value for key, value in incoming.items())
+
+    def delete_before(self, symbol_id: int, cutoff_date: date) -> int:
+        """Prune adjustment metadata only after the caller confirms a successful refresh."""
+        with self.db.session_scope() as session:
+            factors = session.execute(
+                delete(StockAdjustmentFactor).where(
+                    StockAdjustmentFactor.symbol_id == symbol_id,
+                    StockAdjustmentFactor.trade_date < cutoff_date,
+                )
+            )
+            actions = session.execute(
+                delete(StockCorporateAction).where(
+                    StockCorporateAction.symbol_id == symbol_id,
+                    StockCorporateAction.action_date < cutoff_date,
+                )
+            )
+            return int(factors.rowcount or 0) + int(actions.rowcount or 0)
+
     def _replace_window(
         self,
         model,
@@ -89,20 +182,14 @@ class StockAdjustmentRepository:
         source: str,
     ) -> AdjustmentWriteStats:
         date_column = getattr(model, date_column_name)
-        normalized: list[dict[str, Any]] = []
-        now = utc_now()
-        for raw in rows:
-            row = dict(raw)
-            if not (start_date <= row[date_column_name] <= end_date):
-                continue
-            row["symbol_id"] = symbol_id
-            row["data_source"] = source
-            row["source_hash"] = row.get("source_hash") or stable_row_hash(
-                row, ignored=("symbol_id", "data_source", "source_hash")
-            )
-            row["created_at"] = now
-            row["updated_at"] = now
-            normalized.append(row)
+        normalized = self._normalize_rows(
+            rows,
+            symbol_id=symbol_id,
+            date_column_name=date_column_name,
+            start_date=start_date,
+            end_date=end_date,
+            source=source,
+        )
 
         def key(item: Any) -> tuple[Any, ...]:
             if isinstance(item, dict):
@@ -143,6 +230,91 @@ class StockAdjustmentRepository:
             updated_rows=updated,
             deleted_rows=len(old_keys - new_keys),
         )
+
+    def _upsert_window(
+        self,
+        model,
+        symbol_id: int,
+        date_column_name: str,
+        key_columns: tuple[str, ...],
+        constraint: str,
+        start_date: date,
+        end_date: date,
+        rows: Sequence[dict[str, Any]],
+        source: str,
+    ) -> AdjustmentWriteStats:
+        normalized = self._normalize_rows(
+            rows,
+            symbol_id=symbol_id,
+            date_column_name=date_column_name,
+            start_date=start_date,
+            end_date=end_date,
+            source=source,
+        )
+        if not normalized:
+            return AdjustmentWriteStats()
+
+        def key(item: Any) -> tuple[Any, ...]:
+            if isinstance(item, dict):
+                return tuple(item[column] for column in key_columns)
+            return tuple(getattr(item, column) for column in key_columns)
+
+        date_column = getattr(model, date_column_name)
+        with self.db.session_scope() as session:
+            existing = list(
+                session.execute(
+                    select(model).where(
+                        model.symbol_id == symbol_id,
+                        date_column >= start_date,
+                        date_column <= end_date,
+                    )
+                ).scalars()
+            )
+            old_hashes = {key(item): item.source_hash for item in existing}
+            changed_rows = [row for row in normalized if old_hashes.get(key(row)) != row["source_hash"]]
+            if not changed_rows:
+                return AdjustmentWriteStats()
+            stmt = pg_insert(model).values(changed_rows)
+            excluded_keys = {"symbol_id", "created_at", *key_columns}
+            update_columns = [column for column in changed_rows[0] if column not in excluded_keys]
+            session.execute(
+                stmt.on_conflict_do_update(
+                    constraint=constraint,
+                    set_={column: getattr(stmt.excluded, column) for column in update_columns},
+                )
+            )
+        inserted = sum(key(row) not in old_hashes for row in changed_rows)
+        return AdjustmentWriteStats(
+            changed=True,
+            inserted_rows=inserted,
+            updated_rows=len(changed_rows) - inserted,
+        )
+
+    @staticmethod
+    def _normalize_rows(
+        rows: Sequence[dict[str, Any]],
+        *,
+        symbol_id: int,
+        date_column_name: str,
+        start_date: date,
+        end_date: date,
+        source: str,
+    ) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        now = utc_now()
+        for raw in rows:
+            row = dict(raw)
+            if not (start_date <= row[date_column_name] <= end_date):
+                continue
+            row["symbol_id"] = symbol_id
+            row["data_source"] = source
+            row["source_hash"] = row.get("source_hash") or stable_row_hash(
+                row, ignored=("symbol_id", "data_source", "source_hash")
+            )
+            row["created_at"] = now
+            row["updated_at"] = now
+            normalized.append(row)
+        return normalized
 
 
 __all__ = ["AdjustmentWriteStats", "StockAdjustmentRepository", "stable_row_hash"]
