@@ -17,7 +17,7 @@ const route = useRoute();
 
 const rawRedirect = computed(() => (route.query.redirect as string) ?? '');
 const redirect = computed(() =>
-  rawRedirect.value.startsWith('/') && !rawRedirect.value.startsWith('//') ? rawRedirect.value : '/',
+  rawRedirect.value.startsWith('/') && !rawRedirect.value.startsWith('//') ? rawRedirect.value : '/analysis',
 );
 
 const step = ref<LoginStep>('email');
