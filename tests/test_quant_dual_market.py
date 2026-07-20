@@ -304,6 +304,7 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
         symbol_repository=MagicMock(),
         holding_repository=MagicMock(),
         universe_service=universe_service,
+        artifact_store=MagicMock(),
         owner_uid=1,
     ).prepare("CN", trade_date=TRADE_DATE)
 
