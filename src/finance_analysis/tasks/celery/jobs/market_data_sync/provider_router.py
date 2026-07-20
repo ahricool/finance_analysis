@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 MARKET_PROVIDER_PRIORITY = {
     "CN": {"EfinanceFetcher": 300, "AkshareFetcher": 200, "LongbridgeFetcher": 100},
     "HK": {"AkshareFetcher": 300, "EfinanceFetcher": 200, "LongbridgeFetcher": 100},
-    "US": {"LongbridgeFetcher": 400, "YfinanceFetcher": 300},
+    "US": {"YfinanceFetcher": 400, "LongbridgeFetcher": 300},
 }
 
 
@@ -35,7 +35,7 @@ def default_providers(market: str) -> list[Any]:
     return {
         "CN": [EfinanceFetcher(), AkshareFetcher(), LongbridgeFetcher()],
         "HK": [AkshareFetcher(), EfinanceFetcher(), LongbridgeFetcher()],
-        "US": [LongbridgeFetcher(), YfinanceFetcher()],
+        "US": [YfinanceFetcher(), LongbridgeFetcher()],
     }[market]
 
 
@@ -55,8 +55,7 @@ class MarketDataProviderRouter:
         self.providers = tuple(providers or default_providers(self.market))
         self._sleep = sleep
         self._semaphores = {
-            provider.name: threading.BoundedSemaphore(self._concurrency(provider.name))
-            for provider in self.providers
+            provider.name: threading.BoundedSemaphore(self._concurrency(provider.name)) for provider in self.providers
         }
         self._daily_batches: dict[str, dict[str, pd.DataFrame]] = {}
         self._daily_batch_errors: dict[str, dict[str, str]] = {}
@@ -150,7 +149,22 @@ class MarketDataProviderRouter:
                         "daily",
                         lambda p=provider: p.fetch_daily_bars(symbol, min(target), max(target)),
                     )
-                rows = enrich_daily_vwap(validate_daily_bars(frame, target), provider.name)
+                invalid_reasons: list[str] = []
+                rows = enrich_daily_vwap(
+                    validate_daily_bars(frame, target, invalid_reasons=invalid_reasons),
+                    provider.name,
+                )
+                if invalid_reasons:
+                    reason = f"{provider.name}: discarded invalid daily rows={len(invalid_reasons)}"
+                    fallback_reasons.append(reason)
+                    logger.warning(
+                        "market=%s code=%s provider=%s data_type=daily discarded_invalid_rows=%s reasons=%s",
+                        self.market,
+                        symbol.code,
+                        provider.name,
+                        len(invalid_reasons),
+                        invalid_reasons[:10],
+                    )
             except Exception as exc:
                 fallback_reasons.append(f"{provider.name}: {str(exc)[:240]}")
                 logger.warning(

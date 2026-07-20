@@ -9,7 +9,7 @@ import Drawer from '@/components/common/Drawer.vue';
 import InlineAlert from '@/components/common/InlineAlert.vue';
 import Pagination from '@/components/common/Pagination.vue';
 import { useAuthStore } from '@/stores/authStore';
-import type { ScheduledTask, TaskRun, TaskRunDetail, TaskStatus } from '@/types/tasks';
+import type { ScheduledSyncMode, ScheduledTask, TaskRun, TaskRunDetail, TaskStatus } from '@/types/tasks';
 import { formatDateTimeInDisplayTimezone, toUtcIsoString } from '@/utils/format';
 import {
   ClipboardCheck,
@@ -34,6 +34,7 @@ const scheduledLoading = ref(false);
 const scheduledError = ref<ParsedApiError | null>(null);
 const scheduledSuccess = ref<string | null>(null);
 const selectedJob = ref<ScheduledTask | null>(null);
+const selectedSyncMode = ref<ScheduledSyncMode | null>(null);
 const runningJobId = ref<string | null>(null);
 
 const runs = ref<TaskRun[]>([]);
@@ -267,19 +268,27 @@ function resetFilters() {
 async function confirmRunScheduled() {
   if (!selectedJob.value) return;
   const job = selectedJob.value;
+  const syncMode = selectedSyncMode.value;
   runningJobId.value = job.jobId;
   scheduledError.value = null;
   scheduledSuccess.value = null;
   selectedJob.value = null;
+  selectedSyncMode.value = null;
   try {
-    await tasksApi.runScheduledTask(job.jobId);
-    scheduledSuccess.value = '任务已提交，执行结果可在执行记录中查看。';
+    await tasksApi.runScheduledTask(job.jobId, syncMode ?? undefined);
+    const modeLabel = syncMode === 'full' ? '全量同步' : syncMode === 'incremental' ? '增量同步' : '';
+    scheduledSuccess.value = `${modeLabel ? `${modeLabel}任务` : '任务'}已提交，执行结果可在执行记录中查看。`;
     await loadScheduled();
   } catch (err) {
     scheduledError.value = getParsedApiError(err);
   } finally {
     runningJobId.value = null;
   }
+}
+
+function selectScheduledJob(job: ScheduledTask, syncMode: ScheduledSyncMode | null = null) {
+  selectedJob.value = job;
+  selectedSyncMode.value = syncMode;
 }
 
 async function openDetail(item: TaskRun) {
@@ -429,18 +438,39 @@ onBeforeUnmount(() => {
                     {{ formatDateTimeInDisplayTimezone(item.nextRunTime) }}
                   </td>
                   <td class="min-w-[120px] px-4 py-4">
-                    <Button
-                      v-if="item.allowManualRun"
-                      variant="secondary"
-                      size="sm"
-                      class="whitespace-nowrap"
-                      :is-loading="runningJobId === item.jobId"
-                      :disabled="!!item.latestRun && ['pending', 'processing', 'retrying'].includes(item.latestRun.status)"
-                      @click="selectedJob = item"
-                    >
-                      <Play class="h-4 w-4" />
-                      立即执行
-                    </Button>
+                    <div v-if="item.allowManualRun" class="flex items-center gap-2 whitespace-nowrap">
+                      <template v-if="item.syncModes?.length">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          :is-loading="runningJobId === item.jobId"
+                          :disabled="!!item.latestRun && ['pending', 'processing', 'retrying'].includes(item.latestRun.status)"
+                          @click="selectScheduledJob(item, 'incremental')"
+                        >
+                          <Play class="h-4 w-4" />
+                          增量同步
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          :disabled="!!runningJobId || (!!item.latestRun && ['pending', 'processing', 'retrying'].includes(item.latestRun.status))"
+                          @click="selectScheduledJob(item, 'full')"
+                        >
+                          全量同步
+                        </Button>
+                      </template>
+                      <Button
+                        v-else
+                        variant="secondary"
+                        size="sm"
+                        :is-loading="runningJobId === item.jobId"
+                        :disabled="!!item.latestRun && ['pending', 'processing', 'retrying'].includes(item.latestRun.status)"
+                        @click="selectScheduledJob(item)"
+                      >
+                        <Play class="h-4 w-4" />
+                        立即执行
+                      </Button>
+                    </div>
                     <span v-else class="whitespace-nowrap text-xs text-muted-text">不可手动执行</span>
                   </td>
                 </tr>
@@ -715,11 +745,11 @@ onBeforeUnmount(() => {
     <ConfirmDialog
       :is-open="!!selectedJob"
       title="立即执行定时任务"
-      :message="selectedJob ? `确认立即执行“${selectedJob.name}”吗？任务将在后台运行，执行结果可在执行记录中查看。` : ''"
+      :message="selectedJob ? `确认立即执行“${selectedJob.name}”${selectedSyncMode === 'full' ? '全量同步' : selectedSyncMode === 'incremental' ? '增量同步' : ''}吗？任务将在后台运行，执行结果可在执行记录中查看。` : ''"
       confirm-text="立即执行"
       cancel-text="取消"
       @confirm="confirmRunScheduled"
-      @cancel="selectedJob = null"
+      @cancel="selectedJob = null; selectedSyncMode = null"
     />
   </div>
 </template>

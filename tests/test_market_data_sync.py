@@ -15,7 +15,6 @@ from finance_analysis.database.models.stock import (
     StockDaily,
     validate_market_data_code,
 )
-from finance_analysis.database.seed import seed_market_data_reference_symbols
 from finance_analysis.database.repositories.adjustment import (
     AdjustmentWriteStats,
     StockAdjustmentRepository,
@@ -26,6 +25,7 @@ from finance_analysis.database.repositories.stock import (
     StockRepository,
     UpsertStats,
 )
+from finance_analysis.database.seed import seed_market_data_reference_symbols
 from finance_analysis.integrations.market_data.config import DataProviderConfig
 from finance_analysis.integrations.market_data.history import AdjustmentData, HistoricalProviderError
 from finance_analysis.integrations.market_data.providers.akshare import AkshareFetcher
@@ -43,11 +43,7 @@ from finance_analysis.tasks.celery.jobs.market_data_sync.service import (
     MarketDataSyncError,
     MarketDataSyncService,
 )
-from finance_analysis.tasks.celery.jobs.market_data_sync.validator import (
-    MarketDataValidationError,
-    enrich_daily_vwap,
-    validate_daily_bars,
-)
+from finance_analysis.tasks.celery.jobs.market_data_sync.validator import enrich_daily_vwap, validate_daily_bars
 
 
 def _symbol(code: str = "AAPL.US", symbol_id: int = 1, market: str = "US"):
@@ -105,7 +101,9 @@ def test_reference_seed_is_idempotent_daily_only_for_both_markets():
     assert all(row["sync_daily"] and not row["sync_minute"] for row in [*us_rows, *cn_rows])
     assert all(call.kwargs == {} for call in repository.upsert_symbols.call_args_list)
     assert {row["code"] for row in repository.upsert_symbols.call_args_list[3].args[0]} == {
-        "510300.SH", "510500.SH", "159915.SZ"
+        "510300.SH",
+        "510500.SH",
+        "159915.SZ",
     }
 
 
@@ -120,32 +118,31 @@ def test_canonical_symbol_validation_and_provider_conversion():
 
 def test_raw_daily_and_adjustment_orm_boundaries():
     raw_columns = set(StockDaily.__table__.columns.keys())
-    assert {
-        "open", "high", "low", "close", "volume", "amount", "vwap", "vwap_source", "vwap_quality"
-    }.issubset(raw_columns)
-    assert not {"adj_close", "qfq_factor", "hfq_factor"} & raw_columns
-    assert {"action_date", "action_type", "source_hash"}.issubset(
-        StockCorporateAction.__table__.columns.keys()
+    assert {"open", "high", "low", "close", "volume", "amount", "vwap", "vwap_source", "vwap_quality"}.issubset(
+        raw_columns
     )
+    assert not {"adj_close", "qfq_factor", "hfq_factor"} & raw_columns
+    assert {"action_date", "action_type", "source_hash"}.issubset(StockCorporateAction.__table__.columns.keys())
     assert {"trade_date", "qfq_factor", "hfq_factor", "adj_close"}.issubset(
         StockAdjustmentFactor.__table__.columns.keys()
     )
 
 
-def test_daily_validation_requires_amount_field_but_allows_missing_provider_value():
+def test_daily_validation_discards_bad_rows_and_keeps_valid_provider_rows():
     day = date(2026, 7, 17)
     row = _daily(day, amount=None)
     assert validate_daily_bars(pd.DataFrame([row]), [day])[0]["amount"] is None
-    row.pop("amount")
-    with pytest.raises(MarketDataValidationError, match="amount field is missing"):
-        validate_daily_bars(pd.DataFrame([row]), [day])
+    invalid = {**_daily(date(2026, 7, 16)), "open": float("nan")}
+    reasons: list[str] = []
+    rows = validate_daily_bars(pd.DataFrame([invalid, row]), [date(2026, 7, 16), day], invalid_reasons=reasons)
+    assert [item["date"] for item in rows] == [day]
+    assert len(reasons) == 1
+    assert "open is not finite" in reasons[0]
 
 
 def test_yfinance_batch_downloads_multiple_us_symbols_once_and_keeps_raw_prices():
     index = pd.DatetimeIndex(["2026-07-17"], name="Date")
-    columns = pd.MultiIndex.from_product(
-        [["AAPL", "MSFT"], ["Open", "High", "Low", "Close", "Adj Close", "Volume"]]
-    )
+    columns = pd.MultiIndex.from_product([["AAPL", "MSFT"], ["Open", "High", "Low", "Close", "Adj Close", "Volume"]])
     raw = pd.DataFrame([[1, 2, 0.5, 1.5, 1.4, 10, 3, 4, 2.5, 3.5, 3.4, 20]], index=index, columns=columns)
     symbols = [_symbol("AAPL.US", 1), _symbol("MSFT.US", 2)]
     with patch("yfinance.download", return_value=raw) as download:
@@ -213,9 +210,7 @@ def test_akshare_cn_corporate_actions_normalize_dividend_bonus_and_rights():
         def stock_history_dividend_detail(*, symbol, indicator):
             assert symbol == "600519"
             if indicator == "分红":
-                return pd.DataFrame(
-                    [{"除权除息日": "2026-06-20", "派息": 10, "送股": 2, "转增": 1}]
-                )
+                return pd.DataFrame([{"除权除息日": "2026-06-20", "派息": 10, "送股": 2, "转增": 1}])
             return pd.DataFrame([{"除权日": "2026-05-10", "配股方案": 3, "配股价格": 8}])
 
     actions = AkshareFetcher._fetch_corporate_actions(
@@ -259,15 +254,17 @@ def test_efinance_raw_history_uses_fqt_zero_and_qfq_is_validation_only():
 
 def test_market_provider_order_is_explicit_for_all_markets():
     assert [provider.name for provider in default_providers("CN")] == [
-        "EfinanceFetcher", "AkshareFetcher", "LongbridgeFetcher"
+        "EfinanceFetcher",
+        "AkshareFetcher",
+        "LongbridgeFetcher",
     ]
     assert [provider.name for provider in default_providers("HK")] == [
-        "AkshareFetcher", "EfinanceFetcher", "LongbridgeFetcher"
+        "AkshareFetcher",
+        "EfinanceFetcher",
+        "LongbridgeFetcher",
     ]
-    assert [provider.name for provider in default_providers("US")] == [
-        "LongbridgeFetcher", "YfinanceFetcher"
-    ]
-    assert MARKET_PROVIDER_PRIORITY["US"]["LongbridgeFetcher"] > MARKET_PROVIDER_PRIORITY["US"]["YfinanceFetcher"]
+    assert [provider.name for provider in default_providers("US")] == ["YfinanceFetcher", "LongbridgeFetcher"]
+    assert MARKET_PROVIDER_PRIORITY["US"]["YfinanceFetcher"] > MARKET_PROVIDER_PRIORITY["US"]["LongbridgeFetcher"]
 
 
 def test_router_keeps_primary_rows_and_fallback_fills_only_missing_days():
@@ -329,7 +326,7 @@ def test_router_retries_only_retryable_provider_errors():
     assert non_retryable.calls == 1
 
 
-def test_yfinance_fallback_uses_prepared_batch_instead_of_per_symbol_request():
+def test_yfinance_primary_uses_prepared_batch_instead_of_per_symbol_request():
     day = date(2026, 7, 17)
 
     class Longbridge:
@@ -358,7 +355,7 @@ def test_yfinance_fallback_uses_prepared_batch_instead_of_per_symbol_request():
     symbol = _symbol()
     router = MarketDataProviderRouter(
         "US",
-        [Longbridge(), yahoo],
+        [yahoo, Longbridge()],
         config=DataProviderConfig(market_data_yfinance_max_retries=0),
         sleep=lambda _: None,
     )
@@ -368,6 +365,30 @@ def test_yfinance_fallback_uses_prepared_batch_instead_of_per_symbol_request():
     assert yahoo.batch_calls == 1
     assert yahoo.single_calls == 0
     assert routed.batches[-1].rows[0]["vwap_quality"] == "estimated"
+
+
+def test_router_keeps_valid_rows_when_yfinance_batch_contains_pre_listing_nan_rows():
+    days = [date(2026, 7, 16), date(2026, 7, 17)]
+    frame = pd.DataFrame(
+        [
+            {**_daily(days[0], amount=None), "open": float("nan")},
+            _daily(days[1], amount=None),
+        ]
+    )
+    yahoo = SimpleNamespace(name="YfinanceFetcher", fetch_daily_bars=lambda *_: frame)
+    longbridge = SimpleNamespace(name="LongbridgeFetcher", fetch_daily_bars=lambda *_: pd.DataFrame())
+    router = MarketDataProviderRouter(
+        "US",
+        [yahoo, longbridge],
+        config=DataProviderConfig(market_data_yfinance_max_retries=0),
+        sleep=lambda _: None,
+    )
+
+    routed = router.fetch_daily(_symbol("NEW.US"), days)
+
+    assert [row["date"] for row in routed.batches[0].rows] == [days[1]]
+    assert routed.missing == [days[0]]
+    assert "discarded invalid daily rows=1" in routed.fallback_reasons[0]
 
 
 def test_scope_is_reference_constituents_plus_market_watchlist_and_deduplicated():
@@ -407,12 +428,20 @@ def test_service_result_contains_required_fields_and_marks_missing_amount():
     adjustment.replace_corporate_actions.return_value = AdjustmentWriteStats()
     router = MagicMock()
     router.fetch_daily.return_value = RoutedBars(
-        [ProviderBars("YfinanceFetcher", 300, [{
-            **_daily(date(2026, 7, 17), amount=None),
-            "vwap": 10.0,
-            "vwap_source": "hlc3",
-            "vwap_quality": "estimated",
-        }])],
+        [
+            ProviderBars(
+                "YfinanceFetcher",
+                300,
+                [
+                    {
+                        **_daily(date(2026, 7, 17), amount=None),
+                        "vwap": 10.0,
+                        "vwap_source": "hlc3",
+                        "vwap_quality": "estimated",
+                    }
+                ],
+            )
+        ],
         [],
         ["YfinanceFetcher"],
         "range",
@@ -429,10 +458,22 @@ def test_service_result_contains_required_fields_and_marks_missing_amount():
     )
     result = service.run()
     required = {
-        "market", "symbol_count", "success_symbols", "partial_symbols", "failed_symbols",
-        "inserted_rows", "updated_rows", "provider_counts", "missing_amount_symbols", "fallback_reasons",
-        "provider_vwap_symbols", "calculated_vwap_symbols", "estimated_vwap_symbols",
-        "missing_vwap_symbols", "unsupported_symbol_count", "unsupported_symbols",
+        "market",
+        "symbol_count",
+        "success_symbols",
+        "partial_symbols",
+        "failed_symbols",
+        "inserted_rows",
+        "updated_rows",
+        "provider_counts",
+        "missing_amount_symbols",
+        "fallback_reasons",
+        "provider_vwap_symbols",
+        "calculated_vwap_symbols",
+        "estimated_vwap_symbols",
+        "missing_vwap_symbols",
+        "unsupported_symbol_count",
+        "unsupported_symbols",
     }
     assert required.issubset(result)
     assert result["market"] == "US"
@@ -498,12 +539,20 @@ def test_new_symbols_use_400_days_and_existing_symbols_use_60_days():
     adjustment.delete_before.return_value = 0
     router = MagicMock()
     router.fetch_daily.side_effect = lambda symbol, days: RoutedBars(
-        [ProviderBars("LongbridgeFetcher", 300, [{
-            **_daily(days[-1]),
-            "vwap": 10.0,
-            "vwap_source": "amount_div_volume",
-            "vwap_quality": "calculated",
-        }])],
+        [
+            ProviderBars(
+                "LongbridgeFetcher",
+                300,
+                [
+                    {
+                        **_daily(days[-1]),
+                        "vwap": 10.0,
+                        "vwap_source": "amount_div_volume",
+                        "vwap_quality": "calculated",
+                    }
+                ],
+            )
+        ],
         [],
         ["LongbridgeFetcher"],
         "range",
@@ -531,6 +580,66 @@ def test_new_symbols_use_400_days_and_existing_symbols_use_60_days():
     assert len(windows["AAPL.US"]) > len(windows["MSFT.US"])
 
 
+@pytest.mark.parametrize("market", ["US", "CN"])
+def test_full_sync_uses_initial_window_for_existing_symbols_in_both_markets(market):
+    symbol = _symbol("AAPL.US" if market == "US" else "600519.SH", market=market)
+    symbols = MagicMock()
+    symbols.list_enabled_daily_by_codes.return_value = [symbol]
+    stock = MagicMock()
+    stock.has_daily_data.return_value = True
+    stock.upsert_daily.return_value = UpsertStats(inserted_rows=1)
+    stock.delete_daily_before.return_value = 0
+    adjustment = MagicMock()
+    adjustment.has_corporate_action_changes.return_value = False
+    adjustment.replace_corporate_actions.return_value = AdjustmentWriteStats()
+    adjustment.upsert_adjustment_factors.return_value = AdjustmentWriteStats()
+    adjustment.delete_before.return_value = 0
+    router = MagicMock()
+    router.fetch_daily.side_effect = lambda _, days: RoutedBars(
+        [
+            ProviderBars(
+                "YfinanceFetcher",
+                400,
+                [
+                    {
+                        **_daily(days[-1]),
+                        "vwap": 10.0,
+                        "vwap_source": "hlc3",
+                        "vwap_quality": "estimated",
+                    }
+                ],
+            )
+        ],
+        [],
+        ["YfinanceFetcher"],
+        "range",
+    )
+    router.fetch_adjustment.side_effect = lambda _, days: RoutedAdjustment(
+        "YfinanceFetcher",
+        AdjustmentData([], [{"trade_date": item, "qfq_factor": 1.0} for item in days]),
+    )
+    service = _service(
+        market=market,
+        sync_mode="full",
+        symbol_repository=symbols,
+        stock_repository=stock,
+        adjustment_repository=adjustment,
+        router=router,
+        config=DataProviderConfig(
+            market_data_initial_daily_days=400,
+            market_data_refresh_daily_days=60,
+            market_data_retention_daily_days=400,
+        ),
+    )
+
+    result = service.run()
+
+    window = router.prepare_batches.call_args.args[1][symbol.code]
+    assert window[0] <= window[-1] - timedelta(days=390)
+    assert result["sync_mode"] == "full"
+    stock.has_daily_data.assert_not_called()
+
+
 def test_retention_cleanup_runs_after_successful_upsert():
     day = date(2026, 7, 17)
     cutoff = date(2025, 6, 14)
@@ -544,12 +653,20 @@ def test_retention_cleanup_runs_after_successful_upsert():
     adjustment.delete_before.return_value = 0
     router = MagicMock()
     router.fetch_daily.return_value = RoutedBars(
-        [ProviderBars("LongbridgeFetcher", 300, [{
-            **_daily(day),
-            "vwap": 10.0,
-            "vwap_source": "amount_div_volume",
-            "vwap_quality": "calculated",
-        }])],
+        [
+            ProviderBars(
+                "LongbridgeFetcher",
+                300,
+                [
+                    {
+                        **_daily(day),
+                        "vwap": 10.0,
+                        "vwap_source": "amount_div_volume",
+                        "vwap_quality": "calculated",
+                    }
+                ],
+            )
+        ],
         [],
         ["LongbridgeFetcher"],
         "range",
@@ -596,11 +713,13 @@ def test_hk_watchlist_is_reported_as_unsupported_without_failure():
         watchlist_repository=watchlist,
     ).run()
     assert result["unsupported_symbol_count"] == 1
-    assert result["unsupported_symbols"] == [{
-        "code": "700.HK",
-        "market": "HK",
-        "reason": "HK daily synchronization is temporarily unsupported",
-    }]
+    assert result["unsupported_symbols"] == [
+        {
+            "code": "700.HK",
+            "market": "HK",
+            "reason": "HK daily synchronization is temporarily unsupported",
+        }
+    ]
     assert result["failed_symbols"] == 0
     assert result["partial_symbols"] == 0
 
@@ -675,9 +794,7 @@ def test_adjustment_repository_replaces_only_changed_symbol_window():
     try:
         first = repository.replace_adjustment_factors(symbol.id, day, day, [factor], "YfinanceFetcher")
         assert first.changed and first.inserted_rows == 1
-        assert not repository.replace_adjustment_factors(
-            symbol.id, day, day, [factor], "YfinanceFetcher"
-        ).changed
+        assert not repository.replace_adjustment_factors(symbol.id, day, day, [factor], "YfinanceFetcher").changed
         changed = repository.replace_adjustment_factors(
             symbol.id,
             day,
@@ -686,9 +803,7 @@ def test_adjustment_repository_replaces_only_changed_symbol_window():
             "YfinanceFetcher",
         )
         assert changed.changed and changed.updated_rows == 1
-        assert repository.replace_corporate_actions(
-            symbol.id, day, day, [action], "YfinanceFetcher"
-        ).inserted_rows == 1
+        assert repository.replace_corporate_actions(symbol.id, day, day, [action], "YfinanceFetcher").inserted_rows == 1
     finally:
         with db._engine.begin() as connection:
             connection.execute(
@@ -709,22 +824,30 @@ def test_symbol_seed_upsert_preserves_runtime_flags_by_default():
     with db._engine.begin() as connection:
         connection.execute(text("DELETE FROM market_data_symbol WHERE code=:code"), {"code": code})
     try:
-        repository.upsert_symbols([{
-            "market": "US",
-            "code": code,
-            "name": "Original",
-            "enabled": False,
-            "sync_daily": False,
-            "sync_minute": True,
-        }])
-        repository.upsert_symbols([{
-            "market": "US",
-            "code": code,
-            "name": "Updated",
-            "enabled": True,
-            "sync_daily": True,
-            "sync_minute": False,
-        }])
+        repository.upsert_symbols(
+            [
+                {
+                    "market": "US",
+                    "code": code,
+                    "name": "Original",
+                    "enabled": False,
+                    "sync_daily": False,
+                    "sync_minute": True,
+                }
+            ]
+        )
+        repository.upsert_symbols(
+            [
+                {
+                    "market": "US",
+                    "code": code,
+                    "name": "Updated",
+                    "enabled": True,
+                    "sync_daily": True,
+                    "sync_minute": False,
+                }
+            ]
+        )
         stored = repository.get_by_code(code)
         assert stored.name == "Updated"
         assert stored.enabled is False

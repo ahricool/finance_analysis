@@ -9,18 +9,20 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
+from finance_analysis.database.models.user import User
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.schemas.tasks import (
     DuplicateTaskResponse,
     ScheduledTaskListResponse,
     ScheduledTaskRunAccepted,
+    ScheduledTaskRunRequest,
     TaskRunDetail,
     TaskRunListResponse,
 )
-from finance_analysis.database.models.user import User
 from finance_analysis.tasks.service import (
     DuplicateScheduledTaskError,
     ManualRunNotAllowedError,
+    ManualRunParameterError,
     ScheduledTaskNotFoundError,
     ScheduledTaskService,
     SchedulerUnavailableError,
@@ -49,13 +51,23 @@ async def list_scheduled_tasks(_: User = Depends(require_admin)):
     status_code=status.HTTP_202_ACCEPTED,
     responses={409: {"model": DuplicateTaskResponse}},
 )
-async def run_scheduled_task(job_id: str, admin: User = Depends(require_admin)):
+async def run_scheduled_task(
+    job_id: str,
+    request: Optional[ScheduledTaskRunRequest] = None,
+    admin: User = Depends(require_admin),
+):
     service = ScheduledTaskService()
     try:
-        return service.run_scheduled_task_now(job_id=job_id, triggered_by_uid=admin.id)
+        return service.run_scheduled_task_now(
+            job_id=job_id,
+            triggered_by_uid=admin.id,
+            sync_mode=request.sync_mode if request else None,
+        )
     except ScheduledTaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Scheduled task not found") from exc
     except ManualRunNotAllowedError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ManualRunParameterError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except DuplicateScheduledTaskError as exc:
         return JSONResponse(

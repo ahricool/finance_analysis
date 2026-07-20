@@ -35,7 +35,13 @@ def _number(value: Any, field: str, row_key: Any) -> float:
     return number
 
 
-def validate_daily_bars(frame: pd.DataFrame, requested_days: Iterable[date]) -> list[dict[str, Any]]:
+def validate_daily_bars(
+    frame: pd.DataFrame,
+    requested_days: Iterable[date],
+    *,
+    invalid_reasons: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Return valid requested rows while isolating malformed provider records."""
     target = set(requested_days)
     reasons: list[str] = []
     valid: list[dict[str, Any]] = []
@@ -55,7 +61,6 @@ def validate_daily_bars(frame: pd.DataFrame, requested_days: Iterable[date]) -> 
                 continue
             if bar_date in seen:
                 raise ValueError(f"{bar_date}: duplicate date")
-            seen.add(bar_date)
             row = dict(raw)
             for field in ("open", "high", "low", "close"):
                 row[field] = _number(raw.get(field), field, bar_date)
@@ -76,11 +81,12 @@ def validate_daily_bars(frame: pd.DataFrame, requested_days: Iterable[date]) -> 
                 if row["amount"] < 0:
                     raise ValueError(f"{bar_date}: amount must be non-negative")
             row["date"] = bar_date
+            seen.add(bar_date)
             valid.append(row)
         except Exception as exc:
             reasons.append(f"row={index} {exc}")
-    if reasons:
-        raise MarketDataValidationError(tuple(reasons))
+    if invalid_reasons is not None:
+        invalid_reasons.extend(reasons)
     return sorted(valid, key=lambda row: row["date"])
 
 

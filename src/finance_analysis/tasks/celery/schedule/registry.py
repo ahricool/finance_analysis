@@ -44,14 +44,17 @@ def build_beat_schedule() -> dict[str, dict[str, Any]]:
         crontabs = definition.crontabs()
         for index, cron in enumerate(crontabs):
             entry_key = definition.job_id if len(crontabs) == 1 else f"{definition.job_id}__{index}"
+            kwargs = {
+                "scheduler_job_id": definition.job_id,
+                "_trigger_source": "scheduler",
+            }
+            if definition.sync_modes:
+                kwargs["sync_mode"] = "incremental"
             schedule[entry_key] = {
                 "task": definition.celery_task_name,
                 "schedule": cron,
                 "options": {"queue": definition.queue, "expires": definition.expires},
-                "kwargs": {
-                    "scheduler_job_id": definition.job_id,
-                    "_trigger_source": "scheduler",
-                },
+                "kwargs": kwargs,
             }
     return schedule
 

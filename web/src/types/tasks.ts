@@ -8,6 +8,7 @@ export type TaskStatus =
   | 'cancelled';
 
 export type SchedulerStatus = 'active' | 'paused' | 'running' | 'unavailable';
+export type ScheduledSyncMode = 'incremental' | 'full';
 
 export type TaskUserSummary = {
   uid: number;
@@ -74,6 +75,7 @@ export type ScheduledTask = {
   schedulerStatus: SchedulerStatus;
   nextRunTime?: string | null;
   allowManualRun: boolean;
+  syncModes: ScheduledSyncMode[];
   latestRun?: ScheduledTaskLatestRun | null;
 };
 
@@ -86,4 +88,5 @@ export type ScheduledRunAccepted = {
   jobId: string;
   status: 'pending';
   message: string;
+  syncMode?: ScheduledSyncMode | null;
 };

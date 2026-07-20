@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -73,6 +73,7 @@ class ScheduledTaskItem(BaseModel):
     scheduler_status: str
     next_run_time: Optional[str] = None
     allow_manual_run: bool
+    sync_modes: List[Literal["incremental", "full"]] = Field(default_factory=list)
     latest_run: Optional[ScheduledTaskLatestRun] = None
 
 
@@ -85,6 +86,11 @@ class ScheduledTaskRunAccepted(BaseModel):
     job_id: str
     status: str
     message: str
+    sync_mode: Optional[Literal["incremental", "full"]] = None
+
+
+class ScheduledTaskRunRequest(BaseModel):
+    sync_mode: Optional[Literal["incremental", "full"]] = None
 
 
 class DuplicateTaskResponse(BaseModel):

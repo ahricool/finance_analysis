@@ -24,9 +24,13 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 
-
-from finance_analysis.core.paths import PROJECT_ROOT, get_log_app_dir, get_log_celery_dir, get_log_dir, get_log_scheduler_dir
-
+from finance_analysis.core.paths import (
+    PROJECT_ROOT,
+    get_log_app_dir,
+    get_log_celery_dir,
+    get_log_dir,
+    get_log_scheduler_dir,
+)
 
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(pathname)s:%(lineno)d | %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -40,13 +44,13 @@ DEFAULT_APP_LOG_BACKUP_COUNT = 5
 DEFAULT_DEBUG_LOG_MAX_BYTES = 50 * 1024 * 1024
 DEFAULT_DEBUG_LOG_BACKUP_COUNT = 3
 _ALLOWED_LOG_LEVELS = {
-    'DEBUG': logging.DEBUG,
-    'INFO': logging.INFO,
-    'WARNING': logging.WARNING,
-    'ERROR': logging.ERROR,
-    'CRITICAL': logging.CRITICAL,
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
 }
-_DEFAULT_LITELLM_LOG_LEVEL = 'WARNING'
+_DEFAULT_LITELLM_LOG_LEVEL = "WARNING"
 _TASK_HANDLER_LOCK = threading.RLock()
 _TASK_RECORD_FACTORY_LOCK = threading.RLock()
 _TASK_RECORD_FACTORY_INSTALLED = False
@@ -72,29 +76,39 @@ class RelativePathFormatter(logging.Formatter):
         return super().format(record)
 
 
-
 # 默认需要降低日志级别的第三方库
 DEFAULT_QUIET_LOGGERS = [
-    'urllib3',
-    'sqlalchemy',
-    'google',
-    'httpx',
+    "urllib3",
+    "sqlalchemy",
+    "google",
+    "httpx",
+]
+
+# Third-party libraries whose INFO diagnostics are useful, but whose DEBUG
+# output can overwhelm per-task logs and may include low-level request details.
+DEFAULT_INFO_LOGGERS = [
+    "yfinance",
+    "akshare",
+    "efinance",
+    "longbridge",
+    "peewee",
+    "curl_cffi",
 ]
 
 LITELLM_LOGGERS = [
-    'LiteLLM',
-    'LiteLLM Router',
-    'LiteLLM Proxy',
-    'litellm',
+    "LiteLLM",
+    "LiteLLM Router",
+    "LiteLLM Proxy",
+    "litellm",
 ]
 
 
 def _resolve_litellm_log_level(raw_level: Optional[str] = None) -> Tuple[int, Optional[str]]:
     """Resolve LiteLLM logger level from env, returning invalid raw value if any."""
     if raw_level is None:
-        raw_level = os.getenv('LITELLM_LOG_LEVEL', '')
+        raw_level = os.getenv("LITELLM_LOG_LEVEL", "")
 
-    normalized = (raw_level or '').strip().upper()
+    normalized = (raw_level or "").strip().upper()
     if not normalized:
         normalized = _DEFAULT_LITELLM_LOG_LEVEL
 
@@ -235,7 +249,7 @@ def setup_logging(
     log_path.mkdir(parents=True, exist_ok=True)
 
     # 日志文件路径（按日期分文件）
-    today_str = datetime.now().strftime('%Y%m%d')
+    today_str = datetime.now().strftime("%Y%m%d")
     log_file = log_path / f"{log_prefix}_{today_str}.log"
     debug_log_file = log_path / f"{log_prefix}_debug_{today_str}.log"
 
@@ -248,9 +262,7 @@ def setup_logging(
         root_logger.handlers.clear()
     # 创建相对路径 Formatter（相对于项目根目录）
     project_root = PROJECT_ROOT
-    rel_formatter = RelativePathFormatter(
-        LOG_FORMAT, LOG_DATE_FORMAT, relative_to=project_root
-    )
+    rel_formatter = RelativePathFormatter(LOG_FORMAT, LOG_DATE_FORMAT, relative_to=project_root)
     # Handler 1: 控制台输出
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
@@ -263,7 +275,7 @@ def setup_logging(
         log_file,
         maxBytes=_env_int("LOG_MAX_BYTES", DEFAULT_APP_LOG_MAX_BYTES),
         backupCount=_env_int("LOG_BACKUP_COUNT", DEFAULT_APP_LOG_BACKUP_COUNT),
-        encoding='utf-8'
+        encoding="utf-8",
     )
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(rel_formatter)
@@ -275,7 +287,7 @@ def setup_logging(
         debug_log_file,
         maxBytes=_env_int("DEBUG_LOG_MAX_BYTES", DEFAULT_DEBUG_LOG_MAX_BYTES),
         backupCount=_env_int("DEBUG_LOG_BACKUP_COUNT", DEFAULT_DEBUG_LOG_BACKUP_COUNT),
-        encoding='utf-8'
+        encoding="utf-8",
     )
     debug_handler.setLevel(logging.DEBUG)
     debug_handler.setFormatter(rel_formatter)
@@ -289,6 +301,9 @@ def setup_logging(
 
     for logger_name in quiet_loggers:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+    for logger_name in DEFAULT_INFO_LOGGERS:
+        logging.getLogger(logger_name).setLevel(logging.INFO)
 
     litellm_level, invalid_litellm_level = _resolve_litellm_log_level()
     for logger_name in LITELLM_LOGGERS:

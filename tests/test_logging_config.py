@@ -8,6 +8,7 @@ import types
 import pytest
 
 from finance_analysis.core.logging import (
+    DEFAULT_INFO_LOGGERS,
     LITELLM_LOGGERS,
     get_task_log_file,
     log_external_call_exception,
@@ -22,10 +23,8 @@ def restore_logging_state():
     root_logger = logging.getLogger()
     original_root_level = root_logger.level
     original_handlers = list(root_logger.handlers)
-    original_litellm_levels = {
-        logger_name: logging.getLogger(logger_name).level
-        for logger_name in LITELLM_LOGGERS
-    }
+    original_litellm_levels = {logger_name: logging.getLogger(logger_name).level for logger_name in LITELLM_LOGGERS}
+    original_info_levels = {logger_name: logging.getLogger(logger_name).level for logger_name in DEFAULT_INFO_LOGGERS}
 
     yield
 
@@ -38,6 +37,8 @@ def restore_logging_state():
     root_logger.setLevel(original_root_level)
 
     for logger_name, level in original_litellm_levels.items():
+        logging.getLogger(logger_name).setLevel(level)
+    for logger_name, level in original_info_levels.items():
         logging.getLogger(logger_name).setLevel(level)
 
 
@@ -98,6 +99,19 @@ def test_invalid_litellm_log_level_falls_back_to_warning(tmp_path, monkeypatch):
     assert "invalid level warning should remain" in debug_log_text
     assert "LITELLM_LOG_LEVEL" in debug_log_text
     assert "已回退为 WARNING" in debug_log_text
+
+
+def test_noisy_third_party_debug_is_filtered_but_info_is_retained(tmp_path):
+    setup_logging(log_prefix="stock_analysis", log_dir=str(tmp_path), debug=False)
+
+    for logger_name in DEFAULT_INFO_LOGGERS:
+        logging.getLogger(logger_name).debug("third-party debug should be filtered")
+        logging.getLogger(logger_name).info("third-party info should remain")
+
+    debug_log_text = _read_debug_log(tmp_path)
+
+    assert "third-party debug should be filtered" not in debug_log_text
+    assert debug_log_text.count("third-party info should remain") == len(DEFAULT_INFO_LOGGERS)
 
 
 def test_setup_backend_logging_uses_service_subdirectory(tmp_path, monkeypatch):

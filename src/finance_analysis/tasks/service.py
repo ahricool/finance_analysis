@@ -11,17 +11,17 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import select
 
-from finance_analysis.database.session import DatabaseManager
+from finance_analysis.core.time import utc_isoformat, utc_now
 from finance_analysis.database.models.task import TaskRecord
 from finance_analysis.database.models.user import User
 from finance_analysis.database.repositories.task_record import TaskRecordRepository
+from finance_analysis.database.session import DatabaseManager
 from finance_analysis.tasks.celery.schedule import (
     ScheduledTaskDefinition,
     get_scheduled_task_definition,
     get_scheduled_task_definitions,
 )
 from finance_analysis.tasks.lifecycle import MAX_PAYLOAD_CHARS, TaskExecutionStatus, _json_summary
-from finance_analysis.core.time import utc_isoformat, utc_now
 
 TASK_STATUSES = (
     "pending",
@@ -44,6 +44,10 @@ class ScheduledTaskNotFoundError(KeyError):
 
 class ManualRunNotAllowedError(RuntimeError):
     """Raised when a scheduled task does not allow manual execution."""
+
+
+class ManualRunParameterError(ValueError):
+    """Raised when manual-only task parameters do not match the task definition."""
 
 
 @dataclass
@@ -84,6 +88,7 @@ def _default_task_submitter(
     *,
     task_id: str,
     triggered_by_uid: int,
+    task_kwargs: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Publish a manual scheduled run to Celery via ``apply_async``."""
     from finance_analysis.tasks.celery.app import celery_app
@@ -92,13 +97,15 @@ def _default_task_submitter(
     celery_task = celery_app.tasks.get(definition.celery_task_name)
     if celery_task is None:
         raise SchedulerUnavailableError(f"Celery task for job {definition.job_id} is not registered")
+    kwargs = {
+        "scheduler_job_id": definition.job_id,
+        "_trigger_source": "manual",
+        "_triggered_by_uid": triggered_by_uid,
+        **(task_kwargs or {}),
+    }
     celery_task.apply_async(
         task_id=task_id,
-        kwargs={
-            "scheduler_job_id": definition.job_id,
-            "_trigger_source": "manual",
-            "_triggered_by_uid": triggered_by_uid,
-        },
+        kwargs=kwargs,
         queue=definition.queue,
         expires=definition.expires,
     )
@@ -144,17 +151,36 @@ class ScheduledTaskService:
                     "scheduler_status": scheduler_status,
                     "next_run_time": utc_isoformat(definition.next_run_time(now=now)),
                     "allow_manual_run": definition.allow_manual_run,
+                    "sync_modes": list(definition.sync_modes),
                     "latest_run": self._latest_run_payload(latest) if latest else None,
                 }
             )
         return items
 
-    def run_scheduled_task_now(self, *, job_id: str, triggered_by_uid: int) -> Dict[str, Any]:
+    def run_scheduled_task_now(
+        self,
+        *,
+        job_id: str,
+        triggered_by_uid: int,
+        sync_mode: Optional[str] = None,
+    ) -> Dict[str, Any]:
         definition = get_scheduled_task_definition(job_id)
         if definition is None:
             raise ScheduledTaskNotFoundError(job_id)
         if not definition.allow_manual_run:
             raise ManualRunNotAllowedError(f"{definition.name} 不支持手动执行")
+
+        task_kwargs: Dict[str, Any] = {}
+        resolved_sync_mode: Optional[str] = None
+        if definition.sync_modes:
+            resolved_sync_mode = str(sync_mode or "incremental").strip().lower()
+            if resolved_sync_mode not in definition.sync_modes:
+                raise ManualRunParameterError(
+                    f"{definition.name} 不支持 sync_mode={sync_mode!r}；" f"可选值: {', '.join(definition.sync_modes)}"
+                )
+            task_kwargs["sync_mode"] = resolved_sync_mode
+        elif sync_mode is not None:
+            raise ManualRunParameterError(f"{definition.name} 不支持同步模式参数")
 
         existing = self.repository.get_active_by_scheduler_job_id(job_id)
         if existing is not None:
@@ -162,7 +188,12 @@ class ScheduledTaskService:
 
         task_id = uuid.uuid4().hex
         dedupe_key = f"scheduled:{job_id}"
-        payload = {"job_id": job_id, "trigger_source": "manual", "triggered_by_uid": triggered_by_uid}
+        payload = {
+            "job_id": job_id,
+            "trigger_source": "manual",
+            "triggered_by_uid": triggered_by_uid,
+            **task_kwargs,
+        }
         record, created = self.repository.create_pending_or_get_duplicate(
             task_id=task_id,
             task_type=definition.task_type,
@@ -180,7 +211,12 @@ class ScheduledTaskService:
             raise DuplicateScheduledTaskError(record.task_id, f"{definition.name} 正在执行中")
 
         try:
-            self._task_submitter(definition, task_id=task_id, triggered_by_uid=triggered_by_uid)
+            self._task_submitter(
+                definition,
+                task_id=task_id,
+                triggered_by_uid=triggered_by_uid,
+                task_kwargs=task_kwargs,
+            )
         except Exception as exc:
             self.repository.update_status(
                 task_id=task_id,
@@ -202,6 +238,7 @@ class ScheduledTaskService:
             "job_id": definition.job_id,
             "status": "pending",
             "message": "任务已提交",
+            "sync_mode": resolved_sync_mode,
         }
 
     def _read_beat_status(self) -> str:
