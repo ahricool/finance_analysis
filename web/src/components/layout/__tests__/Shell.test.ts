@@ -18,6 +18,10 @@ function createTestRouter() {
         component: { template: '<div />' },
       },
       {
+        path: '/analysis',
+        component: { template: '<div />' },
+      },
+      {
         path: '/:pathMatch(.*)*',
         component: { template: '<div />' },
       },
@@ -74,7 +78,7 @@ describe('Shell user menu', () => {
     expect(popup.get('button').text()).toBe('退出');
   });
 
-  it.each(['/market/watch-list', '/market/holdings', '/market/signals'])(
+  it.each(['/market/watch-list', '/market/holdings', '/market/signals', '/market/signals/123'])(
     'keeps market navigation active on %s',
     async (path) => {
       const router = createTestRouter();
@@ -95,6 +99,22 @@ describe('Shell user menu', () => {
     },
   );
 
+  it.each([
+    ['/market/backtests/123', '回测'],
+    ['/market/quant/signals/NVDA.US', '量化'],
+  ])('highlights only %s as %s', async (path, label) => {
+    const router = createTestRouter();
+    await router.push(path);
+    await router.isReady();
+
+    const wrapper = mount(Shell, { global: { plugins: [router] } });
+    const activeLinks = wrapper.findAll('a[aria-current="page"]');
+
+    expect(activeLinks).toHaveLength(2);
+    expect(activeLinks.every((link) => link.attributes('aria-label') === label)).toBe(true);
+    expect(wrapper.findAll('a[aria-label="市场"]').every((link) => !link.attributes('aria-current'))).toBe(true);
+  });
+
   it('shows every core destination in the mobile nav and navigates from calendar to market', async () => {
     const router = createTestRouter();
     await router.push('/calendar');
@@ -107,10 +127,13 @@ describe('Shell user menu', () => {
     });
 
     const mobileNav = wrapper.get('[data-testid="mobile-main-nav"]');
+    expect(mobileNav.find('.grid-cols-6').exists()).toBe(true);
     expect(mobileNav.findAll('a').map((link) => link.attributes('aria-label'))).toEqual([
-      '首页',
+      '分析',
       '日历',
       '市场',
+      '回测',
+      '量化',
       '问股',
     ]);
     expect(mobileNav.get('a[aria-label="日历"]').attributes('aria-current')).toBe('page');

@@ -4,6 +4,7 @@ import router, { resolveDocumentTitle } from '../index';
 describe('router document titles', () => {
   it.each([
     ['/', 'Finance Analysis'],
+    ['/analysis', '分析 - Finance Analysis'],
     ['/calendar', '日历记录 - Finance Analysis'],
     ['/market/watch-list', '自选股 - Finance Analysis'],
     ['/market/holdings', '持仓股 - Finance Analysis'],
@@ -32,5 +33,10 @@ describe('router document titles', () => {
     expect(router.hasRoute('stock-list')).toBe(false);
     expect(router.resolve('/watch-list').name).toBe('not-found');
     expect(router.resolve('/stock-list').name).toBe('not-found');
+  });
+
+  it('redirects the root path to the analysis page', () => {
+    expect(router.resolve('/').matched.at(-1)?.redirect).toEqual({ name: 'analysis' });
+    expect(router.resolve('/analysis').name).toBe('analysis');
   });
 });
