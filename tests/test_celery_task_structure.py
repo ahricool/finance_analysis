@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
 
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.jobs import TASK_MODULES, TASK_PACKAGES
@@ -34,9 +38,11 @@ EXPECTED_CUSTOM_TASKS = {
     "quant.model.train.finalize",
     "quant.model.train.failed",
     "scheduled.quant_daily_pipeline_us",
+    "scheduled.quant_daily_pipeline_cn",
     "quant.daily.finalize",
     "quant.daily.failed",
     "scheduled.quant_model_training_us",
+    "scheduled.quant_model_training_cn",
 }
 
 
@@ -61,8 +67,12 @@ def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)
         source = Path(module.__file__).read_text(encoding="utf-8")
-        if package.endswith(("quant_training", "quant_daily")):
+        if package.endswith("quant_daily"):
+            expected_count = 4
+        elif package.endswith("quant_training"):
             expected_count = 3
+        elif package.endswith("quant_scheduled_training"):
+            expected_count = 2
         elif package.endswith("market_data_sync"):
             expected_count = 2
         else:
@@ -76,7 +86,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 21
+    assert len(celery_names) == len(set(celery_names)) == 23
     assert len(job_ids) == len(set(job_ids))
 
 
@@ -92,6 +102,19 @@ def test_all_on_demand_tasks_use_lifecycle_tracking():
     celery_app.loader.import_default_modules()
     for metadata in ON_DEMAND_TASKS:
         assert is_tracked_callable(celery_app.tasks[metadata.celery_name])
+
+
+def test_cn_scheduled_training_rejects_a_us_model_run(monkeypatch):
+    repository = MagicMock()
+    repository.get_model_run.return_value = SimpleNamespace(market="US")
+    monkeypatch.setattr(
+        "finance_analysis.database.repositories.quant.QuantRepository",
+        lambda: repository,
+    )
+    from finance_analysis.tasks.celery.jobs.quant_scheduled_training.tasks import _dispatch_training
+
+    with pytest.raises(ValueError, match="belongs to market=US, expected market=CN"):
+        _dispatch_training(42, "CN")
 
 
 def test_removed_legacy_modules_and_batch_business_references_are_absent():

@@ -27,7 +27,7 @@ describe('QuantPage', () => {
     const wrapper = await mountQuant('/market/quant');
 
     expect(wrapper.get('nav[aria-label="量化研究导航"]').classes()).toContain('flex-wrap');
-    expect(wrapper.get('a[href="/market/quant"]').classes()).toContain('text-primary');
+    expect(wrapper.get('a[href="/market/quant?market=US"]').classes()).toContain('text-primary');
     expect(wrapper.text()).toContain('量化总览');
     expect(wrapper.find('[data-testid="market-desktop-nav"]').exists()).toBe(false);
   });
@@ -35,8 +35,8 @@ describe('QuantPage', () => {
   it('keeps a section active on a detail route', async () => {
     const wrapper = await mountQuant('/market/quant/signals/NVDA.US');
 
-    expect(wrapper.get('a[href="/market/quant/signals"]').classes()).toContain('text-primary');
-    expect(wrapper.get('a[href="/market/quant"]').classes()).not.toContain('text-primary');
+    expect(wrapper.get('a[href="/market/quant/signals?market=US"]').classes()).toContain('text-primary');
+    expect(wrapper.get('a[href="/market/quant?market=US"]').classes()).not.toContain('text-primary');
     expect(wrapper.text()).toContain('选股详情');
   });
 });

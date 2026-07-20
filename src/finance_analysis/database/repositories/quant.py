@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Iterable
 
 from sqlalchemy import and_, delete, desc, func, or_, select, update
@@ -48,6 +48,90 @@ class QuantRepository:
                 session.expunge(row)
             return row
 
+    def upsert_universe(self, values: dict[str, Any]) -> QuantUniverse:
+        with self.db.session_scope() as session:
+            stmt = pg_insert(QuantUniverse).values(**values).on_conflict_do_update(
+                index_elements=[QuantUniverse.key],
+                set_={key: value for key, value in values.items() if key != "key"},
+            ).returning(QuantUniverse)
+            row = session.execute(stmt).scalar_one()
+            session.expunge(row)
+            return row
+
+    def update_universe(self, universe_id: int, **values: Any) -> None:
+        with self.db.session_scope() as session:
+            session.execute(update(QuantUniverse).where(QuantUniverse.id == universe_id).values(**values))
+
+    def latest_member_mappings(self, universe_id: int) -> dict[int, dict[str, Any]]:
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(QuantUniverseMember)
+                .where(QuantUniverseMember.universe_id == universe_id)
+                .order_by(QuantUniverseMember.symbol_id, desc(QuantUniverseMember.effective_from))
+            ).scalars()
+            result: dict[int, dict[str, Any]] = {}
+            for row in rows:
+                result.setdefault(
+                    row.symbol_id,
+                    {
+                        "sector_key": row.sector_key,
+                        "sector_benchmark_code": row.sector_benchmark_code,
+                        "source": "persisted",
+                    },
+                )
+            return result
+
+    def sync_dynamic_members(
+        self,
+        universe_id: int,
+        symbols: Iterable[MarketDataSymbol],
+        mappings: dict[int, dict[str, Any]],
+        effective_from: date,
+    ) -> dict[str, int]:
+        desired = {symbol.id for symbol in symbols}
+        added = ended = updated = 0
+        with self.db.session_scope() as session:
+            active = {
+                row.symbol_id: row
+                for row in session.execute(
+                    select(QuantUniverseMember).where(
+                        QuantUniverseMember.universe_id == universe_id,
+                        QuantUniverseMember.enabled.is_(True),
+                        QuantUniverseMember.effective_to.is_(None),
+                    )
+                ).scalars()
+            }
+            for symbol_id, row in active.items():
+                if symbol_id not in desired:
+                    row.effective_to = max(row.effective_from, effective_from - timedelta(days=1))
+                    # Preserve ended periods for historical point-in-time reads.
+                    # A member created and removed on the same effective date has
+                    # no historical active interval, so disable that one record.
+                    row.enabled = row.effective_from < effective_from
+                    ended += 1
+                    continue
+                mapping = mappings.get(symbol_id, {})
+                sector_key = mapping.get("sector_key")
+                benchmark = mapping.get("sector_benchmark_code")
+                if (sector_key and row.sector_key != sector_key) or (benchmark and row.sector_benchmark_code != benchmark):
+                    row.sector_key = sector_key
+                    row.sector_benchmark_code = benchmark
+                    updated += 1
+            for symbol_id in sorted(desired - set(active)):
+                mapping = mappings.get(symbol_id, {})
+                session.add(
+                    QuantUniverseMember(
+                        universe_id=universe_id,
+                        symbol_id=symbol_id,
+                        effective_from=effective_from,
+                        sector_key=mapping.get("sector_key"),
+                        sector_benchmark_code=mapping.get("sector_benchmark_code"),
+                        enabled=True,
+                    )
+                )
+                added += 1
+        return {"added": added, "ended": ended, "updated": updated}
+
     def active_members(self, universe_id: int, as_of: date) -> list[tuple[QuantUniverseMember, MarketDataSymbol]]:
         with self.db.get_session() as session:
             rows = list(session.execute(
@@ -86,9 +170,10 @@ class QuantRepository:
         with self.db.session_scope() as session:
             session.execute(update(QuantDatasetSnapshot).where(QuantDatasetSnapshot.id == snapshot_id).values(**values))
 
-    def list_datasets(self, limit: int = 100) -> list[QuantDatasetSnapshot]:
+    def list_datasets(self, limit: int = 100, market: str | None = None) -> list[QuantDatasetSnapshot]:
+        clauses = [QuantDatasetSnapshot.market == market.upper()] if market else []
         with self.db.get_session() as session:
-            rows = list(session.execute(select(QuantDatasetSnapshot).order_by(desc(QuantDatasetSnapshot.created_at)).limit(limit)).scalars())
+            rows = list(session.execute(select(QuantDatasetSnapshot).where(*clauses).order_by(desc(QuantDatasetSnapshot.created_at)).limit(limit)).scalars())
             return self._detach(session, rows)
 
     def get_dataset(self, snapshot_id: int) -> QuantDatasetSnapshot | None:
@@ -188,7 +273,13 @@ class QuantRepository:
 
     def sector_regimes(self, market: str, trade_date: date | None = None, sector_key: str | None = None) -> list[SectorRegimeSnapshot]:
         clauses = [SectorRegimeSnapshot.market == market]
-        if trade_date: clauses.append(SectorRegimeSnapshot.trade_date == trade_date)
+        if trade_date:
+            clauses.append(SectorRegimeSnapshot.trade_date == trade_date)
+        else:
+            latest_date = select(func.max(SectorRegimeSnapshot.trade_date)).where(
+                SectorRegimeSnapshot.market == market
+            ).scalar_subquery()
+            clauses.append(SectorRegimeSnapshot.trade_date == latest_date)
         if sector_key: clauses.append(SectorRegimeSnapshot.sector_key == sector_key)
         with self.db.get_session() as session:
             rows = list(session.execute(select(SectorRegimeSnapshot).where(*clauses).order_by(desc(SectorRegimeSnapshot.trade_date), SectorRegimeSnapshot.rank)).scalars())
@@ -219,9 +310,10 @@ class QuantRepository:
             if row: session.expunge(row)
             return row
 
-    def list_model_runs(self, limit: int = 100) -> list[ModelRun]:
+    def list_model_runs(self, limit: int = 100, market: str | None = None) -> list[ModelRun]:
+        clauses = [ModelRun.market == market.upper()] if market else []
         with self.db.get_session() as session:
-            rows = list(session.execute(select(ModelRun).order_by(desc(ModelRun.created_at)).limit(limit)).scalars())
+            rows = list(session.execute(select(ModelRun).where(*clauses).order_by(desc(ModelRun.created_at)).limit(limit)).scalars())
             return self._detach(session, rows)
 
     def publish_model(self, run_id: int, user_id: int, reason: str) -> ModelRun:
@@ -243,9 +335,14 @@ class QuantRepository:
             if row: session.expunge(row)
             return row
 
-    def replace_signals(self, trade_date: date, model_version: str, values: list[dict[str, Any]]) -> None:
+    def replace_signals(self, market: str, universe_id: int, trade_date: date, model_version: str, values: list[dict[str, Any]]) -> None:
         with self.db.session_scope() as session:
-            session.execute(delete(ModelSignal).where(ModelSignal.trade_date == trade_date, ModelSignal.model_version == model_version))
+            session.execute(delete(ModelSignal).where(
+                ModelSignal.market == market,
+                ModelSignal.universe_id == universe_id,
+                ModelSignal.trade_date == trade_date,
+                ModelSignal.model_version == model_version,
+            ))
             if values: session.add_all(ModelSignal(**value) for value in values)
 
     def save_portfolio(self, values: dict[str, Any], items: list[dict[str, Any]]) -> PortfolioRecommendation:
@@ -267,17 +364,22 @@ class QuantRepository:
             if values: session.add_all(IntradayConfirmation(**value) for value in values)
 
     def latest_signals(self, market: str, universe_id: int | None = None, code: str | None = None, limit: int = 200) -> list[ModelSignal]:
-        latest_date = select(func.max(ModelSignal.trade_date)).where(ModelSignal.market == market).scalar_subquery()
-        clauses = [ModelSignal.market == market, ModelSignal.trade_date == latest_date]
-        if universe_id: clauses.append(ModelSignal.universe_id == universe_id)
-        if code: clauses.append(ModelSignal.code == code.upper())
+        scope = [ModelSignal.market == market]
+        if universe_id:
+            scope.append(ModelSignal.universe_id == universe_id)
+        if code:
+            scope.append(ModelSignal.code == code.upper())
+        latest_date = select(func.max(ModelSignal.trade_date)).where(*scope).scalar_subquery()
+        clauses = [*scope, ModelSignal.trade_date == latest_date]
         with self.db.get_session() as session:
             rows = list(session.execute(select(ModelSignal).where(*clauses).order_by(ModelSignal.universe_rank).limit(limit)).scalars())
             return self._detach(session, rows)
 
-    def signal_history(self, code: str, limit: int = 365) -> list[ModelSignal]:
+    def signal_history(self, market: str, code: str, limit: int = 365) -> list[ModelSignal]:
         with self.db.get_session() as session:
-            rows = list(session.execute(select(ModelSignal).where(ModelSignal.code == code.upper()).order_by(desc(ModelSignal.trade_date)).limit(limit)).scalars())
+            rows = list(session.execute(select(ModelSignal).where(
+                ModelSignal.market == market.upper(), ModelSignal.code == code.upper()
+            ).order_by(desc(ModelSignal.trade_date)).limit(limit)).scalars())
             return self._detach(session, rows)
 
     def latest_portfolios(self, market: str, universe_id: int | None = None, limit: int = 50) -> list[PortfolioRecommendation]:
@@ -287,19 +389,25 @@ class QuantRepository:
             rows = list(session.execute(select(PortfolioRecommendation).where(*clauses).order_by(desc(PortfolioRecommendation.trade_date)).limit(limit)).scalars())
             return self._detach(session, rows)
 
-    def portfolio(self, recommendation_id: int) -> tuple[PortfolioRecommendation, list[PortfolioRecommendationItem]] | None:
+    def portfolio(self, recommendation_id: int, market: str | None = None) -> tuple[PortfolioRecommendation, list[PortfolioRecommendationItem]] | None:
         with self.db.get_session() as session:
             row = session.get(PortfolioRecommendation, recommendation_id)
-            if not row: return None
+            if not row or (market and row.market != market.upper()): return None
             items = list(session.execute(select(PortfolioRecommendationItem).where(PortfolioRecommendationItem.recommendation_id == row.id).order_by(PortfolioRecommendationItem.rank)).scalars())
             session.expunge(row); self._detach(session, items); return row, items
 
-    def confirmations(self, trade_date: date | None = None, code: str | None = None, limit: int = 200) -> list[IntradayConfirmation]:
+    def confirmations(self, market: str, trade_date: date | None = None, code: str | None = None, limit: int = 200) -> list[IntradayConfirmation]:
         clauses = []
         if trade_date: clauses.append(IntradayConfirmation.trade_date == trade_date)
         if code: clauses.append(IntradayConfirmation.code == code.upper())
         with self.db.get_session() as session:
-            rows = list(session.execute(select(IntradayConfirmation).where(*clauses).order_by(desc(IntradayConfirmation.evaluated_at)).limit(limit)).scalars())
+            rows = list(session.execute(
+                select(IntradayConfirmation)
+                .join(PortfolioRecommendationItem, PortfolioRecommendationItem.id == IntradayConfirmation.recommendation_item_id)
+                .join(PortfolioRecommendation, PortfolioRecommendation.id == PortfolioRecommendationItem.recommendation_id)
+                .where(PortfolioRecommendation.market == market.upper(), *clauses)
+                .order_by(desc(IntradayConfirmation.evaluated_at)).limit(limit)
+            ).scalars())
             return self._detach(session, rows)
 
 

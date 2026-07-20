@@ -27,9 +27,9 @@ def _member(code: str, symbol_id: int):
     )
 
 
-def test_prepare_rejects_universe_member_without_target_daily_bar() -> None:
+def test_prepare_rejects_universe_member_without_target_daily_bar(monkeypatch) -> None:
     repository = MagicMock()
-    repository.get_universe.return_value = SimpleNamespace(id=3)
+    repository.get_universe.return_value = SimpleNamespace(id=3, market="US")
     repository.active_members.return_value = [
         _member("AAPL.US", 1),
         _member("NVDA.US", 2),
@@ -43,11 +43,22 @@ def test_prepare_rejects_universe_member_without_target_daily_bar() -> None:
         holding_repository=MagicMock(),
         owner_uid=7,
     )
+    monkeypatch.setattr(
+        "finance_analysis.quant.pipeline.service.DailyResearchService",
+        lambda _repository: SimpleNamespace(
+            run=lambda *_args: {
+                "eligible_codes": ["AAPL.US", "NVDA.US"],
+                "market_regime": SimpleNamespace(
+                    id=1, regime="neutral", market_score=0.5, max_equity_exposure=0.4
+                ),
+            }
+        ),
+    )
 
     with pytest.raises(FeatureDataMissingError, match=r"2026-07-16.*NVDA\.US"):
-        pipeline.prepare(trade_date=TRADE_DATE)
+        pipeline.prepare(universe_key="us_ai_semiconductor", trade_date=TRADE_DATE)
 
-    repository.production_model.assert_not_called()
+    repository.production_model.assert_any_call("US", "cross_section_lgbm")
 
 
 def test_prediction_coverage_lists_missing_symbols() -> None:
@@ -72,7 +83,7 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
             self.replaced = None
 
         def get_universe(self, key):
-            return SimpleNamespace(id=3)
+            return SimpleNamespace(id=3, market="US")
 
         def active_members(self, universe_id, trade_date):
             return members
@@ -92,7 +103,7 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
                 2: {**common, "close": 200.0},
             }
 
-        def replace_signals(self, trade_date, model_version, values):
+        def replace_signals(self, market, universe_id, trade_date, model_version, values):
             self.replaced = values
 
         def save_portfolio(self, values, items):
@@ -144,6 +155,8 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
         "universe_key": "test",
         "universe_id": 3,
         "cross_section_model_version": "v1",
+        "cross_section_model_run_id": 11,
+        "time_series_model_run_id": 12,
         "expected_codes": ["AAPL.US", "NVDA.US"],
         "regime": {
             "id": 8,

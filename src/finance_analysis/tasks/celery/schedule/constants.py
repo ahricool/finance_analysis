@@ -44,7 +44,9 @@ JOB_A_SHARE_PRE_CLOSE_REVIEW = "analysis_a_share_pre_close_review"
 JOB_SIGNAL_EVALUATION_CN = "signal_evaluation_cn"
 JOB_SIGNAL_EVALUATION_US = "signal_evaluation_us"
 JOB_QUANT_DAILY_PIPELINE_US = "quant_daily_pipeline_us"
+JOB_QUANT_DAILY_PIPELINE_CN = "quant_daily_pipeline_cn"
 JOB_QUANT_MODEL_TRAINING_US = "quant_model_training_us"
+JOB_QUANT_MODEL_TRAINING_CN = "quant_model_training_cn"
 
 
 def celery_task_name(job_id: str) -> str:

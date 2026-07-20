@@ -92,7 +92,7 @@ def test_reference_constituents_have_expected_cardinality_and_canonical_cn_codes
 
 def test_reference_seed_is_idempotent_daily_only_for_both_markets():
     repository = MagicMock()
-    repository.upsert_symbols.side_effect = [503, 300]
+    repository.upsert_symbols.side_effect = [503, 300, 14, 3]
     with patch(
         "finance_analysis.database.repositories.stock.MarketDataSymbolRepository",
         return_value=repository,
@@ -104,6 +104,9 @@ def test_reference_seed_is_idempotent_daily_only_for_both_markets():
     assert len(us_rows) == 503 and len(cn_rows) == 300
     assert all(row["sync_daily"] and not row["sync_minute"] for row in [*us_rows, *cn_rows])
     assert all(call.kwargs == {} for call in repository.upsert_symbols.call_args_list)
+    assert {row["code"] for row in repository.upsert_symbols.call_args_list[3].args[0]} == {
+        "510300.SH", "510500.SH", "159915.SZ"
+    }
 
 
 def test_canonical_symbol_validation_and_provider_conversion():
@@ -376,11 +379,11 @@ def test_scope_is_reference_constituents_plus_market_watchlist_and_deduplicated(
         SimpleNamespace(code="700", name="Tencent", market_type="HK"),
     ]
     service = _service(symbol_repository=symbols, watchlist_repository=watchlist)
-    assert service._load_scope() == [_symbol()]
+    assert service.load_scope() == [_symbol()]
     selected_codes = symbols.list_enabled_daily_by_codes.call_args.args[1]
     assert "AAPL.US" in selected_codes
     assert "700.HK" not in selected_codes
-    assert len(selected_codes) == len(SP500_STOCK_INDEX)
+    assert len(selected_codes) > len(SP500_STOCK_INDEX)
     symbols.upsert_symbols.assert_called_once()
     assert symbols.upsert_symbols.call_args.kwargs == {"overwrite_runtime_flags": False}
 
