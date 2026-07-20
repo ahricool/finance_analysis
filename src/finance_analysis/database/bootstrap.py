@@ -23,11 +23,9 @@ def bootstrap_database(manager: "DatabaseManager") -> None:
     manager._initialized = True
     try:
         UserRepository(manager).ensure_default_admin()
-        from finance_analysis.database.seed import seed_nasdaq100_market_data_symbols
-        from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
+        from finance_analysis.database.seed import seed_market_data_reference_symbols
 
-        if not MarketDataSymbolRepository(manager).list_enabled_symbols("US"):
-            seed_nasdaq100_market_data_symbols(manager)
+        seed_market_data_reference_symbols(manager)
         from finance_analysis.database.seed import seed_quant_reference_data
 
         seed_quant_reference_data(manager)

@@ -16,6 +16,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     UniqueConstraint,
     event,
@@ -64,6 +65,12 @@ class MarketDataSymbol(Base):
 
     daily_bars = relationship("StockDaily", back_populates="symbol", cascade="all, delete-orphan")
     minute_bars = relationship("StockMinute", back_populates="symbol", cascade="all, delete-orphan")
+    corporate_actions = relationship(
+        "StockCorporateAction", back_populates="symbol", cascade="all, delete-orphan"
+    )
+    adjustment_factors = relationship(
+        "StockAdjustmentFactor", back_populates="symbol", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         UniqueConstraint("code", name="uix_market_data_symbol_code"),
@@ -91,7 +98,7 @@ def _validate_symbol(_mapper: Any, _connection: Any, target: MarketDataSymbol) -
 
 
 class StockDaily(Base):
-    """Unadjusted raw daily OHLCV. Derived indicators are never persisted."""
+    """Unadjusted raw daily OHLCV plus explicitly sourced VWAP metadata."""
 
     __tablename__ = "stock_daily"
 
@@ -104,6 +111,9 @@ class StockDaily(Base):
     close = Column(Float, nullable=False)
     volume = Column(Float, nullable=False)
     amount = Column(Float, nullable=True)
+    vwap = Column(Float, nullable=True)
+    vwap_source = Column(String(32), nullable=True)
+    vwap_quality = Column(String(16), nullable=True)
     limit_up = Column(Float, nullable=True)
     limit_down = Column(Float, nullable=True)
     suspended = Column(Boolean, nullable=False, default=False)
@@ -118,6 +128,11 @@ class StockDaily(Base):
         UniqueConstraint("symbol_id", "date", name="uix_stock_daily_symbol_date"),
         CheckConstraint("volume >= 0", name="ck_stock_daily_volume_nonnegative"),
         CheckConstraint("amount IS NULL OR amount >= 0", name="ck_stock_daily_amount_nonnegative"),
+        CheckConstraint("vwap IS NULL OR vwap > 0", name="ck_stock_daily_vwap_positive"),
+        CheckConstraint(
+            "vwap_quality IS NULL OR vwap_quality IN ('provider', 'calculated', 'estimated', 'missing')",
+            name="ck_stock_daily_vwap_quality",
+        ),
         Index("ix_stock_daily_symbol_date", "symbol_id", "date"),
     )
 
@@ -140,6 +155,9 @@ class StockDaily(Base):
             "close": self.close,
             "volume": self.volume,
             "amount": self.amount,
+            "vwap": self.vwap,
+            "vwap_source": self.vwap_source,
+            "vwap_quality": self.vwap_quality,
             "limit_up": self.limit_up,
             "limit_down": self.limit_down,
             "suspended": self.suspended,
@@ -203,8 +221,72 @@ class StockMinute(Base):
         }
 
 
+class StockCorporateAction(Base):
+    """A dividend, split, bonus issue, or rights issue reported by a provider."""
+
+    __tablename__ = "stock_corporate_action"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
+    action_date = Column(Date, nullable=False)
+    action_type = Column(String(32), nullable=False)
+    cash_dividend = Column(Float, nullable=True)
+    split_ratio = Column(Float, nullable=True)
+    bonus_ratio = Column(Float, nullable=True)
+    rights_ratio = Column(Float, nullable=True)
+    rights_price = Column(Float, nullable=True)
+    currency = Column(String(8), nullable=True)
+    raw_payload = Column(JSON, nullable=False, default=dict)
+    data_source = Column(String(50), nullable=False)
+    source_hash = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+    symbol = relationship("MarketDataSymbol", back_populates="corporate_actions", lazy="joined")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "symbol_id", "action_date", "action_type", name="uix_stock_corporate_action_symbol_date_type"
+        ),
+        CheckConstraint(
+            "action_type IN ('dividend', 'split', 'bonus', 'rights')",
+            name="ck_stock_corporate_action_type",
+        ),
+        Index("ix_stock_corporate_action_symbol_date", "symbol_id", "action_date"),
+    )
+
+
+class StockAdjustmentFactor(Base):
+    """Per-session factors where qfq price equals raw price times qfq_factor."""
+
+    __tablename__ = "stock_adjustment_factor"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
+    trade_date = Column(Date, nullable=False)
+    qfq_factor = Column(Float, nullable=True)
+    hfq_factor = Column(Float, nullable=True)
+    hfq_cash = Column(Float, nullable=True)
+    adj_close = Column(Float, nullable=True)
+    data_source = Column(String(50), nullable=False)
+    source_hash = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+    symbol = relationship("MarketDataSymbol", back_populates="adjustment_factors", lazy="joined")
+
+    __table_args__ = (
+        UniqueConstraint("symbol_id", "trade_date", name="uix_stock_adjustment_factor_symbol_date"),
+        CheckConstraint("qfq_factor IS NULL OR qfq_factor > 0", name="ck_stock_adjustment_qfq_positive"),
+        CheckConstraint("hfq_factor IS NULL OR hfq_factor > 0", name="ck_stock_adjustment_hfq_positive"),
+        Index("ix_stock_adjustment_factor_symbol_date", "symbol_id", "trade_date"),
+    )
+
+
 __all__ = [
     "MarketDataSymbol",
+    "StockAdjustmentFactor",
+    "StockCorporateAction",
     "StockDaily",
     "StockMinute",
     "SUPPORTED_MARKETS",

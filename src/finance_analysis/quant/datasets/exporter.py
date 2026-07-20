@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import subprocess
 from datetime import date
 
@@ -20,6 +21,8 @@ from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.datasets.validator import validate_daily_bars
 from finance_analysis.quant.exceptions import BenchmarkDataMissingError, QuantDatasetValidationError
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
+
+logger = logging.getLogger(__name__)
 
 
 def _git_commit() -> str | None:
@@ -97,10 +100,16 @@ class QlibDatasetExporter:
             report["vwap"] = vwap_report
             if vwap_report["valid_rows"] == 0:
                 raise QuantDatasetValidationError("Dataset has no valid VWAP observations")
-            if vwap_report["proxy_rows"]:
+            if vwap_report["estimated_rows"]:
                 report["warnings"].append(
-                    f"VWAP used OHLC typical-price proxy for {vwap_report['proxy_rows']} rows with missing turnover"
+                    f"VWAP used HLC3 estimates for {vwap_report['estimated_rows']} rows"
                 )
+            logger.info(
+                "Qlib VWAP quality provider_calculated=%.2f%% estimated=%.2f%% missing=%.2f%%",
+                vwap_report["provider_calculated_ratio"] * 100,
+                vwap_report["estimated_ratio"] * 100,
+                vwap_report["missing_ratio"] * 100,
+            )
             relative = f"datasets/{dataset_key}"
             root = self.artifacts.directory(relative)
             sector_mapping = {symbol.code: member.sector_benchmark_code for member, symbol in members}
@@ -146,33 +155,38 @@ class QlibDatasetExporter:
         return self.repository.get_dataset(snapshot.id)
 
     @staticmethod
-    def _with_vwap(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
+    def _with_vwap(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int | float]]:
         result = frame.copy()
-        volume = pd.to_numeric(result["volume"], errors="coerce")
-        amount = pd.to_numeric(result["amount"], errors="coerce")
-        ratio = (amount / volume).replace([np.inf, -np.inf], np.nan)
         low = pd.to_numeric(result["low"], errors="coerce")
         high = pd.to_numeric(result["high"], errors="coerce")
         close = pd.to_numeric(result["close"], errors="coerce")
-        plausible = ratio.notna() & (volume > 0) & (ratio >= low * 0.5) & (ratio <= high * 1.5)
-        # Stored providers normalize turnover to currency units and volume to shares.
-        # If a legacy source is off by a common unit factor, accept only a scaled
-        # value that falls inside the day's broad traded-price range.
-        corrected = ratio.where(plausible)
-        for scale in (1_000.0, 0.001, 100.0, 0.01):
-            candidate = ratio * scale
-            valid = corrected.isna() & (volume > 0) & (candidate >= low * 0.5) & (candidate <= high * 1.5)
-            corrected = corrected.where(~valid, candidate)
+        stored = pd.to_numeric(result.get("vwap", pd.Series(np.nan, index=result.index)), errors="coerce")
+        stored = stored.where(np.isfinite(stored) & (stored > 0))
+        quality = result.get("vwap_quality", pd.Series(None, index=result.index)).fillna("").astype(str)
         typical = (high + low + close) / 3.0
-        proxy = corrected.isna() & (volume > 0) & typical.notna() & (typical > 0)
-        vwap = corrected.where(~proxy, typical)
-        vwap = vwap.where((volume > 0) & np.isfinite(vwap) & (vwap > 0))
+        fallback = stored.isna() & np.isfinite(typical) & (typical > 0)
+        vwap = stored.where(~fallback, typical)
+        vwap = vwap.where(np.isfinite(vwap) & (vwap > 0))
         result["vwap"] = vwap
+        estimated = (stored.notna() & quality.eq("estimated")) | fallback
+        provider_calculated = vwap.notna() & ~estimated
+        missing = vwap.isna()
+        total = len(result)
+
+        def ratio(count: int) -> float:
+            return count / total if total else 0.0
+
+        provider_calculated_rows = int(provider_calculated.sum())
+        estimated_rows = int(estimated.sum())
+        missing_rows = int(missing.sum())
         return result, {
             "valid_rows": int(vwap.notna().sum()),
-            "turnover_rows": int(corrected.notna().sum()),
-            "proxy_rows": int(proxy.sum()),
-            "invalid_rows": int(vwap.isna().sum()),
+            "provider_calculated_rows": provider_calculated_rows,
+            "estimated_rows": estimated_rows,
+            "missing_rows": missing_rows,
+            "provider_calculated_ratio": ratio(provider_calculated_rows),
+            "estimated_ratio": ratio(estimated_rows),
+            "missing_ratio": ratio(missing_rows),
         }
 
     def _load(self, codes: set[str], start: date, end: date) -> pd.DataFrame:
@@ -187,13 +201,20 @@ class QlibDatasetExporter:
                     StockDaily.close,
                     StockDaily.volume,
                     StockDaily.amount,
+                    StockDaily.vwap,
+                    StockDaily.vwap_source,
+                    StockDaily.vwap_quality,
                 )
                 .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
                 .where(MarketDataSymbol.code.in_(codes), StockDaily.date.between(start, end))
                 .order_by(MarketDataSymbol.code, StockDaily.date)
             ).all()
         frame = pd.DataFrame(
-            rows, columns=["instrument", "datetime", "open", "high", "low", "close", "volume", "amount"]
+            rows,
+            columns=[
+                "instrument", "datetime", "open", "high", "low", "close", "volume", "amount",
+                "vwap", "vwap_source", "vwap_quality",
+            ],
         )
         if not frame.empty:
             frame["factor"] = 1.0
@@ -235,7 +256,7 @@ class QlibDatasetExporter:
                 values = np.full(length, np.nan, dtype="<f4")
                 values[positions] = (
                     group[field]
-                    .fillna(0 if field == "amount" else 1 if field == "factor" else np.nan)
+                    .fillna(1 if field == "factor" else np.nan)
                     .to_numpy(dtype="<f4")
                 )
                 np.concatenate((np.array([start_index], dtype="<f4"), values)).tofile(directory / f"{field}.day.bin")

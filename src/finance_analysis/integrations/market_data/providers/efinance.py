@@ -27,7 +27,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, Dict, Any, List, Tuple
 
 import pandas as pd
@@ -250,6 +250,9 @@ class EfinanceFetcher(BaseFetcher):
     
     name = "EfinanceFetcher"
     priority = int(os.getenv("EFINANCE_PRIORITY", "0"))  # 最高优先级，排在 AkshareFetcher 之前
+    from finance_analysis.integrations.market_data.history import SOURCE_PRIORITY as _SOURCE_PRIORITY
+
+    source_priority = _SOURCE_PRIORITY[name]
     
     def __init__(self, sleep_min: float = 1.5, sleep_max: float = 3.0):
         """
@@ -265,6 +268,64 @@ class EfinanceFetcher(BaseFetcher):
         # 东财补丁开启才执行打补丁操作
         if get_data_provider_config().enable_eastmoney_patch:
             eastmoney_patch()
+
+    @staticmethod
+    def _historical_symbol(code: str) -> str:
+        canonical = str(code or "").strip().upper()
+        if canonical.endswith((".SH", ".SZ")):
+            return canonical[:-3]
+        if canonical.endswith(".HK"):
+            return f"HK{int(canonical[:-3]):05d}"
+        raise ValueError(f"Efinance daily history supports canonical CN/HK symbols only: {code}")
+
+    def fetch_daily_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
+        """Fetch unadjusted Eastmoney daily bars (``fqt=0``)."""
+        return self._fetch_canonical_daily(symbol, start_date, end_date, fqt=0)
+
+    def fetch_qfq_validation_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
+        """Fetch qfq bars for factor validation only; callers must never persist them as raw bars."""
+        return self._fetch_canonical_daily(symbol, start_date, end_date, fqt=1)
+
+    def _fetch_canonical_daily(self, symbol, start_date: date, end_date: date, *, fqt: int) -> pd.DataFrame:
+        import efinance as ef
+
+        from finance_analysis.integrations.market_data.history import HistoricalProviderError
+
+        provider_symbol = self._historical_symbol(symbol.code)
+        start = start_date.strftime("%Y%m%d")
+        end = end_date.strftime("%Y%m%d")
+        try:
+            raw = _ef_call_with_timeout(
+                ef.stock.get_quote_history,
+                stock_codes=provider_symbol,
+                beg=start,
+                end=end,
+                klt=101,
+                fqt=fqt,
+                timeout=60,
+            )
+            frame = self._normalize_data(raw, provider_symbol)
+        except Exception as exc:
+            reason = str(exc)
+            retryable = any(token in reason.lower() for token in ("timeout", "connection", "429", "rate"))
+            raise HistoricalProviderError(
+                self.name,
+                symbol.market,
+                symbol.code,
+                "daily_qfq_validation" if fqt else "daily",
+                f"{start_date}..{end_date}",
+                reason,
+                retryable,
+            ) from exc
+        if frame is None or frame.empty:
+            return pd.DataFrame()
+        frame = frame.copy()
+        frame["date"] = pd.to_datetime(frame["date"]).dt.date
+        if symbol.market == "CN":
+            # Eastmoney reports A-share historical volume in lots (手).
+            frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce") * 100.0
+        columns = ["date", "open", "high", "low", "close", "volume", "amount"]
+        return frame[columns].sort_values("date").reset_index(drop=True)
 
     @staticmethod
     def _build_history_failure_message(
@@ -596,7 +657,7 @@ class EfinanceFetcher(BaseFetcher):
         if 'volume' not in df.columns:
             df['volume'] = 0
         if 'amount' not in df.columns:
-            df['amount'] = 0
+            df['amount'] = pd.NA
 
         
         # 如果没有 code 列，手动添加

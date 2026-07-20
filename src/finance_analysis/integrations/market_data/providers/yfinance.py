@@ -88,7 +88,7 @@ class YfinanceFetcher(BaseFetcher):
         """Convert one canonical code at the provider boundary."""
         canonical = str(code or "").strip().upper()
         if canonical.endswith(".US"):
-            return canonical[:-3]
+            return canonical[:-3].replace(".", "-")
         if canonical.endswith(".HK"):
             digits = canonical[:-3]
             if not digits.isdigit():
@@ -109,6 +109,169 @@ class YfinanceFetcher(BaseFetcher):
             interval="1d",
             data_type="daily",
         )
+
+    def fetch_daily_bars_batch(
+        self,
+        symbols,
+        start_date: date,
+        end_date: date,
+        *,
+        batch_size: int = 100,
+    ) -> dict[str, pd.DataFrame]:
+        """Download US daily bars in bounded multi-ticker requests."""
+        import yfinance as yf
+
+        results: dict[str, pd.DataFrame] = {}
+        items = list(symbols)
+        for offset in range(0, len(items), max(1, batch_size)):
+            batch = items[offset : offset + max(1, batch_size)]
+            provider_codes = [self.to_yfinance_symbol(item.code) for item in batch]
+            raw = yf.download(
+                tickers=provider_codes,
+                start=start_date,
+                end=end_date + timedelta(days=1),
+                interval="1d",
+                progress=False,
+                auto_adjust=False,
+                prepost=False,
+                actions=False,
+                group_by="ticker",
+                multi_level_index=True,
+                threads=True,
+            )
+            for symbol, provider_code in zip(batch, provider_codes):
+                frame = self._ticker_frame(raw, provider_code)
+                results[symbol.code] = self._normalize_download_frame(frame, "daily")
+        return results
+
+    def fetch_adjustment_data_batch(self, symbols, requested_days: list[date]):
+        """Batch Yahoo actions and Adj Close into normalized per-symbol payloads."""
+        import yfinance as yf
+
+        from finance_analysis.integrations.market_data.history import AdjustmentData
+
+        if not requested_days:
+            return {}
+        items = list(symbols)
+        results: dict[str, AdjustmentData] = {}
+        target = set(requested_days)
+        for offset in range(0, len(items), 100):
+            batch = items[offset : offset + 100]
+            provider_codes = [self.to_yfinance_symbol(item.code) for item in batch]
+            raw = yf.download(
+                tickers=provider_codes,
+                start=min(requested_days),
+                end=max(requested_days) + timedelta(days=1),
+                interval="1d",
+                progress=False,
+                auto_adjust=False,
+                prepost=False,
+                actions=True,
+                group_by="ticker",
+                multi_level_index=True,
+                threads=True,
+            )
+            for symbol, provider_code in zip(batch, provider_codes):
+                frame = self._ticker_frame(raw, provider_code)
+                results[symbol.code] = self._normalize_adjustments(frame, target)
+        return results
+
+    def fetch_adjustment_data(self, symbol, requested_days: list[date]):
+        return self.fetch_adjustment_data_batch([symbol], requested_days).get(symbol.code)
+
+    @staticmethod
+    def _ticker_frame(raw: pd.DataFrame, ticker: str) -> pd.DataFrame:
+        if raw is None or raw.empty:
+            return pd.DataFrame()
+        if not isinstance(raw.columns, pd.MultiIndex):
+            return raw.copy()
+        for level in range(raw.columns.nlevels):
+            if ticker in set(raw.columns.get_level_values(level)):
+                return raw.xs(ticker, axis=1, level=level, drop_level=True).copy()
+        return pd.DataFrame()
+
+    @staticmethod
+    def _normalize_download_frame(frame: pd.DataFrame, data_type: str) -> pd.DataFrame:
+        if frame is None or frame.empty:
+            return pd.DataFrame()
+        normalized = frame.copy().reset_index()
+        normalized.columns = [
+            str(column).strip().lower().replace("datetime", "bar_time") for column in normalized.columns
+        ]
+        if data_type == "daily":
+            if "date" not in normalized and "bar_time" in normalized:
+                normalized = normalized.rename(columns={"bar_time": "date"})
+            normalized["date"] = pd.to_datetime(normalized["date"]).dt.date
+            columns = ["date", "open", "high", "low", "close", "volume"]
+        else:
+            if "bar_time" not in normalized and "date" in normalized:
+                normalized = normalized.rename(columns={"date": "bar_time"})
+            normalized["bar_time"] = pd.to_datetime(normalized["bar_time"], utc=True)
+            columns = ["bar_time", "open", "high", "low", "close", "volume"]
+        if not set(columns).issubset(normalized.columns):
+            return pd.DataFrame()
+        normalized["amount"] = None
+        return normalized[columns + ["amount"]]
+
+    @staticmethod
+    def _normalize_adjustments(frame: pd.DataFrame, target: set[date]):
+        from finance_analysis.integrations.market_data.history import AdjustmentData
+
+        if frame is None or frame.empty:
+            return AdjustmentData([], [])
+        normalized = frame.copy().reset_index()
+        normalized.columns = [str(column).strip().lower() for column in normalized.columns]
+        date_column = "date" if "date" in normalized.columns else normalized.columns[0]
+        normalized[date_column] = pd.to_datetime(normalized[date_column]).dt.date
+        actions: list[dict[str, Any]] = []
+        factors: list[dict[str, Any]] = []
+        for row in normalized.to_dict(orient="records"):
+            trade_date = row[date_column]
+            if trade_date not in target:
+                continue
+            close = pd.to_numeric(row.get("close"), errors="coerce")
+            adj_close = pd.to_numeric(row.get("adj close"), errors="coerce")
+            if pd.notna(close) and pd.notna(adj_close) and float(close) > 0 and float(adj_close) > 0:
+                factors.append(
+                    {
+                        "trade_date": trade_date,
+                        "qfq_factor": float(adj_close) / float(close),
+                        "hfq_factor": None,
+                        "hfq_cash": None,
+                        "adj_close": float(adj_close),
+                    }
+                )
+            dividend = pd.to_numeric(row.get("dividends", 0), errors="coerce")
+            if pd.notna(dividend) and float(dividend) != 0:
+                actions.append(
+                    {
+                        "action_date": trade_date,
+                        "action_type": "dividend",
+                        "cash_dividend": float(dividend),
+                        "split_ratio": None,
+                        "bonus_ratio": None,
+                        "rights_ratio": None,
+                        "rights_price": None,
+                        "currency": None,
+                        "raw_payload": {"dividend": float(dividend)},
+                    }
+                )
+            split = pd.to_numeric(row.get("stock splits", 0), errors="coerce")
+            if pd.notna(split) and float(split) != 0:
+                actions.append(
+                    {
+                        "action_date": trade_date,
+                        "action_type": "split",
+                        "cash_dividend": None,
+                        "split_ratio": float(split),
+                        "bonus_ratio": None,
+                        "rights_ratio": None,
+                        "rights_price": None,
+                        "currency": None,
+                        "raw_payload": {"split_ratio": float(split)},
+                    }
+                )
+        return AdjustmentData(actions, factors)
 
     def fetch_minute_bars(
         self,
@@ -154,21 +317,7 @@ class YfinanceFetcher(BaseFetcher):
             ) from exc
         if raw is None or raw.empty:
             return pd.DataFrame()
-        frame = raw.copy().reset_index()
-        frame.columns = [str(column).lower().replace("datetime", "bar_time") for column in frame.columns]
-        if data_type == "daily":
-            if "date" not in frame and "bar_time" in frame:
-                frame = frame.rename(columns={"bar_time": "date"})
-            frame["date"] = pd.to_datetime(frame["date"]).dt.date
-            columns = ["date", "open", "high", "low", "close", "volume"]
-        else:
-            if "bar_time" not in frame and "date" in frame:
-                frame = frame.rename(columns={"date": "bar_time"})
-            times = pd.to_datetime(frame["bar_time"], utc=True)
-            frame["bar_time"] = times
-            columns = ["bar_time", "open", "high", "low", "close", "volume"]
-        frame["amount"] = None  # never fabricate turnover as close * volume
-        return frame[columns + ["amount"]]
+        return self._normalize_download_frame(raw, data_type)
 
     def _convert_stock_code(self, stock_code: str) -> str:
         """
