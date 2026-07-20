@@ -118,6 +118,14 @@ def test_target_config_changes_horizon_benchmark_and_prices(tmp_path: Path) -> N
     assert first.iloc[0] != second.iloc[0]
 
 
+def test_target_config_uses_market_neutral_name_and_accepts_legacy_alias() -> None:
+    default = TargetConfig.parse({}, 5)
+    legacy = TargetConfig.parse({"benchmark": "sector_or_qqq"}, 5)
+
+    assert default.benchmark == "sector_or_market"
+    assert legacy.benchmark == "sector_or_qqq"
+
+
 def test_artifact_store_rejects_traversal_and_commits_atomically(tmp_path: Path) -> None:
     store = ArtifactStore(tmp_path)
     with pytest.raises(ValueError, match="traversal"):

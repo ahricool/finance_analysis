@@ -341,6 +341,38 @@ def test_training_and_dataset_export_reject_deprecated_universe() -> None:
     repository.update_model_run.assert_not_called()
 
 
+def test_training_rejects_missing_dataset_artifact_before_marking_training() -> None:
+    repository = MagicMock()
+    repository.get_model_run.return_value = SimpleNamespace(
+        id=5,
+        market="CN",
+        universe_id=9,
+        dataset_snapshot_id=4,
+    )
+    repository.get_universe.return_value = SimpleNamespace(
+        id=9,
+        key="cn_csi300_watchlist",
+        market="CN",
+        enabled=True,
+    )
+    repository.get_dataset.return_value = SimpleNamespace(
+        id=4,
+        market="CN",
+        universe_id=9,
+        status="ready",
+        artifact_uri="quant://datasets/missing",
+    )
+    artifact_store = MagicMock()
+    artifact_store.resolve_uri.side_effect = ModelArtifactMissingError(
+        "Artifact does not exist: quant://datasets/missing"
+    )
+
+    with pytest.raises(ModelArtifactMissingError, match="quant://datasets/missing"):
+        QuantTrainingPipeline(repository, artifact_store=artifact_store).prepare(5)
+
+    repository.update_model_run.assert_not_called()
+
+
 def test_portfolio_metadata_uses_twenty_day_turnover_and_realized_risk() -> None:
     dates = pd.bdate_range(end=TRADE_DATE, periods=61)
     bars = pd.DataFrame(
