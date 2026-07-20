@@ -2,6 +2,7 @@ import apiClient from './index';
 import { toCamelCase } from './utils';
 import type {
   ScheduledRunAccepted,
+  ScheduledSyncMode,
   ScheduledTasksResponse,
   TaskRunDetail,
   TaskRunsResponse,
@@ -43,10 +44,10 @@ export const tasksApi = {
     return toCamelCase<ScheduledTasksResponse>(data);
   },
 
-  async runScheduledTask(jobId: string): Promise<ScheduledRunAccepted> {
+  async runScheduledTask(jobId: string, syncMode?: ScheduledSyncMode): Promise<ScheduledRunAccepted> {
     const { data } = await apiClient.post<Record<string, unknown>>(
       `/api/v1/tasks/scheduled/${encodeURIComponent(jobId)}/run`,
-      {},
+      syncMode ? { sync_mode: syncMode } : {},
     );
     return toCamelCase<ScheduledRunAccepted>(data);
   },

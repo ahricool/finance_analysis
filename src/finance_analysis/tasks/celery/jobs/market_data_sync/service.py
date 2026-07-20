@@ -14,7 +14,7 @@ from finance_analysis.integrations.market_data.config import DataProviderConfig,
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, get_trading_days_between
 from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 
-from .models import AdjustmentResult, DailyResult, SymbolResult
+from .models import AdjustmentResult, DailyResult, SymbolResult, normalize_sync_mode
 from .provider_router import MarketDataProviderRouter
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ class MarketDataSyncService:
         router: MarketDataProviderRouter | None = None,
         config: DataProviderConfig | None = None,
         now: datetime | None = None,
+        sync_mode: str = "incremental",
     ):
         self.market = str(market).strip().upper()
         if self.market not in {"CN", "US"}:
@@ -49,6 +50,7 @@ class MarketDataSyncService:
         self.scope_resolver = scope_resolver or MarketDataScopeResolver(watchlist_repository)
         self.router = router or MarketDataProviderRouter(self.market, config=self.config)
         self.now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        self.sync_mode = normalize_sync_mode(sync_mode)
         self.unsupported_symbols: list[dict[str, str]] = []
 
     def run(self) -> dict[str, Any]:
@@ -57,23 +59,23 @@ class MarketDataSyncService:
             if self.unsupported_symbols:
                 return self._summarize([], 0)
             raise MarketDataSyncError(f"No enabled daily symbols in the {self.market} synchronization scope")
-        daily_days_by_code = {
-            symbol.code: self._refresh_days(
+        daily_days_by_code = {}
+        for symbol in symbols:
+            has_history = self.stock_repository.has_daily_data(symbol.id) if self.sync_mode == "incremental" else False
+            natural_days = (
                 self.config.market_data_refresh_daily_days
-                if self.stock_repository.has_daily_data(symbol.id)
+                if self.sync_mode == "incremental" and has_history
                 else self.config.market_data_initial_daily_days
             )
-            for symbol in symbols
-        }
+            daily_days_by_code[symbol.code] = self._refresh_days(natural_days)
         adjustment_days = self._refresh_days(self.config.market_data_retention_daily_days)
-        retention_cutoff = adjustment_days[-1] - timedelta(
-            days=self.config.market_data_retention_daily_days - 1
-        )
+        retention_cutoff = adjustment_days[-1] - timedelta(days=self.config.market_data_retention_daily_days - 1)
         self.router.prepare_batches(symbols, daily_days_by_code, adjustment_days)
         logger.info(
-            "market=%s job=market_data_sync symbol_count=%s initial_days=%s refresh_days=%s "
+            "market=%s job=market_data_sync sync_mode=%s symbol_count=%s initial_days=%s refresh_days=%s "
             "retention_days=%s adjustment_range=%s..%s",
             self.market,
+            self.sync_mode,
             len(symbols),
             self.config.market_data_initial_daily_days,
             self.config.market_data_refresh_daily_days,
@@ -206,15 +208,10 @@ class MarketDataSyncService:
                 fallback_reasons=routed.fallback_reasons,
             )
         start_date, end_date = min(requested_days), max(requested_days)
-        factors_by_date = {
-            row["trade_date"]: row for row in routed.data.adjustment_factors
-        }
+        factors_by_date = {row["trade_date"]: row for row in routed.data.adjustment_factors}
         factor_rows = list(factors_by_date.values())
         action_rows = list(
-            {
-                (row["action_date"], row["action_type"]): row
-                for row in routed.data.corporate_actions
-            }.values()
+            {(row["action_date"], row["action_type"]): row for row in routed.data.corporate_actions}.values()
         )
         action_changed = self.adjustment_repository.has_corporate_action_changes(
             symbol.id,
@@ -242,10 +239,7 @@ class MarketDataSyncService:
             )
 
         factor_dates = {row["trade_date"] for row in factor_rows}
-        complete_factor_window = (
-            routed.data.adjustment_factors_complete
-            and set(requested_days).issubset(factor_dates)
-        )
+        complete_factor_window = routed.data.adjustment_factors_complete and set(requested_days).issubset(factor_dates)
         if action_changed and complete_factor_window:
             factor_stats = self.adjustment_repository.replace_adjustment_factors(
                 symbol.id,
@@ -256,9 +250,9 @@ class MarketDataSyncService:
             )
         else:
             refresh_cutoff = end_date - timedelta(days=self.config.market_data_refresh_daily_days - 1)
-            rows_to_upsert = factor_rows if action_changed else [
-                row for row in factor_rows if row["trade_date"] >= refresh_cutoff
-            ]
+            rows_to_upsert = (
+                factor_rows if action_changed else [row for row in factor_rows if row["trade_date"] >= refresh_cutoff]
+            )
             factor_stats = self.adjustment_repository.upsert_adjustment_factors(
                 symbol.id,
                 start_date,
@@ -298,13 +292,10 @@ class MarketDataSyncService:
             for result in results
             if statuses[result.code] != "success"
         ]
-        provider_counts = Counter(
-            provider
-            for result in results
-            for provider in result.daily.providers
-        )
+        provider_counts = Counter(provider for result in results for provider in result.daily.providers)
         return {
             "sync_status": "partial" if failures else "success",
+            "sync_mode": self.sync_mode,
             "market": self.market,
             "symbol_count": symbol_count,
             "success_symbols": sum(status == "success" for status in statuses.values()),
@@ -313,9 +304,7 @@ class MarketDataSyncService:
             "inserted_rows": sum(result.daily.inserted_rows for result in results),
             "updated_rows": sum(result.daily.updated_rows for result in results),
             "provider_counts": dict(provider_counts),
-            "missing_amount_symbols": sorted(
-                result.code for result in results if result.daily.missing_amount
-            ),
+            "missing_amount_symbols": sorted(result.code for result in results if result.daily.missing_amount),
             "fallback_reasons": fallback_reasons[:MAX_RESULT_ITEMS],
             "fallback_reasons_truncated": len(fallback_reasons) > MAX_RESULT_ITEMS,
             "provider_vwap_symbols": sorted(
@@ -332,9 +321,7 @@ class MarketDataSyncService:
             ),
             "unsupported_symbol_count": len(self.unsupported_symbols),
             "unsupported_symbols": self.unsupported_symbols,
-            "adjustment_changed_symbols": sorted(
-                result.code for result in results if result.adjustment.changed
-            ),
+            "adjustment_changed_symbols": sorted(result.code for result in results if result.adjustment.changed),
             "corporate_action_rows": sum(result.adjustment.corporate_action_rows for result in results),
             "adjustment_factor_rows": sum(result.adjustment.adjustment_factor_rows for result in results),
             "deleted_daily_rows": sum(result.daily.deleted_rows for result in results),

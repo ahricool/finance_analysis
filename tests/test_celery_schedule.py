@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from finance_analysis.tasks.celery.app import celery_app
-from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab
 from finance_analysis.tasks.celery.schedule import (
     ALL_QUEUES,
     build_beat_schedule,
@@ -16,6 +15,7 @@ from finance_analysis.tasks.celery.schedule import (
     get_scheduled_task_definition,
     get_scheduled_task_definitions,
 )
+from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab
 
 EXPECTED_JOBS = {
     "analysis_daily": ("scheduled_daily", "Asia/Shanghai"),
@@ -203,6 +203,10 @@ def test_market_data_sync_schedules_and_queue():
     us = get_scheduled_task_definition("market_data_sync_us")
     assert cn_hk.queue == us.queue == "ingestion"
     assert cn_hk.allow_manual_run is us.allow_manual_run is True
+    assert cn_hk.sync_modes == us.sync_modes == ("incremental", "full")
+    beat = build_beat_schedule()
+    assert beat["market_data_sync_cn_hk"]["kwargs"]["sync_mode"] == "incremental"
+    assert beat["market_data_sync_us"]["kwargs"]["sync_mode"] == "incremental"
     assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in cn_hk.schedules} == {
         ("18", "0", "mon-fri", "Asia/Shanghai")
     }

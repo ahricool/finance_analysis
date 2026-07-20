@@ -5,16 +5,17 @@ from unittest.mock import patch
 
 import pytest
 
+from finance_analysis.core.time import utc_now
+from finance_analysis.tasks.celery.app import celery_app
+from finance_analysis.tasks.celery.schedule import get_scheduled_task_definition
 from finance_analysis.tasks.service import (
     DuplicateScheduledTaskError,
+    ManualRunParameterError,
     ScheduledTaskService,
     SchedulerUnavailableError,
     TaskQueryService,
     _default_task_submitter,
 )
-from finance_analysis.tasks.celery.app import celery_app
-from finance_analysis.tasks.celery.schedule import get_scheduled_task_definition
-from finance_analysis.core.time import utc_now
 
 
 class _RecordingSubmitter:
@@ -24,9 +25,14 @@ class _RecordingSubmitter:
         self.calls = []
         self.fail = fail
 
-    def __call__(self, definition, *, task_id, triggered_by_uid):
+    def __call__(self, definition, *, task_id, triggered_by_uid, task_kwargs=None):
         self.calls.append(
-            {"definition": definition, "task_id": task_id, "triggered_by_uid": triggered_by_uid}
+            {
+                "definition": definition,
+                "task_id": task_id,
+                "triggered_by_uid": triggered_by_uid,
+                "task_kwargs": task_kwargs or {},
+            }
         )
         if self.fail:
             raise RuntimeError("broker unavailable")
@@ -79,7 +85,7 @@ class _FakeTaskRepo:
 
     def list_tasks(self, *, limit=20, offset=0, statuses=None, uid=None, **filters):
         rows = self._filtered(statuses=statuses, uid=uid, **filters)
-        return rows[offset: offset + limit]
+        return rows[offset : offset + limit]
 
     def count_tasks(self, *, statuses=None, uid=None, **filters):
         return len(self._filtered(statuses=statuses, uid=uid, **filters))
@@ -181,6 +187,34 @@ def test_manual_run_creates_pending_record_and_submits_via_celery():
     assert submitter.calls[0]["task_id"] == result["task_id"]
     assert submitter.calls[0]["triggered_by_uid"] == 7
     assert submitter.calls[0]["definition"].job_id == "analysis_us_premarket"
+    assert submitter.calls[0]["task_kwargs"] == {}
+
+
+def test_manual_market_data_run_passes_full_sync_mode_to_celery_and_payload():
+    repo = _FakeTaskRepo()
+    submitter = _RecordingSubmitter()
+    service = ScheduledTaskService(repository=repo, task_submitter=submitter)
+
+    result = service.run_scheduled_task_now(
+        job_id="market_data_sync_us",
+        triggered_by_uid=7,
+        sync_mode="full",
+    )
+
+    assert result["sync_mode"] == "full"
+    assert submitter.calls[0]["task_kwargs"] == {"sync_mode": "full"}
+    assert '"sync_mode": "full"' in repo.records[0].payload
+
+
+def test_manual_non_sync_task_rejects_sync_mode():
+    service = ScheduledTaskService(repository=_FakeTaskRepo(), task_submitter=_RecordingSubmitter())
+
+    with pytest.raises(ManualRunParameterError, match="不支持同步模式参数"):
+        service.run_scheduled_task_now(
+            job_id="analysis_us_premarket",
+            triggered_by_uid=7,
+            sync_mode="full",
+        )
 
 
 def test_manual_run_returns_duplicate_when_job_active():
@@ -229,11 +263,13 @@ def test_default_manual_submitter_uses_registered_task_for_definition():
 
 
 def test_task_run_list_scopes_regular_user_and_keeps_admin_unscoped():
-    repo = _FakeTaskRepo([
-        _record("user-task", uid=10),
-        _record("other-task", uid=11),
-        _record("system-task", uid=None, scheduler_job_id="analysis_daily"),
-    ])
+    repo = _FakeTaskRepo(
+        [
+            _record("user-task", uid=10),
+            _record("other-task", uid=11),
+            _record("system-task", uid=None, scheduler_job_id="analysis_daily"),
+        ]
+    )
     service = TaskQueryService(repository=repo, db=SimpleNamespace())
     service._load_users = lambda uids: {}
 

@@ -7,6 +7,16 @@ from typing import Any, Literal
 
 from finance_analysis.integrations.market_data.history import AdjustmentData
 
+SyncMode = Literal["incremental", "full"]
+SYNC_MODES: tuple[SyncMode, ...] = ("incremental", "full")
+
+
+def normalize_sync_mode(value: str | None) -> SyncMode:
+    normalized = str(value or "incremental").strip().lower()
+    if normalized not in SYNC_MODES:
+        raise ValueError(f"Unsupported sync_mode={value!r}; expected one of {', '.join(SYNC_MODES)}")
+    return normalized  # type: ignore[return-value]
+
 
 @dataclass
 class ProviderBars:
@@ -74,5 +84,8 @@ __all__ = [
     "ProviderBars",
     "RoutedAdjustment",
     "RoutedBars",
+    "SYNC_MODES",
+    "SyncMode",
     "SymbolResult",
+    "normalize_sync_mode",
 ]

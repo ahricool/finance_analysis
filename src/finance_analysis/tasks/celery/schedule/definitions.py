@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 import os
-
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from celery.schedules import crontab
 
@@ -15,29 +14,29 @@ from .constants import (
     EXPIRES_CALENDAR,
     EXPIRES_DAILY,
     EXPIRES_INTRADAY,
+    EXPIRES_MARKET_DATA_SYNC,
     EXPIRES_NEWS,
     EXPIRES_POSTMARKET_REVIEW,
     EXPIRES_PRE_CLOSE_REVIEW,
     EXPIRES_PREMARKET,
-    EXPIRES_SIGNAL_EVALUATION,
-    EXPIRES_MARKET_DATA_SYNC,
     EXPIRES_QUANT,
+    EXPIRES_SIGNAL_EVALUATION,
     JOB_A_SHARE_INTRADAY_ANALYSIS,
     JOB_A_SHARE_PRE_CLOSE_REVIEW,
     JOB_DAILY_ANALYSIS,
     JOB_MARKET_CALENDAR,
     JOB_MARKET_DATA_SYNC_CN_HK,
     JOB_MARKET_DATA_SYNC_US,
+    JOB_QUANT_DAILY_PIPELINE_CN,
+    JOB_QUANT_DAILY_PIPELINE_US,
+    JOB_QUANT_MODEL_TRAINING_CN,
+    JOB_QUANT_MODEL_TRAINING_US,
     JOB_SIGNAL_EVALUATION_CN,
     JOB_SIGNAL_EVALUATION_US,
     JOB_US_INTRADAY_ANALYSIS,
     JOB_US_POSTMARKET_REVIEW,
     JOB_US_PREMARKET_ANALYSIS,
     JOB_US_PREMARKET_NEWS,
-    JOB_QUANT_DAILY_PIPELINE_US,
-    JOB_QUANT_DAILY_PIPELINE_CN,
-    JOB_QUANT_MODEL_TRAINING_US,
-    JOB_QUANT_MODEL_TRAINING_CN,
     QUEUE_ALERTS,
     QUEUE_ANALYSIS,
     QUEUE_INGESTION,
@@ -82,6 +81,7 @@ class ScheduledTaskDefinition:
     expires: int
     enabled: bool = True
     allow_manual_run: bool = True
+    sync_modes: tuple[Literal["incremental", "full"], ...] = ()
 
     def crontabs(self) -> list[crontab]:
         return [item.to_crontab() for item in self.schedules]
@@ -178,6 +178,7 @@ SCHEDULED_TASK_DEFINITIONS = (
         queue=QUEUE_INGESTION,
         expires=EXPIRES_MARKET_DATA_SYNC,
         allow_manual_run=True,
+        sync_modes=("incremental", "full"),
     ),
     ScheduledTaskDefinition(
         job_id=JOB_MARKET_DATA_SYNC_US,
@@ -191,6 +192,7 @@ SCHEDULED_TASK_DEFINITIONS = (
         queue=QUEUE_INGESTION,
         expires=EXPIRES_MARKET_DATA_SYNC,
         allow_manual_run=True,
+        sync_modes=("incremental", "full"),
     ),
     ScheduledTaskDefinition(
         job_id=JOB_QUANT_DAILY_PIPELINE_US,
