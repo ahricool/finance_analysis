@@ -15,7 +15,7 @@ from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.events.scoring import score_events
 from finance_analysis.quant.exceptions import BenchmarkDataMissingError, FeatureDataMissingError
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
-from finance_analysis.quant.markets import get_quant_market_config
+from finance_analysis.quant.markets import get_quant_market_config, validate_universe_for_market
 from finance_analysis.quant.regime.service import MarketRegimeService
 from finance_analysis.quant.sectors.service import SectorRegimeService, build_synthetic_sector_benchmark
 
@@ -27,9 +27,14 @@ class DailyResearchService:
 
     def run(self, market: str, universe_key: str, trade_date: date) -> dict:
         market_config = get_quant_market_config(market)
+        universe_key = validate_universe_for_market(market_config.market, universe_key)
         universe = self.repository.get_universe(universe_key)
-        if not universe or universe.market != market_config.market:
-            raise ValueError(f"Unknown {market_config.market} universe {universe_key}")
+        if (
+            not universe
+            or universe.market != market_config.market
+            or not getattr(universe, "enabled", True)
+        ):
+            raise ValueError(f"Supported {market_config.market} universe {universe_key} is not available")
         members = self.repository.active_members(universe.id, trade_date)
         if not members:
             raise FeatureDataMissingError(f"No active universe members for {trade_date}")

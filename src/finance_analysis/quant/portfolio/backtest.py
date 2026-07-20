@@ -34,4 +34,4 @@ def run_topk_backtest(predictions: pd.DataFrame, bars: pd.DataFrame, benchmark: 
     returns=pd.Series(dict(daily),dtype=float).sort_index(); turnover_series=pd.Series(dict(turnovers),dtype=float).sort_index()
     bench=benchmark.sort_values("date").set_index("date"); benchmark_returns=bench.close.pct_change().reindex(returns.index)
     return {"metrics":portfolio_metrics(returns,turnover_series),"daily_returns":returns.to_dict(),"benchmark_returns":benchmark_returns.to_dict(),
-            "excess_return":float((returns-benchmark_returns).dropna().sum()),"warnings":["fixed observation universe; survivorship bias is present"]}
+            "excess_return":float((returns-benchmark_returns).dropna().sum()),"warnings":["results depend on effective-dated universe membership coverage"]}

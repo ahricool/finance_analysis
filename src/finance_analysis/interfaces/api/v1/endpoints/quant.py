@@ -21,7 +21,6 @@ from finance_analysis.interfaces.api.v1.schemas.quant import (
 )
 from finance_analysis.quant.capabilities import get_quant_capabilities
 from finance_analysis.quant.events.import_service import EventImportService
-from finance_analysis.quant.markets import default_universe_for_market
 from finance_analysis.tasks.celery.schedule import QUEUE_ANALYSIS
 
 router = APIRouter()
@@ -33,11 +32,10 @@ def encoded(value):
 
 
 def _universe(repo: QuantRepository, market: str, key: str | None):
-    resolved_key = key or default_universe_for_market(market)
-    definition = repo.get_universe(resolved_key)
-    if not definition or definition.market != market:
-        raise HTTPException(400, f"Unknown {market} universe {resolved_key}")
-    return definition
+    try:
+        return repo.supported_universe(market, key)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
 @router.get("/capabilities")
@@ -48,8 +46,11 @@ async def capabilities(market: QuantMarket = "US", _: User = Depends(require_cur
 @router.get("/universes")
 async def universes(market: QuantMarket = "US", _: User = Depends(require_current_user)):
     repo = QuantRepository()
+    supported = _universe(repo, market, None)
     rows = []
     for item in repo.list_universes(market):
+        if item.id != supported.id:
+            continue
         members = repo.active_members(item.id, date.today())
         rows.append(
             {
@@ -79,18 +80,24 @@ async def model_definitions(market: QuantMarket = "US", _: User = Depends(requir
 
 @router.get("/models")
 async def models(market: QuantMarket = "US", _: User = Depends(require_current_user)):
-    return encoded(QuantRepository().list_model_runs(market=market))
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    return encoded(repo.list_model_runs(market=market, universe_id=universe.id))
 
 
 @router.get("/datasets")
 async def datasets(market: QuantMarket = "US", _: User = Depends(require_current_user)):
-    return encoded(QuantRepository().list_datasets(market=market))
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    return encoded(repo.list_datasets(market=market, universe_id=universe.id))
 
 
 @router.get("/datasets/{snapshot_id}")
 async def dataset(snapshot_id: int, market: QuantMarket = "US", _: User = Depends(require_current_user)):
-    row = QuantRepository().get_dataset(snapshot_id)
-    if not row or row.market != market:
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    row = repo.get_dataset(snapshot_id)
+    if not row or row.market != market or row.universe_id != universe.id:
         raise HTTPException(404, "Dataset snapshot not found")
     return encoded(row)
 
@@ -100,7 +107,7 @@ async def build_dataset(body: DatasetBuildRequest, user: User = Depends(require_
     from finance_analysis.tasks.celery.jobs.quant_dataset.tasks import build_quant_dataset
 
     market = body.market.upper()
-    universe = body.universe or default_universe_for_market(market)
+    universe = _universe(QuantRepository(), market, body.universe).key
     result = build_quant_dataset.apply_async(
         kwargs={
             "market": market,
@@ -212,14 +219,14 @@ async def import_events(body: EventImportRequest, _: User = Depends(require_admi
 async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(require_admin)):
     repo = QuantRepository()
     market = body.market.upper()
+    universe = _universe(repo, market, body.universe)
     definition = repo.get_model_definition(body.model_key)
-    universe = repo.get_universe(body.universe or default_universe_for_market(market))
     dataset = repo.get_dataset(body.dataset_snapshot_id)
-    if not definition or not universe or not dataset:
-        raise HTTPException(400, "Unknown model, universe, or dataset")
+    if not definition or not dataset:
+        raise HTTPException(400, "Unknown model or dataset")
     if market not in (definition.supported_markets or []):
         raise HTTPException(400, f"Model {body.model_key} does not support {market}")
-    if universe.market != market or dataset.market != market or dataset.universe_id != universe.id:
+    if dataset.market != market or dataset.universe_id != universe.id:
         raise HTTPException(409, "Model run, universe, and dataset market must match")
     if dataset.status != "ready":
         raise HTTPException(409, "Dataset is not ready")
@@ -246,13 +253,17 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
 
 @router.get("/model-runs")
 async def model_runs(market: QuantMarket = "US", _: User = Depends(require_current_user)):
-    return encoded(QuantRepository().list_model_runs(market=market))
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    return encoded(repo.list_model_runs(market=market, universe_id=universe.id))
 
 
 @router.get("/model-runs/{run_id}")
 async def model_run(run_id: int, market: QuantMarket = "US", _: User = Depends(require_current_user)):
-    row = QuantRepository().get_model_run(run_id)
-    if not row or row.market != market:
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    row = repo.get_model_run(run_id)
+    if not row or row.market != market or row.universe_id != universe.id:
         raise HTTPException(404, "Model run not found")
     return encoded(row)
 
@@ -268,6 +279,15 @@ async def publish_model(
     run = repo.get_model_run(run_id)
     if not run or run.market != market:
         raise HTTPException(404, "Model run not found")
+    try:
+        universe = repo.get_universe(run.universe_id)
+        if not universe:
+            raise ValueError(f"Model run {run_id} has no universe")
+        _universe(repo, market, universe.key)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     try:
         return encoded(repo.publish_model(run_id, user.id, body.reason))
     except ValueError as exc:
@@ -301,7 +321,9 @@ async def signals(
 
 @router.get("/signals/{code}")
 async def signal(code: str, market: QuantMarket = "US", _: User = Depends(require_current_user)):
-    rows = QuantRepository().latest_signals(market, code=code)
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    rows = repo.latest_signals(market, universe.id, code=code)
     if not rows:
         raise HTTPException(404, f"{market} signal not found")
     return encoded(rows[0])
@@ -309,7 +331,9 @@ async def signal(code: str, market: QuantMarket = "US", _: User = Depends(requir
 
 @router.get("/signals/{code}/history")
 async def signal_history(code: str, market: QuantMarket = "US", _: User = Depends(require_current_user)):
-    return encoded(QuantRepository().signal_history(market, code))
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    return encoded(repo.signal_history(market, code, universe.id))
 
 
 @router.get("/portfolios/latest")
@@ -323,7 +347,7 @@ async def latest_portfolio(
     rows = repo.latest_portfolios(market, definition.id, 1)
     if not rows:
         raise HTTPException(404, f"{market} portfolio recommendation not found")
-    result = repo.portfolio(rows[0].id, market)
+    result = repo.portfolio(rows[0].id, market, definition.id)
     if not result:
         raise HTTPException(404, "Portfolio recommendation not found")
     row, items = result
@@ -332,7 +356,9 @@ async def latest_portfolio(
 
 @router.get("/portfolios")
 async def portfolios(market: QuantMarket = "US", _: User = Depends(require_current_user)):
-    return encoded(QuantRepository().latest_portfolios(market))
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    return encoded(repo.latest_portfolios(market, universe.id))
 
 
 @router.get("/portfolios/{recommendation_id}")
@@ -341,7 +367,9 @@ async def portfolio(
     market: QuantMarket = "US",
     _: User = Depends(require_current_user),
 ):
-    result = QuantRepository().portfolio(recommendation_id, market)
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    result = repo.portfolio(recommendation_id, market, universe.id)
     if not result:
         raise HTTPException(404, "Portfolio recommendation not found")
     row, items = result
@@ -354,7 +382,9 @@ async def confirmations(
     trade_date: date | None = None,
     _: User = Depends(require_current_user),
 ):
-    return encoded(QuantRepository().confirmations(market, trade_date))
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    return encoded(repo.confirmations(market, trade_date, universe_id=universe.id))
 
 
 @router.get("/intraday-confirmations/{code}")
@@ -363,7 +393,9 @@ async def confirmation(
     market: QuantMarket = "US",
     _: User = Depends(require_current_user),
 ):
-    return encoded(QuantRepository().confirmations(market, code=code))
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    return encoded(repo.confirmations(market, code=code, universe_id=universe.id))
 
 
 @router.post("/intraday-confirmations/run")

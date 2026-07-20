@@ -27,12 +27,14 @@ class IntradayConfirmationRunner:
 
     def run(self, trade_date: date, evaluated_at: datetime | None = None, market: str = "US") -> dict:
         config = get_quant_market_config(market)
+        universe = self.repository.supported_universe(config.market)
         evaluated_at = evaluated_at or datetime.now(timezone.utc)
         with self.repository.db.get_session() as session:
             recommendation = session.execute(
                 select(PortfolioRecommendation)
                 .where(
                     PortfolioRecommendation.market == config.market,
+                    PortfolioRecommendation.universe_id == universe.id,
                     PortfolioRecommendation.trade_date < trade_date,
                 )
                 .order_by(PortfolioRecommendation.trade_date.desc())

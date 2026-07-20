@@ -80,7 +80,7 @@ def train_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
                 "model_key": payload.model_key,
                 "metrics": training["metrics"],
                 "feature_importance": training["feature_importance"],
-                "warnings": manifest.get("warnings", []) + ["fixed observation universe; survivorship bias is present"],
+                "warnings": manifest.get("warnings", []),
             }
 
         result = store.commit_model(artifact_uri, request_digest, write)

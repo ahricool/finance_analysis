@@ -10,14 +10,22 @@ def _dispatch_training(model_run_id: int | None, expected_market: str) -> dict:
             "create it through the admin API"
         )
     from finance_analysis.database.repositories.quant import QuantRepository
+    from finance_analysis.quant.markets import validate_universe_for_market
 
-    run = QuantRepository().get_model_run(model_run_id)
+    repository = QuantRepository()
+    run = repository.get_model_run(model_run_id)
     if run is None:
         raise ValueError(f"Model run {model_run_id} not found")
     if run.market != expected_market:
         raise ValueError(
             f"Model run {model_run_id} belongs to market={run.market}, expected market={expected_market}"
         )
+    universe = repository.get_universe(run.universe_id)
+    if not universe or universe.market != expected_market:
+        raise ValueError(f"Model run {model_run_id} is bound to an unavailable universe")
+    validate_universe_for_market(expected_market, universe.key)
+    if not universe.enabled:
+        raise ValueError(f"Model run {model_run_id} is bound to an unavailable universe")
     result = celery_app.send_task(
         "quant.model.train",
         kwargs={"model_run_id": model_run_id},

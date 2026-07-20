@@ -48,12 +48,14 @@ describe('quant market context', () => {
     const controls = wrapper.get('[data-testid="quant-market-switcher"]');
     expect(controls.attributes('role')).toBe('radiogroup');
     expect(controls.get('button[aria-checked="true"]').text()).toBe('美股');
+    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('标普500 + 美股自选');
 
     await controls.findAll('button')[1].trigger('click');
     await flushPromises();
 
     expect(router.currentRoute.value.query.market).toBe('CN');
     expect(controls.get('button[aria-checked="true"]').text()).toBe('A股');
+    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('沪深300 + A股自选');
     expect(controls.classes()).toContain('min-w-[132px]');
     expect(quantApi.signals).toHaveBeenLastCalledWith('CN');
   });

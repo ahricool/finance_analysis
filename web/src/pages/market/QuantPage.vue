@@ -1,9 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 
 const route = useRoute();
 const { market, setMarket, marketQuery } = useQuantMarket();
+const scopeDescription = computed(() => (
+  market.value === 'US' ? '当前范围：标普500 + 美股自选' : '当前范围：沪深300 + A股自选'
+));
 const navItems = [
   { label: '总览', to: '/market/quant' },
   { label: '模型选股', to: '/market/quant/signals' },
@@ -54,6 +58,9 @@ function isActive(to: string): boolean {
         </button>
       </div>
     </div>
+    <p class="px-1 text-xs text-secondary-text" data-testid="quant-scope-description">
+      {{ scopeDescription }}
+    </p>
     <RouterView />
   </div>
 </template>

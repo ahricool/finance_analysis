@@ -37,9 +37,9 @@ export const quantApi = {
     const { data } = await apiClient.get('/api/v1/quant/sectors/ranking', { params: withMarket(market) });
     return toCamelCase(data);
   },
-  async signals(market: QuantMarket = 'US', universe?: string): Promise<SignalRanking> {
+  async signals(market: QuantMarket = 'US'): Promise<SignalRanking> {
     const { data } = await apiClient.get('/api/v1/quant/signals/ranking', {
-      params: withMarket(market, universe ? { universe } : {}),
+      params: withMarket(market),
     });
     return toCamelCase(data);
   },

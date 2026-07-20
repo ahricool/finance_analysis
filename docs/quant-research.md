@@ -49,12 +49,24 @@ and PostgreSQL persistence. Main workers never wait synchronously for Qlib.
 
 ## Business workflow
 
-1. Ensure candidate and benchmark symbols (`QQQ.US`, `SPY.US`, `SOXX.US`) have
-   daily bars in PostgreSQL.
+1. Ensure the market scope and benchmark dependencies have daily bars in
+   PostgreSQL. US uses S&P 500 plus the US watchlist; CN uses CSI 300 plus the
+   A-share watchlist. Benchmark dependencies are synchronized separately and
+   never enter stock ranking.
 2. Build a dataset from the Quant UI/API. Failed validation prevents training.
 3. Create a model run. Training is asynchronous and becomes `candidate` only.
 4. An administrator reviews metrics and publishes the candidate manually.
-5. The daily pipeline runs at 19:00 America/New_York, after the 18:00 data sync.
+5. The US daily pipeline runs at 19:00 America/New_York and the CN daily
+   pipeline runs at 19:00 Asia/Shanghai, each one hour after its market data
+   synchronization task.
+
+Each market has exactly one supported quant universe. Clients select only the
+market: `US` resolves to `us_sp500_watchlist` and `CN` resolves to
+`cn_csi300_watchlist`. Membership is refreshed idempotently from the same
+`MarketDataScopeResolver` used by daily market-data synchronization. Removed
+members retain effective-dated history. Disabled/deprecated universes remain
+only for referential integrity and cannot create datasets, model runs,
+predictions, signals, or portfolios.
 
 Exports contain `calendars/day.txt`, `instruments/all.txt`, Qlib float32 binary
 feature files, `source/daily.csv`, `manifest.json`, and `validation.json`.
@@ -63,9 +75,9 @@ valid, common legacy unit factors are checked against the daily price range,
 and missing turnover uses an explicit OHLC typical-price proxy only when volume
 is positive. Zero-volume rows remain missing rather than being zero-filled.
 Features and labels use one price mode per snapshot. Currently only raw prices
-exist, so every run carries the corporate-action warning. The initial universe
-is explicitly a fixed observation universe and therefore carries a survivorship
-bias warning.
+exist, so every run carries the corporate-action warning. Dataset manifests
+record the effective dynamic universe, synchronized benchmark dependencies,
+and validation warnings for the requested market.
 
 Model runs use expanding time-ordered walk-forward folds. The prediction
 horizon is purged before validation/test data and the configured embargo is

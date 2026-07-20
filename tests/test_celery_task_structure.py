@@ -117,6 +117,24 @@ def test_cn_scheduled_training_rejects_a_us_model_run(monkeypatch):
         _dispatch_training(42, "CN")
 
 
+def test_scheduled_training_rejects_deprecated_universe(monkeypatch):
+    repository = MagicMock()
+    repository.get_model_run.return_value = SimpleNamespace(
+        market="US", universe_id=9
+    )
+    repository.get_universe.return_value = SimpleNamespace(
+        key="us_ai_semiconductor", market="US", enabled=False
+    )
+    monkeypatch.setattr(
+        "finance_analysis.database.repositories.quant.QuantRepository",
+        lambda: repository,
+    )
+    from finance_analysis.tasks.celery.jobs.quant_scheduled_training.tasks import _dispatch_training
+
+    with pytest.raises(ValueError, match=r"deprecated.*us_sp500_watchlist"):
+        _dispatch_training(42, "US")
+
+
 def test_removed_legacy_modules_and_batch_business_references_are_absent():
     project_root = Path(__file__).resolve().parents[1]
     source_root = project_root / "src" / "finance_analysis"

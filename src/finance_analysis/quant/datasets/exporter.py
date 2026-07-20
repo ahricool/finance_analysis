@@ -21,7 +21,7 @@ from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.datasets.validator import validate_daily_bars
 from finance_analysis.quant.exceptions import BenchmarkDataMissingError, QuantDatasetValidationError
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
-from finance_analysis.quant.markets import get_quant_market_config
+from finance_analysis.quant.markets import get_quant_market_config, validate_universe_for_market
 from finance_analysis.quant.sectors.service import build_synthetic_sector_benchmark
 
 logger = logging.getLogger(__name__)
@@ -56,15 +56,20 @@ class QlibDatasetExporter:
             raise ValueError("First release supports daily Qlib datasets only")
         if price_mode != "raw":
             raise ValueError("Adjusted prices are unavailable; use price_mode=raw")
+        market_config = get_quant_market_config(market)
+        universe = validate_universe_for_market(market_config.market, universe)
         definition = self.repository.get_universe(universe)
-        if not definition or definition.market != market.upper():
-            raise ValueError(f"Unknown universe: {universe}")
+        if (
+            not definition
+            or definition.market != market_config.market
+            or not getattr(definition, "enabled", True)
+        ):
+            raise ValueError(f"Supported {market_config.market} universe {universe} is not available")
         members = self.repository.active_members(definition.id, date_to)
         active_codes = {symbol.code for _, symbol in members}
         candidate_codes = set(candidate_codes or active_codes)
         if not candidate_codes.issubset(active_codes):
             raise ValueError("Candidate codes must be active members of the selected universe")
-        market_config = get_quant_market_config(market)
         benchmark_codes = set(market_config.benchmark_dependencies)
         benchmark_codes.update(
             member.sector_benchmark_code

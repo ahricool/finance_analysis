@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import date, datetime, time, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -13,10 +14,16 @@ from sqlalchemy import delete, func, select
 from finance_analysis.database.models.quant import QuantUniverse, QuantUniverseMember
 from finance_analysis.database.models.stock import MarketDataSymbol
 from finance_analysis.database.repositories.quant import QuantRepository
+from finance_analysis.database.seed import seed_quant_reference_data
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.quant.exceptions import ModelNotPublishedError
 from finance_analysis.quant.events.import_service import calculate_available_at
-from finance_analysis.quant.markets import default_universe_for_market, get_quant_market_config
+from finance_analysis.quant.markets import (
+    DEFAULT_QUANT_UNIVERSES,
+    default_universe_for_market,
+    get_quant_market_config,
+    validate_universe_for_market,
+)
 from finance_analysis.quant.pipeline.service import QuantDailyPipeline
 from finance_analysis.quant.sectors.service import build_synthetic_sector_benchmark
 from finance_analysis.quant.universe.service import DynamicUniverseService, SectorClassification
@@ -65,6 +72,54 @@ def test_quant_market_configuration_selects_cn_close_and_defaults():
     assert cn.market_close_time == time(15, 0)
     assert default_universe_for_market("CN") == "cn_csi300_watchlist"
     assert cn.benchmark_dependencies == {"510300.SH", "510500.SH", "159915.SZ"}
+    assert DEFAULT_QUANT_UNIVERSES == {
+        "US": "us_sp500_watchlist",
+        "CN": "cn_csi300_watchlist",
+    }
+
+
+def test_market_universe_validation_rejects_deprecated_and_cross_market_keys():
+    assert validate_universe_for_market("US") == "us_sp500_watchlist"
+    assert validate_universe_for_market("CN") == "cn_csi300_watchlist"
+    with pytest.raises(ValueError, match=r"deprecated.*us_sp500_watchlist"):
+        validate_universe_for_market("US", "us_ai_semiconductor")
+    with pytest.raises(ValueError, match=r"only supported universe is cn_csi300_watchlist"):
+        validate_universe_for_market("CN", "us_sp500_watchlist")
+
+
+def test_deprecated_universe_is_absent_from_seed_frontend_and_normal_documentation():
+    project_root = Path(__file__).resolve().parents[1]
+    checked_paths = [
+        project_root / "src" / "finance_analysis" / "database" / "seed.py",
+        project_root / "docs" / "quant-research.md",
+        *(project_root / "web" / "src").rglob("*.ts"),
+        *(project_root / "web" / "src").rglob("*.vue"),
+    ]
+
+    assert all(
+        "us_ai_semiconductor" not in path.read_text(encoding="utf-8")
+        for path in checked_paths
+    )
+
+
+def test_deprecation_migration_preserves_legacy_relations_and_marks_replacement():
+    project_root = Path(__file__).resolve().parents[1]
+    migration = (
+        project_root
+        / "alembic"
+        / "versions"
+        / "0021_deprecate_legacy_quant_universe.py"
+    ).read_text(encoding="utf-8")
+    normalized = migration.upper()
+
+    assert 'UPDATE quant_universe' in migration
+    assert 'enabled = false' in migration
+    assert '"replacement_universe"' in migration
+    assert '_REPLACEMENT_KEY = "us_sp500_watchlist"' in migration
+    assert "UPDATE MODEL_RUN" in normalized
+    assert "DELETE FROM QUANT_UNIVERSE" not in normalized
+    assert "DELETE FROM QUANT_UNIVERSE_MEMBER" not in normalized
+    assert "DROP TABLE" not in normalized
 
 
 def test_cn_after_close_event_becomes_available_at_next_session_open():
@@ -110,6 +165,33 @@ def test_dynamic_universe_uses_exact_shared_scope_and_reports_sector_coverage():
     assert result["member_count"] == 2
     assert result["sector_mapping_coverage"] == 0.5
     assert result["missing_sector_mappings"] == [{"code": "000001.SZ", "reason": "missing"}]
+
+
+@pytest.mark.skipif(not os.getenv("DATABASE_URL"), reason="PostgreSQL required")
+def test_quant_seed_only_enables_the_two_supported_dynamic_universes():
+    database = DatabaseManager.get_instance()
+
+    first = seed_quant_reference_data(database)
+    second = seed_quant_reference_data(database)
+
+    assert first == second
+    assert first["universes"] == ["us_sp500_watchlist", "cn_csi300_watchlist"]
+    repository = QuantRepository(database)
+    for market, key in DEFAULT_QUANT_UNIVERSES.items():
+        universe = repository.get_universe(key)
+        assert universe is not None
+        assert universe.market == market
+        assert universe.enabled is True
+        assert universe.is_dynamic is True
+    legacy = repository.get_universe("us_ai_semiconductor")
+    if legacy is not None:
+        assert legacy.enabled is False
+        assert legacy.config["deprecated"] is True
+        assert legacy.config["replacement_universe"] == "us_sp500_watchlist"
+        with pytest.raises(ValueError, match=r"deprecated.*us_sp500_watchlist"):
+            repository.create_dataset({"market": "US", "universe_id": legacy.id})
+        with pytest.raises(ValueError, match=r"deprecated.*us_sp500_watchlist"):
+            repository.create_model_run({"market": "US", "universe_id": legacy.id})
 
 
 @pytest.mark.skipif(not os.getenv("DATABASE_URL"), reason="PostgreSQL required")
@@ -186,7 +268,9 @@ def test_dynamic_member_refresh_is_idempotent_and_preserves_ended_history():
 
 def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
     repository = MagicMock()
-    repository.get_universe.return_value = SimpleNamespace(id=9, market="CN")
+    repository.get_universe.return_value = SimpleNamespace(
+        id=9, key="cn_csi300_watchlist", market="CN", enabled=True
+    )
     repository.active_members.return_value = [
         (SimpleNamespace(sector_key="白酒", sector_benchmark_code="CN-SECTOR-a"), SimpleNamespace(id=1, code="600519.SH"))
     ]

@@ -23,7 +23,7 @@ from finance_analysis.quant.exceptions import (
     QuantDatasetMissingError,
 )
 from finance_analysis.quant.features.service import DailyResearchService
-from finance_analysis.quant.markets import get_quant_market_config
+from finance_analysis.quant.markets import get_quant_market_config, validate_universe_for_market
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
 from finance_analysis.quant.signals.fusion import SignalFusion
 from finance_analysis.quant.universe.service import DynamicUniverseService
@@ -36,10 +36,20 @@ class QuantTrainingPipeline:
     def __init__(self, repository: Any = None):
         self.repository = repository or QuantRepository()
 
-    def prepare(self, run_id: int) -> dict[str, Any]:
+    def _supported_run(self, run_id: int) -> Any:
         run = self.repository.get_model_run(run_id)
         if not run:
             raise ValueError(f"Unknown model run {run_id}")
+        universe = self.repository.get_universe(run.universe_id)
+        if not universe or universe.market != run.market:
+            raise ValueError(f"Model run {run_id} is bound to an unavailable universe")
+        validate_universe_for_market(run.market, universe.key)
+        if not getattr(universe, "enabled", True):
+            raise ValueError(f"Model run {run_id} is bound to an unavailable universe")
+        return run
+
+    def prepare(self, run_id: int) -> dict[str, Any]:
+        run = self._supported_run(run_id)
         dataset = self.repository.get_dataset(run.dataset_snapshot_id) if run.dataset_snapshot_id else None
         if not dataset or dataset.status != "ready" or not dataset.artifact_uri:
             raise QuantDatasetMissingError("A ready dataset snapshot with an artifact is required")
@@ -74,9 +84,7 @@ class QuantTrainingPipeline:
             raise ValueError("Qlib result has an unsupported schema_version")
         if result.get("model_run_id") != run_id:
             raise ValueError("Qlib result model_run_id does not match callback")
-        run = self.repository.get_model_run(run_id)
-        if not run:
-            raise ValueError(f"Unknown model run {run_id}")
+        run = self._supported_run(run_id)
         if result.get("model_key") != run.model_key:
             raise ValueError("Qlib result model_key does not match ModelRun")
         self.repository.update_model_run(
@@ -101,6 +109,7 @@ class QuantTrainingPipeline:
         }
 
     def fail(self, run_id: int, reason: str) -> dict[str, Any]:
+        self._supported_run(run_id)
         self.repository.update_model_run(
             run_id,
             status="failed",
@@ -140,17 +149,15 @@ class QuantDailyPipeline:
         market = config.market
         if trade_date is None:
             trade_date = get_effective_trading_date(config.calendar_market)
-        universe_key = universe_key or config.default_universe
-        universe_sync = None
-        if universe_key == config.default_universe:
-            service = self.universe_service or DynamicUniverseService(
-                repository=self.repository,
-                symbol_repository=self.symbol_repository,
-            )
-            universe_sync = service.refresh(market, trade_date)
+        universe_key = validate_universe_for_market(market, universe_key)
+        service = self.universe_service or DynamicUniverseService(
+            repository=self.repository,
+            symbol_repository=self.symbol_repository,
+        )
+        universe_sync = service.refresh(market, trade_date)
         universe = self.repository.get_universe(universe_key)
-        if not universe or universe.market != market:
-            raise ValueError(f"Unknown {market} universe {universe_key}")
+        if not universe or universe.market != market or not getattr(universe, "enabled", True):
+            raise ValueError(f"Supported {market} universe {universe_key} is not available")
         members = self.repository.active_members(universe.id, trade_date)
         if not members:
             raise FeatureDataMissingError(f"No active universe members for {trade_date}")
@@ -222,9 +229,14 @@ class QuantDailyPipeline:
             raise ValueError("Daily callback context has unsupported schema_version")
         trade_date = date.fromisoformat(context["trade_date"])
         market = context["market"]
-        universe_key = context["universe_key"]
+        universe_key = validate_universe_for_market(market, context.get("universe_key"))
         universe = self.repository.get_universe(universe_key)
-        if not universe or universe.id != context["universe_id"]:
+        if (
+            not universe
+            or universe.id != context["universe_id"]
+            or universe.market != market
+            or not getattr(universe, "enabled", True)
+        ):
             raise ValueError("Daily callback universe no longer matches")
         by_model = {response.get("model_key"): response for response in responses}
         response = by_model.get("cross_section_lgbm")
