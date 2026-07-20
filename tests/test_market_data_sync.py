@@ -35,6 +35,7 @@ from finance_analysis.integrations.market_data.providers.yfinance import Yfinanc
 from finance_analysis.stocks.reference_data.stock_index import CSI300_STOCK_INDEX, SP500_STOCK_INDEX
 from finance_analysis.tasks.celery.jobs.market_data_sync.models import ProviderBars, RoutedAdjustment, RoutedBars
 from finance_analysis.tasks.celery.jobs.market_data_sync.provider_router import (
+    MARKET_PROVIDER_POLICY,
     MARKET_PROVIDER_PRIORITY,
     MarketDataProviderRouter,
     default_providers,
@@ -253,18 +254,33 @@ def test_efinance_raw_history_uses_fqt_zero_and_qfq_is_validation_only():
 
 
 def test_market_provider_order_is_explicit_for_all_markets():
-    assert [provider.name for provider in default_providers("CN")] == [
-        "EfinanceFetcher",
-        "AkshareFetcher",
-        "LongbridgeFetcher",
-    ]
+    assert [provider.name for provider in default_providers("CN")] == ["YfinanceFetcher", "LongbridgeFetcher"]
     assert [provider.name for provider in default_providers("HK")] == [
         "AkshareFetcher",
         "EfinanceFetcher",
         "LongbridgeFetcher",
     ]
     assert [provider.name for provider in default_providers("US")] == ["YfinanceFetcher", "LongbridgeFetcher"]
-    assert MARKET_PROVIDER_PRIORITY["US"]["YfinanceFetcher"] > MARKET_PROVIDER_PRIORITY["US"]["LongbridgeFetcher"]
+    assert MARKET_PROVIDER_POLICY["CN"] == MARKET_PROVIDER_POLICY["US"]
+    assert MARKET_PROVIDER_PRIORITY["CN"] == MARKET_PROVIDER_PRIORITY["US"]
+    assert MARKET_PROVIDER_PRIORITY["CN"]["YfinanceFetcher"] > MARKET_PROVIDER_PRIORITY["CN"]["LongbridgeFetcher"]
+
+
+def test_yfinance_batch_converts_and_downloads_cn_symbols_together():
+    index = pd.DatetimeIndex(["2026-07-17"], name="Date")
+    columns = pd.MultiIndex.from_product(
+        [["600519.SS", "000001.SZ"], ["Open", "High", "Low", "Close", "Adj Close", "Volume"]]
+    )
+    raw = pd.DataFrame([[1, 2, 0.5, 1.5, 1.4, 10, 3, 4, 2.5, 3.5, 3.4, 20]], index=index, columns=columns)
+    symbols = [_symbol("600519.SH", 1, market="CN"), _symbol("000001.SZ", 2, market="CN")]
+
+    with patch("yfinance.download", return_value=raw) as download:
+        result = YfinanceFetcher().fetch_daily_bars_batch(symbols, date(2026, 7, 17), date(2026, 7, 17))
+
+    assert download.call_count == 1
+    assert download.call_args.kwargs["tickers"] == ["600519.SS", "000001.SZ"]
+    assert result["600519.SH"].iloc[0]["close"] == 1.5
+    assert result["000001.SZ"].iloc[0]["close"] == 3.5
 
 
 def test_router_keeps_primary_rows_and_fallback_fills_only_missing_days():
