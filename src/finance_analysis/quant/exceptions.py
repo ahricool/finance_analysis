@@ -5,6 +5,10 @@ class QuantError(RuntimeError):
     pass
 
 
+class UnsupportedQuantUniverseError(QuantError, ValueError):
+    """A new quant operation targeted a disabled or non-market universe."""
+
+
 class QuantDatasetMissingError(QuantError):
     pass
 

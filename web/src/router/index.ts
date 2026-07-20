@@ -110,7 +110,15 @@ export function resolveDocumentTitle(to: Pick<RouteLocationNormalizedLoaded, 'ma
   return formatDocumentTitle(pageTitle);
 }
 
-router.beforeEach(async (to) => {
+router.beforeEach(async (to, from) => {
+  if (
+    to.path.startsWith('/market/quant')
+    && from.path.startsWith('/market/quant')
+    && to.query.market === undefined
+    && (from.query.market === 'US' || from.query.market === 'CN')
+  ) {
+    return { path: to.path, params: to.params, query: { ...to.query, market: from.query.market }, replace: true };
+  }
   const auth = useAuthStore();
   if (auth.isLoading) {
     await auth.fetchStatus();

@@ -5,11 +5,11 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
-from datetime import datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo
-
+from datetime import datetime, timedelta, timezone
 from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
+from finance_analysis.quant.markets import get_quant_market_config
+from zoneinfo import ZoneInfo
 
 EVENT_TYPES = {
     "earnings", "revenue_surprise", "eps_surprise", "guidance_up", "guidance_down",
@@ -27,12 +27,14 @@ def _datetime(value) -> datetime:
 
 def calculate_available_at(published_at: datetime, market: str) -> datetime:
     published_at = _datetime(published_at)
-    if market != "US": return published_at
-    local = published_at.astimezone(ZoneInfo("America/New_York"))
-    if local.time() <= time(16, 0): return published_at
+    config = get_quant_market_config(market)
+    local = published_at.astimezone(ZoneInfo(config.timezone))
+    if local.time() <= config.market_close_time:
+        return published_at
     day = local.date() + timedelta(days=1)
-    while day.weekday() >= 5: day += timedelta(days=1)
-    return datetime.combine(day, time(9, 30), ZoneInfo("America/New_York")).astimezone(timezone.utc)
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return datetime.combine(day, config.market_open_time, ZoneInfo(config.timezone)).astimezone(timezone.utc)
 
 
 class EventImportService:
@@ -64,7 +66,7 @@ class EventImportService:
         symbol = self.symbols.get_by_code(code) if code else None
         if code and not symbol: raise ValueError(f"Unknown market_data_symbol: {code}")
         market = str(item.get("market") or (symbol.market if symbol else "")).upper()
-        if market not in {"US", "HK", "CN"}: raise ValueError("market must be US, HK, or CN")
+        if market not in {"US", "CN"}: raise ValueError("market must be US or CN")
         published_at = _datetime(item["published_at"])
         available_at = _datetime(item["available_at"]) if item.get("available_at") else calculate_available_at(published_at, market)
         if available_at < published_at: raise ValueError("available_at cannot precede published_at")

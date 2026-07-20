@@ -22,6 +22,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -273,6 +274,13 @@ class ModelRun(Base):
         CheckConstraint("status IN ('draft','training','candidate','production','retired','failed')", name="ck_model_run_status"),
         CheckConstraint("progress BETWEEN 0 AND 100", name="ck_model_run_progress"),
         Index("ix_model_run_lookup", "market", "model_key", "status", "created_at"),
+        Index(
+            "uix_model_run_production_market_key",
+            "market",
+            "model_key",
+            unique=True,
+            postgresql_where=text("status = 'production'"),
+        ),
     )
 
 
@@ -318,7 +326,10 @@ class ModelSignal(Base):
     reasons = Column(JSONB, nullable=False, default=json_array); score_components = Column(JSONB, nullable=False, default=json_object)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     __table_args__ = (
-        UniqueConstraint("trade_date", "symbol_id", "model_version", name="uix_model_signal"),
+        UniqueConstraint(
+            "market", "universe_id", "trade_date", "symbol_id", "model_version",
+            name="uix_model_signal_market_universe",
+        ),
         Index("ix_model_signal_ranking", "market", "universe_id", "trade_date", "universe_rank"),
     )
 

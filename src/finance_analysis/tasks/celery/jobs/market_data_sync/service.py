@@ -10,11 +10,9 @@ from typing import Any
 
 from finance_analysis.database.repositories.adjustment import StockAdjustmentRepository
 from finance_analysis.database.repositories.stock import MarketDataSymbolRepository, StockRepository, UpsertStats
-from finance_analysis.database.repositories.watch_list import WatchListRepo
 from finance_analysis.integrations.market_data.config import DataProviderConfig, get_data_provider_config
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, get_trading_days_between
-from finance_analysis.stocks.markets import normalize_market_type
-from finance_analysis.stocks.reference_data.stock_index import CSI300_STOCK_INDEX, SP500_STOCK_INDEX
+from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 
 from .models import AdjustmentResult, DailyResult, SymbolResult
 from .provider_router import MarketDataProviderRouter
@@ -35,7 +33,8 @@ class MarketDataSyncService:
         symbol_repository: MarketDataSymbolRepository | None = None,
         stock_repository: StockRepository | None = None,
         adjustment_repository: StockAdjustmentRepository | None = None,
-        watchlist_repository: WatchListRepo | None = None,
+        watchlist_repository: Any = None,
+        scope_resolver: MarketDataScopeResolver | None = None,
         router: MarketDataProviderRouter | None = None,
         config: DataProviderConfig | None = None,
         now: datetime | None = None,
@@ -47,13 +46,13 @@ class MarketDataSyncService:
         self.symbol_repository = symbol_repository or MarketDataSymbolRepository()
         self.stock_repository = stock_repository or StockRepository()
         self.adjustment_repository = adjustment_repository or StockAdjustmentRepository()
-        self.watchlist_repository = watchlist_repository or WatchListRepo()
+        self.scope_resolver = scope_resolver or MarketDataScopeResolver(watchlist_repository)
         self.router = router or MarketDataProviderRouter(self.market, config=self.config)
         self.now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         self.unsupported_symbols: list[dict[str, str]] = []
 
     def run(self) -> dict[str, Any]:
-        symbols = self._load_scope()
+        symbols = self.load_scope()
         if not symbols:
             if self.unsupported_symbols:
                 return self._summarize([], 0)
@@ -116,79 +115,17 @@ class MarketDataSyncService:
             raise MarketDataSyncError(f"All {len(symbols)} {self.market} symbols failed; see task log")
         return summary
 
-    def _load_scope(self) -> list[Any]:
-        reference = SP500_STOCK_INDEX if self.market == "US" else CSI300_STOCK_INDEX if self.market == "CN" else {}
-        reference_codes = {
-            f"{ticker}.US" if self.market == "US" else ticker
-            for ticker in reference
-        }
-        watch_records: list[dict[str, Any]] = []
-        unsupported: dict[tuple[str, str], dict[str, str]] = {}
-        for item in self.watchlist_repository.list_all():
-            try:
-                item_market = normalize_market_type(item.market_type, item.code)
-                if item_market == "HK":
-                    if self.market == "CN":
-                        try:
-                            unsupported_code = self._canonical_watch_code(item.code, "HK")
-                        except ValueError:
-                            unsupported_code = str(item.code or "").strip().upper()
-                        unsupported[(unsupported_code, "HK")] = {
-                            "code": unsupported_code,
-                            "market": "HK",
-                            "reason": "HK daily synchronization is temporarily unsupported",
-                        }
-                    continue
-                if item_market != self.market:
-                    continue
-                code = self._canonical_watch_code(item.code, self.market)
-            except ValueError as exc:
-                logger.warning("market=%s watchlist_code=%s skipped reason=%s", self.market, item.code, exc)
-                continue
-            reference_codes.add(code)
-            watch_records.append(
-                {
-                    "market": self.market,
-                    "code": code,
-                    "name": item.name or code,
-                }
-            )
-        self.unsupported_symbols = sorted(unsupported.values(), key=lambda item: item["code"])
-        if watch_records:
-            self.symbol_repository.upsert_symbols(watch_records, overwrite_runtime_flags=False)
-        return self.symbol_repository.list_enabled_daily_by_codes(self.market, reference_codes)
-
-    @staticmethod
-    def _canonical_watch_code(code: str, market: str) -> str:
-        text = str(code or "").strip().upper()
-        if market == "US":
-            base = text[:-3] if text.endswith(".US") else text
-            if not base:
-                raise ValueError("empty US ticker")
-            return f"{base}.US"
-        if market == "HK":
-            base = text.removeprefix("HK")
-            if base.endswith(".HK"):
-                base = base[:-3]
-            if not base.isdigit() or int(base) <= 0:
-                raise ValueError("invalid HK ticker")
-            return f"{int(base)}.HK"
-        base = text.removeprefix("SH").removeprefix("SZ")
-        suffix = ""
-        if base.endswith((".SH", ".SS", ".SZ")):
-            suffix = base[-3:]
-            base = base[:-3]
-        if not base.isdigit() or len(base) != 6:
-            raise ValueError("invalid CN ticker")
-        if suffix in (".SH", ".SS"):
-            exchange = ".SH"
-        elif suffix == ".SZ":
-            exchange = ".SZ"
-        elif base.startswith(("5", "6", "9")):
-            exchange = ".SH"
-        else:
-            exchange = ".SZ"
-        return f"{base}{exchange}"
+    def load_scope(self) -> list[Any]:
+        """Return the public shared scope, including calculation dependencies."""
+        scope = self.scope_resolver.resolve(self.market)
+        self.unsupported_symbols = list(scope.unsupported_symbols)
+        records = [*scope.watchlist_records, *self.scope_resolver.dependency_records(self.market)]
+        if records:
+            self.symbol_repository.upsert_symbols(records, overwrite_runtime_flags=False)
+        return self.symbol_repository.list_enabled_daily_by_codes(
+            self.market,
+            scope.synchronization_codes,
+        )
 
     def _refresh_days(self, natural_days: int) -> list[date]:
         end = get_completed_trading_days(self.market.lower(), 1, self.now)[-1]

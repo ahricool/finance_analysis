@@ -31,7 +31,9 @@ EXPECTED_JOBS = {
     "signal_evaluation_cn": ("scheduled_signal_evaluation_cn", "Asia/Shanghai"),
     "signal_evaluation_us": ("scheduled_signal_evaluation_us", "America/New_York"),
     "quant_daily_pipeline_us": ("scheduled_quant_daily_us", "America/New_York"),
+    "quant_daily_pipeline_cn": ("scheduled_quant_daily_cn", "Asia/Shanghai"),
     "quant_model_training_us": ("scheduled_quant_training_us", "America/New_York"),
+    "quant_model_training_cn": ("scheduled_quant_training_cn", "Asia/Shanghai"),
 }
 
 
@@ -206,6 +208,18 @@ def test_market_data_sync_schedules_and_queue():
     }
     assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in us.schedules} == {
         ("18", "0", "mon-fri", "America/New_York")
+    }
+
+
+def test_cn_quant_runs_one_hour_after_cn_daily_sync_on_analysis_queue():
+    sync = get_scheduled_task_definition("market_data_sync_cn_hk")
+    quant = get_scheduled_task_definition("quant_daily_pipeline_cn")
+
+    assert sync.queue == "ingestion"
+    assert quant.queue == "analysis"
+    assert quant.celery_task_name == "scheduled.quant_daily_pipeline_cn"
+    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in quant.schedules} == {
+        ("19", "0", "mon-fri", "Asia/Shanghai")
     }
 
 

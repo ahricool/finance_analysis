@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 class DatasetBuildRequest(BaseModel):
-    market: str = "US"
-    universe: str = "us_ai_semiconductor"
+    market: Literal["US", "CN"] = "US"
+    universe: str | None = None
     date_from: date
     date_to: date
 
 
 class EventCreateRequest(BaseModel):
     code: str | None = None
-    market: str
+    market: Literal["US", "CN"]
     event_type: str
     published_at: str
     available_at: str | None = None
@@ -43,8 +43,8 @@ class EventImportRequest(BaseModel):
 class ModelRunCreateRequest(BaseModel):
     model_key: str = "cross_section_lgbm"
     model_version: str
-    market: str = "US"
-    universe: str = "us_ai_semiconductor"
+    market: Literal["US", "CN"] = "US"
+    universe: str | None = None
     dataset_snapshot_id: int
     run_type: str = "walk_forward"
     train_start: date | None = None
@@ -67,7 +67,7 @@ class ModelRunCreateRequest(BaseModel):
     target_config: dict[str, Any] = Field(
         default_factory=lambda: {
             "prediction_horizon": 5,
-            "benchmark": "sector_or_qqq",
+            "benchmark": "sector_or_market",
             "entry_price": "open",
             "exit_price": "close",
             "excess_return": True,
