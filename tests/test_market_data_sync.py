@@ -520,6 +520,45 @@ def test_longbridge_turnover_calculates_vwap_from_same_provider_row():
     assert rows[0]["vwap_quality"] == "calculated"
 
 
+def test_longbridge_cn_history_volume_is_normalized_from_lots_to_shares():
+    day = date(2026, 7, 20)
+    candle = SimpleNamespace(
+        timestamp=datetime(2026, 7, 20),
+        open="670.00",
+        high="690.00",
+        low="665.00",
+        close="676.91",
+        volume=174832,
+        turnover="12040705471.24",
+        vwap=None,
+    )
+
+    raw = LongbridgeFetcher._history_candle_row(candle, minute=False, market="CN")
+    rows = enrich_daily_vwap(validate_daily_bars(pd.DataFrame([raw]), [day]), "LongbridgeFetcher")
+
+    assert raw["volume"] == 17_483_200
+    assert float(raw["amount"]) == pytest.approx(12_040_705_471.24)
+    assert rows[0]["vwap"] == pytest.approx(688.7014660496934)
+    assert rows[0]["vwap"] / rows[0]["close"] < 1.1
+
+
+def test_longbridge_non_cn_history_volume_remains_in_shares():
+    candle = SimpleNamespace(
+        timestamp=datetime(2026, 7, 20, tzinfo=timezone.utc),
+        open="200",
+        high="205",
+        low="198",
+        close="203",
+        volume=12_345,
+        turnover="2500000",
+        vwap=None,
+    )
+
+    row = LongbridgeFetcher._history_candle_row(candle, minute=False, market="US")
+
+    assert row["volume"] == 12_345
+
+
 def test_provider_vwap_takes_priority_over_amount_calculation():
     day = date(2026, 7, 17)
     row = {**_daily(day, close=10.0, amount=1000.0), "vwap": 10.2}

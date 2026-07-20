@@ -33,7 +33,11 @@ import pandas as pd
 from finance_analysis.integrations.market_data.base import BaseFetcher, STANDARD_COLUMNS
 from finance_analysis.integrations.market_data.codes import is_bse_code, normalize_stock_code
 from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, RealtimeSource, safe_float
-from finance_analysis.integrations.market_data.providers.longbridge.normalizer import longbridge_datetime_to_utc
+from finance_analysis.integrations.market_data.providers.longbridge.normalizer import (
+    longbridge_datetime_to_utc,
+    longbridge_market_from_symbol,
+    normalize_longbridge_volume,
+)
 from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code, is_us_index_code
 from finance_analysis.core.logging import log_external_call_exception
 
@@ -394,7 +398,15 @@ class LongbridgeFetcher(BaseFetcher):
             end_time=datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc),
             data_type="daily",
         )
-        rows = [self._history_candle_row(item, minute=False, market=symbol.market) for item in candles]
+        rows = [
+            self._history_candle_row(
+                item,
+                minute=False,
+                market=symbol.market,
+                lot_size=getattr(symbol, "lot_size", None),
+            )
+            for item in candles
+        ]
         frame = pd.DataFrame(rows)
         if not frame.empty:
             frame = frame[(frame["date"] >= start_date) & (frame["date"] <= end_date)]
@@ -417,7 +429,17 @@ class LongbridgeFetcher(BaseFetcher):
             end_time=end_time,
             data_type="minute",
         )
-        frame = pd.DataFrame([self._history_candle_row(item, minute=True, market=symbol.market) for item in candles])
+        frame = pd.DataFrame(
+            [
+                self._history_candle_row(
+                    item,
+                    minute=True,
+                    market=symbol.market,
+                    lot_size=getattr(symbol, "lot_size", None),
+                )
+                for item in candles
+            ]
+        )
         if not frame.empty:
             times = pd.to_datetime(frame["bar_time"], utc=True)
             frame["bar_time"] = times
@@ -489,7 +511,13 @@ class LongbridgeFetcher(BaseFetcher):
         return collected
 
     @staticmethod
-    def _history_candle_row(candle: Any, *, minute: bool, market: str) -> dict[str, Any]:
+    def _history_candle_row(
+        candle: Any,
+        *,
+        minute: bool,
+        market: str,
+        lot_size: Any = None,
+    ) -> dict[str, Any]:
         raw_timestamp = getattr(candle, "timestamp", None)
         timestamp = longbridge_datetime_to_utc(raw_timestamp, datetime.now(timezone.utc))
         row = {
@@ -497,7 +525,11 @@ class LongbridgeFetcher(BaseFetcher):
             "high": getattr(candle, "high", None),
             "low": getattr(candle, "low", None),
             "close": getattr(candle, "close", None),
-            "volume": getattr(candle, "volume", None),
+            "volume": normalize_longbridge_volume(
+                getattr(candle, "volume", None),
+                market=market,
+                lot_size=lot_size,
+            ),
             "amount": getattr(candle, "turnover", None),
             "vwap": getattr(candle, "vwap", None),
         }
@@ -754,7 +786,13 @@ class LongbridgeFetcher(BaseFetcher):
             ordered = sorted(candles, key=self._ts_sort_key, reverse=True)
             past_vols: list = []
             for c in ordered[1:6]:
-                vol = int(getattr(c, "volume", 0) or 0)
+                vol = (
+                    normalize_longbridge_volume(
+                        getattr(c, "volume", 0),
+                        market=longbridge_market_from_symbol(symbol),
+                    )
+                    or 0
+                )
                 if vol > 0:
                     past_vols.append(vol)
 
@@ -783,7 +821,7 @@ class LongbridgeFetcher(BaseFetcher):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _candle_to_dict(candle: Any) -> Dict[str, Any]:
+    def _candle_to_dict(candle: Any, *, market: str | None = None) -> Dict[str, Any]:
         """Convert a Longbridge Candlestick object into a JSON-serializable bar."""
         timestamp = getattr(candle, "timestamp", None)
         if timestamp is None:
@@ -800,7 +838,11 @@ class LongbridgeFetcher(BaseFetcher):
             "high": safe_float(getattr(candle, "high", None)),
             "low": safe_float(getattr(candle, "low", None)),
             "close": safe_float(getattr(candle, "close", None)),
-            "volume": int(getattr(candle, "volume", 0) or 0),
+            "volume": normalize_longbridge_volume(
+                getattr(candle, "volume", 0),
+                market=market,
+            )
+            or 0,
             "turnover": safe_float(getattr(candle, "turnover", None)),
             "trade_session": str(getattr(candle, "trade_session", "") or ""),
         }
@@ -848,7 +890,8 @@ class LongbridgeFetcher(BaseFetcher):
                 AdjustType.NoAdjust,
                 trade_sessions,
             )
-            return [self._candle_to_dict(candle) for candle in sorted(candles, key=self._ts_sort_key)]
+            market = longbridge_market_from_symbol(symbol)
+            return [self._candle_to_dict(candle, market=market) for candle in sorted(candles, key=self._ts_sort_key)]
         except Exception as e:
             log_external_call_exception(
                 logger,
@@ -909,7 +952,6 @@ class LongbridgeFetcher(BaseFetcher):
         open_price = safe_float(getattr(q, "open", None))
         high = safe_float(getattr(q, "high", None))
         low = safe_float(getattr(q, "low", None))
-        volume = int(getattr(q, "volume", 0) or 0)
         turnover = safe_float(getattr(q, "turnover", None))
 
         change_amount = None
@@ -923,6 +965,15 @@ class LongbridgeFetcher(BaseFetcher):
 
         # Fetch static info for derived fields
         static = self._get_static_info(symbol)
+        lot_size = getattr(static, "lot_size", None) if static is not None else None
+        volume = (
+            normalize_longbridge_volume(
+                getattr(q, "volume", 0),
+                market=longbridge_market_from_symbol(symbol),
+                lot_size=lot_size,
+            )
+            or 0
+        )
 
         turnover_rate = None
         pe_ratio = None
@@ -1062,15 +1113,21 @@ class LongbridgeFetcher(BaseFetcher):
             else:
                 dt = datetime.fromtimestamp(int(ts)).date()
 
-            rows.append({
-                "date": dt.strftime("%Y-%m-%d"),
-                "open": safe_float(getattr(c, "open", None)),
-                "high": safe_float(getattr(c, "high", None)),
-                "low": safe_float(getattr(c, "low", None)),
-                "close": safe_float(getattr(c, "close", None)),
-                "volume": int(getattr(c, "volume", 0) or 0),
-                "turnover": safe_float(getattr(c, "turnover", None)),
-            })
+            rows.append(
+                {
+                    "date": dt.strftime("%Y-%m-%d"),
+                    "open": safe_float(getattr(c, "open", None)),
+                    "high": safe_float(getattr(c, "high", None)),
+                    "low": safe_float(getattr(c, "low", None)),
+                    "close": safe_float(getattr(c, "close", None)),
+                    "volume": normalize_longbridge_volume(
+                        getattr(c, "volume", 0),
+                        market=longbridge_market_from_symbol(symbol),
+                    )
+                    or 0,
+                    "turnover": safe_float(getattr(c, "turnover", None)),
+                }
+            )
 
         return pd.DataFrame(rows)
 

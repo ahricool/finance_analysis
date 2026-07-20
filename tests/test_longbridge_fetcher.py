@@ -118,6 +118,7 @@ class TestLongbridgeFetcherMocked(unittest.TestCase):
         defaults = {
             "name_cn": "苹果",
             "name_en": "Apple Inc.",
+            "lot_size": 1,
             "circulating_shares": 15000000000,
             "total_shares": 16000000000,
             "eps_ttm": "6.08",
@@ -172,6 +173,30 @@ class TestLongbridgeFetcherMocked(unittest.TestCase):
         self.assertIsNotNone(quote)
         vol = 49549600
         self.assertAlmostEqual(quote.turnover_rate, vol / 16000000000 * 100, places=3)
+
+    def test_a_share_realtime_volume_is_normalized_from_lots_to_shares(self):
+        fetcher, ctx = self._make_fetcher_with_mock_ctx()
+        ctx.quote.return_value = [
+            self._make_mock_quote(
+                last_done="676.91",
+                prev_close="670.00",
+                volume=174832,
+                turnover="12040705471.24",
+            )
+        ]
+        static = self._make_mock_static(
+            lot_size=100,
+            circulating_shares=1_260_000_000,
+            total_shares=1_260_000_000,
+        )
+        ctx.static_info.return_value = [static]
+        ctx.history_candlesticks_by_offset.return_value = []
+
+        quote = fetcher.get_realtime_quote("002371.SZ")
+
+        self.assertIsNotNone(quote)
+        self.assertEqual(quote.volume, 17_483_200)
+        self.assertAlmostEqual(quote.turnover_rate, 17_483_200 / 1_260_000_000 * 100, places=4)
 
     def test_realtime_quote_with_volume_ratio(self):
         """Verify volume_ratio calculation from history."""
