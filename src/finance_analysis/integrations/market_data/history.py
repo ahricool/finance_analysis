@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 import pandas as pd
 
@@ -33,6 +33,15 @@ class HistoricalProviderError(RuntimeError):
         )
 
 
+@dataclass(frozen=True)
+class AdjustmentData:
+    """Normalized corporate actions and per-session price adjustment factors."""
+
+    corporate_actions: list[dict[str, Any]]
+    adjustment_factors: list[dict[str, Any]]
+    corporate_actions_complete: bool = True
+
+
 class HistoricalMarketDataProvider(ABC):
     """Providers return normalized, unadjusted bars only."""
 
@@ -56,13 +65,19 @@ class HistoricalMarketDataProvider(ABC):
 
 DAILY_COLUMNS = ("date", "open", "high", "low", "close", "volume", "amount")
 MINUTE_COLUMNS = ("bar_time", "open", "high", "low", "close", "volume", "amount")
-SOURCE_PRIORITY = {"LongbridgeFetcher": 100, "YfinanceFetcher": 50}
+SOURCE_PRIORITY = {
+    "EfinanceFetcher": 300,
+    "AkshareFetcher": 200,
+    "YfinanceFetcher": 300,
+    "LongbridgeFetcher": 100,
+}
 
 
 __all__ = [
     "DAILY_COLUMNS",
     "MINUTE_COLUMNS",
     "SOURCE_PRIORITY",
+    "AdjustmentData",
     "HistoricalMarketDataProvider",
     "HistoricalProviderError",
     "SymbolIdentity",

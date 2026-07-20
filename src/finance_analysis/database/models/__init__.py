@@ -14,7 +14,13 @@ from finance_analysis.database.models.quant import (
     QuantUniverse, QuantUniverseMember, SectorRegimeSnapshot,
 )
 from finance_analysis.database.models.signal import Signal
-from finance_analysis.database.models.stock import MarketDataSymbol, StockDaily, StockMinute
+from finance_analysis.database.models.stock import (
+    MarketDataSymbol,
+    StockAdjustmentFactor,
+    StockCorporateAction,
+    StockDaily,
+    StockMinute,
+)
 from finance_analysis.database.models.task import TaskRecord
 from finance_analysis.database.models.user import User
 from finance_analysis.database.models.watch_list import StockHolding, WatchListItem
@@ -36,6 +42,8 @@ __all__ = [
     "ModelDefinition", "ModelRun", "ModelPublication", "ModelPrediction", "ModelSignal",
     "PortfolioRecommendation", "PortfolioRecommendationItem", "IntradayConfirmation",
     "Signal",
+    "StockAdjustmentFactor",
+    "StockCorporateAction",
     "StockDaily",
     "StockMinute",
     "StockHolding",

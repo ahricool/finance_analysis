@@ -85,3 +85,34 @@ def seed_nasdaq100_market_data_symbols(db_manager=None) -> int:
         }
         for ticker, name in NASDAQ100_STOCK_INDEX.items()
     )
+
+
+def seed_market_data_reference_symbols(db_manager=None) -> dict[str, int]:
+    """Idempotently seed the S&P 500 and CSI 300 daily synchronization universes."""
+    from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
+    from finance_analysis.stocks.reference_data.stock_index import CSI300_STOCK_INDEX, SP500_STOCK_INDEX
+
+    repository = MarketDataSymbolRepository(db_manager)
+    us_count = repository.upsert_symbols(
+        {
+            "market": "US",
+            "code": f"{ticker}.US",
+            "name": name,
+            "enabled": True,
+            "sync_daily": True,
+            "sync_minute": False,
+        }
+        for ticker, name in SP500_STOCK_INDEX.items()
+    )
+    cn_count = repository.upsert_symbols(
+        {
+            "market": "CN",
+            "code": code,
+            "name": name,
+            "enabled": True,
+            "sync_daily": True,
+            "sync_minute": False,
+        }
+        for code, name in CSI300_STOCK_INDEX.items()
+    )
+    return {"US": us_count, "CN": cn_count}

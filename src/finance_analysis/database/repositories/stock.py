@@ -51,6 +51,26 @@ class MarketDataSymbolRepository:
     def list_enabled_daily_symbols(self, market: str) -> list[MarketDataSymbol]:
         return self._list_enabled(market, MarketDataSymbol.sync_daily)
 
+    def list_enabled_daily_by_codes(self, market: str, codes: Iterable[str]) -> list[MarketDataSymbol]:
+        normalized = str(market).upper()
+        canonical_codes = sorted({validate_market_data_code(normalized, code) for code in codes})
+        if not canonical_codes:
+            return []
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(MarketDataSymbol)
+                .where(
+                    MarketDataSymbol.market == normalized,
+                    MarketDataSymbol.code.in_(canonical_codes),
+                    MarketDataSymbol.enabled.is_(True),
+                    MarketDataSymbol.sync_daily.is_(True),
+                )
+                .order_by(MarketDataSymbol.code)
+            ).scalars().all()
+            for row in rows:
+                session.expunge(row)
+            return list(rows)
+
     def list_enabled_minute_symbols(self, market: str) -> list[MarketDataSymbol]:
         return self._list_enabled(market, MarketDataSymbol.sync_minute)
 
@@ -129,6 +149,9 @@ class MarketDataSymbolRepository:
                     constraint="uix_market_data_symbol_code",
                     set_={
                         "name": stmt.excluded.name,
+                        "enabled": stmt.excluded.enabled,
+                        "sync_daily": stmt.excluded.sync_daily,
+                        "sync_minute": stmt.excluded.sync_minute,
                         "lot_size": func.coalesce(stmt.excluded.lot_size, MarketDataSymbol.lot_size),
                         "updated_at": stmt.excluded.updated_at,
                     },
