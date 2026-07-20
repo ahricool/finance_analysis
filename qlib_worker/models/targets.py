@@ -13,7 +13,7 @@ import pandas as pd
 @dataclass(frozen=True)
 class TargetConfig:
     prediction_horizon: int = 5
-    benchmark: str = "sector_or_qqq"
+    benchmark: str = "sector_or_market"
     entry_price: str = "open"
     exit_price: str = "close"
     excess_return: bool = True
@@ -36,8 +36,10 @@ class TargetConfig:
             raise ValueError("prediction_horizon must be positive")
         if config.entry_price not in {"open", "close"} or config.exit_price not in {"open", "close"}:
             raise ValueError("entry_price and exit_price must be open or close")
-        if config.benchmark not in {"sector_or_qqq", "market", "sector", "none"}:
-            raise ValueError("benchmark must be sector_or_qqq, market, sector, or none")
+        if config.benchmark not in {"sector_or_market", "sector_or_qqq", "market", "sector", "none"}:
+            raise ValueError(
+                "benchmark must be sector_or_market, sector_or_qqq, market, sector, or none"
+            )
         return cls(**{**asdict(config), "prediction_horizon": int(config.prediction_horizon)})
 
 

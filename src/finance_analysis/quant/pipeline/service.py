@@ -34,8 +34,9 @@ PROTOCOL_VERSION = 1
 
 
 class QuantTrainingPipeline:
-    def __init__(self, repository: Any = None):
+    def __init__(self, repository: Any = None, artifact_store: Any = None):
         self.repository = repository or QuantRepository()
+        self.artifact_store = artifact_store
 
     def _supported_run(self, run_id: int) -> Any:
         run = self.repository.get_model_run(run_id)
@@ -56,6 +57,7 @@ class QuantTrainingPipeline:
             raise QuantDatasetMissingError("A ready dataset snapshot with an artifact is required")
         if dataset.market != run.market or dataset.universe_id != run.universe_id:
             raise QuantDatasetMissingError("Model run and dataset must use the same market and universe")
+        (self.artifact_store or ArtifactStore()).resolve_uri(dataset.artifact_uri)
         self.repository.update_model_run(
             run_id,
             status="training",

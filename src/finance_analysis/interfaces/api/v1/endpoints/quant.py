@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from typing import Literal
 
@@ -21,10 +22,12 @@ from finance_analysis.interfaces.api.v1.schemas.quant import (
 )
 from finance_analysis.quant.capabilities import get_quant_capabilities
 from finance_analysis.quant.events.import_service import EventImportService
+from finance_analysis.quant.models import QLIB_TRAINABLE_MODEL_KEYS
 from finance_analysis.tasks.celery.schedule import QUEUE_ANALYSIS
 
 router = APIRouter()
 QuantMarket = Literal["US", "CN"]
+logger = logging.getLogger(__name__)
 
 
 def encoded(value):
@@ -74,7 +77,13 @@ async def universes(market: QuantMarket = "US", _: User = Depends(require_curren
 @router.get("/models/definitions")
 async def model_definitions(market: QuantMarket = "US", _: User = Depends(require_current_user)):
     return encoded(
-        [row for row in QuantRepository().list_model_definitions() if market in (row.supported_markets or [])]
+        [
+            row
+            for row in QuantRepository().list_model_definitions()
+            if row.enabled
+            and row.key in QLIB_TRAINABLE_MODEL_KEYS
+            and market in (row.supported_markets or [])
+        ]
     )
 
 
@@ -108,16 +117,23 @@ async def build_dataset(body: DatasetBuildRequest, user: User = Depends(require_
 
     market = body.market.upper()
     universe = _universe(QuantRepository(), market, body.universe).key
-    result = build_quant_dataset.apply_async(
-        kwargs={
-            "market": market,
-            "universe": universe,
-            "date_from": str(body.date_from),
-            "date_to": str(body.date_to),
-            "owner_uid": user.id,
-        },
-        queue=QUEUE_ANALYSIS,
-    )
+    try:
+        result = build_quant_dataset.apply_async(
+            kwargs={
+                "market": market,
+                "universe": universe,
+                "date_from": str(body.date_from),
+                "date_to": str(body.date_to),
+                "owner_uid": user.id,
+            },
+            queue=QUEUE_ANALYSIS,
+        )
+    except Exception as exc:
+        logger.exception("Failed to submit quant dataset build task for market=%s", market)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Failed to submit quant dataset build task",
+        ) from exc
     return {"task_id": result.id, "status": "pending", "market": market, "universe": universe}
 
 
@@ -222,7 +238,12 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
     universe = _universe(repo, market, body.universe)
     definition = repo.get_model_definition(body.model_key)
     dataset = repo.get_dataset(body.dataset_snapshot_id)
-    if not definition or not dataset:
+    if (
+        not definition
+        or not definition.enabled
+        or definition.key not in QLIB_TRAINABLE_MODEL_KEYS
+        or not dataset
+    ):
         raise HTTPException(400, "Unknown model or dataset")
     if market not in (definition.supported_markets or []):
         raise HTTPException(400, f"Model {body.model_key} does not support {market}")
@@ -244,9 +265,15 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
     run = repo.create_model_run(values)
     from finance_analysis.tasks.celery.jobs.quant_training.tasks import train_quant_model
 
-    task = train_quant_model.apply_async(
-        kwargs={"model_run_id": run.id, "owner_uid": user.id}, queue=QUEUE_ANALYSIS
-    )
+    try:
+        task = train_quant_model.apply_async(
+            kwargs={"model_run_id": run.id, "owner_uid": user.id}, queue=QUEUE_ANALYSIS
+        )
+    except Exception as exc:
+        logger.exception("Failed to submit model training task for model_run_id=%s", run.id)
+        message = "Failed to submit model training task"
+        repo.update_model_run(run.id, status="failed", progress=100, error=message)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, message) from exc
     repo.update_model_run(run.id, task_id=task.id)
     return {"model_run_id": run.id, "task_id": task.id, "status": "draft", "market": market}
 

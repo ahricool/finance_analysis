@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Optional
@@ -29,8 +28,6 @@ from .constants import (
     JOB_MARKET_DATA_SYNC_US,
     JOB_QUANT_DAILY_PIPELINE_CN,
     JOB_QUANT_DAILY_PIPELINE_US,
-    JOB_QUANT_MODEL_TRAINING_CN,
-    JOB_QUANT_MODEL_TRAINING_US,
     JOB_SIGNAL_EVALUATION_CN,
     JOB_SIGNAL_EVALUATION_US,
     JOB_US_INTRADAY_ANALYSIS,
@@ -218,34 +215,6 @@ SCHEDULED_TASK_DEFINITIONS = (
         timezone=SCHEDULE_TIMEZONE,
         queue=QUEUE_ANALYSIS,
         expires=EXPIRES_QUANT,
-        allow_manual_run=True,
-    ),
-    ScheduledTaskDefinition(
-        job_id=JOB_QUANT_MODEL_TRAINING_US,
-        name="美股量化模型训练",
-        description="使用已就绪数据集运行 Qlib walk-forward 训练；不会自动发布",
-        task_type="scheduled_quant_training_us",
-        celery_task_name=celery_task_name(JOB_QUANT_MODEL_TRAINING_US),
-        schedules=(CronSchedule(minute="0", hour="10", day_of_week="sun", timezone=US_TIMEZONE),),
-        schedule_text="周日 10:00 America/New_York（默认关闭）",
-        timezone=US_TIMEZONE,
-        queue=QUEUE_ANALYSIS,
-        expires=EXPIRES_QUANT,
-        enabled=os.getenv("QUANT_TRAINING_SCHEDULE_ENABLED", "false").lower() in {"1", "true", "yes"},
-        allow_manual_run=True,
-    ),
-    ScheduledTaskDefinition(
-        job_id=JOB_QUANT_MODEL_TRAINING_CN,
-        name="A股量化模型训练",
-        description="使用A股已就绪数据集运行 Qlib walk-forward 训练；不会自动发布",
-        task_type="scheduled_quant_training_cn",
-        celery_task_name=celery_task_name(JOB_QUANT_MODEL_TRAINING_CN),
-        schedules=(CronSchedule(minute="0", hour="10", day_of_week="sun"),),
-        schedule_text="周日 10:00 Asia/Shanghai（默认关闭）",
-        timezone=SCHEDULE_TIMEZONE,
-        queue=QUEUE_ANALYSIS,
-        expires=EXPIRES_QUANT,
-        enabled=os.getenv("QUANT_TRAINING_CN_SCHEDULE_ENABLED", "false").lower() in {"1", "true", "yes"},
         allow_manual_run=True,
     ),
     ScheduledTaskDefinition(

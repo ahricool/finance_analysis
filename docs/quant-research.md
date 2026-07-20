@@ -53,12 +53,17 @@ and PostgreSQL persistence. Main workers never wait synchronously for Qlib.
    PostgreSQL. US uses S&P 500 plus the US watchlist; CN uses CSI 300 plus the
    A-share watchlist. Benchmark dependencies are synchronized separately and
    never enter stock ranking.
-2. Build a dataset from the Quant UI/API. Failed validation prevents training.
-3. Create a model run. Training is asynchronous and becomes `candidate` only.
+2. An administrator opens **量化研究 → 模型运行 → 创建训练任务** and builds or selects an immutable dataset.
+   Failed validation prevents training, and dataset progress remains visible in the task center.
+3. The administrator selects one of the two Qlib worker models and creates a model run. Training is asynchronous
+   and becomes `candidate` only. The daily pipeline requires both `cross_section_lgbm` and `time_series_lgbm`.
 4. An administrator reviews metrics and publishes the candidate manually.
 5. The US daily pipeline runs at 19:00 America/New_York and the CN daily
    pipeline runs at 19:00 Asia/Shanghai, each one hour after its market data
    synchronization task.
+
+Model training is intentionally on demand rather than a periodic task: every run must name an immutable dataset,
+model type, and version. It therefore appears in the Quant model UI and task history, not in the scheduled-task list.
 
 Each market has exactly one supported quant universe. Clients select only the
 market: `US` resolves to `us_sp500_watchlist` and `CN` resolves to
