@@ -19,11 +19,22 @@ from .validator import enrich_daily_vwap, missing_daily_days, validate_daily_bar
 
 logger = logging.getLogger(__name__)
 
-MARKET_PROVIDER_PRIORITY = {
-    "CN": {"EfinanceFetcher": 300, "AkshareFetcher": 200, "LongbridgeFetcher": 100},
-    "HK": {"AkshareFetcher": 300, "EfinanceFetcher": 200, "LongbridgeFetcher": 100},
-    "US": {"YfinanceFetcher": 400, "LongbridgeFetcher": 300},
+ProviderPolicy = tuple[tuple[str, int], ...]
+
+YFINANCE_LONGBRIDGE_POLICY: ProviderPolicy = (
+    ("YfinanceFetcher", 400),
+    ("LongbridgeFetcher", 300),
+)
+MARKET_PROVIDER_POLICY: dict[str, ProviderPolicy] = {
+    "CN": YFINANCE_LONGBRIDGE_POLICY,
+    "HK": (
+        ("AkshareFetcher", 300),
+        ("EfinanceFetcher", 200),
+        ("LongbridgeFetcher", 100),
+    ),
+    "US": YFINANCE_LONGBRIDGE_POLICY,
 }
+MARKET_PROVIDER_PRIORITY = {market: dict(policy) for market, policy in MARKET_PROVIDER_POLICY.items()}
 
 
 def default_providers(market: str) -> list[Any]:
@@ -32,11 +43,18 @@ def default_providers(market: str) -> list[Any]:
     from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
     from finance_analysis.integrations.market_data.providers.yfinance import YfinanceFetcher
 
-    return {
-        "CN": [EfinanceFetcher(), AkshareFetcher(), LongbridgeFetcher()],
-        "HK": [AkshareFetcher(), EfinanceFetcher(), LongbridgeFetcher()],
-        "US": [YfinanceFetcher(), LongbridgeFetcher()],
-    }[market]
+    factories = {
+        "AkshareFetcher": AkshareFetcher,
+        "EfinanceFetcher": EfinanceFetcher,
+        "LongbridgeFetcher": LongbridgeFetcher,
+        "YfinanceFetcher": YfinanceFetcher,
+    }
+    normalized_market = str(market).strip().upper()
+    try:
+        policy = MARKET_PROVIDER_POLICY[normalized_market]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported market={market}; expected CN, HK, or US") from exc
+    return [factories[provider_name]() for provider_name, _ in policy]
 
 
 class MarketDataProviderRouter:
@@ -278,4 +296,10 @@ class MarketDataProviderRouter:
         )
 
 
-__all__ = ["MARKET_PROVIDER_PRIORITY", "MarketDataProviderRouter", "default_providers"]
+__all__ = [
+    "MARKET_PROVIDER_POLICY",
+    "MARKET_PROVIDER_PRIORITY",
+    "YFINANCE_LONGBRIDGE_POLICY",
+    "MarketDataProviderRouter",
+    "default_providers",
+]
