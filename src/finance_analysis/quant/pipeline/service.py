@@ -15,6 +15,7 @@ from finance_analysis.database.repositories.user import DEFAULT_ADMIN_EMAIL, Use
 from finance_analysis.market_review.trading_calendar import get_effective_trading_date
 from finance_analysis.quant.cache import QuantLatestCache, cache_keys
 from finance_analysis.quant.config import get_quant_config
+from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
 from finance_analysis.quant.exceptions import (
     FeatureDataMissingError,
@@ -129,6 +130,7 @@ class QuantDailyPipeline:
         symbol_repository: Any = None,
         holding_repository: Any = None,
         universe_service: Any = None,
+        artifact_store: Any = None,
         owner_uid: int | None = None,
     ):
         self.repository = repository or QuantRepository()
@@ -137,6 +139,7 @@ class QuantDailyPipeline:
         self.symbol_repository = symbol_repository or MarketDataSymbolRepository()
         self.holding_repository = holding_repository or StockListRepo()
         self.universe_service = universe_service
+        self.artifact_store = artifact_store
         self.owner_uid = owner_uid
 
     def prepare(
@@ -150,6 +153,7 @@ class QuantDailyPipeline:
         if trade_date is None:
             trade_date = get_effective_trading_date(config.calendar_market)
         universe_key = validate_universe_for_market(market, universe_key)
+        cross_section, time_series = self._preflight_production_models(market)
         service = self.universe_service or DynamicUniverseService(
             repository=self.repository,
             symbol_repository=self.symbol_repository,
@@ -161,8 +165,6 @@ class QuantDailyPipeline:
         members = self.repository.active_members(universe.id, trade_date)
         if not members:
             raise FeatureDataMissingError(f"No active universe members for {trade_date}")
-        cross_section = self._production_model(market, "cross_section_lgbm")
-        time_series = self._production_model(market, "time_series_lgbm")
         research = DailyResearchService(self.repository).run(market, universe_key, trade_date)
         member_codes = set(research["eligible_codes"])
         available_codes = self.repository.daily_bar_codes(member_codes, trade_date)
@@ -421,6 +423,16 @@ class QuantDailyPipeline:
         if not model or not model.artifact_uri:
             raise ModelNotPublishedError(f"No production {market} {model_key} model artifact")
         return model
+
+    def _preflight_production_models(self, market: str) -> tuple[Any, Any]:
+        models = (
+            self._production_model(market, "cross_section_lgbm"),
+            self._production_model(market, "time_series_lgbm"),
+        )
+        artifact_store = self.artifact_store or ArtifactStore()
+        for model in models:
+            artifact_store.resolve_uri(model.artifact_uri)
+        return models
 
     @staticmethod
     def _validate_prediction_coverage(

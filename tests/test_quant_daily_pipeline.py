@@ -10,6 +10,8 @@ import pytest
 from finance_analysis.integrations.market_data.config import DataProviderConfig
 from finance_analysis.quant.exceptions import (
     FeatureDataMissingError,
+    ModelArtifactMissingError,
+    ModelNotPublishedError,
     PortfolioConstraintError,
     PredictionFailedError,
 )
@@ -45,8 +47,13 @@ def test_prepare_rejects_universe_member_without_target_daily_bar(monkeypatch) -
         symbol_repository=MagicMock(),
         holding_repository=MagicMock(),
         universe_service=MagicMock(),
+        artifact_store=MagicMock(),
         owner_uid=7,
     )
+    repository.production_model.side_effect = [
+        SimpleNamespace(artifact_uri="quant://us/cs"),
+        SimpleNamespace(artifact_uri="quant://us/ts"),
+    ]
     monkeypatch.setattr(
         "finance_analysis.quant.pipeline.service.DailyResearchService",
         lambda _repository: SimpleNamespace(
@@ -63,6 +70,68 @@ def test_prepare_rejects_universe_member_without_target_daily_bar(monkeypatch) -
         pipeline.prepare(market="US", trade_date=TRADE_DATE)
 
     repository.production_model.assert_any_call("US", "cross_section_lgbm")
+
+
+@pytest.mark.parametrize(
+    ("production_models", "missing_model"),
+    [
+        ([None], "cross_section_lgbm"),
+        ([SimpleNamespace(artifact_uri="quant://us/cs"), None], "time_series_lgbm"),
+    ],
+)
+def test_prepare_rejects_missing_model_before_universe_refresh(
+    production_models: list[object], missing_model: str
+) -> None:
+    repository = MagicMock()
+    repository.production_model.side_effect = production_models
+    universe_service = MagicMock()
+    artifact_store = MagicMock()
+    pipeline = QuantDailyPipeline(
+        repository=repository,
+        cache=MagicMock(),
+        exporter=MagicMock(),
+        symbol_repository=MagicMock(),
+        holding_repository=MagicMock(),
+        universe_service=universe_service,
+        artifact_store=artifact_store,
+        owner_uid=7,
+    )
+
+    with pytest.raises(ModelNotPublishedError, match=rf"US {missing_model}"):
+        pipeline.prepare(market="US", trade_date=TRADE_DATE)
+
+    universe_service.refresh.assert_not_called()
+    repository.get_universe.assert_not_called()
+    artifact_store.resolve_uri.assert_not_called()
+
+
+def test_prepare_rejects_missing_model_artifact_before_universe_refresh() -> None:
+    repository = MagicMock()
+    repository.production_model.side_effect = [
+        SimpleNamespace(artifact_uri="quant://us/cs"),
+        SimpleNamespace(artifact_uri="quant://us/ts"),
+    ]
+    artifact_store = MagicMock()
+    artifact_store.resolve_uri.side_effect = ModelArtifactMissingError(
+        "Artifact does not exist: quant://us/cs"
+    )
+    universe_service = MagicMock()
+    pipeline = QuantDailyPipeline(
+        repository=repository,
+        cache=MagicMock(),
+        exporter=MagicMock(),
+        symbol_repository=MagicMock(),
+        holding_repository=MagicMock(),
+        universe_service=universe_service,
+        artifact_store=artifact_store,
+        owner_uid=7,
+    )
+
+    with pytest.raises(ModelArtifactMissingError, match="quant://us/cs"):
+        pipeline.prepare(market="US", trade_date=TRADE_DATE)
+
+    universe_service.refresh.assert_not_called()
+    repository.get_universe.assert_not_called()
 
 
 def test_prepare_rejects_deprecated_universe_before_refresh() -> None:
