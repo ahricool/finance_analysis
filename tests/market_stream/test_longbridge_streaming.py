@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from finance_analysis.integrations.market_data.providers.longbridge.normalizer import normalize_candlestick
 from finance_analysis.integrations.market_data.providers.longbridge.streaming import (
     LongbridgeStreamingClient,
 )
@@ -63,6 +64,37 @@ async def test_subscribe_seeds_prev_close_before_starting_pushes() -> None:
     assert events[0].event_type == "quote_snapshot"
     assert events[0].payload["last_price"] == "102.50"
     assert events[0].payload["pre_close"] == "100.00"
+
+
+@pytest.mark.asyncio
+async def test_cn_snapshot_normalizes_volume_from_lots_to_shares() -> None:
+    context = FakeQuoteContext()
+    events = []
+    client = LongbridgeStreamingClient()
+    client.context = context
+    client.generation = 7
+    client.event_sink = events.append
+
+    await client.subscribe({"600519.SH"})
+
+    assert events[0].payload["volume"] == 12_300
+
+
+def test_cn_candlestick_push_normalizes_volume_from_lots_to_shares() -> None:
+    candle = SimpleNamespace(
+        timestamp=datetime(2026, 7, 1, 13, 30, tzinfo=timezone.utc),
+        open="100",
+        high="103",
+        low="99",
+        close="102",
+        volume=456,
+        turnover="4560000",
+        trade_session="Intraday",
+    )
+
+    event = normalize_candlestick("600519.SH", candle, generation=3)
+
+    assert event.payload["volume"] == 45_600
 
 
 @pytest.mark.asyncio

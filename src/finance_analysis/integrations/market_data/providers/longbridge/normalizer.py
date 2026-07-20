@@ -9,6 +9,47 @@ from typing import Any
 
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 
+CN_DEFAULT_LOT_SIZE = 100
+
+
+def longbridge_market_from_symbol(symbol: str) -> str | None:
+    """Return the canonical market represented by a Longbridge symbol."""
+    normalized = str(symbol or "").strip().upper()
+    if normalized.endswith((".SH", ".SZ")):
+        return "CN"
+    if normalized.endswith(".HK"):
+        return "HK"
+    if normalized.endswith(".US"):
+        return "US"
+    return None
+
+
+def normalize_longbridge_volume(
+    value: Any,
+    *,
+    market: str | None = None,
+    lot_size: Any = None,
+) -> int | None:
+    """Convert Longbridge volume to the application's share-based unit.
+
+    Longbridge reports Shanghai and Shenzhen volume in board lots, while the
+    unified market-data models store volume in shares. A-share stocks and ETFs
+    use 100 shares per lot; prefer an explicit positive lot size when one is
+    available from static info or the symbol record.
+    """
+    if value is None:
+        return None
+    volume = int(value)
+    if str(market or "").strip().upper() != "CN":
+        return volume
+    try:
+        multiplier = int(lot_size or CN_DEFAULT_LOT_SIZE)
+    except (TypeError, ValueError):
+        multiplier = CN_DEFAULT_LOT_SIZE
+    if multiplier <= 0:
+        multiplier = CN_DEFAULT_LOT_SIZE
+    return volume * multiplier
+
 
 def longbridge_datetime_to_utc(value: Any, fallback: datetime) -> datetime:
     if value is None:
@@ -81,6 +122,11 @@ def normalize_quote(symbol: str, push: Any, *, generation: int) -> MarketEvent:
     ):
         value = getattr(push, source, None)
         if value is not None:
+            if source == "volume":
+                value = normalize_longbridge_volume(
+                    value,
+                    market=longbridge_market_from_symbol(symbol),
+                )
             payload[target] = value
     trade_session = _session(getattr(push, "trade_session", None))
     payload["trade_session"] = trade_session
@@ -132,7 +178,10 @@ def normalize_candlestick(symbol: str, push: Any, *, generation: int) -> MarketE
         "high": getattr(candle, "high", None),
         "low": getattr(candle, "low", None),
         "close": getattr(candle, "close", None),
-        "volume": getattr(candle, "volume", 0),
+        "volume": normalize_longbridge_volume(
+            getattr(candle, "volume", 0),
+            market=longbridge_market_from_symbol(symbol),
+        ),
         "turnover": getattr(candle, "turnover", None),
         "trade_session": trade_session,
         "confirmed": bool(getattr(push, "is_confirmed", False)),
