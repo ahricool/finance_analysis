@@ -15,18 +15,18 @@ import os
 import sys
 import time
 import unittest
-from unittest.mock import patch, MagicMock, PropertyMock
 from dataclasses import dataclass
+from unittest.mock import MagicMock, PropertyMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from finance_analysis.integrations.market_data.providers.longbridge.market import (
     LongbridgeFetcher,
-    _to_longbridge_symbol,
-    _is_us_code,
     _is_hk_code,
+    _is_us_code,
+    _to_longbridge_symbol,
 )
-from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, RealtimeSource
+from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote
 
 
 class TestSymbolConversion(unittest.TestCase):
@@ -176,17 +176,21 @@ class TestLongbridgeFetcherMocked(unittest.TestCase):
     def test_realtime_quote_with_volume_ratio(self):
         """Verify volume_ratio calculation from history."""
         import types
-        from datetime import date as dt_date, timedelta
+        from datetime import date as dt_date
+        from datetime import timedelta
 
         # Mock longbridge.openapi module so the internal import succeeds
         mock_lb_module = types.ModuleType("longbridge")
         mock_lb_openapi = types.ModuleType("longbridge.openapi")
         mock_lb_openapi.Period = MagicMock()
         mock_lb_openapi.AdjustType = MagicMock()
-        with patch.dict("sys.modules", {
-            "longbridge": mock_lb_module,
-            "longbridge.openapi": mock_lb_openapi,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "longbridge": mock_lb_module,
+                "longbridge.openapi": mock_lb_openapi,
+            },
+        ):
             fetcher, ctx = self._make_fetcher_with_mock_ctx()
             ctx.quote.return_value = [self._make_mock_quote(volume=50000000)]
             ctx.static_info.return_value = [self._make_mock_static()]
@@ -222,7 +226,10 @@ class TestLongbridgeFetcherMocked(unittest.TestCase):
         fetcher, ctx = self._make_fetcher_with_mock_ctx()
         ctx.quote.side_effect = Exception("client is closed")
 
-        with patch("finance_analysis.integrations.market_data.providers.longbridge.market._connection_cooldown_seconds", return_value=30):
+        with patch(
+            "finance_analysis.integrations.market_data.providers.longbridge.market._connection_cooldown_seconds",
+            return_value=30,
+        ):
             first = fetcher.get_realtime_quote("AAPL")
             second = fetcher.get_realtime_quote("AAPL")
 
@@ -254,6 +261,16 @@ class TestLongbridgeFetcherMocked(unittest.TestCase):
         self.assertIsNotNone(quote)
         self.assertEqual(quote.code, "HK00700")
         ctx.quote.assert_called_with(["0700.HK"])
+
+    def test_close_releases_and_detaches_quote_context(self):
+        fetcher, ctx = self._make_fetcher_with_mock_ctx()
+        fetcher._config = object()
+
+        fetcher.close()
+
+        ctx.close.assert_called_once_with()
+        self.assertIsNone(fetcher._ctx)
+        self.assertIsNone(fetcher._config)
 
 
 class TestSupplementFromLongbridge(unittest.TestCase):

@@ -10,11 +10,15 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, desc, func, or_, select
 
-from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
-from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsFetcher, LongbridgeNewsRecord
-from finance_analysis.stocks.reference_data.stock_index import NASDAQ100_STOCK_INDEX
-from finance_analysis.database.models import NewsIntel
 from finance_analysis.database import DatabaseManager, ensure_aware_datetime
+from finance_analysis.database.models import NewsIntel
+from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
+from finance_analysis.integrations.market_data.providers.longbridge.news import (
+    LongbridgeNewsFetcher,
+    LongbridgeNewsRecord,
+)
+from finance_analysis.stocks.reference_data.mapping import STOCK_NAME_MAP
+from finance_analysis.stocks.reference_data.stock_index import NASDAQ100_STOCK_INDEX
 
 from .llm import PremarketNewsLLMAnalyzer
 from .models import NewsCandidate, PremarketNewsSummary
@@ -74,8 +78,10 @@ class USPremarketNewsService:
         db: Optional[DatabaseManager] = None,
     ) -> None:
         self.config = config
-        self.longbridge_fetcher = longbridge_fetcher or LongbridgeFetcher()
-        self.news_fetcher = news_fetcher or LongbridgeNewsFetcher(self.longbridge_fetcher)
+        # Retained for constructor compatibility. News collection must not
+        # initialize a QuoteContext merely to resolve a display name.
+        self.longbridge_fetcher = longbridge_fetcher
+        self.news_fetcher = news_fetcher or LongbridgeNewsFetcher()
         self.llm_analyzer = llm_analyzer or PremarketNewsLLMAnalyzer(config)
         self.reporter = reporter or PremarketNewsReporter()
         self.db = db or DatabaseManager.get_instance()
@@ -146,12 +152,7 @@ class USPremarketNewsService:
         )
 
     def _get_stock_name(self, symbol: str) -> str:
-        if symbol in NASDAQ100_STOCK_INDEX:
-            return NASDAQ100_STOCK_INDEX[symbol]
-        try:
-            return self.longbridge_fetcher.get_stock_name(symbol) or ""
-        except Exception:
-            return ""
+        return NASDAQ100_STOCK_INDEX.get(symbol) or STOCK_NAME_MAP.get(symbol, "")
 
     def _count_premarket_news_rows(self) -> int:
         with self.db.get_session() as session:

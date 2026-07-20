@@ -6,14 +6,21 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-import os
+import threading
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 from zoneinfo import ZoneInfo
 
-from finance_analysis.integrations.market_data.providers.longbridge.market import _longbridge_config_kwargs, _sanitize_longbridge_env
 from finance_analysis.core.time import coerce_aware_utc
+from finance_analysis.integrations.market_data.providers.longbridge.lifecycle import (
+    close_owned_context,
+    register_task_context,
+)
+from finance_analysis.integrations.market_data.providers.longbridge.market import (
+    build_longbridge_config,
+    has_longbridge_credentials,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -211,68 +218,42 @@ class LongbridgeCalendarFetcher:
     def __init__(self) -> None:
         self._ctx = None
         self._config = None
+        self._ctx_lock = threading.Lock()
 
     def _has_credentials(self) -> bool:
-        try:
-            from finance_analysis.integrations.market_data.config import get_data_provider_config
-
-            config = get_data_provider_config()
-            return bool(config.longbridge_app_key and config.longbridge_app_secret and config.longbridge_access_token)
-        except Exception:
-            return bool(
-                os.getenv("LONGBRIDGE_APP_KEY")
-                and os.getenv("LONGBRIDGE_APP_SECRET")
-                and os.getenv("LONGBRIDGE_ACCESS_TOKEN")
-            )
+        return has_longbridge_credentials()
 
     def _get_ctx(self) -> Any:
         if self._ctx is not None:
             return self._ctx
-        if not self._has_credentials():
-            raise RuntimeError("Longbridge credentials are not configured")
+        with self._ctx_lock:
+            if self._ctx is not None:
+                return self._ctx
+            if not self._has_credentials():
+                raise RuntimeError("Longbridge credentials are not configured")
 
-        from longbridge.openapi import CalendarContext, Config
+            from longbridge.openapi import CalendarContext
 
-        _sanitize_longbridge_env()
+            self._config = build_longbridge_config()
+            self._ctx = register_task_context(CalendarContext(self._config), label="CalendarContext")
+            logger.info("[LongbridgeCalendar] CalendarContext initialized")
+            return self._ctx
 
+    def close(self) -> None:
+        """Release this fetcher's CalendarContext."""
+        close_owned_context(self, label="CalendarContext", lock=self._ctx_lock)
+
+    def __enter__(self) -> "LongbridgeCalendarFetcher":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        self.close()
+
+    def __del__(self) -> None:
         try:
-            from finance_analysis.integrations.market_data.config import get_data_provider_config
-
-            app_config = get_data_provider_config()
-            app_key = app_config.longbridge_app_key
-            app_secret = app_config.longbridge_app_secret
-            access_token = app_config.longbridge_access_token
+            self.close()
         except Exception:
-            app_key = os.getenv("LONGBRIDGE_APP_KEY")
-            app_secret = os.getenv("LONGBRIDGE_APP_SECRET")
-            access_token = os.getenv("LONGBRIDGE_ACCESS_TOKEN")
-
-        for key, value in {
-            "LONGBRIDGE_APP_KEY": app_key,
-            "LONGBRIDGE_APP_SECRET": app_secret,
-            "LONGBRIDGE_ACCESS_TOKEN": access_token,
-        }.items():
-            if value and not os.environ.get(key):
-                os.environ[key] = value
-
-        lb_config = None
-        for factory_name in ("from_apikey_env", "from_env"):
-            factory = getattr(Config, factory_name, None)
-            if factory is None:
-                continue
-            try:
-                lb_config = factory()
-                logger.info("[LongbridgeCalendar] Config.%s() success", factory_name)
-                break
-            except Exception as exc:
-                logger.debug("[LongbridgeCalendar] Config.%s() failed: %s", factory_name, exc)
-
-        if lb_config is None:
-            lb_config = Config.from_apikey(app_key, app_secret, access_token, **_longbridge_config_kwargs())
-
-        self._config = lb_config
-        self._ctx = CalendarContext(lb_config)
-        return self._ctx
+            pass
 
     def _resolve_category(self, calendar_type: str) -> Any:
         from longbridge.openapi import CalendarCategory
@@ -331,7 +312,9 @@ class LongbridgeCalendarFetcher:
 
         events: List[Dict[str, Any]] = []
         for group in groups:
-            group_date = _parse_date(getattr(group, "date", None) if not isinstance(group, Mapping) else group.get("date"))
+            group_date = _parse_date(
+                getattr(group, "date", None) if not isinstance(group, Mapping) else group.get("date")
+            )
             infos = getattr(group, "infos", None) if not isinstance(group, Mapping) else group.get("infos")
             for info in infos or []:
                 event = self.normalize_info(info, calendar_type=calendar_type, market=market, group_date=group_date)

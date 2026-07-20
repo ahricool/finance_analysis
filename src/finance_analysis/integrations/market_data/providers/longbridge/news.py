@@ -20,13 +20,17 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
+from finance_analysis.core.logging import log_external_call_exception
+from finance_analysis.integrations.market_data.providers.longbridge.lifecycle import (
+    close_owned_context,
+    register_task_context,
+)
 from finance_analysis.integrations.market_data.providers.longbridge.market import (
     LongbridgeFetcher,
-    _longbridge_config_kwargs,
-    _sanitize_longbridge_env,
     _to_longbridge_symbol,
+    build_longbridge_config,
+    has_longbridge_credentials,
 )
-from finance_analysis.core.logging import log_external_call_exception
 from finance_analysis.search.models import SearchResponse, SearchResult
 
 logger = logging.getLogger(__name__)
@@ -129,14 +133,19 @@ class LongbridgeNewsFetcher:
     _CONNECTION_ERRORS = ("client is closed", "context closed", "connection closed")
 
     def __init__(self, quote_fetcher: Optional[LongbridgeFetcher] = None) -> None:
-        self._quote_fetcher = quote_fetcher or LongbridgeFetcher()
+        # Kept for call-site compatibility only. ContentContext configuration
+        # must not initialize or otherwise depend on a QuoteContext.
+        self._quote_fetcher = quote_fetcher
         self._ctx = None
         self._config = None
         self._ctx_lock = threading.Lock()
         self._cooldown_until = 0.0
 
     def is_available(self) -> bool:
-        if not self._quote_fetcher._is_available():
+        credentials_available = (
+            self._quote_fetcher._is_available() if self._quote_fetcher is not None else has_longbridge_credentials()
+        )
+        if not credentials_available:
             return False
         if self._cooldown_until > time.time():
             return False
@@ -149,9 +158,7 @@ class LongbridgeNewsFetcher:
         return any(token in msg for token in self._CONNECTION_ERRORS)
 
     def _invalidate_ctx(self) -> None:
-        with self._ctx_lock:
-            self._ctx = None
-            self._config = None
+        self.close()
 
     def _mark_connection_cooldown(self, exc: Exception) -> None:
         self._invalidate_ctx()
@@ -161,51 +168,8 @@ class LongbridgeNewsFetcher:
     def _build_config(self):
         if self._config is not None:
             return self._config
-
-        # Reuse quote fetcher credentials/config when already initialized.
-        self._quote_fetcher._get_ctx()
-        lb_config = getattr(self._quote_fetcher, "_config", None)
-        if lb_config is not None:
-            self._config = lb_config
-            return lb_config
-
-        from longbridge.openapi import Config
-
-        _sanitize_longbridge_env()
-        extra_kw = _longbridge_config_kwargs()
-        for factory_name in ("from_apikey_env", "from_env"):
-            factory = getattr(Config, factory_name, None)
-            if factory is None:
-                continue
-            try:
-                lb_config = factory()
-                self._config = lb_config
-                return lb_config
-            except Exception as exc:
-                logger.debug("[LongbridgeNews] Config.%s() 失败: %s", factory_name, exc)
-
-        try:
-            from finance_analysis.integrations.market_data.config import get_data_provider_config
-
-            app_config = get_data_provider_config()
-            lb_config = Config.from_apikey(
-                app_config.longbridge_app_key,
-                app_config.longbridge_app_secret,
-                app_config.longbridge_access_token,
-                **extra_kw,
-            )
-        except Exception:
-            import os
-
-            lb_config = Config.from_apikey(
-                os.getenv("LONGBRIDGE_APP_KEY"),
-                os.getenv("LONGBRIDGE_APP_SECRET"),
-                os.getenv("LONGBRIDGE_ACCESS_TOKEN"),
-                **extra_kw,
-            )
-
-        self._config = lb_config
-        return lb_config
+        self._config = build_longbridge_config()
+        return self._config
 
     def _get_ctx(self):
         if self._ctx is not None:
@@ -221,7 +185,7 @@ class LongbridgeNewsFetcher:
                 lb_config = self._build_config()
                 if lb_config is None:
                     return None
-                self._ctx = ContentContext(lb_config)
+                self._ctx = register_task_context(ContentContext(lb_config), label="ContentContext")
                 logger.info("[LongbridgeNews] ContentContext 初始化成功")
                 return self._ctx
             except Exception as exc:
@@ -232,6 +196,22 @@ class LongbridgeNewsFetcher:
                     exc=exc,
                 )
                 return None
+
+    def close(self) -> None:
+        """Release this fetcher's ContentContext."""
+        close_owned_context(self, label="ContentContext", lock=self._ctx_lock)
+
+    def __enter__(self) -> "LongbridgeNewsFetcher":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def fetch_news(
         self,

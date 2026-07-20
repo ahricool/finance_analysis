@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -178,9 +179,7 @@ def test_us_data_source_prefers_market_streamer_for_quote_and_bars():
 
 def test_us_data_source_redis_failure_falls_back_to_longbridge():
     now = datetime(2026, 6, 10, 10, 0, tzinfo=US_EASTERN)
-    longbridge = _FakeLongbridge(
-        {"NVDA": [_bar(datetime(2026, 6, 10, 9, 59, tzinfo=US_EASTERN), 149, 150)]}
-    )
+    longbridge = _FakeLongbridge({"NVDA": [_bar(datetime(2026, 6, 10, 9, 59, tzinfo=US_EASTERN), 149, 150)]})
 
     class _BrokenRealtime:
         fallback_reason = "redis_error"
@@ -613,15 +612,13 @@ def test_relative_to_sectors_ignores_non_metric_entries():
 
 
 def test_parse_llm_json_response_repairs_fenced_json():
-    parsed = parse_llm_json_response(
-        """```json
+    parsed = parse_llm_json_response("""```json
         {
           "final_decision": "accept",
           "need_notification": true,
           "confidence": 0.7,
         }
-        ```"""
-    )
+        ```""")
 
     assert parsed is not None
     assert parsed["final_decision"] == "accept"
@@ -709,6 +706,25 @@ class _FakeLongbridge:
 class _FakeNewsFetcher:
     def is_available(self):
         return False
+
+
+def test_intraday_news_name_lookup_does_not_call_quote_context():
+    longbridge = MagicMock()
+    news_fetcher = MagicMock()
+    news_fetcher.is_available.return_value = True
+    news_fetcher.fetch_and_save_news.return_value = []
+    service = USIntradayAnalysisService(
+        config=object(),
+        longbridge_fetcher=longbridge,
+        news_fetcher=news_fetcher,
+        use_lock=False,
+        signal_state_store=IntradaySignalStateStore(redis_client=False),
+    )
+    service._run_query_id = "test-query"
+
+    assert service._get_symbol_news("NVDA") == []
+    longbridge.get_stock_name.assert_not_called()
+    assert news_fetcher.fetch_and_save_news.call_args.kwargs["name"] == "NVIDIA Corporation"
 
 
 class _FakeJudge:

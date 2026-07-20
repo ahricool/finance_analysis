@@ -6,17 +6,18 @@ from __future__ import annotations
 import logging
 import uuid
 from contextlib import AbstractContextManager
+from contextvars import Token
 from typing import Any, Dict, Optional
 
 from celery import Celery
-from celery.signals import beat_init
+from celery.signals import beat_init, before_task_publish
 from celery.signals import setup_logging as celery_setup_logging
-from celery.signals import before_task_publish, task_failure, task_postrun, task_prerun, worker_process_init
+from celery.signals import task_failure, task_postrun, task_prerun, worker_process_init
 
 from finance_analysis.config import load_env
-from finance_analysis.database.config import get_database_config
 from finance_analysis.core.logging import ensure_backend_logging, task_logging_context
 from finance_analysis.core.paths import ensure_data_directories
+from finance_analysis.database.config import get_database_config
 from finance_analysis.tasks.celery.jobs import TASK_MODULES
 from finance_analysis.tasks.celery.metadata import get_on_demand_task_metadata
 from finance_analysis.tasks.celery.schedule import (
@@ -30,6 +31,7 @@ from finance_analysis.tasks.lifecycle import TaskLifecycleMetadata, get_task_lif
 CELERY_APP_NAME = "finance_analysis"
 logger = logging.getLogger(__name__)
 _TASK_LOG_CONTEXTS: Dict[str, AbstractContextManager[logging.Logger]] = {}
+_LONGBRIDGE_TASK_SCOPE_TOKENS: Dict[str, Token[Optional[str]]] = {}
 
 
 def configure_celery_logging() -> None:
@@ -60,10 +62,13 @@ def _resolve_celery_task_id(task_id: Optional[str], task: Any = None) -> str:
 
 @task_prerun.connect
 def _start_task_file_logging(task_id: str, task: Any, **_: Any) -> None:
+    from finance_analysis.integrations.market_data.providers.longbridge.lifecycle import begin_celery_task_scope
+
+    resolved_task_id = _resolve_celery_task_id(task_id, task)
+    _LONGBRIDGE_TASK_SCOPE_TOKENS[resolved_task_id] = begin_celery_task_scope(resolved_task_id)
     if is_tracked_callable(task):
         return
     task_name = getattr(task, "name", None) or "celery_task"
-    resolved_task_id = _resolve_celery_task_id(task_id, task)
     context = task_logging_context(task_name, task_id=resolved_task_id, celery=True)
     context.__enter__()
     _TASK_LOG_CONTEXTS[resolved_task_id] = context
@@ -72,14 +77,27 @@ def _start_task_file_logging(task_id: str, task: Any, **_: Any) -> None:
 
 @task_postrun.connect
 def _stop_task_file_logging(task_id: str, task: Any, state: str, **_: Any) -> None:
-    if is_tracked_callable(task):
-        return
     task_name = getattr(task, "name", None) or "celery_task"
     resolved_task_id = _resolve_celery_task_id(task_id, task)
-    logger.info("Celery task finished: task_id=%s task_name=%s state=%s", resolved_task_id, task_name, state)
-    context = _TASK_LOG_CONTEXTS.pop(resolved_task_id, None)
-    if context is not None:
-        context.__exit__(None, None, None)
+    token = _LONGBRIDGE_TASK_SCOPE_TOKENS.pop(resolved_task_id, None)
+    try:
+        from finance_analysis.integrations.market_data.providers.longbridge.lifecycle import (
+            close_celery_task_scope,
+            end_celery_task_scope,
+        )
+
+        try:
+            close_celery_task_scope(resolved_task_id)
+        finally:
+            end_celery_task_scope(token)
+    except Exception as exc:
+        logger.warning("Celery task Longbridge context cleanup failed: task_id=%s error=%s", resolved_task_id, exc)
+
+    if not is_tracked_callable(task):
+        logger.info("Celery task finished: task_id=%s task_name=%s state=%s", resolved_task_id, task_name, state)
+        context = _TASK_LOG_CONTEXTS.pop(resolved_task_id, None)
+        if context is not None:
+            context.__exit__(None, None, None)
 
 
 @task_failure.connect

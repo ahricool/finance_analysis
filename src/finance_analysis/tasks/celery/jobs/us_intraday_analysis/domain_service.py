@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional, Sequence
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
 from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsFetcher
 from finance_analysis.integrations.market_data.providers.yfinance import YfinanceFetcher
+from finance_analysis.stocks.reference_data.mapping import STOCK_NAME_MAP
+from finance_analysis.stocks.reference_data.stock_index import NASDAQ100_STOCK_INDEX
 from finance_analysis.tasks.celery.jobs.intraday_signal_state import (
     IntradaySignalStateStore,
     build_notification_signature,
@@ -111,9 +113,7 @@ class USIntradayAnalysisService:
             market_context = self._load_market_context(run_time)
             qqq_metrics = market_context.get("QQQ", {})
             sector_metrics = {
-                symbol: market_context[symbol]
-                for symbol in MARKET_ETFS
-                if symbol != "QQQ" and symbol in market_context
+                symbol: market_context[symbol] for symbol in MARKET_ETFS if symbol != "QQQ" and symbol in market_context
             }
 
             candidates: List[Dict[str, Any]] = []
@@ -227,7 +227,7 @@ class USIntradayAnalysisService:
                 dimension="market_news",
             )
         for start in range(0, len(candidates), LLM_BATCH_SIZE):
-            batch = candidates[start:start + LLM_BATCH_SIZE]
+            batch = candidates[start : start + LLM_BATCH_SIZE]
             for candidate in batch:
                 candidate["news"] = self._get_symbol_news(candidate["symbol"])
             verdicts = self.llm_judge.judge_batch(batch, market_context)
@@ -272,7 +272,7 @@ class USIntradayAnalysisService:
             self._news_cache[symbol] = []
             return []
 
-        stock_name = self.longbridge_fetcher.get_stock_name(symbol) or ""
+        stock_name = NASDAQ100_STOCK_INDEX.get(symbol) or STOCK_NAME_MAP.get(symbol, "")
         records = self.news_fetcher.fetch_and_save_news(
             symbol,
             name=stock_name,
@@ -389,11 +389,11 @@ def _notification_severity(candidate: Dict[str, Any]) -> str:
     return "warning" if candidate.get("severity") == "high" else "info"
 
 
-
 if __name__ == "__main__":
     import logging
 
     from finance_analysis.analysis.pipeline_config import get_pipeline_config
+
     logging.basicConfig(level=logging.DEBUG)
     service = USIntradayAnalysisService(config=get_pipeline_config())
     summary = service.run(["NVDA"])

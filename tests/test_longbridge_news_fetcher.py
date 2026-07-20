@@ -83,7 +83,30 @@ class TestLongbridgeNewsFetcher(unittest.TestCase):
 
         self.assertEqual(records, [])
 
-    @patch("finance_analysis.integrations.market_data.providers.longbridge.news._to_longbridge_symbol", return_value="AAPL.US")
+    @patch("finance_analysis.integrations.market_data.providers.longbridge.news.build_longbridge_config")
+    def test_build_config_does_not_initialize_quote_context(self, build_config):
+        config = object()
+        build_config.return_value = config
+
+        assert self.fetcher._build_config() is config
+
+        self.quote_fetcher._get_ctx.assert_not_called()
+
+    def test_close_releases_and_detaches_content_context(self):
+        context = MagicMock()
+        self.fetcher._ctx = context
+        self.fetcher._config = object()
+
+        self.fetcher.close()
+
+        context.close.assert_called_once_with()
+        self.assertIsNone(self.fetcher._ctx)
+        self.assertIsNone(self.fetcher._config)
+
+    @patch(
+        "finance_analysis.integrations.market_data.providers.longbridge.news._to_longbridge_symbol",
+        return_value="AAPL.US",
+    )
     def test_fetch_news_normalizes_sdk_items(self, _mock_symbol):
         fake_ctx = MagicMock()
         fake_ctx.news.return_value = [
@@ -103,7 +126,10 @@ class TestLongbridgeNewsFetcher(unittest.TestCase):
         self.assertEqual(records[0].title, "NVDA beats estimates")
         fake_ctx.news.assert_called_once_with("AAPL.US")
 
-    @patch("finance_analysis.integrations.market_data.providers.longbridge.news._to_longbridge_symbol", return_value="AAPL.US")
+    @patch(
+        "finance_analysis.integrations.market_data.providers.longbridge.news._to_longbridge_symbol",
+        return_value="AAPL.US",
+    )
     def test_fetch_and_save_news_persists_with_dedup(self, _mock_symbol):
         fake_ctx = MagicMock()
         fake_ctx.news.return_value = [

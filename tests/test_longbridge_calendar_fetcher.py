@@ -24,6 +24,19 @@ def test_fetch_calendar_calls_single_sdk_finance_calendar_method():
     ctx.finance_calendar.assert_called_once_with("REPORT", "2026-06-18", "2026-07-18", "US")
 
 
+def test_close_releases_and_detaches_calendar_context():
+    fetcher = LongbridgeCalendarFetcher()
+    context = MagicMock()
+    fetcher._ctx = context
+    fetcher._config = object()
+
+    fetcher.close()
+
+    context.close.assert_called_once_with()
+    assert fetcher._ctx is None
+    assert fetcher._config is None
+
+
 def test_fetch_calendar_passes_sdk_expected_request_types_with_market_enum():
     from longbridge.openapi import CalendarCategory, Market
 

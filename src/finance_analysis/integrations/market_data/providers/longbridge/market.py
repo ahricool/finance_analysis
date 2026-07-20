@@ -21,21 +21,25 @@ LongbridgeFetcher - 长桥兜底数据源 (Priority 5)
 
 import logging
 import os
-import time
 import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from finance_analysis.integrations.market_data.base import BaseFetcher, STANDARD_COLUMNS
-from finance_analysis.integrations.market_data.codes import is_bse_code, normalize_stock_code
-from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, RealtimeSource, safe_float
-from finance_analysis.integrations.market_data.providers.longbridge.normalizer import longbridge_datetime_to_utc
-from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code, is_us_index_code
 from finance_analysis.core.logging import log_external_call_exception
+from finance_analysis.integrations.market_data.base import STANDARD_COLUMNS, BaseFetcher
+from finance_analysis.integrations.market_data.codes import is_bse_code, normalize_stock_code
+from finance_analysis.integrations.market_data.providers.longbridge.lifecycle import (
+    close_owned_context,
+    register_task_context,
+)
+from finance_analysis.integrations.market_data.providers.longbridge.normalizer import longbridge_datetime_to_utc
+from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_index_code, is_us_stock_code
+from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote, safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +124,7 @@ def _sanitize_longbridge_env() -> None:
             p = get_log_app_dir()
             p.mkdir(parents=True, exist_ok=True)
             os.environ["LONGBRIDGE_LOG_PATH"] = str(p / "longbridge_sdk.log")
-            logger.debug("[Longbridge] 设置 LONGBRIDGE_LOG_PATH=%s",
-                         os.environ["LONGBRIDGE_LOG_PATH"])
+            logger.debug("[Longbridge] 设置 LONGBRIDGE_LOG_PATH=%s", os.environ["LONGBRIDGE_LOG_PATH"])
         except Exception:
             pass
 
@@ -139,14 +142,14 @@ def _sanitize_longbridge_env() -> None:
         ):
             if default_url and not os.environ.get(env_name):
                 os.environ[env_name] = default_url
-                logger.debug("[Longbridge] 根据 REGION=%s 设置 %s=%s",
-                             region, env_name, default_url)
+                logger.debug("[Longbridge] 根据 REGION=%s 设置 %s=%s", region, env_name, default_url)
 
 
 def _longbridge_config_kwargs() -> Dict[str, Any]:
     """Optional kwargs for ``Config.from_apikey`` (Longbridge OpenAPI SDK)."""
     try:
         import inspect
+
         from longbridge.openapi import Config, Language, PushCandlestickMode
     except Exception:
         return {}
@@ -201,9 +204,7 @@ def _longbridge_config_kwargs() -> Dict[str, Any]:
         elif cm == "confirmed":
             kw["push_candlestick_mode"] = PushCandlestickMode.Confirmed
         elif cm:
-            logger.warning(
-                "Unknown LONGBRIDGE_PUSH_CANDLESTICK_MODE=%r; use realtime or confirmed", cm
-            )
+            logger.warning("Unknown LONGBRIDGE_PUSH_CANDLESTICK_MODE=%r; use realtime or confirmed", cm)
 
     if "log_path" in params:
         try:
@@ -270,6 +271,21 @@ def build_longbridge_config() -> Any:
         os.getenv("LONGBRIDGE_QUOTE_WS_URL", "(default)"),
     )
     return config
+
+
+def has_longbridge_credentials() -> bool:
+    """Return whether a complete API-key credential set is configured."""
+    try:
+        from finance_analysis.integrations.market_data.config import get_data_provider_config
+
+        config = get_data_provider_config()
+        return bool(config.longbridge_app_key and config.longbridge_app_secret and config.longbridge_access_token)
+    except Exception:
+        return bool(
+            os.getenv("LONGBRIDGE_APP_KEY")
+            and os.getenv("LONGBRIDGE_APP_SECRET")
+            and os.getenv("LONGBRIDGE_ACCESS_TOKEN")
+        )
 
 
 def _is_us_code(stock_code: str) -> bool:
@@ -366,6 +382,7 @@ class LongbridgeFetcher(BaseFetcher):
     name = "LongbridgeFetcher"
     priority = int(os.getenv("LONGBRIDGE_PRIORITY", "5"))
     from finance_analysis.integrations.market_data.history import SOURCE_PRIORITY as _SOURCE_PRIORITY
+
     source_priority = _SOURCE_PRIORITY[name]
     _HISTORY_PAGE_SIZE = 1000
 
@@ -425,7 +442,9 @@ class LongbridgeFetcher(BaseFetcher):
             frame = frame.drop_duplicates("bar_time", keep="last").sort_values("bar_time").reset_index(drop=True)
         return frame
 
-    def _fetch_history_pages(self, *, symbol, period_name: str, start_time: datetime, end_time: datetime, data_type: str):
+    def _fetch_history_pages(
+        self, *, symbol, period_name: str, start_time: datetime, end_time: datetime, data_type: str
+    ):
         from longbridge.openapi import AdjustType, Period, TradeSessions
 
         from finance_analysis.integrations.market_data.history import HistoricalProviderError
@@ -433,9 +452,13 @@ class LongbridgeFetcher(BaseFetcher):
         ctx = self._get_ctx()
         if ctx is None:
             raise HistoricalProviderError(
-                self.name, symbol.market, symbol.code, data_type,
+                self.name,
+                symbol.market,
+                symbol.code,
+                data_type,
                 f"{start_time.isoformat()}..{end_time.isoformat()}",
-                "Longbridge credentials or QuoteContext unavailable", False,
+                "Longbridge credentials or QuoteContext unavailable",
+                False,
             )
         provider_symbol = self.to_longbridge_symbol(symbol.code)
         period = getattr(Period, period_name)
@@ -475,16 +498,25 @@ class LongbridgeFetcher(BaseFetcher):
         except Exception as exc:
             reason = str(exc)
             error_code = getattr(exc, "code", None)
-            retryable = error_code in (301602, 301606) or self._is_connection_error(exc) or any(
-                token in reason.lower() for token in ("timeout", "429", "rate limit", "tempor", "context dropped")
+            retryable = (
+                error_code in (301602, 301606)
+                or self._is_connection_error(exc)
+                or any(
+                    token in reason.lower() for token in ("timeout", "429", "rate limit", "tempor", "context dropped")
+                )
             )
             if error_code in (301600, 301604, 301607):
                 retryable = False
             if self._is_connection_error(exc):
                 self._mark_connection_cooldown(exc)
             raise HistoricalProviderError(
-                self.name, symbol.market, symbol.code, data_type,
-                f"{start_time.isoformat()}..{end_time.isoformat()}", reason, retryable,
+                self.name,
+                symbol.market,
+                symbol.code,
+                data_type,
+                f"{start_time.isoformat()}..{end_time.isoformat()}",
+                reason,
+                retryable,
             ) from exc
         return collected
 
@@ -522,9 +554,7 @@ class LongbridgeFetcher(BaseFetcher):
 
     def _invalidate_ctx(self):
         """Reset cached context so the next call rebuilds the connection."""
-        with self._ctx_lock:
-            self._ctx = None
-            self._config = None
+        self.close()
 
     def _mark_connection_cooldown(self, exc: Exception) -> None:
         cooldown_seconds = _connection_cooldown_seconds()
@@ -557,22 +587,8 @@ class LongbridgeFetcher(BaseFetcher):
         """Check if Longbridge credentials are configured."""
         if self._available is not None:
             return self._available
-        try:
-            from finance_analysis.integrations.market_data.config import get_data_provider_config
-            config = get_data_provider_config()
-            has_creds = bool(
-                config.longbridge_app_key
-                and config.longbridge_app_secret
-                and config.longbridge_access_token
-            )
-        except Exception:
-            has_creds = bool(
-                os.getenv("LONGBRIDGE_APP_KEY")
-                and os.getenv("LONGBRIDGE_APP_SECRET")
-                and os.getenv("LONGBRIDGE_ACCESS_TOKEN")
-            )
-        self._available = has_creds
-        return has_creds
+        self._available = has_longbridge_credentials()
+        return self._available
 
     def _get_ctx(self):
         """Lazy-init the QuoteContext (thread-safe)."""
@@ -587,7 +603,7 @@ class LongbridgeFetcher(BaseFetcher):
                 from longbridge.openapi import QuoteContext
 
                 self._config = build_longbridge_config()
-                self._ctx = QuoteContext(self._config)
+                self._ctx = register_task_context(QuoteContext(self._config), label="QuoteContext")
                 logger.info("[Longbridge] QuoteContext 初始化成功")
                 return self._ctx
             except Exception as e:
@@ -600,6 +616,22 @@ class LongbridgeFetcher(BaseFetcher):
                 )
                 self._available = False
                 return None
+
+    def close(self) -> None:
+        """Release this fetcher's QuoteContext and its background runtime."""
+        close_owned_context(self, label="QuoteContext", lock=self._ctx_lock)
+
+    def __enter__(self) -> "LongbridgeFetcher":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # static_info with cache
@@ -737,7 +769,7 @@ class LongbridgeFetcher(BaseFetcher):
             return None
         api_start = time.time()
         try:
-            from longbridge.openapi import Period, AdjustType
+            from longbridge.openapi import AdjustType, Period
 
             candles = ctx.history_candlesticks_by_offset(
                 symbol,
@@ -991,8 +1023,7 @@ class LongbridgeFetcher(BaseFetcher):
         )
 
         logger.info(
-            f"[Longbridge] {symbol} 行情获取成功: "
-            f"价格={price}, 量比={volume_ratio}, 换手率={turnover_rate}"
+            f"[Longbridge] {symbol} 行情获取成功: " f"价格={price}, 量比={volume_ratio}, 换手率={turnover_rate}"
         )
         return quote
 
@@ -1000,9 +1031,7 @@ class LongbridgeFetcher(BaseFetcher):
     # BaseFetcher abstract methods (historical daily data)
     # ------------------------------------------------------------------
 
-    def _fetch_raw_data(
-        self, stock_code: str, start_date: str, end_date: str
-    ) -> pd.DataFrame:
+    def _fetch_raw_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """Fetch historical candlesticks from Longbridge."""
         if not self.is_available_for_request("daily_data"):
             raise RuntimeError("Longbridge temporarily unavailable for daily_data")
@@ -1015,7 +1044,7 @@ class LongbridgeFetcher(BaseFetcher):
         if ctx is None:
             raise RuntimeError("Longbridge QuoteContext not available")
 
-        from longbridge.openapi import Period, AdjustType
+        from longbridge.openapi import AdjustType, Period
 
         start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
         end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
@@ -1061,15 +1090,17 @@ class LongbridgeFetcher(BaseFetcher):
             else:
                 dt = datetime.fromtimestamp(int(ts)).date()
 
-            rows.append({
-                "date": dt.strftime("%Y-%m-%d"),
-                "open": safe_float(getattr(c, "open", None)),
-                "high": safe_float(getattr(c, "high", None)),
-                "low": safe_float(getattr(c, "low", None)),
-                "close": safe_float(getattr(c, "close", None)),
-                "volume": int(getattr(c, "volume", 0) or 0),
-                "turnover": safe_float(getattr(c, "turnover", None)),
-            })
+            rows.append(
+                {
+                    "date": dt.strftime("%Y-%m-%d"),
+                    "open": safe_float(getattr(c, "open", None)),
+                    "high": safe_float(getattr(c, "high", None)),
+                    "low": safe_float(getattr(c, "low", None)),
+                    "close": safe_float(getattr(c, "close", None)),
+                    "volume": int(getattr(c, "volume", 0) or 0),
+                    "turnover": safe_float(getattr(c, "turnover", None)),
+                }
+            )
 
         return pd.DataFrame(rows)
 
@@ -1093,6 +1124,7 @@ class LongbridgeFetcher(BaseFetcher):
 
 if __name__ == "__main__":
     import logging
+
     logging.basicConfig(level=logging.DEBUG)
     fetcher = LongbridgeFetcher()
     bars = fetcher.get_minute_candlesticks("QQQ", interval=1)

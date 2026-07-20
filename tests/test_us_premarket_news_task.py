@@ -8,18 +8,18 @@ from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsRecord
+from finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service import (
+    USPremarketNewsService,
+    build_premarket_symbol_universe,
+    normalize_us_symbol,
+    premarket_news_window,
+)
 from finance_analysis.tasks.celery.jobs.us_premarket_news.llm import (
     normalize_impact_results,
     normalize_importance_results,
 )
-from finance_analysis.tasks.celery.jobs.us_premarket_news.notifications import render_calendar_content
-from finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service import (
-    build_premarket_symbol_universe,
-    normalize_us_symbol,
-    premarket_news_window,
-    USPremarketNewsService,
-)
 from finance_analysis.tasks.celery.jobs.us_premarket_news.models import PremarketNewsSummary
+from finance_analysis.tasks.celery.jobs.us_premarket_news.notifications import render_calendar_content
 
 
 def test_normalize_us_symbol_strips_us_suffix_and_preserves_share_class():
@@ -156,6 +156,7 @@ def test_service_run_continues_when_single_symbol_fetch_fails():
     service.llm_analyzer.judge_impact.return_value = []
     service.reporter.record_to_calendar.return_value = 123
     service.reporter.send_notification.return_value = True
+
     def _fake_fetch(symbol, *, query_id):
         del query_id
         if symbol == "BROKEN":
@@ -181,3 +182,19 @@ def test_service_run_continues_when_single_symbol_fetch_fails():
     assert any("BROKEN" in warning for warning in summary.warnings)
     assert summary.calendar_id == 123
     assert summary.notification_sent is True
+
+
+def test_stock_name_lookup_does_not_open_quote_context():
+    quote_fetcher = MagicMock()
+    service = USPremarketNewsService(
+        config=MagicMock(),
+        longbridge_fetcher=quote_fetcher,
+        news_fetcher=MagicMock(),
+        llm_analyzer=MagicMock(),
+        reporter=MagicMock(),
+        db=MagicMock(),
+    )
+
+    assert service._get_stock_name("COIN") == "Coinbase"
+    assert service._get_stock_name("UNKNOWN") == ""
+    quote_fetcher.get_stock_name.assert_not_called()
