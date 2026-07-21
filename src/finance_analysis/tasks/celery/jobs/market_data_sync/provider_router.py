@@ -238,9 +238,17 @@ class MarketDataProviderRouter:
             fallback_reasons,
         )
 
-    def fetch_adjustment(self, symbol: Any, requested_days: list[date]) -> RoutedAdjustment:
+    def fetch_adjustment(
+        self,
+        symbol: Any,
+        requested_days: list[date],
+        *,
+        use_prepared_batch: bool = True,
+    ) -> RoutedAdjustment:
         fallback_reasons: list[str] = []
         for provider in self.providers:
+            if not use_prepared_batch and not hasattr(provider, "fetch_adjustment_data"):
+                continue
             if (
                 not hasattr(provider, "fetch_adjustment_data")
                 and provider.name not in self._adjustment_batches
@@ -249,9 +257,11 @@ class MarketDataProviderRouter:
                 continue
             try:
                 provider_errors = self._adjustment_batch_errors.get(provider.name, {})
-                if symbol.code in provider_errors:
+                if use_prepared_batch and symbol.code in provider_errors:
                     raise RuntimeError(provider_errors[symbol.code])
-                if symbol.code in self._adjustment_batch_prepared_codes.get(provider.name, set()):
+                if use_prepared_batch and symbol.code in self._adjustment_batch_prepared_codes.get(
+                    provider.name, set()
+                ):
                     data = self._adjustment_batches[provider.name].get(symbol.code)
                 else:
                     data = self._call(

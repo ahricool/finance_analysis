@@ -61,7 +61,7 @@ class DailyResult:
 
 @dataclass
 class AdjustmentResult:
-    status: Literal["success", "failed", "skipped"]
+    status: Literal["success", "partial", "failed", "skipped"]
     changed: bool = False
     corporate_action_rows: int = 0
     adjustment_factor_rows: int = 0
