@@ -22,6 +22,7 @@ from finance_analysis.interfaces.api.v1.schemas.quant import (
 )
 from finance_analysis.quant.capabilities import get_quant_capabilities
 from finance_analysis.quant.events.import_service import EventImportService
+from finance_analysis.quant.markets import get_quant_universe_codes
 from finance_analysis.quant.models import QLIB_TRAINABLE_MODEL_KEYS
 from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
 from finance_analysis.tasks.celery.schedule import QUEUE_ANALYSIS
@@ -51,20 +52,20 @@ async def capabilities(market: QuantMarket = "US", _: User = Depends(require_cur
 async def universes(market: QuantMarket = "US", _: User = Depends(require_current_user)):
     repo = QuantRepository()
     item = _universe(repo, market, None)
-    members = repo.active_members(item.id, date.today())
+    codes = sorted(get_quant_universe_codes(market))
     return [
         {
             **encoded(item),
-            "member_count": len(members),
+            "member_count": len(codes),
             "members": [
                 {
-                    "code": symbol.code,
-                    "sector_key": member.sector_key,
-                    "sector_benchmark_code": member.sector_benchmark_code,
-                    "effective_from": member.effective_from,
-                    "effective_to": member.effective_to,
+                    "code": code,
+                    "sector_key": None,
+                    "sector_benchmark_code": None,
+                    "effective_from": None,
+                    "effective_to": None,
                 }
-                for member, symbol in members
+                for code in codes
             ],
         }
     ]

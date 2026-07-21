@@ -20,15 +20,18 @@ from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.datasets.validator import validate_daily_bars
-from finance_analysis.quant.exceptions import BenchmarkDataMissingError, QuantDatasetValidationError
+from finance_analysis.quant.exceptions import QuantDatasetValidationError
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
-from finance_analysis.quant.markets import get_quant_market_config, validate_universe_for_market
+from finance_analysis.quant.markets import (
+    get_quant_market_config,
+    get_quant_universe_codes,
+    validate_universe_for_market,
+)
 from finance_analysis.quant.price_modes import (
     ADJUSTMENT_MODE_FORWARD,
     DEFAULT_QUANT_PRICE_MODE,
     normalize_price_mode,
 )
-from finance_analysis.quant.sectors.service import build_synthetic_sector_benchmark
 
 logger = logging.getLogger(__name__)
 
@@ -70,21 +73,11 @@ class QlibDatasetExporter:
             or not getattr(definition, "enabled", True)
         ):
             raise ValueError(f"Supported {market_config.market} universe {universe} is not available")
-        members = self.repository.active_members(definition.id, date_to)
-        active_codes = {symbol.code for _, symbol in members}
-        candidate_codes = set(candidate_codes or active_codes)
-        if not candidate_codes.issubset(active_codes):
-            raise ValueError("Candidate codes must be active members of the selected universe")
+        universe_codes = get_quant_universe_codes(market_config.market)
+        candidate_codes = set(candidate_codes or universe_codes)
+        if not candidate_codes.issubset(universe_codes):
+            raise ValueError("Candidate codes must belong to the fixed Quant Universe")
         benchmark_codes = set(market_config.benchmark_dependencies)
-        benchmark_codes.update(
-            member.sector_benchmark_code
-            for member, symbol in members
-            if symbol.code in candidate_codes
-            and member.sector_benchmark_code
-            and not member.sector_benchmark_code.startswith("CN-SECTOR-")
-        )
-        if not benchmark_codes:
-            raise BenchmarkDataMissingError("Universe has no available benchmark mapping")
         loaded = DailyBarLoader(self.repository).load(
             market_config.market,
             candidate_codes | benchmark_codes,
@@ -149,17 +142,11 @@ class QlibDatasetExporter:
             )
             relative = f"datasets/{dataset_key}"
             root = self.artifacts.directory(relative)
-            sector_mapping = {
-                symbol.code: member.sector_benchmark_code
-                for member, symbol in members
-                if symbol.code in candidate_codes
-            }
             self._write_qlib(
                 root,
                 frame,
                 candidate_codes,
-                definition.benchmark_code,
-                sector_mapping,
+                market_config.primary_benchmark,
                 market_config.market,
             )
             manifest = {
@@ -179,8 +166,7 @@ class QlibDatasetExporter:
                 "source_revision": source_revision,
                 "code_commit": _git_commit(),
                 "created_at": utc_isoformat(utc_now()),
-                "sector_benchmark_mapping": sector_mapping,
-                "market_benchmark": definition.benchmark_code,
+                "market_benchmark": market_config.primary_benchmark,
                 "vwap": vwap_report,
                 "warnings": report["warnings"],
             }
@@ -211,7 +197,6 @@ class QlibDatasetExporter:
         frame: pd.DataFrame,
         candidate_codes: set[str],
         market_benchmark: str | None,
-        sector_mapping: dict[str, str | None],
         market: str = "US",
     ) -> None:
         calendars = root / "calendars"
@@ -246,7 +231,6 @@ class QlibDatasetExporter:
             frame,
             candidate_codes,
             market_benchmark,
-            sector_mapping,
             market,
         )
         if not custom.empty:
@@ -257,7 +241,6 @@ class QlibDatasetExporter:
         frame: pd.DataFrame,
         candidate_codes: set[str],
         market_benchmark: str | None,
-        sector_mapping: dict[str, str | None],
         market: str,
     ) -> pd.DataFrame:
         groups = {
@@ -267,17 +250,6 @@ class QlibDatasetExporter:
         market_frame = groups.get(market_benchmark or "")
         if market_frame is None:
             return pd.DataFrame()
-        synthetic_sectors = {
-            sector_code: build_synthetic_sector_benchmark(
-                {
-                    code: groups[code]
-                    for code in candidate_codes
-                    if code in groups and sector_mapping.get(code) == sector_code
-                }
-            )
-            for sector_code in set(sector_mapping.values())
-            if sector_code and sector_code.startswith("CN-SECTOR-")
-        }
         columns = [
             "ret_1d",
             "ret_5d",
@@ -299,12 +271,7 @@ class QlibDatasetExporter:
         output = []
         for code in sorted(candidate_codes):
             bars = groups.get(code)
-            sector_code = sector_mapping.get(code)
-            sector = groups.get(sector_code or market_benchmark or "")
-            if sector is None:
-                sector = synthetic_sectors.get(sector_code or "")
-            if sector is None:
-                sector = market_frame
+            sector = market_frame
             if bars is None or sector is None:
                 continue
             features = add_relative_strength(build_daily_features(bars), market_frame, sector)

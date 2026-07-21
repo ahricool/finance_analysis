@@ -25,7 +25,7 @@ def _load_migration() -> ModuleType:
 
 
 @pytest.mark.skipif(not os.getenv("DATABASE_URL"), reason="PostgreSQL required")
-def test_fixed_universe_migration_preserves_ids_and_ends_non_index_members() -> None:
+def test_fixed_universe_migration_preserves_ids_and_leaves_member_rows_untouched() -> None:
     migration = _load_migration()
     database = DatabaseManager.get_instance()
     schema = f"fixed_universe_{uuid.uuid4().hex}"
@@ -96,7 +96,7 @@ def test_fixed_universe_migration_preserves_ids_and_ends_non_index_members() -> 
 
             universe = connection.execute(
                 text(
-                    "SELECT id, key, name, is_dynamic, config FROM quant_universe "
+                    "SELECT id, key, name, is_dynamic, sector_benchmark_mode, config FROM quant_universe "
                     "WHERE id = 42"
                 )
             ).mappings().one()
@@ -104,6 +104,7 @@ def test_fixed_universe_migration_preserves_ids_and_ends_non_index_members() -> 
             assert universe["key"] == "us_sp500"
             assert universe["name"] == "S&P 500"
             assert universe["is_dynamic"] is False
+            assert universe["sector_benchmark_mode"] == "market_dependencies"
             assert universe["config"] == {"constituent_source": "SP500_STOCK_INDEX"}
             assert connection.execute(
                 text("SELECT universe_id FROM quant_dataset_snapshot WHERE id = 7")
@@ -115,14 +116,14 @@ def test_fixed_universe_migration_preserves_ids_and_ends_non_index_members() -> 
                     "WHERE member.enabled = true AND member.effective_to IS NULL"
                 )
             ).scalars().all()
-            assert active == ["AAPL.US"]
-            ended = connection.execute(
+            assert active == ["AAPL.US", "WATCHLIST-ONLY.US"]
+            effective_to = connection.execute(
                 text(
                     "SELECT effective_to FROM quant_universe_member "
                     "WHERE symbol_id = 2"
                 )
             ).scalar_one()
-            assert ended is not None
+            assert effective_to is None
             assert connection.execute(
                 text("SELECT enabled FROM quant_universe WHERE id = 99")
             ).scalar_one() is False

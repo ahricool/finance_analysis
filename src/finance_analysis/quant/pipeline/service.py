@@ -24,11 +24,14 @@ from finance_analysis.quant.exceptions import (
     QuantDatasetMissingError,
 )
 from finance_analysis.quant.features.service import DailyResearchService
-from finance_analysis.quant.markets import get_quant_market_config, validate_universe_for_market
+from finance_analysis.quant.markets import (
+    get_quant_market_config,
+    get_quant_universe_codes,
+    validate_universe_for_market,
+)
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
 from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
 from finance_analysis.quant.signals.fusion import SignalFusion
-from finance_analysis.quant.universe.service import FixedUniverseService
 from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 
 PROTOCOL_VERSION = 1
@@ -137,7 +140,6 @@ class QuantDailyPipeline:
         exporter: Any = None,
         symbol_repository: Any = None,
         holding_repository: Any = None,
-        universe_service: Any = None,
         artifact_store: Any = None,
         owner_uid: int | None = None,
     ):
@@ -146,7 +148,6 @@ class QuantDailyPipeline:
         self.exporter = exporter or QlibDatasetExporter(self.repository)
         self.symbol_repository = symbol_repository or MarketDataSymbolRepository()
         self.holding_repository = holding_repository or StockListRepo()
-        self.universe_service = universe_service
         self.artifact_store = artifact_store
         self.owner_uid = owner_uid
 
@@ -162,21 +163,19 @@ class QuantDailyPipeline:
             trade_date = get_effective_trading_date(config.calendar_market)
         universe_key = validate_universe_for_market(market, universe_key)
         cross_section, time_series = self._preflight_production_models(market)
-        service = self.universe_service or FixedUniverseService(
-            repository=self.repository,
-            symbol_repository=self.symbol_repository,
-        )
-        universe_sync = service.refresh(market, trade_date)
         universe = self.repository.get_universe(universe_key)
         if not universe or universe.market != market or not getattr(universe, "enabled", True):
             raise ValueError(f"Supported {market} universe {universe_key} is not available")
-        members = self.repository.active_members(universe.id, trade_date)
-        if not members:
-            raise FeatureDataMissingError(f"No active universe members for {trade_date}")
-        research = DailyResearchService(self.repository).run(market, universe_key, trade_date)
-        member_codes = set(research["eligible_codes"])
-        available_codes = self.repository.daily_bar_codes(member_codes, trade_date)
-        missing_codes = sorted(member_codes - available_codes)
+        universe_codes = get_quant_universe_codes(market)
+        research = DailyResearchService(
+            self.repository,
+            symbol_repository=self.symbol_repository,
+        ).run(market, universe_key, trade_date)
+        eligible_codes = set(research["eligible_codes"])
+        if not eligible_codes.issubset(universe_codes):
+            raise FeatureDataMissingError("Daily research returned codes outside the fixed Quant Universe")
+        available_codes = self.repository.daily_bar_codes(eligible_codes, trade_date)
+        missing_codes = sorted(eligible_codes - available_codes)
         if missing_codes:
             raise FeatureDataMissingError(
                 f"Missing rankable universe daily data for trade_date={trade_date}: {missing_codes}"
@@ -187,7 +186,7 @@ class QuantDailyPipeline:
             universe_key,
             trade_date - timedelta(days=500),
             trade_date,
-            candidate_codes=member_codes,
+            candidate_codes=eligible_codes,
             price_mode=DEFAULT_QUANT_PRICE_MODE.value,
         )
         if prediction_dataset is None or not prediction_dataset.artifact_uri:
@@ -222,7 +221,7 @@ class QuantDailyPipeline:
             "cross_section_model_run_id": cross_section.id,
             "cross_section_model_version": cross_section.model_version,
             "time_series_model_run_id": time_series.id,
-            "expected_codes": sorted(member_codes),
+            "expected_codes": sorted(eligible_codes),
             "regime": {
                 "id": regime.id,
                 "regime": regime.regime,
@@ -231,7 +230,6 @@ class QuantDailyPipeline:
             },
             "warnings": research.get("warnings", []),
             "coverage": research.get("coverage", {}),
-            "universe_sync": universe_sync,
         }
         return requests, context
 
@@ -268,12 +266,12 @@ class QuantDailyPipeline:
         feature_context = self.repository.feature_context(
             trade_date, config.feature_version, config.event_feature_version
         )
-        member_codes = {symbol.code for _, symbol in self.repository.active_members(universe.id, trade_date)}
-        expected_codes = set(context.get("expected_codes") or member_codes)
-        if not expected_codes.issubset(member_codes):
+        universe_codes = get_quant_universe_codes(market)
+        expected_codes = set(context.get("expected_codes") or universe_codes)
+        if not expected_codes.issubset(universe_codes):
             raise ValueError(
                 "Daily callback universe membership no longer matches; "
-                f"expected={sorted(expected_codes)} active={sorted(member_codes)}"
+                f"expected={sorted(expected_codes)} fixed={sorted(universe_codes)}"
             )
         self._validate_prediction_coverage(response, expected_codes, trade_date)
         self._validate_prediction_coverage(time_series_response, expected_codes, trade_date)
@@ -298,7 +296,6 @@ class QuantDailyPipeline:
                     f"Daily feature context missing for {prediction['code']} on {trade_date}"
                 )
             required_metadata = (
-                "sector_score",
                 "has_sufficient_data",
                 "liquidity",
                 "risk_penalty",

@@ -59,8 +59,8 @@ MARKET_BENCHMARK_DEPENDENCIES: dict[str, dict[str, str]] = {
 class MarketDataScopeResolver:
     """Resolve the canonical US/CN daily synchronization scope.
 
-    Quant Universe synchronization intentionally does not consume ``resolve``;
-    it reads the fixed index constituent variables directly.
+    Quant membership intentionally does not consume ``resolve``; Quant reads
+    the fixed index constituent variables directly.
     """
 
     def __init__(self, watchlist_repository: WatchListRepo | None = None):

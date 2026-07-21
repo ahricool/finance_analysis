@@ -73,9 +73,6 @@ class FakeQuantRepository:
     def update_model_run(self, run_id, **values):
         self.model_run_updates.append((run_id, values))
 
-    def active_members(self, universe_id, trade_date):
-        return []
-
     def latest_signals(self, market, universe_id=None, code=None):
         self.calls.append(("latest_signals", market, universe_id, code))
         return []
