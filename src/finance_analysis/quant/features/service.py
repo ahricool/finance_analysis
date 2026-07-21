@@ -7,15 +7,15 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-from sqlalchemy import select
 
-from finance_analysis.database.models.stock import MarketDataSymbol, StockDaily
 from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.quant.config import get_quant_config
+from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.quant.events.scoring import score_events
 from finance_analysis.quant.exceptions import BenchmarkDataMissingError, FeatureDataMissingError
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
 from finance_analysis.quant.markets import get_quant_market_config, validate_universe_for_market
+from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
 from finance_analysis.quant.regime.service import MarketRegimeService
 from finance_analysis.quant.sectors.service import SectorRegimeService, build_synthetic_sector_benchmark
 
@@ -46,17 +46,24 @@ class DailyResearchService:
             if member.sector_benchmark_code and not member.sector_benchmark_code.startswith("CN-SECTOR-")
         }
         required_benchmarks = set(market_config.benchmark_dependencies)
-        frames = self._load(
+        loaded = DailyBarLoader(self.repository).load(
             market_config.market,
             member_codes | required_benchmarks | real_sector_benchmarks,
             trade_date - timedelta(days=500),
             trade_date,
+            DEFAULT_QUANT_PRICE_MODE,
         )
+        frames = {
+            code: group.rename(columns={"datetime": "date"}).drop(columns="instrument").reset_index(drop=True)
+            for code, group in loaded.frame.groupby("instrument")
+        }
         missing_benchmarks = {
             code for code in required_benchmarks if code not in frames or len(frames[code]) < 61
         }
         if missing_benchmarks:
-            raise BenchmarkDataMissingError(f"Missing {market_config.market} benchmark history: {sorted(missing_benchmarks)}")
+            raise BenchmarkDataMissingError(
+                f"Missing {market_config.market} benchmark history: {sorted(missing_benchmarks)}"
+            )
         stale_benchmarks = {
             code
             for code in required_benchmarks
@@ -202,7 +209,7 @@ class DailyResearchService:
                         "market": market_config.market,
                         "sector_key": member.sector_key,
                         "sector_benchmark_code": member.sector_benchmark_code,
-                        "price_mode": "raw",
+                        "price_mode": DEFAULT_QUANT_PRICE_MODE.value,
                         **portfolio_metadata,
                     },
                 }
@@ -221,7 +228,7 @@ class DailyResearchService:
             )
         self.repository.save_daily_features(daily_values)
         self.repository.save_event_features(event_values)
-        warnings = ["price_mode=raw"]
+        warnings = []
         if missing_daily:
             warnings.append(f"excluded_missing_daily={len(missing_daily)}")
         if missing_mapping:
@@ -238,6 +245,7 @@ class DailyResearchService:
                 "rankable_members": len(eligible_members),
                 "sector_mapping_missing": len(missing_mapping),
                 "daily_data_missing": len(missing_daily),
+                "adjustment": loaded.adjustment_coverage,
             },
             "warnings": warnings,
         }
@@ -278,28 +286,4 @@ class DailyResearchService:
             "liquidity": liquidity,
             "risk_penalty": risk_penalty,
             "close": float(close.iloc[-1]),
-        }
-
-    def _load(self, market: str, codes: set[str], start: date, end: date) -> dict[str, pd.DataFrame]:
-        with self.repository.db.get_session() as session:
-            rows = session.execute(
-                select(
-                    MarketDataSymbol.code, StockDaily.date, StockDaily.open, StockDaily.high,
-                    StockDaily.low, StockDaily.close, StockDaily.volume, StockDaily.amount,
-                )
-                .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
-                .where(
-                    MarketDataSymbol.market == market,
-                    MarketDataSymbol.code.in_(codes),
-                    StockDaily.date.between(start, end),
-                )
-                .order_by(MarketDataSymbol.code, StockDaily.date)
-            ).all()
-        frame = pd.DataFrame(
-            rows,
-            columns=["code", "date", "open", "high", "low", "close", "volume", "amount"],
-        )
-        return {
-            code: group.drop(columns="code").reset_index(drop=True)
-            for code, group in frame.groupby("code")
         }

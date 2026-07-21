@@ -361,6 +361,7 @@ def test_training_rejects_missing_dataset_artifact_before_marking_training() -> 
         universe_id=9,
         status="ready",
         artifact_uri="quant://datasets/missing",
+        price_mode="forward_adjusted",
     )
     artifact_store = MagicMock()
     artifact_store.resolve_uri.side_effect = ModelArtifactMissingError(
@@ -464,6 +465,6 @@ def test_portfolio_uses_current_weights_for_actions_and_daily_limits() -> None:
 
 def test_scheduled_daily_history_defaults_use_recent_postgres_windows() -> None:
     config = DataProviderConfig()
-    assert config.market_data_initial_daily_days == 400
+    assert config.market_data_initial_daily_days == 5 * 365
     assert config.market_data_refresh_daily_days == 60
-    assert config.market_data_retention_daily_days == 400
+    assert config.market_data_retention_daily_days == 5 * 365

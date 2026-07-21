@@ -63,6 +63,7 @@ class FakeQuantRepository:
             universe_id=1,
             status="ready",
             artifact_uri="quant://datasets/us-ready",
+            price_mode="forward_adjusted",
         )
 
     def create_model_run(self, values):
@@ -236,6 +237,31 @@ def test_model_run_defaults_match_worker_contract_and_dispatch_explicit_run(monk
         queue="analysis",
     )
     assert repository.model_run_updates[-1] == (77, {"task_id": "training-task-1"})
+
+
+def test_model_run_rejects_legacy_raw_dataset(monkeypatch):
+    client, repository = _client(monkeypatch)
+    original = repository.get_dataset
+
+    def raw_dataset(snapshot_id):
+        dataset = original(snapshot_id)
+        dataset.price_mode = "raw"
+        return dataset
+
+    repository.get_dataset = raw_dataset
+    response = client.post(
+        "/quant/model-runs",
+        json={
+            "market": "US",
+            "model_key": "cross_section_lgbm",
+            "model_version": "legacy-raw-rejected",
+            "dataset_snapshot_id": 5,
+        },
+    )
+
+    assert response.status_code == 409
+    assert "forward_adjusted" in response.json()["detail"]
+    assert repository.created_model_run is None
 
 
 def test_model_run_request_rejects_worker_incompatible_configuration():

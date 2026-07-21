@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
+from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.tasks.celery.schedule import QUEUE_QLIB, build_task_routes
 
 
@@ -32,7 +33,7 @@ def test_vwap_prefers_database_values_and_reports_hlc3_fallback_ratio() -> None:
             "vwap_quality": ["calculated", "estimated", None, "missing"],
         }
     )
-    result, report = QlibDatasetExporter._with_vwap(frame)
+    result, report = DailyBarLoader._with_raw_vwap(frame)
     assert result.loc[0, "vwap"] == 10.25
     assert result.loc[1, "vwap"] == 20.5
     assert result.loc[2, "vwap"] == 30.0
@@ -59,7 +60,7 @@ def test_qlib_writer_exports_persisted_vwap_field(tmp_path: Path) -> None:
         "close": [10.5],
         "volume": [100.0],
         "amount": [np.nan],
-        "factor": [1.0],
+        "forward_adjustment_factor": [1.0],
         "vwap": [10.25],
         "vwap_source": ["hlc3"],
         "vwap_quality": ["estimated"],

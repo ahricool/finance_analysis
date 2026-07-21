@@ -153,8 +153,40 @@ class StockAdjustmentRepository:
             return stored != incoming
         return any(stored.get(key) != value for key, value in incoming.items())
 
+    def has_adjustment_factor_changes(
+        self,
+        symbol_id: int,
+        start_date: date,
+        end_date: date,
+        rows: Sequence[dict[str, Any]],
+    ) -> bool:
+        """Compare only dates present in both the incoming and stored factor windows."""
+        factor_columns = ("forward_adjustment_factor", "hfq_factor", "hfq_cash", "adj_close")
+        incoming = {
+            row["trade_date"]: tuple(row.get(column) for column in factor_columns)
+            for row in rows
+            if start_date <= row["trade_date"] <= end_date
+        }
+        if not incoming:
+            return False
+        with self.db.get_session() as session:
+            existing = list(
+                session.execute(
+                    select(StockAdjustmentFactor).where(
+                        StockAdjustmentFactor.symbol_id == symbol_id,
+                        StockAdjustmentFactor.trade_date >= start_date,
+                        StockAdjustmentFactor.trade_date <= end_date,
+                    )
+                ).scalars()
+            )
+        stored = {
+            row.trade_date: tuple(getattr(row, column) for column in factor_columns)
+            for row in existing
+        }
+        return any(stored[trade_date] != values for trade_date, values in incoming.items() if trade_date in stored)
+
     def delete_before(self, symbol_id: int, cutoff_date: date) -> int:
-        """Prune adjustment metadata only after the caller confirms a successful refresh."""
+        """Prune expired adjustment metadata for one symbol."""
         with self.db.session_scope() as session:
             factors = session.execute(
                 delete(StockAdjustmentFactor).where(
@@ -165,6 +197,26 @@ class StockAdjustmentRepository:
             actions = session.execute(
                 delete(StockCorporateAction).where(
                     StockCorporateAction.symbol_id == symbol_id,
+                    StockCorporateAction.action_date < cutoff_date,
+                )
+            )
+            return int(factors.rowcount or 0) + int(actions.rowcount or 0)
+
+    def delete_before_symbols(self, symbol_ids: Sequence[int], cutoff_date: date) -> int:
+        """Prune expired adjustment metadata for the task scope before synchronization."""
+        ids = list(symbol_ids)
+        if not ids:
+            return 0
+        with self.db.session_scope() as session:
+            factors = session.execute(
+                delete(StockAdjustmentFactor).where(
+                    StockAdjustmentFactor.symbol_id.in_(ids),
+                    StockAdjustmentFactor.trade_date < cutoff_date,
+                )
+            )
+            actions = session.execute(
+                delete(StockCorporateAction).where(
+                    StockCorporateAction.symbol_id.in_(ids),
                     StockCorporateAction.action_date < cutoff_date,
                 )
             )
