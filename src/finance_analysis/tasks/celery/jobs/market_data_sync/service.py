@@ -68,20 +68,19 @@ class MarketDataSyncService:
                 else self.config.market_data_initial_daily_days
             )
             daily_days_by_code[symbol.code] = self._refresh_days(natural_days)
-        adjustment_days = self._refresh_days(self.config.market_data_retention_daily_days)
-        retention_cutoff = adjustment_days[-1] - timedelta(days=self.config.market_data_retention_daily_days - 1)
-        self.router.prepare_batches(symbols, daily_days_by_code, adjustment_days)
+        adjustment_days_by_code = {code: list(days) for code, days in daily_days_by_code.items()}
+        latest_completed_day = max(days[-1] for days in daily_days_by_code.values())
+        retention_cutoff = latest_completed_day - timedelta(days=self.config.market_data_retention_daily_days - 1)
+        self.router.prepare_batches(symbols, daily_days_by_code, adjustment_days_by_code)
         logger.info(
             "market=%s job=market_data_sync sync_mode=%s symbol_count=%s initial_days=%s refresh_days=%s "
-            "retention_days=%s adjustment_range=%s..%s",
+            "retention_days=%s adjustment_window=matches_daily",
             self.market,
             self.sync_mode,
             len(symbols),
             self.config.market_data_initial_daily_days,
             self.config.market_data_refresh_daily_days,
             self.config.market_data_retention_daily_days,
-            adjustment_days[0],
-            adjustment_days[-1],
         )
         workers = min(5, max(1, self.config.market_data_longbridge_max_concurrency)) if self.market == "US" else 1
         results: list[SymbolResult] = []
@@ -94,7 +93,7 @@ class MarketDataSyncService:
                     self._sync_symbol,
                     symbol,
                     daily_days_by_code[symbol.code],
-                    adjustment_days,
+                    adjustment_days_by_code[symbol.code],
                     retention_cutoff,
                 ): symbol
                 for symbol in symbols
@@ -249,15 +248,11 @@ class MarketDataSyncService:
                 routed.provider,
             )
         else:
-            refresh_cutoff = end_date - timedelta(days=self.config.market_data_refresh_daily_days - 1)
-            rows_to_upsert = (
-                factor_rows if action_changed else [row for row in factor_rows if row["trade_date"] >= refresh_cutoff]
-            )
             factor_stats = self.adjustment_repository.upsert_adjustment_factors(
                 symbol.id,
                 start_date,
                 end_date,
-                rows_to_upsert,
+                factor_rows,
                 routed.provider,
             )
         return AdjustmentResult(

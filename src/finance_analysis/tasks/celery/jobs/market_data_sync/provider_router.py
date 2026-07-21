@@ -79,13 +79,14 @@ class MarketDataProviderRouter:
         self._daily_batch_errors: dict[str, dict[str, str]] = {}
         self._daily_batch_prepared_codes: dict[str, set[str]] = {}
         self._adjustment_batches: dict[str, dict[str, Any]] = {}
-        self._adjustment_batch_errors: dict[str, str] = {}
+        self._adjustment_batch_errors: dict[str, dict[str, str]] = {}
+        self._adjustment_batch_prepared_codes: dict[str, set[str]] = {}
 
     def prepare_batches(
         self,
         symbols: list[Any],
         daily_days_by_code: dict[str, list[date]],
-        adjustment_days: list[date],
+        adjustment_days_by_code: dict[str, list[date]],
     ) -> None:
         if not symbols:
             return
@@ -94,21 +95,12 @@ class MarketDataProviderRouter:
         self._daily_batch_prepared_codes.clear()
         self._adjustment_batches.clear()
         self._adjustment_batch_errors.clear()
+        self._adjustment_batch_prepared_codes.clear()
         for provider in self.providers:
             if hasattr(provider, "fetch_daily_bars_batch"):
                 self._prepare_daily_batch(provider, symbols, daily_days_by_code)
-            if adjustment_days and hasattr(provider, "fetch_adjustment_data_batch"):
-                try:
-                    self._adjustment_batches[provider.name] = self._call(
-                        provider,
-                        "adjustment_batch",
-                        lambda p=provider: p.fetch_adjustment_data_batch(symbols, adjustment_days),
-                    )
-                except Exception as exc:
-                    self._adjustment_batch_errors[provider.name] = f"{provider.name} batch: {str(exc)[:240]}"
-                    logger.exception(
-                        "market=%s provider=%s data_type=adjustment_batch failed", self.market, provider.name
-                    )
+            if hasattr(provider, "fetch_adjustment_data_batch"):
+                self._prepare_adjustment_batch(provider, symbols, adjustment_days_by_code)
 
     def _prepare_daily_batch(
         self,
@@ -143,6 +135,39 @@ class MarketDataProviderRouter:
         self._daily_batches[provider.name] = combined
         self._daily_batch_prepared_codes[provider.name] = prepared_codes
         self._daily_batch_errors[provider.name] = errors
+
+    def _prepare_adjustment_batch(
+        self,
+        provider: Any,
+        symbols: list[Any],
+        adjustment_days_by_code: dict[str, list[date]],
+    ) -> None:
+        grouped: dict[tuple[date, date], list[Any]] = {}
+        for symbol in symbols:
+            days = adjustment_days_by_code.get(symbol.code, [])
+            if days:
+                grouped.setdefault((min(days), max(days)), []).append(symbol)
+        combined: dict[str, Any] = {}
+        prepared_codes: set[str] = set()
+        errors: dict[str, str] = {}
+        for group in grouped.values():
+            requested_days = adjustment_days_by_code[group[0].code]
+            try:
+                combined.update(
+                    self._call(
+                        provider,
+                        "adjustment_batch",
+                        lambda p=provider, items=group, days=requested_days: p.fetch_adjustment_data_batch(items, days),
+                    )
+                )
+                prepared_codes.update(symbol.code for symbol in group)
+            except Exception as exc:
+                reason = f"{provider.name} batch: {str(exc)[:240]}"
+                errors.update({symbol.code: reason for symbol in group})
+                logger.exception("market=%s provider=%s data_type=adjustment_batch failed", self.market, provider.name)
+        self._adjustment_batches[provider.name] = combined
+        self._adjustment_batch_prepared_codes[provider.name] = prepared_codes
+        self._adjustment_batch_errors[provider.name] = errors
 
     def fetch_daily(self, symbol: Any, requested_days: list[date]) -> RoutedBars:
         if not requested_days:
@@ -223,10 +248,11 @@ class MarketDataProviderRouter:
             ):
                 continue
             try:
-                if provider.name in self._adjustment_batches:
+                provider_errors = self._adjustment_batch_errors.get(provider.name, {})
+                if symbol.code in provider_errors:
+                    raise RuntimeError(provider_errors[symbol.code])
+                if symbol.code in self._adjustment_batch_prepared_codes.get(provider.name, set()):
                     data = self._adjustment_batches[provider.name].get(symbol.code)
-                elif provider.name in self._adjustment_batch_errors:
-                    raise RuntimeError(self._adjustment_batch_errors[provider.name])
                 else:
                     data = self._call(
                         provider,

@@ -26,7 +26,7 @@ from finance_analysis.database.repositories.stock import (
     UpsertStats,
 )
 from finance_analysis.database.seed import seed_market_data_reference_symbols
-from finance_analysis.integrations.market_data.config import DataProviderConfig
+from finance_analysis.integrations.market_data.config import FIVE_YEAR_HISTORY_DAYS, DataProviderConfig
 from finance_analysis.integrations.market_data.history import AdjustmentData, HistoricalProviderError
 from finance_analysis.integrations.market_data.providers.akshare import AkshareFetcher
 from finance_analysis.integrations.market_data.providers.efinance import EfinanceFetcher
@@ -375,12 +375,52 @@ def test_yfinance_primary_uses_prepared_batch_instead_of_per_symbol_request():
         config=DataProviderConfig(market_data_yfinance_max_retries=0),
         sleep=lambda _: None,
     )
-    router.prepare_batches([symbol], {symbol.code: [day]}, [])
+    router.prepare_batches([symbol], {symbol.code: [day]}, {})
     routed = router.fetch_daily(symbol, [day])
     assert routed.complete
     assert yahoo.batch_calls == 1
     assert yahoo.single_calls == 0
     assert routed.batches[-1].rows[0]["vwap_quality"] == "estimated"
+
+
+def test_adjustment_batches_follow_each_symbols_daily_window():
+    full_days = [date(2021, 7, 20), date(2026, 7, 17)]
+    incremental_days = [date(2026, 5, 19), date(2026, 7, 17)]
+    symbols = [_symbol("NEW.US", 1), _symbol("AAPL.US", 2)]
+
+    class Yahoo:
+        name = "YfinanceFetcher"
+
+        def __init__(self):
+            self.calls: list[tuple[list[str], list[date]]] = []
+
+        def fetch_adjustment_data_batch(self, items, days):
+            self.calls.append(([item.code for item in items], list(days)))
+            return {
+                item.code: AdjustmentData([], [{"trade_date": day, "qfq_factor": 1.0} for day in days])
+                for item in items
+            }
+
+    yahoo = Yahoo()
+    router = MarketDataProviderRouter(
+        "US",
+        [yahoo],
+        config=DataProviderConfig(market_data_yfinance_max_retries=0),
+        sleep=lambda _: None,
+    )
+    adjustment_windows = {
+        "NEW.US": full_days,
+        "AAPL.US": incremental_days,
+    }
+
+    router.prepare_batches(symbols, {}, adjustment_windows)
+
+    assert sorted(yahoo.calls) == sorted([(["NEW.US"], full_days), (["AAPL.US"], incremental_days)])
+    assert router.fetch_adjustment(symbols[0], full_days).data.adjustment_factors[-1]["trade_date"] == full_days[-1]
+    assert (
+        router.fetch_adjustment(symbols[1], incremental_days).data.adjustment_factors[0]["trade_date"]
+        == incremental_days[0]
+    )
 
 
 def test_router_keeps_valid_rows_when_yfinance_batch_contains_pre_listing_nan_rows():
@@ -405,6 +445,50 @@ def test_router_keeps_valid_rows_when_yfinance_batch_contains_pre_listing_nan_ro
     assert [row["date"] for row in routed.batches[0].rows] == [days[1]]
     assert routed.missing == [days[0]]
     assert "discarded invalid daily rows=1" in routed.fallback_reasons[0]
+
+
+def test_partial_daily_history_upserts_valid_rows_without_deleting_symbol_history():
+    days = [date(2026, 7, 16), date(2026, 7, 17)]
+    stock = MagicMock()
+    stock.upsert_daily.return_value = UpsertStats(inserted_rows=1)
+    adjustment = MagicMock()
+    adjustment.has_corporate_action_changes.return_value = False
+    adjustment.replace_corporate_actions.return_value = AdjustmentWriteStats()
+    adjustment.upsert_adjustment_factors.return_value = AdjustmentWriteStats(inserted_rows=1)
+    router = MagicMock()
+    router.fetch_daily.return_value = RoutedBars(
+        [
+            ProviderBars(
+                "YfinanceFetcher",
+                400,
+                [
+                    {
+                        **_daily(days[-1], amount=None),
+                        "vwap": 10.0,
+                        "vwap_source": "hlc3",
+                        "vwap_quality": "estimated",
+                    }
+                ],
+            )
+        ],
+        [days[0]],
+        ["YfinanceFetcher"],
+        "range",
+    )
+    router.fetch_adjustment.return_value = RoutedAdjustment(
+        "YfinanceFetcher",
+        AdjustmentData([], [{"trade_date": days[-1], "qfq_factor": 1.0}], adjustment_factors_complete=False),
+    )
+
+    result = _service(stock_repository=stock, adjustment_repository=adjustment, router=router)._sync_symbol(
+        _symbol("NEW.US"), days, days, date(2021, 7, 18)
+    )
+
+    assert result.daily.status == "partial"
+    stock.upsert_daily.assert_called_once()
+    assert [row["date"] for row in stock.upsert_daily.call_args.args[1]] == [days[-1]]
+    stock.delete_daily_before.assert_not_called()
+    adjustment.upsert_adjustment_factors.assert_called_once()
 
 
 def test_scope_is_reference_constituents_plus_market_watchlist_and_deduplicated():
@@ -578,7 +662,7 @@ def test_yfinance_uses_hlc3_without_fabricating_amount():
     assert rows[0]["amount"] is None
 
 
-def test_new_symbols_use_400_days_and_existing_symbols_use_60_days():
+def test_new_symbols_use_five_years_and_existing_symbols_use_60_days():
     new_symbol = _symbol("AAPL.US", 1)
     existing_symbol = _symbol("MSFT.US", 2)
     symbols = MagicMock()
@@ -622,15 +706,17 @@ def test_new_symbols_use_400_days_and_existing_symbols_use_60_days():
         adjustment_repository=adjustment,
         router=router,
         config=DataProviderConfig(
-            market_data_initial_daily_days=400,
+            market_data_initial_daily_days=FIVE_YEAR_HISTORY_DAYS,
             market_data_refresh_daily_days=60,
-            market_data_retention_daily_days=400,
+            market_data_retention_daily_days=FIVE_YEAR_HISTORY_DAYS,
         ),
     )
     service.run()
     windows = router.prepare_batches.call_args.args[1]
-    assert windows["AAPL.US"][0] >= windows["AAPL.US"][-1] - timedelta(days=399)
-    assert windows["AAPL.US"][0] <= windows["AAPL.US"][-1] - timedelta(days=390)
+    adjustment_windows = router.prepare_batches.call_args.args[2]
+    assert windows == adjustment_windows
+    assert windows["AAPL.US"][0] >= windows["AAPL.US"][-1] - timedelta(days=FIVE_YEAR_HISTORY_DAYS - 1)
+    assert windows["AAPL.US"][0] <= windows["AAPL.US"][-1] - timedelta(days=FIVE_YEAR_HISTORY_DAYS - 10)
     assert windows["MSFT.US"][0] >= windows["MSFT.US"][-1] - timedelta(days=59)
     assert len(windows["AAPL.US"]) > len(windows["MSFT.US"])
 
@@ -681,16 +767,18 @@ def test_full_sync_uses_initial_window_for_existing_symbols_in_both_markets(mark
         adjustment_repository=adjustment,
         router=router,
         config=DataProviderConfig(
-            market_data_initial_daily_days=400,
+            market_data_initial_daily_days=FIVE_YEAR_HISTORY_DAYS,
             market_data_refresh_daily_days=60,
-            market_data_retention_daily_days=400,
+            market_data_retention_daily_days=FIVE_YEAR_HISTORY_DAYS,
         ),
     )
 
     result = service.run()
 
     window = router.prepare_batches.call_args.args[1][symbol.code]
-    assert window[0] <= window[-1] - timedelta(days=390)
+    adjustment_window = router.prepare_batches.call_args.args[2][symbol.code]
+    assert window == adjustment_window
+    assert window[0] <= window[-1] - timedelta(days=FIVE_YEAR_HISTORY_DAYS - 10)
     assert result["sync_mode"] == "full"
     stock.has_daily_data.assert_not_called()
 
@@ -818,6 +906,29 @@ def test_partial_factor_response_only_upserts_and_never_replaces_window():
     assert result.changed
     adjustment.upsert_adjustment_factors.assert_called_once()
     adjustment.replace_adjustment_factors.assert_not_called()
+
+
+def test_adjustment_upsert_keeps_all_rows_from_matching_sync_window():
+    days = [date(2021, 7, 20), date(2026, 7, 17)]
+    adjustment = MagicMock()
+    adjustment.has_corporate_action_changes.return_value = False
+    adjustment.replace_corporate_actions.return_value = AdjustmentWriteStats()
+    adjustment.upsert_adjustment_factors.return_value = AdjustmentWriteStats(changed=True, inserted_rows=2)
+    router = MagicMock()
+    router.fetch_adjustment.return_value = RoutedAdjustment(
+        "YfinanceFetcher",
+        AdjustmentData([], [{"trade_date": item, "qfq_factor": 1.0} for item in days]),
+    )
+
+    result = _service(
+        adjustment_repository=adjustment,
+        router=router,
+        config=DataProviderConfig(market_data_refresh_daily_days=60),
+    )._sync_adjustment(_symbol(), days)
+
+    assert result.changed
+    persisted_rows = adjustment.upsert_adjustment_factors.call_args.args[3]
+    assert [row["trade_date"] for row in persisted_rows] == days
 
 
 def test_stable_adjustment_hash_ignores_mapping_order():
