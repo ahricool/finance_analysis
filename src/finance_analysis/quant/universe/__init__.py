@@ -1,5 +1,5 @@
 """Dynamic quantitative universe synchronization."""
 
-from .service import DynamicUniverseService, SectorClassification
+from .service import FixedUniverseService, SectorClassification
 
-__all__ = ["DynamicUniverseService", "SectorClassification"]
+__all__ = ["FixedUniverseService", "SectorClassification"]

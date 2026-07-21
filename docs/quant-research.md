@@ -50,9 +50,10 @@ and PostgreSQL persistence. Main workers never wait synchronously for Qlib.
 ## Business workflow
 
 1. Ensure the market scope and benchmark dependencies have daily bars in
-   PostgreSQL. US uses S&P 500 plus the US watchlist; CN uses CSI 300 plus the
-   A-share watchlist. Benchmark dependencies are synchronized separately and
-   never enter stock ranking.
+   PostgreSQL. US uses the fixed `SP500_STOCK_INDEX` constituents; CN uses the
+   fixed `CSI300_STOCK_INDEX` constituents. Watchlists and user-defined pools
+   do not change Quant membership. Benchmark dependencies are synchronized
+   separately and never enter stock ranking.
 2. An administrator opens **量化研究 → 模型运行 → 创建训练任务** and builds or selects an immutable dataset.
    Failed validation prevents training, and dataset progress remains visible in the task center.
 3. The administrator selects one of the two Qlib worker models and creates a model run. Training is asynchronous
@@ -66,12 +67,12 @@ Model training is intentionally on demand rather than a periodic task: every run
 model type, and version. It therefore appears in the Quant model UI and task history, not in the scheduled-task list.
 
 Each market has exactly one supported quant universe. Clients select only the
-market: `US` resolves to `us_sp500_watchlist` and `CN` resolves to
-`cn_csi300_watchlist`. Membership is refreshed idempotently from the same
-`MarketDataScopeResolver` used by daily market-data synchronization. Removed
-members retain effective-dated history. Disabled/deprecated universes remain
-only for referential integrity and cannot create datasets, model runs,
-predictions, signals, or portfolios.
+market: `US` resolves to `us_sp500` and `CN` resolves to `cn_csi300`. These are
+the only supported Quant universes; Universe CRUD, custom universes, and
+Watchlist merging are not supported. Membership is refreshed idempotently
+from the checked-in index variables. Removed members retain effective-dated
+history. Other database rows may remain only for referential integrity and
+cannot create datasets, model runs, predictions, signals, or portfolios.
 
 Exports contain `calendars/day.txt`, `instruments/all.txt`, Qlib float32 binary
 feature files, `source/daily.csv`, `manifest.json`, and `validation.json`.

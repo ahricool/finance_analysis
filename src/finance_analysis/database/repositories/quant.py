@@ -15,7 +15,7 @@ from finance_analysis.database.models.quant import (
     QuantDatasetSnapshot, QuantUniverse, QuantUniverseMember, SectorRegimeSnapshot,
 )
 from finance_analysis.database.models.stock import MarketDataSymbol, StockAdjustmentFactor, StockDaily
-from finance_analysis.quant.markets import validate_universe_for_market
+from finance_analysis.quant.markets import DEFAULT_QUANT_UNIVERSES, validate_universe_for_market
 
 
 class QuantRepository:
@@ -32,7 +32,7 @@ class QuantRepository:
         return rows
 
     def list_universes(self, market: str | None = None, enabled: bool | None = True) -> list[QuantUniverse]:
-        clauses = []
+        clauses = [QuantUniverse.key.in_(tuple(DEFAULT_QUANT_UNIVERSES.values()))]
         if market:
             clauses.append(QuantUniverse.market == market.upper())
         if enabled is not None:
@@ -102,7 +102,7 @@ class QuantRepository:
                 )
             return result
 
-    def sync_dynamic_members(
+    def sync_fixed_members(
         self,
         universe_id: int,
         symbols: Iterable[MarketDataSymbol],

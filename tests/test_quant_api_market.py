@@ -30,7 +30,7 @@ class FakeQuantRepository:
                 market="US",
                 enabled=False,
             )
-        market = "CN" if key == "cn_csi300_watchlist" else "US"
+        market = "CN" if key == "cn_csi300" else "US"
         return SimpleNamespace(id=2 if market == "CN" else 1, key=key, market=market, enabled=True)
 
     def supported_universe(self, market, key=None):
@@ -72,19 +72,6 @@ class FakeQuantRepository:
 
     def update_model_run(self, run_id, **values):
         self.model_run_updates.append((run_id, values))
-
-    def list_universes(self, market):
-        self.calls.append(("list_universes", market))
-        supported = self.get_universe(
-            "cn_csi300_watchlist" if market == "CN" else "us_sp500_watchlist"
-        )
-        deprecated = SimpleNamespace(
-            id=99,
-            key="us_ai_semiconductor",
-            market="US",
-            enabled=False,
-        )
-        return [supported, deprecated] if market == "US" else [supported]
 
     def active_members(self, universe_id, trade_date):
         return []
@@ -134,7 +121,7 @@ def test_signal_ranking_uses_cn_default_universe_and_market_filter(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["market"] == "CN"
-    assert response.json()["universe"] == "cn_csi300_watchlist"
+    assert response.json()["universe"] == "cn_csi300"
     assert ("latest_signals", "CN", 2, None) in repository.calls
 
 
@@ -158,21 +145,20 @@ def test_sector_ranking_without_date_delegates_latest_market_only_query(monkeypa
     assert ("sector_regimes", "CN", None, None) in repository.calls
 
 
-def test_quant_api_rejects_deprecated_and_cross_market_universes(monkeypatch):
+def test_quant_api_rejects_unsupported_and_cross_market_universes(monkeypatch):
     client, _ = _client(monkeypatch)
 
-    deprecated = client.get(
+    unsupported = client.get(
         "/quant/signals/ranking?market=US&universe=us_ai_semiconductor"
     )
     cross_market = client.get(
-        "/quant/signals/ranking?market=CN&universe=us_sp500_watchlist"
+        "/quant/signals/ranking?market=CN&universe=us_sp500"
     )
 
-    assert deprecated.status_code == 409
-    assert "deprecated" in deprecated.json()["detail"]
-    assert "us_sp500_watchlist" in deprecated.json()["detail"]
+    assert unsupported.status_code == 409
+    assert "only supported universe is us_sp500" in unsupported.json()["detail"]
     assert cross_market.status_code == 409
-    assert "cn_csi300_watchlist" in cross_market.json()["detail"]
+    assert "cn_csi300" in cross_market.json()["detail"]
 
 
 def test_universe_list_exposes_only_the_market_supported_universe(monkeypatch):
@@ -182,9 +168,9 @@ def test_universe_list_exposes_only_the_market_supported_universe(monkeypatch):
     cn = client.get("/quant/universes?market=CN")
 
     assert us.status_code == 200
-    assert [item["key"] for item in us.json()] == ["us_sp500_watchlist"]
+    assert [item["key"] for item in us.json()] == ["us_sp500"]
     assert cn.status_code == 200
-    assert [item["key"] for item in cn.json()] == ["cn_csi300_watchlist"]
+    assert [item["key"] for item in cn.json()] == ["cn_csi300"]
 
 
 def test_normal_model_dataset_and_portfolio_lists_filter_the_supported_universe(monkeypatch):
@@ -303,7 +289,7 @@ def test_model_run_dispatch_failure_marks_created_run_failed(monkeypatch):
     assert repository.model_run_updates[-1][1]["progress"] == 100
 
 
-def test_dataset_and_model_write_endpoints_reject_deprecated_universe(monkeypatch):
+def test_dataset_and_model_write_endpoints_reject_unsupported_universe(monkeypatch):
     client, _ = _client(monkeypatch)
 
     dataset = client.post(
@@ -320,16 +306,16 @@ def test_dataset_and_model_write_endpoints_reject_deprecated_universe(monkeypatc
         json={
             "market": "US",
             "universe": "us_ai_semiconductor",
-            "model_version": "deprecated-test",
+            "model_version": "unsupported-test",
             "dataset_snapshot_id": 1,
         },
     )
     publication = client.post(
         "/quant/model-runs/9/publish?market=US",
-        json={"reason": "verify deprecation rejection"},
+        json={"reason": "verify unsupported universe rejection"},
     )
 
     assert dataset.status_code == 409
     assert model.status_code == 409
     assert publication.status_code == 409
-    assert all("deprecated" in response.json()["detail"] for response in (dataset, model, publication))
+    assert all("only supported universe" in response.json()["detail"] for response in (dataset, model, publication))

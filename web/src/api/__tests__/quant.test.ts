@@ -16,7 +16,7 @@ describe('quant API market scope', () => {
       data: {
         trade_date: null,
         market: 'CN',
-        universe: 'cn_csi300_watchlist',
+        universe: 'cn_csi300',
         market_regime: null,
         max_equity_exposure: null,
         items: [],
@@ -34,7 +34,7 @@ describe('quant API market scope', () => {
 
   it('serializes dataset and model training requests with backend field names', async () => {
     vi.mocked(apiClient.post)
-      .mockResolvedValueOnce({ data: { task_id: 'dataset-task', status: 'pending', market: 'CN', universe: 'cn_csi300_watchlist' } })
+      .mockResolvedValueOnce({ data: { task_id: 'dataset-task', status: 'pending', market: 'CN', universe: 'cn_csi300' } })
       .mockResolvedValueOnce({ data: { model_run_id: 19, task_id: 'training-task', status: 'draft', market: 'CN' } });
 
     const dataset = await quantApi.buildDataset('CN', '2021-01-01', '2026-07-21');

@@ -50,29 +50,24 @@ async def capabilities(market: QuantMarket = "US", _: User = Depends(require_cur
 @router.get("/universes")
 async def universes(market: QuantMarket = "US", _: User = Depends(require_current_user)):
     repo = QuantRepository()
-    supported = _universe(repo, market, None)
-    rows = []
-    for item in repo.list_universes(market):
-        if item.id != supported.id:
-            continue
-        members = repo.active_members(item.id, date.today())
-        rows.append(
-            {
-                **encoded(item),
-                "member_count": len(members),
-                "members": [
-                    {
-                        "code": symbol.code,
-                        "sector_key": member.sector_key,
-                        "sector_benchmark_code": member.sector_benchmark_code,
-                        "effective_from": member.effective_from,
-                        "effective_to": member.effective_to,
-                    }
-                    for member, symbol in members
-                ],
-            }
-        )
-    return rows
+    item = _universe(repo, market, None)
+    members = repo.active_members(item.id, date.today())
+    return [
+        {
+            **encoded(item),
+            "member_count": len(members),
+            "members": [
+                {
+                    "code": symbol.code,
+                    "sector_key": member.sector_key,
+                    "sector_benchmark_code": member.sector_benchmark_code,
+                    "effective_from": member.effective_from,
+                    "effective_to": member.effective_to,
+                }
+                for member, symbol in members
+            ],
+        }
+    ]
 
 
 @router.get("/models/definitions")

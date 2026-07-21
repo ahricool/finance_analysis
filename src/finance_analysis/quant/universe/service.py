@@ -1,4 +1,4 @@
-"""Idempotently mirror shared market scopes into quantitative universes."""
+"""Synchronize the two fixed quantitative universes from project reference data."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
 from finance_analysis.quant.markets import get_quant_market_config
 from finance_analysis.stocks.market_scope import MarketDataScopeResolver
+from finance_analysis.stocks.reference_data.stock_index import CSI300_STOCK_INDEX, SP500_STOCK_INDEX
 
 logger = logging.getLogger(__name__)
 
@@ -86,43 +87,61 @@ class QuantSectorClassifier:
         return SectorClassification(sector, benchmark, "yfinance_ticker_info")
 
 
-class DynamicUniverseService:
-    """Synchronize a default market universe without rewriting historical periods."""
+class FixedUniverseService:
+    """Synchronize a fixed index universe without rewriting historical periods."""
 
     def __init__(
         self,
         repository: QuantRepository | None = None,
         symbol_repository: MarketDataSymbolRepository | None = None,
-        scope_resolver: MarketDataScopeResolver | None = None,
         classifier: Any = None,
     ):
         self.repository = repository or QuantRepository()
         self.symbol_repository = symbol_repository or MarketDataSymbolRepository()
-        self.scope_resolver = scope_resolver or MarketDataScopeResolver()
         self.classifier = classifier or QuantSectorClassifier()
+
+    @staticmethod
+    def constituent_codes(market: str) -> frozenset[str]:
+        """Return canonical members from the checked-in index constituent variables."""
+        normalized_market = str(market or "").strip().upper()
+        if normalized_market == "US":
+            reference = SP500_STOCK_INDEX
+        elif normalized_market == "CN":
+            reference = CSI300_STOCK_INDEX
+        else:
+            raise ValueError(f"Unsupported market={market}; expected US or CN")
+        return frozenset(
+            MarketDataScopeResolver.canonical_code(code, normalized_market)
+            for code in reference
+        )
 
     def refresh(self, market: str, effective_from: date) -> dict[str, Any]:
         config = get_quant_market_config(market)
-        scope = self.scope_resolver.resolve(config.market)
+        constituent_codes = self.constituent_codes(config.market)
         universe = self.repository.upsert_universe(
             {
                 "key": config.default_universe,
-                "name": "S&P 500 + US watchlist" if config.market == "US" else "沪深300 + A股自选",
+                "name": "S&P 500" if config.market == "US" else "沪深300",
                 "market": config.market,
-                "description": "Dynamic mirror of the shared daily market-data universe scope.",
+                "description": (
+                    "Fixed S&P 500 constituents from SP500_STOCK_INDEX."
+                    if config.market == "US"
+                    else "Fixed CSI 300 constituents from CSI300_STOCK_INDEX."
+                ),
                 "enabled": True,
-                "is_dynamic": True,
+                "is_dynamic": False,
                 "benchmark_code": config.primary_benchmark,
                 "sector_benchmark_mode": "member_or_synthetic",
                 "config": {
-                    "scope_resolver": "MarketDataScopeResolver",
-                    "benchmark_dependencies": sorted(scope.benchmark_dependency_codes),
+                    "constituent_source": (
+                        "SP500_STOCK_INDEX" if config.market == "US" else "CSI300_STOCK_INDEX"
+                    ),
                 },
             }
         )
-        symbols = self.symbol_repository.list_enabled_daily_by_codes(config.market, scope.universe_codes)
+        symbols = self.symbol_repository.list_enabled_daily_by_codes(config.market, constituent_codes)
         by_code = {symbol.code: symbol for symbol in symbols}
-        missing_symbols = sorted(scope.universe_codes - set(by_code))
+        missing_symbols = sorted(constituent_codes - set(by_code))
         previous = self.repository.latest_member_mappings(universe.id)
         mappings: dict[int, dict[str, Any]] = {}
         missing_sectors: list[dict[str, str]] = []
@@ -144,13 +163,13 @@ class DynamicUniverseService:
                 missing_sectors.append(
                     {"code": symbol.code, "reason": classification.reason or "industry mapping unavailable"}
                 )
-        counts = self.repository.sync_dynamic_members(universe.id, symbols, mappings, effective_from)
+        counts = self.repository.sync_fixed_members(universe.id, symbols, mappings, effective_from)
         mapped = len(symbols) - len(missing_sectors)
         coverage = mapped / len(symbols) if symbols else 0.0
         universe_config = dict(universe.config or {})
         universe_config.update(
             {
-                "scope_member_count": len(scope.universe_codes),
+                "constituent_count": len(constituent_codes),
                 "available_symbol_count": len(symbols),
                 "sector_mapped_count": mapped,
                 "sector_mapping_coverage": coverage,
@@ -163,7 +182,7 @@ class DynamicUniverseService:
         return {
             "market": config.market,
             "universe": config.default_universe,
-            "scope_codes": sorted(scope.universe_codes),
+            "constituent_codes": sorted(constituent_codes),
             "member_count": len(symbols),
             "sector_mapped_count": mapped,
             "sector_mapping_coverage": coverage,
@@ -173,4 +192,4 @@ class DynamicUniverseService:
         }
 
 
-__all__ = ["DynamicUniverseService", "QuantSectorClassifier", "SectorClassification", "US_SECTOR_BENCHMARKS"]
+__all__ = ["FixedUniverseService", "QuantSectorClassifier", "SectorClassification", "US_SECTOR_BENCHMARKS"]
