@@ -416,13 +416,29 @@ class StockRepository:
         ]
 
     def delete_daily_before(self, symbol_id: int, cutoff_date: date) -> int:
-        """Delete expired raw bars only after the caller confirms a successful sync."""
+        """Delete expired raw bars for one symbol."""
         from sqlalchemy import delete
 
         with self.db.session_scope() as session:
             result = session.execute(
                 delete(StockDaily).where(
                     StockDaily.symbol_id == symbol_id,
+                    StockDaily.date < cutoff_date,
+                )
+            )
+            return int(result.rowcount or 0)
+
+    def delete_daily_before_symbols(self, symbol_ids: Sequence[int], cutoff_date: date) -> int:
+        """Delete expired raw bars for the task scope before synchronization."""
+        from sqlalchemy import delete
+
+        ids = list(symbol_ids)
+        if not ids:
+            return 0
+        with self.db.session_scope() as session:
+            result = session.execute(
+                delete(StockDaily).where(
+                    StockDaily.symbol_id.in_(ids),
                     StockDaily.date < cutoff_date,
                 )
             )

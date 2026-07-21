@@ -464,6 +464,6 @@ def test_portfolio_uses_current_weights_for_actions_and_daily_limits() -> None:
 
 def test_scheduled_daily_history_defaults_use_recent_postgres_windows() -> None:
     config = DataProviderConfig()
-    assert config.market_data_initial_daily_days == 400
+    assert config.market_data_initial_daily_days == 5 * 365
     assert config.market_data_refresh_daily_days == 60
-    assert config.market_data_retention_daily_days == 400
+    assert config.market_data_retention_daily_days == 5 * 365
