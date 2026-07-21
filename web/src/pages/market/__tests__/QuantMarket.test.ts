@@ -39,7 +39,7 @@ describe('quant market context', () => {
     vi.mocked(quantApi.marketRegime).mockRejectedValue({ response: { status: 404, data: { detail: 'missing' } } });
     vi.mocked(quantApi.marketRegimeHistory).mockResolvedValue([]);
     vi.mocked(quantApi.sectors).mockResolvedValue([]);
-    vi.mocked(quantApi.signals).mockResolvedValue({ tradeDate: null, market: 'US', universe: 'us_sp500_watchlist', marketRegime: null, maxEquityExposure: null, items: [] });
+    vi.mocked(quantApi.signals).mockResolvedValue({ tradeDate: null, market: 'US', universe: 'us_sp500', marketRegime: null, maxEquityExposure: null, items: [] });
   });
 
   it('defaults to US and stores CN selection in the route query', async () => {
@@ -48,14 +48,14 @@ describe('quant market context', () => {
     const controls = wrapper.get('[data-testid="quant-market-switcher"]');
     expect(controls.attributes('role')).toBe('radiogroup');
     expect(controls.get('button[aria-checked="true"]').text()).toBe('美股');
-    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('标普500 + 美股自选');
+    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围：标普500');
 
     await controls.findAll('button')[1].trigger('click');
     await flushPromises();
 
     expect(router.currentRoute.value.query.market).toBe('CN');
     expect(controls.get('button[aria-checked="true"]').text()).toBe('A股');
-    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('沪深300 + A股自选');
+    expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围：沪深300');
     expect(controls.classes()).toContain('min-w-[132px]');
     expect(quantApi.signals).toHaveBeenLastCalledWith('CN');
   });
@@ -64,14 +64,14 @@ describe('quant market context', () => {
     let resolveUs!: (value: Awaited<ReturnType<typeof quantApi.signals>>) => void;
     vi.mocked(quantApi.signals).mockImplementation((market) => {
       if (market === 'US') return new Promise((resolve) => { resolveUs = resolve; });
-      return Promise.resolve({ tradeDate: null, market: 'CN', universe: 'cn_csi300_watchlist', marketRegime: null, maxEquityExposure: null, items: [] });
+      return Promise.resolve({ tradeDate: null, market: 'CN', universe: 'cn_csi300', marketRegime: null, maxEquityExposure: null, items: [] });
     });
     const { wrapper, router } = await mountMarket('/market/quant?market=US');
     await flushPromises();
     await router.push('/market/quant?market=CN');
     await flushPromises();
     resolveUs({
-      tradeDate: '2026-07-17', market: 'US', universe: 'us_sp500_watchlist', marketRegime: 'risk_on', maxEquityExposure: 0.8,
+      tradeDate: '2026-07-17', market: 'US', universe: 'us_sp500', marketRegime: 'risk_on', maxEquityExposure: 0.8,
       items: [{ id: 1, market: 'US', tradeDate: '2026-07-17', code: 'AAPL.US' } as never],
     });
     await flushPromises();

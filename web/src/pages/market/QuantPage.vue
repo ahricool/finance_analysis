@@ -6,7 +6,7 @@ import { useQuantMarket } from '@/composables/useQuantMarket';
 const route = useRoute();
 const { market, setMarket, marketQuery } = useQuantMarket();
 const scopeDescription = computed(() => (
-  market.value === 'US' ? '当前范围：标普500 + 美股自选' : '当前范围：沪深300 + A股自选'
+  market.value === 'US' ? '当前范围：标普500' : '当前范围：沪深300'
 ));
 const navItems = [
   { label: '总览', to: '/market/quant' },

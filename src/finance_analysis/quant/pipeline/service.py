@@ -28,7 +28,7 @@ from finance_analysis.quant.markets import get_quant_market_config, validate_uni
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
 from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
 from finance_analysis.quant.signals.fusion import SignalFusion
-from finance_analysis.quant.universe.service import DynamicUniverseService
+from finance_analysis.quant.universe.service import FixedUniverseService
 from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 
 PROTOCOL_VERSION = 1
@@ -162,7 +162,7 @@ class QuantDailyPipeline:
             trade_date = get_effective_trading_date(config.calendar_market)
         universe_key = validate_universe_for_market(market, universe_key)
         cross_section, time_series = self._preflight_production_models(market)
-        service = self.universe_service or DynamicUniverseService(
+        service = self.universe_service or FixedUniverseService(
             repository=self.repository,
             symbol_repository=self.symbol_repository,
         )
