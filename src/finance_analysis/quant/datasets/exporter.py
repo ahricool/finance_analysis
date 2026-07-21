@@ -14,14 +14,20 @@ from sqlalchemy import select
 
 from finance_analysis.core.time import utc_isoformat, utc_now
 from finance_analysis.database.models.quant import DailyFeatureSnapshot, EventFeatureDaily
-from finance_analysis.database.models.stock import MarketDataSymbol, StockDaily
+from finance_analysis.database.models.stock import MarketDataSymbol
 from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.quant.config import get_quant_config
+from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.datasets.validator import validate_daily_bars
 from finance_analysis.quant.exceptions import BenchmarkDataMissingError, QuantDatasetValidationError
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
 from finance_analysis.quant.markets import get_quant_market_config, validate_universe_for_market
+from finance_analysis.quant.price_modes import (
+    ADJUSTMENT_MODE_FORWARD,
+    DEFAULT_QUANT_PRICE_MODE,
+    normalize_price_mode,
+)
 from finance_analysis.quant.sectors.service import build_synthetic_sector_benchmark
 
 logger = logging.getLogger(__name__)
@@ -48,14 +54,13 @@ class QlibDatasetExporter:
         date_from: date,
         date_to: date,
         frequency: str = "day",
-        price_mode: str = "raw",
+        price_mode: str = DEFAULT_QUANT_PRICE_MODE.value,
         feature_version: str | None = None,
         candidate_codes: set[str] | None = None,
     ):
         if frequency != "day":
             raise ValueError("First release supports daily Qlib datasets only")
-        if price_mode != "raw":
-            raise ValueError("Adjusted prices are unavailable; use price_mode=raw")
+        price_mode = normalize_price_mode(price_mode)
         market_config = get_quant_market_config(market)
         universe = validate_universe_for_market(market_config.market, universe)
         definition = self.repository.get_universe(universe)
@@ -80,12 +85,14 @@ class QlibDatasetExporter:
         )
         if not benchmark_codes:
             raise BenchmarkDataMissingError("Universe has no available benchmark mapping")
-        source_revision = self._source_revision(
+        loaded = DailyBarLoader(self.repository).load(
             market_config.market,
             candidate_codes | benchmark_codes,
             date_from,
             date_to,
+            price_mode,
         )
+        source_revision = loaded.source_revision
         feature_version = feature_version or get_quant_config().feature_version
         key_parts = (
             market,
@@ -93,7 +100,7 @@ class QlibDatasetExporter:
             date_from,
             date_to,
             frequency,
-            price_mode,
+            price_mode.value,
             feature_version,
             source_revision,
         )
@@ -106,7 +113,7 @@ class QlibDatasetExporter:
                 "frequency": frequency,
                 "date_from": date_from,
                 "date_to": date_to,
-                "price_mode": price_mode,
+                "price_mode": price_mode.value,
                 "feature_version": feature_version,
                 "source_revision": source_revision,
                 "code_commit": _git_commit(),
@@ -115,16 +122,18 @@ class QlibDatasetExporter:
             }
         )
         try:
-            frame = self._load(
-                market_config.market,
-                candidate_codes | benchmark_codes,
-                date_from,
-                date_to,
+            frame = loaded.frame
+            report = validate_daily_bars(
+                frame,
+                candidate_codes,
+                benchmark_codes,
+                price_mode=price_mode.value,
             )
-            report = validate_daily_bars(frame, candidate_codes, benchmark_codes)
+            report["adjustment_coverage"] = loaded.adjustment_coverage
+            report["adjustment_sources"] = loaded.adjustment_sources
             if not report["valid"]:
                 raise QuantDatasetValidationError("; ".join(report["errors"]))
-            frame, vwap_report = self._with_vwap(frame)
+            vwap_report = loaded.vwap
             report["vwap"] = vwap_report
             if vwap_report["valid_rows"] == 0:
                 raise QuantDatasetValidationError("Dataset has no valid VWAP observations")
@@ -160,7 +169,10 @@ class QlibDatasetExporter:
                 "frequency": frequency,
                 "date_from": str(date_from),
                 "date_to": str(date_to),
-                "price_mode": price_mode,
+                "price_mode": price_mode.value,
+                "adjustment_mode": ADJUSTMENT_MODE_FORWARD,
+                "adjustment_coverage": loaded.adjustment_coverage,
+                "adjustment_sources": loaded.adjustment_sources,
                 "symbols": sorted(candidate_codes),
                 "benchmark_codes": sorted(benchmark_codes),
                 "feature_version": feature_version,
@@ -193,81 +205,6 @@ class QlibDatasetExporter:
             raise
         return self.repository.get_dataset(snapshot.id)
 
-    @staticmethod
-    def _with_vwap(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int | float]]:
-        result = frame.copy()
-        low = pd.to_numeric(result["low"], errors="coerce")
-        high = pd.to_numeric(result["high"], errors="coerce")
-        close = pd.to_numeric(result["close"], errors="coerce")
-        stored = pd.to_numeric(result.get("vwap", pd.Series(np.nan, index=result.index)), errors="coerce")
-        stored = stored.where(np.isfinite(stored) & (stored > 0))
-        quality = result.get("vwap_quality", pd.Series(None, index=result.index)).fillna("").astype(str)
-        typical = (high + low + close) / 3.0
-        fallback = stored.isna() & np.isfinite(typical) & (typical > 0)
-        vwap = stored.where(~fallback, typical)
-        vwap = vwap.where(np.isfinite(vwap) & (vwap > 0))
-        result["vwap"] = vwap
-        estimated = (stored.notna() & quality.eq("estimated")) | fallback
-        provider_calculated = vwap.notna() & ~estimated
-        missing = vwap.isna()
-        total = len(result)
-
-        def ratio(count: int) -> float:
-            return count / total if total else 0.0
-
-        provider_calculated_rows = int(provider_calculated.sum())
-        estimated_rows = int(estimated.sum())
-        missing_rows = int(missing.sum())
-        return result, {
-            "valid_rows": int(vwap.notna().sum()),
-            "provider_calculated_rows": provider_calculated_rows,
-            "estimated_rows": estimated_rows,
-            "missing_rows": missing_rows,
-            "provider_calculated_ratio": ratio(provider_calculated_rows),
-            "estimated_ratio": ratio(estimated_rows),
-            "missing_ratio": ratio(missing_rows),
-        }
-
-    def _load(self, market: str, codes: set[str], start: date, end: date) -> pd.DataFrame:
-        with self.repository.db.get_session() as session:
-            rows = session.execute(
-                select(
-                    MarketDataSymbol.code,
-                    StockDaily.date,
-                    StockDaily.open,
-                    StockDaily.high,
-                    StockDaily.low,
-                    StockDaily.close,
-                    StockDaily.volume,
-                    StockDaily.amount,
-                    StockDaily.vwap,
-                    StockDaily.vwap_source,
-                    StockDaily.vwap_quality,
-                )
-                .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
-                .where(
-                    MarketDataSymbol.market == market,
-                    MarketDataSymbol.code.in_(codes),
-                    StockDaily.date.between(start, end),
-                )
-                .order_by(MarketDataSymbol.code, StockDaily.date)
-            ).all()
-        frame = pd.DataFrame(
-            rows,
-            columns=[
-                "instrument", "datetime", "open", "high", "low", "close", "volume", "amount",
-                "vwap", "vwap_source", "vwap_quality",
-            ],
-        )
-        if not frame.empty:
-            frame["factor"] = 1.0
-        return frame
-
-    def _source_revision(self, market: str, codes: set[str], start: date, end: date) -> str:
-        frame = self._load(market, codes, start, end)
-        payload = frame.to_csv(index=False, lineterminator="\n").encode()
-        return hashlib.sha256(payload).hexdigest()
-
     def _write_qlib(
         self,
         root,
@@ -298,11 +235,10 @@ class QlibDatasetExporter:
             length = max(positions) + 1
             for field in self.FIELDS:
                 values = np.full(length, np.nan, dtype="<f4")
-                values[positions] = (
-                    group[field]
-                    .fillna(1 if field == "factor" else np.nan)
-                    .to_numpy(dtype="<f4")
-                )
+                # Qlib's external binary field is named ``factor`` and defines
+                # adjusted_price / raw_price, matching our canonical factor.
+                source_field = "forward_adjustment_factor" if field == "factor" else field
+                values[positions] = group[source_field].to_numpy(dtype="<f4")
                 np.concatenate((np.array([start_index], dtype="<f4"), values)).tofile(directory / f"{field}.day.bin")
         (instruments / "all.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
         frame.to_csv(source / "daily.csv", index=False)

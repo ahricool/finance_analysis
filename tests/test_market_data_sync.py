@@ -128,9 +128,9 @@ def test_raw_daily_and_adjustment_orm_boundaries():
     assert {"open", "high", "low", "close", "volume", "amount", "vwap", "vwap_source", "vwap_quality"}.issubset(
         raw_columns
     )
-    assert not {"adj_close", "qfq_factor", "hfq_factor"} & raw_columns
+    assert not {"adj_close", "forward_adjustment_factor", "hfq_factor"} & raw_columns
     assert {"action_date", "action_type", "source_hash"}.issubset(StockCorporateAction.__table__.columns.keys())
-    assert {"trade_date", "qfq_factor", "hfq_factor", "adj_close"}.issubset(
+    assert {"trade_date", "forward_adjustment_factor", "hfq_factor", "adj_close"}.issubset(
         StockAdjustmentFactor.__table__.columns.keys()
     )
 
@@ -172,7 +172,7 @@ def test_yfinance_actions_and_adj_close_are_normalized_separately():
         index=pd.DatetimeIndex(["2026-07-17"], name="Date"),
     )
     data = YfinanceFetcher._normalize_adjustments(frame, {date(2026, 7, 17)})
-    assert data.adjustment_factors[0]["qfq_factor"] == pytest.approx(0.98)
+    assert data.adjustment_factors[0]["forward_adjustment_factor"] == pytest.approx(0.98)
     assert {row["action_type"] for row in data.corporate_actions} == {"dividend", "split"}
 
 
@@ -190,7 +190,8 @@ def test_akshare_raw_history_uses_empty_adjust_and_factor_api_is_separate():
             }
         ]
     )
-    qfq = pd.DataFrame([{"date": "2026-01-01", "qfq_factor": 2.0}])
+    # AKShare's external response schema uses this provider-specific column name.
+    forward_adjustment = pd.DataFrame([{"date": "2026-01-01", "qfq_factor": 2.0}])
     hfq = pd.DataFrame([{"date": "2026-01-01", "hfq_factor": 3.0}])
     fetcher = AkshareFetcher(sleep_min=0, sleep_max=0)
     with patch("akshare.stock_zh_a_hist", return_value=raw) as history:
@@ -201,14 +202,14 @@ def test_akshare_raw_history_uses_empty_adjust_and_factor_api_is_separate():
     normalized = enrich_daily_vwap(validate_daily_bars(frame, [date(2026, 7, 17)]), "AkshareFetcher")
     assert normalized[0]["vwap"] == pytest.approx(10.0)
 
-    with patch("akshare.stock_zh_a_daily", side_effect=[qfq, hfq]) as factors:
+    with patch("akshare.stock_zh_a_daily", side_effect=[forward_adjustment, hfq]) as factors:
         data = fetcher.fetch_adjustment_data(
             _symbol("600519.SH", market="CN"),
             [date(2026, 7, 16), date(2026, 7, 17)],
         )
     assert [call.kwargs["adjust"] for call in factors.call_args_list] == ["qfq-factor", "hfq-factor"]
     assert len(data.adjustment_factors) == 2
-    assert data.adjustment_factors[0]["qfq_factor"] == pytest.approx(0.5)
+    assert data.adjustment_factors[0]["forward_adjustment_factor"] == pytest.approx(0.5)
 
 
 def test_akshare_cn_corporate_actions_normalize_dividend_bonus_and_rights():
@@ -233,7 +234,7 @@ def test_akshare_cn_corporate_actions_normalize_dividend_bonus_and_rights():
     assert by_type["rights"]["rights_ratio"] == pytest.approx(0.3)
 
 
-def test_efinance_raw_history_uses_fqt_zero_and_qfq_is_validation_only():
+def test_efinance_raw_history_uses_fqt_zero_and_forward_adjusted_is_validation_only():
     raw = pd.DataFrame(
         [
             {
@@ -255,7 +256,7 @@ def test_efinance_raw_history_uses_fqt_zero_and_qfq_is_validation_only():
     ) as call:
         fetcher.fetch_daily_bars(symbol, date(2026, 7, 17), date(2026, 7, 17))
         assert call.call_args.kwargs["fqt"] == 0
-        fetcher.fetch_qfq_validation_bars(symbol, date(2026, 7, 17), date(2026, 7, 17))
+        fetcher.fetch_forward_adjusted_validation_bars(symbol, date(2026, 7, 17), date(2026, 7, 17))
         assert call.call_args.kwargs["fqt"] == 1
 
 
@@ -403,7 +404,7 @@ def test_adjustment_batches_follow_each_symbols_daily_window():
         def fetch_adjustment_data_batch(self, items, days):
             self.calls.append(([item.code for item in items], list(days)))
             return {
-                item.code: AdjustmentData([], [{"trade_date": day, "qfq_factor": 1.0} for day in days])
+                item.code: AdjustmentData([], [{"trade_date": day, "forward_adjustment_factor": 1.0} for day in days])
                 for item in items
             }
 
@@ -443,13 +444,13 @@ def test_adjustment_full_refresh_bypasses_prepared_recent_batch():
         @staticmethod
         def fetch_adjustment_data_batch(items, days):
             return {
-                item.code: AdjustmentData([], [{"trade_date": day, "qfq_factor": 1.0} for day in days])
+                item.code: AdjustmentData([], [{"trade_date": day, "forward_adjustment_factor": 1.0} for day in days])
                 for item in items
             }
 
         def fetch_adjustment_data(self, _symbol, days):
             self.single_calls.append(list(days))
-            return AdjustmentData([], [{"trade_date": day, "qfq_factor": 0.9} for day in days])
+            return AdjustmentData([], [{"trade_date": day, "forward_adjustment_factor": 0.9} for day in days])
 
     yahoo = Yahoo()
     router = MarketDataProviderRouter(
@@ -463,8 +464,8 @@ def test_adjustment_full_refresh_bypasses_prepared_recent_batch():
     recent = router.fetch_adjustment(symbol, [recent_day])
     refreshed = router.fetch_adjustment(symbol, full_days, use_prepared_batch=False)
 
-    assert recent.data.adjustment_factors[0]["qfq_factor"] == 1.0
-    assert refreshed.data.adjustment_factors[0]["qfq_factor"] == 0.9
+    assert recent.data.adjustment_factors[0]["forward_adjustment_factor"] == 1.0
+    assert refreshed.data.adjustment_factors[0]["forward_adjustment_factor"] == 0.9
     assert yahoo.single_calls == [full_days]
 
 
@@ -522,7 +523,7 @@ def test_partial_daily_history_upserts_valid_rows_without_deleting_symbol_histor
     )
     router.fetch_adjustment.return_value = RoutedAdjustment(
         "YfinanceFetcher",
-        AdjustmentData([], [{"trade_date": days[-1], "qfq_factor": 1.0}], adjustment_factors_complete=False),
+        AdjustmentData([], [{"trade_date": days[-1], "forward_adjustment_factor": 1.0}], adjustment_factors_complete=False),
     )
 
     result = _service(stock_repository=stock, adjustment_repository=adjustment, router=router)._sync_symbol(
@@ -596,7 +597,7 @@ def test_service_result_contains_required_fields_and_marks_missing_amount():
     )
     router.fetch_adjustment.return_value = RoutedAdjustment(
         "YfinanceFetcher",
-        AdjustmentData([], [{"trade_date": date(2026, 7, 17), "qfq_factor": 1.0}]),
+        AdjustmentData([], [{"trade_date": date(2026, 7, 17), "forward_adjustment_factor": 1.0}]),
     )
     service = _service(
         symbol_repository=symbols,
@@ -746,7 +747,7 @@ def test_incremental_sync_initializes_new_symbols_with_five_years_and_refreshes_
     )
     router.fetch_adjustment.side_effect = lambda symbol, days: RoutedAdjustment(
         "YfinanceFetcher",
-        AdjustmentData([], [{"trade_date": item, "qfq_factor": 1.0} for item in days]),
+        AdjustmentData([], [{"trade_date": item, "forward_adjustment_factor": 1.0} for item in days]),
     )
     service = _service(
         symbol_repository=symbols,
@@ -805,7 +806,7 @@ def test_full_sync_uses_initial_window_for_existing_symbols_in_both_markets(mark
     )
     router.fetch_adjustment.side_effect = lambda _, days: RoutedAdjustment(
         "YfinanceFetcher",
-        AdjustmentData([], [{"trade_date": item, "qfq_factor": 1.0} for item in days]),
+        AdjustmentData([], [{"trade_date": item, "forward_adjustment_factor": 1.0} for item in days]),
     )
     service = _service(
         market=market,
@@ -865,7 +866,7 @@ def test_retention_cleanup_runs_before_provider_requests():
         "range",
     )
     router.fetch_adjustment.return_value = RoutedAdjustment(
-        "YfinanceFetcher", AdjustmentData([], [{"trade_date": day, "qfq_factor": 1.0}])
+        "YfinanceFetcher", AdjustmentData([], [{"trade_date": day, "forward_adjustment_factor": 1.0}])
     )
     service = _service(
         stock_repository=stock,
@@ -891,7 +892,7 @@ def test_symbol_sync_does_not_run_retention_cleanup_after_provider_failure():
     router = MagicMock()
     router.fetch_daily.return_value = RoutedBars([], [day], [], "range")
     router.fetch_adjustment.return_value = RoutedAdjustment(
-        "YfinanceFetcher", AdjustmentData([], [{"trade_date": day, "qfq_factor": 1.0}])
+        "YfinanceFetcher", AdjustmentData([], [{"trade_date": day, "forward_adjustment_factor": 1.0}])
     )
     result = _service(stock_repository=stock, adjustment_repository=adjustment, router=router)._sync_symbol(
         _symbol(), [day], [day]
@@ -936,13 +937,13 @@ def test_changed_recent_factor_fetches_and_replaces_complete_five_year_window():
     router.fetch_adjustment.side_effect = [
         RoutedAdjustment(
             "YfinanceFetcher",
-            AdjustmentData([], [{"trade_date": item, "qfq_factor": 0.9} for item in recent_days]),
+            AdjustmentData([], [{"trade_date": item, "forward_adjustment_factor": 0.9} for item in recent_days]),
         ),
         RoutedAdjustment(
             "YfinanceFetcher",
             AdjustmentData(
                 [{"action_date": recent_days[-1], "action_type": "dividend", "cash_dividend": 1.0}],
-                [{"trade_date": item, "qfq_factor": 0.9} for item in full_days],
+                [{"trade_date": item, "forward_adjustment_factor": 0.9} for item in full_days],
             ),
         ),
     ]
@@ -971,7 +972,7 @@ def test_matching_recent_factors_only_upsert_recent_window():
     router = MagicMock()
     router.fetch_adjustment.return_value = RoutedAdjustment(
         "YfinanceFetcher",
-        AdjustmentData([], [{"trade_date": item, "qfq_factor": 1.0} for item in recent_days]),
+        AdjustmentData([], [{"trade_date": item, "forward_adjustment_factor": 1.0} for item in recent_days]),
     )
 
     result = _service(adjustment_repository=adjustment, router=router)._sync_adjustment(
@@ -997,13 +998,13 @@ def test_incomplete_five_year_factor_response_never_deletes_stored_dates():
     router.fetch_adjustment.side_effect = [
         RoutedAdjustment(
             "YfinanceFetcher",
-            AdjustmentData([], [{"trade_date": item, "qfq_factor": 0.9} for item in recent_days]),
+            AdjustmentData([], [{"trade_date": item, "forward_adjustment_factor": 0.9} for item in recent_days]),
         ),
         RoutedAdjustment(
             "YfinanceFetcher",
             AdjustmentData(
                 [],
-                [{"trade_date": item, "qfq_factor": 0.9} for item in recent_days],
+                [{"trade_date": item, "forward_adjustment_factor": 0.9} for item in recent_days],
                 adjustment_factors_complete=False,
             ),
         ),
@@ -1031,7 +1032,7 @@ def test_failed_five_year_factor_refresh_preserves_recent_and_stored_windows():
     router.fetch_adjustment.side_effect = [
         RoutedAdjustment(
             "YfinanceFetcher",
-            AdjustmentData([], [{"trade_date": item, "qfq_factor": 0.9} for item in recent_days]),
+            AdjustmentData([], [{"trade_date": item, "forward_adjustment_factor": 0.9} for item in recent_days]),
         ),
         RoutedAdjustment(None, None, ["YfinanceFetcher: timeout"]),
     ]
@@ -1058,7 +1059,7 @@ def test_partial_factor_response_only_upserts_and_never_replaces_window():
         "YfinanceFetcher",
         AdjustmentData(
             [{"action_date": days[-1], "action_type": "split", "split_ratio": 2.0}],
-            [{"trade_date": days[-1], "qfq_factor": 0.5}],
+            [{"trade_date": days[-1], "forward_adjustment_factor": 0.5}],
             adjustment_factors_complete=False,
         ),
     )
@@ -1077,7 +1078,7 @@ def test_adjustment_upsert_keeps_all_rows_from_matching_sync_window():
     router = MagicMock()
     router.fetch_adjustment.return_value = RoutedAdjustment(
         "YfinanceFetcher",
-        AdjustmentData([], [{"trade_date": item, "qfq_factor": 1.0} for item in days]),
+        AdjustmentData([], [{"trade_date": item, "forward_adjustment_factor": 1.0} for item in days]),
     )
 
     result = _service(
@@ -1102,7 +1103,7 @@ def test_adjustment_factor_comparison_ignores_new_dates_and_detects_changed_over
     session.execute.return_value.scalars.return_value = [
         SimpleNamespace(
             trade_date=stored_day,
-            qfq_factor=1.0,
+            forward_adjustment_factor=1.0,
             hfq_factor=None,
             hfq_cash=None,
             adj_close=100.0,
@@ -1113,10 +1114,10 @@ def test_adjustment_factor_comparison_ignores_new_dates_and_detects_changed_over
     repository = StockAdjustmentRepository(db)
 
     unchanged = [
-        {"trade_date": stored_day, "qfq_factor": 1.0, "adj_close": 100.0},
-        {"trade_date": new_day, "qfq_factor": 1.0, "adj_close": 101.0},
+        {"trade_date": stored_day, "forward_adjustment_factor": 1.0, "adj_close": 100.0},
+        {"trade_date": new_day, "forward_adjustment_factor": 1.0, "adj_close": 101.0},
     ]
-    changed = [{**unchanged[0], "qfq_factor": 0.9}]
+    changed = [{**unchanged[0], "forward_adjustment_factor": 0.9}]
 
     assert not repository.has_adjustment_factor_changes(1, stored_day, new_day, unchanged)
     assert repository.has_adjustment_factor_changes(1, stored_day, new_day, changed)
@@ -1128,7 +1129,7 @@ def test_adjustment_repository_replaces_only_changed_symbol_window():
     symbol = MarketDataSymbolRepository(db).get_by_code("AAPL.US")
     repository = StockAdjustmentRepository(db)
     day = date(2040, 1, 3)
-    factor = {"trade_date": day, "qfq_factor": 0.9, "hfq_factor": None, "adj_close": 90.0}
+    factor = {"trade_date": day, "forward_adjustment_factor": 0.9, "hfq_factor": None, "adj_close": 90.0}
     action = {
         "action_date": day,
         "action_type": "dividend",
@@ -1152,7 +1153,7 @@ def test_adjustment_repository_replaces_only_changed_symbol_window():
             symbol.id,
             day,
             day,
-            [{**factor, "qfq_factor": 0.8}],
+            [{**factor, "forward_adjustment_factor": 0.8}],
             "YfinanceFetcher",
         )
         assert changed.changed and changed.updated_rows == 1
@@ -1227,25 +1228,25 @@ def test_partial_adjustment_factor_upsert_preserves_other_dates():
             symbol.id,
             days[0],
             days[-1],
-            [{"trade_date": item, "qfq_factor": 1.0} for item in days],
+            [{"trade_date": item, "forward_adjustment_factor": 1.0} for item in days],
             "YfinanceFetcher",
         )
         repository.upsert_adjustment_factors(
             symbol.id,
             days[0],
             days[-1],
-            [{"trade_date": days[-1], "qfq_factor": 0.5}],
+            [{"trade_date": days[-1], "forward_adjustment_factor": 0.5}],
             "YfinanceFetcher",
         )
         with db.get_session() as session:
             rows = session.execute(
                 text(
-                    "SELECT trade_date, qfq_factor FROM stock_adjustment_factor "
+                    "SELECT trade_date, forward_adjustment_factor FROM stock_adjustment_factor "
                     "WHERE symbol_id=:id AND trade_date BETWEEN :start AND :end ORDER BY trade_date"
                 ),
                 {"id": symbol.id, "start": days[0], "end": days[-1]},
             ).all()
-        assert [(row.trade_date, row.qfq_factor) for row in rows] == [
+        assert [(row.trade_date, row.forward_adjustment_factor) for row in rows] == [
             (days[0], 1.0),
             (days[-1], 0.5),
         ]

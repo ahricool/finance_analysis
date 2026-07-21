@@ -313,6 +313,7 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
     assert context["market"] == "CN"
     assert context["universe_key"] == "cn_csi300_watchlist"
     assert {request["artifact_uri"] for request in requests} == {"quant://cn/cs", "quant://cn/ts"}
+    assert exporter.export.call_args.kwargs["price_mode"] == "forward_adjusted"
 
 
 def test_cn_missing_production_model_never_falls_back_to_us():

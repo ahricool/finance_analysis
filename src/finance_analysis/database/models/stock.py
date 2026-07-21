@@ -257,14 +257,14 @@ class StockCorporateAction(Base):
 
 
 class StockAdjustmentFactor(Base):
-    """Per-session factors where qfq price equals raw price times qfq_factor."""
+    """Per-session price factors where forward-adjusted price equals raw price times factor."""
 
     __tablename__ = "stock_adjustment_factor"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
     trade_date = Column(Date, nullable=False)
-    qfq_factor = Column(Float, nullable=True)
+    forward_adjustment_factor = Column(Float, nullable=True)
     hfq_factor = Column(Float, nullable=True)
     hfq_cash = Column(Float, nullable=True)
     adj_close = Column(Float, nullable=True)
@@ -277,7 +277,10 @@ class StockAdjustmentFactor(Base):
 
     __table_args__ = (
         UniqueConstraint("symbol_id", "trade_date", name="uix_stock_adjustment_factor_symbol_date"),
-        CheckConstraint("qfq_factor IS NULL OR qfq_factor > 0", name="ck_stock_adjustment_qfq_positive"),
+        CheckConstraint(
+            "forward_adjustment_factor IS NULL OR forward_adjustment_factor > 0",
+            name="ck_stock_adjustment_forward_factor_positive",
+        ),
         CheckConstraint("hfq_factor IS NULL OR hfq_factor > 0", name="ck_stock_adjustment_hfq_positive"),
         Index("ix_stock_adjustment_factor_symbol_date", "symbol_id", "trade_date"),
     )

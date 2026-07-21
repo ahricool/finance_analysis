@@ -18,6 +18,7 @@ from qlib_worker.models.splits import WalkForwardConfig
 from qlib_worker.models.targets import TargetConfig, build_target
 from qlib_worker.models.training import train_walk_forward
 from qlib_worker.protocol import TrainPayload
+from qlib_worker.price_modes import require_forward_adjusted_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ def train_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
         runner = get_runner(payload.model_key)
         dataset = store.path_for_uri(payload.dataset_uri)
         manifest = load_manifest(dataset)
+        price_mode = require_forward_adjusted_manifest(manifest)
         split_config = WalkForwardConfig.parse(payload.split_config)
         target_config = TargetConfig.parse(payload.target_config, split_config.prediction_horizon)
         if target_config.prediction_horizon != split_config.prediction_horizon:
@@ -72,6 +74,9 @@ def train_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
                 "split_config": training["split_config"],
                 "final_training_strategy": training["final_training_strategy"],
                 "final_training_end": training["final_training_end"],
+                "price_mode": price_mode,
+                "dataset_key": manifest.get("dataset_key"),
+                "source_revision": manifest.get("source_revision"),
             }
             (output / "metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
             return {

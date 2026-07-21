@@ -118,6 +118,35 @@ def test_target_config_changes_horizon_benchmark_and_prices(tmp_path: Path) -> N
     assert first.iloc[0] != second.iloc[0]
 
 
+def test_target_uses_forward_adjusted_daily_prices_without_reapplying_factor(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    (dataset / "source").mkdir(parents=True)
+    dates = pd.bdate_range("2026-07-15", periods=3)
+    # Raw closes would be 100, 100, 50 around a one-for-two split. The exporter
+    # has already applied factors 0.5, 0.5, 1.0 before writing daily.csv.
+    pd.DataFrame(
+        {
+            "instrument": "A.US",
+            "datetime": dates,
+            "open": [50.0, 50.0, 50.0],
+            "close": [50.0, 50.0, 50.0],
+            "forward_adjustment_factor": [0.5, 0.5, 1.0],
+        }
+    ).to_csv(dataset / "source" / "daily.csv", index=False)
+    target = build_target(
+        dataset,
+        {"benchmark_codes": [], "sector_benchmark_mapping": {}},
+        TargetConfig(
+            prediction_horizon=2,
+            benchmark="none",
+            entry_price="close",
+            exit_price="close",
+            excess_return=False,
+        ),
+    )
+    assert target.iloc[0] == pytest.approx(0.0)
+
+
 def test_target_config_uses_market_neutral_name_and_accepts_legacy_alias() -> None:
     default = TargetConfig.parse({}, 5)
     legacy = TargetConfig.parse({"benchmark": "sector_or_qqq"}, 5)

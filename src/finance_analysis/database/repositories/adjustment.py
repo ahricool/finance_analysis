@@ -161,7 +161,7 @@ class StockAdjustmentRepository:
         rows: Sequence[dict[str, Any]],
     ) -> bool:
         """Compare only dates present in both the incoming and stored factor windows."""
-        factor_columns = ("qfq_factor", "hfq_factor", "hfq_cash", "adj_close")
+        factor_columns = ("forward_adjustment_factor", "hfq_factor", "hfq_cash", "adj_close")
         incoming = {
             row["trade_date"]: tuple(row.get(column) for column in factor_columns)
             for row in rows

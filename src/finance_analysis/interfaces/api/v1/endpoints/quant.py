@@ -23,6 +23,7 @@ from finance_analysis.interfaces.api.v1.schemas.quant import (
 from finance_analysis.quant.capabilities import get_quant_capabilities
 from finance_analysis.quant.events.import_service import EventImportService
 from finance_analysis.quant.models import QLIB_TRAINABLE_MODEL_KEYS
+from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
 from finance_analysis.tasks.celery.schedule import QUEUE_ANALYSIS
 
 router = APIRouter()
@@ -251,6 +252,11 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
         raise HTTPException(409, "Model run, universe, and dataset market must match")
     if dataset.status != "ready":
         raise HTTPException(409, "Dataset is not ready")
+    if dataset.price_mode != DEFAULT_QUANT_PRICE_MODE.value:
+        raise HTTPException(
+            409,
+            f"Production training requires dataset price_mode={DEFAULT_QUANT_PRICE_MODE.value}",
+        )
     values = body.model_dump(exclude={"universe"})
     values.update(
         {

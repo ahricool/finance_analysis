@@ -361,6 +361,7 @@ def test_training_rejects_missing_dataset_artifact_before_marking_training() -> 
         universe_id=9,
         status="ready",
         artifact_uri="quant://datasets/missing",
+        price_mode="forward_adjusted",
     )
     artifact_store = MagicMock()
     artifact_store.resolve_uri.side_effect = ModelArtifactMissingError(

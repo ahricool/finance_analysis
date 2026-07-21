@@ -249,7 +249,7 @@ class AkshareFetcher(BaseFetcher):
         return frame[columns].sort_values("date").reset_index(drop=True)
 
     def fetch_adjustment_data(self, symbol, requested_days: list[date]):
-        """Expand AKShare qfq/hfq event factors to every requested trading day."""
+        """Expand AKShare forward/hfq event factors to every requested trading day."""
         import akshare as ak
 
         from finance_analysis.integrations.market_data.history import AdjustmentData, HistoricalProviderError
@@ -260,7 +260,9 @@ class AkshareFetcher(BaseFetcher):
         provider_symbol = _to_sina_tx_symbol(base) if symbol.market == "CN" else base.zfill(5)
         factor_api = ak.stock_zh_a_daily if symbol.market == "CN" else ak.stock_hk_daily
         try:
-            qfq = factor_api(symbol=provider_symbol, adjust="qfq-factor")
+            # AKShare calls this ``qfq-factor``. Internally the canonical name is
+            # ``forward_adjustment_factor`` and adjusted_price = raw_price * factor.
+            forward_adjustment = factor_api(symbol=provider_symbol, adjust="qfq-factor")
             hfq = factor_api(symbol=provider_symbol, adjust="hfq-factor")
         except Exception as exc:
             reason = str(exc)
@@ -274,6 +276,13 @@ class AkshareFetcher(BaseFetcher):
                 reason,
                 retryable,
             ) from exc
+
+        # AKShare's response column uses the same external abbreviation as its
+        # request parameter. Translate it at the provider boundary immediately.
+        if forward_adjustment is not None and "qfq_factor" in forward_adjustment.columns:
+            forward_adjustment = forward_adjustment.rename(
+                columns={"qfq_factor": "forward_adjustment_factor"}
+            )
 
         factors = pd.DataFrame({"trade_date": sorted(set(requested_days))})
         factors["trade_date"] = pd.to_datetime(factors["trade_date"])
@@ -299,26 +308,30 @@ class AkshareFetcher(BaseFetcher):
             for column in available:
                 factors[column] = merged[column].bfill()
 
-        merge_factor(qfq, ["qfq_factor"])
+        merge_factor(forward_adjustment, ["forward_adjustment_factor"])
         merge_factor(hfq, ["hfq_factor", "cash"])
         rows: list[dict[str, Any]] = []
         for item in factors.to_dict(orient="records"):
-            qfq_value = item.get("qfq_factor")
+            forward_adjustment_value = item.get("forward_adjustment_factor")
             hfq_value = item.get("hfq_factor")
-            if pd.isna(qfq_value) and pd.isna(hfq_value):
+            if pd.isna(forward_adjustment_value) and pd.isna(hfq_value):
                 continue
-            qfq_multiplier = None
-            if not pd.isna(qfq_value):
-                raw_qfq_factor = float(qfq_value)
-                if raw_qfq_factor > 0:
-                    # AKShare's CN qfq implementation divides raw prices by
-                    # qfq_factor, while its HK implementation multiplies.
+            forward_adjustment_multiplier = None
+            if not pd.isna(forward_adjustment_value):
+                provider_forward_adjustment_factor = float(forward_adjustment_value)
+                if provider_forward_adjustment_factor > 0:
+                    # AKShare's CN external forward-adjustment implementation divides raw prices by
+                    # its factor, while its HK implementation multiplies.
                     # Persist one cross-market convention: adjusted = raw * factor.
-                    qfq_multiplier = 1.0 / raw_qfq_factor if symbol.market == "CN" else raw_qfq_factor
+                    forward_adjustment_multiplier = (
+                        1.0 / provider_forward_adjustment_factor
+                        if symbol.market == "CN"
+                        else provider_forward_adjustment_factor
+                    )
             rows.append(
                 {
                     "trade_date": pd.Timestamp(item["trade_date"]).date(),
-                    "qfq_factor": qfq_multiplier,
+                    "forward_adjustment_factor": forward_adjustment_multiplier,
                     "hfq_factor": None if pd.isna(hfq_value) else float(hfq_value),
                     "hfq_cash": None if pd.isna(item.get("cash")) else float(item["cash"]),
                     "adj_close": None,
