@@ -1,4 +1,4 @@
-"""Rename Quant universes and mark them as fixed index definitions.
+"""Rename Quant universes and constrain membership to fixed index constituents.
 
 Revision ID: 0023_fixed_quant_universes
 Revises: 0022_forward_adjustment_naming
@@ -11,6 +11,9 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+
+from finance_analysis.stocks.market_scope import MarketDataScopeResolver
+from finance_analysis.stocks.reference_data.stock_index import CSI300_STOCK_INDEX, SP500_STOCK_INDEX
 
 revision: str = "0023_fixed_quant_universes"
 down_revision: Union[str, Sequence[str], None] = "0022_forward_adjustment_naming"
@@ -27,6 +30,7 @@ _UNIVERSES = (
         "description": "Fixed S&P 500 constituents from SP500_STOCK_INDEX.",
         "benchmark_code": "QQQ.US",
         "constituent_source": "SP500_STOCK_INDEX",
+        "reference": SP500_STOCK_INDEX,
     },
     {
         "market": "CN",
@@ -36,8 +40,18 @@ _UNIVERSES = (
         "description": "Fixed CSI 300 constituents from CSI300_STOCK_INDEX.",
         "benchmark_code": "510300.SH",
         "constituent_source": "CSI300_STOCK_INDEX",
+        "reference": CSI300_STOCK_INDEX,
     },
 )
+
+
+def _canonical_codes(item: dict) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            MarketDataScopeResolver.canonical_code(code, item["market"])
+            for code in item["reference"]
+        )
+    )
 
 
 def upgrade() -> None:
@@ -68,16 +82,37 @@ def upgrade() -> None:
                     enabled = true,
                     is_dynamic = false,
                     benchmark_code = :benchmark_code,
-                    sector_benchmark_mode = 'market_dependencies',
+                    sector_benchmark_mode = 'member_or_synthetic',
                     config = jsonb_build_object('constituent_source', :constituent_source),
                     updated_at = CURRENT_TIMESTAMP
                 WHERE key = :source_key
                 """
             ),
             {
-                **item,
+                **{key: value for key, value in item.items() if key != "reference"},
                 "source_key": source_key,
             },
+        )
+
+        codes = _canonical_codes(item)
+        end_members = sa.text(
+            """
+            UPDATE quant_universe_member AS member
+            SET effective_to = GREATEST(member.effective_from, CURRENT_DATE - 1),
+                enabled = member.effective_from < CURRENT_DATE,
+                updated_at = CURRENT_TIMESTAMP
+            FROM quant_universe AS universe, market_data_symbol AS symbol
+            WHERE member.universe_id = universe.id
+              AND member.symbol_id = symbol.id
+              AND universe.key = :universe_key
+              AND member.enabled = true
+              AND member.effective_to IS NULL
+              AND symbol.code NOT IN :constituent_codes
+            """
+        ).bindparams(sa.bindparam("constituent_codes", expanding=True))
+        connection.execute(
+            end_members,
+            {"universe_key": item["key"], "constituent_codes": codes},
         )
 
     # This row may still be referenced by historical artifacts. Keep it for
@@ -128,3 +163,6 @@ def downgrade() -> None:
                 ),
             },
         )
+
+    # Ended member periods are intentionally retained. Reopening them would
+    # rewrite point-in-time history and cannot be inferred safely on downgrade.

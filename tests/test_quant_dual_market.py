@@ -124,7 +124,7 @@ def test_unsupported_universe_is_absent_from_seed_frontend_and_current_documenta
     )
 
 
-def test_fixed_universe_migration_renames_in_place_without_member_dependency():
+def test_fixed_universe_migration_renames_in_place_and_ends_removed_members():
     project_root = Path(__file__).resolve().parents[1]
     migration = (
         project_root
@@ -139,8 +139,10 @@ def test_fixed_universe_migration_renames_in_place_without_member_dependency():
     assert '"key": "us_sp500"' in migration
     assert '"key": "cn_csi300"' in migration
     assert "UPDATE QUANT_UNIVERSE" in normalized
-    assert "UPDATE QUANT_UNIVERSE_MEMBER" not in normalized
+    assert "UPDATE QUANT_UNIVERSE_MEMBER" in normalized
     assert "IS_DYNAMIC = FALSE" in normalized
+    assert "SP500_STOCK_INDEX" in migration
+    assert "CSI300_STOCK_INDEX" in migration
     assert "DELETE FROM QUANT_UNIVERSE" not in normalized
     assert "DELETE FROM QUANT_UNIVERSE_MEMBER" not in normalized
     assert "DROP TABLE" not in normalized
