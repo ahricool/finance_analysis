@@ -1,6 +1,71 @@
 <script setup lang="ts">
-import { quantApi } from '@/api/quant'; import { getParsedApiError, type ParsedApiError } from '@/api/error'; import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue'; import Button from '@/components/common/Button.vue'; import type { QuantEvent } from '@/types/quant'; import { computed, onMounted, ref } from 'vue'; import { useAuthStore } from '@/stores/authStore';
-const auth=useAuthStore(); const rows=ref<QuantEvent[]>([]); const error=ref<ParsedApiError|null>(null); const format=ref<'json'|'csv'>('json'); const payload=ref('[]'); const importing=ref(false); const isAdmin=computed(()=>auth.currentUser?.role==='admin');
-async function load(){try{rows.value=(await quantApi.events()).items;}catch(err){error.value=getParsedApiError(err);}} async function runImport(){importing.value=true;try{await quantApi.importEvents(format.value,payload.value);await load();}catch(err){error.value=getParsedApiError(err);}finally{importing.value=false;}} onMounted(load);
+import { quantApi } from '@/api/quant'; import { getParsedApiError, type ParsedApiError } from '@/api/error'; import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue'; import Button from '@/components/common/Button.vue'; import type { QuantEvent } from '@/types/quant'; import { computed, ref, watch } from 'vue'; import { useAuthStore } from '@/stores/authStore';import {useQuantMarket} from '@/composables/useQuantMarket';
+const {market}=useQuantMarket();const auth=useAuthStore(); const rows=ref<QuantEvent[]>([]); const error=ref<ParsedApiError|null>(null); const format=ref<'json'|'csv'>('json'); const payload=ref('[]'); const importing=ref(false); const isAdmin=computed(()=>auth.currentUser?.role==='admin');let requestVersion=0;
+async function load(){const version=++requestVersion;rows.value=[];error.value=null;try{const value=(await quantApi.events(market.value)).items;if(version===requestVersion)rows.value=value;}catch(err){if(version===requestVersion)error.value=getParsedApiError(err);}} async function runImport(){importing.value=true;try{await quantApi.importEvents(format.value,payload.value);await load();}catch(err){error.value=getParsedApiError(err);}finally{importing.value=false;}} watch(market,load,{immediate:true});
 </script>
-<template><div class="space-y-4"><header><h2 class="text-lg font-semibold">结构化事件</h2><p class="text-xs text-muted-text">历史特征仅使用 available_at 不晚于特征截止时间的事件。</p></header><ApiErrorAlert v-if="error" :error="error"/><section v-if="isAdmin" class="rounded-2xl border border-border bg-card p-4"><h3 class="text-sm font-semibold">JSON / CSV 导入</h3><div class="mt-3 flex gap-2"><select v-model="format" class="rounded-xl border border-border bg-background px-3"><option value="json">JSON</option><option value="csv">CSV</option></select><Button :disabled="importing" @click="runImport">{{importing?'导入中...':'导入'}}</Button></div><textarea v-model="payload" rows="5" class="mt-3 w-full rounded-xl border border-border bg-background p-3 font-mono text-xs"/></section><div class="overflow-x-auto rounded-2xl border border-border bg-card"><table class="w-full text-sm"><thead class="text-left text-xs text-muted-text"><tr><th class="p-3">发布时间 / 可用时间</th><th>股票</th><th>类型</th><th>方向</th><th>重要性</th><th>可信度</th><th>来源</th><th>标题</th></tr></thead><tbody><tr v-for="item in rows" :key="item.id" class="border-t border-border"><td class="p-3 text-xs">{{item.publishedAt}}<br><span class="text-muted-text">{{item.availableAt}}</span></td><td>{{item.code??'市场'}}</td><td>{{item.eventType}}</td><td>{{item.direction}}</td><td>{{item.importance}}</td><td>{{item.confidence}}</td><td>{{item.source}}<span v-if="item.extractorModel" class="block text-xs">LLM extracted · {{item.reviewStatus}}</span></td><td>{{item.title}}</td></tr></tbody></table></div></div></template>
+<template>
+  <div class="space-y-4">
+    <header>
+      <h2 class="text-lg font-semibold">
+        结构化事件
+      </h2><p class="text-xs text-muted-text">
+        历史特征仅使用 available_at 不晚于特征截止时间的事件。
+      </p>
+    </header><ApiErrorAlert
+      v-if="error"
+      :error="error"
+    /><section
+      v-if="isAdmin"
+      class="rounded-2xl border border-border bg-card p-4"
+    >
+      <h3 class="text-sm font-semibold">
+        JSON / CSV 导入
+      </h3><div class="mt-3 flex gap-2">
+        <select
+          v-model="format"
+          class="rounded-xl border border-border bg-background px-3"
+        >
+          <option value="json">
+            JSON
+          </option><option value="csv">
+            CSV
+          </option>
+        </select><Button
+          :disabled="importing"
+          @click="runImport"
+        >
+          {{ importing?'导入中...':'导入' }}
+        </Button>
+      </div><textarea
+        v-model="payload"
+        rows="5"
+        class="mt-3 w-full rounded-xl border border-border bg-background p-3 font-mono text-xs"
+      />
+    </section><div class="overflow-x-auto rounded-2xl border border-border bg-card">
+      <table class="w-full text-sm">
+        <thead class="text-left text-xs text-muted-text">
+          <tr>
+            <th class="p-3">
+              发布时间 / 可用时间
+            </th><th>股票</th><th>类型</th><th>方向</th><th>重要性</th><th>可信度</th><th>来源</th><th>标题</th>
+          </tr>
+        </thead><tbody>
+          <tr
+            v-for="item in rows"
+            :key="item.id"
+            class="border-t border-border"
+          >
+            <td class="p-3 text-xs">
+              {{ item.publishedAt }}<br><span class="text-muted-text">{{ item.availableAt }}</span>
+            </td><td>{{ item.code??'市场' }}</td><td>{{ item.eventType }}</td><td>{{ item.direction }}</td><td>{{ item.importance }}</td><td>{{ item.confidence }}</td><td>
+              {{ item.source }}<span
+                v-if="item.extractorModel"
+                class="block text-xs"
+              >LLM extracted · {{ item.reviewStatus }}</span>
+            </td><td>{{ item.title }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</template>

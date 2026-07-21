@@ -37,13 +37,14 @@ JOB_US_PREMARKET_NEWS = "analysis_us_premarket_news"
 JOB_US_PREMARKET_ANALYSIS = "analysis_us_premarket"
 JOB_US_INTRADAY_ANALYSIS = "analysis_us_intraday"
 JOB_US_POSTMARKET_REVIEW = "analysis_us_postmarket_review"
-JOB_US_MARKET_DATA_SYNC = "market_data_sync_us"
+JOB_MARKET_DATA_SYNC_CN_HK = "market_data_sync_cn_hk"
+JOB_MARKET_DATA_SYNC_US = "market_data_sync_us"
 JOB_A_SHARE_INTRADAY_ANALYSIS = "analysis_a_share_intraday"
 JOB_A_SHARE_PRE_CLOSE_REVIEW = "analysis_a_share_pre_close_review"
 JOB_SIGNAL_EVALUATION_CN = "signal_evaluation_cn"
 JOB_SIGNAL_EVALUATION_US = "signal_evaluation_us"
 JOB_QUANT_DAILY_PIPELINE_US = "quant_daily_pipeline_us"
-JOB_QUANT_MODEL_TRAINING_US = "quant_model_training_us"
+JOB_QUANT_DAILY_PIPELINE_CN = "quant_daily_pipeline_cn"
 
 
 def celery_task_name(job_id: str) -> str:

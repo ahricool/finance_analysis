@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from finance_analysis.tasks.celery.app import celery_app
-from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab
 from finance_analysis.tasks.celery.schedule import (
     ALL_QUEUES,
     build_beat_schedule,
@@ -16,6 +15,7 @@ from finance_analysis.tasks.celery.schedule import (
     get_scheduled_task_definition,
     get_scheduled_task_definitions,
 )
+from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab
 
 EXPECTED_JOBS = {
     "analysis_daily": ("scheduled_daily", "Asia/Shanghai"),
@@ -24,13 +24,14 @@ EXPECTED_JOBS = {
     "analysis_us_premarket": ("scheduled_us_premarket", "Asia/Shanghai"),
     "analysis_us_intraday": ("scheduled_us_intraday", "America/New_York"),
     "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
-    "market_data_sync_us": ("scheduled_us_market_data_sync", "America/New_York"),
+    "market_data_sync_cn_hk": ("scheduled_market_data_sync_cn_hk", "Asia/Shanghai"),
+    "market_data_sync_us": ("scheduled_market_data_sync_us", "America/New_York"),
     "analysis_a_share_intraday": ("scheduled_a_share_intraday", "Asia/Shanghai"),
     "analysis_a_share_pre_close_review": ("scheduled_a_share_pre_close_review", "Asia/Shanghai"),
     "signal_evaluation_cn": ("scheduled_signal_evaluation_cn", "Asia/Shanghai"),
     "signal_evaluation_us": ("scheduled_signal_evaluation_us", "America/New_York"),
     "quant_daily_pipeline_us": ("scheduled_quant_daily_us", "America/New_York"),
-    "quant_model_training_us": ("scheduled_quant_training_us", "America/New_York"),
+    "quant_daily_pipeline_cn": ("scheduled_quant_daily_cn", "Asia/Shanghai"),
 }
 
 
@@ -195,12 +196,32 @@ def test_us_postmarket_review_follows_new_york_dst():
     assert winter_next == datetime(2026, 1, 5, 21, 30, tzinfo=timezone.utc)
 
 
-def test_us_market_data_sync_schedule_and_queue():
-    definition = get_scheduled_task_definition("market_data_sync_us")
-    assert definition.queue == "ingestion"
-    assert definition.allow_manual_run is True
-    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules} == {
+def test_market_data_sync_schedules_and_queue():
+    cn_hk = get_scheduled_task_definition("market_data_sync_cn_hk")
+    us = get_scheduled_task_definition("market_data_sync_us")
+    assert cn_hk.queue == us.queue == "ingestion"
+    assert cn_hk.allow_manual_run is us.allow_manual_run is True
+    assert cn_hk.sync_modes == us.sync_modes == ("incremental", "full")
+    beat = build_beat_schedule()
+    assert beat["market_data_sync_cn_hk"]["kwargs"]["sync_mode"] == "incremental"
+    assert beat["market_data_sync_us"]["kwargs"]["sync_mode"] == "incremental"
+    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in cn_hk.schedules} == {
+        ("18", "0", "mon-fri", "Asia/Shanghai")
+    }
+    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in us.schedules} == {
         ("18", "0", "mon-fri", "America/New_York")
+    }
+
+
+def test_cn_quant_runs_one_hour_after_cn_daily_sync_on_analysis_queue():
+    sync = get_scheduled_task_definition("market_data_sync_cn_hk")
+    quant = get_scheduled_task_definition("quant_daily_pipeline_cn")
+
+    assert sync.queue == "ingestion"
+    assert quant.queue == "analysis"
+    assert quant.celery_task_name == "scheduled.quant_daily_pipeline_cn"
+    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in quant.schedules} == {
+        ("19", "0", "mon-fri", "Asia/Shanghai")
     }
 
 

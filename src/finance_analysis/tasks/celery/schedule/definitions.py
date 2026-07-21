@@ -3,11 +3,9 @@
 
 from __future__ import annotations
 
-import os
-
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from celery.schedules import crontab
 
@@ -15,26 +13,27 @@ from .constants import (
     EXPIRES_CALENDAR,
     EXPIRES_DAILY,
     EXPIRES_INTRADAY,
+    EXPIRES_MARKET_DATA_SYNC,
     EXPIRES_NEWS,
     EXPIRES_POSTMARKET_REVIEW,
     EXPIRES_PRE_CLOSE_REVIEW,
     EXPIRES_PREMARKET,
-    EXPIRES_SIGNAL_EVALUATION,
-    EXPIRES_MARKET_DATA_SYNC,
     EXPIRES_QUANT,
+    EXPIRES_SIGNAL_EVALUATION,
     JOB_A_SHARE_INTRADAY_ANALYSIS,
     JOB_A_SHARE_PRE_CLOSE_REVIEW,
     JOB_DAILY_ANALYSIS,
     JOB_MARKET_CALENDAR,
+    JOB_MARKET_DATA_SYNC_CN_HK,
+    JOB_MARKET_DATA_SYNC_US,
+    JOB_QUANT_DAILY_PIPELINE_CN,
+    JOB_QUANT_DAILY_PIPELINE_US,
     JOB_SIGNAL_EVALUATION_CN,
     JOB_SIGNAL_EVALUATION_US,
     JOB_US_INTRADAY_ANALYSIS,
     JOB_US_POSTMARKET_REVIEW,
-    JOB_US_MARKET_DATA_SYNC,
     JOB_US_PREMARKET_ANALYSIS,
     JOB_US_PREMARKET_NEWS,
-    JOB_QUANT_DAILY_PIPELINE_US,
-    JOB_QUANT_MODEL_TRAINING_US,
     QUEUE_ALERTS,
     QUEUE_ANALYSIS,
     QUEUE_INGESTION,
@@ -79,6 +78,7 @@ class ScheduledTaskDefinition:
     expires: int
     enabled: bool = True
     allow_manual_run: bool = True
+    sync_modes: tuple[Literal["incremental", "full"], ...] = ()
 
     def crontabs(self) -> list[crontab]:
         return [item.to_crontab() for item in self.schedules]
@@ -164,17 +164,32 @@ SCHEDULED_TASK_DEFINITIONS = (
         expires=EXPIRES_POSTMARKET_REVIEW,
     ),
     ScheduledTaskDefinition(
-        job_id=JOB_US_MARKET_DATA_SYNC,
-        name="美股历史行情同步",
-        description="同步数据库配置的 Nasdaq-100 未复权日线与正常交易时段 1 分钟行情",
-        task_type="scheduled_us_market_data_sync",
-        celery_task_name=celery_task_name(JOB_US_MARKET_DATA_SYNC),
+        job_id=JOB_MARKET_DATA_SYNC_CN_HK,
+        name="A股日线行情同步",
+        description="同步沪深300及自选A股的未复权日线、VWAP、公司行动和复权因子；港股自选股仅记录为暂不支持",
+        task_type="scheduled_market_data_sync_cn_hk",
+        celery_task_name=celery_task_name(JOB_MARKET_DATA_SYNC_CN_HK),
+        schedules=(CronSchedule(minute="0", hour="18", day_of_week="mon-fri"),),
+        schedule_text="周一至周五 18:00 Asia/Shanghai",
+        timezone=SCHEDULE_TIMEZONE,
+        queue=QUEUE_INGESTION,
+        expires=EXPIRES_MARKET_DATA_SYNC,
+        allow_manual_run=True,
+        sync_modes=("incremental", "full"),
+    ),
+    ScheduledTaskDefinition(
+        job_id=JOB_MARKET_DATA_SYNC_US,
+        name="美股日线行情同步",
+        description="同步标普500及自选美股的未复权日线、公司行动和复权因子",
+        task_type="scheduled_market_data_sync_us",
+        celery_task_name=celery_task_name(JOB_MARKET_DATA_SYNC_US),
         schedules=(CronSchedule(minute="0", hour="18", day_of_week="mon-fri", timezone=US_TIMEZONE),),
         schedule_text="周一至周五 18:00 America/New_York",
         timezone=US_TIMEZONE,
         queue=QUEUE_INGESTION,
         expires=EXPIRES_MARKET_DATA_SYNC,
         allow_manual_run=True,
+        sync_modes=("incremental", "full"),
     ),
     ScheduledTaskDefinition(
         job_id=JOB_QUANT_DAILY_PIPELINE_US,
@@ -190,17 +205,16 @@ SCHEDULED_TASK_DEFINITIONS = (
         allow_manual_run=True,
     ),
     ScheduledTaskDefinition(
-        job_id=JOB_QUANT_MODEL_TRAINING_US,
-        name="美股量化模型训练",
-        description="使用已就绪数据集运行 Qlib walk-forward 训练；不会自动发布",
-        task_type="scheduled_quant_training_us",
-        celery_task_name=celery_task_name(JOB_QUANT_MODEL_TRAINING_US),
-        schedules=(CronSchedule(minute="0", hour="10", day_of_week="sun", timezone=US_TIMEZONE),),
-        schedule_text="周日 10:00 America/New_York（默认关闭）",
-        timezone=US_TIMEZONE,
+        job_id=JOB_QUANT_DAILY_PIPELINE_CN,
+        name="A股量化日频流水线",
+        description="在A股日线同步后计算市场、行业、排名、融合信号和组合建议",
+        task_type="scheduled_quant_daily_cn",
+        celery_task_name=celery_task_name(JOB_QUANT_DAILY_PIPELINE_CN),
+        schedules=(CronSchedule(minute="0", hour="19", day_of_week="mon-fri"),),
+        schedule_text="周一至周五 19:00 Asia/Shanghai",
+        timezone=SCHEDULE_TIMEZONE,
         queue=QUEUE_ANALYSIS,
         expires=EXPIRES_QUANT,
-        enabled=os.getenv("QUANT_TRAINING_SCHEDULE_ENABLED", "false").lower() in {"1", "true", "yes"},
         allow_manual_run=True,
     ),
     ScheduledTaskDefinition(

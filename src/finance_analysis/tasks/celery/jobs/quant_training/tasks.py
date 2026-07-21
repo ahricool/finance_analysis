@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from finance_analysis.quant.exceptions import UnsupportedQuantUniverseError
 from finance_analysis.quant.pipeline.service import QuantTrainingPipeline
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.schedule import QUEUE_ANALYSIS, QUEUE_QLIB
@@ -32,6 +33,10 @@ def train_quant_model(model_run_id: int, owner_uid: int | None = None, **_: Any)
         )
         pipeline.mark_dispatched(model_run_id, result.id)
         return {"model_run_id": model_run_id, "qlib_task_id": result.id, "status": "training"}
+    except UnsupportedQuantUniverseError:
+        # A deprecated run is historical data. Record the Celery task failure,
+        # but never rewrite the historical model-run status or artifacts.
+        raise
     except Exception as exc:
         pipeline.fail(model_run_id, str(exc))
         raise

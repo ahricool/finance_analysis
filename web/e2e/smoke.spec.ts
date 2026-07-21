@@ -10,11 +10,11 @@ async function login(page: Page) {
   await page.goto('/login');
   await page.waitForLoadState('domcontentloaded');
 
-  const homeLink = page.getByRole('link', { name: '首页' });
+  const analysisLink = page.getByRole('link', { name: '分析' });
 
   const isAlreadyAuthenticated =
-    page.url().endsWith('/') ||
-    (await homeLink.isVisible({ timeout: 2_000 }).catch(() => false));
+    page.url().endsWith('/analysis') ||
+    (await analysisLink.isVisible({ timeout: 2_000 }).catch(() => false));
 
   if (isAlreadyAuthenticated) {
     await page.waitForLoadState('domcontentloaded');
@@ -45,7 +45,7 @@ async function login(page: Page) {
     page.getByTestId('login-submit').click(),
   ]);
 
-  await page.waitForURL('/', { timeout: 15_000 });
+  await page.waitForURL('**/analysis', { timeout: 15_000 });
   await page.waitForLoadState('domcontentloaded');
   await page.waitForTimeout(1000);
 }
@@ -107,12 +107,12 @@ test.describe('web smoke', () => {
     await expect(page.getByRole('button', { name: '继续' })).toBeVisible();
   });
 
-  test('home page shows analysis entry and history panel after login', async ({ page }) => {
+  test('analysis page shows analysis entry and history panel after login', async ({ page }) => {
     await login(page);
 
     const stockInput = page.getByPlaceholder('输入股票代码或名称，如 600519、贵州茅台、AAPL');
     await expect(stockInput).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole('link', { name: '首页' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '分析' })).toBeVisible();
     await expect(page.getByRole('link', { name: '问股' })).toBeVisible();
     await expect(page.getByText('历史分析')).toBeVisible();
 
@@ -168,7 +168,7 @@ test.describe('web smoke', () => {
 
     const mobileNav = page.getByTestId('mobile-main-nav');
     await expect(mobileNav).toBeVisible();
-    for (const label of ['首页', '日历', '市场', '问股']) {
+    for (const label of ['分析', '日历', '市场', '回测', '量化', '问股']) {
       await expect(mobileNav.getByRole('link', { name: label })).toBeVisible();
     }
 
@@ -180,7 +180,7 @@ test.describe('web smoke', () => {
 
     const marketNav = page.getByTestId('market-mobile-nav');
     await expect(marketNav).toBeVisible();
-    await expect(marketNav.getByRole('link')).toHaveCount(5);
+    await expect(marketNav.getByRole('link')).toHaveCount(3);
     expect(
       await marketNav.evaluate((element) => element.scrollWidth <= element.clientWidth),
     ).toBe(true);

@@ -25,6 +25,9 @@ function isNavItemActive(
   isActive: boolean,
   isExactActive: boolean,
 ): boolean {
+  if (item.activePaths) {
+    return item.activePaths.some((path) => route.path === path || route.path.startsWith(`${path}/`));
+  }
   if (item.activePathPrefix) return route.path.startsWith(item.activePathPrefix);
   return item.exact ? isExactActive : isActive;
 }
@@ -64,9 +67,9 @@ async function onLogoutConfirm() {
     >
       <div class="shell-safe-inline mx-auto flex h-16 w-full max-w-[1280px] items-center gap-3">
         <RouterLink
-          to="/"
+          to="/analysis"
           class="flex min-w-max items-center gap-2.5 rounded-xl px-2 py-1.5 text-foreground transition-colors hover:bg-hover"
-          aria-label="回到首页"
+          aria-label="回到分析"
         >
           <span class="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card">
             <img
@@ -79,7 +82,7 @@ async function onLogoutConfirm() {
         </RouterLink>
 
         <nav
-          class="hidden min-w-0 flex-1 items-center gap-1 px-1 md:flex"
+          class="hidden min-w-0 flex-1 items-center gap-0.5 px-1 md:flex lg:gap-1"
           aria-label="主导航"
           data-testid="desktop-main-nav"
         >
@@ -96,7 +99,7 @@ async function onLogoutConfirm() {
               :aria-current="isNavItemActive(item, isActive, isExactActive) ? 'page' : undefined"
               :class="
                 cn(
-                  'group relative inline-flex h-10 min-w-max items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium transition-colors',
+                  'group relative inline-flex h-10 min-w-max items-center justify-center gap-1.5 rounded-xl px-2.5 text-sm font-medium transition-colors lg:px-3',
                   isNavItemActive(item, isActive, isExactActive)
                     ? 'bg-[var(--nav-active-bg)] text-[hsl(var(--primary))]'
                     : 'text-secondary-text hover:bg-[var(--nav-hover-bg)] hover:text-foreground',
@@ -210,7 +213,7 @@ async function onLogoutConfirm() {
       aria-label="主导航"
       data-testid="mobile-main-nav"
     >
-      <div class="mx-auto grid h-16 max-w-lg grid-cols-4 px-1">
+      <div class="mx-auto grid h-16 max-w-xl grid-cols-6 px-1">
         <RouterLink
           v-for="item in mainNavItems"
           :key="item.key"

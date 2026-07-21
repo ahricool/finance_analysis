@@ -1,21 +1,117 @@
 import apiClient from './index';
 import { toCamelCase } from './utils';
-import type { IntradayConfirmation, MarketRegime, ModelRun, Portfolio, QuantCapabilities, QuantEvent, QuantSignal, QuantUniverse, SectorRegime, SignalRanking } from '@/types/quant';
+import type {
+  DatasetBuildAccepted,
+  IntradayConfirmation,
+  MarketRegime,
+  ModelRun,
+  ModelRunCreateAccepted,
+  ModelRunCreatePayload,
+  Portfolio,
+  QuantCapabilities,
+  QuantDatasetSnapshot,
+  QuantEvent,
+  QuantMarket,
+  QuantModelDefinition,
+  QuantSignal,
+  QuantUniverse,
+  SectorRegime,
+  SignalRanking,
+} from '@/types/quant';
+
+const withMarket = (market: QuantMarket, params: Record<string, unknown> = {}) => ({ ...params, market });
 
 export const quantApi = {
-  async capabilities(): Promise<QuantCapabilities> { const { data } = await apiClient.get('/api/v1/quant/capabilities'); return toCamelCase(data); },
-  async universes(): Promise<QuantUniverse[]> { const { data } = await apiClient.get('/api/v1/quant/universes'); return toCamelCase(data); },
-  async marketRegime(): Promise<MarketRegime> { const { data } = await apiClient.get('/api/v1/quant/market-regime/latest'); return toCamelCase(data); },
-  async marketRegimeHistory(): Promise<MarketRegime[]> { const { data } = await apiClient.get('/api/v1/quant/market-regime/history'); return toCamelCase(data); },
-  async sectors(): Promise<SectorRegime[]> { const { data } = await apiClient.get('/api/v1/quant/sectors/ranking'); return toCamelCase(data); },
-  async signals(universe = 'us_ai_semiconductor'): Promise<SignalRanking> { const { data } = await apiClient.get('/api/v1/quant/signals/ranking', { params: { universe } }); return toCamelCase(data); },
-  async signal(code: string): Promise<QuantSignal> { const { data } = await apiClient.get(`/api/v1/quant/signals/${code}`); return toCamelCase(data); },
-  async signalHistory(code: string): Promise<QuantSignal[]> { const { data } = await apiClient.get(`/api/v1/quant/signals/${code}/history`); return toCamelCase(data); },
-  async models(): Promise<ModelRun[]> { const { data } = await apiClient.get('/api/v1/quant/model-runs'); return toCamelCase(data); },
-  async model(id: number): Promise<ModelRun> { const { data } = await apiClient.get(`/api/v1/quant/model-runs/${id}`); return toCamelCase(data); },
-  async publish(id: number, reason: string): Promise<ModelRun> { const { data } = await apiClient.post(`/api/v1/quant/model-runs/${id}/publish`, { reason }); return toCamelCase(data); },
-  async events(params: Record<string, unknown> = {}): Promise<{items: QuantEvent[]; total:number}> { const { data } = await apiClient.get('/api/v1/quant/events', { params }); const value=toCamelCase<{items:QuantEvent[];total:number}>(data); return value; },
-  async importEvents(format: 'json'|'csv', payload: string): Promise<Record<string, unknown>> { const body = format === 'json' ? { format, items: JSON.parse(payload) } : { format, csv_content: payload }; const { data } = await apiClient.post('/api/v1/quant/events/import', body); return toCamelCase(data); },
-  async portfolio(): Promise<Portfolio> { const { data } = await apiClient.get('/api/v1/quant/portfolios/latest'); return toCamelCase(data); },
-  async confirmations(): Promise<IntradayConfirmation[]> { const { data } = await apiClient.get('/api/v1/quant/intraday-confirmations'); return toCamelCase(data); },
+  async capabilities(market: QuantMarket = 'US'): Promise<QuantCapabilities> {
+    const { data } = await apiClient.get('/api/v1/quant/capabilities', { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async universes(market: QuantMarket = 'US'): Promise<QuantUniverse[]> {
+    const { data } = await apiClient.get('/api/v1/quant/universes', { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async marketRegime(market: QuantMarket = 'US'): Promise<MarketRegime> {
+    const { data } = await apiClient.get('/api/v1/quant/market-regime/latest', { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async marketRegimeHistory(market: QuantMarket = 'US'): Promise<MarketRegime[]> {
+    const { data } = await apiClient.get('/api/v1/quant/market-regime/history', { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async sectors(market: QuantMarket = 'US'): Promise<SectorRegime[]> {
+    const { data } = await apiClient.get('/api/v1/quant/sectors/ranking', { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async signals(market: QuantMarket = 'US'): Promise<SignalRanking> {
+    const { data } = await apiClient.get('/api/v1/quant/signals/ranking', {
+      params: withMarket(market),
+    });
+    return toCamelCase(data);
+  },
+  async signal(code: string, market: QuantMarket = 'US'): Promise<QuantSignal> {
+    const { data } = await apiClient.get(`/api/v1/quant/signals/${code}`, { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async signalHistory(code: string, market: QuantMarket = 'US'): Promise<QuantSignal[]> {
+    const { data } = await apiClient.get(`/api/v1/quant/signals/${code}/history`, { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async models(market: QuantMarket = 'US'): Promise<ModelRun[]> {
+    const { data } = await apiClient.get('/api/v1/quant/model-runs', { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async modelDefinitions(market: QuantMarket = 'US'): Promise<QuantModelDefinition[]> {
+    const { data } = await apiClient.get('/api/v1/quant/models/definitions', { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async datasets(market: QuantMarket = 'US'): Promise<QuantDatasetSnapshot[]> {
+    const { data } = await apiClient.get('/api/v1/quant/datasets', { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async buildDataset(
+    market: QuantMarket,
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<DatasetBuildAccepted> {
+    const { data } = await apiClient.post('/api/v1/quant/datasets/build', {
+      market,
+      date_from: dateFrom,
+      date_to: dateTo,
+    });
+    return toCamelCase(data);
+  },
+  async createModelRun(payload: ModelRunCreatePayload): Promise<ModelRunCreateAccepted> {
+    const { data } = await apiClient.post('/api/v1/quant/model-runs', {
+      market: payload.market,
+      model_key: payload.modelKey,
+      model_version: payload.modelVersion,
+      dataset_snapshot_id: payload.datasetSnapshotId,
+    });
+    return toCamelCase(data);
+  },
+  async model(id: number, market: QuantMarket = 'US'): Promise<ModelRun> {
+    const { data } = await apiClient.get(`/api/v1/quant/model-runs/${id}`, { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async publish(id: number, reason: string, market: QuantMarket = 'US'): Promise<ModelRun> {
+    const { data } = await apiClient.post(`/api/v1/quant/model-runs/${id}/publish`, { reason }, { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async events(market: QuantMarket = 'US', params: Record<string, unknown> = {}): Promise<{items: QuantEvent[]; total: number}> {
+    const { data } = await apiClient.get('/api/v1/quant/events', { params: withMarket(market, params) });
+    return toCamelCase<{items: QuantEvent[]; total: number}>(data);
+  },
+  async importEvents(format: 'json' | 'csv', payload: string): Promise<Record<string, unknown>> {
+    const body = format === 'json' ? { format, items: JSON.parse(payload) } : { format, csv_content: payload };
+    const { data } = await apiClient.post('/api/v1/quant/events/import', body);
+    return toCamelCase(data);
+  },
+  async portfolio(market: QuantMarket = 'US'): Promise<Portfolio> {
+    const { data } = await apiClient.get('/api/v1/quant/portfolios/latest', { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async confirmations(market: QuantMarket = 'US'): Promise<IntradayConfirmation[]> {
+    const { data } = await apiClient.get('/api/v1/quant/intraday-confirmations', { params: withMarket(market) });
+    return toCamelCase(data);
+  },
 };

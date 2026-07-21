@@ -7,6 +7,37 @@ import numpy as np
 import pandas as pd
 
 
+def build_synthetic_sector_benchmark(members: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Build an equal-weight industry series from persisted constituent bars."""
+    closes = []
+    volumes = []
+    amounts = []
+    for code, frame in members.items():
+        ordered = frame.sort_values("date").set_index("date")
+        closes.append(ordered["close"].astype(float).rename(code))
+        volumes.append(ordered["volume"].astype(float).rename(code))
+        if "amount" in ordered:
+            amounts.append(pd.to_numeric(ordered["amount"], errors="coerce").rename(code))
+    if not closes:
+        return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume", "amount"])
+    close_panel = pd.concat(closes, axis=1).sort_index()
+    returns = close_panel.pct_change(fill_method=None).mean(axis=1, skipna=True).fillna(0.0)
+    synthetic_close = 100.0 * (1.0 + returns).cumprod()
+    volume = pd.concat(volumes, axis=1).sum(axis=1, min_count=1)
+    amount = pd.concat(amounts, axis=1).sum(axis=1, min_count=1) if amounts else synthetic_close * volume
+    return pd.DataFrame(
+        {
+            "date": synthetic_close.index,
+            "open": synthetic_close.values,
+            "high": synthetic_close.values,
+            "low": synthetic_close.values,
+            "close": synthetic_close.values,
+            "volume": volume.reindex(synthetic_close.index).values,
+            "amount": amount.reindex(synthetic_close.index).values,
+        }
+    ).reset_index(drop=True)
+
+
 class SectorRegimeService:
     def rank(self, sectors: dict[str, tuple[str, pd.DataFrame, dict[str, pd.DataFrame]]], market: pd.DataFrame, market_regime: str) -> list[dict]:
         market = market.sort_values("date"); market_ret5 = market.close.iloc[-1] / market.close.iloc[-6] - 1; market_ret20 = market.close.iloc[-1] / market.close.iloc[-21] - 1

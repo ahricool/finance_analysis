@@ -51,6 +51,26 @@ class MarketDataSymbolRepository:
     def list_enabled_daily_symbols(self, market: str) -> list[MarketDataSymbol]:
         return self._list_enabled(market, MarketDataSymbol.sync_daily)
 
+    def list_enabled_daily_by_codes(self, market: str, codes: Iterable[str]) -> list[MarketDataSymbol]:
+        normalized = str(market).upper()
+        canonical_codes = sorted({validate_market_data_code(normalized, code) for code in codes})
+        if not canonical_codes:
+            return []
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(MarketDataSymbol)
+                .where(
+                    MarketDataSymbol.market == normalized,
+                    MarketDataSymbol.code.in_(canonical_codes),
+                    MarketDataSymbol.enabled.is_(True),
+                    MarketDataSymbol.sync_daily.is_(True),
+                )
+                .order_by(MarketDataSymbol.code)
+            ).scalars().all()
+            for row in rows:
+                session.expunge(row)
+            return list(rows)
+
     def list_enabled_minute_symbols(self, market: str) -> list[MarketDataSymbol]:
         return self._list_enabled(market, MarketDataSymbol.sync_minute)
 
@@ -101,7 +121,12 @@ class MarketDataSymbolRepository:
                 session.expunge(row)
             return list(rows)
 
-    def upsert_symbols(self, symbols: Iterable[dict[str, Any]]) -> int:
+    def upsert_symbols(
+        self,
+        symbols: Iterable[dict[str, Any]],
+        *,
+        overwrite_runtime_flags: bool = False,
+    ) -> int:
         now = utc_now()
         records: list[dict[str, Any]] = []
         for item in symbols:
@@ -124,14 +149,23 @@ class MarketDataSymbolRepository:
             return 0
         with self.db.session_scope() as session:
             stmt = pg_insert(MarketDataSymbol).values(records)
+            update_values = {
+                "name": stmt.excluded.name,
+                "lot_size": func.coalesce(stmt.excluded.lot_size, MarketDataSymbol.lot_size),
+                "updated_at": stmt.excluded.updated_at,
+            }
+            if overwrite_runtime_flags:
+                update_values.update(
+                    {
+                        "enabled": stmt.excluded.enabled,
+                        "sync_daily": stmt.excluded.sync_daily,
+                        "sync_minute": stmt.excluded.sync_minute,
+                    }
+                )
             session.execute(
                 stmt.on_conflict_do_update(
                     constraint="uix_market_data_symbol_code",
-                    set_={
-                        "name": stmt.excluded.name,
-                        "lot_size": func.coalesce(stmt.excluded.lot_size, MarketDataSymbol.lot_size),
-                        "updated_at": stmt.excluded.updated_at,
-                    },
+                    set_=update_values,
                 )
             )
         return len(records)
@@ -342,7 +376,8 @@ class StockRepository:
             records,
             "uix_stock_daily_symbol_date",
             (
-                "open", "high", "low", "close", "volume", "amount", "limit_up", "limit_down", "suspended",
+                "open", "high", "low", "close", "volume", "amount", "vwap", "vwap_source", "vwap_quality",
+                "limit_up", "limit_down", "suspended",
                 "data_source", "source_priority", "updated_at",
             ),
         )
@@ -370,6 +405,8 @@ class StockRepository:
                 "date": row["date"],
                 "open": row["open"], "high": row["high"], "low": row["low"], "close": row["close"],
                 "volume": row["volume"], "amount": row.get("amount"),
+                "vwap": row.get("vwap"), "vwap_source": row.get("vwap_source"),
+                "vwap_quality": row.get("vwap_quality"),
                 "limit_up": row.get("limit_up"), "limit_down": row.get("limit_down"),
                 "suspended": bool(row.get("suspended", False)),
                 "data_source": source, "source_priority": priority,
@@ -377,6 +414,19 @@ class StockRepository:
             }
             for row in bars
         ]
+
+    def delete_daily_before(self, symbol_id: int, cutoff_date: date) -> int:
+        """Delete expired raw bars only after the caller confirms a successful sync."""
+        from sqlalchemy import delete
+
+        with self.db.session_scope() as session:
+            result = session.execute(
+                delete(StockDaily).where(
+                    StockDaily.symbol_id == symbol_id,
+                    StockDaily.date < cutoff_date,
+                )
+            )
+            return int(result.rowcount or 0)
 
     @staticmethod
     def _minute_records(

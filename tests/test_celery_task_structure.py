@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
-
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.jobs import TASK_MODULES, TASK_PACKAGES
 from finance_analysis.tasks.celery.metadata import ON_DEMAND_TASKS
@@ -22,6 +21,7 @@ EXPECTED_CUSTOM_TASKS = {
     "scheduled.analysis_us_premarket",
     "scheduled.analysis_us_intraday",
     "scheduled.analysis_us_postmarket_review",
+    "scheduled.market_data_sync_cn_hk",
     "scheduled.market_data_sync_us",
     "scheduled.analysis_a_share_intraday",
     "scheduled.analysis_a_share_pre_close_review",
@@ -33,9 +33,9 @@ EXPECTED_CUSTOM_TASKS = {
     "quant.model.train.finalize",
     "quant.model.train.failed",
     "scheduled.quant_daily_pipeline_us",
+    "scheduled.quant_daily_pipeline_cn",
     "quant.daily.finalize",
     "quant.daily.failed",
-    "scheduled.quant_model_training_us",
 }
 
 
@@ -54,13 +54,20 @@ def test_worker_registers_exactly_the_expected_custom_tasks():
 
 
 def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
-    assert len(TASK_PACKAGES) == 20
-    assert len(TASK_MODULES) == 20
+    assert len(TASK_PACKAGES) == 19
+    assert len(TASK_MODULES) == 19
     for package, module_name in zip(TASK_PACKAGES, TASK_MODULES):
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)
         source = Path(module.__file__).read_text(encoding="utf-8")
-        expected_count = 3 if package.endswith(("quant_training", "quant_daily")) else 1
+        if package.endswith("quant_daily"):
+            expected_count = 4
+        elif package.endswith("quant_training"):
+            expected_count = 3
+        elif package.endswith("market_data_sync"):
+            expected_count = 2
+        else:
+            expected_count = 1
         assert source.count("@celery_app.task") == expected_count
 
 
@@ -70,7 +77,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 20
+    assert len(celery_names) == len(set(celery_names)) == 21
     assert len(job_ids) == len(set(job_ids))
 
 
@@ -103,6 +110,8 @@ def test_removed_legacy_modules_and_batch_business_references_are_absent():
         source_root / "tasks" / "celery" / "jobs" / "market_calendar.py",
     )
     assert not any(path.exists() for path in removed_paths)
+    old_market_sync_root = source_root / "tasks" / "celery" / "jobs" / "us_market_data_sync"
+    assert not any(old_market_sync_root.glob("*.py"))
 
     source_text = "\n".join(path.read_text(encoding="utf-8") for path in source_root.rglob("*.py"))
     assert "run_batch_analysis" not in source_text
@@ -119,3 +128,8 @@ def test_removed_legacy_modules_and_batch_business_references_are_absent():
         "finance_analysis.tasks.jobs",
     )
     assert not any(fragment in source_text for fragment in forbidden_imports)
+
+    market_sync_root = source_root / "tasks" / "celery" / "jobs" / "market_data_sync"
+    market_sync_text = "\n".join(path.read_text(encoding="utf-8") for path in market_sync_root.rglob("*.py"))
+    assert "fetch_minute" not in market_sync_text
+    assert "StockMinute" not in market_sync_text

@@ -12,7 +12,7 @@ TASK_PACKAGES = (
     "finance_analysis.tasks.celery.jobs.us_premarket_analysis",
     "finance_analysis.tasks.celery.jobs.us_intraday_analysis",
     "finance_analysis.tasks.celery.jobs.us_postmarket_review",
-    "finance_analysis.tasks.celery.jobs.us_market_data_sync",
+    "finance_analysis.tasks.celery.jobs.market_data_sync",
     "finance_analysis.tasks.celery.jobs.a_share_intraday_analysis",
     "finance_analysis.tasks.celery.jobs.a_share_pre_close_review",
     "finance_analysis.tasks.celery.jobs.signal_evaluation_cn",
@@ -21,7 +21,6 @@ TASK_PACKAGES = (
     "finance_analysis.tasks.celery.jobs.quant_dataset",
     "finance_analysis.tasks.celery.jobs.quant_training",
     "finance_analysis.tasks.celery.jobs.quant_daily",
-    "finance_analysis.tasks.celery.jobs.quant_scheduled_training",
 )
 TASK_MODULES = tuple(f"{package}.tasks" for package in TASK_PACKAGES)
 

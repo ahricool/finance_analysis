@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class DatasetBuildRequest(BaseModel):
-    market: str = "US"
-    universe: str = "us_ai_semiconductor"
+    market: Literal["US", "CN"] = "US"
+    universe: str | None = None
     date_from: date
     date_to: date
 
 
 class EventCreateRequest(BaseModel):
     code: str | None = None
-    market: str
+    market: Literal["US", "CN"]
     event_type: str
     published_at: str
     available_at: str | None = None
@@ -40,11 +40,50 @@ class EventImportRequest(BaseModel):
     csv_content: str | None = None
 
 
+class WalkForwardSplitConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    train_years: int = Field(3, ge=1)
+    valid_months: int = Field(3, ge=1)
+    test_months: int = Field(3, ge=1)
+    retrain_frequency_months: int = Field(3, ge=1)
+    prediction_horizon: int = Field(5, ge=1)
+    embargo_days: int = Field(2, ge=0)
+
+
+class TrainingFeatureConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ablation: Literal[
+        "all_features",
+        "base_only",
+        "base_plus_relative_strength",
+        "base_plus_event",
+    ] = "all_features"
+    base: Literal["Alpha158"] = "Alpha158"
+
+
+class TrainingTargetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prediction_horizon: int = Field(5, ge=1)
+    benchmark: Literal[
+        "sector_or_market",
+        "sector_or_qqq",
+        "market",
+        "sector",
+        "none",
+    ] = "sector_or_market"
+    entry_price: Literal["open", "close"] = "open"
+    exit_price: Literal["open", "close"] = "close"
+    excess_return: bool = True
+
+
 class ModelRunCreateRequest(BaseModel):
-    model_key: str = "cross_section_lgbm"
-    model_version: str
-    market: str = "US"
-    universe: str = "us_ai_semiconductor"
+    model_key: Literal["cross_section_lgbm", "time_series_lgbm"] = "cross_section_lgbm"
+    model_version: str = Field(min_length=1, max_length=96, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    market: Literal["US", "CN"] = "US"
+    universe: str | None = None
     dataset_snapshot_id: int
     run_type: str = "walk_forward"
     train_start: date | None = None
@@ -54,25 +93,15 @@ class ModelRunCreateRequest(BaseModel):
     test_start: date | None = None
     test_end: date | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
-    split_config: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "train_years": 3,
-            "valid_months": 3,
-            "test_months": 3,
-            "prediction_horizon": 5,
-            "embargo_days": 2,
-        }
-    )
-    feature_config: dict[str, Any] = Field(default_factory=lambda: {"ablation": "all_features", "base": "Alpha158"})
-    target_config: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "prediction_horizon": 5,
-            "benchmark": "sector_or_qqq",
-            "entry_price": "open",
-            "exit_price": "close",
-            "excess_return": True,
-        }
-    )
+    split_config: WalkForwardSplitConfig = Field(default_factory=WalkForwardSplitConfig)
+    feature_config: TrainingFeatureConfig = Field(default_factory=TrainingFeatureConfig)
+    target_config: TrainingTargetConfig = Field(default_factory=TrainingTargetConfig)
+
+    @model_validator(mode="after")
+    def matching_prediction_horizons(self):
+        if self.target_config.prediction_horizon != self.split_config.prediction_horizon:
+            raise ValueError("target_config and split_config prediction_horizon must match")
+        return self
 
 
 class PublishRequest(BaseModel):
