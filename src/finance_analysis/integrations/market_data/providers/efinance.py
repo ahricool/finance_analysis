@@ -282,8 +282,8 @@ class EfinanceFetcher(BaseFetcher):
         """Fetch unadjusted Eastmoney daily bars (``fqt=0``)."""
         return self._fetch_canonical_daily(symbol, start_date, end_date, fqt=0)
 
-    def fetch_qfq_validation_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
-        """Fetch qfq bars for factor validation only; callers must never persist them as raw bars."""
+    def fetch_forward_adjusted_validation_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
+        """Fetch forward-adjusted bars for validation only; never persist them as raw bars."""
         return self._fetch_canonical_daily(symbol, start_date, end_date, fqt=1)
 
     def _fetch_canonical_daily(self, symbol, start_date: date, end_date: date, *, fqt: int) -> pd.DataFrame:
@@ -312,7 +312,7 @@ class EfinanceFetcher(BaseFetcher):
                 self.name,
                 symbol.market,
                 symbol.code,
-                "daily_qfq_validation" if fqt else "daily",
+                "daily_forward_adjusted_validation" if fqt else "daily",
                 f"{start_date}..{end_date}",
                 reason,
                 retryable,

@@ -17,6 +17,10 @@ class QuantDatasetValidationError(QuantError):
     pass
 
 
+class AdjustmentFactorMissingError(QuantDatasetValidationError):
+    """Daily raw bars exist without matching forward-adjustment factors."""
+
+
 class QlibUnavailableError(QuantError):
     pass
 

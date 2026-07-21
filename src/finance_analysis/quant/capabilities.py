@@ -9,6 +9,7 @@ import sys
 def get_quant_capabilities(market: str = "US", repository=None) -> dict:
     from finance_analysis.database.repositories.quant import QuantRepository
     from finance_analysis.quant.markets import get_quant_market_config
+    from finance_analysis.quant.price_modes import PriceMode
 
     market_config = get_quant_market_config(market)
     repository = repository or QuantRepository()
@@ -26,22 +27,23 @@ def get_quant_capabilities(market: str = "US", repository=None) -> dict:
         for key in required_models
     }
     models_ready = all(value == "production" for value in model_status.values())
-    warnings = ["当前使用未复权价格，公司行动可能影响长期模型和回测结果。"]
+    warnings = []
     if not models_ready:
         warnings.append(f"{market_config.market} production 模型尚未就绪。")
     return {
         "status": "available" if broker_configured and models_ready else "degraded",
         "market": market_config.market,
         "python_version": ".".join(map(str, sys.version_info[:3])),
-        "price_modes": ["raw"],
+        "price_modes": [PriceMode.FORWARD_ADJUSTED.value, PriceMode.RAW.value],
         "markets": {"US": "available", "CN": "available"},
         "models": {"status": "available" if models_ready else "unavailable", "required": model_status},
         "qlib": qlib,
         "lightgbm": "isolated_in_qlib_worker",
         "sklearn": "isolated_in_qlib_worker",
-        "adjusted_prices": {
-            "status": "unavailable",
-            "reason": "stock_daily currently stores raw prices and no corporate-action factor",
+        "forward_adjusted_prices": {
+            "status": "available",
+            "formula": "forward_adjusted_price = raw_price * forward_adjustment_factor",
+            "volume_amount_mode": "raw",
         },
         "event_providers": {"manual_json_csv": "available", "llm_extraction": "disabled"},
         "warnings": warnings,

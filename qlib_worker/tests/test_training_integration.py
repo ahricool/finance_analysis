@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from qlib_worker.tasks.predict import predict_model
 from qlib_worker.tasks.train import train_model
@@ -52,6 +53,10 @@ def _dataset(root: Path, periods: int = 650) -> str:
     (dataset / "manifest.json").write_text(
         json.dumps(
             {
+                "dataset_key": "minimal-integration",
+                "source_revision": "fixture-revision",
+                "price_mode": "forward_adjusted",
+                "adjustment_mode": "forward",
                 "date_from": str(dates[0].date()),
                 "date_to": str(dates[-1].date()),
                 "symbols": ["A.US", "B.US", "C.US"],
@@ -101,6 +106,9 @@ def test_train_retry_restart_and_predict(monkeypatch, tmp_path: Path) -> None:
     artifact = root / "models/cross_section_lgbm/integration-v1/101"
     assert (artifact / "model.joblib").is_file()
     assert not list(artifact.parent.glob(".101.*"))
+    metadata_path = artifact / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    assert metadata["price_mode"] == "forward_adjusted"
 
     predicted = predict_model.run(
         schema_version=1,
@@ -112,3 +120,15 @@ def test_train_retry_restart_and_predict(monkeypatch, tmp_path: Path) -> None:
     )
     assert predicted["model_run_id"] == 101
     assert {item["code"] for item in predicted["predictions"]} >= {"A.US", "B.US", "C.US"}
+
+    metadata["price_mode"] = "raw"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="price_mode mismatch"):
+        predict_model.run(
+            schema_version=1,
+            model_run_id=101,
+            artifact_uri=trained["artifact_uri"],
+            dataset_uri=dataset_uri,
+            trade_date=metadata["final_training_end"],
+            model_key="cross_section_lgbm",
+        )

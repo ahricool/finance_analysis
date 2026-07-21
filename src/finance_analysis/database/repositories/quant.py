@@ -14,7 +14,7 @@ from finance_analysis.database.models.quant import (
     ModelRun, ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem,
     QuantDatasetSnapshot, QuantUniverse, QuantUniverseMember, SectorRegimeSnapshot,
 )
-from finance_analysis.database.models.stock import MarketDataSymbol, StockDaily
+from finance_analysis.database.models.stock import MarketDataSymbol, StockAdjustmentFactor, StockDaily
 from finance_analysis.quant.markets import validate_universe_for_market
 
 
@@ -180,6 +180,52 @@ class QuantRepository:
                     .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
                     .where(MarketDataSymbol.code.in_(codes), StockDaily.date == trade_date)
                 ).scalars()
+            )
+
+    def load_daily_bar_rows(
+        self,
+        market: str,
+        codes: set[str],
+        start: date,
+        end: date,
+    ) -> list[Any]:
+        """Load raw bars and same-session adjustment metadata through one canonical join."""
+        if not codes:
+            return []
+        with self.db.get_session() as session:
+            return list(
+                session.execute(
+                    select(
+                        MarketDataSymbol.code.label("instrument"),
+                        StockDaily.date.label("datetime"),
+                        StockDaily.open,
+                        StockDaily.high,
+                        StockDaily.low,
+                        StockDaily.close,
+                        StockDaily.volume,
+                        StockDaily.amount,
+                        StockDaily.vwap,
+                        StockDaily.vwap_source,
+                        StockDaily.vwap_quality,
+                        StockDaily.data_source.label("daily_data_source"),
+                        StockDaily.source_priority.label("daily_source_priority"),
+                        StockAdjustmentFactor.forward_adjustment_factor,
+                        StockAdjustmentFactor.data_source.label("adjustment_source"),
+                        StockAdjustmentFactor.source_hash.label("adjustment_source_hash"),
+                    )
+                    .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
+                    .outerjoin(
+                        StockAdjustmentFactor,
+                        (StockAdjustmentFactor.symbol_id == StockDaily.symbol_id)
+                        & (StockAdjustmentFactor.trade_date == StockDaily.date),
+                    )
+                    .where(
+                        MarketDataSymbol.market == market.upper(),
+                        MarketDataSymbol.code.in_(codes),
+                        StockDaily.date.between(start, end),
+                    )
+                    .order_by(MarketDataSymbol.code, StockDaily.date)
+                ).mappings()
             )
 
     def create_dataset(self, values: dict[str, Any]) -> QuantDatasetSnapshot:

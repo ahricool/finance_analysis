@@ -235,7 +235,7 @@ class YfinanceFetcher(BaseFetcher):
                 factors.append(
                     {
                         "trade_date": trade_date,
-                        "qfq_factor": float(adj_close) / float(close),
+                        "forward_adjustment_factor": float(adj_close) / float(close),
                         "hfq_factor": None,
                         "hfq_cash": None,
                         "adj_close": float(adj_close),

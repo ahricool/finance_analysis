@@ -85,7 +85,7 @@ class QuantDatasetSnapshot(Base):
     frequency = Column(String(16), nullable=False)
     date_from = Column(Date, nullable=False)
     date_to = Column(Date, nullable=False)
-    price_mode = Column(String(16), nullable=False, default="raw")
+    price_mode = Column(String(24), nullable=False, default="forward_adjusted")
     feature_version = Column(String(64), nullable=False)
     source_revision = Column(String(64), nullable=False)
     code_commit = Column(String(64))
@@ -98,7 +98,10 @@ class QuantDatasetSnapshot(Base):
     finished_at = Column(DateTime(timezone=True))
     __table_args__ = (
         CheckConstraint("status IN ('pending','building','ready','failed')", name="ck_quant_dataset_status"),
-        CheckConstraint("price_mode IN ('raw','adjusted')", name="ck_quant_dataset_price_mode"),
+        CheckConstraint(
+            "price_mode IN ('raw','forward_adjusted')",
+            name="ck_quant_dataset_price_mode",
+        ),
         CheckConstraint("date_to >= date_from", name="ck_quant_dataset_dates"),
         Index("ix_quant_dataset_lookup", "market", "universe_id", "created_at"),
     )

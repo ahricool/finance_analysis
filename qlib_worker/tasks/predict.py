@@ -15,6 +15,7 @@ from qlib_worker.config import get_worker_config
 from qlib_worker.datasets import load_features, load_manifest
 from qlib_worker.models.registry import get_runner
 from qlib_worker.protocol import PredictPayload
+from qlib_worker.price_modes import require_forward_adjusted_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,13 @@ def predict_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
         runner = get_runner(payload.model_key)
         bundle = joblib.load(artifact / "model.joblib")
         manifest = load_manifest(dataset)
+        dataset_price_mode = require_forward_adjusted_manifest(manifest)
+        model_price_mode = metadata.get("price_mode")
+        if model_price_mode != dataset_price_mode:
+            raise ValueError(
+                "Model and prediction dataset price_mode mismatch: "
+                f"model={model_price_mode!r} dataset={dataset_price_mode!r}"
+            )
         features = load_features(dataset, manifest, metadata.get("feature_config", {}))
         target_date = pd.Timestamp(payload.trade_date)
         rows = features[features.index.get_level_values("datetime") == target_date].copy()

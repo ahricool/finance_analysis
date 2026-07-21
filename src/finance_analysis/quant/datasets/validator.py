@@ -4,8 +4,16 @@ from __future__ import annotations
 
 import pandas as pd
 
+from finance_analysis.quant.price_modes import PriceMode
 
-def validate_daily_bars(frame: pd.DataFrame, expected_symbols: set[str], benchmark_codes: set[str]) -> dict:
+
+def validate_daily_bars(
+    frame: pd.DataFrame,
+    expected_symbols: set[str],
+    benchmark_codes: set[str],
+    *,
+    price_mode: str,
+) -> dict:
     errors, warnings = [], []
     required = {"instrument", "datetime", "open", "high", "low", "close", "volume"}
     if missing := required - set(frame.columns): errors.append(f"missing columns: {sorted(missing)}")
@@ -21,5 +29,6 @@ def validate_daily_bars(frame: pd.DataFrame, expected_symbols: set[str], benchma
         if missing_benchmarks := benchmark_codes - actual: errors.append(f"missing benchmarks: {sorted(missing_benchmarks)}")
         counts = frame.groupby("instrument")["datetime"].count()
         if len(counts) and counts.min() < counts.max() * 0.6: warnings.append("one or more instruments have large date gaps")
-    warnings.append("price_mode=raw; corporate actions may affect long-horizon features and backtests")
+    if price_mode == PriceMode.RAW.value:
+        warnings.append("price_mode=raw; raw datasets are diagnostic-only and cannot train production models")
     return {"valid": not errors, "errors": errors, "warnings": warnings, "row_count": len(frame), "symbol_count": int(frame["instrument"].nunique()) if "instrument" in frame else 0}
