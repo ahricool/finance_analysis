@@ -3,7 +3,6 @@ from datetime import date
 from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
 from finance_analysis.quant.markets import validate_universe_for_market
 from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
-from finance_analysis.quant.universe.service import FixedUniverseService
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.lifecycle import track_task
 
@@ -27,7 +26,6 @@ def build_quant_dataset(
     del owner_uid
     universe = validate_universe_for_market(market, universe)
     end_date = date.fromisoformat(date_to)
-    FixedUniverseService().refresh(market, end_date)
     snapshot = QlibDatasetExporter().export(
         market,
         universe,

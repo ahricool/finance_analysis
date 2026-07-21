@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any, Iterable
 
-from sqlalchemy import and_, delete, desc, func, or_, select, update
+from sqlalchemy import and_, delete, desc, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.quant import (
     DailyFeatureSnapshot, EventFeatureDaily, IntradayConfirmation, MarketEvent, MarketRegimeSnapshot, ModelDefinition, ModelPublication,
     ModelRun, ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem,
-    QuantDatasetSnapshot, QuantUniverse, QuantUniverseMember, SectorRegimeSnapshot,
+    QuantDatasetSnapshot, QuantUniverse, SectorRegimeSnapshot,
 )
 from finance_analysis.database.models.stock import MarketDataSymbol, StockAdjustmentFactor, StockDaily
 from finance_analysis.quant.markets import DEFAULT_QUANT_UNIVERSES, validate_universe_for_market
@@ -68,106 +68,6 @@ class QuantRepository:
         if not row.enabled:
             raise ValueError(f"Universe id={universe_id} is not enabled for market={normalized_market}")
         return row
-
-    def upsert_universe(self, values: dict[str, Any]) -> QuantUniverse:
-        with self.db.session_scope() as session:
-            stmt = pg_insert(QuantUniverse).values(**values).on_conflict_do_update(
-                index_elements=[QuantUniverse.key],
-                set_={key: value for key, value in values.items() if key != "key"},
-            ).returning(QuantUniverse)
-            row = session.execute(stmt).scalar_one()
-            session.expunge(row)
-            return row
-
-    def update_universe(self, universe_id: int, **values: Any) -> None:
-        with self.db.session_scope() as session:
-            session.execute(update(QuantUniverse).where(QuantUniverse.id == universe_id).values(**values))
-
-    def latest_member_mappings(self, universe_id: int) -> dict[int, dict[str, Any]]:
-        with self.db.get_session() as session:
-            rows = session.execute(
-                select(QuantUniverseMember)
-                .where(QuantUniverseMember.universe_id == universe_id)
-                .order_by(QuantUniverseMember.symbol_id, desc(QuantUniverseMember.effective_from))
-            ).scalars()
-            result: dict[int, dict[str, Any]] = {}
-            for row in rows:
-                result.setdefault(
-                    row.symbol_id,
-                    {
-                        "sector_key": row.sector_key,
-                        "sector_benchmark_code": row.sector_benchmark_code,
-                        "source": "persisted",
-                    },
-                )
-            return result
-
-    def sync_fixed_members(
-        self,
-        universe_id: int,
-        symbols: Iterable[MarketDataSymbol],
-        mappings: dict[int, dict[str, Any]],
-        effective_from: date,
-    ) -> dict[str, int]:
-        desired = {symbol.id for symbol in symbols}
-        added = ended = updated = 0
-        with self.db.session_scope() as session:
-            active = {
-                row.symbol_id: row
-                for row in session.execute(
-                    select(QuantUniverseMember).where(
-                        QuantUniverseMember.universe_id == universe_id,
-                        QuantUniverseMember.enabled.is_(True),
-                        QuantUniverseMember.effective_to.is_(None),
-                    )
-                ).scalars()
-            }
-            for symbol_id, row in active.items():
-                if symbol_id not in desired:
-                    row.effective_to = max(row.effective_from, effective_from - timedelta(days=1))
-                    # Preserve ended periods for historical point-in-time reads.
-                    # A member created and removed on the same effective date has
-                    # no historical active interval, so disable that one record.
-                    row.enabled = row.effective_from < effective_from
-                    ended += 1
-                    continue
-                mapping = mappings.get(symbol_id, {})
-                sector_key = mapping.get("sector_key")
-                benchmark = mapping.get("sector_benchmark_code")
-                if (sector_key and row.sector_key != sector_key) or (benchmark and row.sector_benchmark_code != benchmark):
-                    row.sector_key = sector_key
-                    row.sector_benchmark_code = benchmark
-                    updated += 1
-            for symbol_id in sorted(desired - set(active)):
-                mapping = mappings.get(symbol_id, {})
-                session.add(
-                    QuantUniverseMember(
-                        universe_id=universe_id,
-                        symbol_id=symbol_id,
-                        effective_from=effective_from,
-                        sector_key=mapping.get("sector_key"),
-                        sector_benchmark_code=mapping.get("sector_benchmark_code"),
-                        enabled=True,
-                    )
-                )
-                added += 1
-        return {"added": added, "ended": ended, "updated": updated}
-
-    def active_members(self, universe_id: int, as_of: date) -> list[tuple[QuantUniverseMember, MarketDataSymbol]]:
-        with self.db.get_session() as session:
-            rows = list(session.execute(
-                select(QuantUniverseMember, MarketDataSymbol)
-                .join(MarketDataSymbol, MarketDataSymbol.id == QuantUniverseMember.symbol_id)
-                .where(
-                    QuantUniverseMember.universe_id == universe_id,
-                    QuantUniverseMember.enabled.is_(True),
-                    QuantUniverseMember.effective_from <= as_of,
-                    or_(QuantUniverseMember.effective_to.is_(None), QuantUniverseMember.effective_to >= as_of),
-                ).order_by(MarketDataSymbol.code)
-            ).all())
-            for member, symbol in rows:
-                session.expunge(member); session.expunge(symbol)
-            return rows
 
     def daily_bar_codes(self, codes: set[str], trade_date: date) -> set[str]:
         """Return universe codes with a daily bar on the requested trading date."""

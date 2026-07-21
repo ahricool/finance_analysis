@@ -38,14 +38,14 @@ def seed_quant_reference_data(db_manager=None) -> dict:
                 "key": DEFAULT_QUANT_UNIVERSES["US"], "name": "S&P 500", "market": "US",
                 "description": "Fixed S&P 500 constituents from SP500_STOCK_INDEX.",
                 "enabled": True, "is_dynamic": False, "benchmark_code": "QQQ.US",
-                "sector_benchmark_mode": "member_or_synthetic",
+                "sector_benchmark_mode": "market_dependencies",
                 "config": {"constituent_source": "SP500_STOCK_INDEX"},
             },
             {
                 "key": DEFAULT_QUANT_UNIVERSES["CN"], "name": "沪深300", "market": "CN",
                 "description": "Fixed CSI 300 constituents from CSI300_STOCK_INDEX.",
                 "enabled": True, "is_dynamic": False, "benchmark_code": "510300.SH",
-                "sector_benchmark_mode": "member_or_synthetic",
+                "sector_benchmark_mode": "market_dependencies",
                 "config": {"constituent_source": "CSI300_STOCK_INDEX"},
             },
         ):

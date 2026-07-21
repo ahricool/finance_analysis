@@ -131,7 +131,7 @@ def test_split_exports_continuous_alpha158_price_input(tmp_path: Path) -> None:
     ).frame
     exporter = object.__new__(QlibDatasetExporter)
     with patch.object(QlibDatasetExporter, "_custom_features", return_value=pd.DataFrame()):
-        exporter._write_qlib(tmp_path, frame, {"AAPL.US"}, None, {})
+        exporter._write_qlib(tmp_path, frame, {"AAPL.US"}, None, "US")
 
     close_input = np.fromfile(
         tmp_path / "features" / "aapl.us" / "close.day.bin", dtype="<f4"
@@ -153,21 +153,20 @@ def test_missing_factor_fails_loader_exporter_and_daily_research() -> None:
         enabled=True,
         benchmark_code="QQQ.US",
     )
-    repository.active_members = lambda _id, _day: [
-        (
-            SimpleNamespace(sector_key="technology", sector_benchmark_code="SOXX.US"),
-            SimpleNamespace(id=1, code="AAPL.US"),
-        )
-    ]
     repository.create_dataset = MagicMock()
 
     with pytest.raises(AdjustmentFactorMissingError, match="AAPL.US"):
         QlibDatasetExporter(repository=repository, artifact_store=MagicMock()).export(
-            "US", "us_sp500", day, day
+            "US", "us_sp500", day, day, candidate_codes={"AAPL.US"}
         )
     repository.create_dataset.assert_not_called()
     with pytest.raises(AdjustmentFactorMissingError, match="AAPL.US"):
-        DailyResearchService(repository).run("US", "us_sp500", day)
+        DailyResearchService(
+            repository,
+            symbol_repository=SimpleNamespace(
+                list_enabled_daily_by_codes=lambda *_args: [SimpleNamespace(id=1, code="AAPL.US")]
+            ),
+        ).run("US", "us_sp500", day)
 
 
 class ExportRepository(BarRepository):
@@ -185,14 +184,6 @@ class ExportRepository(BarRepository):
             benchmark_code="QQQ.US",
         )
 
-    def active_members(self, _id, _day):
-        return [
-            (
-                SimpleNamespace(sector_key="technology", sector_benchmark_code="SOXX.US"),
-                SimpleNamespace(id=1, code="AAPL.US"),
-            )
-        ]
-
     def create_dataset(self, values):
         snapshot = SimpleNamespace(id=self.next_id, **values, artifact_uri=None, row_count=0, symbol_count=0)
         self.snapshots[self.next_id] = snapshot
@@ -207,21 +198,23 @@ class ExportRepository(BarRepository):
         return self.snapshots[snapshot_id]
 
 
-def test_factor_revision_changes_dataset_key_and_exported_prices(tmp_path: Path) -> None:
+def test_dataset_export_with_empty_member_table_tracks_factor_revisions(tmp_path: Path) -> None:
     day = date(2026, 7, 17)
     codes = ("AAPL.US", "QQQ.US", "SPY.US", "SOXX.US")
     repository = ExportRepository([_row(code, day, 100.0, 0.5) for code in codes])
+    repository.active_members = MagicMock(return_value=[])
     exporter = QlibDatasetExporter(repository, ArtifactStore(tmp_path))
     with patch.object(QlibDatasetExporter, "_custom_features", return_value=pd.DataFrame()):
-        first = exporter.export("US", "us_sp500", day, day)
+        first = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
         first_manifest = json.loads(
             (tmp_path / first.artifact_uri.removeprefix("quant://") / "manifest.json").read_text()
         )
         daily = pd.read_csv(tmp_path / first.artifact_uri.removeprefix("quant://") / "source" / "daily.csv")
         repository.rows = [_row(code, day, 100.0, 0.4) for code in codes]
-        second = exporter.export("US", "us_sp500", day, day)
+        second = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
 
     assert first.source_revision != second.source_revision
+    repository.active_members.assert_not_called()
     assert first.dataset_key != second.dataset_key
     assert first_manifest["price_mode"] == "forward_adjusted"
     assert first_manifest["adjustment_mode"] == "forward"
@@ -264,10 +257,7 @@ def test_quant_dataset_task_explicitly_builds_forward_adjusted_snapshot() -> Non
         row_count=100,
         symbol_count=4,
     )
-    with (
-        patch.object(dataset_tasks, "FixedUniverseService") as universe_service_class,
-        patch.object(dataset_tasks, "QlibDatasetExporter") as exporter_class,
-    ):
+    with patch.object(dataset_tasks, "QlibDatasetExporter") as exporter_class:
         exporter_class.return_value.export.return_value = snapshot
         result = dataset_tasks.build_quant_dataset.run(
             market="US",
@@ -277,5 +267,4 @@ def test_quant_dataset_task_explicitly_builds_forward_adjusted_snapshot() -> Non
         )
 
     assert exporter_class.return_value.export.call_args.kwargs["price_mode"] == "forward_adjusted"
-    universe_service_class.return_value.refresh.assert_called_once_with("US", date(2026, 1, 1))
     assert result["price_mode"] == "forward_adjusted"
