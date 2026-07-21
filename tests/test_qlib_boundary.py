@@ -67,7 +67,7 @@ def test_qlib_writer_exports_persisted_vwap_field(tmp_path: Path) -> None:
     })
     exporter = object.__new__(QlibDatasetExporter)
     with patch.object(QlibDatasetExporter, "_custom_features", return_value=pd.DataFrame()):
-        exporter._write_qlib(tmp_path, frame, {"AAPL.US"}, None, {})
+        exporter._write_qlib(tmp_path, frame, {"AAPL.US"}, None, "US")
     values = np.fromfile(tmp_path / "features" / "aapl.us" / "vwap.day.bin", dtype="<f4")
     assert values.tolist() == pytest.approx([0.0, 10.25])
 

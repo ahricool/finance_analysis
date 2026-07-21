@@ -69,10 +69,15 @@ model type, and version. It therefore appears in the Quant model UI and task his
 Each market has exactly one supported quant universe. Clients select only the
 market: `US` resolves to `us_sp500` and `CN` resolves to `cn_csi300`. These are
 the only supported Quant universes; Universe CRUD, custom universes, and
-Watchlist merging are not supported. Membership is refreshed idempotently
-from the checked-in index variables. Removed members retain effective-dated
-history. Other database rows may remain only for referential integrity and
-cannot create datasets, model runs, predictions, signals, or portfolios.
+Watchlist merging are not supported. Their codes are resolved directly from
+the checked-in index variables at runtime through `get_quant_universe_codes()`.
+Dataset builds and daily research never read or
+initialize `quant_universe_member`. That table remains in the schema only for
+historical database compatibility. Other Universe rows may remain only for
+referential integrity and cannot create datasets, model runs, predictions,
+signals, or portfolios. Market benchmark dependencies come only from the
+fixed market configuration; stock industry mappings and industry benchmarks
+are not part of the MVP data path.
 
 Exports contain `calendars/day.txt`, `instruments/all.txt`, Qlib float32 binary
 feature files, `source/daily.csv`, `manifest.json`, and `validation.json`.

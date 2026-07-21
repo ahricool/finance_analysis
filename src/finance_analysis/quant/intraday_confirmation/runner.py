@@ -11,7 +11,6 @@ from sqlalchemy import select
 from finance_analysis.database.models.quant import (
     PortfolioRecommendation,
     PortfolioRecommendationItem,
-    QuantUniverseMember,
 )
 from finance_analysis.database.models.stock import MarketDataSymbol, StockMinute
 from finance_analysis.database.repositories.quant import QuantRepository
@@ -56,33 +55,17 @@ class IntradayConfirmationRunner:
                     )
                 ).scalars()
             )
-            mappings = {
-                row.symbol_id: row.sector_benchmark_code
-                for row in session.execute(
-                    select(QuantUniverseMember).where(
-                        QuantUniverseMember.universe_id == recommendation.universe_id
-                    )
-                ).scalars()
-            }
             candidates = [
-                (item.id, item.symbol_id, item.code, item.constraints, mappings.get(item.symbol_id))
+                (item.id, item.symbol_id, item.code, item.constraints)
                 for item in items
             ]
 
         values = []
         service = IntradayConfirmationService()
-        for item_id, symbol_id, code, constraints, sector_code in candidates:
+        for item_id, symbol_id, code, constraints in candidates:
             own = self._bars(code, config.market, trade_date, evaluated_at, config.timezone)
             market_bars = self._bars(
                 config.primary_benchmark,
-                config.market,
-                trade_date,
-                evaluated_at,
-                config.timezone,
-            )
-            usable_sector = sector_code if sector_code and not sector_code.startswith("CN-SECTOR-") else None
-            sector_bars = self._bars(
-                usable_sector or config.primary_benchmark,
                 config.market,
                 trade_date,
                 evaluated_at,
@@ -92,7 +75,7 @@ class IntradayConfirmationRunner:
                 code,
                 own,
                 market_bars,
-                sector_bars,
+                market_bars,
                 evaluated_at,
                 vetoed="veto_or_insufficient_data" in (constraints or {}).get("applied", []),
             )

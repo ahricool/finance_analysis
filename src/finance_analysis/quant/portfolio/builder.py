@@ -59,12 +59,16 @@ class PortfolioBuilder:
         insufficient_liquidity = []
         for item in ranked:
             code = item["code"]
-            sector = item.get("sector_key") or "unknown"
+            sector = item.get("sector_key")
             current = float(current_weights.get(code, 0))
             target = raw_weights.get(code, 0)
             constraints = []
 
-            allowed_sector = max(0, self.config.sector_max_weight - sector_totals.get(sector, 0))
+            allowed_sector = (
+                max(0, self.config.sector_max_weight - sector_totals.get(sector, 0))
+                if sector
+                else max_equity_exposure
+            )
             target = min(
                 target,
                 allowed_sector,
@@ -107,7 +111,8 @@ class PortfolioBuilder:
 
             new_exposure += max(0, change)
             turnover += abs(change)
-            sector_totals[sector] = sector_totals.get(sector, 0) + target
+            if sector:
+                sector_totals[sector] = sector_totals.get(sector, 0) + target
             if item.get("vetoed"):
                 action = "blocked"
             elif target > current and current == 0:

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import time
 
 from finance_analysis.quant.exceptions import UnsupportedQuantUniverseError
+from finance_analysis.stocks.market_scope import MarketDataScopeResolver
+from finance_analysis.stocks.reference_data.stock_index import CSI300_STOCK_INDEX, SP500_STOCK_INDEX
 
 
 DEFAULT_QUANT_UNIVERSES = {
@@ -70,6 +72,16 @@ def default_universe_for_market(market: str) -> str:
     return get_quant_market_config(market).default_universe
 
 
+def get_quant_universe_codes(market: str) -> set[str]:
+    """Return the canonical codes for the market's single fixed Quant Universe."""
+    normalized_market = get_quant_market_config(market).market
+    reference = SP500_STOCK_INDEX if normalized_market == "US" else CSI300_STOCK_INDEX
+    return {
+        MarketDataScopeResolver.canonical_code(code, normalized_market)
+        for code in reference
+    }
+
+
 def validate_universe_for_market(market: str, universe_key: str | None = None) -> str:
     """Resolve and validate the single fixed universe for a quant market."""
     config = get_quant_market_config(market)
@@ -88,6 +100,7 @@ __all__ = [
     "QUANT_MARKETS",
     "QuantMarketConfig",
     "default_universe_for_market",
+    "get_quant_universe_codes",
     "get_quant_market_config",
     "validate_universe_for_market",
 ]

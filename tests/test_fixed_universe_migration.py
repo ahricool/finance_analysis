@@ -15,9 +15,11 @@ from finance_analysis.core.paths import PROJECT_ROOT
 from finance_analysis.database.session import DatabaseManager
 
 
-def _load_migration() -> ModuleType:
-    path = Path(PROJECT_ROOT) / "alembic" / "versions" / "0023_fixed_quant_universes.py"
-    spec = importlib.util.spec_from_file_location("fixed_quant_universe_migration", path)
+def _load_migration(
+    filename: str = "0023_fixed_quant_universes.py",
+) -> ModuleType:
+    path = Path(PROJECT_ROOT) / "alembic" / "versions" / filename
+    spec = importlib.util.spec_from_file_location(path.stem, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -132,5 +134,64 @@ def test_fixed_universe_migration_preserves_ids_and_ends_non_index_members() -> 
                 text("SELECT id, key FROM quant_universe WHERE id = 42")
             ).mappings().one()
             assert dict(restored) == {"id": 42, "key": "us_sp500_watchlist"}
+        finally:
+            transaction.rollback()
+
+
+@pytest.mark.skipif(not os.getenv("DATABASE_URL"), reason="PostgreSQL required")
+def test_quant_market_dependency_migration_updates_only_fixed_universes() -> None:
+    migration = _load_migration("0024_quant_market_dependencies.py")
+    database = DatabaseManager.get_instance()
+    schema = f"quant_market_dependencies_{uuid.uuid4().hex}"
+
+    with database._engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE quant_universe (
+                        id INTEGER PRIMARY KEY,
+                        key VARCHAR(64) NOT NULL UNIQUE,
+                        sector_benchmark_mode VARCHAR(32) NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    INSERT INTO quant_universe (id, key, sector_benchmark_mode)
+                    VALUES
+                        (1, 'us_sp500', 'member_or_synthetic'),
+                        (2, 'cn_csi300', 'member_or_synthetic'),
+                        (3, 'historical_universe', 'member');
+                    """
+                )
+            )
+            migration.op = Operations(MigrationContext.configure(connection))
+
+            migration.upgrade()
+
+            modes = dict(
+                connection.execute(
+                    text("SELECT key, sector_benchmark_mode FROM quant_universe")
+                ).all()
+            )
+            assert modes == {
+                "us_sp500": "market_dependencies",
+                "cn_csi300": "market_dependencies",
+                "historical_universe": "member",
+            }
+
+            migration.downgrade()
+
+            restored = dict(
+                connection.execute(
+                    text("SELECT key, sector_benchmark_mode FROM quant_universe")
+                ).all()
+            )
+            assert restored == {
+                "us_sp500": "member_or_synthetic",
+                "cn_csi300": "member_or_synthetic",
+                "historical_universe": "member",
+            }
         finally:
             transaction.rollback()

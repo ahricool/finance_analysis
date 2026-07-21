@@ -9,20 +9,25 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from finance_analysis.database.repositories.quant import QuantRepository
+from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
 from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.quant.events.scoring import score_events
 from finance_analysis.quant.exceptions import BenchmarkDataMissingError, FeatureDataMissingError
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
-from finance_analysis.quant.markets import get_quant_market_config, validate_universe_for_market
+from finance_analysis.quant.markets import (
+    get_quant_market_config,
+    get_quant_universe_codes,
+    validate_universe_for_market,
+)
 from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
 from finance_analysis.quant.regime.service import MarketRegimeService
-from finance_analysis.quant.sectors.service import SectorRegimeService, build_synthetic_sector_benchmark
 
 
 class DailyResearchService:
-    def __init__(self, repository=None):
+    def __init__(self, repository=None, symbol_repository=None):
         self.repository = repository or QuantRepository()
+        self.symbol_repository = symbol_repository or MarketDataSymbolRepository()
         self.config = get_quant_config()
 
     def run(self, market: str, universe_key: str, trade_date: date) -> dict:
@@ -35,20 +40,16 @@ class DailyResearchService:
             or not getattr(universe, "enabled", True)
         ):
             raise ValueError(f"Supported {market_config.market} universe {universe_key} is not available")
-        members = self.repository.active_members(universe.id, trade_date)
-        if not members:
-            raise FeatureDataMissingError(f"No active universe members for {trade_date}")
-
-        member_codes = {symbol.code for _, symbol in members}
-        real_sector_benchmarks = {
-            member.sector_benchmark_code
-            for member, _ in members
-            if member.sector_benchmark_code and not member.sector_benchmark_code.startswith("CN-SECTOR-")
-        }
+        universe_codes = get_quant_universe_codes(market_config.market)
+        symbols = self.symbol_repository.list_enabled_daily_by_codes(
+            market_config.market,
+            universe_codes,
+        )
+        symbols_by_code = {symbol.code: symbol for symbol in symbols}
         required_benchmarks = set(market_config.benchmark_dependencies)
         loaded = DailyBarLoader(self.repository).load(
             market_config.market,
-            member_codes | required_benchmarks | real_sector_benchmarks,
+            universe_codes | required_benchmarks,
             trade_date - timedelta(days=500),
             trade_date,
             DEFAULT_QUANT_PRICE_MODE,
@@ -74,33 +75,21 @@ class DailyResearchService:
                 f"{market_config.market} benchmark data is not ready for {trade_date}: {sorted(stale_benchmarks)}"
             )
 
+        missing_symbols = universe_codes - set(symbols_by_code)
         missing_daily = {
-            symbol.code
-            for _, symbol in members
-            if symbol.code not in frames
-            or frames[symbol.code].empty
-            or pd.Timestamp(frames[symbol.code]["date"].iloc[-1]).date() != trade_date
+            code
+            for code in universe_codes
+            if code not in frames
+            or frames[code].empty
+            or pd.Timestamp(frames[code]["date"].iloc[-1]).date() != trade_date
         }
-        missing_mapping = {
-            symbol.code
-            for member, symbol in members
-            if not member.sector_key or not member.sector_benchmark_code
-        }
-        missing_sector_benchmark = {
-            symbol.code
-            for member, symbol in members
-            if member.sector_benchmark_code
-            and not member.sector_benchmark_code.startswith("CN-SECTOR-")
-            and member.sector_benchmark_code not in frames
-        }
-        excluded = missing_daily | missing_mapping | missing_sector_benchmark
-        eligible_members = [(member, symbol) for member, symbol in members if symbol.code not in excluded]
-        if not eligible_members:
+        eligible_codes = sorted(universe_codes - missing_symbols - missing_daily)
+        if not eligible_codes:
             raise FeatureDataMissingError(
-                f"No rankable {market_config.market} universe members for {trade_date}; "
-                f"missing_daily={sorted(missing_daily)} missing_sector_mapping={sorted(missing_mapping)}"
+                f"No rankable {market_config.market} fixed-universe symbols for {trade_date}; "
+                f"missing_symbols={sorted(missing_symbols)} missing_daily={sorted(missing_daily)}"
             )
-        member_frames = {symbol.code: frames[symbol.code] for _, symbol in eligible_members}
+        member_frames = {code: frames[code] for code in eligible_codes}
         market_result = MarketRegimeService(self.config.regime).calculate(
             frames[market_config.primary_benchmark],
             frames[market_config.broad_benchmark],
@@ -126,46 +115,6 @@ class DailyResearchService:
             }
         )
 
-        grouped: dict[str, list] = {}
-        for member, symbol in eligible_members:
-            grouped.setdefault(member.sector_key, []).append((member, symbol))
-        sector_inputs = {}
-        for sector_key, sector_members in grouped.items():
-            benchmark_code = sector_members[0][0].sector_benchmark_code
-            sector_member_frames = {symbol.code: member_frames[symbol.code] for _, symbol in sector_members}
-            if benchmark_code.startswith("CN-SECTOR-"):
-                benchmark_frame = build_synthetic_sector_benchmark(sector_member_frames)
-            else:
-                benchmark_frame = frames.get(benchmark_code)
-            if benchmark_frame is None or len(benchmark_frame) < 61:
-                excluded.update(symbol.code for _, symbol in sector_members)
-                continue
-            sector_inputs[sector_key] = (benchmark_code, benchmark_frame, sector_member_frames)
-        sectors = SectorRegimeService().rank(
-            sector_inputs,
-            frames[market_config.primary_benchmark],
-            market_result.regime,
-        )
-        self.repository.save_sector_regimes(
-            [
-                {
-                    "market": market_config.market,
-                    "trade_date": trade_date,
-                    "model_version": self.config.sector_model_version,
-                    **row,
-                }
-                for row in sectors
-            ]
-        )
-        sector_scores = {row["sector_key"]: row["sector_score"] for row in sectors}
-        eligible_members = [
-            (member, symbol)
-            for member, symbol in eligible_members
-            if symbol.code not in excluded and member.sector_key in sector_scores
-        ]
-        if not eligible_members:
-            raise FeatureDataMissingError("No universe members remain after sector benchmark validation")
-
         cutoff = datetime.combine(
             trade_date,
             market_config.market_close_time,
@@ -173,16 +122,13 @@ class DailyResearchService:
         )
         daily_values = []
         event_values = []
-        for member, symbol in eligible_members:
-            bars = member_frames[symbol.code]
-            if member.sector_benchmark_code.startswith("CN-SECTOR-"):
-                sector_bars = sector_inputs[member.sector_key][1]
-            else:
-                sector_bars = frames[member.sector_benchmark_code]
+        for code in eligible_codes:
+            symbol = symbols_by_code[code]
+            bars = member_frames[code]
             features = add_relative_strength(
                 build_daily_features(bars),
                 frames[market_config.primary_benchmark],
-                sector_bars,
+                frames[market_config.primary_benchmark],
             ).iloc[-1]
             portfolio_metadata = self._portfolio_metadata(bars, features, trade_date)
             events = self.repository.available_events(symbol.id, cutoff, cutoff - timedelta(days=90))
@@ -203,12 +149,13 @@ class DailyResearchService:
                     "feature_version": self.config.feature_version,
                     **explicit,
                     "market_score": market_result.market_score,
-                    "sector_score": sector_scores[member.sector_key],
+                    "sector_score": None,
                     "event_score": event["event_score"],
                     "features": {
                         "market": market_config.market,
-                        "sector_key": member.sector_key,
-                        "sector_benchmark_code": member.sector_benchmark_code,
+                        "sector_key": None,
+                        "sector_benchmark_code": None,
+                        "sector_proxy_code": market_config.primary_benchmark,
                         "price_mode": DEFAULT_QUANT_PRICE_MODE.value,
                         **portfolio_metadata,
                     },
@@ -231,19 +178,17 @@ class DailyResearchService:
         warnings = []
         if missing_daily:
             warnings.append(f"excluded_missing_daily={len(missing_daily)}")
-        if missing_mapping:
-            warnings.append(f"excluded_missing_sector_mapping={len(missing_mapping)}")
-        if missing_sector_benchmark:
-            warnings.append(f"excluded_missing_sector_benchmark={len(missing_sector_benchmark)}")
+        if missing_symbols:
+            warnings.append(f"excluded_missing_symbol={len(missing_symbols)}")
         return {
             "market_regime": regime,
-            "sectors": sectors,
+            "sectors": [],
             "feature_count": len(daily_values),
-            "eligible_codes": [symbol.code for _, symbol in eligible_members],
+            "eligible_codes": eligible_codes,
             "coverage": {
-                "universe_members": len(members),
-                "rankable_members": len(eligible_members),
-                "sector_mapping_missing": len(missing_mapping),
+                "universe_members": len(universe_codes),
+                "rankable_members": len(eligible_codes),
+                "symbol_missing": len(missing_symbols),
                 "daily_data_missing": len(missing_daily),
                 "adjustment": loaded.adjustment_coverage,
             },
