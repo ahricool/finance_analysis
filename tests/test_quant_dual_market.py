@@ -55,8 +55,8 @@ def test_market_data_scope_is_market_isolated_normalized_and_deduplicated():
     assert "700.HK" not in cn.universe_codes
     assert len([code for code in us.universe_codes if code == "AAPL.US"]) == 1
     assert cn.unsupported_symbols[0]["market"] == "HK"
-    assert not us.universe_codes & us.benchmark_dependency_codes
-    assert not cn.universe_codes & cn.benchmark_dependency_codes
+    assert us.universe_codes & us.benchmark_dependency_codes == {"QQQ.US", "SPY.US"}
+    assert cn.universe_codes & cn.benchmark_dependency_codes == {"159915.SZ", "510300.SH"}
 
 
 def test_fixed_quant_constituents_ignore_watchlist_and_benchmark_dependencies():
@@ -71,10 +71,13 @@ def test_fixed_quant_constituents_ignore_watchlist_and_benchmark_dependencies():
     assert "WATCHLIST-ONLY.US" not in us_members
     assert us_members == {f"{code}.US" for code in SP500_STOCK_INDEX}
     assert cn_members == set(CSI300_STOCK_INDEX)
-    assert not us_members & market_data_scope.benchmark_dependency_codes
+    assert us_members & market_data_scope.benchmark_dependency_codes == {"QQQ.US", "SPY.US"}
     empty_watchlist = MagicMock()
     empty_watchlist.list_all.return_value = []
-    assert not cn_members & MarketDataScopeResolver(empty_watchlist).resolve("CN").benchmark_dependency_codes
+    assert cn_members & MarketDataScopeResolver(empty_watchlist).resolve("CN").benchmark_dependency_codes == {
+        "159915.SZ",
+        "510300.SH",
+    }
 
 
 def test_quant_market_configuration_selects_cn_close_and_defaults():

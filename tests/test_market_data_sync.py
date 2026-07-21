@@ -86,25 +86,31 @@ def _service(market: str = "US", **overrides):
 
 
 def test_reference_constituents_have_expected_cardinality_and_canonical_cn_codes():
-    assert len(SP500_STOCK_INDEX) == 503
-    assert len(CSI300_STOCK_INDEX) == 300
+    assert len(SP500_STOCK_INDEX) == 505
+    assert len(CSI300_STOCK_INDEX) == 302
     assert all(code.endswith((".SH", ".SZ")) for code in CSI300_STOCK_INDEX)
     assert "AAPL" in SP500_STOCK_INDEX
+    assert "QQQ" in SP500_STOCK_INDEX
+    assert "SPY" in SP500_STOCK_INDEX
     assert "600519.SH" in CSI300_STOCK_INDEX
+    assert "159915.SZ" in CSI300_STOCK_INDEX
+    assert "510300.SH" in CSI300_STOCK_INDEX
 
 
 def test_reference_seed_is_idempotent_daily_only_for_both_markets():
     repository = MagicMock()
-    repository.upsert_symbols.side_effect = [503, 300, 14, 3]
+    repository.upsert_symbols.side_effect = [505, 302, 14, 3]
     with patch(
         "finance_analysis.database.repositories.stock.MarketDataSymbolRepository",
         return_value=repository,
     ):
         result = seed_market_data_reference_symbols(MagicMock())
-    assert result == {"US": 503, "CN": 300}
+    assert result == {"US": 505, "CN": 302}
     us_rows = list(repository.upsert_symbols.call_args_list[0].args[0])
     cn_rows = list(repository.upsert_symbols.call_args_list[1].args[0])
-    assert len(us_rows) == 503 and len(cn_rows) == 300
+    assert len(us_rows) == 505 and len(cn_rows) == 302
+    assert {"QQQ.US", "SPY.US"}.issubset({row["code"] for row in us_rows})
+    assert {"159915.SZ", "510300.SH"}.issubset({row["code"] for row in cn_rows})
     assert all(row["sync_daily"] and not row["sync_minute"] for row in [*us_rows, *cn_rows])
     assert all(call.kwargs == {} for call in repository.upsert_symbols.call_args_list)
     assert {row["code"] for row in repository.upsert_symbols.call_args_list[3].args[0]} == {

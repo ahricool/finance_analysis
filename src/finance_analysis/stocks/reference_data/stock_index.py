@@ -496,6 +496,7 @@ PSA|Public Storage
 PHM|PulteGroup
 PWR|Quanta Services
 QCOM|Qualcomm
+QQQ|Invesco QQQ Trust
 DGX|Quest Diagnostics
 Q|Qnity Electronics
 RL|Ralph Lauren Corporation
@@ -515,6 +516,7 @@ ROP|Roper Technologies
 ROST|Ross Stores
 RCL|Royal Caribbean Group
 SPGI|S&P Global
+SPY|SPDR S&P 500 ETF Trust
 CRM|Salesforce
 SNDK|Sandisk
 SBAC|SBA Communications
@@ -696,6 +698,7 @@ _CSI300_DATA = """
 002920.SZ|德赛西威
 002938.SZ|鹏鼎控股
 003816.SZ|中国广核
+159915.SZ|创业板ETF
 300014.SZ|亿纬锂能
 300015.SZ|爱尔眼科
 300033.SZ|同花顺
@@ -737,6 +740,7 @@ _CSI300_DATA = """
 600015.SH|华夏银行
 600016.SH|民生银行
 600018.SH|上港集团
+510300.SH|沪深300ETF
 600019.SH|宝钢股份
 600023.SH|浙能电力
 600025.SH|华能水电
