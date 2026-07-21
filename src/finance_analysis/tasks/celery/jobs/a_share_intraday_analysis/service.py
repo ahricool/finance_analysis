@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 class AShareIntradayAnalysisTaskService:
     def run(self) -> dict[str, Any]:
-        sleep_random_start_delay(task_name="A股盘中分析任务")
         started_at = scheduled_now()
         logger.info("A股盘中分析任务触发 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S %Z"))
         try:

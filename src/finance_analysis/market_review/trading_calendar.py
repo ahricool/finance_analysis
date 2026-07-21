@@ -308,22 +308,22 @@ def is_a_share_trading_day(check_date: Optional[date] = None, current_time: Opti
 
 
 def get_a_share_market_phase(current_time: Optional[datetime] = None) -> str:
-    """Classify the current A-share intraday phase.
+    """返回当前A股盘中的阶段（中文描述）。
 
-    Returns one of ``opening`` / ``morning`` / ``afternoon`` / ``closing`` /
-    ``closed``. The lunch break, pre-open and post-close all map to ``closed``.
+    返回值为：``开盘`` / ``上午`` / ``下午`` / ``尾盘`` / ``休市``。
+    午休、开盘前和收盘后统一视为“休市”。
     """
     now = get_a_share_market_now(current_time)
     current = now.time()
     if _A_SHARE_OPEN <= current < _A_SHARE_MORNING_START:
-        return "opening"
+        return "开盘"
     if _A_SHARE_MORNING_START <= current < _A_SHARE_MORNING_END:
-        return "morning"
+        return "上午"
     if _A_SHARE_AFTERNOON_OPEN <= current < _A_SHARE_CLOSING_START:
-        return "afternoon"
+        return "下午"
     if _A_SHARE_CLOSING_START <= current <= _A_SHARE_CLOSE:
-        return "closing"
-    return "closed"
+        return "尾盘"
+    return "休市"
 
 
 def is_a_share_intraday_analysis_time(current_time: Optional[datetime] = None) -> bool:
