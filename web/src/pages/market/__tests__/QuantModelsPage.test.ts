@@ -100,7 +100,7 @@ describe('QuantModelsPage training entry', () => {
       taskId: 'dataset-task',
       status: 'pending',
       market: 'CN',
-      universe: 'cn_csi300_watchlist',
+      universe: 'cn_csi300',
     });
   });
 

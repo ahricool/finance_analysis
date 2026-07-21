@@ -1,4 +1,4 @@
-"""Shared market-data and quantitative-research security scopes."""
+"""Market-data synchronization scopes and benchmark dependencies."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class MarketScope:
-    """Separate ranking members from calculation-only market dependencies."""
+    """Separate equity sync targets from calculation-only market dependencies."""
 
     market: str
     universe_codes: frozenset[str]
@@ -57,7 +57,11 @@ MARKET_BENCHMARK_DEPENDENCIES: dict[str, dict[str, str]] = {
 
 
 class MarketDataScopeResolver:
-    """Resolve the canonical US/CN scope used by both sync and quant jobs."""
+    """Resolve the canonical US/CN daily synchronization scope.
+
+    Quant Universe synchronization intentionally does not consume ``resolve``;
+    it reads the fixed index constituent variables directly.
+    """
 
     def __init__(self, watchlist_repository: WatchListRepo | None = None):
         self.watchlist_repository = watchlist_repository or WatchListRepo()

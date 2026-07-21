@@ -26,8 +26,10 @@ from finance_analysis.quant.markets import (
 )
 from finance_analysis.quant.pipeline.service import QuantDailyPipeline
 from finance_analysis.quant.sectors.service import build_synthetic_sector_benchmark
-from finance_analysis.quant.universe.service import DynamicUniverseService, SectorClassification
+from finance_analysis.quant.universe.service import FixedUniverseService, SectorClassification
 from finance_analysis.stocks.market_scope import MarketDataScopeResolver
+from finance_analysis.stocks.reference_data.stock_index import CSI300_STOCK_INDEX, SP500_STOCK_INDEX
+from finance_analysis.tasks.celery.jobs.quant_daily import tasks as quant_daily_tasks
 
 
 TRADE_DATE = date(2026, 7, 17)
@@ -37,7 +39,7 @@ def _watch(code: str, market: str, name: str = "watch"):
     return SimpleNamespace(code=code, market_type=market, name=name)
 
 
-def test_shared_scope_is_market_isolated_normalized_and_deduplicated():
+def test_market_data_scope_is_market_isolated_normalized_and_deduplicated():
     watchlist = MagicMock()
     watchlist.list_all.return_value = [
         _watch("aapl", "US"),
@@ -62,32 +64,57 @@ def test_shared_scope_is_market_isolated_normalized_and_deduplicated():
     assert not cn.universe_codes & cn.benchmark_dependency_codes
 
 
+def test_fixed_quant_constituents_ignore_watchlist_and_benchmark_dependencies():
+    watchlist = MagicMock()
+    watchlist.list_all.return_value = [_watch("WATCHLIST-ONLY", "US")]
+    market_data_scope = MarketDataScopeResolver(watchlist).resolve("US")
+
+    us_members = FixedUniverseService.constituent_codes("US")
+    cn_members = FixedUniverseService.constituent_codes("CN")
+
+    assert "WATCHLIST-ONLY.US" in market_data_scope.universe_codes
+    assert "WATCHLIST-ONLY.US" not in us_members
+    assert us_members == {f"{code}.US" for code in SP500_STOCK_INDEX}
+    assert cn_members == set(CSI300_STOCK_INDEX)
+    assert not us_members & market_data_scope.benchmark_dependency_codes
+    empty_watchlist = MagicMock()
+    empty_watchlist.list_all.return_value = []
+    assert not cn_members & MarketDataScopeResolver(empty_watchlist).resolve("CN").benchmark_dependency_codes
+
+
 def test_quant_market_configuration_selects_cn_close_and_defaults():
     us = get_quant_market_config("US")
     cn = get_quant_market_config("cn")
 
-    assert us.default_universe == "us_sp500_watchlist"
-    assert cn.default_universe == "cn_csi300_watchlist"
+    assert us.default_universe == "us_sp500"
+    assert cn.default_universe == "cn_csi300"
     assert cn.timezone == "Asia/Shanghai"
     assert cn.market_close_time == time(15, 0)
-    assert default_universe_for_market("CN") == "cn_csi300_watchlist"
+    assert default_universe_for_market("CN") == "cn_csi300"
     assert cn.benchmark_dependencies == {"510300.SH", "510500.SH", "159915.SZ"}
     assert DEFAULT_QUANT_UNIVERSES == {
-        "US": "us_sp500_watchlist",
-        "CN": "cn_csi300_watchlist",
+        "US": "us_sp500",
+        "CN": "cn_csi300",
     }
 
 
-def test_market_universe_validation_rejects_deprecated_and_cross_market_keys():
-    assert validate_universe_for_market("US") == "us_sp500_watchlist"
-    assert validate_universe_for_market("CN") == "cn_csi300_watchlist"
-    with pytest.raises(ValueError, match=r"deprecated.*us_sp500_watchlist"):
-        validate_universe_for_market("US", "us_ai_semiconductor")
-    with pytest.raises(ValueError, match=r"only supported universe is cn_csi300_watchlist"):
-        validate_universe_for_market("CN", "us_sp500_watchlist")
+def test_market_universe_validation_accepts_only_fixed_market_keys():
+    assert validate_universe_for_market("US", None) == "us_sp500"
+    assert validate_universe_for_market("US", "us_sp500") == "us_sp500"
+    assert validate_universe_for_market("CN", None) == "cn_csi300"
+    assert validate_universe_for_market("CN", "cn_csi300") == "cn_csi300"
+    for market, key in (
+        ("US", "us_ai_semiconductor"),
+        ("US", "us_sp500_watchlist"),
+        ("CN", "cn_csi300_watchlist"),
+        ("US", "custom_pool"),
+        ("CN", "us_sp500"),
+    ):
+        with pytest.raises(ValueError, match=r"only supported universe"):
+            validate_universe_for_market(market, key)
 
 
-def test_deprecated_universe_is_absent_from_seed_frontend_and_normal_documentation():
+def test_unsupported_universe_is_absent_from_seed_frontend_and_current_documentation():
     project_root = Path(__file__).resolve().parents[1]
     checked_paths = [
         project_root / "src" / "finance_analysis" / "database" / "seed.py",
@@ -102,21 +129,25 @@ def test_deprecated_universe_is_absent_from_seed_frontend_and_normal_documentati
     )
 
 
-def test_deprecation_migration_preserves_legacy_relations_and_marks_replacement():
+def test_fixed_universe_migration_renames_in_place_and_ends_removed_members():
     project_root = Path(__file__).resolve().parents[1]
     migration = (
         project_root
         / "alembic"
         / "versions"
-        / "0021_deprecate_legacy_quant_universe.py"
+        / "0023_fixed_quant_universes.py"
     ).read_text(encoding="utf-8")
     normalized = migration.upper()
 
-    assert 'UPDATE quant_universe' in migration
-    assert 'enabled = false' in migration
-    assert '"replacement_universe"' in migration
-    assert '_REPLACEMENT_KEY = "us_sp500_watchlist"' in migration
-    assert "UPDATE MODEL_RUN" in normalized
+    assert '"old_key": "us_sp500_watchlist"' in migration
+    assert '"old_key": "cn_csi300_watchlist"' in migration
+    assert '"key": "us_sp500"' in migration
+    assert '"key": "cn_csi300"' in migration
+    assert "UPDATE QUANT_UNIVERSE" in normalized
+    assert "UPDATE QUANT_UNIVERSE_MEMBER" in normalized
+    assert "IS_DYNAMIC = FALSE" in normalized
+    assert "SP500_STOCK_INDEX" in migration
+    assert "CSI300_STOCK_INDEX" in migration
     assert "DELETE FROM QUANT_UNIVERSE" not in normalized
     assert "DELETE FROM QUANT_UNIVERSE_MEMBER" not in normalized
     assert "DROP TABLE" not in normalized
@@ -130,20 +161,20 @@ def test_cn_after_close_event_becomes_available_at_next_session_open():
     assert available == datetime(2026, 7, 20, 1, 30, tzinfo=timezone.utc)
 
 
-def test_dynamic_universe_uses_exact_shared_scope_and_reports_sector_coverage():
-    scope = SimpleNamespace(
-        universe_codes=frozenset({"600519.SH", "000001.SZ"}),
-        benchmark_dependency_codes=frozenset({"510300.SH"}),
+def test_fixed_universe_uses_index_variables_and_reports_sector_coverage(monkeypatch):
+    constituent_codes = frozenset({"600519.SH", "000001.SZ"})
+    monkeypatch.setattr(
+        FixedUniverseService,
+        "constituent_codes",
+        staticmethod(lambda _market: constituent_codes),
     )
-    scope_resolver = MagicMock()
-    scope_resolver.resolve.return_value = scope
     symbols = [SimpleNamespace(id=1, code="600519.SH"), SimpleNamespace(id=2, code="000001.SZ")]
     symbol_repository = MagicMock()
     symbol_repository.list_enabled_daily_by_codes.return_value = symbols
     repository = MagicMock()
     repository.upsert_universe.return_value = SimpleNamespace(id=8, config={})
     repository.latest_member_mappings.return_value = {}
-    repository.sync_dynamic_members.return_value = {"added": 2, "ended": 0, "updated": 0}
+    repository.sync_fixed_members.return_value = {"added": 2, "ended": 0, "updated": 0}
 
     class Classifier:
         @staticmethod
@@ -152,53 +183,55 @@ def test_dynamic_universe_uses_exact_shared_scope_and_reports_sector_coverage():
                 return SectorClassification("白酒", "CN-SECTOR-abc", "efinance_belong_board")
             return SectorClassification(None, None, "efinance_belong_board", "missing")
 
-    result = DynamicUniverseService(
+    result = FixedUniverseService(
         repository=repository,
         symbol_repository=symbol_repository,
-        scope_resolver=scope_resolver,
         classifier=Classifier(),
     ).refresh("CN", TRADE_DATE)
 
     requested_market, requested_codes = symbol_repository.list_enabled_daily_by_codes.call_args.args
+    universe_values = repository.upsert_universe.call_args.args[0]
     assert requested_market == "CN"
-    assert set(requested_codes) == set(scope.universe_codes)
+    assert set(requested_codes) == set(constituent_codes)
+    assert universe_values["key"] == "cn_csi300"
+    assert universe_values["name"] == "沪深300"
+    assert universe_values["is_dynamic"] is False
+    assert universe_values["config"] == {"constituent_source": "CSI300_STOCK_INDEX"}
     assert result["member_count"] == 2
     assert result["sector_mapping_coverage"] == 0.5
     assert result["missing_sector_mappings"] == [{"code": "000001.SZ", "reason": "missing"}]
 
 
 @pytest.mark.skipif(not os.getenv("DATABASE_URL"), reason="PostgreSQL required")
-def test_quant_seed_only_enables_the_two_supported_dynamic_universes():
+def test_quant_seed_only_enables_the_two_supported_fixed_universes():
     database = DatabaseManager.get_instance()
 
     first = seed_quant_reference_data(database)
     second = seed_quant_reference_data(database)
 
     assert first == second
-    assert first["universes"] == ["us_sp500_watchlist", "cn_csi300_watchlist"]
+    assert first["universes"] == ["us_sp500", "cn_csi300"]
     repository = QuantRepository(database)
     for market, key in DEFAULT_QUANT_UNIVERSES.items():
         universe = repository.get_universe(key)
         assert universe is not None
         assert universe.market == market
         assert universe.enabled is True
-        assert universe.is_dynamic is True
-    legacy = repository.get_universe("us_ai_semiconductor")
-    if legacy is not None:
-        assert legacy.enabled is False
-        assert legacy.config["deprecated"] is True
-        assert legacy.config["replacement_universe"] == "us_sp500_watchlist"
-        with pytest.raises(ValueError, match=r"deprecated.*us_sp500_watchlist"):
-            repository.create_dataset({"market": "US", "universe_id": legacy.id})
-        with pytest.raises(ValueError, match=r"deprecated.*us_sp500_watchlist"):
-            repository.create_model_run({"market": "US", "universe_id": legacy.id})
+        assert universe.is_dynamic is False
+    unsupported = repository.get_universe("us_ai_semiconductor")
+    if unsupported is not None:
+        assert unsupported.enabled is False
+        with pytest.raises(ValueError, match=r"only supported universe"):
+            repository.create_dataset({"market": "US", "universe_id": unsupported.id})
+        with pytest.raises(ValueError, match=r"only supported universe"):
+            repository.create_model_run({"market": "US", "universe_id": unsupported.id})
 
 
 @pytest.mark.skipif(not os.getenv("DATABASE_URL"), reason="PostgreSQL required")
-def test_dynamic_member_refresh_is_idempotent_and_preserves_ended_history():
+def test_fixed_member_refresh_is_idempotent_and_preserves_ended_history():
     database = DatabaseManager.get_instance()
     suffix = uuid.uuid4().hex[:10].upper()
-    universe_key = f"test_dynamic_{suffix.lower()}"
+    universe_key = f"test_fixed_{suffix.lower()}"
     code = f"IDEMPOTENCY-{suffix}.US"
     universe_id = symbol_id = None
     try:
@@ -216,7 +249,7 @@ def test_dynamic_member_refresh_is_idempotent_and_preserves_ended_history():
                 name="idempotency test",
                 market="US",
                 enabled=True,
-                is_dynamic=True,
+                is_dynamic=False,
                 sector_benchmark_mode="member",
                 config={},
             )
@@ -229,8 +262,8 @@ def test_dynamic_member_refresh_is_idempotent_and_preserves_ended_history():
         mapping = {
             symbol_id: {"sector_key": "technology", "sector_benchmark_code": "XLK.US"}
         }
-        first = repository.sync_dynamic_members(universe_id, [symbol_ref], mapping, TRADE_DATE)
-        second = repository.sync_dynamic_members(universe_id, [symbol_ref], mapping, TRADE_DATE)
+        first = repository.sync_fixed_members(universe_id, [symbol_ref], mapping, TRADE_DATE)
+        second = repository.sync_fixed_members(universe_id, [symbol_ref], mapping, TRADE_DATE)
 
         assert first == {"added": 1, "ended": 0, "updated": 0}
         assert second == {"added": 0, "ended": 0, "updated": 0}
@@ -241,7 +274,7 @@ def test_dynamic_member_refresh_is_idempotent_and_preserves_ended_history():
                 )
             ) == 1
 
-        ended = repository.sync_dynamic_members(
+        ended = repository.sync_fixed_members(
             universe_id,
             [],
             {},
@@ -269,10 +302,13 @@ def test_dynamic_member_refresh_is_idempotent_and_preserves_ended_history():
 def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
     repository = MagicMock()
     repository.get_universe.return_value = SimpleNamespace(
-        id=9, key="cn_csi300_watchlist", market="CN", enabled=True
+        id=9, key="cn_csi300", market="CN", enabled=True
     )
     repository.active_members.return_value = [
-        (SimpleNamespace(sector_key="白酒", sector_benchmark_code="CN-SECTOR-a"), SimpleNamespace(id=1, code="600519.SH"))
+        (
+            SimpleNamespace(sector_key="白酒", sector_benchmark_code="CN-SECTOR-a"),
+            SimpleNamespace(id=1, code="600519.SH"),
+        )
     ]
     repository.daily_bar_codes.return_value = {"600519.SH"}
     repository.production_model.side_effect = [
@@ -311,9 +347,57 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
     assert repository.production_model.call_args_list[0].args == ("CN", "cross_section_lgbm")
     assert repository.production_model.call_args_list[1].args == ("CN", "time_series_lgbm")
     assert context["market"] == "CN"
-    assert context["universe_key"] == "cn_csi300_watchlist"
+    assert context["universe_key"] == "cn_csi300"
     assert {request["artifact_uri"] for request in requests} == {"quant://cn/cs", "quant://cn/ts"}
     assert exporter.export.call_args.kwargs["price_mode"] == "forward_adjusted"
+
+
+@pytest.mark.parametrize(
+    ("market", "universe"),
+    (("US", "us_sp500"), ("CN", "cn_csi300")),
+)
+def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(
+    monkeypatch, market, universe
+):
+    class Pipeline:
+        @staticmethod
+        def prepare(market):
+            return (
+                [{"model_key": "cross_section_lgbm"}],
+                {
+                    "trade_date": str(TRADE_DATE),
+                    "market": market,
+                    "universe_key": validate_universe_for_market(market),
+                },
+            )
+
+    class Chord:
+        @staticmethod
+        def apply_async(**_kwargs):
+            return SimpleNamespace(id="chord-id")
+
+    monkeypatch.setattr(quant_daily_tasks, "QuantDailyPipeline", Pipeline)
+    monkeypatch.setattr(
+        quant_daily_tasks.celery_app,
+        "signature",
+        lambda *_args, **_kwargs: SimpleNamespace(),
+    )
+    monkeypatch.setattr(quant_daily_tasks, "chord", lambda _header: Chord())
+    monkeypatch.setattr(
+        quant_daily_tasks,
+        "finalize_quant_daily",
+        SimpleNamespace(s=lambda **_kwargs: SimpleNamespace(set=lambda **__: None)),
+    )
+    monkeypatch.setattr(
+        quant_daily_tasks,
+        "fail_quant_daily",
+        SimpleNamespace(s=lambda **_kwargs: SimpleNamespace(set=lambda **__: None)),
+    )
+
+    result = quant_daily_tasks._dispatch(market)
+
+    assert result["market"] == market
+    assert result["universe"] == universe
 
 
 def test_cn_missing_production_model_never_falls_back_to_us():

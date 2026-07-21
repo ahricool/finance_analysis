@@ -6,7 +6,7 @@ from finance_analysis.core.time import utc_now
 
 
 def seed_quant_reference_data(db_manager=None) -> dict:
-    """Idempotently seed model definitions and the two supported dynamic universes."""
+    """Idempotently seed model definitions and the two supported fixed universes."""
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     from finance_analysis.database.models.quant import ModelDefinition, QuantUniverse
@@ -35,16 +35,18 @@ def seed_quant_reference_data(db_manager=None) -> dict:
             ))
         for values in (
             {
-                "key": DEFAULT_QUANT_UNIVERSES["US"], "name": "S&P 500 + US watchlist", "market": "US",
-                "description": "Dynamic mirror of the shared US daily synchronization scope.",
-                "enabled": True, "is_dynamic": True, "benchmark_code": "QQQ.US",
-                "sector_benchmark_mode": "member_or_synthetic", "config": {"scope_resolver": "MarketDataScopeResolver"},
+                "key": DEFAULT_QUANT_UNIVERSES["US"], "name": "S&P 500", "market": "US",
+                "description": "Fixed S&P 500 constituents from SP500_STOCK_INDEX.",
+                "enabled": True, "is_dynamic": False, "benchmark_code": "QQQ.US",
+                "sector_benchmark_mode": "member_or_synthetic",
+                "config": {"constituent_source": "SP500_STOCK_INDEX"},
             },
             {
-                "key": DEFAULT_QUANT_UNIVERSES["CN"], "name": "沪深300 + A股自选", "market": "CN",
-                "description": "Dynamic mirror of the shared CN daily synchronization scope.",
-                "enabled": True, "is_dynamic": True, "benchmark_code": "510300.SH",
-                "sector_benchmark_mode": "member_or_synthetic", "config": {"scope_resolver": "MarketDataScopeResolver"},
+                "key": DEFAULT_QUANT_UNIVERSES["CN"], "name": "沪深300", "market": "CN",
+                "description": "Fixed CSI 300 constituents from CSI300_STOCK_INDEX.",
+                "enabled": True, "is_dynamic": False, "benchmark_code": "510300.SH",
+                "sector_benchmark_mode": "member_or_synthetic",
+                "config": {"constituent_source": "CSI300_STOCK_INDEX"},
             },
         ):
             session.execute(pg_insert(QuantUniverse).values(**values).on_conflict_do_update(

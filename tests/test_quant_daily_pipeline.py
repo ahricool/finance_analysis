@@ -33,7 +33,7 @@ def _member(code: str, symbol_id: int):
 def test_prepare_rejects_universe_member_without_target_daily_bar(monkeypatch) -> None:
     repository = MagicMock()
     repository.get_universe.return_value = SimpleNamespace(
-        id=3, key="us_sp500_watchlist", market="US", enabled=True
+        id=3, key="us_sp500", market="US", enabled=True
     )
     repository.active_members.return_value = [
         _member("AAPL.US", 1),
@@ -134,7 +134,7 @@ def test_prepare_rejects_missing_model_artifact_before_universe_refresh() -> Non
     repository.get_universe.assert_not_called()
 
 
-def test_prepare_rejects_deprecated_universe_before_refresh() -> None:
+def test_prepare_rejects_unsupported_universe_before_refresh() -> None:
     universe_service = MagicMock()
     pipeline = QuantDailyPipeline(
         repository=MagicMock(),
@@ -146,7 +146,7 @@ def test_prepare_rejects_deprecated_universe_before_refresh() -> None:
         owner_uid=7,
     )
 
-    with pytest.raises(ValueError, match=r"deprecated.*us_sp500_watchlist"):
+    with pytest.raises(ValueError, match=r"only supported universe is us_sp500"):
         pipeline.prepare(universe_key="us_ai_semiconductor", trade_date=TRADE_DATE)
 
     universe_service.refresh.assert_not_called()
@@ -175,7 +175,7 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
 
         def get_universe(self, key):
             return SimpleNamespace(
-                id=3, key="us_sp500_watchlist", market="US", enabled=True
+                id=3, key="us_sp500", market="US", enabled=True
             )
 
         def active_members(self, universe_id, trade_date):
@@ -245,7 +245,7 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
         "schema_version": PROTOCOL_VERSION,
         "trade_date": str(TRADE_DATE),
         "market": "US",
-        "universe_key": "us_sp500_watchlist",
+        "universe_key": "us_sp500",
         "universe_id": 3,
         "cross_section_model_version": "v1",
         "cross_section_model_run_id": 11,
@@ -287,7 +287,7 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
     holdings.list_all.assert_called_once_with(uid=7)
 
 
-def test_finalize_rejects_deprecated_callback_context_before_writes() -> None:
+def test_finalize_rejects_unsupported_callback_context_before_writes() -> None:
     repository = MagicMock()
     pipeline = QuantDailyPipeline(
         repository=repository,
@@ -305,14 +305,14 @@ def test_finalize_rejects_deprecated_callback_context_before_writes() -> None:
         "universe_id": 3,
     }
 
-    with pytest.raises(ValueError, match="deprecated"):
+    with pytest.raises(ValueError, match="only supported universe"):
         pipeline.finalize([], context)
 
     repository.replace_signals.assert_not_called()
     repository.save_portfolio.assert_not_called()
 
 
-def test_training_and_dataset_export_reject_deprecated_universe() -> None:
+def test_training_and_dataset_export_reject_unsupported_universe() -> None:
     repository = MagicMock()
     repository.get_model_run.return_value = SimpleNamespace(
         id=5,
@@ -327,9 +327,9 @@ def test_training_and_dataset_export_reject_deprecated_universe() -> None:
         enabled=False,
     )
 
-    with pytest.raises(ValueError, match=r"deprecated.*us_sp500_watchlist"):
+    with pytest.raises(ValueError, match=r"only supported universe is us_sp500"):
         QuantTrainingPipeline(repository).prepare(5)
-    with pytest.raises(ValueError, match=r"deprecated.*us_sp500_watchlist"):
+    with pytest.raises(ValueError, match=r"only supported universe is us_sp500"):
         QlibDatasetExporter(repository=repository, artifact_store=MagicMock()).export(
             "US",
             "us_ai_semiconductor",
@@ -351,7 +351,7 @@ def test_training_rejects_missing_dataset_artifact_before_marking_training() -> 
     )
     repository.get_universe.return_value = SimpleNamespace(
         id=9,
-        key="cn_csi300_watchlist",
+        key="cn_csi300",
         market="CN",
         enabled=True,
     )

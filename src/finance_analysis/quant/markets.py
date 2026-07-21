@@ -9,11 +9,9 @@ from finance_analysis.quant.exceptions import UnsupportedQuantUniverseError
 
 
 DEFAULT_QUANT_UNIVERSES = {
-    "US": "us_sp500_watchlist",
-    "CN": "cn_csi300_watchlist",
+    "US": "us_sp500",
+    "CN": "cn_csi300",
 }
-
-LEGACY_QUANT_UNIVERSE = "us_ai_semiconductor"
 
 
 @dataclass(frozen=True)
@@ -73,15 +71,10 @@ def default_universe_for_market(market: str) -> str:
 
 
 def validate_universe_for_market(market: str, universe_key: str | None = None) -> str:
-    """Resolve and validate the only writable universe for a quant market."""
+    """Resolve and validate the single fixed universe for a quant market."""
     config = get_quant_market_config(market)
     expected = config.default_universe
     requested = str(universe_key or expected).strip()
-    if requested == LEGACY_QUANT_UNIVERSE:
-        raise UnsupportedQuantUniverseError(
-            f"Universe {LEGACY_QUANT_UNIVERSE} is deprecated and read-only; "
-            f"use {expected} for market={config.market}"
-        )
     if requested != expected:
         raise UnsupportedQuantUniverseError(
             f"Unsupported universe {requested} for market={config.market}; "
@@ -92,7 +85,6 @@ def validate_universe_for_market(market: str, universe_key: str | None = None) -
 
 __all__ = [
     "DEFAULT_QUANT_UNIVERSES",
-    "LEGACY_QUANT_UNIVERSE",
     "QUANT_MARKETS",
     "QuantMarketConfig",
     "default_universe_for_market",
