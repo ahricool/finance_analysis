@@ -66,6 +66,23 @@ const holding = {
   updated_at: '2026-06-02T02:00:00Z',
 };
 
+const secondWatchItem = {
+  ...watchItem,
+  id: 12,
+  code: 'MSFT',
+  name: 'Microsoft',
+  is_favorite: false,
+};
+
+const secondHolding = {
+  ...holding,
+  id: 23,
+  code: 'MSFT',
+  name: 'Microsoft',
+  quantity: '5',
+  avg_cost: '9',
+};
+
 const quote = {
   code: 'AAPL',
   market_type: 'US' as const,
@@ -91,6 +108,20 @@ const quote = {
     state: 'above' as const,
     streak: 2,
     confirmed: true,
+  },
+};
+
+const secondQuote = {
+  ...quote,
+  code: 'MSFT',
+  symbol: 'MSFT.US',
+  last_price: 8,
+  change_amount: -0.2,
+  change_pct: -2.44,
+  trend_1m: {
+    ...quote.trend_1m,
+    state: 'below' as const,
+    streak: 3,
   },
 };
 
@@ -184,6 +215,57 @@ describe('stock table details', () => {
     const page = await mountPage(component, path);
     await page.find('select').setValue('CN');
     expect(page.get('tbody td').attributes('colspan')).toBe(colspan);
+  });
+
+  it.each([
+    [WatchListPage, '/market/watch-list', ['关注', '代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续']],
+    [StockListPage, '/market/holdings', ['代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续', '持仓数量', '平均成本', '持仓成本金额']],
+  ] as const)('keeps daily movement separate and makes every non-action column sortable', async (component, path, labels) => {
+    const page = await mountPage(component, path);
+    const headers = page.findAll('thead th');
+
+    expect(page.text()).toContain('今日涨跌额');
+    expect(page.text()).toContain('今日涨跌幅');
+    expect(page.text()).toContain('+0.50');
+    expect(page.text()).toContain('+4.35%');
+    expect(page.text()).not.toContain('+0.50 / +4.35%');
+    expect(headers.at(-1)?.text()).toBe('操作');
+    expect(headers.at(-1)?.find('button').exists()).toBe(false);
+
+    for (const label of labels) {
+      const button = page.findAll('thead button').find((candidate) => candidate.text().includes(label));
+      expect(button, `${label} should have a sort button`).toBeDefined();
+      await button!.trigger('click');
+      expect(button!.element.closest('th')?.getAttribute('aria-sort')).toBe('ascending');
+    }
+  });
+
+  it.each([
+    [WatchListPage, '/market/watch-list'],
+    [StockListPage, '/market/holdings'],
+  ] as const)('sorts realtime quote and trend columns entirely on the frontend', async (component, path) => {
+    mocks.listWatchItems.mockResolvedValue({ items: [watchItem, secondWatchItem], total: 2 });
+    mocks.listHoldings.mockResolvedValue({ items: [holding, secondHolding], total: 2 });
+    mocks.getQuote.mockImplementation((code: string) => code === 'MSFT' ? secondQuote : quote);
+    const page = await mountPage(component, path);
+
+    const latestPrice = page.findAll('thead button').find((button) => button.text().includes('最新价'))!;
+    await latestPrice.trigger('click');
+    expect(page.get('tbody tr[tabindex="0"]').text()).toContain('MSFT');
+    await latestPrice.trigger('click');
+    expect(page.get('tbody tr[tabindex="0"]').text()).toContain('AAPL');
+
+    const changeAmount = page.findAll('thead button').find((button) => button.text().includes('今日涨跌额'))!;
+    await changeAmount.trigger('click');
+    expect(page.get('tbody tr[tabindex="0"]').text()).toContain('MSFT');
+
+    const changePct = page.findAll('thead button').find((button) => button.text().includes('今日涨跌幅'))!;
+    await changePct.trigger('click');
+    expect(page.get('tbody tr[tabindex="0"]').text()).toContain('MSFT');
+
+    const trend = page.findAll('thead button').find((button) => button.text().includes('趋势持续'))!;
+    await trend.trigger('click');
+    expect(page.get('tbody tr[tabindex="0"]').text()).toContain('MSFT');
   });
 
   it('opens holding details with calculated market value and profit fields', async () => {
