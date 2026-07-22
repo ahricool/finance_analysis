@@ -24,6 +24,7 @@ type WatchListSortKey =
   | 'market_type'
   | 'name'
   | 'last_price'
+  | 'change_amount'
   | 'change_pct'
   | 'trend';
 
@@ -106,6 +107,7 @@ function movementClass(value: number | null | undefined): string {
 function sortValue(item: WatchListItem, key: WatchListSortKey): string | number | boolean | null | undefined {
   const quote = getQuote(item.code, item.market_type);
   if (key === 'last_price') return quote?.last_price;
+  if (key === 'change_amount') return quote?.change_amount;
   if (key === 'change_pct') return quote?.change_pct;
   if (key === 'trend') return trendSortValue(quote?.trend_1m);
   return item[key];
@@ -371,14 +373,15 @@ onMounted(loadList);
 
       <!-- Table -->
       <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-        <table class="w-full min-w-[1020px] table-fixed text-left text-sm">
+        <table class="w-full min-w-[1080px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[78px]" />
             <col class="w-[120px]" />
             <col class="w-[170px]" />
             <col class="w-[90px]" />
             <col class="w-[120px]" />
-            <col class="w-[170px]" />
+            <col class="w-[120px]" />
+            <col class="w-[110px]" />
             <col class="w-[120px]" />
             <col class="w-[152px]" />
           </colgroup>
@@ -389,14 +392,15 @@ onMounted(loadList);
               <SortableTableHeader label="名称" :active="sortKey === 'name'" :direction="sortDirection" @sort="toggleSort('name')" />
               <SortableTableHeader label="市场" :active="sortKey === 'market_type'" :direction="sortDirection" @sort="toggleSort('market_type')" />
               <SortableTableHeader label="最新价" align="right" :active="sortKey === 'last_price'" :direction="sortDirection" @sort="toggleSort('last_price')" />
-              <SortableTableHeader label="今日涨跌" align="right" :active="sortKey === 'change_pct'" :direction="sortDirection" @sort="toggleSort('change_pct')" />
+              <SortableTableHeader label="今日涨跌额" align="right" :active="sortKey === 'change_amount'" :direction="sortDirection" @sort="toggleSort('change_amount')" />
+              <SortableTableHeader label="今日涨跌幅" align="right" :active="sortKey === 'change_pct'" :direction="sortDirection" @sort="toggleSort('change_pct')" />
               <SortableTableHeader label="趋势持续" :active="sortKey === 'trend'" :direction="sortDirection" @sort="toggleSort('trend')" />
               <th class="whitespace-nowrap px-4 py-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!visibleItems.length">
-              <td colspan="8" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无自选股</td>
+              <td colspan="9" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无自选股</td>
             </tr>
             <template v-else>
               <tr
@@ -442,12 +446,11 @@ onMounted(loadList);
                 <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground">
                   {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
                 </td>
-                <td
-                  class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
-                  :class="movementClass(getQuote(item.code, item.market_type)?.change_pct ?? getQuote(item.code, item.market_type)?.change_amount)"
-                >
+                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)">
                   {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount) }}
-                  <span class="ml-1 text-xs">/ {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%') }}</span>
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)">
+                  {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%') }}
                 </td>
                 <td class="px-4 py-3">
                   <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />

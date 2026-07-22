@@ -209,8 +209,8 @@ describe('stock table details', () => {
   });
 
   it.each([
-    [WatchListPage, '/market/watch-list', '8'],
-    [StockListPage, '/market/holdings', '10'],
+    [WatchListPage, '/market/watch-list', '9'],
+    [StockListPage, '/market/holdings', '11'],
   ] as const)('keeps filtered empty-row colspan aligned', async (component, path, colspan) => {
     const page = await mountPage(component, path);
     await page.find('select').setValue('CN');
@@ -218,15 +218,17 @@ describe('stock table details', () => {
   });
 
   it.each([
-    [WatchListPage, '/market/watch-list', ['关注', '代码', '名称', '市场', '最新价', '今日涨跌', '趋势持续']],
-    [StockListPage, '/market/holdings', ['代码', '名称', '市场', '最新价', '今日涨跌', '趋势持续', '持仓数量', '平均成本', '持仓成本金额']],
-  ] as const)('merges daily movement and makes every non-action column sortable', async (component, path, labels) => {
+    [WatchListPage, '/market/watch-list', ['关注', '代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续']],
+    [StockListPage, '/market/holdings', ['代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续', '持仓数量', '平均成本', '持仓成本金额']],
+  ] as const)('keeps daily movement separate and makes every non-action column sortable', async (component, path, labels) => {
     const page = await mountPage(component, path);
     const headers = page.findAll('thead th');
 
-    expect(page.text()).toContain('+0.50 / +4.35%');
-    expect(page.text()).not.toContain('今日涨跌额');
-    expect(page.text()).not.toContain('今日涨跌幅');
+    expect(page.text()).toContain('今日涨跌额');
+    expect(page.text()).toContain('今日涨跌幅');
+    expect(page.text()).toContain('+0.50');
+    expect(page.text()).toContain('+4.35%');
+    expect(page.text()).not.toContain('+0.50 / +4.35%');
     expect(headers.at(-1)?.text()).toBe('操作');
     expect(headers.at(-1)?.find('button').exists()).toBe(false);
 
@@ -253,8 +255,12 @@ describe('stock table details', () => {
     await latestPrice.trigger('click');
     expect(page.get('tbody tr[tabindex="0"]').text()).toContain('AAPL');
 
-    const dailyMovement = page.findAll('thead button').find((button) => button.text().includes('今日涨跌'))!;
-    await dailyMovement.trigger('click');
+    const changeAmount = page.findAll('thead button').find((button) => button.text().includes('今日涨跌额'))!;
+    await changeAmount.trigger('click');
+    expect(page.get('tbody tr[tabindex="0"]').text()).toContain('MSFT');
+
+    const changePct = page.findAll('thead button').find((button) => button.text().includes('今日涨跌幅'))!;
+    await changePct.trigger('click');
     expect(page.get('tbody tr[tabindex="0"]').text()).toContain('MSFT');
 
     const trend = page.findAll('thead button').find((button) => button.text().includes('趋势持续'))!;
