@@ -93,12 +93,10 @@ class DailyResearchService:
         market_result = MarketRegimeService(self.config.regime).calculate(
             frames[market_config.primary_benchmark],
             frames[market_config.broad_benchmark],
-            frames[market_config.risk_benchmark],
             member_frames,
             benchmark_labels=(
                 market_config.primary_benchmark,
                 market_config.broad_benchmark,
-                market_config.risk_benchmark,
             ),
         )
         regime = self.repository.save_market_regime(

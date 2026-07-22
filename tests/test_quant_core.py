@@ -15,6 +15,7 @@ from finance_analysis.quant.intraday_confirmation.service import IntradayConfirm
 from finance_analysis.quant.models.splits import WalkForwardConfig, walk_forward_splits
 from finance_analysis.quant.portfolio.backtest import BacktestCostConfig, run_topk_backtest
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
+from finance_analysis.quant.regime.service import MarketRegimeService
 from finance_analysis.quant.signals.fusion import SignalFusion
 
 
@@ -52,6 +53,27 @@ def test_relative_strength_and_forward_label_use_exact_window():
     expected_label = ((stock.close.iloc[5] / stock.open.iloc[1] - 1) - (market.close.iloc[5] / market.open.iloc[1] - 1)) * 100
     assert labels.iloc[0] == pytest.approx(expected_label)
     assert labels.tail(5).isna().all()
+
+
+def test_market_regime_uses_primary_relative_to_broad_without_risk_benchmark():
+    primary = daily_frame(drift=2.0)
+    broad = daily_frame(drift=1.0)
+
+    result = MarketRegimeService().calculate(
+        primary,
+        broad,
+        {"A.US": primary},
+        benchmark_labels=("QQQ.US", "SPY.US"),
+    )
+
+    expected_relative = (
+        primary.close.iloc[-1] / primary.close.iloc[-21]
+        - broad.close.iloc[-1] / broad.close.iloc[-21]
+    )
+    assert result.features["primary_benchmark"] == "QQQ.US"
+    assert result.features["broad_benchmark"] == "SPY.US"
+    assert result.features["primary_relative_broad_20d"] == pytest.approx(expected_relative)
+    assert "risk_benchmark" not in result.features
 
 
 def test_after_hours_event_is_not_available_same_day():

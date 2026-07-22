@@ -30,6 +30,91 @@ def _member(code: str, symbol_id: int):
     )
 
 
+def test_daily_research_uses_primary_and_broad_benchmarks_without_removed_risk_config(
+    monkeypatch,
+) -> None:
+    dates = pd.bdate_range(end=TRADE_DATE, periods=90)
+
+    def bars(code: str, drift: float) -> pd.DataFrame:
+        close = pd.Series([100.0 + index * drift for index in range(len(dates))])
+        return pd.DataFrame(
+            {
+                "instrument": code,
+                "datetime": dates.date,
+                "open": close - 0.5,
+                "high": close + 1.0,
+                "low": close - 1.0,
+                "close": close,
+                "volume": 1_000.0,
+                "amount": close * 1_000.0,
+            }
+        )
+
+    loaded = SimpleNamespace(
+        frame=pd.concat(
+            [
+                bars("600519.SH", 0.8),
+                bars("159915.SZ", 1.0),
+                bars("510300.SH", 0.5),
+            ],
+            ignore_index=True,
+        ),
+        adjustment_coverage={"coverage_ratio": 1.0},
+    )
+    repository = MagicMock()
+    repository.get_universe.return_value = SimpleNamespace(
+        id=1, key="cn_csi300", market="CN", enabled=True
+    )
+    repository.save_market_regime.return_value = SimpleNamespace(id=7, regime="neutral")
+    repository.available_events.return_value = []
+    symbol_repository = MagicMock()
+    symbol_repository.list_enabled_daily_by_codes.return_value = [
+        SimpleNamespace(id=1, code="600519.SH")
+    ]
+    captured = {}
+
+    class TwoBenchmarkRegimeService:
+        def __init__(self, _config):
+            pass
+
+        def calculate(self, primary, broad, universe, *, benchmark_labels):
+            captured.update(
+                primary=primary,
+                broad=broad,
+                universe=universe,
+                benchmark_labels=benchmark_labels,
+            )
+            return SimpleNamespace(
+                regime="neutral",
+                market_score=0.5,
+                max_equity_exposure=0.4,
+                sector_permissions={"ranking": True},
+                features={},
+                reasons=[],
+            )
+
+    monkeypatch.setattr(
+        "finance_analysis.quant.features.service.get_quant_universe_codes",
+        lambda _market: {"600519.SH"},
+    )
+    monkeypatch.setattr(
+        "finance_analysis.quant.features.service.DailyBarLoader",
+        lambda _repository: SimpleNamespace(load=lambda *_args: loaded),
+    )
+    monkeypatch.setattr(
+        "finance_analysis.quant.features.service.MarketRegimeService",
+        TwoBenchmarkRegimeService,
+    )
+
+    result = DailyResearchService(repository, symbol_repository).run(
+        "CN", "cn_csi300", TRADE_DATE
+    )
+
+    assert captured["benchmark_labels"] == ("159915.SZ", "510300.SH")
+    assert set(captured["universe"]) == {"600519.SH"}
+    assert result["feature_count"] == 1
+
+
 def test_prepare_rejects_research_symbol_without_target_daily_bar(monkeypatch) -> None:
     repository = MagicMock()
     repository.get_universe.return_value = SimpleNamespace(
