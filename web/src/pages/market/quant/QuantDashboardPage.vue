@@ -7,7 +7,6 @@ import MarketScoreChart from '@/components/quant/MarketScoreChart.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { MarketRegime, QuantCapabilities, SectorRegime, SignalRanking } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatScore, regimeLabels } from '@/utils/quant';
-import { Activity } from 'lucide-vue-next';
 import { ref, watch } from 'vue';
 
 const { market, marketQuery } = useQuantMarket();
@@ -49,17 +48,12 @@ watch(market, async (current) => {
 
 <template>
   <div class="space-y-5">
-    <header class="flex items-start gap-3">
-      <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary-gradient text-primary-foreground">
-        <Activity class="h-5 w-5" />
-      </div>
-      <div>
-        <h2 class="text-lg font-semibold">
-          量化研究
-        </h2><p class="text-xs text-secondary-text">
-          展示市场状态、行业强弱、模型选股和组合建议。
-        </p>
-      </div>
+    <header>
+      <h2 class="text-lg font-semibold">
+        总览
+      </h2><p class="text-xs text-muted-text">
+        展示市场状态、行业强弱、模型选股和组合建议。
+      </p>
     </header>
     <ApiErrorAlert
       v-if="error"

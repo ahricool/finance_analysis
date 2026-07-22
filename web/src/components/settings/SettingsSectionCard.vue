@@ -15,14 +15,14 @@ const props = withDefaults(
   <div
     :class="
       cn(
-        'rounded-[1.5rem] border settings-border bg-card/94 p-5 shadow-soft-card-strong backdrop-blur-sm',
+        'rounded-2xl border border-border/70 bg-card/94 p-4 shadow-soft-card backdrop-blur-sm',
         props.class,
       )
     "
   >
-    <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div class="min-w-0 space-y-1">
-        <h2 class="text-sm font-semibold tracking-tight text-foreground uppercase tracking-wider">
+        <h2 class="text-base font-semibold text-foreground">
           {{ title }}
         </h2>
         <p v-if="description" class="text-xs leading-6 text-muted-text">{{ description }}</p>

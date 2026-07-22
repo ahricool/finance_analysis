@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Activity, Star, Wallet } from 'lucide-vue-next';
 import { computed } from 'vue';
-import { RouterLink, RouterView, useRoute } from 'vue-router';
+import { RouterView, useRoute } from 'vue-router';
+import SectionNavItems from '@/components/common/SectionNavItems.vue';
 
 type MarketTab = 'watch-list' | 'holdings' | 'signals';
 
@@ -18,14 +19,6 @@ const activeTab = computed<MarketTab>(() => {
   return 'watch-list';
 });
 
-function navClass(key: MarketTab): string[] {
-  return [
-    'flex h-11 min-w-0 items-center justify-center gap-2 rounded-xl px-2 text-sm font-medium transition-colors lg:w-full lg:justify-start lg:px-3',
-    activeTab.value === key
-      ? 'bg-primary/12 text-primary'
-      : 'text-secondary-text hover:bg-hover hover:text-foreground',
-  ];
-}
 </script>
 
 <template>
@@ -44,18 +37,7 @@ function navClass(key: MarketTab): string[] {
       aria-label="市场页面导航"
       data-testid="market-mobile-nav"
     >
-      <RouterLink
-        v-for="item in navItems"
-        :key="item.key"
-        :to="item.to"
-        :class="navClass(item.key)"
-      >
-        <component
-          :is="item.icon"
-          class="h-4 w-4 shrink-0"
-        />
-        <span class="whitespace-nowrap">{{ item.label }}</span>
-      </RouterLink>
+      <SectionNavItems :items="navItems" :active-key="activeTab" responsive />
     </nav>
 
     <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -63,18 +45,7 @@ function navClass(key: MarketTab): string[] {
         class="hidden h-fit space-y-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm lg:block"
         data-testid="market-desktop-nav"
       >
-        <RouterLink
-          v-for="item in navItems"
-          :key="item.key"
-          :to="item.to"
-          :class="navClass(item.key)"
-        >
-          <component
-            :is="item.icon"
-            class="h-4 w-4 shrink-0"
-          />
-          <span class="truncate">{{ item.label }}</span>
-        </RouterLink>
+        <SectionNavItems :items="navItems" :active-key="activeTab" responsive />
       </aside>
 
       <section class="min-w-0">

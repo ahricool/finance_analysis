@@ -8,6 +8,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import Dialog from '@/components/common/Dialog.vue';
 import InlineAlert from '@/components/common/InlineAlert.vue';
 import Pagination from '@/components/common/Pagination.vue';
+import SectionNavItems from '@/components/common/SectionNavItems.vue';
 import { useAuthStore } from '@/stores/authStore';
 import type { ScheduledSyncMode, ScheduledTask, TaskRun, TaskRunDetail, TaskStatus } from '@/types/tasks';
 import { formatDateTimeInDisplayTimezone, toUtcIsoString } from '@/utils/format';
@@ -21,7 +22,7 @@ import {
   RotateCw,
 } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { RouterLink, useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 type TaskTab = 'scheduled' | 'runs';
 
@@ -344,20 +345,7 @@ onBeforeUnmount(() => {
 
     <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
       <aside class="h-fit space-y-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm">
-        <RouterLink
-          v-for="item in navItems"
-          :key="item.key"
-          :to="item.to"
-          :class="[
-            'flex h-11 w-full items-center gap-2 rounded-xl px-3 text-left text-sm font-medium transition-colors',
-            activeTab === item.key
-              ? 'bg-primary/12 text-primary'
-              : 'text-secondary-text hover:bg-hover hover:text-foreground',
-          ]"
-        >
-          <component :is="item.icon" class="h-4 w-4 shrink-0" />
-          <span class="truncate">{{ item.label }}</span>
-        </RouterLink>
+        <SectionNavItems :items="navItems" :active-key="activeTab" />
       </aside>
 
       <section class="min-w-0 space-y-4">
