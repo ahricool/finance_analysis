@@ -1,22 +1,31 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
+import type { RealtimeTrend } from '@/api/realtimeMarket';
 import { watchListApi, type MarketType, type WatchListItem, type WatchListItemCreate } from '@/api/watchList';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import TrendStatus from '@/components/stocks/TrendStatus.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import { looksLikeStockCode } from '@/utils/validation';
-import { ArrowDown, ArrowUp, ArrowUpDown, Eye, Heart, Pencil, Plus, Star, Trash2, X } from 'lucide-vue-next';
+import { Eye, Heart, Pencil, Plus, Star, Trash2, X } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 
 type MarketFilter = MarketType | 'ALL';
 type SortDirection = 'asc' | 'desc';
-type WatchListSortKey = 'is_favorite' | 'code' | 'market_type' | 'name';
+type WatchListSortKey =
+  | 'is_favorite'
+  | 'code'
+  | 'market_type'
+  | 'name'
+  | 'last_price'
+  | 'change_pct'
+  | 'trend';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const items = ref<WatchListItem[]>([]);
@@ -95,7 +104,18 @@ function movementClass(value: number | null | undefined): string {
 }
 
 function sortValue(item: WatchListItem, key: WatchListSortKey): string | number | boolean | null | undefined {
+  const quote = getQuote(item.code, item.market_type);
+  if (key === 'last_price') return quote?.last_price;
+  if (key === 'change_pct') return quote?.change_pct;
+  if (key === 'trend') return trendSortValue(quote?.trend_1m);
   return item[key];
+}
+
+function trendSortValue(trend: RealtimeTrend | null | undefined): number | null {
+  if (!trend || trend.state === 'insufficient' || trend.streak <= 0) return null;
+  if (trend.state === 'above') return trend.streak;
+  if (trend.state === 'below') return -trend.streak;
+  return 0;
 }
 
 function normalizeSortValue(value: string | number | boolean | null | undefined): string | number {
@@ -131,11 +151,6 @@ function toggleSort(key: WatchListSortKey) {
   }
   sortKey.value = key;
   sortDirection.value = 'asc';
-}
-
-function sortAria(key: WatchListSortKey): 'none' | 'ascending' | 'descending' {
-  if (sortKey.value !== key) return 'none';
-  return sortDirection.value === 'asc' ? 'ascending' : 'descending';
 }
 
 function marketToMarketType(market?: Market): MarketType | null {
@@ -356,62 +371,32 @@ onMounted(loadList);
 
       <!-- Table -->
       <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-        <table class="w-full min-w-[1080px] table-fixed text-left text-sm">
+        <table class="w-full min-w-[1020px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[78px]" />
             <col class="w-[120px]" />
             <col class="w-[170px]" />
             <col class="w-[90px]" />
             <col class="w-[120px]" />
-            <col class="w-[120px]" />
-            <col class="w-[110px]" />
+            <col class="w-[170px]" />
             <col class="w-[120px]" />
             <col class="w-[152px]" />
           </colgroup>
           <thead class="border-b border-border/70 text-xs text-muted-text">
             <tr>
-              <th class="whitespace-nowrap px-4 py-3 font-medium" :aria-sort="sortAria('is_favorite')">
-                <button class="flex items-center gap-1 whitespace-nowrap transition-colors hover:text-foreground" @click="toggleSort('is_favorite')">
-                  关注
-                  <ArrowUp v-if="sortKey === 'is_favorite' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'is_favorite'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="whitespace-nowrap px-4 py-3 font-medium" :aria-sort="sortAria('code')">
-                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('code')">
-                  代码
-                  <ArrowUp v-if="sortKey === 'code' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'code'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="whitespace-nowrap px-4 py-3 font-medium" :aria-sort="sortAria('name')">
-                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('name')">
-                  名称
-                  <ArrowUp v-if="sortKey === 'name' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'name'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="whitespace-nowrap px-4 py-3 font-medium" :aria-sort="sortAria('market_type')">
-                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('market_type')">
-                  市场
-                  <ArrowUp v-if="sortKey === 'market_type' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'market_type'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">最新价</th>
-              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">今日涨跌额</th>
-              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">今日涨跌幅</th>
-              <th class="whitespace-nowrap px-4 py-3 font-medium">趋势持续</th>
+              <SortableTableHeader label="关注" :active="sortKey === 'is_favorite'" :direction="sortDirection" @sort="toggleSort('is_favorite')" />
+              <SortableTableHeader label="代码" :active="sortKey === 'code'" :direction="sortDirection" @sort="toggleSort('code')" />
+              <SortableTableHeader label="名称" :active="sortKey === 'name'" :direction="sortDirection" @sort="toggleSort('name')" />
+              <SortableTableHeader label="市场" :active="sortKey === 'market_type'" :direction="sortDirection" @sort="toggleSort('market_type')" />
+              <SortableTableHeader label="最新价" align="right" :active="sortKey === 'last_price'" :direction="sortDirection" @sort="toggleSort('last_price')" />
+              <SortableTableHeader label="今日涨跌" align="right" :active="sortKey === 'change_pct'" :direction="sortDirection" @sort="toggleSort('change_pct')" />
+              <SortableTableHeader label="趋势持续" :active="sortKey === 'trend'" :direction="sortDirection" @sort="toggleSort('trend')" />
               <th class="whitespace-nowrap px-4 py-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!visibleItems.length">
-              <td colspan="9" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无自选股</td>
+              <td colspan="8" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无自选股</td>
             </tr>
             <template v-else>
               <tr
@@ -457,11 +442,12 @@ onMounted(loadList);
                 <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground">
                   {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
                 </td>
-                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)">
+                <td
+                  class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
+                  :class="movementClass(getQuote(item.code, item.market_type)?.change_pct ?? getQuote(item.code, item.market_type)?.change_amount)"
+                >
                   {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount) }}
-                </td>
-                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)">
-                  {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%') }}
+                  <span class="ml-1 text-xs">/ {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%') }}</span>
                 </td>
                 <td class="px-4 py-3">
                   <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />

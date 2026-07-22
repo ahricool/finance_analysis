@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
+import type { RealtimeTrend } from '@/api/realtimeMarket';
 import { stockListApi, type MarketType, type StockHolding, type StockHoldingCreate } from '@/api/stockList';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import TrendStatus from '@/components/stocks/TrendStatus.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
@@ -18,13 +20,22 @@ import {
   parseDecimalInput,
 } from '@/utils/marketCurrency';
 import { looksLikeStockCode } from '@/utils/validation';
-import { ArrowDown, ArrowUp, ArrowUpDown, Briefcase, Pencil, Plus, Trash2, X } from 'lucide-vue-next';
+import { Briefcase, Pencil, Plus, Trash2, X } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 type MarketFilter = MarketType | 'ALL';
 type SortDirection = 'asc' | 'desc';
-type StockListSortKey = 'code' | 'market_type' | 'name' | 'quantity' | 'avg_cost' | 'cost_amount';
+type StockListSortKey =
+  | 'code'
+  | 'market_type'
+  | 'name'
+  | 'last_price'
+  | 'change_pct'
+  | 'trend'
+  | 'quantity'
+  | 'avg_cost'
+  | 'cost_amount';
 
 type HoldingPrefill = {
   code: string;
@@ -114,10 +125,21 @@ function movementClass(value: number | null | undefined): string {
 }
 
 function sortValue(item: StockHolding, key: StockListSortKey): string | number | null | undefined {
+  const quote = getQuote(item.code, item.market_type);
+  if (key === 'last_price') return quote?.last_price;
+  if (key === 'change_pct') return quote?.change_pct;
+  if (key === 'trend') return trendSortValue(quote?.trend_1m);
   if (key === 'cost_amount') {
     return item.avg_cost ? Number(item.quantity) * Number(item.avg_cost) : null;
   }
   return item[key];
+}
+
+function trendSortValue(trend: RealtimeTrend | null | undefined): number | null {
+  if (!trend || trend.state === 'insufficient' || trend.streak <= 0) return null;
+  if (trend.state === 'above') return trend.streak;
+  if (trend.state === 'below') return -trend.streak;
+  return 0;
 }
 
 function normalizeSortValue(value: string | number | null | undefined): string | number {
@@ -149,11 +171,6 @@ function toggleSort(key: StockListSortKey) {
   }
   sortKey.value = key;
   sortDirection.value = 'asc';
-}
-
-function sortAria(key: StockListSortKey): 'none' | 'ascending' | 'descending' {
-  if (sortKey.value !== key) return 'none';
-  return sortDirection.value === 'asc' ? 'ascending' : 'descending';
 }
 
 function marketToMarketType(market?: Market): MarketType | null {
@@ -429,14 +446,13 @@ onMounted(async () => {
 
       <!-- Table -->
       <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-        <table class="w-full min-w-[1340px] table-fixed text-left text-sm">
+        <table class="w-full min-w-[1280px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[120px]" />
             <col class="w-[160px]" />
             <col class="w-[90px]" />
             <col class="w-[115px]" />
-            <col class="w-[120px]" />
-            <col class="w-[110px]" />
+            <col class="w-[170px]" />
             <col class="w-[120px]" />
             <col class="w-[130px]" />
             <col class="w-[130px]" />
@@ -445,73 +461,21 @@ onMounted(async () => {
           </colgroup>
           <thead class="border-b border-border/70 text-xs text-muted-text">
             <tr>
-              <th class="whitespace-nowrap px-4 py-3 font-medium" :aria-sort="sortAria('code')">
-                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('code')">
-                  代码
-                  <ArrowUp v-if="sortKey === 'code' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'code'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="whitespace-nowrap px-4 py-3 font-medium" :aria-sort="sortAria('name')">
-                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('name')">
-                  名称
-                  <ArrowUp v-if="sortKey === 'name' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'name'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="whitespace-nowrap px-4 py-3 font-medium" :aria-sort="sortAria('market_type')">
-                <button class="flex items-center gap-1.5 transition-colors hover:text-foreground" @click="toggleSort('market_type')">
-                  市场
-                  <ArrowUp v-if="sortKey === 'market_type' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'market_type'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">最新价</th>
-              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">今日涨跌额</th>
-              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">今日涨跌幅</th>
-              <th class="whitespace-nowrap px-4 py-3 font-medium">趋势持续</th>
-              <th class="whitespace-nowrap px-4 py-3 text-right font-medium" :aria-sort="sortAria('quantity')">
-                <button
-                  class="ml-auto flex items-center gap-1.5 transition-colors hover:text-foreground"
-                  @click="toggleSort('quantity')"
-                >
-                  持仓数量
-                  <ArrowUp v-if="sortKey === 'quantity' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'quantity'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="whitespace-nowrap px-4 py-3 text-right font-medium" :aria-sort="sortAria('avg_cost')">
-                <button
-                  class="ml-auto flex items-center gap-1.5 transition-colors hover:text-foreground"
-                  @click="toggleSort('avg_cost')"
-                >
-                  平均成本
-                  <ArrowUp v-if="sortKey === 'avg_cost' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'avg_cost'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
-              <th class="whitespace-nowrap px-4 py-3 text-right font-medium" :aria-sort="sortAria('cost_amount')">
-                <button
-                  class="ml-auto flex items-center gap-1.5 transition-colors hover:text-foreground"
-                  @click="toggleSort('cost_amount')"
-                >
-                  持仓成本金额
-                  <ArrowUp v-if="sortKey === 'cost_amount' && sortDirection === 'asc'" class="h-3.5 w-3.5" />
-                  <ArrowDown v-else-if="sortKey === 'cost_amount'" class="h-3.5 w-3.5" />
-                  <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
-                </button>
-              </th>
+              <SortableTableHeader label="代码" :active="sortKey === 'code'" :direction="sortDirection" @sort="toggleSort('code')" />
+              <SortableTableHeader label="名称" :active="sortKey === 'name'" :direction="sortDirection" @sort="toggleSort('name')" />
+              <SortableTableHeader label="市场" :active="sortKey === 'market_type'" :direction="sortDirection" @sort="toggleSort('market_type')" />
+              <SortableTableHeader label="最新价" align="right" :active="sortKey === 'last_price'" :direction="sortDirection" @sort="toggleSort('last_price')" />
+              <SortableTableHeader label="今日涨跌" align="right" :active="sortKey === 'change_pct'" :direction="sortDirection" @sort="toggleSort('change_pct')" />
+              <SortableTableHeader label="趋势持续" :active="sortKey === 'trend'" :direction="sortDirection" @sort="toggleSort('trend')" />
+              <SortableTableHeader label="持仓数量" align="right" :active="sortKey === 'quantity'" :direction="sortDirection" @sort="toggleSort('quantity')" />
+              <SortableTableHeader label="平均成本" align="right" :active="sortKey === 'avg_cost'" :direction="sortDirection" @sort="toggleSort('avg_cost')" />
+              <SortableTableHeader label="持仓成本金额" align="right" :active="sortKey === 'cost_amount'" :direction="sortDirection" @sort="toggleSort('cost_amount')" />
               <th class="whitespace-nowrap px-4 py-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!visibleItems.length">
-              <td colspan="11" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无持仓股</td>
+              <td colspan="10" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无持仓股</td>
             </tr>
             <template v-else>
               <tr
@@ -540,11 +504,12 @@ onMounted(async () => {
                 <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground">
                   {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
                 </td>
-                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)">
+                <td
+                  class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
+                  :class="movementClass(getQuote(item.code, item.market_type)?.change_pct ?? getQuote(item.code, item.market_type)?.change_amount)"
+                >
                   {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount) }}
-                </td>
-                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)">
-                  {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%') }}
+                  <span class="ml-1 text-xs">/ {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%') }}</span>
                 </td>
                 <td class="px-4 py-3">
                   <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
