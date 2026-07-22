@@ -23,14 +23,17 @@ async function mountQuant(path: string) {
 }
 
 describe('QuantPage', () => {
-  it('renders its secondary navigation without the market sidebar', async () => {
+  it('renders market-style responsive secondary navigation with the switcher below the subtitle', async () => {
     const wrapper = await mountQuant('/market/quant');
 
-    expect(wrapper.get('nav[aria-label="量化研究导航"]').classes()).toContain('flex-wrap');
+    expect(wrapper.get('h1').text()).toBe('量化研究');
+    expect(wrapper.get('[data-testid="quant-mobile-nav"]').classes()).toContain('lg:hidden');
+    expect(wrapper.get('[data-testid="quant-desktop-nav"]').classes()).toContain('lg:block');
+    expect(wrapper.get('header').find('[data-testid="quant-market-switcher"]').exists()).toBe(true);
+    expect(wrapper.get('header').find('[data-testid="quant-scope-description"]').exists()).toBe(true);
     expect(wrapper.get('a[href="/market/quant?market=US"]').classes()).toContain('text-primary');
     expect(wrapper.get('a[href="/market/quant/datasets?market=US"]').text()).toBe('数据集');
     expect(wrapper.text()).toContain('量化总览');
-    expect(wrapper.find('[data-testid="market-desktop-nav"]').exists()).toBe(false);
   });
 
   it('keeps a section active on a detail route', async () => {

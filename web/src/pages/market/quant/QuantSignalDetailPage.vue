@@ -13,7 +13,7 @@ import { quantApi } from '@/api/quant';import { getParsedApiError,type ParsedApi
       :error="error"
     /><template v-if="item">
       <header>
-        <h2 class="text-xl font-semibold">
+        <h2 class="text-lg font-semibold">
           {{ item.code }}
         </h2><p class="text-xs text-muted-text">
           排名 {{ item.universeRank??'—' }} · {{ item.signal }} · 预测 {{ formatPredictedReturn(item.predictedReturn) }} · 目标 {{ formatPercent(item.targetPosition) }}

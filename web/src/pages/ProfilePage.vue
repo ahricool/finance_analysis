@@ -3,6 +3,7 @@ import { authApi, type NotificationSettings, type UserGender, type UserProfileRe
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
+import SectionNavItems from '@/components/common/SectionNavItems.vue';
 import AvatarCropper from '@/components/profile/AvatarCropper.vue';
 import ChangePasswordCard from '@/components/settings/ChangePasswordCard.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
@@ -204,22 +205,11 @@ onBeforeUnmount(clearAvatarSource);
 
     <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
       <aside class="h-fit space-y-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm">
-        <button
-          v-for="tab in tabs"
-          :key="tab.key"
-          type="button"
-          :aria-current="activeTab === tab.key ? 'page' : undefined"
-          :class="[
-            'flex h-11 w-full items-center gap-2 rounded-xl px-3 text-left text-sm font-medium transition-colors',
-            activeTab === tab.key
-              ? 'bg-primary/12 text-primary'
-              : 'text-secondary-text hover:bg-hover hover:text-foreground',
-          ]"
-          @click="activeTab = tab.key"
-        >
-          <component :is="tab.icon" class="h-4 w-4 shrink-0" />
-          <span class="truncate">{{ tab.label }}</span>
-        </button>
+        <SectionNavItems
+          :items="tabs"
+          :active-key="activeTab"
+          @select="activeTab = $event as ProfileTab"
+        />
       </aside>
 
       <section class="min-w-0">
