@@ -22,6 +22,7 @@ const QuantPage = () => import('@/pages/market/QuantPage.vue');
 const QuantDashboardPage = () => import('@/pages/market/quant/QuantDashboardPage.vue');
 const QuantSignalsPage = () => import('@/pages/market/quant/QuantSignalsPage.vue');
 const QuantSignalDetailPage = () => import('@/pages/market/quant/QuantSignalDetailPage.vue');
+const QuantDatasetsPage = () => import('@/pages/market/quant/QuantDatasetsPage.vue');
 const QuantModelsPage = () => import('@/pages/market/quant/QuantModelsPage.vue');
 const QuantModelRunPage = () => import('@/pages/market/quant/QuantModelRunPage.vue');
 const QuantEventsPage = () => import('@/pages/market/quant/QuantEventsPage.vue');
@@ -87,6 +88,7 @@ const router = createRouter({
             { path: '', name: 'market-quant', component: QuantDashboardPage },
             { path: 'signals', name: 'market-quant-signals', component: QuantSignalsPage, meta: { title: '模型选股' } },
             { path: 'signals/:code', name: 'market-quant-signal-detail', component: QuantSignalDetailPage, meta: { title: '选股详情' } },
+            { path: 'datasets', name: 'market-quant-datasets', component: QuantDatasetsPage, meta: { title: '量化数据集' } },
             { path: 'models', name: 'market-quant-models', component: QuantModelsPage, meta: { title: '量化模型' } },
             { path: 'models/:runId', name: 'market-quant-model-run', component: QuantModelRunPage, meta: { title: '模型运行详情' } },
             { path: 'events', name: 'market-quant-events', component: QuantEventsPage, meta: { title: '市场事件' } },

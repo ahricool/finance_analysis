@@ -5,7 +5,7 @@ import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Badge from '@/components/common/Badge.vue';
 import Button from '@/components/common/Button.vue';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
-import Drawer from '@/components/common/Drawer.vue';
+import Dialog from '@/components/common/Dialog.vue';
 import InlineAlert from '@/components/common/InlineAlert.vue';
 import Pagination from '@/components/common/Pagination.vue';
 import { useAuthStore } from '@/stores/authStore';
@@ -671,11 +671,11 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <Drawer
+    <Dialog
       :is-open="detailLoading || !!detail || !!detailError"
       title="任务详情"
       width="max-w-4xl"
-      variant="modal"
+      eyebrow="DETAIL VIEW"
       @close="detail = null; detailError = null"
     >
       <div v-if="detailLoading" class="py-10 text-center text-sm text-muted-text">加载中...</div>
@@ -740,7 +740,7 @@ onBeforeUnmount(() => {
           <p class="mt-2 break-all font-mono text-xs text-foreground">{{ detail.taskLog }}</p>
         </div>
       </div>
-    </Drawer>
+    </Dialog>
 
     <ConfirmDialog
       :is-open="!!selectedJob"
