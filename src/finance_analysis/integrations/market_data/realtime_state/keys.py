@@ -24,5 +24,9 @@ def trend_key(symbol: str) -> str:
     return f"rt:trend:1m:{symbol}"
 
 
+def pattern_key(symbol: str) -> str:
+    return f"rt:pattern:1m:{symbol}"
+
+
 def subscription_key(symbol: str) -> str:
     return f"rt:subscription:{symbol}"

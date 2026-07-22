@@ -25,8 +25,13 @@ from finance_analysis.market_stream.config import (
     is_regular_trade_session,
     market_trading_date,
 )
+from finance_analysis.market_stream.patterns.config import PatternConfig
+from finance_analysis.market_stream.patterns.models import PatternSignal, PatternState
 from finance_analysis.stocks.markets import MarketType
 from finance_analysis.users.auth import COOKIE_NAME, parse_session_uid
+
+
+PATTERN_CONFIG = PatternConfig()
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -87,6 +92,37 @@ def _trend_payload(trend: TrendState) -> dict[str, Any]:
     }
 
 
+def _pattern_signal_payload(signal: PatternSignal) -> dict[str, Any]:
+    return {
+        "timeframe": signal.timeframe,
+        "pattern_type": signal.pattern_type,
+        "pattern_name": signal.pattern_name,
+        "direction": signal.direction,
+        "stage": signal.stage,
+        "quality_score": signal.quality_score,
+        "occurred_at": utc_isoformat(signal.occurred_at),
+        "confirmed_at": utc_isoformat(signal.confirmed_at),
+        "trading_date": signal.trading_date.isoformat() if signal.trading_date else None,
+        "trade_session": signal.trade_session,
+        "bars_ago": signal.bars_ago,
+        "session_minutes_ago": signal.session_minutes_ago,
+        "reference_level": _number(signal.reference_level),
+        "invalidation_price": _number(signal.invalidation_price),
+        "reasons": list(signal.reasons),
+        "confirmed": signal.confirmed,
+    }
+
+
+def _pattern_payload(pattern: PatternState) -> dict[str, Any]:
+    return {
+        "timeframe": pattern.timeframe,
+        "status": pattern.status,
+        "trading_date": pattern.trading_date.isoformat() if pattern.trading_date else None,
+        "bar_time": utc_isoformat(pattern.bar_time),
+        "signal": _pattern_signal_payload(pattern.signal) if pattern.signal else None,
+    }
+
+
 def _display_trading_date(market_type: str, now: datetime) -> date:
     market = market_type.lower()
     local_date = market_trading_date(now, cast(MarketType, market_type))
@@ -99,6 +135,7 @@ def _quote_payload(
     stock: TrackedStock,
     quote: QuoteState | None,
     trend: TrendState | None,
+    pattern: PatternState | None,
     *,
     now: datetime,
 ) -> dict[str, Any]:
@@ -119,10 +156,36 @@ def _quote_payload(
         trend_is_current = False
     if not trend_is_current:
         trend = TrendState(symbol=stock.symbol, trading_date=display_date)
+    original_pattern = pattern
+    try:
+        pattern_is_current = pattern is not None and pattern.trading_date == display_date
+        if pattern_is_current and pattern is not None and pattern.bar_time is not None:
+            pattern_is_current = (
+                market_trading_date(pattern.bar_time, cast(MarketType, stock.market_type)) == display_date
+                and is_regular_session_minute(pattern.bar_time, cast(MarketType, stock.market_type))
+            )
+        if pattern_is_current and pattern is not None and pattern.signal is not None:
+            effective_at = pattern.signal.confirmed_at or pattern.signal.occurred_at
+            pattern_is_current = (
+                pattern.signal.trading_date == display_date
+                and is_regular_session_minute(effective_at, cast(MarketType, stock.market_type))
+                and is_regular_trade_session(pattern.signal.trade_session)
+                and pattern.signal.bars_ago <= PATTERN_CONFIG.maximum_age_bars
+            )
+    except Exception as exc:
+        logger.warning("形态交易日校验失败: symbol=%s error=%s", stock.symbol, exc)
+        pattern_is_current = False
+    if not pattern_is_current:
+        pattern = PatternState(
+            symbol=stock.symbol,
+            status="insufficient" if original_pattern is None else "none",
+            trading_date=display_date,
+        )
     base: dict[str, Any] = {
         **asdict(stock),
         "available": quote is not None,
         "trend_1m": _trend_payload(trend),
+        "pattern_1m": _pattern_payload(pattern),
     }
     if quote is None:
         return base
@@ -154,9 +217,10 @@ def _quote_payload(
 async def _build_snapshot(uid: int, repository: RealtimeStateRepository) -> dict[str, Any]:
     stocks = await asyncio.to_thread(_load_tracked_stocks, uid)
     symbols = [stock.symbol for stock in stocks]
-    quotes_result, trends_result = await asyncio.gather(
+    quotes_result, trends_result, patterns_result = await asyncio.gather(
         repository.get_quotes(symbols),
         repository.get_trend_states(symbols),
+        repository.get_pattern_states(symbols),
         return_exceptions=True,
     )
     if isinstance(quotes_result, BaseException):
@@ -167,12 +231,24 @@ async def _build_snapshot(uid: int, repository: RealtimeStateRepository) -> dict
         trends: dict[str, TrendState] = {}
     else:
         trends = trends_result
+    if isinstance(patterns_result, BaseException):
+        logger.warning("批量读取实时形态失败: %s", patterns_result)
+        patterns: dict[str, PatternState] = {}
+    else:
+        patterns = patterns_result
     now = utc_now()
     return {
         "type": "quotes",
         "generated_at": utc_isoformat(now),
         "quotes": [
-            _quote_payload(stock, quotes.get(stock.symbol), trends.get(stock.symbol), now=now) for stock in stocks
+            _quote_payload(
+                stock,
+                quotes.get(stock.symbol),
+                trends.get(stock.symbol),
+                patterns.get(stock.symbol),
+                now=now,
+            )
+            for stock in stocks
         ],
     }
 

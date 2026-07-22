@@ -109,6 +109,30 @@ const quote = {
     streak: 2,
     confirmed: true,
   },
+  pattern_1m: {
+    timeframe: '1m' as const,
+    status: 'active' as const,
+    trading_date: '2026-07-03',
+    bar_time: '2026-07-03T15:00:00Z',
+    signal: {
+      timeframe: '1m' as const,
+      pattern_type: 'failed_breakout_reclaim' as const,
+      pattern_name: '假突破前高回收',
+      direction: 'bullish_to_bearish' as const,
+      stage: 'confirmed' as const,
+      quality_score: 84,
+      occurred_at: '2026-07-03T14:57:00Z',
+      confirmed_at: '2026-07-03T14:58:00Z',
+      trading_date: '2026-07-03',
+      trade_session: 'Intraday',
+      bars_ago: 2,
+      session_minutes_ago: 2,
+      reference_level: 12.2,
+      invalidation_price: 12.3,
+      reasons: ['突破前高后快速收回'],
+      confirmed: true,
+    },
+  },
 };
 
 const secondQuote = {
@@ -122,6 +146,14 @@ const secondQuote = {
     ...quote.trend_1m,
     state: 'below' as const,
     streak: 3,
+  },
+  pattern_1m: {
+    ...quote.pattern_1m,
+    signal: {
+      ...quote.pattern_1m.signal,
+      direction: 'bearish_to_bullish' as const,
+      quality_score: 72,
+    },
   },
 };
 
@@ -201,6 +233,17 @@ describe('stock table details', () => {
     expect(page.findComponent({ name: 'TrendStatus' }).exists()).toBe(true);
   });
 
+  it.each([
+    [WatchListPage, '/market/watch-list'],
+    [StockListPage, '/market/holdings'],
+  ] as const)('shows the shared recent pattern column', async (component, path) => {
+    const page = await mountPage(component, path);
+    expect(page.text()).toContain('最近形态');
+    expect(page.text()).toContain('多转空确认');
+    expect(page.text()).toContain('假突破前高回收 · 2分钟前');
+    expect(page.findComponent({ name: 'PatternStatus' }).exists()).toBe(true);
+  });
+
   it('handles old websocket quotes without trend data', async () => {
     mocks.getQuote.mockReturnValue({ ...quote, trend_1m: undefined });
     const page = await mountPage(WatchListPage, '/market/watch-list');
@@ -209,8 +252,8 @@ describe('stock table details', () => {
   });
 
   it.each([
-    [WatchListPage, '/market/watch-list', '9'],
-    [StockListPage, '/market/holdings', '11'],
+    [WatchListPage, '/market/watch-list', '10'],
+    [StockListPage, '/market/holdings', '12'],
   ] as const)('keeps filtered empty-row colspan aligned', async (component, path, colspan) => {
     const page = await mountPage(component, path);
     await page.find('select').setValue('CN');
@@ -218,8 +261,8 @@ describe('stock table details', () => {
   });
 
   it.each([
-    [WatchListPage, '/market/watch-list', ['关注', '代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续']],
-    [StockListPage, '/market/holdings', ['代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续', '持仓数量', '平均成本', '持仓成本金额']],
+    [WatchListPage, '/market/watch-list', ['关注', '代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续', '最近形态']],
+    [StockListPage, '/market/holdings', ['代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续', '最近形态', '持仓数量', '平均成本', '持仓成本金额']],
   ] as const)('keeps daily movement separate and makes every non-action column sortable', async (component, path, labels) => {
     const page = await mountPage(component, path);
     const headers = page.findAll('thead th');
@@ -265,6 +308,10 @@ describe('stock table details', () => {
 
     const trend = page.findAll('thead button').find((button) => button.text().includes('趋势持续'))!;
     await trend.trigger('click');
+    expect(page.get('tbody tr[tabindex="0"]').text()).toContain('MSFT');
+
+    const pattern = page.findAll('thead button').find((button) => button.text().includes('最近形态'))!;
+    await pattern.trigger('click');
     expect(page.get('tbody tr[tabindex="0"]').text()).toContain('MSFT');
   });
 

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import type { RealtimeTrend } from '@/api/realtimeMarket';
+import type { RealtimePatternState, RealtimeTrend } from '@/api/realtimeMarket';
 import { watchListApi, type MarketType, type WatchListItem, type WatchListItemCreate } from '@/api/watchList';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
+import PatternStatus from '@/components/stocks/PatternStatus.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
@@ -26,7 +27,8 @@ type WatchListSortKey =
   | 'last_price'
   | 'change_amount'
   | 'change_pct'
-  | 'trend';
+  | 'trend'
+  | 'pattern';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const items = ref<WatchListItem[]>([]);
@@ -110,6 +112,7 @@ function sortValue(item: WatchListItem, key: WatchListSortKey): string | number 
   if (key === 'change_amount') return quote?.change_amount;
   if (key === 'change_pct') return quote?.change_pct;
   if (key === 'trend') return trendSortValue(quote?.trend_1m);
+  if (key === 'pattern') return patternSortValue(quote?.pattern_1m);
   return item[key];
 }
 
@@ -118,6 +121,18 @@ function trendSortValue(trend: RealtimeTrend | null | undefined): number | null 
   if (trend.state === 'above') return trend.streak;
   if (trend.state === 'below') return -trend.streak;
   return 0;
+}
+
+function patternSortValue(pattern: RealtimePatternState | null | undefined): number | null {
+  const signal = pattern?.status === 'active' ? pattern.signal : null;
+  if (!signal) return null;
+  const stage = { forming: 1, warning: 2, confirmed: 3 }[signal.stage];
+  const direction = ['bullish_continuation', 'bearish_to_bullish', 'bullish_breakout'].includes(signal.direction)
+    ? 1
+    : ['bearish_continuation', 'bullish_to_bearish', 'bearish_breakout'].includes(signal.direction)
+      ? -1
+      : 0;
+  return stage * 1000 + signal.quality_score * 10 + direction;
 }
 
 function normalizeSortValue(value: string | number | boolean | null | undefined): string | number {
@@ -373,7 +388,7 @@ onMounted(loadList);
 
       <!-- Table -->
       <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-        <table class="w-full min-w-[1080px] table-fixed text-left text-sm">
+        <table class="w-full min-w-[1270px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[78px]" />
             <col class="w-[120px]" />
@@ -383,6 +398,7 @@ onMounted(loadList);
             <col class="w-[120px]" />
             <col class="w-[110px]" />
             <col class="w-[120px]" />
+            <col class="w-[190px]" />
             <col class="w-[152px]" />
           </colgroup>
           <thead class="border-b border-border/70 text-xs text-muted-text">
@@ -395,12 +411,13 @@ onMounted(loadList);
               <SortableTableHeader label="今日涨跌额" align="right" :active="sortKey === 'change_amount'" :direction="sortDirection" @sort="toggleSort('change_amount')" />
               <SortableTableHeader label="今日涨跌幅" align="right" :active="sortKey === 'change_pct'" :direction="sortDirection" @sort="toggleSort('change_pct')" />
               <SortableTableHeader label="趋势持续" :active="sortKey === 'trend'" :direction="sortDirection" @sort="toggleSort('trend')" />
+              <SortableTableHeader label="最近形态" :active="sortKey === 'pattern'" :direction="sortDirection" @sort="toggleSort('pattern')" />
               <th class="whitespace-nowrap px-4 py-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!visibleItems.length">
-              <td colspan="9" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无自选股</td>
+              <td colspan="10" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无自选股</td>
             </tr>
             <template v-else>
               <tr
@@ -454,6 +471,9 @@ onMounted(loadList);
                 </td>
                 <td class="px-4 py-3">
                   <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
+                </td>
+                <td class="px-4 py-3">
+                  <PatternStatus :pattern="getQuote(item.code, item.market_type)?.pattern_1m" />
                 </td>
                 <td class="px-4 py-3 text-right">
                   <div class="flex justify-end gap-1">

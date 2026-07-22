@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import type { RealtimeTrend } from '@/api/realtimeMarket';
+import type { RealtimePatternState, RealtimeTrend } from '@/api/realtimeMarket';
 import { stockListApi, type MarketType, type StockHolding, type StockHoldingCreate } from '@/api/stockList';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
+import PatternStatus from '@/components/stocks/PatternStatus.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
@@ -34,6 +35,7 @@ type StockListSortKey =
   | 'change_amount'
   | 'change_pct'
   | 'trend'
+  | 'pattern'
   | 'quantity'
   | 'avg_cost'
   | 'cost_amount';
@@ -131,6 +133,7 @@ function sortValue(item: StockHolding, key: StockListSortKey): string | number |
   if (key === 'change_amount') return quote?.change_amount;
   if (key === 'change_pct') return quote?.change_pct;
   if (key === 'trend') return trendSortValue(quote?.trend_1m);
+  if (key === 'pattern') return patternSortValue(quote?.pattern_1m);
   if (key === 'cost_amount') {
     return item.avg_cost ? Number(item.quantity) * Number(item.avg_cost) : null;
   }
@@ -142,6 +145,18 @@ function trendSortValue(trend: RealtimeTrend | null | undefined): number | null 
   if (trend.state === 'above') return trend.streak;
   if (trend.state === 'below') return -trend.streak;
   return 0;
+}
+
+function patternSortValue(pattern: RealtimePatternState | null | undefined): number | null {
+  const signal = pattern?.status === 'active' ? pattern.signal : null;
+  if (!signal) return null;
+  const stage = { forming: 1, warning: 2, confirmed: 3 }[signal.stage];
+  const direction = ['bullish_continuation', 'bearish_to_bullish', 'bullish_breakout'].includes(signal.direction)
+    ? 1
+    : ['bearish_continuation', 'bullish_to_bearish', 'bearish_breakout'].includes(signal.direction)
+      ? -1
+      : 0;
+  return stage * 1000 + signal.quality_score * 10 + direction;
 }
 
 function normalizeSortValue(value: string | number | null | undefined): string | number {
@@ -448,7 +463,7 @@ onMounted(async () => {
 
       <!-- Table -->
       <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-        <table class="w-full min-w-[1340px] table-fixed text-left text-sm">
+        <table class="w-full min-w-[1530px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[120px]" />
             <col class="w-[160px]" />
@@ -457,6 +472,7 @@ onMounted(async () => {
             <col class="w-[120px]" />
             <col class="w-[110px]" />
             <col class="w-[120px]" />
+            <col class="w-[190px]" />
             <col class="w-[130px]" />
             <col class="w-[130px]" />
             <col class="w-[145px]" />
@@ -471,6 +487,7 @@ onMounted(async () => {
               <SortableTableHeader label="今日涨跌额" align="right" :active="sortKey === 'change_amount'" :direction="sortDirection" @sort="toggleSort('change_amount')" />
               <SortableTableHeader label="今日涨跌幅" align="right" :active="sortKey === 'change_pct'" :direction="sortDirection" @sort="toggleSort('change_pct')" />
               <SortableTableHeader label="趋势持续" :active="sortKey === 'trend'" :direction="sortDirection" @sort="toggleSort('trend')" />
+              <SortableTableHeader label="最近形态" :active="sortKey === 'pattern'" :direction="sortDirection" @sort="toggleSort('pattern')" />
               <SortableTableHeader label="持仓数量" align="right" :active="sortKey === 'quantity'" :direction="sortDirection" @sort="toggleSort('quantity')" />
               <SortableTableHeader label="平均成本" align="right" :active="sortKey === 'avg_cost'" :direction="sortDirection" @sort="toggleSort('avg_cost')" />
               <SortableTableHeader label="持仓成本金额" align="right" :active="sortKey === 'cost_amount'" :direction="sortDirection" @sort="toggleSort('cost_amount')" />
@@ -479,7 +496,7 @@ onMounted(async () => {
           </thead>
           <tbody>
             <tr v-if="!visibleItems.length">
-              <td colspan="11" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无持仓股</td>
+              <td colspan="12" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无持仓股</td>
             </tr>
             <template v-else>
               <tr
@@ -516,6 +533,9 @@ onMounted(async () => {
                 </td>
                 <td class="px-4 py-3">
                   <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
+                </td>
+                <td class="px-4 py-3">
+                  <PatternStatus :pattern="getQuote(item.code, item.market_type)?.pattern_1m" />
                 </td>
                 <td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-foreground">
                   {{ formatDecimalText(item.quantity) }} 股

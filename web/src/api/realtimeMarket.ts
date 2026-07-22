@@ -5,6 +5,26 @@ export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'reconnectin
 
 export type TrendDirection = 'above' | 'below' | 'neutral' | 'insufficient';
 
+export type PatternType =
+  | 'failed_breakout_reclaim'
+  | 'breakout_retest_continuation'
+  | 'micro_double_bottom_top'
+  | 'impulse_pullback_resume'
+  | 'compression_expansion'
+  | 'vwap_reclaim_breakdown';
+
+export type PatternDirection =
+  | 'bullish_continuation'
+  | 'bearish_continuation'
+  | 'bearish_to_bullish'
+  | 'bullish_to_bearish'
+  | 'bullish_breakout'
+  | 'bearish_breakout'
+  | 'neutral_wait';
+
+export type PatternStage = 'forming' | 'warning' | 'confirmed';
+export type PatternStateStatus = 'insufficient' | 'none' | 'active';
+
 export interface RealtimeTrend {
   timeframe: '1m';
   target_period: number;
@@ -19,6 +39,33 @@ export interface RealtimeTrend {
   trading_date?: string | null;
   trade_session?: string | null;
   confirmed: boolean;
+}
+
+export interface RealtimePatternSignal {
+  timeframe: '1m';
+  pattern_type: PatternType;
+  pattern_name: string;
+  direction: PatternDirection;
+  stage: PatternStage;
+  quality_score: number;
+  occurred_at: string;
+  confirmed_at?: string | null;
+  trading_date?: string | null;
+  trade_session?: string | null;
+  bars_ago: number;
+  session_minutes_ago: number;
+  reference_level?: number | null;
+  invalidation_price?: number | null;
+  reasons: string[];
+  confirmed: boolean;
+}
+
+export interface RealtimePatternState {
+  timeframe: '1m';
+  status: PatternStateStatus;
+  trading_date?: string | null;
+  bar_time?: string | null;
+  signal?: RealtimePatternSignal | null;
 }
 
 export interface RealtimeQuote {
@@ -39,6 +86,7 @@ export interface RealtimeQuote {
   event_time?: string | null;
   received_at?: string | null;
   trend_1m?: RealtimeTrend | null;
+  pattern_1m?: RealtimePatternState | null;
 }
 
 export interface RealtimeQuoteMessage {

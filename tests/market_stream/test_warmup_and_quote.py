@@ -316,8 +316,10 @@ async def test_unconfirmed_candle_does_not_update_trend_but_confirmation_does() 
         await app._handle_event(candle_event(bar(index, close=str(10 + index / 10)), 2))
     before = redis.pipeline_executes
     stored_before = dict(redis.hashes[keys.trend_key("AAPL.US")])
+    pattern_before = dict(redis.hashes[keys.pattern_key("AAPL.US")])
     await app._handle_event(candle_event(bar(4, close="10.4", confirmed=False), 2))
     assert redis.hashes[keys.trend_key("AAPL.US")] == stored_before
+    assert redis.hashes[keys.pattern_key("AAPL.US")] == pattern_before
     assert redis.pipeline_executes == before
 
     await app._handle_event(candle_event(bar(4, close="10.4", confirmed=True, received=61), 2))
@@ -325,6 +327,9 @@ async def test_unconfirmed_candle_does_not_update_trend_but_confirmation_does() 
     assert restored is not None
     assert restored.state == "above"
     assert restored.effective_period == 5
+    pattern_state = await app.repository.get_pattern_state("AAPL.US")
+    assert pattern_state is not None
+    assert pattern_state.status == "insufficient"
 
 
 @pytest.mark.asyncio
@@ -360,6 +365,11 @@ class FailingTrendRepository(RealtimeStateRepository):
         raise RuntimeError("redis unavailable")
 
 
+class FailingPatternRepository(RealtimeStateRepository):
+    async def write_pattern_state(self, pattern) -> None:
+        raise RuntimeError("redis unavailable")
+
+
 @pytest.mark.asyncio
 async def test_trend_redis_failure_is_pending_and_recovers() -> None:
     redis = FakeRedis()
@@ -372,6 +382,40 @@ async def test_trend_redis_failure_is_pending_and_recovers() -> None:
     assert await app._flush_pending_redis()
     assert "AAPL.US" not in app.pending_trends
     assert await app.repository.get_trend_state("AAPL.US") is not None
+
+
+@pytest.mark.asyncio
+async def test_pattern_redis_failure_is_pending_and_recovers_without_stopping_stream() -> None:
+    redis = FakeRedis()
+    repository = FailingPatternRepository(redis)
+    app = service(redis, repository)
+    activate(app)
+
+    await app._handle_event(candle_event(bar(0, confirmed=True, received=61), 2))
+
+    assert app.redis_degraded
+    assert "AAPL.US" in app.pending_patterns
+    assert len(app.bars_1m["AAPL.US"]) == 1
+    assert await app._flush_pending_redis()
+    assert "AAPL.US" not in app.pending_patterns
+    assert await app.repository.get_pattern_state("AAPL.US") is not None
+
+
+@pytest.mark.asyncio
+async def test_pattern_calculation_failure_does_not_stop_event_processing(monkeypatch) -> None:
+    redis = FakeRedis()
+    app = service(redis)
+    activate(app)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("bad pattern")
+
+    monkeypatch.setattr("finance_analysis.market_stream.service.calculate_pattern_state", fail)
+    await app._handle_event(candle_event(bar(0, confirmed=True, received=61), 2))
+
+    assert len(app.bars_1m["AAPL.US"]) == 1
+    assert await app.repository.get_trend_state("AAPL.US") is not None
+    assert not app.stop_event.is_set()
 
 
 @pytest.mark.asyncio
