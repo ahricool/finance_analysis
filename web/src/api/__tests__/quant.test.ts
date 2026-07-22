@@ -37,23 +37,23 @@ describe('quant API market scope', () => {
       .mockResolvedValueOnce({ data: { task_id: 'dataset-task', status: 'pending', market: 'CN', universe: 'cn_csi300' } })
       .mockResolvedValueOnce({ data: { model_run_id: 19, task_id: 'training-task', status: 'draft', market: 'CN' } });
 
-    const dataset = await quantApi.buildDataset('CN', '2021-01-01', '2026-07-21');
+    const dataset = await quantApi.buildDataset('CN', '2021-01-01', '2026-07-22');
     const training = await quantApi.createModelRun({
       market: 'CN',
       modelKey: 'cross_section_lgbm',
-      modelVersion: 'cn-cross-section-20260721',
+      modelVersion: 'cn-cross-section-20260722',
       datasetSnapshotId: 8,
     });
 
     expect(apiClient.post).toHaveBeenNthCalledWith(1, '/api/v1/quant/datasets/build', {
       market: 'CN',
       date_from: '2021-01-01',
-      date_to: '2026-07-21',
+      date_to: '2026-07-22',
     });
     expect(apiClient.post).toHaveBeenNthCalledWith(2, '/api/v1/quant/model-runs', {
       market: 'CN',
       model_key: 'cross_section_lgbm',
-      model_version: 'cn-cross-section-20260721',
+      model_version: 'cn-cross-section-20260722',
       dataset_snapshot_id: 8,
     });
     expect(dataset.taskId).toBe('dataset-task');

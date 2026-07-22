@@ -9,7 +9,7 @@ import {
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
 import Button from '@/components/common/Button.vue';
-import Drawer from '@/components/common/Drawer.vue';
+import Dialog from '@/components/common/Dialog.vue';
 import Input from '@/components/common/Input.vue';
 import Pagination from '@/components/common/Pagination.vue';
 import CollapsibleCalendarSection from '@/components/calendar/CollapsibleCalendarSection.vue';
@@ -664,11 +664,10 @@ watch(displayTimezone, () => {
       </CollapsibleCalendarSection>
     </div>
 
-    <Drawer
+    <Dialog
       :is-open="!!createMode"
       :title="createTitle"
       width="max-w-2xl"
-      variant="modal"
       @close="closeCreate"
     >
       <form class="space-y-4" data-testid="calendar-create-form" @submit.prevent="submitCreate">
@@ -742,13 +741,12 @@ watch(displayTimezone, () => {
           <Button type="submit" :is-loading="createSaving" loading-text="保存中…">保存</Button>
         </div>
       </form>
-    </Drawer>
+    </Dialog>
 
-    <Drawer
+    <Dialog
       :is-open="!!detail"
       :title="detailTitle"
       width="max-w-4xl"
-      variant="modal"
       @close="closeDetail"
     >
       <div v-if="detail?.kind === 'event'" class="space-y-5">
@@ -824,6 +822,6 @@ watch(displayTimezone, () => {
           <p v-else class="mt-2 text-sm text-secondary-text">该记录暂无详情内容</p>
         </div>
       </div>
-    </Drawer>
+    </Dialog>
   </div>
 </template>

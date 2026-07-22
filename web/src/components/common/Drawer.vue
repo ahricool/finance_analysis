@@ -9,14 +9,12 @@ const props = withDefaults(
     width?: string;
     zIndex?: number;
     side?: 'left' | 'right';
-    variant?: 'drawer' | 'modal';
     backdropClassName?: string;
   }>(),
   {
     width: 'max-w-2xl',
     zIndex: 50,
     side: 'right',
-    variant: 'drawer',
   },
 );
 
@@ -31,27 +29,20 @@ const titleId = `drawer-title-${props.side}-${uid}`;
 const panelWrapperClass = computed(() =>
   cn(
     'pointer-events-none absolute flex w-full',
-    props.variant === 'modal'
-      ? 'inset-0 items-center justify-center p-4 sm:p-6'
-      : ['inset-y-0', props.side === 'left' ? 'left-0 justify-start' : 'right-0 justify-end', props.width],
+    'inset-y-0',
+    props.side === 'left' ? 'left-0 justify-start' : 'right-0 justify-end',
+    props.width,
   ),
 );
 const panelClass = computed(() =>
   cn(
     'pointer-events-auto relative flex w-full flex-col bg-card',
-    props.variant === 'modal'
-      ? [
-          props.width,
-          'max-h-[calc(100vh-2rem)] rounded-2xl border border-border/70 shadow-soft-card-strong animate-in fade-in zoom-in duration-200 sm:max-h-[calc(100vh-3rem)]',
-        ]
-      : [
-          props.side === 'left' ? 'border-r' : 'border-l',
-          props.side === 'right' ? 'border-border/80' : 'border-border/70 shadow-2xl',
-          props.side === 'left' ? 'animate-slide-in-left' : 'animate-slide-in-right',
-        ],
+    props.side === 'left' ? 'border-r' : 'border-l',
+    props.side === 'right' ? 'border-border/80' : 'border-border/70 shadow-2xl',
+    props.side === 'left' ? 'animate-slide-in-left' : 'animate-slide-in-right',
   ),
 );
-const closeLabel = computed(() => (props.variant === 'modal' ? '关闭弹窗' : '关闭抽屉'));
+const closeLabel = computed(() => '关闭抽屉');
 
 function handleKeyDown(e: KeyboardEvent) {
   if (e.key === 'Escape') {

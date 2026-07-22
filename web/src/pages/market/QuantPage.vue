@@ -11,6 +11,7 @@ const scopeDescription = computed(() => (
 const navItems = [
   { label: '总览', to: '/market/quant' },
   { label: '模型选股', to: '/market/quant/signals' },
+  { label: '数据集', to: '/market/quant/datasets' },
   { label: '模型运行', to: '/market/quant/models' },
   { label: '事件', to: '/market/quant/events' },
   { label: '组合建议', to: '/market/quant/portfolios' },

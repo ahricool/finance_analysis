@@ -28,6 +28,7 @@ describe('QuantPage', () => {
 
     expect(wrapper.get('nav[aria-label="量化研究导航"]').classes()).toContain('flex-wrap');
     expect(wrapper.get('a[href="/market/quant?market=US"]').classes()).toContain('text-primary');
+    expect(wrapper.get('a[href="/market/quant/datasets?market=US"]').text()).toBe('数据集');
     expect(wrapper.text()).toContain('量化总览');
     expect(wrapper.find('[data-testid="market-desktop-nav"]').exists()).toBe(false);
   });
