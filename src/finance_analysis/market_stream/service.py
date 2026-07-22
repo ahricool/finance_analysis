@@ -28,6 +28,8 @@ from finance_analysis.market_stream.config import (
     market_trading_date,
 )
 from finance_analysis.market_stream.leader_lock import LeaderLock
+from finance_analysis.market_stream.patterns.detector import calculate_pattern_state
+from finance_analysis.market_stream.patterns.models import PatternState
 from finance_analysis.market_stream.subscription_manager import (
     SubscriptionManager,
     WarmupFinalizer,
@@ -88,6 +90,7 @@ class MarketStreamService:
         self.pending_candles: dict[str, CandleState] = {}
         self.pending_bars: dict[str, dict[tuple[datetime, str], CandleState]] = {}
         self.pending_trends: dict[str, TrendState] = {}
+        self.pending_patterns: dict[str, PatternState] = {}
         self.quote_reference_dates: dict[str, date] = {}
         self.quote_reference_attempts: dict[str, datetime] = {}
         self.last_event_at: datetime | None = None
@@ -256,6 +259,7 @@ class MarketStreamService:
                     state.market_type,
                     as_of=max(candle.received_at, candle.bar_time + timedelta(minutes=1)),
                 )
+                await self._update_pattern_state(candle.symbol, state.market_type)
         if (
             state.status in {SymbolStatus.INSUFFICIENT_HISTORY, SymbolStatus.ERROR}
             and count >= self.config.minimum_history_bars
@@ -332,6 +336,23 @@ class MarketStreamService:
             self.pending_trends[symbol] = trend
             self.redis_degraded = True
             logger.warning("Redis 趋势写入失败: symbol=%s error=%s", symbol, exc)
+
+    async def _update_pattern_state(self, symbol: str, market_type: MarketType) -> None:
+        try:
+            pattern = calculate_pattern_state(
+                list(self.bars_1m.get(symbol, ())),
+                market_type=market_type,
+            )
+        except Exception as exc:
+            logger.warning("1 分钟形态计算失败: symbol=%s error=%s", symbol, exc, exc_info=True)
+            return
+        try:
+            await self.repository.write_pattern_state(pattern)
+            self.pending_patterns.pop(symbol, None)
+        except Exception as exc:
+            self.pending_patterns[symbol] = pattern
+            self.redis_degraded = True
+            logger.warning("Redis 形态写入失败: symbol=%s error=%s", symbol, exc)
 
     async def _load_warmup(
         self,
@@ -449,6 +470,7 @@ class MarketStreamService:
                 state.market_type,
                 as_of=bars[-1].bar_time + timedelta(minutes=1),
             )
+            await self._update_pattern_state(state.symbol, state.market_type)
         logger.info(
             "warmup 数据合并: %s cache=%s history=%s realtime=%s final=%s elapsed=%.3fs",
             state.symbol,
@@ -467,17 +489,24 @@ class MarketStreamService:
             await self._flush_pending_redis()
 
     async def _flush_pending_redis(self) -> bool:
-        quotes, candles, bars, trends = (
+        quotes, candles, bars, trends, patterns = (
             self.pending_quotes,
             self.pending_candles,
             self.pending_bars,
             self.pending_trends,
+            self.pending_patterns,
         )
-        self.pending_quotes, self.pending_candles, self.pending_bars, self.pending_trends = {}, {}, {}, {}
-        if not quotes and not candles and not bars and not trends:
+        self.pending_quotes, self.pending_candles, self.pending_bars, self.pending_trends, self.pending_patterns = (
+            {},
+            {},
+            {},
+            {},
+            {},
+        )
+        if not quotes and not candles and not bars and not trends and not patterns:
             return True
         try:
-            await self.repository.write_batch(quotes, candles, trends)
+            await self.repository.write_batch(quotes, candles, trends, patterns)
             await self.repository.upsert_bars_batch({symbol: list(items.values()) for symbol, items in bars.items()})
             self.redis_degraded = False
             return True
@@ -490,6 +519,7 @@ class MarketStreamService:
             for symbol, items in bars.items():
                 self._queue_pending_bars(symbol, items.values())
             self.pending_trends.update(trends)
+            self.pending_patterns.update(patterns)
             logger.warning("Redis 批量写入失败，稍后重试: %s", exc)
             return False
 
@@ -537,6 +567,7 @@ class MarketStreamService:
             self.pending_candles.pop(symbol, None)
             self.pending_bars.pop(symbol, None)
             self.pending_trends.pop(symbol, None)
+            self.pending_patterns.pop(symbol, None)
             self.quote_reference_dates.pop(symbol, None)
             self.quote_reference_attempts.pop(symbol, None)
         try:

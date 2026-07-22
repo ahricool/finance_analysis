@@ -11,6 +11,7 @@ from finance_analysis.integrations.market_data.realtime_state.data_source import
 )
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState, TrendState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
+from finance_analysis.market_stream.patterns.models import PatternSignal, PatternState
 from tests.market_stream.fakes import FakeRedis
 
 
@@ -44,6 +45,34 @@ def trend(symbol: str = "AAPL.US", *, state: str = "above") -> TrendState:
         trading_date=date(2026, 7, 16),
         trade_session="Intraday",
         confirmed=state != "insufficient",
+    )
+
+
+def pattern(symbol: str = "AAPL.US") -> PatternState:
+    occurred = datetime(2026, 7, 16, 14, 31, tzinfo=timezone.utc)
+    return PatternState(
+        symbol=symbol,
+        status="active",
+        signal=PatternSignal(
+            symbol=symbol,
+            pattern_type="failed_breakout_reclaim",
+            pattern_name="假突破前高回收",
+            direction="bullish_to_bearish",
+            stage="confirmed",
+            quality_score=82,
+            occurred_at=occurred,
+            confirmed_at=occurred + timedelta(minutes=2),
+            trading_date=date(2026, 7, 16),
+            trade_session="Intraday",
+            bars_ago=1,
+            session_minutes_ago=1,
+            reference_level=Decimal("132.50"),
+            invalidation_price=Decimal("132.70"),
+            reasons=("突破前高后快速收回", "跌破回收结构低点"),
+            confirmed=True,
+        ),
+        trading_date=date(2026, 7, 16),
+        bar_time=occurred + timedelta(minutes=3),
     )
 
 
@@ -112,6 +141,25 @@ async def test_trend_single_and_batch_round_trip_serializes_typed_fields_and_ttl
 
 
 @pytest.mark.asyncio
+async def test_pattern_single_and_batch_round_trip_serializes_nested_signal_and_ttl() -> None:
+    redis = FakeRedis()
+    repo = RealtimeStateRepository(redis, pattern_ttl_seconds=321)
+    await repo.write_pattern_state(pattern())
+    await repo.write_pattern_states_batch({"TSLA.US": PatternState(symbol="TSLA.US", status="none")})
+
+    restored = await repo.get_pattern_state("AAPL.US")
+    assert restored == pattern()
+    assert restored is not None and restored.signal is not None
+    assert restored.signal.reference_level == Decimal("132.50")
+    before = redis.pipeline_executes
+    values = await repo.get_pattern_states(["AAPL.US", "MISSING.US", "TSLA.US", "AAPL.US"])
+    assert set(values) == {"AAPL.US", "TSLA.US"}
+    assert values["TSLA.US"].status == "none"
+    assert redis.pipeline_executes == before + 1
+    assert await redis.ttl(keys.pattern_key("AAPL.US")) == 321
+
+
+@pytest.mark.asyncio
 async def test_current_candle_overwrites_and_serializes_decimal_datetime() -> None:
     redis = FakeRedis()
     repo = RealtimeStateRepository(redis)
@@ -177,12 +225,18 @@ async def test_batch_write_uses_one_pipeline_and_removed_cache_ttl() -> None:
     redis = FakeRedis()
     repo = RealtimeStateRepository(redis)
     quote = QuoteState(symbol="AAPL.US", last_price=Decimal("1"))
-    await repo.write_batch({"AAPL.US": quote}, {"AAPL.US": candle(1)}, {"AAPL.US": trend()})
+    await repo.write_batch(
+        {"AAPL.US": quote},
+        {"AAPL.US": candle(1)},
+        {"AAPL.US": trend()},
+        {"AAPL.US": pattern()},
+    )
     assert redis.pipeline_executes == 1
     await repo.expire_symbol_cache("AAPL.US")
     assert await redis.ttl(keys.bars_index_key("AAPL.US")) == 7200
     assert await redis.ttl(keys.subscription_key("AAPL.US")) == 7200
     assert await redis.ttl(keys.trend_key("AAPL.US")) == 7200
+    assert await redis.ttl(keys.pattern_key("AAPL.US")) == 7200
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from finance_analysis.core.time import utc_isoformat
 from finance_analysis.integrations.market_data.realtime_state import keys
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState, TrendState
+from finance_analysis.market_stream.patterns.models import PatternState
 
 
 def _encode(value: Any) -> str:
@@ -47,6 +48,7 @@ class RealtimeStateRepository:
         quote_ttl_seconds: int = 2 * 86400,
         bars_ttl_seconds: int = 3 * 86400,
         trend_ttl_seconds: int | None = None,
+        pattern_ttl_seconds: int | None = None,
         removed_ttl_seconds: int = 2 * 3600,
     ) -> None:
         self.redis = redis
@@ -54,6 +56,7 @@ class RealtimeStateRepository:
         self.quote_ttl_seconds = quote_ttl_seconds
         self.bars_ttl_seconds = bars_ttl_seconds
         self.trend_ttl_seconds = trend_ttl_seconds or bars_ttl_seconds
+        self.pattern_ttl_seconds = pattern_ttl_seconds or bars_ttl_seconds
         self.removed_ttl_seconds = removed_ttl_seconds
 
     @classmethod
@@ -120,6 +123,33 @@ class RealtimeStateRepository:
             pipe.hgetall(keys.trend_key(symbol))
         values = await pipe.execute()
         return {symbol: TrendState.from_mapping(raw) for symbol, raw in zip(unique_symbols, values) if raw}
+
+    async def write_pattern_state(self, pattern: PatternState) -> None:
+        await self.write_pattern_states_batch({pattern.symbol: pattern})
+
+    async def write_pattern_states_batch(self, patterns: Mapping[str, PatternState]) -> None:
+        valid = {symbol: pattern for symbol, pattern in patterns.items() if symbol and pattern.symbol == symbol}
+        if not valid:
+            return
+        pipe = self.redis.pipeline(transaction=False)
+        for symbol, pattern in valid.items():
+            pipe.hset(keys.pattern_key(symbol), mapping=pattern.to_mapping())
+            pipe.expire(keys.pattern_key(symbol), self.pattern_ttl_seconds)
+        await pipe.execute()
+
+    async def get_pattern_state(self, symbol: str) -> PatternState | None:
+        raw = await self.redis.hgetall(keys.pattern_key(symbol))
+        return PatternState.from_mapping(raw) if raw else None
+
+    async def get_pattern_states(self, symbols: Iterable[str]) -> dict[str, PatternState]:
+        unique_symbols = list(dict.fromkeys(symbols))
+        if not unique_symbols:
+            return {}
+        pipe = self.redis.pipeline(transaction=False)
+        for symbol in unique_symbols:
+            pipe.hgetall(keys.pattern_key(symbol))
+        values = await pipe.execute()
+        return {symbol: PatternState.from_mapping(raw) for symbol, raw in zip(unique_symbols, values) if raw}
 
     @staticmethod
     def _quote_from_mapping(symbol: str, raw: Mapping[str, Any]) -> QuoteState:
@@ -253,8 +283,9 @@ class RealtimeStateRepository:
         quotes: Mapping[str, QuoteState],
         current_candles: Mapping[str, CandleState],
         trends: Mapping[str, TrendState] | None = None,
+        patterns: Mapping[str, PatternState] | None = None,
     ) -> None:
-        if not quotes and not current_candles and not trends:
+        if not quotes and not current_candles and not trends and not patterns:
             return
         pipe = self.redis.pipeline(transaction=False)
         for symbol, quote in quotes.items():
@@ -268,6 +299,11 @@ class RealtimeStateRepository:
                 continue
             pipe.hset(keys.trend_key(symbol), mapping=_mapping(trend))
             pipe.expire(keys.trend_key(symbol), self.trend_ttl_seconds)
+        for symbol, pattern in (patterns or {}).items():
+            if pattern.symbol != symbol:
+                continue
+            pipe.hset(keys.pattern_key(symbol), mapping=pattern.to_mapping())
+            pipe.expire(keys.pattern_key(symbol), self.pattern_ttl_seconds)
         await pipe.execute()
 
     async def expire_symbol_cache(self, symbol: str, *, ttl_seconds: int | None = None) -> None:
@@ -279,6 +315,7 @@ class RealtimeStateRepository:
             keys.bars_index_key(symbol),
             keys.bars_data_key(symbol),
             keys.trend_key(symbol),
+            keys.pattern_key(symbol),
             keys.subscription_key(symbol),
         ):
             pipe.expire(key, ttl_seconds)
