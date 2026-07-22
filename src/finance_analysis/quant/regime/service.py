@@ -29,17 +29,16 @@ class MarketRegimeService:
         self,
         primary: pd.DataFrame,
         broad: pd.DataFrame,
-        risk: pd.DataFrame,
         universe: dict[str, pd.DataFrame],
         *,
-        benchmark_labels: tuple[str, str, str] = ("primary", "broad", "risk"),
+        benchmark_labels: tuple[str, str] = ("primary", "broad"),
     ) -> MarketRegimeResult:
-        for name, frame in zip(benchmark_labels, (primary, broad, risk)):
+        for name, frame in zip(benchmark_labels, (primary, broad)):
             if len(frame) < 61:
                 raise ValueError(f"{name} requires at least 61 daily bars")
-        primary, broad, risk = (
+        primary, broad = (
             frame.sort_values("date").reset_index(drop=True)
-            for frame in (primary, broad, risk)
+            for frame in (primary, broad)
         )
 
         def ret(frame: pd.DataFrame, periods: int) -> float:
@@ -63,7 +62,6 @@ class MarketRegimeService:
         features = {
             "primary_benchmark": benchmark_labels[0],
             "broad_benchmark": benchmark_labels[1],
-            "risk_benchmark": benchmark_labels[2],
             "primary_ma20_ratio": float(close.iloc[-1] / close.iloc[-20:].mean() - 1),
             "primary_ma60_ratio": float(close.iloc[-1] / close.iloc[-60:].mean() - 1),
             "primary_ret_5d": ret(primary, 5),
@@ -71,9 +69,7 @@ class MarketRegimeService:
             "primary_ret_60d": ret(primary, 60),
             "broad_ret_5d": ret(broad, 5),
             "broad_ret_20d": ret(broad, 20),
-            "risk_ret_5d": ret(risk, 5),
-            "risk_ret_20d": ret(risk, 20),
-            "risk_relative_primary_20d": ret(risk, 20) - ret(primary, 20),
+            "primary_relative_broad_20d": ret(primary, 20) - ret(broad, 20),
             "primary_realized_vol_20d": float(daily_return.tail(20).std(ddof=1) * math.sqrt(252)),
             "primary_max_drawdown_60d": float(drawdown.tail(60).min()),
             "universe_up_ratio": float(np.mean(up)) if up else None,
@@ -89,7 +85,7 @@ class MarketRegimeService:
             np.clip((features["primary_ma60_ratio"] + 0.10) / 0.20, 0, 1),
             np.clip((features["primary_ret_20d"] + 0.10) / 0.20, 0, 1),
             np.clip((features["broad_ret_20d"] + 0.10) / 0.20, 0, 1),
-            np.clip((features["risk_relative_primary_20d"] + 0.08) / 0.16, 0, 1),
+            np.clip((features["primary_relative_broad_20d"] + 0.08) / 0.16, 0, 1),
             np.clip((0.45 - features["primary_realized_vol_20d"]) / 0.35, 0, 1),
         ]
         components.extend(
