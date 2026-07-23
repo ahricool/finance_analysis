@@ -3,6 +3,8 @@ import { Activity, Star, Wallet } from 'lucide-vue-next';
 import { computed } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import SectionNavItems from '@/components/common/SectionNavItems.vue';
+import SectionNavPanel from '@/components/common/SectionNavPanel.vue';
+import SectionPageHeader from '@/components/common/SectionPageHeader.vue';
 
 type MarketTab = 'watch-list' | 'holdings' | 'signals';
 
@@ -23,14 +25,10 @@ const activeTab = computed<MarketTab>(() => {
 
 <template>
   <div class="space-y-5">
-    <header class="flex flex-col gap-1">
-      <h1 class="text-xl font-semibold text-foreground">
-        市场
-      </h1>
-      <p class="text-sm text-muted-text">
-        管理自选股、持仓股并查看历史信号。
-      </p>
-    </header>
+    <SectionPageHeader
+      title="市场"
+      description="管理自选股、持仓股并查看历史信号。"
+    />
 
     <nav
       class="grid grid-cols-3 gap-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm lg:hidden"
@@ -41,12 +39,13 @@ const activeTab = computed<MarketTab>(() => {
     </nav>
 
     <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <aside
-        class="hidden h-fit space-y-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm lg:block"
+      <SectionNavPanel
+        class="hidden lg:block"
         data-testid="market-desktop-nav"
-      >
-        <SectionNavItems :items="navItems" :active-key="activeTab" responsive />
-      </aside>
+        :items="navItems"
+        :active-key="activeTab"
+        responsive
+      />
 
       <section class="min-w-0">
         <RouterView />
