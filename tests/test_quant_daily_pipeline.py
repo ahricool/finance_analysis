@@ -66,7 +66,6 @@ def test_daily_research_uses_primary_and_broad_benchmarks_without_removed_risk_c
         id=1, key="cn_csi300", market="CN", enabled=True
     )
     repository.save_market_regime.return_value = SimpleNamespace(id=7, regime="neutral")
-    repository.available_events.return_value = []
     symbol_repository = MagicMock()
     symbol_repository.list_enabled_daily_by_codes.return_value = [
         SimpleNamespace(id=1, code="600519.SH")
@@ -306,12 +305,10 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
                 id=3, key="us_sp500", market="US", enabled=True
             )
 
-        def feature_context(self, trade_date, feature_version, event_feature_version):
+        def feature_context(self, trade_date, feature_version):
             common = {
-                "event_score": 0.2,
                 "sector_score": 0.7,
                 "sector_key": "semiconductor",
-                "negative_event_veto": False,
                 "has_sufficient_data": True,
                 "liquidity": 2_000_000,
                 "risk_penalty": 0.04,

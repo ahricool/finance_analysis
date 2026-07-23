@@ -13,7 +13,7 @@ def validate_dataset(dataset: Path) -> dict[str, Any]:
     vwap_files = list((dataset / "features").glob("*/vwap.day.bin"))
     if not vwap_files:
         raise ValueError("Dataset has no vwap feature binaries")
-    features = load_features(dataset, manifest, {"ablation": "base_only"})
+    features = load_features(dataset, manifest, {"base": "Alpha158"})
     if features.empty:
         raise ValueError("Alpha158 produced no features")
     return {

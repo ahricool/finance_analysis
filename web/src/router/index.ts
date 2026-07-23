@@ -25,7 +25,6 @@ const QuantSignalDetailPage = () => import('@/pages/market/quant/QuantSignalDeta
 const QuantDatasetsPage = () => import('@/pages/market/quant/QuantDatasetsPage.vue');
 const QuantModelsPage = () => import('@/pages/market/quant/QuantModelsPage.vue');
 const QuantModelRunPage = () => import('@/pages/market/quant/QuantModelRunPage.vue');
-const QuantEventsPage = () => import('@/pages/market/quant/QuantEventsPage.vue');
 const QuantPortfoliosPage = () => import('@/pages/market/quant/QuantPortfoliosPage.vue');
 const LoginPage = () => import('@/pages/LoginPage.vue');
 const CalendarPage = () => import('@/pages/CalendarPage.vue');
@@ -91,7 +90,6 @@ const router = createRouter({
             { path: 'datasets', name: 'market-quant-datasets', component: QuantDatasetsPage, meta: { title: '量化数据集' } },
             { path: 'models', name: 'market-quant-models', component: QuantModelsPage, meta: { title: '量化模型' } },
             { path: 'models/:runId', name: 'market-quant-model-run', component: QuantModelRunPage, meta: { title: '模型运行详情' } },
-            { path: 'events', name: 'market-quant-events', component: QuantEventsPage, meta: { title: '市场事件' } },
             { path: 'portfolios', name: 'market-quant-portfolios', component: QuantPortfoliosPage, meta: { title: '组合建议' } },
           ],
         },

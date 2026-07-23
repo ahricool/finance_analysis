@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -66,8 +65,7 @@ def test_qlib_writer_exports_persisted_vwap_field(tmp_path: Path) -> None:
         "vwap_quality": ["estimated"],
     })
     exporter = object.__new__(QlibDatasetExporter)
-    with patch.object(QlibDatasetExporter, "_custom_features", return_value=pd.DataFrame()):
-        exporter._write_qlib(tmp_path, frame, {"AAPL.US"}, None, "US")
+    exporter._write_qlib(tmp_path, frame)
     values = np.fromfile(tmp_path / "features" / "aapl.us" / "vwap.day.bin", dtype="<f4")
     assert values.tolist() == pytest.approx([0.0, 10.25])
 

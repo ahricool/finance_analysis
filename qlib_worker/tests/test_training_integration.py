@@ -82,7 +82,7 @@ def test_train_retry_restart_and_predict(monkeypatch, tmp_path: Path) -> None:
         "model_key": "cross_section_lgbm",
         "model_version": "integration-v1",
         "parameters": {"n_estimators": 10, "learning_rate": 0.1},
-        "feature_config": {"ablation": "base_only"},
+        "feature_config": {"base": "Alpha158"},
         "target_config": {
             "prediction_horizon": 5,
             "benchmark": "market",

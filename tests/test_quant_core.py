@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from finance_analysis.database.models.quant import QUANT_TABLES
-from finance_analysis.quant.events.import_service import EventImportService, calculate_available_at
-from finance_analysis.quant.events.scoring import score_events
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features, build_forward_excess_label
 from finance_analysis.quant.intraday_confirmation.service import IntradayConfirmationService
 from finance_analysis.quant.models.splits import WalkForwardConfig, walk_forward_splits
@@ -78,31 +74,6 @@ def test_market_regime_uses_primary_relative_to_broad_without_risk_benchmark():
     assert json.loads(json.dumps(result.features))["universe_20d_high_count"] == 1
 
 
-def test_after_hours_event_is_not_available_same_day():
-    published = datetime(2026, 7, 3, 20, 10, tzinfo=timezone.utc)  # 16:10 ET
-    available = calculate_available_at(published, "US")
-    assert available > published
-    assert available.weekday() == 0  # July 4/5 weekend -> Monday
-
-
-def test_event_import_deduplicates_and_vetoes():
-    symbol = SimpleNamespace(id=3, market="US", code="NVDA.US")
-    stored = {}
-    class Repo:
-        def upsert_event(self, values):
-            if values["dedupe_key"] in stored: return stored[values["dedupe_key"]], False
-            row = SimpleNamespace(id=len(stored)+1, **values); stored[values["dedupe_key"]] = row; return row, True
-    service = EventImportService(Repo(), SimpleNamespace(get_by_code=lambda code: symbol if code == "NVDA.US" else None))
-    item = {"code":"NVDA.US","market":"US","event_type":"regulation","published_at":"2026-07-03T15:00:00-04:00",
-            "direction":"negative","importance":1,"confidence":1,"source":"manual","source_event_id":"one","title":"review"}
-    assert service.import_json([item])["created"] == 1
-    assert service.import_json([item])["duplicates"] == 1
-    event = next(iter(stored.values()))
-    scored = score_events([event], event.available_at + timedelta(hours=1))
-    assert scored["event_score"] < 0
-    assert scored["negative_event_veto"]
-
-
 def test_walk_forward_has_purge_and_embargo_gaps():
     config = WalkForwardConfig(train_years=1, valid_months=2, test_months=2, prediction_horizon=5, embargo_days=3)
     splits = walk_forward_splits(pd.bdate_range("2020-01-01", "2023-01-01"), config)
@@ -112,16 +83,14 @@ def test_walk_forward_has_purge_and_embargo_gaps():
     assert first["purge_days"] == 5 and first["embargo_days"] == 3
 
 
-def test_fusion_gating_and_veto_are_explicit():
-    fused = SignalFusion().fuse(.8, .7, .4, "neutral", risk_penalty=.1)
-    assert fused.raw_final_score == pytest.approx(.8*.45 + .7*.30 + .4*.25 - .1)
+def test_fusion_gating_and_sector_adjustment_are_explicit():
+    fused = SignalFusion().fuse(.8, .7, "neutral", risk_penalty=.1)
+    assert fused.raw_final_score == pytest.approx(.8*.60 + .7*.40 - .1)
     assert fused.gated_final_score == pytest.approx(fused.raw_final_score * .7)
-    strong_sector = SignalFusion().fuse(.8, .7, .4, "neutral", sector_score=.9, risk_penalty=.1)
-    weak_sector = SignalFusion().fuse(.8, .7, .4, "neutral", sector_score=.1, risk_penalty=.1)
+    strong_sector = SignalFusion().fuse(.8, .7, "neutral", sector_score=.9, risk_penalty=.1)
+    weak_sector = SignalFusion().fuse(.8, .7, "neutral", sector_score=.1, risk_penalty=.1)
     assert strong_sector.raw_final_score > weak_sector.raw_final_score
     assert strong_sector.score_components["sector_contribution"] == pytest.approx(.04)
-    vetoed = SignalFusion().fuse(.9, .9, .9, "risk_on", negative_event_veto=True)
-    assert vetoed.vetoed and vetoed.target_position == 0 and vetoed.signal == "blocked"
 
 
 def test_portfolio_respects_veto_single_stock_and_sector_caps():

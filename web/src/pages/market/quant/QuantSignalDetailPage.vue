@@ -20,7 +20,7 @@ import { quantApi } from '@/api/quant';import { getParsedApiError,type ParsedApi
         </p>
       </header><section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div
-          v-for="row in [['最终得分',item.finalScore],['原始得分',item.rawFinalScore],['门控得分',item.gatedFinalScore],['风险惩罚',item.riskPenalty],['市场',item.marketScore],['行业',item.sectorScore],['横截面',item.crossSectionScore],['时间序列',item.timeSeriesScore],['事件',item.eventScore]]"
+          v-for="row in [['最终得分',item.finalScore],['原始得分',item.rawFinalScore],['门控得分',item.gatedFinalScore],['风险惩罚',item.riskPenalty],['市场',item.marketScore],['行业',item.sectorScore],['横截面',item.crossSectionScore],['时间序列',item.timeSeriesScore]]"
           :key="String(row[0])"
           class="rounded-xl border border-border bg-card p-3"
         >

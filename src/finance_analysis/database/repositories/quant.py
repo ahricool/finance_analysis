@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Iterable
 
-from sqlalchemy import and_, delete, desc, func, select, update
+from sqlalchemy import delete, desc, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.quant import (
-    DailyFeatureSnapshot, EventFeatureDaily, IntradayConfirmation, MarketEvent, MarketRegimeSnapshot, ModelDefinition, ModelPublication,
+    DailyFeatureSnapshot, IntradayConfirmation, MarketRegimeSnapshot, ModelDefinition, ModelPublication,
     ModelRun, ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem,
     QuantDatasetSnapshot, QuantUniverse, SectorRegimeSnapshot,
 )
@@ -166,38 +166,6 @@ class QuantRepository:
                 session.expunge(row)
             return row
 
-    def upsert_event(self, values: dict[str, Any]) -> tuple[MarketEvent, bool]:
-        with self.db.session_scope() as session:
-            existing = session.execute(select(MarketEvent).where(MarketEvent.dedupe_key == values["dedupe_key"])).scalar_one_or_none()
-            if existing:
-                session.expunge(existing); return existing, False
-            row = MarketEvent(**values); session.add(row); session.flush(); session.refresh(row); session.expunge(row)
-            return row, True
-
-    def list_events(self, filters: dict[str, Any], offset: int = 0, limit: int = 100) -> tuple[list[MarketEvent], int]:
-        clauses = []
-        for key in ("market", "code", "event_type", "direction", "source"):
-            if filters.get(key): clauses.append(getattr(MarketEvent, key) == filters[key])
-        if filters.get("published_from"): clauses.append(MarketEvent.published_at >= filters["published_from"])
-        if filters.get("published_to"): clauses.append(MarketEvent.published_at <= filters["published_to"])
-        with self.db.get_session() as session:
-            total = session.execute(select(func.count(MarketEvent.id)).where(*clauses)).scalar_one()
-            rows = list(session.execute(select(MarketEvent).where(*clauses).order_by(desc(MarketEvent.published_at)).offset(offset).limit(limit)).scalars())
-            return self._detach(session, rows), total
-
-    def get_event(self, event_id: int) -> MarketEvent | None:
-        with self.db.get_session() as session:
-            row = session.get(MarketEvent, event_id)
-            if row: session.expunge(row)
-            return row
-
-    def available_events(self, symbol_id: int, cutoff: datetime, since: datetime) -> list[MarketEvent]:
-        with self.db.get_session() as session:
-            rows = list(session.execute(select(MarketEvent).where(
-                MarketEvent.symbol_id == symbol_id, MarketEvent.available_at <= cutoff, MarketEvent.available_at >= since
-            ).order_by(MarketEvent.available_at)).scalars())
-            return self._detach(session, rows)
-
     def upsert_daily_features(self, model, constraint: str, values: list[dict[str, Any]], key_fields: set[str]) -> None:
         with self.db.session_scope() as session:
             for value in values:
@@ -208,23 +176,19 @@ class QuantRepository:
     def save_daily_features(self, values: list[dict[str, Any]]) -> None:
         self.upsert_daily_features(DailyFeatureSnapshot, "uix_daily_feature_snapshot", values, {"trade_date", "symbol_id", "feature_version"})
 
-    def save_event_features(self, values: list[dict[str, Any]]) -> None:
-        self.upsert_daily_features(EventFeatureDaily, "uix_event_feature_daily", values, {"trade_date", "symbol_id", "feature_version"})
-
-    def feature_context(self, trade_date: date, feature_version: str, event_feature_version: str) -> dict[int, dict[str, Any]]:
+    def feature_context(self, trade_date: date, feature_version: str) -> dict[int, dict[str, Any]]:
         with self.db.get_session() as session:
-            rows=session.execute(select(DailyFeatureSnapshot,EventFeatureDaily).join(EventFeatureDaily,and_(
-                EventFeatureDaily.trade_date==DailyFeatureSnapshot.trade_date,EventFeatureDaily.symbol_id==DailyFeatureSnapshot.symbol_id
-            )).where(DailyFeatureSnapshot.trade_date==trade_date,DailyFeatureSnapshot.feature_version==feature_version,
-                      EventFeatureDaily.feature_version==event_feature_version)).all()
+            rows = session.scalars(
+                select(DailyFeatureSnapshot).where(
+                    DailyFeatureSnapshot.trade_date == trade_date,
+                    DailyFeatureSnapshot.feature_version == feature_version,
+                )
+            ).all()
             result = {}
-            for daily, event in rows:
+            for daily in rows:
                 features = daily.features or {}
                 result[daily.symbol_id] = {
                     "sector_score": daily.sector_score,
-                    "event_score": event.event_score,
-                    "negative_event_veto": event.negative_event_veto,
-                    "event_payload": event.feature_payload,
                     "sector_key": features.get("sector_key"),
                     "has_sufficient_data": features.get("has_sufficient_data"),
                     "liquidity": features.get("liquidity"),

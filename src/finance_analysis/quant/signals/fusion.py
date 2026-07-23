@@ -1,4 +1,4 @@
-"""Config-driven score fusion, market gating, risk penalty and veto."""
+"""Config-driven model score fusion, market gating and risk penalty."""
 
 from __future__ import annotations
 
@@ -24,29 +24,47 @@ class SignalFusion:
     def __init__(self, config: FusionConfig | None = None):
         self.config = config or FusionConfig(); self.config.validate()
 
-    def fuse(self, cross_section_score: float, time_series_score: float, event_score: float, market_regime: str,
-             market_score: float | None = None, sector_score: float | None = None, risk_penalty: float = 0,
-             negative_event_veto: bool = False, veto_reason: str | None = None) -> FusedSignal:
+    def fuse(
+        self,
+        cross_section_score: float,
+        time_series_score: float,
+        market_regime: str,
+        market_score: float | None = None,
+        sector_score: float | None = None,
+        risk_penalty: float = 0,
+    ) -> FusedSignal:
         sector_contribution = (
             (float(sector_score) - 0.5) * self.config.sector_weight
             if sector_score is not None
             else 0.0
         )
-        components = {"cross_section_score": cross_section_score, "time_series_score": time_series_score, "event_score": event_score,
-                      "cross_section_weight": self.config.cross_section_weight, "time_series_weight": self.config.time_series_weight,
-                      "event_weight": self.config.event_weight, "sector_weight": self.config.sector_weight,
-                      "sector_contribution": sector_contribution, "risk_penalty": risk_penalty,
-                      "market_score": market_score, "sector_score": sector_score}
-        raw = (cross_section_score*self.config.cross_section_weight
-               + time_series_score*self.config.time_series_weight
-               + event_score*self.config.event_weight + sector_contribution - risk_penalty)
-        gated = raw*self.config.regime_multipliers[market_regime]
-        reasons = [f"横截面得分 {cross_section_score:.2f}", f"时间序列得分 {time_series_score:.2f}", f"事件得分 {event_score:.2f}", f"市场状态 {market_regime}"]
+        components = {
+            "cross_section_score": cross_section_score,
+            "time_series_score": time_series_score,
+            "cross_section_weight": self.config.cross_section_weight,
+            "time_series_weight": self.config.time_series_weight,
+            "sector_weight": self.config.sector_weight,
+            "sector_contribution": sector_contribution,
+            "risk_penalty": risk_penalty,
+            "market_score": market_score,
+            "sector_score": sector_score,
+        }
+        raw = (
+            cross_section_score * self.config.cross_section_weight
+            + time_series_score * self.config.time_series_weight
+            + sector_contribution
+            - risk_penalty
+        )
+        gated = raw * self.config.regime_multipliers[market_regime]
+        reasons = [
+            f"横截面得分 {cross_section_score:.2f}",
+            f"时间序列得分 {time_series_score:.2f}",
+            f"市场状态 {market_regime}",
+        ]
         if sector_score is not None:
             reasons.append(f"板块得分 {sector_score:.2f}")
         if risk_penalty:
             reasons.append(f"风险扣分 {risk_penalty:.2f}")
-        if negative_event_veto: return FusedSignal(raw, gated, min(gated, 0), 0, "blocked", True, veto_reason or "重大负面事件否决", components, reasons+[veto_reason or "重大负面事件否决"])
         signal = "buy" if gated >= .65 else "watch" if gated >= .50 else "reduce" if gated < .35 else "hold"
         position = self.config.regime_position_limits[market_regime] if signal == "buy" else 0
         return FusedSignal(raw, gated, gated, position, signal, False, None, components, reasons)

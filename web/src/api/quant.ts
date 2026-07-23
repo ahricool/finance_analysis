@@ -10,7 +10,6 @@ import type {
   Portfolio,
   QuantCapabilities,
   QuantDatasetSnapshot,
-  QuantEvent,
   QuantMarket,
   QuantModelDefinition,
   QuantSignal,
@@ -95,15 +94,6 @@ export const quantApi = {
   },
   async publish(id: number, reason: string, market: QuantMarket = 'US'): Promise<ModelRun> {
     const { data } = await apiClient.post(`/api/v1/quant/model-runs/${id}/publish`, { reason }, { params: withMarket(market) });
-    return toCamelCase(data);
-  },
-  async events(market: QuantMarket = 'US', params: Record<string, unknown> = {}): Promise<{items: QuantEvent[]; total: number}> {
-    const { data } = await apiClient.get('/api/v1/quant/events', { params: withMarket(market, params) });
-    return toCamelCase<{items: QuantEvent[]; total: number}>(data);
-  },
-  async importEvents(format: 'json' | 'csv', payload: string): Promise<Record<string, unknown>> {
-    const body = format === 'json' ? { format, items: JSON.parse(payload) } : { format, csv_content: payload };
-    const { data } = await apiClient.post('/api/v1/quant/events/import', body);
     return toCamelCase(data);
   },
   async portfolio(market: QuantMarket = 'US'): Promise<Portfolio> {

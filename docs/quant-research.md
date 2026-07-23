@@ -81,6 +81,11 @@ are not part of the MVP data path.
 
 Exports contain `calendars/day.txt`, `instruments/all.txt`, Qlib float32 binary
 feature files, `source/daily.csv`, `manifest.json`, and `validation.json`.
+Both trainable models build their training and prediction matrices exclusively
+with Qlib `Alpha158`. Dataset exports do not contain custom feature panels, and
+news or structured events are not uploaded, scored, joined into model inputs,
+or fused into daily signals. Existing event-related database columns and tables
+remain unused solely for migration compatibility.
 The binary fields include VWAP. Turnover/volume is used when provider units are
 valid, common legacy unit factors are checked against the daily price range,
 and missing turnover uses an explicit OHLC typical-price proxy only when volume

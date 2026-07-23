@@ -82,7 +82,7 @@ watch(market, async (current) => {
             <tr>
               <th class="p-3">
                 排名
-              </th><th>股票</th><th>最终/原始</th><th>横截面</th><th>时间序列</th><th>事件</th><th>预测收益</th><th>目标仓位</th><th>信号</th>
+              </th><th>股票</th><th>最终/原始</th><th>横截面</th><th>时间序列</th><th>预测收益</th><th>目标仓位</th><th>信号</th>
             </tr>
           </thead><tbody>
             <tr
@@ -99,7 +99,7 @@ watch(market, async (current) => {
                 >
                   {{ item.code }}
                 </RouterLink>
-              </td><td>{{ formatScore(item.finalScore) }} / {{ formatScore(item.rawFinalScore) }}</td><td>{{ formatScore(item.crossSectionScore) }}</td><td>{{ formatScore(item.timeSeriesScore) }}</td><td>{{ formatScore(item.eventScore) }}</td><td>{{ formatPredictedReturn(item.predictedReturn) }}</td><td>{{ formatPercent(item.targetPosition) }}</td><td>{{ item.vetoed ? 'blocked' : item.signal }}</td>
+              </td><td>{{ formatScore(item.finalScore) }} / {{ formatScore(item.rawFinalScore) }}</td><td>{{ formatScore(item.crossSectionScore) }}</td><td>{{ formatScore(item.timeSeriesScore) }}</td><td>{{ formatPredictedReturn(item.predictedReturn) }}</td><td>{{ formatPercent(item.targetPosition) }}</td><td>{{ item.vetoed ? 'blocked' : item.signal }}</td>
             </tr>
           </tbody>
         </table>

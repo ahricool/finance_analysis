@@ -259,6 +259,21 @@ def test_model_run_request_rejects_worker_incompatible_configuration():
     with pytest.raises(ValidationError, match="String should match pattern"):
         ModelRunCreateRequest(model_version="../escape", dataset_snapshot_id=5)
 
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ModelRunCreateRequest(
+            model_version="legacy-event-features",
+            dataset_snapshot_id=5,
+            feature_config={"ablation": "base_plus_event"},
+        )
+
+
+def test_quant_event_upload_routes_are_removed(monkeypatch):
+    client, _ = _client(monkeypatch)
+
+    assert client.get("/quant/events").status_code == 404
+    assert client.post("/quant/events", json={}).status_code == 404
+    assert client.post("/quant/events/import", json={}).status_code == 404
+
 
 def test_model_run_dispatch_failure_marks_created_run_failed(monkeypatch):
     client, repository = _client(monkeypatch)

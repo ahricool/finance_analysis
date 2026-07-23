@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -12,7 +11,6 @@ from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
 from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.data import DailyBarLoader
-from finance_analysis.quant.events.scoring import score_events
 from finance_analysis.quant.exceptions import BenchmarkDataMissingError, FeatureDataMissingError
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
 from finance_analysis.quant.markets import (
@@ -113,13 +111,7 @@ class DailyResearchService:
             }
         )
 
-        cutoff = datetime.combine(
-            trade_date,
-            market_config.market_close_time,
-            ZoneInfo(market_config.timezone),
-        )
         daily_values = []
-        event_values = []
         for code in eligible_codes:
             symbol = symbols_by_code[code]
             bars = member_frames[code]
@@ -129,8 +121,6 @@ class DailyResearchService:
                 frames[market_config.primary_benchmark],
             ).iloc[-1]
             portfolio_metadata = self._portfolio_metadata(bars, features, trade_date)
-            events = self.repository.available_events(symbol.id, cutoff, cutoff - timedelta(days=90))
-            event = score_events(events, cutoff)
             explicit = {
                 key: None if pd.isna(features.get(key)) else float(features[key])
                 for key in (
@@ -148,7 +138,6 @@ class DailyResearchService:
                     **explicit,
                     "market_score": market_result.market_score,
                     "sector_score": None,
-                    "event_score": event["event_score"],
                     "features": {
                         "market": market_config.market,
                         "sector_key": None,
@@ -159,20 +148,7 @@ class DailyResearchService:
                     },
                 }
             )
-            event_values.append(
-                {
-                    "trade_date": trade_date,
-                    "symbol_id": symbol.id,
-                    "feature_version": self.config.event_feature_version,
-                    "positive_event_count_3d": event["positive_event_count_3d"],
-                    "negative_event_count_3d": event["negative_event_count_3d"],
-                    "event_score": event["event_score"],
-                    "negative_event_veto": event["negative_event_veto"],
-                    "feature_payload": {"components": event["components"]},
-                }
-            )
         self.repository.save_daily_features(daily_values)
-        self.repository.save_event_features(event_values)
         skipped_codes = sorted(universe_codes - set(eligible_codes))
         coverage_ratio = len(eligible_codes) / len(universe_codes) if universe_codes else 0.0
         warnings = []
