@@ -95,7 +95,7 @@ def test_daily_research_uses_primary_and_broad_benchmarks_without_removed_risk_c
 
     monkeypatch.setattr(
         "finance_analysis.quant.features.service.get_quant_universe_codes",
-        lambda _market: {"600519.SH"},
+        lambda _market: {"600519.SH", "000001.SZ"},
     )
     monkeypatch.setattr(
         "finance_analysis.quant.features.service.DailyBarLoader",
@@ -113,6 +113,9 @@ def test_daily_research_uses_primary_and_broad_benchmarks_without_removed_risk_c
     assert captured["benchmark_labels"] == ("159915.SZ", "510300.SH")
     assert set(captured["universe"]) == {"600519.SH"}
     assert result["feature_count"] == 1
+    assert result["coverage"]["coverage_ratio"] == pytest.approx(0.5)
+    assert result["coverage"]["skipped_codes"] == ["000001.SZ"]
+    assert "行情覆盖 1/2" in result["warnings"][0]
 
 
 def test_prepare_rejects_research_symbol_without_target_daily_bar(monkeypatch) -> None:
@@ -296,6 +299,7 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
     class Repository:
         def __init__(self):
             self.replaced = None
+            self.portfolio_values = None
 
         def get_universe(self, key):
             return SimpleNamespace(
@@ -321,6 +325,7 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
             self.replaced = values
 
         def save_portfolio(self, values, items):
+            self.portfolio_values = values
             return SimpleNamespace(id=99)
 
     class Symbols:
@@ -372,6 +377,8 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
         "cross_section_model_run_id": 11,
         "time_series_model_run_id": 12,
         "expected_codes": ["AAPL.US", "NVDA.US"],
+        "warnings": ["行情覆盖 2/3；已跳过缺失数据标的"],
+        "coverage": {"universe_members": 3, "rankable_members": 2, "skipped_members": 1},
         "regime": {
             "id": 8,
             "regime": "risk_on",
@@ -405,6 +412,8 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
     assert result["signal_count"] == 2
     assert captured["current_weights"] == pytest.approx({"AAPL.US": 0.5, "NVDA.US": 0.5})
     assert all(item["risk_penalty"] == 0.04 for item in captured["signals"])
+    assert repository.portfolio_values["warnings"] == ["行情覆盖 2/3；已跳过缺失数据标的"]
+    assert repository.portfolio_values["summary"]["coverage"]["skipped_members"] == 1
     holdings.list_all.assert_called_once_with(uid=7)
 
 
@@ -554,6 +563,29 @@ def test_portfolio_filters_low_liquidity_without_default_pass_through() -> None:
     assert "THIN.US" in result["warnings"][0]
     with pytest.raises(PortfolioConstraintError, match="Portfolio metadata is missing"):
         PortfolioBuilder().build([{**signals[0], "liquidity": None}], 0.8)
+
+
+def test_portfolio_never_buys_reduce_signals() -> None:
+    signals = [
+        {
+            "code": f"S{i}.SZ",
+            "symbol_id": i,
+            "final_score": 0.3 - i * 0.01,
+            "sector_key": None,
+            "signal": "reduce",
+            "reasons": [],
+            "vetoed": False,
+            "has_sufficient_data": True,
+            "liquidity": 2_000_000,
+        }
+        for i in range(8)
+    ]
+
+    result = PortfolioBuilder().build(signals, 0.1)
+
+    assert result["items"] == []
+    assert result["target_equity_exposure"] == 0
+    assert "没有满足建仓阈值" in result["warnings"][0]
 
 
 def test_portfolio_uses_current_weights_for_actions_and_daily_limits() -> None:

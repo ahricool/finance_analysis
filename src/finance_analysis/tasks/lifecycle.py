@@ -63,6 +63,28 @@ class TaskLifecycleMetadata:
     parent_task_id: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class DeferredTaskResult:
+    """Return a Celery result without closing its persisted task lifecycle."""
+
+    value: Any
+    message: str = "子任务已分发，等待最终结果"
+    progress: int = 50
+
+
+def defer_task_completion(
+    value: Any,
+    *,
+    message: str | None = None,
+    progress: int = 50,
+) -> DeferredTaskResult:
+    return DeferredTaskResult(
+        value=value,
+        message=message or "子任务已分发，等待最终结果",
+        progress=progress,
+    )
+
+
 def get_current_task_id() -> Optional[str]:
     """Return the task id bound by ``track_task`` for the current execution context."""
 
@@ -519,6 +541,13 @@ def track_task(
                     _send_task_failure_notification(task_id=task_id, metadata=metadata, error=exc)
                     raise
                 else:
+                    if isinstance(result, DeferredTaskResult):
+                        service.mark_progress(
+                            task_id=task_id,
+                            progress=result.progress,
+                            message=result.message,
+                        )
+                        return result.value
                     service.mark_completed(
                         task_id=task_id,
                         metadata=metadata,

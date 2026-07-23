@@ -173,11 +173,16 @@ class DailyResearchService:
             )
         self.repository.save_daily_features(daily_values)
         self.repository.save_event_features(event_values)
+        skipped_codes = sorted(universe_codes - set(eligible_codes))
+        coverage_ratio = len(eligible_codes) / len(universe_codes) if universe_codes else 0.0
         warnings = []
-        if missing_daily:
-            warnings.append(f"excluded_missing_daily={len(missing_daily)}")
-        if missing_symbols:
-            warnings.append(f"excluded_missing_symbol={len(missing_symbols)}")
+        if skipped_codes:
+            sample = "、".join(skipped_codes[:10])
+            suffix = f" 等 {len(skipped_codes)} 个标的" if len(skipped_codes) > 10 else ""
+            warnings.append(
+                f"行情覆盖 {len(eligible_codes)}/{len(universe_codes)}（{coverage_ratio:.1%}）；"
+                f"已跳过缺少 {trade_date} 日线或标的配置的 {sample}{suffix}"
+            )
         return {
             "market_regime": regime,
             "sectors": [],
@@ -188,6 +193,9 @@ class DailyResearchService:
                 "rankable_members": len(eligible_codes),
                 "symbol_missing": len(missing_symbols),
                 "daily_data_missing": len(missing_daily),
+                "skipped_members": len(skipped_codes),
+                "coverage_ratio": coverage_ratio,
+                "skipped_codes": skipped_codes,
                 "adjustment": loaded.adjustment_coverage,
             },
             "warnings": warnings,

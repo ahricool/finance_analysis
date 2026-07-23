@@ -75,8 +75,10 @@ class MarketRegimeService:
             "universe_up_ratio": float(np.mean(up)) if up else None,
             "universe_above_ma20_ratio": float(np.mean(breadth20)) if breadth20 else None,
             "universe_above_ma60_ratio": float(np.mean(breadth60)) if breadth60 else None,
-            "universe_20d_high_count": highs,
-            "universe_20d_low_count": lows,
+            # Pandas comparisons return numpy.bool_; accumulating them promotes
+            # the counters to numpy.int64, which PostgreSQL JSONB cannot encode.
+            "universe_20d_high_count": int(highs),
+            "universe_20d_low_count": int(lows),
             "vix": None,
             "advance_decline_volume": None,
         }

@@ -318,6 +318,22 @@ def test_before_publish_carries_manual_trigger_metadata():
     assert metadata.triggered_by_uid == 42
 
 
+def test_before_publish_skips_internal_quant_callback_record():
+    from unittest.mock import MagicMock, patch
+
+    from finance_analysis.tasks.celery import app as app_module
+
+    service = MagicMock()
+    with patch.object(app_module, "get_task_lifecycle_service", return_value=service):
+        app_module._create_pending_task_record(
+            sender="quant.daily.finalize",
+            headers={"id": "callback-1"},
+            body=([], {"context": {"market": "CN"}, "_skip_task_record": True}, {}),
+        )
+
+    service.create_pending.assert_not_called()
+
+
 def test_before_publish_uses_importance_task_metadata():
     from unittest.mock import patch
 

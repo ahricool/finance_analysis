@@ -40,11 +40,17 @@ class PortfolioBuilder:
             and item["has_sufficient_data"]
             and float(item["liquidity"]) >= self.config.minimum_liquidity
         ]
-        buys = eligible[: self.config.buy_top_k]
-        watch_codes = {item["code"] for item in eligible[: self.config.watch_top_k]}
+        allocation_candidates = [item for item in eligible if item.get("signal") == "buy"]
+        display_candidates = [item for item in eligible if item.get("signal") in {"buy", "watch", "hold"}]
+        buys = allocation_candidates[: self.config.buy_top_k]
+        watch_codes = {item["code"] for item in display_candidates[: self.config.watch_top_k]}
         selected_codes = {item["code"] for item in buys}
         for item in eligible:
-            if current_weights.get(item["code"], 0) > 0 and item["rank"] <= self.config.hold_rank_threshold:
+            if (
+                current_weights.get(item["code"], 0) > 0
+                and item["rank"] <= self.config.hold_rank_threshold
+                and item.get("signal") in {"buy", "watch", "hold"}
+            ):
                 selected_codes.add(item["code"])
 
         raw_weights = self._weights(
@@ -94,6 +100,7 @@ class PortfolioBuilder:
                 and not constraints
                 and code not in selected_codes
                 and item["rank"] <= self.config.sell_rank_threshold
+                and item.get("signal") != "reduce"
             ):
                 target = current
                 constraints.append("sell_rank_buffer")
@@ -141,6 +148,8 @@ class PortfolioBuilder:
             )
 
         warnings = []
+        if not buys:
+            warnings.append("当前没有满足建仓阈值的 buy 信号，组合未新增仓位")
         if insufficient_data:
             warnings.append(f"Insufficient daily history: {sorted(set(insufficient_data))}")
         if insufficient_liquidity:

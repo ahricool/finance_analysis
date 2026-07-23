@@ -20,7 +20,7 @@ from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.datasets.validator import validate_daily_bars
-from finance_analysis.quant.exceptions import QuantDatasetValidationError
+from finance_analysis.quant.exceptions import ModelArtifactMissingError, QuantDatasetValidationError
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
 from finance_analysis.quant.markets import (
     get_quant_market_config,
@@ -98,22 +98,37 @@ class QlibDatasetExporter:
             source_revision,
         )
         dataset_key = hashlib.sha256("|".join(map(str, key_parts)).encode()).hexdigest()
-        snapshot = self.repository.create_dataset(
-            {
-                "dataset_key": dataset_key,
-                "market": market.upper(),
-                "universe_id": definition.id,
-                "frequency": frequency,
-                "date_from": date_from,
-                "date_to": date_to,
-                "price_mode": price_mode.value,
-                "feature_version": feature_version,
-                "source_revision": source_revision,
-                "code_commit": _git_commit(),
-                "status": "building",
-                "validation_result": {},
-            }
-        )
+        snapshot_values = {
+            "dataset_key": dataset_key,
+            "market": market.upper(),
+            "universe_id": definition.id,
+            "frequency": frequency,
+            "date_from": date_from,
+            "date_to": date_to,
+            "price_mode": price_mode.value,
+            "feature_version": feature_version,
+            "source_revision": source_revision,
+            "code_commit": _git_commit(),
+            "status": "building",
+            "validation_result": {},
+        }
+        snapshot = self.repository.get_dataset_by_key(dataset_key)
+        if snapshot and snapshot.status == "ready" and snapshot.artifact_uri:
+            try:
+                self.artifacts.resolve_uri(snapshot.artifact_uri)
+            except ModelArtifactMissingError:
+                logger.warning("Rebuilding dataset with missing artifact: %s", snapshot.artifact_uri)
+            else:
+                return snapshot
+        if snapshot:
+            self.repository.update_dataset(
+                snapshot.id,
+                status="building",
+                validation_result={},
+                finished_at=None,
+            )
+        else:
+            snapshot = self.repository.create_dataset(snapshot_values)
         try:
             frame = loaded.frame
             report = validate_daily_bars(
