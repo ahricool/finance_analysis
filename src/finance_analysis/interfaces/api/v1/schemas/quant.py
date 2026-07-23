@@ -15,31 +15,6 @@ class DatasetBuildRequest(BaseModel):
     date_to: date
 
 
-class EventCreateRequest(BaseModel):
-    code: str | None = None
-    market: Literal["US", "CN"]
-    event_type: str
-    published_at: str
-    available_at: str | None = None
-    effective_at: str | None = None
-    direction: str = "neutral"
-    importance: float = Field(0.5, ge=0, le=1)
-    confidence: float = Field(1, ge=0, le=1)
-    surprise_value: float | None = None
-    source: str = "manual"
-    source_event_id: str | None = None
-    title: str
-    summary: str | None = None
-    raw_content: str | None = None
-    raw_payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class EventImportRequest(BaseModel):
-    format: str = "json"
-    items: list[dict[str, Any]] = Field(default_factory=list)
-    csv_content: str | None = None
-
-
 class WalkForwardSplitConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -54,12 +29,6 @@ class WalkForwardSplitConfig(BaseModel):
 class TrainingFeatureConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ablation: Literal[
-        "all_features",
-        "base_only",
-        "base_plus_relative_strength",
-        "base_plus_event",
-    ] = "all_features"
     base: Literal["Alpha158"] = "Alpha158"
 
 

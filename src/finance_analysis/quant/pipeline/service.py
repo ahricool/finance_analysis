@@ -263,9 +263,7 @@ class QuantDailyPipeline:
             if model_key in expected_model_runs and item.get("model_run_id") not in (None, expected_model_runs[model_key]):
                 raise ValueError(f"Qlib prediction result model_run_id mismatch for {model_key}")
         config = get_quant_config()
-        feature_context = self.repository.feature_context(
-            trade_date, config.feature_version, config.event_feature_version
-        )
+        feature_context = self.repository.feature_context(trade_date, config.feature_version)
         universe_codes = get_quant_universe_codes(market)
         expected_codes = set(context.get("expected_codes") or universe_codes)
         if not expected_codes.issubset(universe_codes):
@@ -310,10 +308,8 @@ class QuantDailyPipeline:
             prediction.update(
                 {
                     "time_series_score": time_series_by_code.get(prediction["code"]),
-                    "event_score": feature["event_score"],
                     "sector_score": feature["sector_score"],
                     "sector_key": feature.get("sector_key"),
-                    "negative_event_veto": feature.get("negative_event_veto", False),
                     "has_sufficient_data": bool(feature["has_sufficient_data"]),
                     "liquidity": float(feature["liquidity"]),
                     "risk_penalty": float(feature["risk_penalty"]),
@@ -325,13 +321,10 @@ class QuantDailyPipeline:
             fused = fusion.fuse(
                 float(prediction["normalized_score"]),
                 float(prediction["time_series_score"]),
-                float(prediction["event_score"]),
                 regime["regime"],
                 market_score=regime["market_score"],
                 sector_score=prediction.get("sector_score"),
                 risk_penalty=float(prediction.get("risk_penalty", 0)),
-                negative_event_veto=bool(prediction.get("negative_event_veto")),
-                veto_reason=prediction.get("veto_reason"),
             )
             item = {**prediction, **asdict(fused)}
             public.append(item)
@@ -345,7 +338,6 @@ class QuantDailyPipeline:
                     "model_version": context["cross_section_model_version"],
                     "market_score": regime["market_score"],
                     "sector_score": prediction.get("sector_score"),
-                    "event_score": prediction.get("event_score"),
                     "time_series_score": prediction.get("time_series_score"),
                     "cross_section_score": prediction["normalized_score"],
                     "risk_penalty": prediction.get("risk_penalty", 0),

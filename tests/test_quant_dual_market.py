@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, time, timezone
+from datetime import date, time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -12,7 +12,6 @@ from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.database.seed import seed_quant_reference_data
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.quant.exceptions import ModelNotPublishedError
-from finance_analysis.quant.events.import_service import calculate_available_at
 from finance_analysis.quant.markets import (
     DEFAULT_QUANT_UNIVERSES,
     default_universe_for_market,
@@ -150,14 +149,6 @@ def test_fixed_universe_migration_renames_in_place_and_ends_removed_members():
     assert "DELETE FROM QUANT_UNIVERSE" not in normalized
     assert "DELETE FROM QUANT_UNIVERSE_MEMBER" not in normalized
     assert "DROP TABLE" not in normalized
-
-
-def test_cn_after_close_event_becomes_available_at_next_session_open():
-    published = datetime(2026, 7, 17, 7, 1, tzinfo=timezone.utc)  # 15:01 Asia/Shanghai
-
-    available = calculate_available_at(published, "CN")
-
-    assert available == datetime(2026, 7, 20, 1, 30, tzinfo=timezone.utc)
 
 
 @pytest.mark.skipif(not os.getenv("DATABASE_URL"), reason="PostgreSQL required")

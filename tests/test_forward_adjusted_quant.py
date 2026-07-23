@@ -130,8 +130,7 @@ def test_split_exports_continuous_alpha158_price_input(tmp_path: Path) -> None:
         "US", {"AAPL.US"}, days[0], days[-1], "forward_adjusted"
     ).frame
     exporter = object.__new__(QlibDatasetExporter)
-    with patch.object(QlibDatasetExporter, "_custom_features", return_value=pd.DataFrame()):
-        exporter._write_qlib(tmp_path, frame, {"AAPL.US"}, None, "US")
+    exporter._write_qlib(tmp_path, frame)
 
     close_input = np.fromfile(
         tmp_path / "features" / "aapl.us" / "close.day.bin", dtype="<f4"
@@ -210,14 +209,13 @@ def test_dataset_export_with_empty_member_table_tracks_factor_revisions(tmp_path
     repository = ExportRepository([_row(code, day, 100.0, 0.5) for code in codes])
     repository.active_members = MagicMock(return_value=[])
     exporter = QlibDatasetExporter(repository, ArtifactStore(tmp_path))
-    with patch.object(QlibDatasetExporter, "_custom_features", return_value=pd.DataFrame()):
-        first = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
-        first_manifest = json.loads(
-            (tmp_path / first.artifact_uri.removeprefix("quant://") / "manifest.json").read_text()
-        )
-        daily = pd.read_csv(tmp_path / first.artifact_uri.removeprefix("quant://") / "source" / "daily.csv")
-        repository.rows = [_row(code, day, 100.0, 0.4) for code in codes]
-        second = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
+    first = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
+    first_manifest = json.loads(
+        (tmp_path / first.artifact_uri.removeprefix("quant://") / "manifest.json").read_text()
+    )
+    daily = pd.read_csv(tmp_path / first.artifact_uri.removeprefix("quant://") / "source" / "daily.csv")
+    repository.rows = [_row(code, day, 100.0, 0.4) for code in codes]
+    second = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
 
     assert first.source_revision != second.source_revision
     repository.active_members.assert_not_called()
@@ -240,9 +238,8 @@ def test_dataset_export_reuses_ready_snapshot_for_same_source_revision(tmp_path:
     repository = ExportRepository([_row(code, day, 100.0, 0.5) for code in codes])
     exporter = QlibDatasetExporter(repository, ArtifactStore(tmp_path))
 
-    with patch.object(QlibDatasetExporter, "_custom_features", return_value=pd.DataFrame()):
-        first = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
-        second = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
+    first = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
+    second = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
 
     assert first.id == second.id
     assert repository.next_id == 2

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.encoders import jsonable_encoder
 
 from finance_analysis.database.models.user import User
@@ -14,14 +14,11 @@ from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.schemas.quant import (
     DatasetBuildRequest,
-    EventCreateRequest,
-    EventImportRequest,
     IntradayRunRequest,
     ModelRunCreateRequest,
     PublishRequest,
 )
 from finance_analysis.quant.capabilities import get_quant_capabilities
-from finance_analysis.quant.events.import_service import EventImportService
 from finance_analysis.quant.markets import get_quant_universe_codes
 from finance_analysis.quant.models import QLIB_TRAINABLE_MODEL_KEYS
 from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
@@ -172,60 +169,6 @@ async def sector_detail(
     _: User = Depends(require_current_user),
 ):
     return encoded(QuantRepository().sector_regimes(market, sector_key=sector_key))
-
-
-@router.get("/events")
-async def events(
-    market: QuantMarket = "US",
-    code: str | None = None,
-    event_type: str | None = None,
-    direction: str | None = None,
-    source: str | None = None,
-    published_from: datetime | None = None,
-    published_to: datetime | None = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    _: User = Depends(require_current_user),
-):
-    rows, total = QuantRepository().list_events(
-        {
-            "market": market,
-            "code": code.upper() if code else None,
-            "event_type": event_type,
-            "direction": direction,
-            "source": source,
-            "published_from": published_from,
-            "published_to": published_to,
-        },
-        (page - 1) * page_size,
-        page_size,
-    )
-    return {"items": encoded(rows), "total": total, "page": page, "page_size": page_size, "market": market}
-
-
-@router.get("/events/{event_id}")
-async def event(event_id: int, market: QuantMarket = "US", _: User = Depends(require_current_user)):
-    row = QuantRepository().get_event(event_id)
-    if not row or row.market != market:
-        raise HTTPException(404, "Event not found")
-    return encoded(row)
-
-
-@router.post("/events")
-async def create_event(body: EventCreateRequest, _: User = Depends(require_admin)):
-    result = EventImportService().import_json([body.model_dump()])
-    if result["errors"]:
-        raise HTTPException(400, result["errors"])
-    return result
-
-
-@router.post("/events/import")
-async def import_events(body: EventImportRequest, _: User = Depends(require_admin)):
-    if body.format == "json":
-        return EventImportService().import_json(body.items)
-    if body.format == "csv" and body.csv_content is not None:
-        return EventImportService().import_csv(body.csv_content)
-    raise HTTPException(400, "format must be json or csv with csv_content")
 
 
 @router.post("/model-runs", status_code=status.HTTP_202_ACCEPTED)

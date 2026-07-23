@@ -3,11 +3,11 @@ import SectionNavItems from '@/components/common/SectionNavItems.vue';
 import SectionNavPanel from '@/components/common/SectionNavPanel.vue';
 import SectionPageHeader from '@/components/common/SectionPageHeader.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
-import { BarChart3, Bot, BriefcaseBusiness, CalendarDays, Database, LayoutDashboard } from 'lucide-vue-next';
+import { BarChart3, Bot, BriefcaseBusiness, Database, LayoutDashboard } from 'lucide-vue-next';
 import { computed } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 
-type QuantTab = 'dashboard' | 'signals' | 'datasets' | 'models' | 'events' | 'portfolios';
+type QuantTab = 'dashboard' | 'signals' | 'datasets' | 'models' | 'portfolios';
 
 const route = useRoute();
 const { market, setMarket, marketQuery } = useQuantMarket();
@@ -19,7 +19,6 @@ const baseNavItems = [
   { key: 'signals' as const, label: '模型选股', icon: BarChart3, path: '/market/quant/signals' },
   { key: 'datasets' as const, label: '数据集', icon: Database, path: '/market/quant/datasets' },
   { key: 'models' as const, label: '模型运行', icon: Bot, path: '/market/quant/models' },
-  { key: 'events' as const, label: '事件', icon: CalendarDays, path: '/market/quant/events' },
   { key: 'portfolios' as const, label: '组合建议', icon: BriefcaseBusiness, path: '/market/quant/portfolios' },
 ];
 const navItems = computed(() => baseNavItems.map((item) => ({
@@ -33,7 +32,6 @@ const activeTab = computed<QuantTab>(() => {
   if (path.startsWith('/market/quant/signals')) return 'signals';
   if (path.startsWith('/market/quant/datasets')) return 'datasets';
   if (path.startsWith('/market/quant/models')) return 'models';
-  if (path.startsWith('/market/quant/events')) return 'events';
   if (path.startsWith('/market/quant/portfolios')) return 'portfolios';
   return 'dashboard';
 });

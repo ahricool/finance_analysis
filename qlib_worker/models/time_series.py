@@ -22,7 +22,7 @@ class TimeSeriesLGBMRunner(BaseLGBMRunner):
     allowed_parameters = BaseLGBMRunner.allowed_parameters | {"class_weight"}
 
     def select_features(self, frame: pd.DataFrame) -> list[str]:
-        tokens = ("ROC", "MA", "RSV", "STD", "BETA", "CORR", "ret_", "price_", "volume_", "relative_")
+        tokens = ("ROC", "MA", "RSV", "STD", "BETA", "CORR")
         columns = [column for column in frame.columns if column != "label" and any(token in column for token in tokens)]
         if not columns:
             raise ValueError("No time-series momentum/volatility features are available")

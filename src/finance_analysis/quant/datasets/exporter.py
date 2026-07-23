@@ -10,18 +10,14 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import select
 
 from finance_analysis.core.time import utc_isoformat, utc_now
-from finance_analysis.database.models.quant import DailyFeatureSnapshot, EventFeatureDaily
-from finance_analysis.database.models.stock import MarketDataSymbol
 from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.datasets.validator import validate_daily_bars
 from finance_analysis.quant.exceptions import ModelArtifactMissingError, QuantDatasetValidationError
-from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
 from finance_analysis.quant.markets import (
     get_quant_market_config,
     get_quant_universe_codes,
@@ -157,13 +153,7 @@ class QlibDatasetExporter:
             )
             relative = f"datasets/{dataset_key}"
             root = self.artifacts.directory(relative)
-            self._write_qlib(
-                root,
-                frame,
-                candidate_codes,
-                market_config.primary_benchmark,
-                market_config.market,
-            )
+            self._write_qlib(root, frame)
             manifest = {
                 "dataset_key": dataset_key,
                 "market": market.upper(),
@@ -210,9 +200,6 @@ class QlibDatasetExporter:
         self,
         root,
         frame: pd.DataFrame,
-        candidate_codes: set[str],
-        market_benchmark: str | None,
-        market: str = "US",
     ) -> None:
         calendars = root / "calendars"
         instruments = root / "instruments"
@@ -242,89 +229,3 @@ class QlibDatasetExporter:
                 np.concatenate((np.array([start_index], dtype="<f4"), values)).tofile(directory / f"{field}.day.bin")
         (instruments / "all.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
         frame.to_csv(source / "daily.csv", index=False)
-        custom = self._custom_features(
-            frame,
-            candidate_codes,
-            market_benchmark,
-            market,
-        )
-        if not custom.empty:
-            custom.to_parquet(source / "custom_features.parquet", index=False)
-
-    def _custom_features(
-        self,
-        frame: pd.DataFrame,
-        candidate_codes: set[str],
-        market_benchmark: str | None,
-        market: str,
-    ) -> pd.DataFrame:
-        groups = {
-            code: group.rename(columns={"datetime": "date"}).drop(columns="instrument").sort_values("date")
-            for code, group in frame.groupby("instrument")
-        }
-        market_frame = groups.get(market_benchmark or "")
-        if market_frame is None:
-            return pd.DataFrame()
-        columns = [
-            "ret_1d",
-            "ret_5d",
-            "ret_20d",
-            "ret_60d",
-            "price_ma20_ratio",
-            "price_ma60_ratio",
-            "volume_ratio_5d",
-            "atr_14",
-            "realized_vol_20d",
-            "distance_from_20d_high",
-            "gap_return",
-            "rsi_14",
-            "relative_5d_to_market",
-            "relative_20d_to_market",
-            "relative_5d_to_sector",
-            "relative_20d_to_sector",
-        ]
-        output = []
-        for code in sorted(candidate_codes):
-            bars = groups.get(code)
-            sector = market_frame
-            if bars is None or sector is None:
-                continue
-            features = add_relative_strength(build_daily_features(bars), market_frame, sector)
-            features["instrument"] = code
-            features = features.rename(columns={"date": "datetime"})
-            output.append(features[["datetime", "instrument", *columns]])
-        if not output:
-            return pd.DataFrame()
-        result = pd.concat(output, ignore_index=True)
-        with self.repository.db.get_session() as session:
-            rows = session.execute(
-                select(
-                    MarketDataSymbol.code,
-                    DailyFeatureSnapshot.trade_date,
-                    DailyFeatureSnapshot.market_score,
-                    DailyFeatureSnapshot.sector_score,
-                    EventFeatureDaily.event_score,
-                    EventFeatureDaily.negative_event_veto,
-                )
-                .join(DailyFeatureSnapshot, DailyFeatureSnapshot.symbol_id == MarketDataSymbol.id)
-                .join(
-                    EventFeatureDaily,
-                    (EventFeatureDaily.symbol_id == DailyFeatureSnapshot.symbol_id)
-                    & (EventFeatureDaily.trade_date == DailyFeatureSnapshot.trade_date),
-                )
-                .where(
-                    MarketDataSymbol.market == market,
-                    MarketDataSymbol.code.in_(candidate_codes),
-                    DailyFeatureSnapshot.feature_version == get_quant_config().feature_version,
-                    EventFeatureDaily.feature_version == get_quant_config().event_feature_version,
-                )
-            ).all()
-        snapshots = pd.DataFrame(
-            rows,
-            columns=["instrument", "datetime", "market_score", "sector_score", "event_score", "negative_event_veto"],
-        )
-        if not snapshots.empty:
-            result["datetime"] = pd.to_datetime(result["datetime"])
-            snapshots["datetime"] = pd.to_datetime(snapshots["datetime"])
-            result = result.merge(snapshots, on=["datetime", "instrument"], how="left", validate="one_to_one")
-        return result

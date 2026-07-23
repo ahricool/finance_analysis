@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from qlib_worker.datasets.loader import load_features, load_manifest
 
@@ -63,6 +64,23 @@ def _write_minimal_dataset(root: Path) -> None:
 
 def test_alpha158_reads_exported_vwap(tmp_path: Path) -> None:
     _write_minimal_dataset(tmp_path)
-    features = load_features(tmp_path, load_manifest(tmp_path), {"ablation": "base_only"})
+    pd.DataFrame(
+        {
+            "datetime": [pd.Timestamp("2024-01-02")],
+            "instrument": ["A.US"],
+            "event_score": [1.0],
+            "negative_event_veto": [True],
+        }
+    ).to_parquet(tmp_path / "source" / "custom_features.parquet", index=False)
+    features = load_features(tmp_path, load_manifest(tmp_path), {"base": "Alpha158"})
     assert features.shape[1] >= 150
     assert features.notna().any(axis=1).sum() > 0
+    assert "event_score" not in features.columns
+    assert "negative_event_veto" not in features.columns
+
+    with pytest.raises(ValueError, match="legacy custom-feature models must be retrained"):
+        load_features(
+            tmp_path,
+            load_manifest(tmp_path),
+            {"ablation": "base_plus_event"},
+        )

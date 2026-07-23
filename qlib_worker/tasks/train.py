@@ -45,6 +45,7 @@ def train_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
         if target_config.prediction_horizon != split_config.prediction_horizon:
             raise ValueError("target_config prediction_horizon must equal split_config prediction_horizon")
         request_payload = asdict(payload)
+        request_payload["feature_config"] = {"base": "Alpha158"}
         request_digest = store.request_digest(request_payload)
 
         def write(output: Any) -> dict[str, Any]:
