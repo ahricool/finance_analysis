@@ -67,8 +67,18 @@ def candle_event(candle: CandleState, connection_generation: int) -> MarketEvent
     )
 
 
-def quote_event(price: str, sequence: int, connection_generation: int) -> MarketEvent:
-    received_at = BASE + timedelta(seconds=sequence)
+def quote_event(
+    price: str,
+    sequence: int,
+    connection_generation: int,
+    *,
+    received_at: datetime | None = None,
+    pre_close: str | None = None,
+) -> MarketEvent:
+    received_at = received_at or BASE + timedelta(seconds=sequence)
+    payload = {"last_price": price, "sequence": sequence, "trade_session": "Intraday"}
+    if pre_close is not None:
+        payload["pre_close"] = pre_close
     return MarketEvent(
         "quote",
         "AAPL.US",
@@ -76,7 +86,7 @@ def quote_event(price: str, sequence: int, connection_generation: int) -> Market
         received_at,
         sequence,
         "Intraday",
-        {"last_price": price, "sequence": sequence, "trade_session": "Intraday"},
+        payload,
         connection_generation,
     )
 
@@ -431,6 +441,54 @@ async def test_quote_reference_merge_does_not_replace_newer_push_price() -> None
     assert quote.last_price == Decimal("101")
     assert quote.pre_close == Decimal("100")
     assert quote.event_time == push_time
+
+
+@pytest.mark.asyncio
+async def test_previous_regular_close_replaces_stale_cross_day_quote_reference() -> None:
+    app = service()
+    state = set_warming(app, connection=2)
+    state.status = SymbolStatus.ACTIVE
+    state.quote_subscribed = True
+    app._remember_regular_session_closes("AAPL.US", "US", [bar(389, close="30.54")])
+
+    next_session = datetime(2026, 6, 29, 13, 25, tzinfo=timezone.utc)
+    await app._handle_event(quote_event("31.23", 10, 2, received_at=next_session, pre_close="25.51"))
+
+    quote = app.quotes["AAPL.US"]
+    assert quote.pre_close == Decimal("30.54")
+    assert float((quote.last_price - quote.pre_close) / quote.pre_close * Decimal("100")) == pytest.approx(
+        2.259332,
+        abs=0.000001,
+    )
+
+
+@pytest.mark.asyncio
+async def test_same_session_quote_keeps_provider_previous_close() -> None:
+    app = service()
+    state = set_warming(app, connection=2)
+    state.status = SymbolStatus.ACTIVE
+    state.quote_subscribed = True
+    app._remember_regular_session_closes("AAPL.US", "US", [bar(389, close="30.54")])
+
+    same_session = datetime(2026, 6, 26, 20, 5, tzinfo=timezone.utc)
+    await app._handle_event(quote_event("30.54", 10, 2, received_at=same_session, pre_close="28.00"))
+
+    assert app.quotes["AAPL.US"].pre_close == Decimal("28.00")
+
+
+@pytest.mark.asyncio
+async def test_remembered_close_repairs_quote_that_arrived_before_warmup() -> None:
+    app = service()
+    state = set_warming(app, connection=2)
+    state.status = SymbolStatus.ACTIVE
+    state.quote_subscribed = True
+    next_session = datetime(2026, 6, 29, 13, 25, tzinfo=timezone.utc)
+    await app._handle_event(quote_event("31.23", 10, 2, received_at=next_session, pre_close="25.51"))
+
+    app._remember_regular_session_closes("AAPL.US", "US", [bar(389, close="30.54")])
+
+    assert app.quotes["AAPL.US"].pre_close == Decimal("30.54")
+    assert app.pending_quotes["AAPL.US"].pre_close == Decimal("30.54")
 
 
 @pytest.mark.asyncio
