@@ -10,7 +10,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from finance_analysis.tasks.lifecycle import _json_summary, TaskSkipped, track_task
+from finance_analysis.tasks.lifecycle import (
+    TaskSkipped,
+    _json_summary,
+    defer_task_completion,
+    track_task,
+)
 from finance_analysis.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
 from tests.task_repo_fakes import FakeTaskRecordRepository
 
@@ -69,6 +74,22 @@ class TaskLifecycleDecoratorTestCase(unittest.TestCase):
         self.assertEqual([event[0] for event in service.events], ["processing", "completed"])
         self.assertEqual(service.events[0][1]["task_id"], service.events[1][1]["task_id"])
         self.assertIn(service.events[0][1]["task_id"], service.events[0][1]["task_log"])
+
+    def test_deferred_result_keeps_task_processing_until_callback(self) -> None:
+        service = _RecordingLifecycleService()
+
+        @track_task(task_type="unit", task_name="Unit Task", source="celery")
+        def run() -> object:
+            return defer_task_completion(
+                {"status": "dispatched"}, message="waiting for callback", progress=60
+            )
+
+        with patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=service):
+            self.assertEqual(run(), {"status": "dispatched"})
+
+        self.assertEqual([event[0] for event in service.events], ["processing", "progress"])
+        self.assertEqual(service.events[-1][1]["progress"], 60)
+        self.assertEqual(service.events[-1][1]["message"], "waiting for callback")
 
     def test_decorator_reraises_original_exception_and_records_failed(self) -> None:
         service = _RecordingLifecycleService()

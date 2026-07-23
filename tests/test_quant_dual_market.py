@@ -235,6 +235,8 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
 def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(
     monkeypatch, market, universe
 ):
+    captured = {}
+
     class Pipeline:
         @staticmethod
         def prepare(market):
@@ -259,10 +261,13 @@ def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(
         lambda *_args, **_kwargs: SimpleNamespace(),
     )
     monkeypatch.setattr(quant_daily_tasks, "chord", lambda _header: Chord())
+    monkeypatch.setattr(quant_daily_tasks, "get_current_task_id", lambda: "parent-task-id")
     monkeypatch.setattr(
         quant_daily_tasks,
         "finalize_quant_daily",
-        SimpleNamespace(s=lambda **_kwargs: SimpleNamespace(set=lambda **__: None)),
+        SimpleNamespace(
+            s=lambda **kwargs: captured.update(callback=kwargs) or SimpleNamespace(set=lambda **__: None)
+        ),
     )
     monkeypatch.setattr(
         quant_daily_tasks,
@@ -274,6 +279,28 @@ def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(
 
     assert result["market"] == market
     assert result["universe"] == universe
+    assert captured["callback"]["context"]["lifecycle_task_id"] == "parent-task-id"
+    assert captured["callback"]["_skip_task_record"] is True
+
+
+def test_quant_daily_final_status_records_partial_coverage(monkeypatch) -> None:
+    lifecycle = MagicMock()
+    monkeypatch.setattr(quant_daily_tasks, "get_task_lifecycle_service", lambda: lifecycle)
+    context = {"market": "CN", "lifecycle_task_id": "parent-task-id"}
+    result = {
+        "status": "ready",
+        "warnings": ["行情覆盖 234/302"],
+        "coverage": {"skipped_members": 68},
+    }
+
+    quant_daily_tasks._mark_final_status(context, result=result)
+
+    lifecycle.mark_completed.assert_called_once()
+    call = lifecycle.mark_completed.call_args.kwargs
+    assert call["task_id"] == "parent-task-id"
+    assert call["metadata"].task_type == "scheduled_quant_daily_cn"
+    assert call["result"] == result
+    assert "已跳过部分缺失行情标的" in call["message"]
 
 
 def test_cn_missing_production_model_never_falls_back_to_us():

@@ -369,6 +369,7 @@ class QuantDailyPipeline:
             regime["max_equity_exposure"],
             current_weights=current_weights,
         )
+        warnings: list[str] = [*context.get("warnings", []), *portfolio["warnings"]]
         self.repository.replace_signals(
             market, universe.id, trade_date, context["cross_section_model_version"], signal_values
         )
@@ -383,8 +384,11 @@ class QuantDailyPipeline:
                 "max_equity_exposure": regime["max_equity_exposure"],
                 "target_equity_exposure": portfolio["target_equity_exposure"],
                 "config": portfolio["config"],
-                "summary": {"sector_exposure": portfolio["sector_exposure"]},
-                "warnings": portfolio["warnings"],
+                "summary": {
+                    "sector_exposure": portfolio["sector_exposure"],
+                    "coverage": context.get("coverage", {}),
+                },
+                "warnings": warnings,
             },
             [
                 {
@@ -406,7 +410,6 @@ class QuantDailyPipeline:
                 for item in portfolio["items"]
             ],
         )
-        warnings: list[str] = [*context.get("warnings", []), *portfolio["warnings"]]
         keys = cache_keys(market, universe_key)
         if not self.cache.set(keys["ranking"], public):
             warnings.append("Redis ranking cache write failed")
@@ -418,6 +421,7 @@ class QuantDailyPipeline:
             "universe": universe_key,
             "signal_count": len(public),
             "buy_count": sum(item["signal"] == "buy" for item in public),
+            "portfolio_item_count": len(portfolio["items"]),
             "portfolio_recommendation_id": recommendation.id,
             "market_regime": regime["regime"],
             "warnings": warnings,

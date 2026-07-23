@@ -157,6 +157,15 @@ class QuantRepository:
             if row: session.expunge(row)
             return row
 
+    def get_dataset_by_key(self, dataset_key: str) -> QuantDatasetSnapshot | None:
+        with self.db.get_session() as session:
+            row = session.execute(
+                select(QuantDatasetSnapshot).where(QuantDatasetSnapshot.dataset_key == dataset_key)
+            ).scalar_one_or_none()
+            if row:
+                session.expunge(row)
+            return row
+
     def upsert_event(self, values: dict[str, Any]) -> tuple[MarketEvent, bool]:
         with self.db.session_scope() as session:
             existing = session.execute(select(MarketEvent).where(MarketEvent.dedupe_key == values["dedupe_key"])).scalar_one_or_none()

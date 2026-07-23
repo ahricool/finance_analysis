@@ -197,6 +197,12 @@ class ExportRepository(BarRepository):
     def get_dataset(self, snapshot_id):
         return self.snapshots[snapshot_id]
 
+    def get_dataset_by_key(self, dataset_key):
+        return next(
+            (snapshot for snapshot in self.snapshots.values() if snapshot.dataset_key == dataset_key),
+            None,
+        )
+
 
 def test_dataset_export_with_empty_member_table_tracks_factor_revisions(tmp_path: Path) -> None:
     day = date(2026, 7, 17)
@@ -226,6 +232,20 @@ def test_dataset_export_with_empty_member_table_tracks_factor_revisions(tmp_path
         dtype="<f4",
     )
     assert factor_bin.tolist() == pytest.approx([0.0, 0.5])
+
+
+def test_dataset_export_reuses_ready_snapshot_for_same_source_revision(tmp_path: Path) -> None:
+    day = date(2026, 7, 17)
+    codes = ("AAPL.US", "QQQ.US", "SPY.US")
+    repository = ExportRepository([_row(code, day, 100.0, 0.5) for code in codes])
+    exporter = QlibDatasetExporter(repository, ArtifactStore(tmp_path))
+
+    with patch.object(QlibDatasetExporter, "_custom_features", return_value=pd.DataFrame()):
+        first = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
+        second = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
+
+    assert first.id == second.id
+    assert repository.next_id == 2
 
 
 def test_production_training_requires_forward_adjusted_mode() -> None:

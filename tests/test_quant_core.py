@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -74,6 +75,7 @@ def test_market_regime_uses_primary_relative_to_broad_without_risk_benchmark():
     assert result.features["broad_benchmark"] == "SPY.US"
     assert result.features["primary_relative_broad_20d"] == pytest.approx(expected_relative)
     assert "risk_benchmark" not in result.features
+    assert json.loads(json.dumps(result.features))["universe_20d_high_count"] == 1
 
 
 def test_after_hours_event_is_not_available_same_day():
