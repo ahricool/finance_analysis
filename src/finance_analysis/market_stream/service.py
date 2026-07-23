@@ -11,6 +11,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Iterable
 
 from finance_analysis.core.time import utc_now
@@ -93,6 +94,7 @@ class MarketStreamService:
         self.pending_patterns: dict[str, PatternState] = {}
         self.quote_reference_dates: dict[str, date] = {}
         self.quote_reference_attempts: dict[str, datetime] = {}
+        self.regular_session_closes: dict[str, dict[date, Decimal]] = {}
         self.last_event_at: datetime | None = None
         self.redis_degraded = False
         self.stop_event = asyncio.Event()
@@ -200,17 +202,23 @@ class MarketStreamService:
         self.last_event_at = event.received_at
         if event.event_type in {"quote", "quote_snapshot", "quote_reference"}:
             quote = self.quotes.setdefault(event.symbol, QuoteState(symbol=event.symbol))
+            payload = dict(event.payload)
+            quote_date = market_trading_date(event.event_time, state.market_type)
+            previous_closes = self.regular_session_closes.get(event.symbol, {})
+            previous_dates = [session_date for session_date in previous_closes if session_date < quote_date]
+            if previous_dates:
+                payload["pre_close"] = previous_closes[max(previous_dates)]
             event_time = (
                 quote.event_time if event.event_type == "quote_reference" and quote.event_time else event.event_time
             )
             received_at = (
                 quote.received_at if event.event_type == "quote_reference" and quote.received_at else event.received_at
             )
-            if quote.merge(event.payload, event_time=event_time, received_at=received_at):
+            if quote.merge(payload, event_time=event_time, received_at=received_at):
                 if event.event_type == "quote":
                     state.last_quote_at = event.received_at
-                if event.event_type == "quote_reference" and event.payload.get("pre_close") is not None:
-                    self.quote_reference_dates[event.symbol] = market_trading_date(utc_now(), state.market_type)
+                if event.event_type == "quote_reference" and payload.get("pre_close") is not None:
+                    self.quote_reference_dates[event.symbol] = quote_date
                 self.pending_quotes[event.symbol] = quote
         elif event.event_type == "candle_1m":
             candle = event_to_candle(event)
@@ -275,6 +283,11 @@ class MarketStreamService:
         if state.trading_date is not None and candle_date < state.trading_date:
             return False, len(self.bars_1m.get(candle.symbol, ()))
         if state.trading_date is not None and candle_date > state.trading_date:
+            self._remember_regular_session_closes(
+                candle.symbol,
+                state.market_type,
+                self.bars_1m.get(candle.symbol, ()),
+            )
             self.bars_1m.pop(candle.symbol, None)
             self.current_candles.pop(candle.symbol, None)
         state.trading_date = candle_date
@@ -312,6 +325,39 @@ class MarketStreamService:
         self.current_candles[candle.symbol] = current
         self.pending_candles[candle.symbol] = current
         return True, len(updated)
+
+    def _remember_regular_session_closes(
+        self,
+        symbol: str,
+        market_type: MarketType,
+        bars: Iterable[CandleState],
+    ) -> None:
+        latest_by_date: dict[date, CandleState] = {}
+        for bar in bars:
+            if (
+                not bar.confirmed
+                or not is_regular_session_minute(bar.bar_time, market_type)
+                or not is_regular_trade_session(bar.trade_session)
+            ):
+                continue
+            session_date = market_trading_date(bar.bar_time, market_type)
+            previous = latest_by_date.get(session_date)
+            if previous is None or bar.bar_time > previous.bar_time:
+                latest_by_date[session_date] = bar
+        if not latest_by_date:
+            return
+        remembered = self.regular_session_closes.setdefault(symbol, {})
+        remembered.update({session_date: bar.close for session_date, bar in latest_by_date.items()})
+        retained = sorted(remembered)[-2:]
+        self.regular_session_closes[symbol] = {session_date: remembered[session_date] for session_date in retained}
+        quote = self.quotes.get(symbol)
+        if quote is None or quote.event_time is None:
+            return
+        quote_date = market_trading_date(quote.event_time, market_type)
+        previous_dates = [session_date for session_date in retained if session_date < quote_date]
+        if previous_dates:
+            quote.pre_close = remembered[max(previous_dates)]
+            self.pending_quotes[symbol] = quote
 
     async def _update_trend_state(
         self,
@@ -443,6 +489,7 @@ class MarketStreamService:
             buffered_count = len(buffered)
             base_bars = [] if result is None else result.cached + result.historical
             bars = merge_warmup_bars(base_bars, buffered, limit=self.config.bar_limit)
+            self._remember_regular_session_closes(state.symbol, state.market_type, bars)
             if bars:
                 trading_date = max(market_trading_date(bar.bar_time, state.market_type) for bar in bars)
                 bars = [bar for bar in bars if market_trading_date(bar.bar_time, state.market_type) == trading_date]
@@ -570,6 +617,7 @@ class MarketStreamService:
             self.pending_patterns.pop(symbol, None)
             self.quote_reference_dates.pop(symbol, None)
             self.quote_reference_attempts.pop(symbol, None)
+            self.regular_session_closes.pop(symbol, None)
         try:
             await self.repository.expire_symbol_cache(
                 symbol,
