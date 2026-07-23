@@ -8,7 +8,8 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
 import Dialog from '@/components/common/Dialog.vue';
 import InlineAlert from '@/components/common/InlineAlert.vue';
 import Pagination from '@/components/common/Pagination.vue';
-import SectionNavItems from '@/components/common/SectionNavItems.vue';
+import SectionNavPanel from '@/components/common/SectionNavPanel.vue';
+import SectionPageHeader from '@/components/common/SectionPageHeader.vue';
 import { useAuthStore } from '@/stores/authStore';
 import type { ScheduledSyncMode, ScheduledTask, TaskRun, TaskRunDetail, TaskStatus } from '@/types/tasks';
 import { formatDateTimeInDisplayTimezone, toUtcIsoString } from '@/utils/format';
@@ -336,17 +337,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="space-y-5">
-    <div class="flex flex-col gap-1">
-      <h1 class="text-xl font-semibold text-foreground">任务中心</h1>
-      <p class="text-sm text-muted-text">
-        {{ isAdmin ? '查看定时任务定义和全部执行记录。' : '查看自己的任务执行记录。' }}
-      </p>
-    </div>
+    <SectionPageHeader
+      title="任务中心"
+      :description="isAdmin ? '查看定时任务定义和全部执行记录。' : '查看自己的任务执行记录。'"
+    />
 
     <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <aside class="h-fit space-y-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm">
-        <SectionNavItems :items="navItems" :active-key="activeTab" />
-      </aside>
+      <SectionNavPanel :items="navItems" :active-key="activeTab" />
 
       <section class="min-w-0 space-y-4">
         <template v-if="activeTab === 'scheduled' && isAdmin">

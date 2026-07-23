@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import SectionNavItems from '@/components/common/SectionNavItems.vue';
+import SectionNavPanel from '@/components/common/SectionNavPanel.vue';
+import SectionPageHeader from '@/components/common/SectionPageHeader.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { BarChart3, Bot, BriefcaseBusiness, CalendarDays, Database, LayoutDashboard } from 'lucide-vue-next';
 import { computed } from 'vue';
@@ -40,9 +42,10 @@ const activeTab = computed<QuantTab>(() => {
 
 <template>
   <div class="space-y-5">
-    <header class="flex flex-col gap-1">
-      <h1 class="text-xl font-semibold text-foreground">量化研究</h1>
-      <p class="text-sm text-muted-text">管理量化数据集、模型训练、选股信号与组合建议。</p>
+    <SectionPageHeader
+      title="量化研究"
+      description="管理量化数据集、模型训练、选股信号与组合建议。"
+    >
       <div class="mt-2 flex flex-wrap items-center justify-between gap-3">
         <p class="text-xs text-secondary-text" data-testid="quant-scope-description">
           {{ scopeDescription }}
@@ -67,7 +70,7 @@ const activeTab = computed<QuantTab>(() => {
           </button>
         </div>
       </div>
-    </header>
+    </SectionPageHeader>
 
     <nav
       class="grid grid-cols-2 gap-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm sm:grid-cols-3 lg:hidden"
@@ -78,12 +81,13 @@ const activeTab = computed<QuantTab>(() => {
     </nav>
 
     <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <aside
-        class="hidden h-fit space-y-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm lg:block"
+      <SectionNavPanel
+        class="hidden lg:block"
         data-testid="quant-desktop-nav"
-      >
-        <SectionNavItems :items="navItems" :active-key="activeTab" responsive />
-      </aside>
+        :items="navItems"
+        :active-key="activeTab"
+        responsive
+      />
 
       <section class="min-w-0">
         <RouterView />

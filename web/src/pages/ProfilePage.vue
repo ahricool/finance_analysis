@@ -3,7 +3,8 @@ import { authApi, type NotificationSettings, type UserGender, type UserProfileRe
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import Button from '@/components/common/Button.vue';
 import Input from '@/components/common/Input.vue';
-import SectionNavItems from '@/components/common/SectionNavItems.vue';
+import SectionNavPanel from '@/components/common/SectionNavPanel.vue';
+import SectionPageHeader from '@/components/common/SectionPageHeader.vue';
 import AvatarCropper from '@/components/profile/AvatarCropper.vue';
 import ChangePasswordCard from '@/components/settings/ChangePasswordCard.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
@@ -191,10 +192,10 @@ onBeforeUnmount(clearAvatarSource);
 
 <template>
   <div class="space-y-5">
-    <div class="flex flex-col gap-1">
-      <h1 class="text-xl font-semibold text-foreground">个人中心</h1>
-      <p class="text-sm text-muted-text">管理账号资料、安全设置和通知渠道。</p>
-    </div>
+    <SectionPageHeader
+      title="个人中心"
+      description="管理账号资料、安全设置和通知渠道。"
+    />
 
     <SettingsAlert
       v-if="pageError"
@@ -204,13 +205,11 @@ onBeforeUnmount(clearAvatarSource);
     />
 
     <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <aside class="h-fit space-y-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm">
-        <SectionNavItems
-          :items="tabs"
-          :active-key="activeTab"
-          @select="activeTab = $event as ProfileTab"
-        />
-      </aside>
+      <SectionNavPanel
+        :items="tabs"
+        :active-key="activeTab"
+        @select="activeTab = $event as ProfileTab"
+      />
 
       <section class="min-w-0">
         <SettingsSectionCard
