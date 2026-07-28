@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, ClipboardList, LogOut, User, UserRound } from 'lucide-vue-next';
+import { ChevronRight, LogOut, User, UserRound } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
@@ -178,14 +178,6 @@ async function onLogoutConfirm() {
                     <span>个人中心</span>
                     <ChevronRight class="ml-auto h-4 w-4 text-muted-text" />
                   </RouterLink>
-                  <RouterLink
-                    to="/tasks"
-                    class="flex h-11 w-full items-center gap-2 rounded-xl px-4 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
-                  >
-                    <ClipboardList class="h-4 w-4" />
-                    <span>任务中心</span>
-                    <ChevronRight class="ml-auto h-4 w-4 text-muted-text" />
-                  </RouterLink>
                   <button
                     type="button"
                     class="flex h-11 w-full items-center gap-2 rounded-xl px-4 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
@@ -213,7 +205,7 @@ async function onLogoutConfirm() {
       aria-label="主导航"
       data-testid="mobile-main-nav"
     >
-      <div class="mx-auto grid h-16 max-w-xl grid-cols-6 px-1">
+      <div class="mx-auto grid h-16 max-w-xl grid-cols-7 px-1">
         <RouterLink
           v-for="item in mainNavItems"
           :key="item.key"
