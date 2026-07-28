@@ -134,8 +134,8 @@ describe('Shell user menu', () => {
       '市场',
       '回测',
       '量化',
-      '任务',
       '问股',
+      '任务',
     ]);
     expect(mobileNav.get('a[aria-label="日历"]').attributes('aria-current')).toBe('page');
 
