@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from celery.canvas import _chord
 import pandas as pd
 import pytest
 from finance_analysis.database.repositories.quant import QuantRepository
@@ -240,38 +241,26 @@ def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(
                 },
             )
 
-    class Chord:
-        @staticmethod
-        def apply_async(**_kwargs):
-            return SimpleNamespace(id="chord-id")
+    def capture_chord_run(_self, header, body, _partial_args, **options):
+        captured["header"] = header
+        captured["body"] = body
+        captured["options"] = options
+        return SimpleNamespace(id="chord-id")
 
     monkeypatch.setattr(quant_daily_tasks, "QuantDailyPipeline", Pipeline)
-    monkeypatch.setattr(
-        quant_daily_tasks.celery_app,
-        "signature",
-        lambda *_args, **_kwargs: SimpleNamespace(),
-    )
-    monkeypatch.setattr(quant_daily_tasks, "chord", lambda _header: Chord())
+    monkeypatch.setattr(_chord, "run", capture_chord_run)
     monkeypatch.setattr(quant_daily_tasks, "get_current_task_id", lambda: "parent-task-id")
-    monkeypatch.setattr(
-        quant_daily_tasks,
-        "finalize_quant_daily",
-        SimpleNamespace(
-            s=lambda **kwargs: captured.update(callback=kwargs) or SimpleNamespace(set=lambda **__: None)
-        ),
-    )
-    monkeypatch.setattr(
-        quant_daily_tasks,
-        "fail_quant_daily",
-        SimpleNamespace(s=lambda **_kwargs: SimpleNamespace(set=lambda **__: None)),
-    )
 
     result = quant_daily_tasks._dispatch(market)
 
     assert result["market"] == market
     assert result["universe"] == universe
-    assert captured["callback"]["context"]["lifecycle_task_id"] == "parent-task-id"
-    assert captured["callback"]["_skip_task_record"] is True
+    assert len(captured["header"]) == 1
+    assert captured["body"].task == "quant.daily.finalize"
+    assert captured["body"].kwargs["context"]["lifecycle_task_id"] == "parent-task-id"
+    assert captured["body"].kwargs["_skip_task_record"] is True
+    assert captured["body"].options["queue"] == "analysis"
+    assert captured["body"].options["link_error"]["task"] == "quant.daily.failed"
 
 
 def test_quant_daily_final_status_records_partial_coverage(monkeypatch) -> None:
