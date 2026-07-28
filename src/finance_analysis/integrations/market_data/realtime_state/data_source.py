@@ -22,6 +22,7 @@ from finance_analysis.market_stream.config import (
     MarketStreamConfig,
     latest_completed_bar_time,
     market_spec,
+    market_trading_date,
     market_timezone,
 )
 from finance_analysis.stocks.markets import MarketType, normalize_market_type
@@ -101,7 +102,13 @@ class RealtimeMarketDataSource:
             )
             return MarketDataLookup(None, "redis_error")
 
-        reason = _quote_invalid_reason(quote, canonical_symbol, current, self.policy.quote_max_age)
+        reason = _quote_invalid_reason(
+            quote,
+            canonical_symbol,
+            normalized_market,
+            current,
+            self.policy.quote_max_age,
+        )
         if reason:
             return self._miss(canonical_symbol, reason)
         result = _quote_to_unified(quote, requested_symbol=symbol)
@@ -457,11 +464,16 @@ def _target(symbol: str, market_type: MarketType | None) -> tuple[str, MarketTyp
 def _quote_invalid_reason(
     quote: QuoteState | None,
     symbol: str,
+    market_type: MarketType,
     now: datetime,
     max_age: timedelta,
 ) -> str | None:
     if quote is None:
         return "redis_missing"
+    if quote.trading_date is None:
+        return "untrusted_quote_date"
+    if quote.trading_date != market_trading_date(now, market_type):
+        return "stale_quote_date"
     if quote.symbol != symbol or quote.last_price is None or quote.last_price <= 0:
         return "invalid_quote"
     if quote.received_at is None or quote.received_at.tzinfo is None:

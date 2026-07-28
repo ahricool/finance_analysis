@@ -46,8 +46,14 @@ class FakeQuoteRepository:
         self.closed = True
 
 
-def quote(symbol: str, last_price: str, pre_close: str) -> QuoteState:
-    now = datetime(2026, 6, 30, 2, 30, tzinfo=timezone.utc)
+def quote(
+    symbol: str,
+    last_price: str,
+    pre_close: str,
+    *,
+    trading_date: date = date(2026, 7, 16),
+) -> QuoteState:
+    now = datetime(2026, 7, 16, 15, 0, tzinfo=timezone.utc)
     value = QuoteState(symbol=symbol)
     value.merge(
         {
@@ -60,6 +66,7 @@ def quote(symbol: str, last_price: str, pre_close: str) -> QuoteState:
         },
         event_time=now,
         received_at=now,
+        trading_date=trading_date,
     )
     return value
 
@@ -119,9 +126,51 @@ async def test_snapshot_calculates_change_and_keeps_missing_quotes(monkeypatch) 
     assert repository.pattern_requested == ["AAPL.US", "0700.HK"]
     assert snapshot["quotes"][0]["change_amount"] == 2.0
     assert snapshot["quotes"][0]["change_pct"] == 2.0
+    assert snapshot["quotes"][0]["trading_date"] == "2026-07-16"
     assert snapshot["quotes"][1]["available"] is False
     assert snapshot["quotes"][1]["trend_1m"]["state"] == "insufficient"
     assert snapshot["quotes"][1]["pattern_1m"]["status"] == "insufficient"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_hides_quote_from_previous_trading_date(monkeypatch) -> None:
+    repository = FakeQuoteRepository(
+        {"AAPL.US": quote("AAPL.US", "102", "100", trading_date=date(2026, 7, 15))}
+    )
+    monkeypatch.setattr(
+        market_data,
+        "_load_tracked_stocks",
+        lambda uid: [market_data.TrackedStock("AAPL", "US", "AAPL.US")],
+    )
+    monkeypatch.setattr(market_data, "utc_now", lambda: datetime(2026, 7, 16, 15, 0, tzinfo=timezone.utc))
+
+    snapshot = await market_data._build_snapshot(7, repository)
+
+    assert snapshot["quotes"][0]["available"] is False
+    assert snapshot["quotes"][0]["trading_date"] is None
+    assert "open" not in snapshot["quotes"][0]
+    assert "change_pct" not in snapshot["quotes"][0]
+
+
+@pytest.mark.asyncio
+async def test_cn_after_close_snapshot_uses_same_day_previous_close(monkeypatch) -> None:
+    repository = FakeQuoteRepository(
+        {"600519.SH": quote("600519.SH", "1515", "1500", trading_date=date(2026, 7, 16))}
+    )
+    monkeypatch.setattr(
+        market_data,
+        "_load_tracked_stocks",
+        lambda uid: [market_data.TrackedStock("600519", "CN", "600519.SH")],
+    )
+    monkeypatch.setattr(market_data, "utc_now", lambda: datetime(2026, 7, 16, 8, 30, tzinfo=timezone.utc))
+
+    snapshot = await market_data._build_snapshot(7, repository)
+
+    payload = snapshot["quotes"][0]
+    assert payload["available"] is True
+    assert payload["trading_date"] == "2026-07-16"
+    assert payload["change_amount"] == 15.0
+    assert payload["change_pct"] == 1.0
 
 
 @pytest.mark.asyncio
@@ -293,6 +342,7 @@ def test_websocket_sends_user_scoped_redis_snapshot_and_closes_repository(monkey
         lambda: SimpleNamespace(get_by_uid=lambda uid: SimpleNamespace(id=uid)),
     )
     monkeypatch.setattr(market_data, "_load_tracked_stocks", lambda uid: stocks)
+    monkeypatch.setattr(market_data, "utc_now", lambda: datetime(2026, 7, 16, 15, 0, tzinfo=timezone.utc))
     monkeypatch.setattr(market_data.RealtimeStateRepository, "from_url", lambda url: repository)
     client = TestClient(create_app())
     client.cookies.set(COOKIE_NAME, "valid-session")

@@ -109,12 +109,14 @@ async def test_subscription_state_persists_market_and_trading_date_with_ttl() ->
         symbol="600519.SH",
         market_type="CN",
         trading_date=date(2026, 6, 26),
+        last_quote_trading_date=date(2026, 6, 26),
         status=SymbolStatus.ACTIVE,
     )
     await service._write_symbol_state(state)
     stored = redis.hashes[keys.subscription_key("600519.SH")]
     assert stored["market_type"] == "CN"
     assert stored["trading_date"] == "2026-06-26"
+    assert stored["last_quote_trading_date"] == "2026-06-26"
     assert redis.expires[keys.subscription_key("600519.SH")] == 60
 
 

@@ -16,7 +16,7 @@ from finance_analysis.integrations.market_data.realtime_state.data_source import
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.integrations.market_data.realtime_types import RealtimeSource
-from finance_analysis.market_stream.config import market_timezone
+from finance_analysis.market_stream.config import market_trading_date, market_timezone
 from tests.market_stream.fakes import FakeRedis
 
 
@@ -54,6 +54,7 @@ def _quote(symbol: str, now: datetime, *, received_at: datetime | None = None) -
         },
         event_time=now,
         received_at=received_at or now,
+        trading_date=market_trading_date(now, "US"),
     )
     return quote
 
@@ -117,6 +118,22 @@ async def test_stale_realtime_state_returns_fallback_reason(reason, heartbeat_at
 
     assert lookup.data is None
     assert lookup.fallback_reason == reason
+
+
+@pytest.mark.asyncio
+async def test_quote_from_previous_market_date_is_not_exposed() -> None:
+    now = datetime(2026, 6, 26, 14, 0, 10, tzinfo=timezone.utc)
+    repo = RealtimeStateRepository(FakeRedis())
+    await _seed_health(repo, "AAPL.US", "US", now)
+    value = _quote("AAPL.US", now)
+    assert value.trading_date is not None
+    value.trading_date -= timedelta(days=1)
+    await repo.write_quote(value)
+
+    lookup = await RealtimeMarketDataSource(repo).get_quote_lookup("AAPL", market_type="US", now=now)
+
+    assert lookup.data is None
+    assert lookup.fallback_reason == "stale_quote_date"
 
 
 @pytest.mark.asyncio

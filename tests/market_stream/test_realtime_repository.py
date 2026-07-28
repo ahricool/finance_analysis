@@ -86,6 +86,7 @@ async def test_quote_hash_round_trip_and_ttl() -> None:
         {"last_price": Decimal("201.25"), "volume": 10, "turnover": Decimal("9.5")},
         event_time=now,
         received_at=now,
+        trading_date=now.date(),
     )
     await repo.write_quote(quote)
 
@@ -93,6 +94,7 @@ async def test_quote_hash_round_trip_and_ttl() -> None:
     assert restored is not None
     assert restored.last_price == Decimal("201.25")
     assert restored.volume == 10
+    assert restored.trading_date == now.date()
     assert await redis.ttl(keys.quote_key("AAPL.US")) == 2 * 86400
 
 
@@ -102,9 +104,9 @@ async def test_quotes_batch_load_uses_one_pipeline_and_skips_missing() -> None:
     repo = RealtimeStateRepository(redis)
     now = datetime.now(timezone.utc)
     apple = QuoteState(symbol="AAPL.US")
-    apple.merge({"last_price": "201.25"}, event_time=now, received_at=now)
+    apple.merge({"last_price": "201.25"}, event_time=now, received_at=now, trading_date=now.date())
     tesla = QuoteState(symbol="TSLA.US")
-    tesla.merge({"last_price": "350.50"}, event_time=now, received_at=now)
+    tesla.merge({"last_price": "350.50"}, event_time=now, received_at=now, trading_date=now.date())
     await repo.write_quote(apple)
     await repo.write_quote(tesla)
     before = redis.pipeline_executes
@@ -114,6 +116,32 @@ async def test_quotes_batch_load_uses_one_pipeline_and_skips_missing() -> None:
     assert set(quotes) == {"AAPL.US", "TSLA.US"}
     assert quotes["TSLA.US"].last_price == Decimal("350.50")
     assert redis.pipeline_executes == before + 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_quote_without_trading_date_is_deserialized_as_uninitialized() -> None:
+    redis = FakeRedis()
+    repo = RealtimeStateRepository(redis)
+    now = datetime.now(timezone.utc)
+    await redis.hset(
+        keys.quote_key("600519.SH"),
+        mapping={
+            "symbol": "600519.SH",
+            "last_price": "1500",
+            "open": "1490",
+            "pre_close": "1480",
+            "event_time": now.isoformat(),
+            "received_at": now.isoformat(),
+        },
+    )
+
+    restored = await repo.get_quote("600519.SH")
+
+    assert restored is not None
+    assert restored.trading_date is None
+    assert restored.last_price is None
+    assert restored.open is None
+    assert restored.pre_close is None
 
 
 @pytest.mark.asyncio

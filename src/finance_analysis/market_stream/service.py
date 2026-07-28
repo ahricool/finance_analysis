@@ -48,7 +48,21 @@ from finance_analysis.market_stream.watchlist_monitor import WatchListMonitor
 from finance_analysis.stocks.markets import MarketType
 
 logger = logging.getLogger(__name__)
-QUOTE_REFERENCE_RETRY_SECONDS = 60
+QUOTE_SNAPSHOT_RETRY_SECONDS = 60
+FULL_QUOTE_SNAPSHOT_FIELDS = ("last_price", "pre_close", "open", "high", "low")
+
+
+def _has_complete_quote_snapshot(payload: dict[str, Any]) -> bool:
+    for name in FULL_QUOTE_SNAPSHOT_FIELDS:
+        value = payload.get(name)
+        if value is None:
+            return False
+        try:
+            if name != "pre_close" and Decimal(str(value)) <= 0:
+                return False
+        except (ArithmeticError, TypeError, ValueError):
+            return False
+    return True
 
 
 @dataclass(slots=True)
@@ -92,8 +106,8 @@ class MarketStreamService:
         self.pending_bars: dict[str, dict[tuple[datetime, str], CandleState]] = {}
         self.pending_trends: dict[str, TrendState] = {}
         self.pending_patterns: dict[str, PatternState] = {}
-        self.quote_reference_dates: dict[str, date] = {}
-        self.quote_reference_attempts: dict[str, datetime] = {}
+        self.quote_snapshot_dates: dict[str, date] = {}
+        self.quote_snapshot_attempts: dict[str, datetime] = {}
         self.regular_session_closes: dict[str, dict[date, Decimal]] = {}
         self.last_event_at: datetime | None = None
         self.redis_degraded = False
@@ -135,7 +149,7 @@ class MarketStreamService:
             asyncio.create_task(self._consume_events(), name="market-stream-events"),
             asyncio.create_task(self._flush_redis(), name="market-stream-redis"),
             asyncio.create_task(self._heartbeat(), name="market-stream-heartbeat"),
-            asyncio.create_task(self._refresh_quote_references(), name="market-stream-quote-references"),
+            asyncio.create_task(self._refresh_quote_snapshots(), name="market-stream-quote-snapshots"),
         ]
         try:
             snapshot = await self.watchlist_monitor.poll()
@@ -214,11 +228,18 @@ class MarketStreamService:
             received_at = (
                 quote.received_at if event.event_type == "quote_reference" and quote.received_at else event.received_at
             )
-            if quote.merge(payload, event_time=event_time, received_at=received_at):
+            if quote.merge(
+                payload,
+                event_time=event_time,
+                received_at=received_at,
+                trading_date=quote_date,
+            ):
                 if event.event_type == "quote":
                     state.last_quote_at = event.received_at
-                if event.event_type == "quote_reference" and payload.get("pre_close") is not None:
-                    self.quote_reference_dates[event.symbol] = quote_date
+                    state.last_quote_trading_date = quote_date
+                if event.event_type == "quote_snapshot" and _has_complete_quote_snapshot(event.payload):
+                    self.quote_snapshot_dates[event.symbol] = quote_date
+                    self.quote_snapshot_attempts.pop(event.symbol, None)
                 self.pending_quotes[event.symbol] = quote
         elif event.event_type == "candle_1m":
             candle = event_to_candle(event)
@@ -615,8 +636,8 @@ class MarketStreamService:
             self.pending_bars.pop(symbol, None)
             self.pending_trends.pop(symbol, None)
             self.pending_patterns.pop(symbol, None)
-            self.quote_reference_dates.pop(symbol, None)
-            self.quote_reference_attempts.pop(symbol, None)
+            self.quote_snapshot_dates.pop(symbol, None)
+            self.quote_snapshot_attempts.pop(symbol, None)
             self.regular_session_closes.pop(symbol, None)
         try:
             await self.repository.expire_symbol_cache(
@@ -681,22 +702,21 @@ class MarketStreamService:
                 logger.warning("streamer 心跳写入失败: %s", exc)
             await asyncio.sleep(self.config.heartbeat_seconds)
 
-    async def _refresh_quote_references(self) -> None:
+    async def _refresh_quote_snapshots(self) -> None:
         interval = max(1, self.config.heartbeat_seconds)
         while not self.stop_event.is_set():
             await asyncio.sleep(interval)
             try:
-                await self._refresh_quote_references_once()
+                await self._refresh_quote_snapshots_once()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.warning("刷新跨日昨收价失败: %s", exc)
+                logger.warning("刷新跨日完整行情快照失败: %s", exc)
 
-    async def _refresh_quote_references_once(self, *, now: datetime | None = None) -> set[str]:
+    async def _refresh_quote_snapshots_once(self, *, now: datetime | None = None) -> set[str]:
         current = now or utc_now()
-        dates: dict[str, date] = {}
         stale: set[str] = set()
-        retry_after = timedelta(seconds=QUOTE_REFERENCE_RETRY_SECONDS)
+        retry_after = timedelta(seconds=QUOTE_SNAPSHOT_RETRY_SECONDS)
         for state in self.manager.symbol_states.values():
             if not state.quote_subscribed or state.status in {
                 SymbolStatus.INACTIVE,
@@ -704,29 +724,24 @@ class MarketStreamService:
             }:
                 continue
             reference_date = market_trading_date(current, state.market_type)
-            if (
-                state.last_quote_at is None
-                or market_trading_date(state.last_quote_at, state.market_type) != reference_date
-            ):
+            if state.last_quote_at is None or state.last_quote_trading_date != reference_date:
                 # Do not refresh merely because the local calendar rolled over.
-                # The first push of the new market date proves that Longbridge
-                # has started publishing that session's quote state.
+                # A successfully merged push from the new market date proves
+                # that Longbridge has started publishing that session's state.
                 continue
-            dates[state.symbol] = reference_date
-            last_attempt = self.quote_reference_attempts.get(state.symbol)
-            if self.quote_reference_dates.get(state.symbol) != reference_date and (
+            last_attempt = self.quote_snapshot_attempts.get(state.symbol)
+            if self.quote_snapshot_dates.get(state.symbol) != reference_date and (
                 last_attempt is None or current - last_attempt >= retry_after
             ):
                 stale.add(state.symbol)
         if not stale:
             return set()
         for symbol in stale:
-            self.quote_reference_attempts[symbol] = current
-        refreshed = await self.manager.refresh_quotes(stale)
-        for symbol in refreshed:
-            if symbol in dates:
-                self.quote_reference_dates[symbol] = dates[symbol]
-        return refreshed
+            self.quote_snapshot_attempts[symbol] = current
+        # A returned symbol only means Longbridge produced a snapshot event.
+        # _handle_event marks completion after a complete snapshot successfully
+        # merges into the matching trading date.
+        return await self.manager.refresh_quotes(stale, reference_only=False)
 
     async def _renew_leader_lock(self) -> None:
         interval = max(1, self.config.leader_lock_ttl_seconds // 3)

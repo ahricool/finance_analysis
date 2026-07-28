@@ -170,8 +170,9 @@ class FakeStreamingClient:
     async def subscribe(self, symbols: set[str]) -> None:
         await self._operation("subscribe", symbols)
 
-    async def refresh_quotes(self, symbols: set[str]) -> set[str]:
+    async def refresh_quotes(self, symbols: set[str], *, reference_only: bool = True) -> set[str]:
         await self._operation("refresh_quotes", symbols)
+        self.operations.append(("refresh_quotes_reference_only", reference_only))
         return set(symbols)
 
     async def unsubscribe(self, symbols: set[str]) -> None:
