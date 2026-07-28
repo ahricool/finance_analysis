@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getQuote: vi.fn(),
   listHoldings: vi.fn(),
   listWatchItems: vi.fn(),
+  useCurrentTime: vi.fn(),
   updateHolding: vi.fn(),
   updateWatchItem: vi.fn(),
 }));
@@ -39,6 +40,16 @@ vi.mock('@/composables/useRealtimeQuotes', async () => {
       getQuote: mocks.getQuote,
       status: ref('connected'),
     }),
+  };
+});
+
+vi.mock('@/composables/useCurrentTime', async () => {
+  const { ref } = await import('vue');
+  return {
+    useCurrentTime: () => {
+      mocks.useCurrentTime();
+      return ref(new Date('2026-07-03T15:00:00Z'));
+    },
   };
 });
 
@@ -151,7 +162,7 @@ const secondQuote = {
     ...quote.pattern_1m,
     signal: {
       ...quote.pattern_1m.signal,
-      direction: 'bearish_to_bullish' as const,
+      direction: 'bearish_continuation' as const,
       quality_score: 72,
     },
   },
@@ -240,8 +251,24 @@ describe('stock table details', () => {
     const page = await mountPage(component, path);
     expect(page.text()).toContain('最近形态');
     expect(page.text()).toContain('多转空确认');
-    expect(page.text()).toContain('假突破前高回收 · 2分钟前');
+    expect(page.text()).toContain('已确认 · 84分 · 2分钟前');
+    expect(page.text()).toContain('失效：12.30');
     expect(page.findComponent({ name: 'PatternStatus' }).exists()).toBe(true);
+  });
+
+  it.each([
+    [WatchListPage, '/market/watch-list'],
+    [StockListPage, '/market/holdings'],
+  ] as const)('shows the shared sortable 0DTE status column', async (component, path) => {
+    const page = await mountPage(component, path);
+    expect(page.text()).toContain('0DTE状态');
+    expect(page.text()).toContain('震荡等待');
+    expect(page.findComponent({ name: 'ZeroDteStatus' }).exists()).toBe(true);
+    expect(mocks.useCurrentTime).toHaveBeenCalledTimes(1);
+
+    const header = page.findAll('thead button').find((button) => button.text().includes('0DTE状态'))!;
+    await header.trigger('click');
+    expect(header.element.closest('th')?.getAttribute('aria-sort')).toBe('ascending');
   });
 
   it('handles old websocket quotes without trend data', async () => {
@@ -252,8 +279,8 @@ describe('stock table details', () => {
   });
 
   it.each([
-    [WatchListPage, '/market/watch-list', '10'],
-    [StockListPage, '/market/holdings', '12'],
+    [WatchListPage, '/market/watch-list', '11'],
+    [StockListPage, '/market/holdings', '13'],
   ] as const)('keeps filtered empty-row colspan aligned', async (component, path, colspan) => {
     const page = await mountPage(component, path);
     await page.find('select').setValue('CN');
@@ -261,8 +288,8 @@ describe('stock table details', () => {
   });
 
   it.each([
-    [WatchListPage, '/market/watch-list', ['关注', '代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续', '最近形态']],
-    [StockListPage, '/market/holdings', ['代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续', '最近形态', '持仓数量', '平均成本', '持仓成本金额']],
+    [WatchListPage, '/market/watch-list', ['关注', '代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续', '最近形态', '0DTE状态']],
+    [StockListPage, '/market/holdings', ['代码', '名称', '市场', '最新价', '今日涨跌额', '今日涨跌幅', '趋势持续', '最近形态', '0DTE状态', '持仓数量', '平均成本', '持仓成本金额']],
   ] as const)('keeps daily movement separate and makes every non-action column sortable', async (component, path, labels) => {
     const page = await mountPage(component, path);
     const headers = page.findAll('thead th');
@@ -313,6 +340,10 @@ describe('stock table details', () => {
     const pattern = page.findAll('thead button').find((button) => button.text().includes('最近形态'))!;
     await pattern.trigger('click');
     expect(page.get('tbody tr[tabindex="0"]').text()).toContain('MSFT');
+
+    const zeroDte = page.findAll('thead button').find((button) => button.text().includes('0DTE状态'))!;
+    await zeroDte.trigger('click');
+    expect(page.get('tbody tr[tabindex="0"]').text()).toContain('MSFT');
   });
 
   it('opens holding details with calculated market value and profit fields', async () => {
@@ -336,5 +367,24 @@ describe('stock table details', () => {
 
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
     expect(document.body.textContent).toContain('编辑持仓股');
+  });
+
+  it.each([
+    [WatchListPage, '/market/watch-list', '删除自选股'],
+    [StockListPage, '/market/holdings', '删除持仓股'],
+  ] as const)('keeps the delete action isolated from row navigation', async (component, path, title) => {
+    const page = await mountPage(component, path);
+    await page.get('button[aria-label="删除"]').trigger('click');
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.textContent).toContain(title);
+  });
+
+  it('keeps the favorite action working without opening row details', async () => {
+    mocks.updateWatchItem.mockResolvedValue({ ...watchItem, is_favorite: false });
+    const page = await mountPage(WatchListPage, '/market/watch-list');
+    await page.get('button[aria-label="取消特别关注"]').trigger('click');
+    await flushPromises();
+    expect(mocks.updateWatchItem).toHaveBeenCalledWith(watchItem.id, { is_favorite: false });
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 });

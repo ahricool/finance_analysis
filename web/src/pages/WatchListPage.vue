@@ -10,10 +10,13 @@ import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import TrendStatus from '@/components/stocks/TrendStatus.vue';
+import ZeroDteStatus from '@/components/stocks/ZeroDteStatus.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
+import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import { looksLikeStockCode } from '@/utils/validation';
+import { calculateZeroDteStatus, zeroDteStatusSortValue } from '@/utils/zeroDteStatus';
 import { Eye, Heart, Pencil, Plus, Star, Trash2, X } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 
@@ -28,7 +31,8 @@ type WatchListSortKey =
   | 'change_amount'
   | 'change_pct'
   | 'trend'
-  | 'pattern';
+  | 'pattern'
+  | 'zero_dte';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const items = ref<WatchListItem[]>([]);
@@ -53,6 +57,7 @@ const deletingCode = ref('');
 const togglingFavoriteId = ref<number | null>(null);
 const detailItem = ref<WatchListItem | null>(null);
 const { status: realtimeStatus, getQuote } = useRealtimeQuotes();
+const currentTime = useCurrentTime();
 
 const marketOptions: { value: MarketType; label: string }[] = [
   { value: 'CN', label: 'A股' },
@@ -113,6 +118,9 @@ function sortValue(item: WatchListItem, key: WatchListSortKey): string | number 
   if (key === 'change_pct') return quote?.change_pct;
   if (key === 'trend') return trendSortValue(quote?.trend_1m);
   if (key === 'pattern') return patternSortValue(quote?.pattern_1m);
+  if (key === 'zero_dte') {
+    return zeroDteStatusSortValue(calculateZeroDteStatus(quote, item.market_type, currentTime.value));
+  }
   return item[key];
 }
 
@@ -388,7 +396,7 @@ onMounted(loadList);
 
       <!-- Table -->
       <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-        <table class="w-full min-w-[1270px] table-fixed text-left text-sm">
+        <table class="w-full min-w-[1420px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[78px]" />
             <col class="w-[120px]" />
@@ -398,7 +406,8 @@ onMounted(loadList);
             <col class="w-[120px]" />
             <col class="w-[110px]" />
             <col class="w-[120px]" />
-            <col class="w-[190px]" />
+            <col class="w-[210px]" />
+            <col class="w-[140px]" />
             <col class="w-[152px]" />
           </colgroup>
           <thead class="border-b border-border/70 text-xs text-muted-text">
@@ -412,12 +421,13 @@ onMounted(loadList);
               <SortableTableHeader label="今日涨跌幅" align="right" :active="sortKey === 'change_pct'" :direction="sortDirection" @sort="toggleSort('change_pct')" />
               <SortableTableHeader label="趋势持续" :active="sortKey === 'trend'" :direction="sortDirection" @sort="toggleSort('trend')" />
               <SortableTableHeader label="最近形态" :active="sortKey === 'pattern'" :direction="sortDirection" @sort="toggleSort('pattern')" />
+              <SortableTableHeader label="0DTE状态" :active="sortKey === 'zero_dte'" :direction="sortDirection" @sort="toggleSort('zero_dte')" />
               <th class="whitespace-nowrap px-4 py-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!visibleItems.length">
-              <td colspan="10" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无自选股</td>
+              <td colspan="11" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无自选股</td>
             </tr>
             <template v-else>
               <tr
@@ -473,7 +483,14 @@ onMounted(loadList);
                   <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
                 </td>
                 <td class="px-4 py-3">
-                  <PatternStatus :pattern="getQuote(item.code, item.market_type)?.pattern_1m" />
+                  <PatternStatus :pattern="getQuote(item.code, item.market_type)?.pattern_1m" :now="currentTime" />
+                </td>
+                <td class="px-4 py-3">
+                  <ZeroDteStatus
+                    :quote="getQuote(item.code, item.market_type)"
+                    :market-type="item.market_type"
+                    :now="currentTime"
+                  />
                 </td>
                 <td class="px-4 py-3 text-right">
                   <div class="flex justify-end gap-1">

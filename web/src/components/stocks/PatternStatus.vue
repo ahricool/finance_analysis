@@ -6,11 +6,12 @@ import type {
   RealtimePatternState,
 } from '@/api/realtimeMarket';
 import Tooltip from '@/components/common/Tooltip.vue';
-import { formatDateTimeInDisplayTimezone } from '@/utils/format';
+import { formatDateTimeInDisplayTimezone, getDisplayTimezone } from '@/utils/format';
 import { computed } from 'vue';
 
 const props = defineProps<{
   pattern?: RealtimePatternState | null;
+  now?: Date;
 }>();
 
 const signal = computed<RealtimePatternSignal | null>(() => (
@@ -29,8 +30,8 @@ const directionMeaning: Record<PatternDirection, string> = {
 
 const stageText: Record<PatternStage, string> = {
   forming: '形成中',
-  warning: '预警',
-  confirmed: '确认',
+  warning: '观察',
+  confirmed: '已确认',
 };
 
 function primaryLabel(value: RealtimePatternSignal): string {
@@ -46,11 +47,49 @@ function primaryLabel(value: RealtimePatternSignal): string {
   return labels[value.direction][value.stage];
 }
 
+function timezoneParts(date: Date): Record<string, string> {
+  return Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: getDisplayTimezone(),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date).map((part) => [part.type, part.value]));
+}
+
+function dateKey(parts: Record<string, string>): string {
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function previousDateKey(parts: Record<string, string>): string {
+  const date = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) - 1));
+  return date.toISOString().slice(0, 10);
+}
+
+function eventTime(value: RealtimePatternSignal): Date | null {
+  const raw = value.stage === 'confirmed' && value.confirmed_at ? value.confirmed_at : value.occurred_at;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function ageText(value: RealtimePatternSignal): string {
-  if (value.stage === 'forming' && value.direction === 'neutral_wait') return '持续中';
-  if (value.bars_ago === 0) return '刚刚';
-  if (value.bars_ago === 1) return '1分钟前';
-  return `${value.bars_ago}分钟前`;
+  const event = eventTime(value);
+  if (!event) return '时间未知';
+
+  const current = props.now ?? new Date();
+  const elapsedMinutes = Math.max(0, (current.getTime() - event.getTime()) / 60_000);
+  if (elapsedMinutes < 1) return '刚刚';
+  if (elapsedMinutes < 60) return `${Math.floor(elapsedMinutes)}分钟前`;
+  if (elapsedMinutes < 24 * 60) return `${Math.floor(elapsedMinutes / 60)}小时前`;
+
+  const currentParts = timezoneParts(current);
+  const eventParts = timezoneParts(event);
+  const time = `${eventParts.hour}:${eventParts.minute}`;
+  if (dateKey(eventParts) === dateKey(currentParts)) return `今日 ${time}`;
+  if (dateKey(eventParts) === previousDateKey(currentParts)) return `昨日 ${time}`;
+  return `${eventParts.month}-${eventParts.day} ${time}`;
 }
 
 const title = computed(() => {
@@ -59,9 +98,13 @@ const title = computed(() => {
   return primaryLabel(signal.value);
 });
 
-const detail = computed(() => (
-  signal.value ? `${signal.value.pattern_name} · ${ageText(signal.value)}` : ''
-));
+const detail = computed(() => signal.value
+  ? `${stageText[signal.value.stage]} · ${signal.value.quality_score}分 · ${ageText(signal.value)}`
+  : '');
+
+const invalidationText = computed(() => finite(signal.value?.invalidation_price)
+  ? `失效：${signal.value.invalidation_price.toFixed(2)}`
+  : '');
 
 const colorClass = computed(() => {
   const value = signal.value;
@@ -112,10 +155,22 @@ const tooltip = computed(() => {
     content-class="whitespace-pre-line"
     focusable
   >
-    <span class="flex min-w-0 flex-col gap-0.5 text-xs" :class="colorClass">
+    <span
+      class="flex min-w-0 flex-col gap-0.5 text-xs leading-tight"
+      :class="colorClass"
+    >
       <span class="whitespace-nowrap font-semibold">{{ title }}</span>
-      <span v-if="detail" class="max-w-[180px] truncate whitespace-nowrap text-[11px] text-secondary-text">
+      <span
+        v-if="detail"
+        class="whitespace-nowrap text-[11px] text-secondary-text"
+      >
         {{ detail }}
+      </span>
+      <span
+        v-if="invalidationText"
+        class="whitespace-nowrap text-[11px] text-muted-text"
+      >
+        {{ invalidationText }}
       </span>
     </span>
   </Tooltip>
