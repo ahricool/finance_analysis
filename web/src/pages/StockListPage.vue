@@ -10,7 +10,9 @@ import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import TrendStatus from '@/components/stocks/TrendStatus.vue';
+import ZeroDteStatus from '@/components/stocks/ZeroDteStatus.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
+import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import {
@@ -21,6 +23,7 @@ import {
   parseDecimalInput,
 } from '@/utils/marketCurrency';
 import { looksLikeStockCode } from '@/utils/validation';
+import { calculateZeroDteStatus, zeroDteStatusSortValue } from '@/utils/zeroDteStatus';
 import { Briefcase, Pencil, Plus, Trash2, X } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -36,6 +39,7 @@ type StockListSortKey =
   | 'change_pct'
   | 'trend'
   | 'pattern'
+  | 'zero_dte'
   | 'quantity'
   | 'avg_cost'
   | 'cost_amount';
@@ -73,6 +77,7 @@ const deletingId = ref<number | null>(null);
 const deletingCode = ref('');
 const detailItem = ref<StockHolding | null>(null);
 const { status: realtimeStatus, getQuote } = useRealtimeQuotes();
+const currentTime = useCurrentTime();
 
 const marketOptions: { value: MarketType; label: string }[] = [
   { value: 'CN', label: 'A股' },
@@ -134,6 +139,9 @@ function sortValue(item: StockHolding, key: StockListSortKey): string | number |
   if (key === 'change_pct') return quote?.change_pct;
   if (key === 'trend') return trendSortValue(quote?.trend_1m);
   if (key === 'pattern') return patternSortValue(quote?.pattern_1m);
+  if (key === 'zero_dte') {
+    return zeroDteStatusSortValue(calculateZeroDteStatus(quote, item.market_type, currentTime.value));
+  }
   if (key === 'cost_amount') {
     return item.avg_cost ? Number(item.quantity) * Number(item.avg_cost) : null;
   }
@@ -463,7 +471,7 @@ onMounted(async () => {
 
       <!-- Table -->
       <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
-        <table class="w-full min-w-[1530px] table-fixed text-left text-sm">
+        <table class="w-full min-w-[1690px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[120px]" />
             <col class="w-[160px]" />
@@ -472,7 +480,8 @@ onMounted(async () => {
             <col class="w-[120px]" />
             <col class="w-[110px]" />
             <col class="w-[120px]" />
-            <col class="w-[190px]" />
+            <col class="w-[210px]" />
+            <col class="w-[140px]" />
             <col class="w-[130px]" />
             <col class="w-[130px]" />
             <col class="w-[145px]" />
@@ -488,6 +497,7 @@ onMounted(async () => {
               <SortableTableHeader label="今日涨跌幅" align="right" :active="sortKey === 'change_pct'" :direction="sortDirection" @sort="toggleSort('change_pct')" />
               <SortableTableHeader label="趋势持续" :active="sortKey === 'trend'" :direction="sortDirection" @sort="toggleSort('trend')" />
               <SortableTableHeader label="最近形态" :active="sortKey === 'pattern'" :direction="sortDirection" @sort="toggleSort('pattern')" />
+              <SortableTableHeader label="0DTE状态" :active="sortKey === 'zero_dte'" :direction="sortDirection" @sort="toggleSort('zero_dte')" />
               <SortableTableHeader label="持仓数量" align="right" :active="sortKey === 'quantity'" :direction="sortDirection" @sort="toggleSort('quantity')" />
               <SortableTableHeader label="平均成本" align="right" :active="sortKey === 'avg_cost'" :direction="sortDirection" @sort="toggleSort('avg_cost')" />
               <SortableTableHeader label="持仓成本金额" align="right" :active="sortKey === 'cost_amount'" :direction="sortDirection" @sort="toggleSort('cost_amount')" />
@@ -496,7 +506,7 @@ onMounted(async () => {
           </thead>
           <tbody>
             <tr v-if="!visibleItems.length">
-              <td colspan="12" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无持仓股</td>
+              <td colspan="13" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无持仓股</td>
             </tr>
             <template v-else>
               <tr
@@ -535,7 +545,14 @@ onMounted(async () => {
                   <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
                 </td>
                 <td class="px-4 py-3">
-                  <PatternStatus :pattern="getQuote(item.code, item.market_type)?.pattern_1m" />
+                  <PatternStatus :pattern="getQuote(item.code, item.market_type)?.pattern_1m" :now="currentTime" />
+                </td>
+                <td class="px-4 py-3">
+                  <ZeroDteStatus
+                    :quote="getQuote(item.code, item.market_type)"
+                    :market-type="item.market_type"
+                    :now="currentTime"
+                  />
                 </td>
                 <td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-foreground">
                   {{ formatDecimalText(item.quantity) }} 股
