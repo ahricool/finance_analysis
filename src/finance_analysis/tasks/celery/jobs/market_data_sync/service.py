@@ -136,7 +136,14 @@ class MarketDataSyncService:
         """Return the public shared scope, including calculation dependencies."""
         scope = self.scope_resolver.resolve(self.market)
         self.unsupported_symbols = list(scope.unsupported_symbols)
-        records = [*scope.watchlist_records, *self.scope_resolver.dependency_records(self.market)]
+        # A watched benchmark remains a watchlist symbol, so let the watchlist
+        # record win while still inserting each canonical code only once.
+        records_by_code = {
+            record["code"]: record
+            for record in self.scope_resolver.dependency_records(self.market)
+        }
+        records_by_code.update({record["code"]: record for record in scope.watchlist_records})
+        records = [records_by_code[code] for code in sorted(records_by_code)]
         if records:
             self.symbol_repository.upsert_symbols(records, overwrite_runtime_flags=False)
         return self.symbol_repository.list_enabled_daily_by_codes(
