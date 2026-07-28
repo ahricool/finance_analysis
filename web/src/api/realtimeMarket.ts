@@ -73,6 +73,7 @@ export interface RealtimeQuote {
   market_type: MarketType;
   symbol: string;
   available: boolean;
+  trading_date?: string | null;
   last_price?: number | null;
   change_amount?: number | null;
   change_pct?: number | null;

@@ -37,6 +37,24 @@ def _candle_json(candle: CandleState) -> str:
     return json.dumps(_mapping(candle), ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
+def _parse_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_date(value: Any) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
 class RealtimeStateRepository:
     """The only owner of realtime Redis keys and serialization rules."""
 
@@ -154,14 +172,24 @@ class RealtimeStateRepository:
     @staticmethod
     def _quote_from_mapping(symbol: str, raw: Mapping[str, Any]) -> QuoteState:
         quote = QuoteState(symbol=str(raw.get("symbol") or symbol))
+        trading_date = _parse_date(raw.get("trading_date"))
+        if trading_date is None:
+            # Quotes written before trading_date existed cannot be assigned to
+            # the current session safely. Deserialize them as uninitialized so
+            # readers wait for the streamer's full snapshot instead of exposing
+            # stale OHLC/reference fields.
+            quote.event_time = _parse_datetime(raw.get("event_time"))
+            quote.received_at = _parse_datetime(raw.get("received_at"))
+            return quote
         quote.merge(
             {
                 key: value
                 for key, value in raw.items()
-                if key not in {"symbol", "event_time", "received_at"} and value != ""
+                if key not in {"symbol", "trading_date", "event_time", "received_at"} and value != ""
             },
-            event_time=datetime.fromisoformat(str(raw["event_time"]).replace("Z", "+00:00")),
-            received_at=datetime.fromisoformat(str(raw["received_at"]).replace("Z", "+00:00")),
+            event_time=_parse_datetime(raw.get("event_time")),
+            received_at=_parse_datetime(raw.get("received_at")),
+            trading_date=trading_date,
         )
         return quote
 

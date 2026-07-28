@@ -114,6 +114,24 @@ async def test_daily_refresh_only_emits_reference_price() -> None:
 
 
 @pytest.mark.asyncio
+async def test_daily_full_refresh_emits_complete_quote_snapshot() -> None:
+    context = FakeQuoteContext()
+    events = []
+    client = LongbridgeStreamingClient()
+    client.context = context
+    client.generation = 8
+    client.event_sink = events.append
+
+    assert await client.refresh_quotes({"AAPL.US"}, reference_only=False) == {"AAPL.US"}
+
+    assert len(events) == 1
+    assert events[0].event_type == "quote_snapshot"
+    assert events[0].payload["last_price"] == "102.50"
+    assert events[0].payload["pre_close"] == "100.00"
+    assert events[0].payload["open"] == "101.00"
+
+
+@pytest.mark.asyncio
 async def test_snapshot_failure_does_not_block_realtime_subscription(caplog) -> None:
     context = FakeQuoteContext(snapshot_error=RuntimeError("snapshot unavailable"))
     client = LongbridgeStreamingClient()

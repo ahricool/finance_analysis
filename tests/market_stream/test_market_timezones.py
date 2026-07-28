@@ -15,7 +15,7 @@ from finance_analysis.market_stream.config import (
 from finance_analysis.market_stream.config import MarketStreamConfig
 from finance_analysis.market_stream.service import MarketStreamService
 from finance_analysis.market_stream.symbol_state import SymbolRuntimeState, SymbolStatus
-from finance_analysis.market_stream.warmup import LongbridgeHistoryLoader
+from finance_analysis.market_stream.warmup import LongbridgeHistoryLoader, _history_bar_is_confirmed
 from tests.market_stream.fakes import FakeRedis, FakeStreamingClient
 
 
@@ -97,6 +97,25 @@ def test_cn_and_hk_lunch_recess_use_last_morning_completed_minute() -> None:
     assert hk_latest is not None and hk_latest.astimezone(market_timezone("HK")).strftime("%H:%M") == "11:59"
 
 
+def test_previous_session_history_is_confirmed_before_cn_market_opens() -> None:
+    received_at = datetime(2026, 6, 26, 0, 30, tzinfo=timezone.utc)
+    previous_close = datetime(2026, 6, 25, 6, 59, tzinfo=timezone.utc)
+    same_day_future_bar = datetime(2026, 6, 26, 1, 30, tzinfo=timezone.utc)
+
+    assert _history_bar_is_confirmed(
+        previous_close,
+        received_at=received_at,
+        market_type="CN",
+        expected_completed=None,
+    )
+    assert not _history_bar_is_confirmed(
+        same_day_future_bar,
+        received_at=received_at,
+        market_type="CN",
+        expected_completed=None,
+    )
+
+
 def test_cn_and_hk_lunch_are_not_treated_as_cache_gaps() -> None:
     service = app()
     cn_now = datetime(2026, 6, 26, 12, 30, tzinfo=market_timezone("CN"))
@@ -126,7 +145,7 @@ def test_market_local_cross_day_clears_old_in_memory_bars() -> None:
 
 
 @pytest.mark.asyncio
-async def test_history_loader_filters_by_target_market_latest_trading_date() -> None:
+async def test_history_loader_preserves_multiple_market_trading_dates() -> None:
     class Fetcher:
         def get_minute_candlesticks(self, symbol, interval, count, include_extended):
             return [
@@ -153,6 +172,9 @@ async def test_history_loader_filters_by_target_market_latest_trading_date() -> 
             ]
 
     bars = await LongbridgeHistoryLoader(Fetcher()).fetch("600519.SH", "CN", 420)
-    assert len(bars) == 1
-    assert market_trading_date(bars[0].bar_time, "CN").isoformat() == "2026-06-26"
-    assert bars[0].bar_time.tzinfo is not None
+    assert len(bars) == 2
+    assert [market_trading_date(bar.bar_time, "CN").isoformat() for bar in bars] == [
+        "2026-06-25",
+        "2026-06-26",
+    ]
+    assert all(bar.bar_time.tzinfo is not None for bar in bars)

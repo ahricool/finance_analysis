@@ -107,8 +107,8 @@ class SubscriptionManager:
     async def reconnect(self) -> None:
         await self._request("reconnect")
 
-    async def refresh_quotes(self, symbols: set[str]) -> set[str]:
-        return set(await self._request("refresh_quotes", set(symbols)))
+    async def refresh_quotes(self, symbols: set[str], *, reference_only: bool = True) -> set[str]:
+        return set(await self._request("refresh_quotes", (set(symbols), reference_only)))
 
     async def bars_updated(self, symbol: str, count: int, *, symbol_generation: int) -> None:
         await self._request("bars_updated", (symbol, count), symbol_generation=symbol_generation)
@@ -158,7 +158,8 @@ class SubscriptionManager:
                 elif command.action == "health":
                     result = await self._health()
                 elif command.action == "refresh_quotes":
-                    result = await self._refresh_quotes(command.payload)
+                    symbols, reference_only = command.payload
+                    result = await self._refresh_quotes(symbols, reference_only=reference_only)
                 elif command.action == "bars_updated":
                     result = await self._bars_updated(command)
                 elif command.action == "stop":
@@ -279,7 +280,7 @@ class SubscriptionManager:
             await self._add_target(self.desired_targets[symbol])
         return bool(to_add or to_remove)
 
-    async def _refresh_quotes(self, symbols: set[str]) -> set[str]:
+    async def _refresh_quotes(self, symbols: set[str], *, reference_only: bool) -> set[str]:
         if self.client is None:
             return set()
         eligible = {
@@ -292,7 +293,7 @@ class SubscriptionManager:
         }
         if not eligible:
             return set()
-        return set(await self.client.refresh_quotes(eligible))
+        return set(await self.client.refresh_quotes(eligible, reference_only=reference_only))
 
     async def _add_target(self, target: SubscriptionTarget) -> None:
         symbol = target.symbol

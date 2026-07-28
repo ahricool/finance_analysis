@@ -31,6 +31,20 @@ def _parse_time(value: Any) -> datetime:
     return longbridge_datetime_to_utc(parsed, datetime.fromtimestamp(parsed.timestamp(), tz=timezone.utc))
 
 
+def _history_bar_is_confirmed(
+    bar_time: datetime,
+    *,
+    received_at: datetime,
+    market_type: MarketType,
+    expected_completed: datetime | None,
+) -> bool:
+    bar_date = market_trading_date(bar_time, market_type)
+    received_date = market_trading_date(received_at, market_type)
+    if bar_date < received_date:
+        return True
+    return bar_date == received_date and expected_completed is not None and bar_time <= expected_completed
+
+
 class LongbridgeHistoryLoader:
     def __init__(self, fetcher: LongbridgeFetcher | None = None) -> None:
         self.fetcher = fetcher or LongbridgeFetcher()
@@ -59,17 +73,19 @@ class LongbridgeHistoryLoader:
                     volume=int(item.get("volume") or 0),
                     turnover=Decimal(str(item["turnover"])) if item.get("turnover") is not None else None,
                     trade_session=str(item.get("trade_session") or "") or None,
-                    confirmed=expected_completed is not None and bar_time <= expected_completed,
+                    confirmed=_history_bar_is_confirmed(
+                        bar_time,
+                        received_at=received_at,
+                        market_type=market_type,
+                        expected_completed=expected_completed,
+                    ),
                     received_at=received_at,
                 )
                 if bar.is_valid():
                     bars.append(bar)
             except (KeyError, TypeError, ValueError, ArithmeticError):
                 continue
-        if not bars:
-            return []
-        latest_session = max(market_trading_date(bar.bar_time, market_type) for bar in bars)
-        return [bar for bar in bars if market_trading_date(bar.bar_time, market_type) == latest_session]
+        return sorted(bars, key=lambda item: (item.bar_time, item.trade_session or ""))
 
 
 def merge_warmup_bars(

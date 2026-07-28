@@ -141,6 +141,7 @@ def _quote_payload(
 ) -> dict[str, Any]:
     try:
         display_date = _display_trading_date(stock.market_type, now)
+        quote_is_current = quote is not None and quote.trading_date == display_date
         trend_is_current = trend is not None and trend.trading_date == display_date
         if trend_is_current and trend is not None and trend.bar_time is not None:
             trend_is_current = (
@@ -151,8 +152,9 @@ def _quote_payload(
         if trend_is_current and trend is not None and trend.state != "insufficient":
             trend_is_current = trend.confirmed and trend.bar_time is not None
     except Exception as exc:
-        logger.warning("趋势交易日校验失败: symbol=%s error=%s", stock.symbol, exc)
+        logger.warning("行情交易日校验失败: symbol=%s error=%s", stock.symbol, exc)
         display_date = None
+        quote_is_current = False
         trend_is_current = False
     if not trend_is_current:
         trend = TrendState(symbol=stock.symbol, trading_date=display_date)
@@ -181,9 +183,19 @@ def _quote_payload(
             status="insufficient" if original_pattern is None else "none",
             trading_date=display_date,
         )
+    if not quote_is_current:
+        if quote is not None:
+            logger.debug(
+                "忽略非展示交易日行情: symbol=%s quote_date=%s display_date=%s",
+                stock.symbol,
+                quote.trading_date,
+                display_date,
+            )
+        quote = None
     base: dict[str, Any] = {
         **asdict(stock),
         "available": quote is not None,
+        "trading_date": quote.trading_date.isoformat() if quote is not None else None,
         "trend_1m": _trend_payload(trend),
         "pattern_1m": _pattern_payload(pattern),
     }

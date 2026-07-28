@@ -15,6 +15,7 @@ from finance_analysis.market_stream.service import MarketStreamService, WarmupRe
 from finance_analysis.market_stream.subscription_manager import SubscriptionCommand, WarmupTaskKey
 from finance_analysis.market_stream.symbol_state import SubscriptionTarget, SymbolRuntimeState, SymbolStatus
 from finance_analysis.market_stream.warmup import merge_warmup_bars
+from finance_analysis.stocks.markets import MarketType
 from tests.market_stream.fakes import FakeRedis, FakeStreamingClient
 
 BASE = datetime(2026, 6, 26, 13, 30, tzinfo=timezone.utc)
@@ -74,6 +75,7 @@ def quote_event(
     *,
     received_at: datetime | None = None,
     pre_close: str | None = None,
+    symbol: str = "AAPL.US",
 ) -> MarketEvent:
     received_at = received_at or BASE + timedelta(seconds=sequence)
     payload = {"last_price": price, "sequence": sequence, "trade_session": "Intraday"}
@@ -81,12 +83,46 @@ def quote_event(
         payload["pre_close"] = pre_close
     return MarketEvent(
         "quote",
-        "AAPL.US",
+        symbol,
         received_at,
         received_at,
         sequence,
         "Intraday",
         payload,
+        connection_generation,
+    )
+
+
+def quote_snapshot_event(
+    *,
+    symbol: str = "AAPL.US",
+    received_at: datetime = BASE,
+    connection_generation: int = 2,
+    sequence: int = 1,
+    last_price: str = "101",
+    pre_close: str = "100",
+    open_price: str = "100.5",
+    high: str = "102",
+    low: str = "99.5",
+) -> MarketEvent:
+    return MarketEvent(
+        "quote_snapshot",
+        symbol,
+        received_at,
+        received_at,
+        sequence,
+        "Intraday",
+        {
+            "last_price": last_price,
+            "pre_close": pre_close,
+            "open": open_price,
+            "high": high,
+            "low": low,
+            "volume": 100,
+            "turnover": "10100",
+            "sequence": sequence,
+            "trade_session": "Intraday",
+        },
         connection_generation,
     )
 
@@ -115,8 +151,15 @@ def service(redis: FakeRedis | None = None, repository=None) -> MarketStreamServ
     )
 
 
-def set_warming(app: MarketStreamService, *, generation: int = 3, connection: int = 2) -> SymbolRuntimeState:
-    target = SubscriptionTarget("AAPL.US", "US")
+def set_warming(
+    app: MarketStreamService,
+    *,
+    generation: int = 3,
+    connection: int = 2,
+    symbol: str = "AAPL.US",
+    market_type: MarketType = "US",
+) -> SymbolRuntimeState:
+    target = SubscriptionTarget(symbol, market_type)
     state = SymbolRuntimeState(
         symbol=target.symbol,
         market_type=target.market_type,
@@ -136,11 +179,13 @@ def test_quote_partial_merge_stale_sequence_and_timestamps() -> None:
         {"last_price": "100", "open": "98", "volume": 10, "sequence": 2},
         event_time=BASE,
         received_at=BASE,
+        trading_date=date(2026, 6, 26),
     )
     assert quote.merge(
         {"last_price": "101", "sequence": 3},
         event_time=BASE + timedelta(seconds=1),
         received_at=BASE + timedelta(seconds=2),
+        trading_date=date(2026, 6, 26),
     )
     assert quote.open == Decimal("98")
     assert quote.volume == 10
@@ -148,8 +193,127 @@ def test_quote_partial_merge_stale_sequence_and_timestamps() -> None:
         {"last_price": "1", "sequence": 1},
         event_time=BASE,
         received_at=BASE,
+        trading_date=date(2026, 6, 26),
     )
     assert quote.last_price == Decimal("101")
+
+
+@pytest.mark.asyncio
+async def test_cross_day_partial_quote_clears_previous_ohlc_before_full_snapshot() -> None:
+    app = service()
+    state = set_warming(app, symbol="600519.SH", market_type="CN")
+    state.status = SymbolStatus.ACTIVE
+    day_one = datetime(2026, 6, 25, 1, 30, tzinfo=timezone.utc)
+    day_two = datetime(2026, 6, 26, 1, 30, tzinfo=timezone.utc)
+
+    await app._handle_event(
+        quote_snapshot_event(
+            symbol="600519.SH",
+            received_at=day_one,
+            sequence=100,
+            last_price="105",
+            pre_close="99",
+            open_price="100",
+            high="106",
+            low="98",
+        )
+    )
+    await app._handle_event(quote_event("101", 1, 2, received_at=day_two, symbol="600519.SH"))
+
+    quote = app.quotes["600519.SH"]
+    assert quote.trading_date == date(2026, 6, 26)
+    assert quote.last_price == Decimal("101")
+    assert quote.open is None
+    assert quote.high is None
+    assert quote.low is None
+    assert quote.pre_close is None
+
+    await app._handle_event(
+        quote_snapshot_event(
+            symbol="600519.SH",
+            received_at=day_two,
+            sequence=2,
+            last_price="102",
+            pre_close="105",
+            open_price="101",
+            high="103",
+            low="100.5",
+        )
+    )
+
+    assert quote.open == Decimal("101")
+    assert quote.high == Decimal("103")
+    assert quote.low == Decimal("100.5")
+    assert quote.pre_close == Decimal("105")
+    assert quote.last_price - quote.pre_close == Decimal("-3")
+    assert app.quote_snapshot_dates["600519.SH"] == date(2026, 6, 26)
+
+
+@pytest.mark.asyncio
+async def test_delayed_previous_day_quote_cannot_roll_back_current_state() -> None:
+    app = service()
+    activate(app)
+    day_one = datetime(2026, 6, 26, 13, 30, tzinfo=timezone.utc)
+    day_two = datetime(2026, 6, 29, 13, 30, tzinfo=timezone.utc)
+    await app._handle_event(quote_snapshot_event(received_at=day_two, sequence=2))
+
+    await app._handle_event(quote_event("1", 999, 2, received_at=day_one))
+
+    quote = app.quotes["AAPL.US"]
+    assert quote.trading_date == date(2026, 6, 29)
+    assert quote.last_price == Decimal("101")
+    assert quote.sequence == 2
+
+
+@pytest.mark.asyncio
+async def test_cn_lunch_reconnect_style_quote_keeps_same_day_open() -> None:
+    app = service()
+    state = set_warming(app, symbol="600519.SH", market_type="CN")
+    state.status = SymbolStatus.ACTIVE
+    morning = datetime(2026, 6, 26, 2, 0, tzinfo=timezone.utc)
+    afternoon = datetime(2026, 6, 26, 5, 0, tzinfo=timezone.utc)
+    await app._handle_event(
+        quote_snapshot_event(
+            symbol="600519.SH",
+            received_at=morning,
+            open_price="1500",
+            last_price="1510",
+            pre_close="1490",
+            high="1520",
+            low="1488",
+        )
+    )
+
+    await app._handle_event(quote_event("1515", 2, 2, received_at=afternoon, symbol="600519.SH"))
+
+    quote = app.quotes["600519.SH"]
+    assert quote.trading_date == date(2026, 6, 26)
+    assert quote.open == Decimal("1500")
+    assert quote.last_price == Decimal("1515")
+
+
+@pytest.mark.asyncio
+async def test_us_utc_date_change_does_not_reset_same_local_trading_date() -> None:
+    app = service()
+    activate(app)
+    before_utc_midnight = datetime(2026, 7, 1, 23, 30, tzinfo=timezone.utc)
+    after_utc_midnight = datetime(2026, 7, 2, 1, 0, tzinfo=timezone.utc)
+    await app._handle_event(
+        quote_snapshot_event(
+            received_at=before_utc_midnight,
+            open_price="200",
+            last_price="202",
+            pre_close="199",
+            high="203",
+            low="198",
+        )
+    )
+
+    await app._handle_event(quote_event("201", 2, 2, received_at=after_utc_midnight))
+
+    quote = app.quotes["AAPL.US"]
+    assert quote.trading_date == date(2026, 7, 1)
+    assert quote.open == Decimal("200")
 
 
 def test_warmup_merge_deduplicates_confirmed_history_and_latest_current() -> None:
@@ -492,28 +656,130 @@ async def test_remembered_close_repairs_quote_that_arrived_before_warmup() -> No
 
 
 @pytest.mark.asyncio
-async def test_quote_reference_is_refreshed_when_market_date_changes() -> None:
+async def test_full_quote_snapshot_is_refreshed_and_marked_after_merge_each_market_date() -> None:
     app = service()
     state = set_warming(app)
     state.status = SymbolStatus.ACTIVE
     state.quote_subscribed = True
-    app.quote_reference_dates[state.symbol] = date(2026, 6, 25)
+    app.quote_snapshot_dates[state.symbol] = date(2026, 6, 26)
     requested = []
 
-    async def refresh_quotes(symbols):
-        requested.append(set(symbols))
+    async def refresh_quotes(symbols, *, reference_only=True):
+        requested.append((set(symbols), reference_only))
         return set(symbols)
 
     app.manager.refresh_quotes = refresh_quotes
-    now = datetime(2026, 6, 26, 14, 0, tzinfo=timezone.utc)
-    state.last_quote_at = now
+    day_two = datetime(2026, 6, 29, 14, 0, tzinfo=timezone.utc)
+    state.last_quote_at = day_two
 
-    assert await app._refresh_quote_references_once(now=now) == {"AAPL.US"}
-    assert requested == [{"AAPL.US"}]
-    assert app.quote_reference_dates["AAPL.US"] == date(2026, 6, 26)
+    assert await app._refresh_quote_snapshots_once(now=day_two) == {"AAPL.US"}
+    assert requested == [({"AAPL.US"}, False)]
+    assert app.quote_snapshot_dates["AAPL.US"] == date(2026, 6, 26)
 
-    assert await app._refresh_quote_references_once(now=now + timedelta(seconds=5)) == set()
-    assert requested == [{"AAPL.US"}]
+    incomplete = quote_snapshot_event(received_at=day_two, sequence=1)
+    incomplete.payload.pop("open")
+    await app._handle_event(incomplete)
+    assert app.quote_snapshot_dates["AAPL.US"] == date(2026, 6, 26)
+
+    await app._handle_event(quote_snapshot_event(received_at=day_two, sequence=2))
+    assert app.quote_snapshot_dates["AAPL.US"] == date(2026, 6, 29)
+    assert await app._refresh_quote_snapshots_once(now=day_two + timedelta(seconds=5)) == set()
+
+    day_three = datetime(2026, 6, 30, 14, 0, tzinfo=timezone.utc)
+    state.last_quote_at = day_three
+    assert await app._refresh_quote_snapshots_once(now=day_three) == {"AAPL.US"}
+    assert requested == [({"AAPL.US"}, False), ({"AAPL.US"}, False)]
+    await app._handle_event(quote_snapshot_event(received_at=day_three, sequence=1))
+    assert app.quote_snapshot_dates["AAPL.US"] == date(2026, 6, 30)
+
+
+@pytest.mark.asyncio
+async def test_failed_cross_day_full_snapshot_is_retried() -> None:
+    app = service()
+    state = set_warming(app)
+    state.status = SymbolStatus.ACTIVE
+    state.quote_subscribed = True
+    app.quote_snapshot_dates[state.symbol] = date(2026, 6, 26)
+    day_two = datetime(2026, 6, 29, 14, 0, tzinfo=timezone.utc)
+    state.last_quote_at = day_two
+    attempts = 0
+
+    async def refresh_quotes(symbols, *, reference_only=True):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("snapshot unavailable")
+        return set(symbols)
+
+    app.manager.refresh_quotes = refresh_quotes
+
+    with pytest.raises(RuntimeError, match="snapshot unavailable"):
+        await app._refresh_quote_snapshots_once(now=day_two)
+    assert await app._refresh_quote_snapshots_once(now=day_two + timedelta(seconds=5)) == set()
+    assert await app._refresh_quote_snapshots_once(now=day_two + timedelta(seconds=61)) == {"AAPL.US"}
+    assert attempts == 2
+    assert app.quote_snapshot_dates["AAPL.US"] == date(2026, 6, 26)
+
+    # Returning the symbol is not completion; without a valid merged event the
+    # next retry window still requests another full snapshot.
+    assert await app._refresh_quote_snapshots_once(now=day_two + timedelta(seconds=122)) == {"AAPL.US"}
+    assert attempts == 3
+
+
+@pytest.mark.asyncio
+async def test_warmup_restores_previous_close_before_filtering_to_current_session() -> None:
+    app = service()
+    state = set_warming(app, symbol="600519.SH", market_type="CN")
+    day_two_quote = datetime(2026, 6, 26, 1, 35, tzinfo=timezone.utc)
+    await app._handle_event(
+        quote_event(
+            "103",
+            1,
+            2,
+            received_at=day_two_quote,
+            pre_close="90",
+            symbol="600519.SH",
+        )
+    )
+    day_one_close = CandleState(
+        symbol="600519.SH",
+        bar_time=datetime(2026, 6, 25, 6, 59, tzinfo=timezone.utc),
+        open=Decimal("99"),
+        high=Decimal("101"),
+        low=Decimal("98"),
+        close=Decimal("100"),
+        volume=100,
+        turnover=Decimal("10000"),
+        trade_session="Intraday",
+        confirmed=True,
+        received_at=datetime(2026, 6, 25, 7, 0, tzinfo=timezone.utc),
+    )
+    day_two_bar = CandleState(
+        symbol="600519.SH",
+        bar_time=datetime(2026, 6, 26, 1, 30, tzinfo=timezone.utc),
+        open=Decimal("101"),
+        high=Decimal("104"),
+        low=Decimal("101"),
+        close=Decimal("103"),
+        volume=100,
+        turnover=Decimal("10300"),
+        trade_session="Intraday",
+        confirmed=True,
+        received_at=datetime(2026, 6, 26, 1, 31, tzinfo=timezone.utc),
+    )
+    finalized = []
+
+    assert await app._apply_warmup(
+        state,
+        2,
+        WarmupResult("600519.SH", "CN", [], [day_one_close, day_two_bar], 0.1),
+        None,
+        lambda count, error, trading_date: finalized.append((count, error, trading_date)),
+    )
+
+    assert app.quotes["600519.SH"].pre_close == Decimal("100")
+    assert list(app.bars_1m["600519.SH"]) == [day_two_bar]
+    assert finalized == [(1, None, date(2026, 6, 26))]
 
 
 @pytest.mark.asyncio
