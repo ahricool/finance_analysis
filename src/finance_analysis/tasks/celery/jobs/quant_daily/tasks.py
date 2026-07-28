@@ -68,7 +68,7 @@ def _dispatch(market: str) -> dict[str, Any]:
     header = [celery_app.signature("qlib.model.predict", kwargs=payload, queue=QUEUE_QLIB) for payload in requests]
     callback = finalize_quant_daily.s(context=context, _skip_task_record=True).set(queue=QUEUE_ANALYSIS)
     error_callback = fail_quant_daily.s(context=context, _skip_task_record=True).set(queue=QUEUE_ANALYSIS)
-    result = chord(header).apply_async(body=callback, link_error=error_callback)
+    result = chord(header, body=callback).apply_async(link_error=error_callback)
     return {
         "status": "prediction_dispatched",
         "trade_date": context["trade_date"],
