@@ -549,6 +549,8 @@ def test_scope_is_reference_constituents_plus_market_watchlist_and_deduplicated(
     watchlist = MagicMock()
     watchlist.list_all.return_value = [
         SimpleNamespace(code="AAPL", name="Apple", market_type="US"),
+        SimpleNamespace(code="QQQ", name="My QQQ", market_type="US"),
+        SimpleNamespace(code="SPY", name="My SPY", market_type="US"),
         SimpleNamespace(code="700", name="Tencent", market_type="HK"),
     ]
     service = _service(symbol_repository=symbols, watchlist_repository=watchlist)
@@ -559,6 +561,40 @@ def test_scope_is_reference_constituents_plus_market_watchlist_and_deduplicated(
     assert len(selected_codes) > len(SP500_STOCK_INDEX)
     symbols.upsert_symbols.assert_called_once()
     assert symbols.upsert_symbols.call_args.kwargs == {"overwrite_runtime_flags": False}
+    upsert_records = symbols.upsert_symbols.call_args.args[0]
+    assert len(upsert_records) == len({record["code"] for record in upsert_records})
+    assert [record for record in upsert_records if record["code"] == "QQQ.US"] == [
+        {"market": "US", "code": "QQQ.US", "name": "My QQQ"}
+    ]
+    assert [record for record in upsert_records if record["code"] == "SPY.US"] == [
+        {"market": "US", "code": "SPY.US", "name": "My SPY"}
+    ]
+
+
+def test_symbol_upsert_normalization_deduplicates_canonical_codes():
+    now = datetime(2026, 7, 28, tzinfo=timezone.utc)
+
+    records = MarketDataSymbolRepository._normalize_upsert_records(
+        [
+            {"market": "US", "code": "qqq.us", "name": "Watchlist QQQ", "sync_minute": True},
+            {"market": "US", "code": "QQQ.US", "name": "Benchmark QQQ", "sync_minute": False},
+        ],
+        now,
+    )
+
+    assert records == [
+        {
+            "market": "US",
+            "code": "QQQ.US",
+            "name": "Benchmark QQQ",
+            "enabled": True,
+            "sync_daily": True,
+            "sync_minute": False,
+            "lot_size": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+    ]
 
 
 def test_refresh_window_uses_configured_natural_days():
@@ -1213,6 +1249,30 @@ def test_symbol_seed_upsert_preserves_runtime_flags_by_default():
         assert stored.enabled is False
         assert stored.sync_daily is False
         assert stored.sync_minute is True
+    finally:
+        with db._engine.begin() as connection:
+            connection.execute(text("DELETE FROM market_data_symbol WHERE code=:code"), {"code": code})
+
+
+@pytest.mark.skipif(not __import__("os").getenv("DATABASE_URL"), reason="PostgreSQL required")
+def test_symbol_upsert_deduplicates_same_code_within_one_batch():
+    db = DatabaseManager.get_instance()
+    repository = MarketDataSymbolRepository(db)
+    code = "DUPSAFE.US"
+    with db._engine.begin() as connection:
+        connection.execute(text("DELETE FROM market_data_symbol WHERE code=:code"), {"code": code})
+    try:
+        count = repository.upsert_symbols(
+            [
+                {"market": "US", "code": code, "name": "Watchlist", "sync_minute": True},
+                {"market": "US", "code": code, "name": "Benchmark", "sync_minute": False},
+            ]
+        )
+
+        stored = repository.get_by_code(code)
+        assert count == 1
+        assert stored.name == "Benchmark"
+        assert stored.sync_minute is False
     finally:
         with db._engine.begin() as connection:
             connection.execute(text("DELETE FROM market_data_symbol WHERE code=:code"), {"code": code})

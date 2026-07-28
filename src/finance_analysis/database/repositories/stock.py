@@ -128,23 +128,7 @@ class MarketDataSymbolRepository:
         overwrite_runtime_flags: bool = False,
     ) -> int:
         now = utc_now()
-        records: list[dict[str, Any]] = []
-        for item in symbols:
-            market = str(item["market"]).upper()
-            code = validate_market_data_code(market, item["code"])
-            records.append(
-                {
-                    "market": market,
-                    "code": code,
-                    "name": str(item["name"]),
-                    "enabled": bool(item.get("enabled", True)),
-                    "sync_daily": bool(item.get("sync_daily", True)),
-                    "sync_minute": bool(item.get("sync_minute", True)),
-                    "lot_size": item.get("lot_size"),
-                    "created_at": now,
-                    "updated_at": now,
-                }
-            )
+        records = self._normalize_upsert_records(symbols, now)
         if not records:
             return 0
         with self.db.session_scope() as session:
@@ -169,6 +153,28 @@ class MarketDataSymbolRepository:
                 )
             )
         return len(records)
+
+    @staticmethod
+    def _normalize_upsert_records(
+        symbols: Iterable[dict[str, Any]],
+        now: datetime,
+    ) -> list[dict[str, Any]]:
+        records_by_code: dict[str, dict[str, Any]] = {}
+        for item in symbols:
+            market = str(item["market"]).upper()
+            code = validate_market_data_code(market, item["code"])
+            records_by_code[code] = {
+                "market": market,
+                "code": code,
+                "name": str(item["name"]),
+                "enabled": bool(item.get("enabled", True)),
+                "sync_daily": bool(item.get("sync_daily", True)),
+                "sync_minute": bool(item.get("sync_minute", True)),
+                "lot_size": item.get("lot_size"),
+                "created_at": now,
+                "updated_at": now,
+            }
+        return list(records_by_code.values())
 
 
 class StockRepository:
