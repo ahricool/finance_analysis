@@ -213,6 +213,7 @@ class SubscriptionManager:
                     await self._notify_state(state)
                 state.market_type = target.market_type
                 state.trading_date = None
+                state.last_quote_trading_date = None
                 state.status = SymbolStatus.PENDING
                 await self._notify_state(state)
             elif previous is not None:
@@ -308,6 +309,7 @@ class SubscriptionManager:
         else:
             state.market_type = target.market_type
             state.trading_date = None
+            state.last_quote_trading_date = None
         state.generation += 1
         state.status = SymbolStatus.WARMING
         state.error = None

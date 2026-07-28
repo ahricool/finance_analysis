@@ -236,6 +236,7 @@ class MarketStreamService:
             ):
                 if event.event_type == "quote":
                     state.last_quote_at = event.received_at
+                    state.last_quote_trading_date = quote_date
                 if event.event_type == "quote_snapshot" and _has_complete_quote_snapshot(event.payload):
                     self.quote_snapshot_dates[event.symbol] = quote_date
                     self.quote_snapshot_attempts.pop(event.symbol, None)
@@ -723,13 +724,10 @@ class MarketStreamService:
             }:
                 continue
             reference_date = market_trading_date(current, state.market_type)
-            if (
-                state.last_quote_at is None
-                or market_trading_date(state.last_quote_at, state.market_type) != reference_date
-            ):
+            if state.last_quote_at is None or state.last_quote_trading_date != reference_date:
                 # Do not refresh merely because the local calendar rolled over.
-                # The first push of the new market date proves that Longbridge
-                # has started publishing that session's quote state.
+                # A successfully merged push from the new market date proves
+                # that Longbridge has started publishing that session's state.
                 continue
             last_attempt = self.quote_snapshot_attempts.get(state.symbol)
             if self.quote_snapshot_dates.get(state.symbol) != reference_date and (

@@ -40,6 +40,7 @@ class SymbolRuntimeState:
     candlestick_1m_subscribed: bool = False
     bars_count: int = 0
     last_quote_at: datetime | None = None
+    last_quote_trading_date: date | None = None
     last_candle_at: datetime | None = None
     warmed_at: datetime | None = None
     error: str | None = None
@@ -54,6 +55,7 @@ class SymbolRuntimeState:
             "bars_count": self.bars_count,
             "generation": self.generation,
             "last_quote_at": self.last_quote_at,
+            "last_quote_trading_date": self.last_quote_trading_date,
             "last_candle_at": self.last_candle_at,
             "warmed_at": self.warmed_at,
             "error": self.error,

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import pytest
 
@@ -74,6 +75,7 @@ def quote_event(
     connection_generation: int,
     *,
     received_at: datetime | None = None,
+    event_time: datetime | None = None,
     pre_close: str | None = None,
     symbol: str = "AAPL.US",
 ) -> MarketEvent:
@@ -84,7 +86,7 @@ def quote_event(
     return MarketEvent(
         "quote",
         symbol,
-        received_at,
+        event_time or received_at,
         received_at,
         sequence,
         "Intraday",
@@ -196,6 +198,39 @@ def test_quote_partial_merge_stale_sequence_and_timestamps() -> None:
         trading_date=date(2026, 6, 26),
     )
     assert quote.last_price == Decimal("101")
+
+
+def test_cross_day_invalid_quote_leaves_previous_state_unchanged() -> None:
+    quote = QuoteState(symbol="600519.SH")
+    day_one = datetime(2026, 6, 25, 7, 0, tzinfo=timezone.utc)
+    day_two = datetime(2026, 6, 26, 1, 30, tzinfo=timezone.utc)
+    assert quote.merge(
+        {
+            "last_price": "105",
+            "open": "100",
+            "high": "106",
+            "low": "98",
+            "pre_close": "99",
+            "volume": 100,
+            "turnover": "10100",
+            "sequence": 100,
+            "trade_session": "Intraday",
+        },
+        event_time=day_one,
+        received_at=day_one,
+        trading_date=date(2026, 6, 25),
+    )
+    original = deepcopy(quote)
+
+    with pytest.raises(InvalidOperation):
+        quote.merge(
+            {"last_price": "invalid", "sequence": 1},
+            event_time=day_two,
+            received_at=day_two,
+            trading_date=date(2026, 6, 26),
+        )
+
+    assert quote == original
 
 
 @pytest.mark.asyncio
@@ -670,7 +705,7 @@ async def test_full_quote_snapshot_is_refreshed_and_marked_after_merge_each_mark
 
     app.manager.refresh_quotes = refresh_quotes
     day_two = datetime(2026, 6, 29, 14, 0, tzinfo=timezone.utc)
-    state.last_quote_at = day_two
+    await app._handle_event(quote_event("101", 1, 2, received_at=day_two))
 
     assert await app._refresh_quote_snapshots_once(now=day_two) == {"AAPL.US"}
     assert requested == [({"AAPL.US"}, False)]
@@ -686,7 +721,7 @@ async def test_full_quote_snapshot_is_refreshed_and_marked_after_merge_each_mark
     assert await app._refresh_quote_snapshots_once(now=day_two + timedelta(seconds=5)) == set()
 
     day_three = datetime(2026, 6, 30, 14, 0, tzinfo=timezone.utc)
-    state.last_quote_at = day_three
+    await app._handle_event(quote_event("102", 1, 2, received_at=day_three))
     assert await app._refresh_quote_snapshots_once(now=day_three) == {"AAPL.US"}
     assert requested == [({"AAPL.US"}, False), ({"AAPL.US"}, False)]
     await app._handle_event(quote_snapshot_event(received_at=day_three, sequence=1))
@@ -701,7 +736,7 @@ async def test_failed_cross_day_full_snapshot_is_retried() -> None:
     state.quote_subscribed = True
     app.quote_snapshot_dates[state.symbol] = date(2026, 6, 26)
     day_two = datetime(2026, 6, 29, 14, 0, tzinfo=timezone.utc)
-    state.last_quote_at = day_two
+    await app._handle_event(quote_event("101", 1, 2, received_at=day_two))
     attempts = 0
 
     async def refresh_quotes(symbols, *, reference_only=True):
@@ -724,6 +759,31 @@ async def test_failed_cross_day_full_snapshot_is_retried() -> None:
     # next retry window still requests another full snapshot.
     assert await app._refresh_quote_snapshots_once(now=day_two + timedelta(seconds=122)) == {"AAPL.US"}
     assert attempts == 3
+
+
+@pytest.mark.asyncio
+async def test_delayed_previous_day_quote_received_next_day_does_not_trigger_snapshot_refresh() -> None:
+    app = service()
+    state = activate(app)
+    state.quote_subscribed = True
+    day_one = datetime(2026, 6, 26, 20, 0, tzinfo=timezone.utc)
+    day_two = datetime(2026, 6, 29, 14, 0, tzinfo=timezone.utc)
+    await app._handle_event(quote_snapshot_event(received_at=day_one, sequence=1))
+    app.quote_snapshot_dates[state.symbol] = date(2026, 6, 26)
+    requested = []
+
+    async def refresh_quotes(symbols, *, reference_only=True):
+        requested.append((set(symbols), reference_only))
+        return set(symbols)
+
+    app.manager.refresh_quotes = refresh_quotes
+    await app._handle_event(quote_event("102", 2, 2, event_time=day_one, received_at=day_two))
+
+    assert app.quotes[state.symbol].trading_date == date(2026, 6, 26)
+    assert state.last_quote_at == day_two
+    assert state.last_quote_trading_date == date(2026, 6, 26)
+    assert await app._refresh_quote_snapshots_once(now=day_two) == set()
+    assert requested == []
 
 
 @pytest.mark.asyncio

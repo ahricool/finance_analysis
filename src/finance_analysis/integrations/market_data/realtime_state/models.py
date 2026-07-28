@@ -47,21 +47,22 @@ class QuoteState:
         trading_date: date | None = None,
     ) -> bool:
         """Merge a partial push without leaking fields across market trading dates."""
+        advances_trading_date = False
         if trading_date is not None:
             if self.trading_date is not None and trading_date < self.trading_date:
                 return False
             if self.trading_date is None or trading_date > self.trading_date:
-                self._reset_intraday_fields()
-                self.trading_date = trading_date
+                advances_trading_date = True
 
         incoming_sequence = payload.get("sequence")
         if incoming_sequence is not None:
             incoming_sequence = int(incoming_sequence)
-            if self.sequence is not None and incoming_sequence < self.sequence:
+            if not advances_trading_date and self.sequence is not None and incoming_sequence < self.sequence:
                 return False
 
         decimal_fields = {"last_price", "open", "high", "low", "pre_close", "turnover"}
         int_fields = {"volume", "sequence"}
+        converted_values: dict[str, Any] = {}
         for field in fields(self):
             name = field.name
             if name not in payload or payload[name] is None:
@@ -71,6 +72,12 @@ class QuoteState:
                 value = _decimal(value)
             elif name in int_fields:
                 value = int(value)
+            converted_values[name] = value
+
+        if advances_trading_date:
+            self._reset_intraday_fields()
+            self.trading_date = trading_date
+        for name, value in converted_values.items():
             setattr(self, name, value)
         self.event_time = event_time
         self.received_at = received_at
