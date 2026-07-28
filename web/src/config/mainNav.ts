@@ -3,6 +3,7 @@ import {
   BrainCircuit,
   CalendarDays,
   ChartNoAxesCombined,
+  ClipboardList,
   FlaskConical,
   MessageSquareQuote,
   Sigma,
@@ -33,4 +34,5 @@ export const mainNavItems: MainNavItem[] = [
   { key: 'backtest', label: '回测', to: '/market/backtests', icon: FlaskConical, activePathPrefix: '/market/backtests' },
   { key: 'quant', label: '量化', to: '/market/quant', icon: Sigma, activePathPrefix: '/market/quant' },
   { key: 'chat', label: '问股', to: '/chat', icon: MessageSquareQuote, badge: 'completion' },
+  { key: 'tasks', label: '任务', to: '/tasks', icon: ClipboardList },
 ];

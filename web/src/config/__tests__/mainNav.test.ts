@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { mainNavItems } from '../mainNav';
 
 describe('main navigation', () => {
-  it('promotes backtest and quant before chat while keeping market scoped', () => {
-    expect(mainNavItems.map((item) => item.label)).toEqual(['分析', '日历', '市场', '回测', '量化', '问股']);
+  it('keeps tasks last while keeping market scoped', () => {
+    expect(mainNavItems.map((item) => item.label)).toEqual(['分析', '日历', '市场', '回测', '量化', '问股', '任务']);
     expect(mainNavItems[0]).toMatchObject({ key: 'analysis', to: '/analysis', exact: true });
     expect(mainNavItems.some((item) => item.label === '自选股')).toBe(false);
     expect(mainNavItems.some((item) => item.label === '持仓股')).toBe(false);
@@ -18,6 +18,10 @@ describe('main navigation', () => {
     expect(mainNavItems.find((item) => item.key === 'quant')).toMatchObject({
       to: '/market/quant',
       activePathPrefix: '/market/quant',
+    });
+    expect(mainNavItems.find((item) => item.key === 'tasks')).toMatchObject({
+      label: '任务',
+      to: '/tasks',
     });
   });
 });
