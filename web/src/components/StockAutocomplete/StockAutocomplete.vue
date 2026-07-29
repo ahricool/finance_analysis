@@ -7,7 +7,7 @@ import { cn } from '@/utils/cn';
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 
 const AUTOCOMPLETE_INPUT_CLASS =
-  'input-surface input-focus-glow h-11 w-full rounded-xl border bg-transparent px-4 text-sm transition-all focus:outline-none disabled:cursor-not-allowed disabled:opacity-60';
+  'border-input bg-background shadow-xs focus:border-ring focus:ring-2 focus:ring-ring/30 h-11 w-full rounded-xl border bg-transparent px-4 text-sm transition-all focus:outline-none disabled:cursor-not-allowed disabled:opacity-60';
 
 const props = withDefaults(
   defineProps<{
@@ -146,9 +146,7 @@ watch(autocompleteError, (err) => {
   }
 });
 
-const useSimpleInput = computed(
-  () => fallback.value || loading.value || runtimeFallback.value,
-);
+const useSimpleInput = computed(() => fallback.value || loading.value || runtimeFallback.value);
 
 function onKeyDown(e: KeyboardEvent) {
   if (isComposing.value) return;
@@ -222,7 +220,10 @@ function onCompositionEnd(e: CompositionEvent) {
 </script>
 
 <template>
-  <div v-if="useSimpleInput" class="relative">
+  <div
+    v-if="useSimpleInput"
+    class="relative"
+  >
     <input
       :value="modelValue"
       type="text"
@@ -234,7 +235,10 @@ function onCompositionEnd(e: CompositionEvent) {
       @keydown="onFallbackKeyDown"
     />
   </div>
-  <div v-else class="stock-autocomplete relative">
+  <div
+    v-else
+    class="stock-autocomplete relative"
+  >
     <input
       ref="inputRef"
       type="text"
@@ -261,8 +265,11 @@ function onCompositionEnd(e: CompositionEvent) {
       @blur="onBlur"
     />
 
-    <div v-if="loading" class="absolute right-3 top-1/2 -translate-y-1/2">
-      <div class="h-4 w-4 animate-spin rounded-full border-2 border-cyan/20 border-t-cyan" />
+    <div
+      v-if="loading"
+      class="absolute right-3 top-1/2 -translate-y-1/2"
+    >
+      <div class="h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
     </div>
 
     <Teleport to="body">

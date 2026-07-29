@@ -1,5 +1,6 @@
 import { marketQuoteKey } from '@/api/realtimeMarket';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
+/* eslint-disable vue/one-component-per-file -- Each anonymous component is an isolated composable test host. */
 import { mount } from '@vue/test-utils';
 import { defineComponent } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

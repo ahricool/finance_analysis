@@ -2,14 +2,15 @@
 import { agentApi } from '@/api/agent';
 import type { SkillInfo } from '@/api/agent';
 import { getParsedApiError } from '@/api/error';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Badge from '@/components/common/Badge.vue';
-import Button from '@/components/common/Button.vue';
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
-import EmptyState from '@/components/common/EmptyState.vue';
-import InlineAlert from '@/components/common/InlineAlert.vue';
-import ScrollArea from '@/components/common/ScrollArea.vue';
-import Tooltip from '@/components/common/Tooltip.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Badge from '@/components/app/AppBadge.vue';
+import Button from '@/components/app/AppButton.vue';
+import ConfirmDialog from '@/components/app/AppConfirmDialog.vue';
+import EmptyState from '@/components/app/AppEmptyState.vue';
+import InlineAlert from '@/components/app/AppAlert.vue';
+import AppSheet from '@/components/app/AppSheet.vue';
+import ScrollArea from '@/components/app/AppScrollArea.vue';
+import Tooltip from '@/components/app/AppTooltip.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
 import { cn } from '@/utils/cn';
 import { formatDate } from '@/utils/format';
@@ -352,7 +353,10 @@ function handleQuickQuestion(q: (typeof QUICK_QUESTIONS)[0]) {
   void handleSend(q.label, [q.skill]);
 }
 
-function showSendFeedback(nextToast: { type: 'success' | 'error'; message: string }, durationMs: number) {
+function showSendFeedback(
+  nextToast: { type: 'success' | 'error'; message: string },
+  durationMs: number,
+) {
   if (sendToastTimer !== null) {
     window.clearTimeout(sendToastTimer);
   }
@@ -449,21 +453,21 @@ function progressStepText(step: ProgressStep): string {
 
 function progressStepClasses(step: ProgressStep): { row: string; dot: string } {
   if (step.type === 'thinking') {
-    return { row: 'chat-progress-item-thinking', dot: 'chat-progress-dot-thinking' };
+    return { row: 'text-muted-foreground', dot: 'bg-primary' };
   }
   if (step.type === 'tool_start') {
-    return { row: 'chat-progress-item-tool', dot: 'chat-progress-dot-tool' };
+    return { row: 'text-muted-foreground', dot: 'bg-primary' };
   }
   if (step.type === 'tool_done') {
     return {
-      row: step.success ? 'chat-progress-item-success' : 'chat-progress-item-danger',
-      dot: step.success ? 'chat-progress-dot-success' : 'chat-progress-dot-danger',
+      row: step.success ? 'text-success' : 'text-destructive',
+      dot: step.success ? 'bg-success' : 'bg-destructive',
     };
   }
   if (step.type === 'generating') {
-    return { row: 'chat-progress-item-generating', dot: 'chat-progress-dot-generating' };
+    return { row: 'text-muted-foreground', dot: 'bg-primary' };
   }
-  return { row: 'chat-progress-item-muted', dot: 'chat-progress-dot-muted' };
+  return { row: 'text-muted-foreground', dot: 'bg-muted-foreground' };
 }
 
 function thinkingSummary(msg: Message): string {
@@ -480,32 +484,58 @@ function onTextareaInput(e: Event) {
 </script>
 
 <template>
+  <!-- eslint-disable vue/no-v-html -->
+  <!-- v-html values in this template come from DOMPurify-backed Markdown renderers. -->
   <div
-    data-testid="chat-workspace"
+    data-testid="conversation-workspace"
     class="flex h-[calc(100dvh-9rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full min-w-0 gap-4 overflow-hidden md:h-[calc(100vh-5.5rem)] lg:h-[calc(100vh-6rem)]"
   >
-    <div class="hidden w-[clamp(18rem,22vw,22rem)] flex-shrink-0 self-start flex-col overflow-hidden rounded-[1.25rem] border border-white/8 bg-card/82 shadow-soft-card md:flex">
-      <div class="flex items-center justify-between border-b border-white/5 bg-white/2 p-3.5">
-        <h2 class="text-sm font-semibold text-cyan uppercase tracking-[0.2em] flex items-center gap-2">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    <div
+      class="hidden w-[clamp(18rem,22vw,22rem)] flex-shrink-0 self-start flex-col overflow-hidden rounded-[1.25rem] border border-border bg-card/82 shadow-sm md:flex"
+    >
+      <div class="flex items-center justify-between border-b border-border bg-muted/20 p-3.5">
+        <h2
+          class="text-sm font-semibold text-primary uppercase tracking-[0.2em] flex items-center gap-2"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
           历史对话
         </h2>
         <button
           type="button"
-          class="rounded-lg p-1.5 text-muted-text transition-all hover:bg-white/10 hover:text-foreground"
+          class="rounded-lg p-1.5 text-muted-foreground transition-all hover:bg-white/10 hover:text-foreground"
           aria-label="开启新对话"
           @click="handleStartNewChat"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 4v16m8-8H4"
+            />
           </svg>
         </button>
       </div>
       <ScrollArea
         class="flex-none"
-        data-testid="chat-session-list-scroll"
+        data-testid="conversation-list-scroll"
         viewport-class-name="h-auto max-h-[calc(100vh-10rem)] p-3"
       >
         <DashboardStateBlock
@@ -513,32 +543,51 @@ function onTextareaInput(e: Event) {
           loading
           compact
           title="加载对话中..."
-          class="rounded-2xl border border-dashed border-border/50 bg-surface/30"
+          class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
         />
         <DashboardStateBlock
           v-else-if="sessions.length === 0"
           compact
           title="暂无历史对话"
           description="开始提问后，这里会保留会话记录。"
-          class="rounded-2xl border border-dashed border-border/50 bg-surface/30"
+          class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
         />
-        <div v-else class="space-y-2">
-          <div v-for="s in sessions" :key="s.session_id" class="session-item-row">
+        <div
+          v-else
+          class="space-y-2"
+        >
+          <div
+            v-for="s in sessions"
+            :key="s.session_id"
+            class="flex items-start gap-1"
+          >
             <button
               type="button"
-              :class="['session-item', s.session_id === sessionId ? 'active' : '']"
+              :class="
+                cn(
+                  'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-lg border border-transparent p-2 text-left transition-colors hover:bg-muted',
+                  s.session_id === sessionId && 'border-primary/25 bg-primary/10',
+                )
+              "
               :aria-label="`切换到对话 ${s.title}`"
               :aria-current="s.session_id === sessionId ? 'page' : undefined"
               @click="handleSwitchSession(s.session_id)"
             >
-              <div class="indicator" />
-              <div class="content">
-                <span class="title">{{ s.title }}</span>
+              <div
+                :class="
+                  cn(
+                    'h-10 w-1 shrink-0 rounded-full bg-border',
+                    s.session_id === sessionId && 'bg-primary',
+                  )
+                "
+              />
+              <div class="min-w-0 flex-1">
+                <span class="block truncate text-sm font-medium">{{ s.title }}</span>
                 <div class="mt-0.5 flex items-center gap-2">
-                  <span class="meta">{{ s.message_count }} 条对话</span>
+                  <span class="text-xs text-muted-foreground">{{ s.message_count }} 条对话</span>
                   <template v-if="s.last_active">
-                    <span class="separator" />
-                    <span class="meta">
+                    <span class="inline-block size-1 rounded-full bg-border" />
+                    <span class="text-xs text-muted-foreground">
                       {{ formatDate(s.last_active) }}
                     </span>
                   </template>
@@ -547,11 +596,16 @@ function onTextareaInput(e: Event) {
             </button>
             <button
               type="button"
-              class="delete-btn"
+              class="inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
               :aria-label="`删除对话 ${s.title}`"
               @click="deleteConfirmId = s.session_id"
             >
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg
+                class="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -565,69 +619,108 @@ function onTextareaInput(e: Event) {
       </ScrollArea>
     </div>
 
-    <div
-      v-if="sidebarOpen"
-      class="fixed inset-0 z-40 md:hidden"
-      @click="sidebarOpen = false"
+    <AppSheet
+      :open="sidebarOpen"
+      title="历史对话"
+      side="left"
+      @update:open="sidebarOpen = $event"
     >
-      <div class="page-drawer-overlay absolute inset-0" />
-      <div
-        class="absolute left-0 top-0 bottom-0 w-72 flex flex-col glass-card overflow-hidden border-r border-white/10 bg-card/90 shadow-2xl"
-        @click.stop
-      >
-        <div class="flex items-center justify-between border-b border-white/5 bg-white/2 p-3.5">
-          <h2 class="text-sm font-semibold text-cyan uppercase tracking-[0.2em] flex items-center gap-2">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            历史对话
-          </h2>
-          <button
-            type="button"
-            class="rounded-lg p-1.5 text-muted-text transition-all hover:bg-white/10 hover:text-foreground"
-            aria-label="开启新对话"
-            @click="handleStartNewChat"
+      <div class="flex items-center justify-between border-b border-border bg-muted/20 p-3.5">
+        <h2
+          class="text-sm font-semibold text-primary uppercase tracking-[0.2em] flex items-center gap-2"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-        </div>
-        <ScrollArea data-testid="chat-session-list-scroll-mobile" viewport-class-name="p-3">
-          <DashboardStateBlock
-            v-if="sessionsLoading"
-            loading
-            compact
-            title="加载对话中..."
-            class="rounded-2xl border border-dashed border-border/50 bg-surface/30"
-          />
-          <div v-else class="space-y-2">
-            <div v-for="s in sessions" :key="`m-${s.session_id}`" class="session-item-row">
-              <button
-                type="button"
-                :class="['session-item', s.session_id === sessionId ? 'active' : '']"
-                @click="handleSwitchSession(s.session_id)"
-              >
-                <div class="indicator" />
-                <div class="content">
-                  <span class="title">{{ s.title }}</span>
-                </div>
-              </button>
-            </div>
-          </div>
-        </ScrollArea>
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          历史对话
+        </h2>
+        <button
+          type="button"
+          class="rounded-lg p-1.5 text-muted-foreground transition-all hover:bg-white/10 hover:text-foreground"
+          aria-label="开启新对话"
+          @click="handleStartNewChat"
+        >
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+        </button>
       </div>
-    </div>
+      <ScrollArea
+        data-testid="conversation-list-scroll-mobile"
+        viewport-class-name="p-3"
+      >
+        <DashboardStateBlock
+          v-if="sessionsLoading"
+          loading
+          compact
+          title="加载对话中..."
+          class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
+        />
+        <div
+          v-else
+          class="space-y-2"
+        >
+          <div
+            v-for="s in sessions"
+            :key="`m-${s.session_id}`"
+            class="flex items-start gap-1"
+          >
+            <button
+              type="button"
+              :class="
+                cn(
+                  'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-lg border border-transparent p-2 text-left transition-colors hover:bg-muted',
+                  s.session_id === sessionId && 'border-primary/25 bg-primary/10',
+                )
+              "
+              @click="handleSwitchSession(s.session_id)"
+            >
+              <div
+                :class="
+                  cn(
+                    'h-10 w-1 shrink-0 rounded-full bg-border',
+                    s.session_id === sessionId && 'bg-primary',
+                  )
+                "
+              />
+              <div class="min-w-0 flex-1">
+                <span class="block truncate text-sm font-medium">{{ s.title }}</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </ScrollArea>
+    </AppSheet>
 
     <ConfirmDialog
-      :is-open="Boolean(deleteConfirmId)"
+      :open="Boolean(deleteConfirmId)"
       title="删除对话"
-      message="删除后，该对话将不可恢复，确认删除吗？"
+      description="删除后，该对话将不可恢复，确认删除吗？"
       confirm-text="删除"
       cancel-text="取消"
-      is-danger
+      destructive
       @confirm="confirmDelete"
-      @cancel="deleteConfirmId = null"
+      @update:open="deleteConfirmId = null"
     />
 
     <div class="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
@@ -636,15 +729,30 @@ function onTextareaInput(e: Event) {
           <h1 class="text-2xl font-bold text-foreground flex items-center gap-2">
             <button
               type="button"
-              class="md:hidden p-1.5 -ml-1 rounded-lg hover:bg-hover transition-colors text-secondary-text hover:text-foreground"
+              class="md:hidden p-1.5 -ml-1 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
               aria-label="历史对话"
               @click="sidebarOpen = true"
             >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+              <svg
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
               </svg>
             </button>
-            <svg class="w-6 h-6 text-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg
+              class="w-6 h-6 text-primary"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -654,16 +762,24 @@ function onTextareaInput(e: Event) {
             </svg>
             问股
           </h1>
-          <div v-if="messages.length > 0" class="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
+          <div
+            v-if="messages.length > 0"
+            class="flex flex-shrink-0 flex-wrap items-center justify-end gap-2"
+          >
             <Tooltip content="导出会话为 Markdown 文件">
               <span class="inline-flex">
                 <Button
-                  variant="action-primary"
+                  variant="default"
                   size="sm"
                   aria-label="导出会话为 Markdown 文件"
                   @click="downloadSession(messages)"
                 >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg
+                    class="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
                     <path
                       stroke-linecap="round"
                       stroke-linejoin="round"
@@ -678,15 +794,26 @@ function onTextareaInput(e: Event) {
             <Tooltip content="发送到已配置的通知机器人/邮箱">
               <span class="inline-flex">
                 <Button
-                  variant="action-primary"
+                  variant="default"
                   size="sm"
                   :disabled="sending"
                   aria-label="发送到已配置的通知机器人/邮箱"
                   @click="sendChatToNotify"
                 >
                   <template v-if="sending">
-                    <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                    <svg
+                      class="w-4 h-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      />
                       <path
                         class="opacity-75"
                         fill="currentColor"
@@ -694,7 +821,13 @@ function onTextareaInput(e: Event) {
                       />
                     </svg>
                   </template>
-                  <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg
+                    v-else
+                    class="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
                     <path
                       stroke-linecap="round"
                       stroke-linejoin="round"
@@ -708,10 +841,12 @@ function onTextareaInput(e: Event) {
             </Tooltip>
           </div>
         </div>
-        <p class="text-secondary-text text-sm">向 AI 询问个股分析，获取基于技能视角的交易建议与实时决策报告。</p>
+        <p class="text-muted-foreground text-sm">
+          向 AI 询问个股分析，获取基于技能视角的交易建议与实时决策报告。
+        </p>
         <InlineAlert
           v-if="sendToast"
-          :variant="sendToast.type === 'success' ? 'success' : 'danger'"
+          :variant="sendToast.type === 'success' ? 'success' : 'destructive'"
           :title="sendToast.type === 'success' ? '发送成功' : '发送失败'"
           class="max-w-md rounded-xl px-3 py-2 text-xs shadow-none"
         >
@@ -719,22 +854,32 @@ function onTextareaInput(e: Event) {
         </InlineAlert>
       </header>
 
-      <div class="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden border border-white/6 bg-card/78 glass-card">
+      <div
+        class="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden border border-border bg-card/78 rounded-xl border bg-card text-card-foreground shadow-sm"
+      >
         <ScrollArea
           ref="scrollAreaRef"
           class="relative z-10 flex-1"
           viewport-class-name="space-y-6 p-4 md:p-6"
-          test-id="chat-message-scroll"
+          test-id="conversation-message-scroll"
           @scroll="handleMessagesScroll"
         >
-          <div v-if="messages.length === 0 && !loading" class="flex h-full items-center justify-center">
+          <div
+            v-if="messages.length === 0 && !loading"
+            class="flex h-full items-center justify-center"
+          >
             <EmptyState
               title="开始问股"
               description="输入「分析 600519」或「茅台现在能买吗」，AI 将调用实时数据工具为您生成决策报告。"
               class="max-w-2xl border-dashed bg-card/55"
             >
               <template #icon>
-                <svg class="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  class="h-8 w-8"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
@@ -749,7 +894,7 @@ function onTextareaInput(e: Event) {
                     v-for="(q, i) in quickQuestions"
                     :key="i"
                     type="button"
-                    class="quick-question-btn"
+                    class="min-h-10 rounded-lg border bg-background px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
                     @click="handleQuickQuestion(q)"
                   >
                     {{ q.label }}
@@ -769,7 +914,9 @@ function onTextareaInput(e: Event) {
                 :class="
                   cn(
                     'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold shadow-sm transition-all',
-                    msg.role === 'user' ? 'chat-avatar-user' : 'chat-avatar-ai',
+                    msg.role === 'user'
+                      ? 'flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground'
+                      : 'flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary',
                   )
                 "
               >
@@ -779,19 +926,34 @@ function onTextareaInput(e: Event) {
                 :class="
                   cn(
                     'group/message min-w-0 w-fit max-w-[min(100%,48rem)] overflow-hidden px-5 py-3.5 transition-colors',
-                    msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai',
+                    msg.role === 'user'
+                      ? 'rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm'
+                      : 'rounded-2xl border bg-card px-4 py-3 text-sm',
                   )
                 "
               >
                 <template v-if="msg.role === 'assistant'">
-                  <div v-if="getMessageSkillLabel(msg)" class="mb-2">
+                  <div
+                    v-if="getMessageSkillLabel(msg)"
+                    class="mb-2"
+                  >
                     <Badge
                       variant="info"
-                      class="chat-skill-badge shadow-none"
+                      class="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary shadow-none"
                       :aria-label="`技能 ${getMessageSkillLabel(msg)}`"
                     >
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      <svg
+                        class="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M13 10V3L4 14h7v7l9-11h-7z"
+                        />
                       </svg>
                       {{ getMessageSkillLabel(msg) }}
                     </Badge>
@@ -800,7 +962,7 @@ function onTextareaInput(e: Event) {
                   <button
                     v-if="msg.thinkingSteps && msg.thinkingSteps.length > 0"
                     type="button"
-                    class="flex items-center gap-2 text-xs text-muted-text hover:text-secondary-text transition-colors mb-2 w-full text-left"
+                    class="flex items-center gap-2 text-xs text-muted-foreground hover:text-muted-foreground transition-colors mb-2 w-full text-left"
                     @click="toggleThinking(msg.id)"
                   >
                     <svg
@@ -812,11 +974,16 @@ function onTextareaInput(e: Event) {
                       stroke="currentColor"
                       viewBox="0 0 24 24"
                     >
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M9 5l7 7-7 7"
+                      />
                     </svg>
                     <span class="flex items-center gap-1.5">
                       <span class="opacity-60">思考过程</span>
-                      <span class="text-muted-text/50">·</span>
+                      <span class="text-muted-foreground/50">·</span>
                       <span class="opacity-50">{{ thinkingSummary(msg) }}</span>
                     </span>
                   </button>
@@ -828,18 +995,30 @@ function onTextareaInput(e: Event) {
                     <div
                       v-for="(step, idx) in msg.thinkingSteps"
                       :key="idx"
-                      :class="cn('chat-progress-item', progressStepClasses(step).row)"
+                      :class="
+                        cn(
+                          'flex items-start gap-2 text-xs text-muted-foreground',
+                          progressStepClasses(step).row,
+                        )
+                      "
                     >
-                      <span :class="cn('chat-progress-dot', progressStepClasses(step).dot)" />
+                      <span
+                        :class="
+                          cn(
+                            'mt-1 size-2 shrink-0 rounded-full bg-muted-foreground',
+                            progressStepClasses(step).dot,
+                          )
+                        "
+                      />
                       <span class="leading-relaxed">{{ progressStepText(step) }}</span>
                     </div>
                   </div>
 
                   <div class="relative">
-                    <div class="chat-message-actions">
+                    <div class="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        class="chat-copy-btn"
+                        class="inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-xs text-muted-foreground hover:bg-muted"
                         :aria-label="copiedMessages.has(msg.id) ? text.copied : text.copy"
                         @click="copyMessageToClipboard(msg.id, msg.content)"
                       >
@@ -847,14 +1026,17 @@ function onTextareaInput(e: Event) {
                       </button>
                       <button
                         type="button"
-                        class="chat-copy-btn"
+                        class="inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-xs text-muted-foreground hover:bg-muted"
                         aria-label="导出此条消息为 Markdown"
                         @click="downloadMessageAsMarkdown(msg)"
                       >
                         导出
                       </button>
                     </div>
-                    <div class="chat-prose pr-20 sm:pr-24" v-html="renderMd(msg.content)" />
+                    <div
+                      class="prose pr-20 sm:pr-24"
+                      v-html="renderMd(msg.content)"
+                    />
                   </div>
                 </template>
                 <template v-else>
@@ -870,17 +1052,26 @@ function onTextareaInput(e: Event) {
             </div>
           </template>
 
-          <div v-if="loading" class="flex gap-4">
-            <div class="w-8 h-8 rounded-full bg-elevated text-foreground flex items-center justify-center flex-shrink-0 text-xs font-bold">
+          <div
+            v-if="loading"
+            class="flex gap-4"
+          >
+            <div
+              class="w-8 h-8 rounded-full bg-card text-foreground flex items-center justify-center flex-shrink-0 text-xs font-bold"
+            >
               AI
             </div>
-            <div class="min-w-[200px] max-w-[min(100%,48rem)] overflow-hidden rounded-2xl rounded-tl-sm border border-white/6 bg-card/72 px-5 py-4">
-              <div class="flex items-center gap-2.5 text-sm text-secondary-text">
+            <div
+              class="min-w-[200px] max-w-[min(100%,48rem)] overflow-hidden rounded-2xl rounded-tl-sm border border-border bg-card/72 px-5 py-4"
+            >
+              <div class="flex items-center gap-2.5 text-sm text-muted-foreground">
                 <div class="relative w-4 h-4 flex-shrink-0">
-                  <div class="absolute inset-0 rounded-full border-2 border-cyan/20" />
-                  <div class="absolute inset-0 rounded-full border-2 border-cyan border-t-transparent animate-spin" />
+                  <div class="absolute inset-0 rounded-full border-2 border-primary/20" />
+                  <div
+                    class="absolute inset-0 animate-spin rounded-full border-2 border-primary border-t-transparent"
+                  />
                 </div>
-                <span class="text-secondary-text">{{ getCurrentStage(progressSteps) }}</span>
+                <span class="text-muted-foreground">{{ getCurrentStage(progressSteps) }}</span>
               </div>
             </div>
           </div>
@@ -894,23 +1085,36 @@ function onTextareaInput(e: Event) {
         >
           <button
             type="button"
-            class="pointer-events-auto chat-copy-btn shadow-soft-card"
+            class="pointer-events-auto inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-xs text-muted-foreground hover:bg-muted shadow-sm"
             aria-label="查看最新消息"
             @click="
               requestScrollToBottom('smooth');
               scrollToBottom('smooth');
             "
           >
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            <svg
+              class="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M19 14l-7 7m0 0l-7-7m7 7V3"
+              />
             </svg>
             有新消息
           </button>
         </div>
 
-        <div class="border-t border-white/6 bg-card/88 p-4 md:p-6 relative z-20">
+        <div class="border-t border-border bg-card/88 p-4 md:p-6 relative z-20">
           <div class="space-y-3">
-            <ApiErrorAlert v-if="chatError" :error="chatError" />
+            <ApiErrorAlert
+              v-if="chatError"
+              :error="chatError"
+            />
             <InlineAlert
               v-if="isFollowUpContextLoading"
               variant="info"
@@ -920,8 +1124,13 @@ function onTextareaInput(e: Event) {
               正在加载历史分析上下文；现在可直接发送追问。
             </InlineAlert>
 
-            <div v-if="skills.length > 0" class="flex flex-wrap items-start gap-x-5 gap-y-2">
-              <span class="text-xs text-muted-text font-medium uppercase tracking-wider flex-shrink-0 mt-1">
+            <div
+              v-if="skills.length > 0"
+              class="flex flex-wrap items-start gap-x-5 gap-y-2"
+            >
+              <span
+                class="text-xs text-muted-foreground font-medium uppercase tracking-wider flex-shrink-0 mt-1"
+              >
                 策略
               </span>
               <label class="flex items-center gap-1.5 text-sm cursor-pointer group mt-0.5">
@@ -930,13 +1139,15 @@ function onTextareaInput(e: Event) {
                   name="general-analysis"
                   value=""
                   :checked="selectedSkillIds.length === 0"
-                  class="chat-skill-checkbox"
+                  class="accent-primary"
                   @change="selectedSkillIds = []"
                 />
                 <span
                   :class="[
                     'transition-colors text-sm',
-                    selectedSkillIds.length === 0 ? 'text-foreground font-medium' : 'text-secondary-text group-hover:text-foreground',
+                    selectedSkillIds.length === 0
+                      ? 'text-foreground font-medium'
+                      : 'text-muted-foreground group-hover:text-foreground',
                   ]"
                 >
                   通用分析
@@ -947,7 +1158,9 @@ function onTextareaInput(e: Event) {
                 :key="s.id"
                 :class="[
                   'flex items-center gap-1.5 cursor-pointer group relative mt-0.5',
-                  !selectedSkillIdSet.has(s.id) && skillLimitReached ? 'opacity-60 cursor-not-allowed' : '',
+                  !selectedSkillIdSet.has(s.id) && skillLimitReached
+                    ? 'opacity-60 cursor-not-allowed'
+                    : '',
                 ]"
                 @mouseenter="showSkillDesc = s.id"
                 @mouseleave="showSkillDesc = null"
@@ -958,19 +1171,24 @@ function onTextareaInput(e: Event) {
                   :value="s.id"
                   :checked="selectedSkillIdSet.has(s.id)"
                   :disabled="!selectedSkillIdSet.has(s.id) && skillLimitReached"
-                  class="chat-skill-checkbox"
+                  class="accent-primary"
                   @change="toggleSkillSelection(s.id)"
                 />
                 <span
                   :class="[
                     'transition-colors text-sm',
-                    selectedSkillIdSet.has(s.id) ? 'text-foreground font-medium' : 'text-secondary-text group-hover:text-foreground',
+                    selectedSkillIdSet.has(s.id)
+                      ? 'text-foreground font-medium'
+                      : 'text-muted-foreground group-hover:text-foreground',
                   ]"
                 >
                   {{ s.name }}
                 </span>
-                <div v-if="showSkillDesc === s.id && s.description" class="skill-desc-tooltip">
-                  <p class="skill-title">{{ s.name }}</p>
+                <div
+                  v-if="showSkillDesc === s.id && s.description"
+                  class="absolute z-50 max-w-64 rounded-lg border bg-popover p-2 text-xs text-popover-foreground shadow-md"
+                >
+                  <p class="font-medium">{{ s.name }}</p>
                   <p>{{ s.description }}</p>
                 </div>
               </label>
@@ -982,16 +1200,16 @@ function onTextareaInput(e: Event) {
                 :disabled="loading"
                 rows="1"
                 placeholder="例如：分析 600519 / 茅台现在适合买入吗？ (Enter 发送, Shift+Enter 换行)"
-                class="input-surface input-focus-glow flex-1 min-h-[44px] max-h-[200px] rounded-xl border bg-transparent px-4 py-2.5 text-sm transition-all focus:outline-none resize-none disabled:cursor-not-allowed disabled:opacity-60"
+                class="border-input bg-background shadow-xs focus:border-ring focus:ring-2 focus:ring-ring/30 flex-1 min-h-[44px] max-h-[200px] rounded-xl border bg-transparent px-4 py-2.5 text-sm transition-all focus:outline-none resize-none disabled:cursor-not-allowed disabled:opacity-60"
                 style="height: auto"
                 @keydown="handleKeyDown"
                 @input="onTextareaInput"
               />
               <Button
-                variant="primary"
+                variant="default"
                 :disabled="!input.trim() || loading"
-                :is-loading="loading"
-                class="btn-primary flex-shrink-0"
+                :loading="loading"
+                class="flex-shrink-0"
                 @click="handleSend()"
               >
                 发送

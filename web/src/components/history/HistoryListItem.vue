@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Badge from '@/components/common/Badge.vue';
+import Badge from '@/components/app/AppBadge.vue';
 import { getSentimentColor, type HistoryItem } from '@/types/analysis';
 import { formatDateTime } from '@/utils/format';
 import { truncateStockName, isStockNameTruncated } from '@/utils/stockName';
@@ -45,8 +45,9 @@ const isTruncated = computed(() => isStockNameTruncated(stockName.value));
 <template>
   <button
     type="button"
-    class="home-history-item group/item w-full p-2.5 text-left"
-    :class="isViewing ? 'home-history-item-selected' : ''"
+    data-testid="analysis-history-item"
+    class="transition-colors hover:border-primary/30 hover:bg-muted/40 group/item w-full p-2.5 text-left"
+    :class="isViewing ? 'border-primary/40 bg-primary/10' : ''"
     @click="emit('select')"
   >
     <div
@@ -72,7 +73,7 @@ const isTruncated = computed(() => isStockNameTruncated(stockName.value));
             v-if="barColor"
             variant="default"
             size="sm"
-            :class="`home-history-sentiment-badge shrink-0 shadow-none text-[11px] font-semibold leading-none transition-opacity duration-200${isTruncated ? ' group-hover/item:opacity-80' : ''}`"
+            :class="`inline-flex items-center rounded-full border border-primary/25 bg-primary/10 text-primary shrink-0 shadow-none text-[11px] font-semibold leading-none transition-opacity duration-200${isTruncated ? ' group-hover/item:opacity-80' : ''}`"
             :inline-style="{
               color: barColor,
               borderColor: `${barColor}30`,
@@ -83,11 +84,11 @@ const isTruncated = computed(() => isStockNameTruncated(stockName.value));
           </Badge>
         </div>
         <div class="mt-1 flex items-center gap-2">
-          <span class="font-mono text-[11px] text-secondary-text">
+          <span class="font-mono text-[11px] text-muted-foreground">
             {{ item.stockCode }}
           </span>
-          <span class="h-1 w-1 rounded-full bg-subtle-hover" />
-          <span class="text-[11px] text-muted-text">
+          <span class="h-1 w-1 rounded-full bg-border" />
+          <span class="text-[11px] text-muted-foreground">
             {{ formatDateTime(item.createdAt) }}
           </span>
         </div>

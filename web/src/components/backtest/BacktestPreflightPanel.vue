@@ -8,7 +8,9 @@ defineProps<{ result: BacktestPreflight }>();
 <template>
   <section
     class="rounded-2xl border p-4"
-    :class="result.ready ? 'border-success/40 bg-success/5' : 'border-danger/40 bg-danger/5'"
+    :class="
+      result.ready ? 'border-success/40 bg-success/5' : 'border-destructive/40 bg-destructive/5'
+    "
     data-testid="backtest-preflight"
   >
     <div class="flex items-center justify-between">
@@ -17,51 +19,58 @@ defineProps<{ result: BacktestPreflight }>();
       </h3>
       <span
         class="text-sm font-medium"
-        :class="result.ready ? 'text-success' : 'text-danger'"
+        :class="result.ready ? 'text-success' : 'text-destructive'"
       >
         {{ result.ready ? '可以回测' : '暂不可回测' }}
       </span>
     </div>
     <dl class="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
       <div>
-        <dt class="text-muted-text">
+        <dt class="text-muted-foreground">
           引擎
-        </dt><dd>{{ engineLabels[result.engine] }} {{ result.engineVersion }}</dd>
+        </dt>
+        <dd>{{ engineLabels[result.engine] }} {{ result.engineVersion }}</dd>
       </div>
       <div>
-        <dt class="text-muted-text">
+        <dt class="text-muted-foreground">
           市场 / 标的
-        </dt><dd>{{ marketLabels[result.market] }} · {{ result.code }}</dd>
+        </dt>
+        <dd>{{ marketLabels[result.market] }} · {{ result.code }}</dd>
       </div>
       <div>
-        <dt class="text-muted-text">
+        <dt class="text-muted-foreground">
           数据范围
-        </dt><dd>{{ result.availableDateFrom || '—' }} 至 {{ result.availableDateTo || '—' }}</dd>
+        </dt>
+        <dd>{{ result.availableDateFrom || '—' }} 至 {{ result.availableDateTo || '—' }}</dd>
       </div>
       <div>
-        <dt class="text-muted-text">
+        <dt class="text-muted-foreground">
           覆盖率
-        </dt><dd>{{ (result.coverageRatio * 100).toFixed(2) }}%</dd>
+        </dt>
+        <dd>{{ (result.coverageRatio * 100).toFixed(2) }}%</dd>
       </div>
       <div>
-        <dt class="text-muted-text">
+        <dt class="text-muted-foreground">
           请求交易日
-        </dt><dd>{{ result.requestedTradingDays }}</dd>
+        </dt>
+        <dd>{{ result.requestedTradingDays }}</dd>
       </div>
       <div>
-        <dt class="text-muted-text">
+        <dt class="text-muted-foreground">
           实际交易日
-        </dt><dd>{{ result.availableTradingDays }}</dd>
+        </dt>
+        <dd>{{ result.availableTradingDays }}</dd>
       </div>
       <div>
-        <dt class="text-muted-text">
+        <dt class="text-muted-foreground">
           预热交易日
-        </dt><dd>{{ result.warmupDays }}</dd>
+        </dt>
+        <dd>{{ result.warmupDays }}</dd>
       </div>
     </dl>
     <ul
       v-if="result.errors.length"
-      class="mt-3 list-disc space-y-1 pl-5 text-xs text-danger"
+      class="mt-3 list-disc space-y-1 pl-5 text-xs text-destructive"
     >
       <li
         v-for="item in result.errors"

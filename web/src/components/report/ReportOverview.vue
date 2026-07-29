@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import Badge from '@/components/common/Badge.vue';
-import Card from '@/components/common/Card.vue';
-import ScoreGauge from '@/components/common/ScoreGauge.vue';
+import Badge from '@/components/app/AppBadge.vue';
+import ScoreGauge from '@/components/report/ScoreGauge.vue';
+import { Card } from '@/components/ui/card';
 import { formatDateTime } from '@/utils/format';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import type {
@@ -79,11 +79,11 @@ const relatedBoards = computed(() =>
 
 const boardSignals = computed(() => buildBoardSignalMap(props.details));
 
-function getPriceChangeStyle(changePct: number | undefined): Record<string, string> | undefined {
-  if (changePct === undefined || changePct === null) return undefined;
-  if (changePct > 0) return { color: 'var(--home-price-up)' };
-  if (changePct < 0) return { color: 'var(--home-price-down)' };
-  return undefined;
+function getPriceChangeClass(changePct: number | undefined): string {
+  if (changePct === undefined || changePct === null) return '';
+  if (changePct > 0) return 'text-market-up';
+  if (changePct < 0) return 'text-market-down';
+  return 'text-muted-foreground';
 }
 
 function formatChangePct(changePct: number | undefined): string {
@@ -96,8 +96,8 @@ function getBoardStatusLabel(status: BoardStatus): string {
   return status === 'leading' ? text.value.leadingBoard : text.value.laggingBoard;
 }
 
-function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
-  return status === 'leading' ? 'success' : 'danger';
+function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
+  return status === 'leading' ? 'success' : 'destructive';
 }
 </script>
 
@@ -105,31 +105,44 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
   <div class="space-y-5">
     <div class="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-3">
       <div class="space-y-5 lg:col-span-2">
-        <Card variant="gradient" padding="md" class="home-report-hero">
+        <Card class="p-5">
           <div class="mb-5 flex items-start justify-between">
             <div class="flex-1">
               <div class="flex items-center gap-3">
                 <h2 class="text-[28px] font-bold leading-tight text-foreground">
                   {{ meta.stockName || meta.stockCode }}
                 </h2>
-                <div v-if="meta.currentPrice != null" class="flex items-baseline gap-2">
-                  <span class="font-mono text-xl font-bold" :style="getPriceChangeStyle(meta.changePct)">
+                <div
+                  v-if="meta.currentPrice != null"
+                  class="flex items-baseline gap-2"
+                >
+                  <span
+                    class="font-mono text-xl font-bold"
+                    :class="getPriceChangeClass(meta.changePct)"
+                  >
                     {{ meta.currentPrice.toFixed(2) }}
                   </span>
                   <span
                     class="font-mono text-sm font-semibold"
-                    :style="getPriceChangeStyle(meta.changePct)"
+                    :class="getPriceChangeClass(meta.changePct)"
                   >
                     {{ formatChangePct(meta.changePct) }}
                   </span>
                 </div>
               </div>
               <div class="mt-1.5 flex items-center gap-2">
-                <span class="home-accent-chip px-2 py-0.5 font-mono text-xs">
+                <span
+                  class="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 text-primary px-2 py-0.5 font-mono text-xs"
+                >
                   {{ meta.stockCode }}
                 </span>
-                <span class="flex items-center gap-1 text-xs text-muted-text">
-                  <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <span class="flex items-center gap-1 text-xs text-muted-foreground">
+                  <svg
+                    class="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
                     <path
                       stroke-linecap="round"
                       stroke-linejoin="round"
@@ -143,8 +156,10 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
             </div>
           </div>
 
-          <div class="home-divider border-t pt-5">
-            <span class="label-uppercase">{{ text.keyInsights }}</span>
+          <div class="border-border border-t pt-5">
+            <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground">{{
+              text.keyInsights
+            }}</span>
             <p
               class="mt-2 max-w-[62ch] whitespace-pre-wrap text-left text-[15px] leading-7 text-foreground"
             >
@@ -154,18 +169,17 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
         </Card>
 
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Card
-            variant="bordered"
-            padding="sm"
-            hoverable
-            class="home-panel-card home-insight-card"
-            :root-style="{ '--home-insight-tone': 'var(--home-strategy-buy)' }"
-          >
+          <Card class="p-4 transition-colors hover:border-primary/30">
             <div class="flex items-start gap-3">
               <div
-                class="home-insight-icon flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-success/10"
+                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-success/10"
               >
-                <svg class="h-4 w-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  class="h-4 w-4 text-success"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
@@ -175,28 +189,27 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
                 </svg>
               </div>
               <div class="space-y-1.5">
-                <h4 class="home-insight-title text-[11px] font-medium uppercase tracking-[0.16em]">
+                <h4 class="text-[11px] font-medium uppercase tracking-[0.16em]">
                   {{ text.actionAdvice }}
                 </h4>
-                <p class="home-insight-body text-sm leading-6">
+                <p class="text-sm leading-6">
                   {{ summary.operationAdvice || text.noAdvice }}
                 </p>
               </div>
             </div>
           </Card>
 
-          <Card
-            variant="bordered"
-            padding="sm"
-            hoverable
-            class="home-panel-card home-insight-card"
-            :root-style="{ '--home-insight-tone': 'var(--home-strategy-take)' }"
-          >
+          <Card class="p-4 transition-colors hover:border-primary/30">
             <div class="flex items-start gap-3">
               <div
-                class="home-insight-icon flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-warning/10"
+                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-warning/10"
               >
-                <svg class="h-4 w-4 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  class="h-4 w-4 text-warning"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
@@ -206,10 +219,10 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
                 </svg>
               </div>
               <div class="space-y-1.5">
-                <h4 class="home-insight-title text-[11px] font-medium uppercase tracking-[0.16em]">
+                <h4 class="text-[11px] font-medium uppercase tracking-[0.16em]">
                   {{ text.trendPrediction }}
                 </h4>
-                <p class="home-insight-body text-sm leading-6">
+                <p class="text-sm leading-6">
                   {{ summary.trendPrediction || text.noPrediction }}
                 </p>
               </div>
@@ -219,13 +232,15 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
 
         <Card
           v-if="relatedBoards.length > 0"
-          variant="bordered"
-          padding="sm"
-          class="home-panel-card text-left"
+          class="p-4 text-left"
         >
           <div class="mb-3 flex items-baseline gap-2">
-            <span class="label-uppercase">{{ text.boardLinkage }}</span>
-            <h3 class="mt-0.5 text-base font-semibold text-foreground">{{ text.relatedBoards }}</h3>
+            <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground">{{
+              text.boardLinkage
+            }}</span>
+            <h3 class="mt-0.5 text-base font-semibold text-foreground">
+              {{ text.relatedBoards }}
+            </h3>
           </div>
 
           <div class="space-y-2.5">
@@ -234,16 +249,23 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
               :key="`${normalizeBoardName(board.name)}-${board.code || index}`"
               class="flex flex-wrap items-center gap-2 text-sm"
             >
-              <span class="home-accent-chip px-2 py-0.5 text-xs font-medium">
+              <span
+                class="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 text-primary px-2 py-0.5 text-xs font-medium"
+              >
                 {{ normalizeBoardName(board.name) }}
               </span>
-              <span v-if="board.type" class="home-board-pill rounded-full px-2 py-0.5 text-xs">
+              <span
+                v-if="board.type"
+                class="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs"
+              >
                 {{ board.type }}
               </span>
               <template v-if="boardSignals.get(normalizeBoardName(board.name))">
                 <Badge
-                  :variant="getBoardStatusVariant(boardSignals.get(normalizeBoardName(board.name))!.status)"
-                  class="home-board-status-badge shadow-none"
+                  :variant="
+                    getBoardStatusVariant(boardSignals.get(normalizeBoardName(board.name))!.status)
+                  "
+                  class="shadow-none"
                 >
                   {{
                     getBoardStatusLabel(boardSignals.get(normalizeBoardName(board.name))!.status)
@@ -252,11 +274,11 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
                 <span
                   v-if="
                     boardSignals.get(normalizeBoardName(board.name))!.changePct !== undefined &&
-                    boardSignals.get(normalizeBoardName(board.name))!.changePct !== null
+                      boardSignals.get(normalizeBoardName(board.name))!.changePct !== null
                   "
                   class="font-mono text-xs"
-                  :style="
-                    getPriceChangeStyle(boardSignals.get(normalizeBoardName(board.name))!.changePct)
+                  :class="
+                    getPriceChangeClass(boardSignals.get(normalizeBoardName(board.name))!.changePct)
                   "
                 >
                   {{ formatChangePct(boardSignals.get(normalizeBoardName(board.name))!.changePct) }}
@@ -268,16 +290,16 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
       </div>
 
       <div class="flex min-h-full flex-col self-stretch">
-        <Card
-          variant="bordered"
-          padding="md"
-          class="home-panel-card home-rail-card flex min-h-0 !overflow-visible flex-1 flex-col"
-        >
+        <Card class="flex min-h-0 flex-1 flex-col !overflow-visible p-5">
           <div class="flex flex-1 flex-col justify-center text-center">
             <h3 class="mb-5 text-sm font-medium tracking-wide text-foreground">
               {{ text.marketSentiment }}
             </h3>
-            <ScoreGauge :score="summary.sentimentScore" size="lg" :language="reportLanguage" />
+            <ScoreGauge
+              :score="summary.sentimentScore"
+              size="lg"
+              :language="reportLanguage"
+            />
           </div>
         </Card>
       </div>

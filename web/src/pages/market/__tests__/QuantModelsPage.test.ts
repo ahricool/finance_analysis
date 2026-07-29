@@ -16,6 +16,24 @@ vi.mock('@/api/quant', () => ({
   },
 }));
 
+vi.mock('@/components/app/AppDialog.vue', () => ({
+  default: {
+    inheritAttrs: false,
+    props: ['open', 'title', 'description'],
+    emits: ['update:open'],
+    template: '<div v-if="open" role="dialog"><h2>{{ title }}</h2><p>{{ description }}</p><slot /></div>',
+  },
+}));
+
+vi.mock('@/components/app/AppSelect.vue', () => ({
+  default: {
+    inheritAttrs: false,
+    props: ['modelValue', 'options', 'label'],
+    emits: ['update:modelValue'],
+    template: '<label>{{ label }}<select v-bind="$attrs" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option v-for="item in options" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>',
+  },
+}));
+
 const readyDataset: QuantDatasetSnapshot = {
   id: 8,
   datasetKey: 'cn-ready',
@@ -116,14 +134,13 @@ describe('QuantModelsPage training entry', () => {
     expect(adminPage.get('[data-testid="open-quant-training"]').text()).toContain('创建训练任务');
   });
 
-  it('opens a centered dialog with only ready datasets that have artifacts', async () => {
+  it('opens a dialog with only ready datasets that have artifacts', async () => {
     const { wrapper } = await mountPage('admin');
 
     await wrapper.get('[data-testid="open-quant-training"]').trigger('click');
     await flushPromises();
 
     expect(wrapper.get('[role="dialog"]').text()).toContain('创建训练任务');
-    expect(wrapper.get('[data-testid="dialog-panel"]').classes()).toContain('max-w-3xl');
     expect(wrapper.find('[data-testid="quant-training-drawer"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="dataset-build-form"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="dataset-date-from"]').exists()).toBe(false);

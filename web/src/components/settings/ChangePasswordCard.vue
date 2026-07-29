@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { isParsedApiError } from '@/api/error';
 import type { ParsedApiError } from '@/api/error';
-import Button from '@/components/common/Button.vue';
-import Input from '@/components/common/Input.vue';
+import Button from '@/components/app/AppButton.vue';
+import Input from '@/components/app/AppInput.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
 import SettingsSectionCard from '@/components/settings/SettingsSectionCard.vue';
 import { useAuth } from '@/composables/useAuth';
@@ -41,7 +41,11 @@ async function handleSubmit(e: Event) {
 
   isSubmitting.value = true;
   try {
-    const result = await changePassword(currentPassword.value, newPassword.value, newPasswordConfirm.value);
+    const result = await changePassword(
+      currentPassword.value,
+      newPassword.value,
+      newPasswordConfirm.value,
+    );
     if (result.success) {
       success.value = true;
       currentPassword.value = '';
@@ -60,51 +64,46 @@ async function handleSubmit(e: Event) {
 </script>
 
 <template>
-  <SettingsSectionCard
-    title="修改密码"
-  >
-    <form class="space-y-4" @submit="handleSubmit">
+  <SettingsSectionCard title="修改密码">
+    <form
+      class="space-y-4"
+      @submit="handleSubmit"
+    >
       <Input
         id="change-pass-current"
+        v-model="currentPassword"
         type="password"
         allow-toggle-password
-        icon-type="password"
         label="当前密码"
         class="max-w-sm"
         placeholder="输入当前密码"
-        :value="currentPassword"
         :disabled="isSubmitting"
         autocomplete="current-password"
-        @input="currentPassword = ($event.target as HTMLInputElement).value"
       />
 
       <Input
         id="change-pass-new"
+        v-model="newPassword"
         type="password"
         allow-toggle-password
-        icon-type="password"
         label="新密码"
         class="max-w-sm"
         placeholder="输入新密码"
-        :value="newPassword"
         :disabled="isSubmitting"
         autocomplete="new-password"
-        @input="newPassword = ($event.target as HTMLInputElement).value"
       />
 
       <div>
         <Input
           id="change-pass-confirm"
+          v-model="newPasswordConfirm"
           type="password"
           allow-toggle-password
-          icon-type="password"
           label="确认新密码"
           class="max-w-sm"
           placeholder="再次输入新密码"
-          :value="newPasswordConfirm"
           :disabled="isSubmitting"
           autocomplete="new-password"
-          @input="newPasswordConfirm = ($event.target as HTMLInputElement).value"
         />
       </div>
 
@@ -129,7 +128,13 @@ async function handleSubmit(e: Event) {
         variant="success"
       />
 
-      <Button type="submit" variant="primary" :is-loading="isSubmitting">保存新密码</Button>
+      <Button
+        type="submit"
+        variant="default"
+        :loading="isSubmitting"
+      >
+        保存新密码
+      </Button>
     </form>
   </SettingsSectionCard>
 </template>

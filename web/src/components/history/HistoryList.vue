@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import Pagination from '@/components/common/Pagination.vue';
-import ScrollArea from '@/components/common/ScrollArea.vue';
+import Pagination from '@/components/app/AppPagination.vue';
+import ScrollArea from '@/components/app/AppScrollArea.vue';
 import DashboardPanelHeader from '@/components/dashboard/DashboardPanelHeader.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
 import HistoryListItem from '@/components/history/HistoryListItem.vue';
@@ -19,6 +19,7 @@ const props = withDefaults(
     class?: string;
   }>(),
   {
+    selectedId: undefined,
     fitHeight: false,
     class: '',
   },
@@ -36,16 +37,27 @@ const viewportClassName = computed(() =>
 </script>
 
 <template>
-  <aside :class="`glass-card flex flex-col overflow-hidden ${props.class}`">
+  <aside
+    :class="`rounded-xl border bg-card text-card-foreground shadow-sm flex flex-col overflow-hidden ${props.class}`"
+  >
     <ScrollArea
       :viewport-class-name="viewportClassName"
-      test-id="home-history-list-scroll"
+      test-id="analysis-history-list-scroll"
       :class="scrollAreaClass"
     >
       <div class="mb-4">
-        <DashboardPanelHeader class="mb-1" title-class-name="text-sm font-medium" heading-class-name="items-center">
+        <DashboardPanelHeader
+          class="mb-1"
+          title-class-name="text-sm font-medium"
+          heading-class-name="items-center"
+        >
           <template #leading>
-            <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg
+              class="h-4 w-4 text-primary"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -54,7 +66,9 @@ const viewportClassName = computed(() =>
               />
             </svg>
           </template>
-          <template #title>历史分析</template>
+          <template #title>
+            历史分析
+          </template>
         </DashboardPanelHeader>
       </div>
 
@@ -70,7 +84,12 @@ const viewportClassName = computed(() =>
         description="完成首次分析后，这里会保留最近结果。"
       >
         <template #icon>
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
@@ -80,7 +99,10 @@ const viewportClassName = computed(() =>
           </svg>
         </template>
       </DashboardStateBlock>
-      <div v-else class="space-y-2">
+      <div
+        v-else
+        class="space-y-2"
+      >
         <HistoryListItem
           v-for="item in items"
           :key="item.id"
@@ -89,14 +111,17 @@ const viewportClassName = computed(() =>
           @select="emit('itemClick', item.id)"
         />
 
-        <div v-if="totalPages > 1" class="space-y-2 pt-3">
+        <div
+          v-if="totalPages > 1"
+          class="space-y-2 pt-3"
+        >
           <Pagination
             :current-page="currentPage"
             :total-pages="totalPages"
             class="!gap-1"
             @page-change="emit('pageChange', $event)"
           />
-          <p class="text-center text-[10px] text-muted-text">
+          <p class="text-center text-[10px] text-muted-foreground">
             共 {{ totalCount }} 条 · 第 {{ currentPage }} / {{ totalPages }} 页
           </p>
         </div>

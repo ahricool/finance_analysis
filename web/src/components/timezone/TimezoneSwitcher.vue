@@ -2,11 +2,7 @@
 import { Check, Clock3, Ellipsis } from 'lucide-vue-next';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import {
-  DISPLAY_TIMEZONES,
-  type DisplayTimezone,
-  useTimezoneStore,
-} from '@/stores/timezoneStore';
+import { DISPLAY_TIMEZONES, type DisplayTimezone, useTimezoneStore } from '@/stores/timezoneStore';
 import { cn } from '@/utils/cn';
 
 const store = useTimezoneStore();
@@ -18,7 +14,9 @@ let closeTimer: ReturnType<typeof window.setTimeout> | undefined;
 const CLOSE_DELAY_MS = 180;
 
 const activeOption = computed(
-  () => DISPLAY_TIMEZONES.find((option) => option.value === displayTimezone.value) ?? DISPLAY_TIMEZONES[0],
+  () =>
+    DISPLAY_TIMEZONES.find((option) => option.value === displayTimezone.value) ??
+    DISPLAY_TIMEZONES[0],
 );
 
 function setTimezone(value: DisplayTimezone) {
@@ -89,7 +87,7 @@ onUnmounted(() => {
   >
     <button
       type="button"
-      class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border/70 bg-elevated/95 text-foreground shadow-soft-card-strong backdrop-blur-xl transition-colors hover:bg-hover focus:outline-none focus:ring-2 focus:ring-primary/35"
+      class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border/70 bg-card/95 text-foreground shadow-xl backdrop-blur-xl transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary/35"
       aria-haspopup="menu"
       :aria-expanded="open"
       aria-label="打开设置菜单"
@@ -107,11 +105,13 @@ onUnmounted(() => {
       <div
         role="menu"
         aria-label="设置"
-        class="rounded-lg border border-border/80 bg-elevated/96 p-2 text-sm shadow-soft-card-strong backdrop-blur-xl"
+        class="rounded-lg border border-border/80 bg-card/96 p-2 text-sm shadow-xl backdrop-blur-xl"
       >
         <div class="mb-1 flex items-center justify-between px-2 py-1.5">
-          <span class="text-xs font-medium text-muted-text">展示时区</span>
-          <span class="inline-flex items-center gap-1 rounded-md bg-cyan/10 px-2 py-0.5 text-xs font-medium text-cyan">
+          <span class="text-xs font-medium text-muted-foreground">展示时区</span>
+          <span
+            class="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"
+          >
             <Clock3 class="h-3.5 w-3.5" />
             {{ activeOption.shortLabel }}
           </span>
@@ -127,19 +127,19 @@ onUnmounted(() => {
             cn(
               'flex w-full items-center justify-between rounded-md px-3 py-2 text-left transition-colors',
               displayTimezone === option.value
-                ? 'bg-cyan/10 text-foreground'
-                : 'text-secondary-text hover:bg-hover hover:text-foreground',
+                ? 'bg-primary/10 text-foreground'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
             )
           "
           @click="setTimezone(option.value)"
         >
           <span>
             <span class="block font-medium">{{ option.label }}</span>
-            <span class="block text-xs text-muted-text">{{ option.value }}</span>
+            <span class="block text-xs text-muted-foreground">{{ option.value }}</span>
           </span>
           <Check
             v-if="displayTimezone === option.value"
-            class="h-4 w-4 text-cyan"
+            class="h-4 w-4 text-primary"
           />
         </button>
       </div>

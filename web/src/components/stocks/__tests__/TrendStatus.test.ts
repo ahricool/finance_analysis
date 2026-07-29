@@ -45,7 +45,7 @@ describe('TrendStatus', () => {
     (value) => {
       const wrapper = mount(TrendStatus, { props: { trend: value } });
       expect(wrapper.text()).toContain('数据不足');
-      expect(wrapper.get('[data-testid="trend-dot"]').classes()).toContain('bg-muted-text');
+      expect(wrapper.get('[data-testid="trend-dot"]').classes()).toContain('bg-muted-foreground');
     },
   );
 

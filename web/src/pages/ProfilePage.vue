@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { authApi, type NotificationSettings, type UserGender, type UserProfileResponse } from '@/api/auth';
+import {
+  authApi,
+  type NotificationSettings,
+  type UserGender,
+  type UserProfileResponse,
+} from '@/api/auth';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import Button from '@/components/common/Button.vue';
-import Input from '@/components/common/Input.vue';
-import SectionNavPanel from '@/components/common/SectionNavPanel.vue';
-import SectionPageHeader from '@/components/common/SectionPageHeader.vue';
+import Button from '@/components/app/AppButton.vue';
+import Input from '@/components/app/AppInput.vue';
+import SectionNavPanel from '@/components/app/AppSectionNav.vue';
+import SectionPageHeader from '@/components/app/AppPageHeader.vue';
 import AvatarCropper from '@/components/profile/AvatarCropper.vue';
 import ChangePasswordCard from '@/components/settings/ChangePasswordCard.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
@@ -55,7 +60,9 @@ const genderOptions: Array<{ value: UserGender; label: string }> = [
   { value: 'female', label: '女' },
 ];
 
-const avatarUrl = computed(() => profile.value?.avatarUrl || authStore.currentUser?.avatarUrl || '');
+const avatarUrl = computed(
+  () => profile.value?.avatarUrl || authStore.currentUser?.avatarUrl || '',
+);
 const activeTab = computed<ProfileTab>(() => {
   if (route.name === 'profile-password') return 'password';
   if (route.name === 'profile-notification') return 'notification';
@@ -221,14 +228,30 @@ onBeforeUnmount(clearAvatarSource);
           v-if="activeTab === 'info'"
           title="我的信息"
         >
-          <div v-if="isLoading" class="py-10 text-center text-sm text-muted-text">加载中...</div>
-          <div v-else class="space-y-5">
+          <div
+            v-if="isLoading"
+            class="py-10 text-center text-sm text-muted-foreground"
+          >
+            加载中...
+          </div>
+          <div
+            v-else
+            class="space-y-5"
+          >
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
               <div
                 class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-primary/10 text-primary"
               >
-                <img v-if="avatarUrl" :src="avatarUrl" alt="" class="h-full w-full object-cover" />
-                <Camera v-else class="h-8 w-8" />
+                <img
+                  v-if="avatarUrl"
+                  :src="avatarUrl"
+                  alt=""
+                  class="h-full w-full object-cover"
+                />
+                <Camera
+                  v-else
+                  class="h-8 w-8"
+                />
               </div>
               <div class="min-w-0 flex-1 space-y-3">
                 <input
@@ -238,7 +261,12 @@ onBeforeUnmount(clearAvatarSource);
                   class="hidden"
                   @change="onAvatarFileChange"
                 />
-                <Button type="button" variant="secondary" size="sm" @click="chooseAvatar">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  @click="chooseAvatar"
+                >
                   <Upload class="h-4 w-4" />
                   上传头像
                 </Button>
@@ -255,29 +283,31 @@ onBeforeUnmount(clearAvatarSource);
               v-if="avatarSourceUrl"
               :source-url="avatarSourceUrl"
               :is-submitting="isUploadingAvatar"
-              @cancel="clearAvatarSource"
+              @update:open="clearAvatarSource"
               @error="avatarError = $event"
               @cropped="uploadCroppedAvatar"
             />
 
-            <form class="space-y-4" @submit.prevent="saveInfo">
+            <form
+              class="space-y-4"
+              @submit.prevent="saveInfo"
+            >
               <Input
                 id="profile-email"
                 label="邮箱"
                 class="max-w-sm"
-                :value="profile?.email ?? ''"
+                :model-value="profile?.email ?? ''"
                 disabled
                 autocomplete="email"
               />
               <Input
                 id="profile-username"
+                v-model="infoForm.username"
                 label="昵称"
                 class="max-w-xs"
                 placeholder="输入昵称"
-                :value="infoForm.username"
                 :disabled="isSavingInfo"
                 autocomplete="nickname"
-                @input="infoForm.username = ($event.target as HTMLInputElement).value"
               />
               <fieldset class="max-w-xs">
                 <legend class="mb-2 text-sm font-medium text-foreground">
@@ -291,7 +321,7 @@ onBeforeUnmount(clearAvatarSource);
                       'inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm transition-colors',
                       infoForm.gender === option.value
                         ? 'border-primary/45 bg-primary/10 text-primary'
-                        : 'border-border/70 bg-card/60 text-secondary-text hover:border-primary/30 hover:text-foreground',
+                        : 'border-border/70 bg-card/60 text-muted-foreground hover:border-primary/30 hover:text-foreground',
                       isSavingInfo ? 'cursor-not-allowed opacity-60' : '',
                     ]"
                   >
@@ -311,7 +341,11 @@ onBeforeUnmount(clearAvatarSource);
               </fieldset>
 
               <div>
-                <Button type="submit" variant="primary" :is-loading="isSavingInfo">
+                <Button
+                  type="submit"
+                  variant="default"
+                  :loading="isSavingInfo"
+                >
                   <Save class="h-4 w-4" />
                   保存信息
                 </Button>
@@ -339,42 +373,45 @@ onBeforeUnmount(clearAvatarSource);
           v-else
           title="消息通知"
         >
-          <form class="space-y-5" @submit.prevent="saveNotification">
+          <form
+            class="space-y-5"
+            @submit.prevent="saveNotification"
+          >
             <div class="space-y-4">
               <Input
                 id="profile-ntfy-url"
+                v-model="notificationForm.ntfyUrl"
                 label="ntfy URL"
                 class="max-w-lg"
                 placeholder="https://ntfy.sh/topic"
-                :value="notificationForm.ntfyUrl"
                 :disabled="isSavingNotification"
-                @input="notificationForm.ntfyUrl = ($event.target as HTMLInputElement).value"
               />
               <Input
                 id="profile-telegram-chat"
+                v-model="notificationForm.telegramChatId"
                 label="Telegram Chat ID"
                 class="max-w-sm"
                 placeholder="chat_id"
-                :value="notificationForm.telegramChatId"
                 :disabled="isSavingNotification"
-                @input="notificationForm.telegramChatId = ($event.target as HTMLInputElement).value"
               />
             </div>
             <Input
               id="profile-telegram-token"
+              v-model="notificationForm.telegramBotToken"
               type="password"
               allow-toggle-password
-              icon-type="key"
               label="Telegram Bot Token"
               class="max-w-2xl"
               placeholder="bot_token"
-              :value="notificationForm.telegramBotToken"
               :disabled="isSavingNotification"
               autocomplete="off"
-              @input="notificationForm.telegramBotToken = ($event.target as HTMLInputElement).value"
             />
 
-            <Button type="submit" variant="primary" :is-loading="isSavingNotification">
+            <Button
+              type="submit"
+              variant="default"
+              :loading="isSavingNotification"
+            >
               <Save class="h-4 w-4" />
               保存通知
             </Button>

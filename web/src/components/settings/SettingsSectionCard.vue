@@ -7,7 +7,7 @@ const props = withDefaults(
     description?: string;
     class?: string;
   }>(),
-  { class: '' },
+  { description: '', class: '' },
 );
 </script>
 
@@ -15,7 +15,7 @@ const props = withDefaults(
   <div
     :class="
       cn(
-        'rounded-2xl border border-border/70 bg-card/94 p-4 shadow-soft-card backdrop-blur-sm',
+        'rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm backdrop-blur-sm',
         props.class,
       )
     "
@@ -25,9 +25,17 @@ const props = withDefaults(
         <h2 class="text-base font-semibold text-foreground">
           {{ title }}
         </h2>
-        <p v-if="description" class="text-xs leading-6 text-muted-text">{{ description }}</p>
+        <p
+          v-if="description"
+          class="text-xs leading-6 text-muted-foreground"
+        >
+          {{ description }}
+        </p>
       </div>
-      <div v-if="$slots.actions" class="flex shrink-0 items-center gap-2">
+      <div
+        v-if="$slots.actions"
+        class="flex shrink-0 items-center gap-2"
+      >
         <slot name="actions" />
       </div>
     </div>

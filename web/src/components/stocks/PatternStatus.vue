@@ -5,7 +5,7 @@ import type {
   RealtimePatternSignal,
   RealtimePatternState,
 } from '@/api/realtimeMarket';
-import Tooltip from '@/components/common/Tooltip.vue';
+import Tooltip from '@/components/app/AppTooltip.vue';
 import { formatDateTimeInDisplayTimezone, getDisplayTimezone } from '@/utils/format';
 import { computed } from 'vue';
 
@@ -14,12 +14,12 @@ const props = defineProps<{
   now?: Date;
 }>();
 
-const signal = computed<RealtimePatternSignal | null>(() => (
-  props.pattern?.status === 'active' ? props.pattern.signal ?? null : null
-));
-const previewSignal = computed<RealtimePatternSignal | null>(() => (
-  props.pattern?.preview_status === 'active' ? props.pattern.preview_signal ?? null : null
-));
+const signal = computed<RealtimePatternSignal | null>(() =>
+  props.pattern?.status === 'active' ? (props.pattern.signal ?? null) : null,
+);
+const previewSignal = computed<RealtimePatternSignal | null>(() =>
+  props.pattern?.preview_status === 'active' ? (props.pattern.preview_signal ?? null) : null,
+);
 
 const directionMeaning: Record<PatternDirection, string> = {
   bullish_continuation: '多头趋势延续',
@@ -39,7 +39,10 @@ const stageText: Record<PatternStage, string> = {
 
 function primaryLabel(value: RealtimePatternSignal): string {
   if (value.direction === 'neutral_wait') return '等待方向';
-  const labels: Record<Exclude<PatternDirection, 'neutral_wait'>, { warning: string; confirmed: string; forming: string }> = {
+  const labels: Record<
+    Exclude<PatternDirection, 'neutral_wait'>,
+    { warning: string; confirmed: string; forming: string }
+  > = {
     bullish_continuation: { forming: '多头整理', warning: '向上突破预警', confirmed: '多延续确认' },
     bearish_continuation: { forming: '空头整理', warning: '向下突破预警', confirmed: '空延续确认' },
     bearish_to_bullish: { forming: '空转多形成中', warning: '空转多预警', confirmed: '空转多确认' },
@@ -51,15 +54,19 @@ function primaryLabel(value: RealtimePatternSignal): string {
 }
 
 function timezoneParts(date: Date): Record<string, string> {
-  return Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
-    timeZone: getDisplayTimezone(),
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date).map((part) => [part.type, part.value]));
+  return Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: getDisplayTimezone(),
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value]),
+  );
 }
 
 function dateKey(parts: Record<string, string>): string {
@@ -67,12 +74,15 @@ function dateKey(parts: Record<string, string>): string {
 }
 
 function previousDateKey(parts: Record<string, string>): string {
-  const date = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) - 1));
+  const date = new Date(
+    Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) - 1),
+  );
   return date.toISOString().slice(0, 10);
 }
 
 function eventTime(value: RealtimePatternSignal): Date | null {
-  const raw = value.stage === 'confirmed' && value.confirmed_at ? value.confirmed_at : value.occurred_at;
+  const raw =
+    value.stage === 'confirmed' && value.confirmed_at ? value.confirmed_at : value.occurred_at;
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
@@ -101,19 +111,25 @@ const emptyTitle = computed(() => {
   return '暂无近期形态';
 });
 
-const detail = computed(() => signal.value
-  ? `${stageText[signal.value.stage]} · ${signal.value.quality_score}分 · ${ageText(signal.value)}`
-  : '');
+const detail = computed(() =>
+  signal.value
+    ? `${stageText[signal.value.stage]} · ${signal.value.quality_score}分 · ${ageText(signal.value)}`
+    : '',
+);
 
-const invalidationText = computed(() => finite(signal.value?.invalidation_price)
-  ? `失效：${signal.value.invalidation_price.toFixed(2)}`
-  : '');
+const invalidationText = computed(() =>
+  finite(signal.value?.invalidation_price)
+    ? `失效：${signal.value.invalidation_price.toFixed(2)}`
+    : '',
+);
 
 const formalColorClass = computed(() => {
   const value = signal.value;
-  if (!value) return 'text-muted-text';
+  if (!value) return 'text-muted-foreground';
   if (value.direction === 'neutral_wait' || value.stage === 'forming') return 'text-amber-500';
-  if (['bullish_continuation', 'bearish_to_bullish', 'bullish_breakout'].includes(value.direction)) {
+  if (
+    ['bullish_continuation', 'bearish_to_bullish', 'bullish_breakout'].includes(value.direction)
+  ) {
     return 'text-red-500';
   }
   return 'text-emerald-500';
@@ -143,8 +159,10 @@ const tooltip = computed(() => {
       '判断理由：',
       ...formal.reasons.map((reason) => `- ${reason}`),
     );
-    if (finite(formal.reference_level)) lines.push(`参考价位：${formal.reference_level.toFixed(2)}`);
-    if (finite(formal.invalidation_price)) lines.push(`失效价位：${formal.invalidation_price.toFixed(2)}`);
+    if (finite(formal.reference_level))
+      lines.push(`参考价位：${formal.reference_level.toFixed(2)}`);
+    if (finite(formal.invalidation_price))
+      lines.push(`失效价位：${formal.invalidation_price.toFixed(2)}`);
     lines.push(`形态开始时间：${formatTime(formal.occurred_at)}`);
     lines.push(`确认时间：${formatTime(formal.confirmed_at)}`);
     lines.push(`K线数量差：${formal.bars_ago} 根`);
@@ -165,9 +183,12 @@ const tooltip = computed(() => {
       '判断理由：',
       ...preview.reasons.map((reason) => `- ${reason}`),
     );
-    if (finite(preview.reference_level)) lines.push(`参考价位：${preview.reference_level.toFixed(2)}`);
-    if (finite(preview.invalidation_price)) lines.push(`失效价位：${preview.invalidation_price.toFixed(2)}`);
-    if (finite(props.pattern?.preview_price)) lines.push(`当前预览价格：${props.pattern.preview_price.toFixed(2)}`);
+    if (finite(preview.reference_level))
+      lines.push(`参考价位：${preview.reference_level.toFixed(2)}`);
+    if (finite(preview.invalidation_price))
+      lines.push(`失效价位：${preview.invalidation_price.toFixed(2)}`);
+    if (finite(props.pattern?.preview_price))
+      lines.push(`当前预览价格：${props.pattern.preview_price.toFixed(2)}`);
     lines.push(`当前K线时间：${formatTime(props.pattern?.preview_bar_time)}`);
     lines.push(`预览更新时间：${formatTime(props.pattern?.preview_updated_at)}`);
     lines.push('说明：一分钟K线尚未收盘，信号可能变化，不作为正式确认信号');
@@ -182,9 +203,7 @@ const tooltip = computed(() => {
     content-class="whitespace-pre-line"
     focusable
   >
-    <span
-      class="flex min-w-0 flex-col gap-0.5 text-xs leading-tight"
-    >
+    <span class="flex min-w-0 flex-col gap-0.5 text-xs leading-tight">
       <span
         v-if="signal"
         class="whitespace-nowrap font-semibold"
@@ -192,13 +211,13 @@ const tooltip = computed(() => {
       >正式 · {{ primaryLabel(signal) }}</span>
       <span
         v-if="signal && !previewSignal && detail"
-        class="whitespace-nowrap text-[11px] text-secondary-text"
+        class="whitespace-nowrap text-[11px] text-muted-foreground"
       >
         {{ detail }}
       </span>
       <span
         v-if="signal && !previewSignal && invalidationText"
-        class="whitespace-nowrap text-[11px] text-muted-text"
+        class="whitespace-nowrap text-[11px] text-muted-foreground"
       >
         {{ invalidationText }}
       </span>
@@ -212,8 +231,10 @@ const tooltip = computed(() => {
       >{{ stageText[previewSignal.stage] }} · {{ previewSignal.quality_score }}分 · 可能变化</span>
       <span
         v-if="emptyTitle"
-        class="whitespace-nowrap font-semibold text-muted-text"
-      >{{ emptyTitle }}</span>
+        class="whitespace-nowrap font-semibold text-muted-foreground"
+      >{{
+        emptyTitle
+      }}</span>
     </span>
   </Tooltip>
 </template>
