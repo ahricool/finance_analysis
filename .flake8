@@ -1,0 +1,9 @@
+[flake8]
+# The PR review workflow on main passes deleted Python paths to flake8. Keep the
+# retired stock-list modules excluded until the workflow's diff filter lands.
+exclude =
+    src/finance_analysis/database/repositories/stock_list.py,
+    src/finance_analysis/interfaces/api/v1/endpoints/stock_list.py,
+    src/finance_analysis/interfaces/api/v1/schemas/stock_list.py,
+    tests/test_stock_list_api.py,
+    tests/test_stock_list_repo.py
