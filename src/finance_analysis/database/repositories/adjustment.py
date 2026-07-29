@@ -8,11 +8,11 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Sequence
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
-from finance_analysis.database.models.stock import StockAdjustmentFactor, StockCorporateAction
+from finance_analysis.database.models.stock import StockAdjustmentFactor, StockCorporateAction, StockDaily
 
 
 def stable_row_hash(row: dict[str, Any], *, ignored: Sequence[str] = ()) -> str:
@@ -184,6 +184,51 @@ class StockAdjustmentRepository:
             for row in existing
         }
         return any(stored[trade_date] != values for trade_date, values in incoming.items() if trade_date in stored)
+
+    def missing_adjustment_factor_gaps(
+        self,
+        symbol_ids: Sequence[int],
+        start_date: date,
+        end_date: date,
+    ) -> dict[int, dict[str, Any]]:
+        """Summarize unusable factor rows for daily bars that actually exist."""
+        ids = list(symbol_ids)
+        if not ids:
+            return {}
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(
+                    StockDaily.symbol_id,
+                    func.min(StockDaily.date).label("first_missing_date"),
+                    func.max(StockDaily.date).label("last_missing_date"),
+                    func.count(StockDaily.id).label("missing_rows"),
+                )
+                .outerjoin(
+                    StockAdjustmentFactor,
+                    (StockAdjustmentFactor.symbol_id == StockDaily.symbol_id)
+                    & (StockAdjustmentFactor.trade_date == StockDaily.date),
+                )
+                .where(
+                    StockDaily.symbol_id.in_(ids),
+                    StockDaily.date >= start_date,
+                    StockDaily.date <= end_date,
+                    or_(
+                        StockAdjustmentFactor.id.is_(None),
+                        StockAdjustmentFactor.forward_adjustment_factor.is_(None),
+                        StockAdjustmentFactor.forward_adjustment_factor <= 0,
+                        StockAdjustmentFactor.forward_adjustment_factor >= float("inf"),
+                    ),
+                )
+                .group_by(StockDaily.symbol_id)
+            ).all()
+        return {
+            int(row.symbol_id): {
+                "first_missing_date": row.first_missing_date,
+                "last_missing_date": row.last_missing_date,
+                "missing_rows": int(row.missing_rows),
+            }
+            for row in rows
+        }
 
     def delete_before(self, symbol_id: int, cutoff_date: date) -> int:
         """Prune expired adjustment metadata for one symbol."""

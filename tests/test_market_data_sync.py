@@ -72,6 +72,7 @@ def _service(market: str = "US", **overrides):
     adjustment_repository = MagicMock()
     adjustment_repository.delete_before_symbols.return_value = 0
     adjustment_repository.has_adjustment_factor_changes.return_value = False
+    adjustment_repository.missing_adjustment_factor_gaps.return_value = {}
     defaults = {
         "symbol_repository": MagicMock(),
         "stock_repository": stock_repository,
@@ -812,6 +813,108 @@ def test_incremental_sync_initializes_new_symbols_with_five_years_and_refreshes_
     assert len(windows["AAPL.US"]) > len(windows["MSFT.US"])
 
 
+def test_incremental_sync_repairs_preexisting_factor_gap_with_full_adjustment_window():
+    symbol = _symbol()
+    missing_day = date(2023, 1, 3)
+    stock = MagicMock()
+    stock.has_daily_data.return_value = True
+    stock.upsert_daily.return_value = UpsertStats(updated_rows=1)
+    stock.delete_daily_before_symbols.return_value = 0
+    adjustment = MagicMock()
+    adjustment.missing_adjustment_factor_gaps.side_effect = [
+        {
+            symbol.id: {
+                "first_missing_date": missing_day,
+                "last_missing_date": missing_day,
+                "missing_rows": 1,
+            }
+        },
+        {},
+    ]
+    adjustment.delete_before_symbols.return_value = 0
+    adjustment.replace_corporate_actions.return_value = AdjustmentWriteStats()
+    adjustment.replace_adjustment_factors.return_value = AdjustmentWriteStats(changed=True, updated_rows=1)
+    router = MagicMock()
+    router.fetch_daily.side_effect = lambda _, days: RoutedBars(
+        [ProviderBars("YfinanceFetcher", 400, [_daily(days[-1])])],
+        [],
+        ["YfinanceFetcher"],
+        "range",
+    )
+    router.fetch_adjustment.side_effect = lambda _, days: RoutedAdjustment(
+        "YfinanceFetcher",
+        AdjustmentData([], [{"trade_date": item, "forward_adjustment_factor": 1.0} for item in days]),
+    )
+    service = _service(stock_repository=stock, adjustment_repository=adjustment, router=router)
+    service.load_scope = MagicMock(return_value=[symbol])
+    stock.daily_dates.side_effect = lambda *_: set(
+        service._refresh_days(service.config.market_data_initial_daily_days)
+    )
+
+    result = service.run()
+
+    daily_window = router.prepare_batches.call_args.args[1][symbol.code]
+    adjustment_window = router.prepare_batches.call_args.args[2][symbol.code]
+    assert len(adjustment_window) > len(daily_window)
+    assert adjustment_window[0] <= adjustment_window[-1] - timedelta(days=FIVE_YEAR_HISTORY_DAYS - 10)
+    adjustment.replace_adjustment_factors.assert_called_once()
+    assert result["factor_repair_symbols"] == 1
+    assert result["factor_repair_codes"] == [symbol.code]
+    assert result["missing_factor_rows_before"] == 1
+    assert result["missing_factor_rows_after"] == 0
+    assert result["unresolved_factor_gaps"] == []
+    assert result["sync_status"] == "success"
+
+
+def test_unresolved_factor_gap_marks_symbol_partial_and_exposes_diagnostics():
+    symbol = _symbol()
+    gap = {
+        symbol.id: {
+            "first_missing_date": date(2023, 1, 3),
+            "last_missing_date": date(2023, 1, 4),
+            "missing_rows": 2,
+        }
+    }
+    stock = MagicMock()
+    stock.has_daily_data.return_value = True
+    stock.upsert_daily.return_value = UpsertStats(updated_rows=1)
+    stock.delete_daily_before_symbols.return_value = 0
+    stock.daily_dates.return_value = set()
+    adjustment = MagicMock()
+    adjustment.missing_adjustment_factor_gaps.side_effect = [gap, gap]
+    adjustment.delete_before_symbols.return_value = 0
+    adjustment.replace_corporate_actions.return_value = AdjustmentWriteStats()
+    adjustment.replace_adjustment_factors.return_value = AdjustmentWriteStats()
+    router = MagicMock()
+    router.fetch_daily.side_effect = lambda _, days: RoutedBars(
+        [ProviderBars("YfinanceFetcher", 400, [_daily(days[-1])])],
+        [],
+        ["YfinanceFetcher"],
+        "range",
+    )
+    router.fetch_adjustment.side_effect = lambda _, days: RoutedAdjustment(
+        "YfinanceFetcher",
+        AdjustmentData([], [{"trade_date": item, "forward_adjustment_factor": 1.0} for item in days]),
+    )
+    service = _service(stock_repository=stock, adjustment_repository=adjustment, router=router)
+    service.load_scope = MagicMock(return_value=[symbol])
+
+    result = service.run()
+
+    assert result["sync_status"] == "partial"
+    assert result["partial_symbols"] == 1
+    assert result["missing_factor_rows_after"] == 2
+    assert result["unresolved_factor_gaps"] == [
+        {
+            "code": symbol.code,
+            "first_missing_date": "2023-01-03",
+            "last_missing_date": "2023-01-04",
+            "missing_rows": 2,
+        }
+    ]
+    assert "unresolved adjustment factor gaps" in result["failures"][0]["adjustment_reason"]
+
+
 @pytest.mark.parametrize("market", ["US", "CN"])
 def test_full_sync_uses_initial_window_for_existing_symbols_in_both_markets(market):
     symbol = _symbol("AAPL.US" if market == "US" else "600519.SH", market=market)
@@ -1163,6 +1266,73 @@ def test_adjustment_factor_comparison_ignores_new_dates_and_detects_changed_over
 
     assert not repository.has_adjustment_factor_changes(1, stored_day, new_day, unchanged)
     assert repository.has_adjustment_factor_changes(1, stored_day, new_day, changed)
+
+
+@pytest.mark.skipif(not __import__("os").getenv("DATABASE_URL"), reason="PostgreSQL required")
+def test_adjustment_gap_scan_only_reports_dates_with_existing_daily_bars():
+    db = DatabaseManager.get_instance()
+    symbol = MarketDataSymbolRepository(db).get_by_code("AAPL.US")
+    stock_repository = StockRepository(db)
+    adjustment_repository = StockAdjustmentRepository(db)
+    days = [date(2040, 3, 1), date(2040, 3, 3)]
+    with db._engine.begin() as connection:
+        connection.execute(
+            text(
+                "DELETE FROM stock_adjustment_factor "
+                "WHERE symbol_id=:id AND trade_date BETWEEN :start AND :end"
+            ),
+            {"id": symbol.id, "start": days[0], "end": days[-1]},
+        )
+        connection.execute(
+            text("DELETE FROM stock_daily WHERE symbol_id=:id AND date BETWEEN :start AND :end"),
+            {"id": symbol.id, "start": days[0], "end": days[-1]},
+        )
+    try:
+        stock_repository.upsert_daily(
+            symbol.id,
+            [_daily(day) for day in days],
+            "YfinanceFetcher",
+            400,
+        )
+        adjustment_repository.replace_adjustment_factors(
+            symbol.id,
+            days[0],
+            days[0],
+            [{"trade_date": days[0], "forward_adjustment_factor": 1.0}],
+            "YfinanceFetcher",
+        )
+
+        gaps = adjustment_repository.missing_adjustment_factor_gaps(
+            [symbol.id],
+            days[0],
+            days[-1],
+        )
+
+        assert gaps == {
+            symbol.id: {
+                "first_missing_date": days[-1],
+                "last_missing_date": days[-1],
+                "missing_rows": 1,
+            }
+        }
+        assert adjustment_repository.missing_adjustment_factor_gaps(
+            [symbol.id],
+            date(2040, 3, 2),
+            date(2040, 3, 2),
+        ) == {}
+    finally:
+        with db._engine.begin() as connection:
+            connection.execute(
+                text(
+                    "DELETE FROM stock_adjustment_factor "
+                    "WHERE symbol_id=:id AND trade_date BETWEEN :start AND :end"
+                ),
+                {"id": symbol.id, "start": days[0], "end": days[-1]},
+            )
+            connection.execute(
+                text("DELETE FROM stock_daily WHERE symbol_id=:id AND date BETWEEN :start AND :end"),
+                {"id": symbol.id, "start": days[0], "end": days[-1]},
+            )
 
 
 @pytest.mark.skipif(not __import__("os").getenv("DATABASE_URL"), reason="PostgreSQL required")
