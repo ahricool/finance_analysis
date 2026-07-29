@@ -82,7 +82,8 @@ class MarketDataSymbol(Base):
             "(market = 'HK' AND code ~ '^[1-9][0-9]*\\.HK$') OR "
             "(market = 'CN' AND code ~ '^[0-9]{6}\\.(SH|SZ)$')",
             name="ck_market_data_symbol_code_suffix",
-        ),
+            # PostgreSQL regex syntax is not available in the SQLite migration test database.
+        ).ddl_if(dialect="postgresql"),
         Index("ix_market_data_symbol_sync", "market", "enabled", "sync_daily", "sync_minute"),
     )
 

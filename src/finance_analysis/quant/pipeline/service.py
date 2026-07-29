@@ -9,8 +9,8 @@ from typing import Any
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.repositories.quant import QuantRepository
+from finance_analysis.database.repositories.portfolio import PositionRepository
 from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
-from finance_analysis.database.repositories.stock_list import StockListRepo
 from finance_analysis.database.repositories.user import DEFAULT_ADMIN_EMAIL, UserRepository
 from finance_analysis.market_review.trading_calendar import get_effective_trading_date
 from finance_analysis.quant.cache import QuantLatestCache, cache_keys
@@ -158,7 +158,7 @@ class QuantDailyPipeline:
         self.cache = cache or QuantLatestCache()
         self.exporter = exporter or QlibDatasetExporter(self.repository)
         self.symbol_repository = symbol_repository or MarketDataSymbolRepository()
-        self.holding_repository = holding_repository or StockListRepo()
+        self.holding_repository = holding_repository or PositionRepository()
         self.artifact_store = artifact_store
         self.owner_uid = owner_uid
 
@@ -499,7 +499,11 @@ class QuantDailyPipeline:
             owner_uid = owner.id
         else:
             owner_uid = self.owner_uid
-        holdings = self.holding_repository.list_all(uid=owner_uid)
+        holdings = self.holding_repository.list_open_by_uid_and_market(
+            owner_uid,
+            market,
+            ("STOCK", "ETF"),
+        )
         member_codes = {item["code"] for item in signals}
         closes = {item["code"]: float(item["close"]) for item in signals}
         market_values: dict[str, float] = {}
@@ -507,7 +511,8 @@ class QuantDailyPipeline:
             quantity = float(holding.quantity or 0)
             if quantity <= 0:
                 continue
-            raw_code = str(holding.code or "").strip().upper()
+            instrument = holding.instrument
+            raw_code = str(instrument.canonical_symbol or "").strip().upper()
             candidates = [raw_code]
             if market == "US" and not raw_code.endswith(".US"):
                 candidates.append(f"{raw_code}.US")
@@ -528,4 +533,6 @@ class QuantDailyPipeline:
         total_value = sum(market_values.values())
         if total_value <= 0:
             return {}
+        # These are weights within priced STOCK/ETF holdings only. Cash is
+        # intentionally excluded, so this is not total-account asset weight.
         return {code: value / total_value for code, value in market_values.items()}

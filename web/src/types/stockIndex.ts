@@ -47,6 +47,8 @@ export interface StockSuggestion {
   nameZh: string;
   /** Market */
   market: Market;
+  /** Asset type */
+  assetType: AssetType;
   /** Match type */
   matchType: 'exact' | 'prefix' | 'contains' | 'fuzzy';
   /** Match field */

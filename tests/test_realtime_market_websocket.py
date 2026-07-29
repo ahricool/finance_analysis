@@ -144,8 +144,22 @@ def assert_preview_cleared(payload: dict) -> None:
 
 def test_tracked_stocks_deduplicate_watchlist_and_holdings_by_symbol(monkeypatch) -> None:
     item = SimpleNamespace(code="aapl", market_type="us")
+    position = SimpleNamespace(
+        instrument=SimpleNamespace(
+            asset_type="STOCK",
+            canonical_symbol="AAPL.US",
+            display_symbol="AAPL",
+            market="US",
+        )
+    )
     monkeypatch.setattr(market_data, "WatchListRepo", lambda: SimpleNamespace(list_all=lambda uid: [item]))
-    monkeypatch.setattr(market_data, "StockListRepo", lambda: SimpleNamespace(list_all=lambda uid: [item]))
+    monkeypatch.setattr(
+        market_data,
+        "PositionRepository",
+        lambda: SimpleNamespace(
+            list_open_by_uid_and_market=lambda uid, market: [position] if market == "US" else []
+        ),
+    )
 
     stocks = market_data._load_tracked_stocks(7)
 

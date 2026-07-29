@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from datetime import date
 from types import SimpleNamespace
@@ -22,6 +23,9 @@ def targets(*items: tuple[str, str]) -> dict[str, SubscriptionTarget]:
 
 
 def test_load_watchlist_targets_supports_cn_hk_us_dedup_and_invalid(caplog) -> None:
+    logger_name = "finance_analysis.market_stream.watchlist_monitor"
+    logging.getLogger(logger_name).disabled = False
+    caplog.set_level(logging.WARNING, logger=logger_name)
     repo = SimpleNamespace(
         list_all=lambda: [
             SimpleNamespace(code="600519", market_type="CN"),
@@ -45,15 +49,45 @@ def test_load_watchlist_targets_supports_cn_hk_us_dedup_and_invalid(caplog) -> N
 def test_load_watchlist_targets_includes_holdings_and_deduplicates() -> None:
     watch_repo = SimpleNamespace(list_all=lambda: [SimpleNamespace(code="AAPL", market_type="US")])
     holdings_repo = SimpleNamespace(
-        list_all=lambda: [
-            SimpleNamespace(code="AAPL", market_type="US"),
-            SimpleNamespace(code="HK00700", market_type="HK"),
+        list_all_open_equities=lambda: [
+            SimpleNamespace(
+                instrument=SimpleNamespace(
+                    asset_type="STOCK", canonical_symbol="AAPL.US", market="US"
+                )
+            ),
+            SimpleNamespace(
+                instrument=SimpleNamespace(
+                    asset_type="ETF", canonical_symbol="700.HK", market="HK"
+                )
+            ),
         ]
     )
 
     loaded = load_watchlist_targets(watch_repo, holdings_repo)
 
-    assert loaded == targets(("AAPL.US", "US"), ("0700.HK", "HK"))
+    assert loaded == targets(("AAPL.US", "US"), ("700.HK", "HK"))
+
+
+def test_load_watchlist_targets_never_converts_options(monkeypatch) -> None:
+    converted: list[str] = []
+    monkeypatch.setattr(
+        "finance_analysis.market_stream.watchlist_monitor._to_longbridge_symbol",
+        lambda code: converted.append(code) or code,
+    )
+    holdings_repo = SimpleNamespace(
+        list_all_open_equities=lambda: [
+            SimpleNamespace(
+                instrument=SimpleNamespace(
+                    asset_type="OPTION",
+                    canonical_symbol="SPY.US|2026-08-21|CALL|650",
+                    market="US",
+                )
+            )
+        ]
+    )
+
+    assert load_watchlist_targets(SimpleNamespace(list_all=lambda: []), holdings_repo) == {}
+    assert converted == []
 
 
 @pytest.mark.asyncio

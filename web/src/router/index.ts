@@ -57,7 +57,7 @@ const router = createRouter({
               path: 'holdings',
               name: 'market-holdings',
               component: MarketHoldingsPage,
-              meta: { title: '持仓股' },
+              meta: { title: '投资组合' },
             },
             {
               path: 'signals',

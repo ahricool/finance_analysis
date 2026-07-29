@@ -9,7 +9,7 @@ describe('router document titles', () => {
     ['/analysis', '分析 - Finance Analysis'],
     ['/calendar', '日历记录 - Finance Analysis'],
     ['/market/watch-list', '自选股 - Finance Analysis'],
-    ['/market/holdings', '持仓股 - Finance Analysis'],
+    ['/market/holdings', '投资组合 - Finance Analysis'],
     ['/market/signals', '信号评估 - Finance Analysis'],
     ['/market/backtests', '策略回测 - Finance Analysis'],
     ['/market/backtests/123', '回测详情 - Finance Analysis'],

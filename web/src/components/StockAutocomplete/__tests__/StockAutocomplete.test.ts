@@ -143,6 +143,7 @@ describe('StockAutocomplete', () => {
       '贵州茅台',
       'autocomplete',
       'CN',
+      'stock',
     ]);
   });
 });
