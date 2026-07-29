@@ -1,4 +1,4 @@
-# PR 自动审查 - 语法检查 + AI 语义审查
+# PR 自动审查 - 语法检查与标签
 # 当有 PR 创建或更新时自动触发
 
 name: PR Review
@@ -20,7 +20,6 @@ on:
       - 'setup.cfg'
       - '.github/PULL_REQUEST_TEMPLATE.md'
       - '.github/workflows/**'
-      - '.github/scripts/**'
       - 'Dockerfile'
       - 'Dockerfile.web'
       - 'docker/**'
@@ -80,7 +79,7 @@ jobs:
             echo "safe_to_run=true" >> $GITHUB_OUTPUT
           fi
 
-  # ==================== 静态检查（先于 AI 审查）====================
+  # ==================== 静态检查 ====================
   auto-check:
     name: 🔍 静态检查
     runs-on: ubuntu-latest
@@ -89,7 +88,6 @@ jobs:
     outputs:
       syntax_ok: ${{ steps.syntax.outputs.syntax_ok }}
       has_py_changes: ${{ steps.check_files.outputs.has_py_changes }}
-      has_reviewable_changes: ${{ steps.check_files.outputs.has_reviewable_changes }}
     
     steps:
       - name: 📥 检出代码
@@ -122,13 +120,6 @@ jobs:
         run: |
           BASE_REF="${{ github.base_ref || 'main' }}"
           CHANGED_FILES=$(git diff --name-only --diff-filter=ACMRT origin/$BASE_REF...HEAD -- '*.py' 2>/dev/null || echo "")
-          REVIEWABLE_FILES=$(git diff --name-only origin/$BASE_REF...HEAD -- '*.py' '*.md' 'docs/**' 'README.md' 'AGENTS.md' 'pyproject.toml' 'uv.lock' 'setup.cfg' '.github/PULL_REQUEST_TEMPLATE.md' '.github/workflows/**' '.github/scripts/**' 2>/dev/null || echo "")
-
-          if [ -z "$REVIEWABLE_FILES" ]; then
-            echo "has_reviewable_changes=false" >> $GITHUB_OUTPUT
-          else
-            echo "has_reviewable_changes=true" >> $GITHUB_OUTPUT
-          fi
 
           if [ -z "$CHANGED_FILES" ]; then
             echo "has_py_changes=false" >> $GITHUB_OUTPUT
@@ -189,73 +180,6 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           STATS=$(git diff --stat origin/$BASE_REF...HEAD 2>/dev/null | tail -1)
           echo "$STATS" >> $GITHUB_STEP_SUMMARY
-
-  # ==================== AI 代码审查（依赖静态检查通过）====================
-  ai-review:
-    name: 🤖 AI 代码审查
-    runs-on: ubuntu-latest
-    needs: [security-check, auto-check]
-    if: |
-      needs.security-check.outputs.safe_to_run == 'true' &&
-      needs.auto-check.result == 'success' &&
-      needs.auto-check.outputs.has_reviewable_changes == 'true' &&
-      vars.ENABLE_AI_REVIEW != 'false'
-    
-    steps:
-      # 先检出主分支（获取最新的 .github/scripts）
-      - name: 📥 检出主分支脚本
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          sparse-checkout: |
-            .github/scripts
-          sparse-checkout-cone-mode: false
-          path: main-scripts
-      
-      # 再检出 PR 代码（用于 diff 分析）
-      - name: 📥 检出 PR 代码
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-          path: pr-code
-      
-      - name: 🔄 获取 base 分支
-        working-directory: pr-code
-        run: git fetch origin ${{ github.base_ref || 'main' }}:refs/remotes/origin/${{ github.base_ref || 'main' }}
-      
-      - name: 🐍 设置 Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-      
-      - name: 📦 安装依赖
-        run: pip install google-genai openai httpx
-      
-      - name: 🤖 AI 审查代码变更
-        working-directory: pr-code
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_BASE_REF: ${{ github.base_ref || 'main' }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
-          GEMINI_MODEL_FALLBACK: ${{ vars.GEMINI_MODEL_FALLBACK || 'gemini-2.5-flash' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
-          AI_REVIEW_STRICT: ${{ vars.AI_REVIEW_STRICT || 'false' }}
-          CI_SYNTAX_OK: ${{ needs.auto-check.outputs.syntax_ok || '' }}
-          CI_HAS_PY_CHANGES: ${{ needs.auto-check.outputs.has_py_changes || 'false' }}
-          CI_AUTO_CHECK_RESULT: ${{ needs.auto-check.result || '' }}
-        run: python ../main-scripts/.github/scripts/ai_review.py
-      
-      - name: 📤 上传审查结果
-        uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: ai-review-result
-          path: pr-code/ai_review_result.txt
-          if-no-files-found: ignore
 
   # ==================== PR 标签自动分类 ====================
   labeler:
@@ -340,32 +264,16 @@ jobs:
   comment:
     name: 💬 审查报告
     runs-on: ubuntu-latest
-    needs: [security-check, auto-check, ai-review]
+    needs: [security-check, auto-check]
     if: always() && github.event_name == 'pull_request_target' && needs.security-check.outputs.safe_to_run == 'true'
     
     steps:
-      - name: 📥 检出代码
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      
-      - name: 📥 下载 AI 审查结果
-        uses: actions/download-artifact@v7
-        if: needs.ai-review.result == 'success'
-        continue-on-error: true
-        with:
-          name: ai-review-result
-          path: .
-      
       - name: 💬 生成审查报告
         env:
           AUTO_CHECK_RESULT: ${{ needs.auto-check.result }}
-          AI_REVIEW_RESULT: ${{ needs.ai-review.result }}
         uses: actions/github-script@v8
         with:
           script: |
-            const fs = require('fs');
-            
             const { data: files } = await github.rest.pulls.listFiles({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -375,13 +283,6 @@ jobs:
             const additions = files.reduce((sum, f) => sum + f.additions, 0);
             const deletions = files.reduce((sum, f) => sum + f.deletions, 0);
             const changedFiles = files.length;
-            
-            let aiReview = '';
-            try {
-              aiReview = fs.readFileSync('ai_review_result.txt', 'utf8');
-            } catch (e) {
-              console.log('No AI review result found');
-            }
             
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
@@ -395,8 +296,6 @@ jobs:
             );
             
             const checkStatus = process.env.AUTO_CHECK_RESULT === 'success' ? '✅ 通过' : '⚠️ 有问题';
-            const aiStatus = process.env.AI_REVIEW_RESULT === 'success' ? '✅ 已完成' : 
-                            process.env.AI_REVIEW_RESULT === 'skipped' ? '⏭️ 跳过' : '⚠️ 失败';
             
             let report = `## 🤖 自动审查报告
 
@@ -406,7 +305,6 @@ jobs:
             | ➕ 新增行数 | ${additions} 行 |
             | ➖ 删除行数 | ${deletions} 行 |
             | 🔍 静态检查 | ${checkStatus} |
-            | 🧠 AI 审查 | ${aiStatus} |
 
             ### 📁 修改的文件
 
@@ -420,16 +318,6 @@ jobs:
             
             if (files.length > 20) {
               report += `\n... 还有 ${files.length - 20} 个文件\n`;
-            }
-            
-            if (aiReview) {
-              report += `
-            ---
-
-            ### 🧠 AI 代码审查意见
-
-            ${aiReview}
-            `;
             }
             
             report += `
