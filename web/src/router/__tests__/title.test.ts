@@ -1,4 +1,6 @@
+import { createPinia, setActivePinia } from 'pinia';
 import { describe, expect, it } from 'vitest';
+import { useAuthStore } from '@/stores/authStore';
 import router, { resolveDocumentTitle } from '../index';
 
 describe('router document titles', () => {
@@ -18,6 +20,9 @@ describe('router document titles', () => {
     ['/market/quant/portfolios', '组合建议 - Finance Analysis'],
     ['/chat', '问股 - Finance Analysis'],
     ['/profile', '个人中心 - Finance Analysis'],
+    ['/profile/info', '个人中心 - Finance Analysis'],
+    ['/profile/password', '个人中心 - Finance Analysis'],
+    ['/profile/notification', '个人中心 - Finance Analysis'],
     ['/tasks', '任务中心 - Finance Analysis'],
     ['/tasks/scheduled', '任务中心 - Finance Analysis'],
     ['/tasks/runs', '任务中心 - Finance Analysis'],
@@ -37,5 +42,21 @@ describe('router document titles', () => {
   it('redirects the root path to the analysis page', () => {
     expect(router.resolve('/').matched.at(-1)?.redirect).toEqual({ name: 'analysis' });
     expect(router.resolve('/analysis').name).toBe('analysis');
+  });
+
+  it('redirects profile to info and registers every route-driven profile tab', async () => {
+    setActivePinia(createPinia());
+    const auth = useAuthStore();
+    auth.isLoading = false;
+    auth.loggedIn = true;
+
+    expect(router.resolve('/profile/info').name).toBe('profile-info');
+    expect(router.resolve('/profile/password').name).toBe('profile-password');
+    expect(router.resolve('/profile/notification').name).toBe('profile-notification');
+
+    await router.push('/profile');
+
+    expect(router.currentRoute.value.path).toBe('/profile/info');
+    expect(router.currentRoute.value.name).toBe('profile-info');
   });
 });

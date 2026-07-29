@@ -12,11 +12,12 @@ import SettingsSectionCard from '@/components/settings/SettingsSectionCard.vue';
 import { useAuthStore } from '@/stores/authStore';
 import { Bell, Camera, LockKeyhole, Save, Upload, UserRound } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { useRoute } from 'vue-router';
 
 type ProfileTab = 'info' | 'password' | 'notification';
 
 const authStore = useAuthStore();
-const activeTab = ref<ProfileTab>('info');
+const route = useRoute();
 const profile = ref<UserProfileResponse | null>(null);
 const isLoading = ref(false);
 const pageError = ref<ParsedApiError | null>(null);
@@ -42,10 +43,10 @@ const notificationForm = reactive({
   telegramChatId: '',
 });
 
-const tabs: Array<{ key: ProfileTab; label: string; icon: typeof UserRound }> = [
-  { key: 'info', label: '我的信息', icon: UserRound },
-  { key: 'password', label: '更改密码', icon: LockKeyhole },
-  { key: 'notification', label: '消息通知', icon: Bell },
+const tabs: Array<{ key: ProfileTab; label: string; icon: typeof UserRound; to: string }> = [
+  { key: 'info', label: '我的信息', icon: UserRound, to: '/profile/info' },
+  { key: 'password', label: '更改密码', icon: LockKeyhole, to: '/profile/password' },
+  { key: 'notification', label: '消息通知', icon: Bell, to: '/profile/notification' },
 ];
 
 const genderOptions: Array<{ value: UserGender; label: string }> = [
@@ -55,6 +56,11 @@ const genderOptions: Array<{ value: UserGender; label: string }> = [
 ];
 
 const avatarUrl = computed(() => profile.value?.avatarUrl || authStore.currentUser?.avatarUrl || '');
+const activeTab = computed<ProfileTab>(() => {
+  if (route.name === 'profile-password') return 'password';
+  if (route.name === 'profile-notification') return 'notification';
+  return 'info';
+});
 
 function firstNtfyUrl(notification: NotificationSettings): string {
   return notification.ntfy[0]?.url ?? '';
@@ -208,7 +214,6 @@ onBeforeUnmount(clearAvatarSource);
       <SectionNavPanel
         :items="tabs"
         :active-key="activeTab"
-        @select="activeTab = $event as ProfileTab"
       />
 
       <section class="min-w-0">
