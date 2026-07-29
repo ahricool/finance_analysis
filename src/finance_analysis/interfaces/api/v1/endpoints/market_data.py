@@ -23,6 +23,8 @@ from finance_analysis.market_review.trading_calendar import get_completed_tradin
 from finance_analysis.market_stream.config import (
     is_regular_session_minute,
     is_regular_trade_session,
+    latest_completed_bar_time,
+    market_spec,
     market_trading_date,
 )
 from finance_analysis.market_stream.patterns.config import PatternConfig
@@ -136,6 +138,33 @@ def _display_trading_date(market_type: str, now: datetime) -> date:
     return get_completed_trading_days(market, 1, now)[-1]
 
 
+def _preview_bar_is_current(
+    preview_bar_time: datetime,
+    *,
+    now: datetime,
+    market_type: MarketType,
+    display_date: date | None,
+) -> bool:
+    """Return whether a preview bar is the market's still-forming regular-session minute."""
+    if display_date is None or market_trading_date(now, market_type) != display_date:
+        return False
+    if not is_regular_session_minute(now, market_type):
+        return False
+    if market_trading_date(preview_bar_time, market_type) != display_date:
+        return False
+    if not is_regular_session_minute(preview_bar_time, market_type):
+        return False
+
+    spec = market_spec(market_type)
+    current_minute = now.astimezone(spec.timezone).replace(second=0, microsecond=0)
+    preview_minute = preview_bar_time.astimezone(spec.timezone).replace(second=0, microsecond=0)
+    if preview_minute != current_minute:
+        return False
+
+    latest_completed = latest_completed_bar_time(now, market_type)
+    return latest_completed is None or preview_bar_time > latest_completed
+
+
 def _quote_payload(
     stock: TrackedStock,
     quote: QuoteState | None,
@@ -181,9 +210,11 @@ def _quote_payload(
             )
         preview_is_current = pattern is not None and pattern.preview_bar_time is not None
         if preview_is_current and pattern is not None and pattern.preview_bar_time is not None:
-            preview_is_current = (
-                market_trading_date(pattern.preview_bar_time, cast(MarketType, stock.market_type)) == display_date
-                and is_regular_session_minute(pattern.preview_bar_time, cast(MarketType, stock.market_type))
+            preview_is_current = _preview_bar_is_current(
+                pattern.preview_bar_time,
+                now=now,
+                market_type=cast(MarketType, stock.market_type),
+                display_date=display_date,
             )
         if preview_is_current and pattern is not None and pattern.preview_signal is not None:
             preview_is_current = (

@@ -99,6 +99,49 @@ def pattern(symbol: str = "AAPL.US", *, trading_date: date = date(2026, 7, 16)) 
     )
 
 
+def pattern_with_preview(
+    preview_bar_time: datetime,
+    *,
+    symbol: str = "AAPL.US",
+    trading_date: date = date(2026, 7, 16),
+    preview_trading_date: date | None = None,
+) -> PatternState:
+    current = pattern(symbol, trading_date=trading_date)
+    assert current.signal is not None
+    preview_signal = replace(
+        current.signal,
+        stage="warning",
+        occurred_at=preview_bar_time,
+        confirmed=False,
+        confirmed_at=None,
+        trading_date=preview_trading_date or trading_date,
+        bars_ago=0,
+        session_minutes_ago=0,
+        reasons=(*current.signal.reasons, "实时预览：当前一分钟K线尚未收盘，信号可能变化"),
+    )
+    return replace(
+        current,
+        preview_status="active",
+        preview_signal=preview_signal,
+        preview_bar_time=preview_bar_time,
+        preview_price=Decimal("133.25"),
+        preview_updated_at=preview_bar_time + timedelta(seconds=20),
+    )
+
+
+def pattern_payload_at(value: PatternState, *, market_type: str, now: datetime) -> dict:
+    stock = market_data.TrackedStock(value.symbol.split(".")[0], market_type, value.symbol)
+    return market_data._quote_payload(stock, None, None, value, now=now)["pattern_1m"]
+
+
+def assert_preview_cleared(payload: dict) -> None:
+    assert payload["preview_status"] == "none"
+    assert payload["preview_signal"] is None
+    assert payload["preview_bar_time"] is None
+    assert payload["preview_price"] is None
+    assert payload["preview_updated_at"] is None
+
+
 def test_tracked_stocks_deduplicate_watchlist_and_holdings_by_symbol(monkeypatch) -> None:
     item = SimpleNamespace(code="aapl", market_type="us")
     monkeypatch.setattr(market_data, "WatchListRepo", lambda: SimpleNamespace(list_all=lambda uid: [item]))
@@ -175,24 +218,8 @@ async def test_cn_after_close_snapshot_uses_same_day_previous_close(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_snapshot_serializes_current_pattern_and_clears_previous_session(monkeypatch) -> None:
-    now = datetime(2026, 7, 16, 15, 0, tzinfo=timezone.utc)
-    current = pattern()
-    assert current.signal is not None
-    preview_signal = replace(
-        current.signal,
-        stage="warning",
-        confirmed=False,
-        confirmed_at=None,
-        reasons=(*current.signal.reasons, "实时预览：当前一分钟K线尚未收盘，信号可能变化"),
-    )
-    current = replace(
-        current,
-        preview_status="active",
-        preview_signal=preview_signal,
-        preview_bar_time=datetime(2026, 7, 16, 14, 36, tzinfo=timezone.utc),
-        preview_price=Decimal("133.25"),
-        preview_updated_at=datetime(2026, 7, 16, 14, 36, 20, tzinfo=timezone.utc),
-    )
+    now = datetime(2026, 7, 16, 14, 36, 35, tzinfo=timezone.utc)
+    current = pattern_with_preview(datetime(2026, 7, 16, 14, 36, tzinfo=timezone.utc))
     stale = pattern("TSLA.US", trading_date=date(2026, 7, 15))
     stocks = [
         market_data.TrackedStock("AAPL", "US", "AAPL.US"),
@@ -218,6 +245,119 @@ async def test_snapshot_serializes_current_pattern_and_clears_previous_session(m
     assert payload["preview_updated_at"] == "2026-07-16T14:36:20.000Z"
     assert snapshot["quotes"][1]["pattern_1m"]["status"] == "none"
     assert snapshot["quotes"][1]["pattern_1m"]["preview_signal"] is None
+
+
+def test_current_forming_minute_preview_is_exposed() -> None:
+    preview = pattern_with_preview(datetime(2026, 7, 16, 14, 36, tzinfo=timezone.utc))
+
+    payload = pattern_payload_at(
+        preview,
+        market_type="US",
+        now=datetime(2026, 7, 16, 14, 36, 35, tzinfo=timezone.utc),
+    )
+
+    assert payload["preview_status"] == "active"
+    assert payload["preview_bar_time"] == "2026-07-16T14:36:00.000Z"
+
+
+@pytest.mark.parametrize(
+    "now",
+    [
+        datetime(2026, 7, 16, 14, 37, 2, tzinfo=timezone.utc),
+        datetime(2026, 7, 16, 14, 50, tzinfo=timezone.utc),
+    ],
+    ids=["next-minute", "stale-for-several-minutes"],
+)
+def test_completed_minute_preview_is_cleared(now: datetime) -> None:
+    preview = pattern_with_preview(datetime(2026, 7, 16, 14, 36, tzinfo=timezone.utc))
+
+    assert_preview_cleared(pattern_payload_at(preview, market_type="US", now=now))
+
+
+def test_after_close_preview_is_cleared() -> None:
+    preview = pattern_with_preview(datetime(2026, 7, 16, 19, 59, tzinfo=timezone.utc))
+
+    payload = pattern_payload_at(
+        preview,
+        market_type="US",
+        now=datetime(2026, 7, 16, 20, 0, 5, tzinfo=timezone.utc),
+    )
+
+    assert_preview_cleared(payload)
+
+
+def test_cn_lunch_recess_clears_morning_preview() -> None:
+    preview = pattern_with_preview(
+        datetime(2026, 7, 16, 3, 29, tzinfo=timezone.utc),
+        symbol="600519.SH",
+    )
+
+    payload = pattern_payload_at(
+        preview,
+        market_type="CN",
+        now=datetime(2026, 7, 16, 3, 40, tzinfo=timezone.utc),
+    )
+
+    assert_preview_cleared(payload)
+
+
+def test_cn_afternoon_open_current_minute_preview_is_exposed() -> None:
+    preview = pattern_with_preview(
+        datetime(2026, 7, 16, 5, 0, tzinfo=timezone.utc),
+        symbol="600519.SH",
+    )
+
+    payload = pattern_payload_at(
+        preview,
+        market_type="CN",
+        now=datetime(2026, 7, 16, 5, 0, 35, tzinfo=timezone.utc),
+    )
+
+    assert payload["preview_status"] == "active"
+    assert payload["preview_bar_time"] == "2026-07-16T05:00:00.000Z"
+
+
+def test_expired_preview_does_not_clear_current_formal_pattern() -> None:
+    preview = pattern_with_preview(datetime(2026, 7, 16, 14, 36, tzinfo=timezone.utc))
+
+    payload = pattern_payload_at(
+        preview,
+        market_type="US",
+        now=datetime(2026, 7, 16, 14, 37, 2, tzinfo=timezone.utc),
+    )
+
+    assert payload["status"] == "active"
+    assert payload["signal"]["confirmed"] is True
+    assert_preview_cleared(payload)
+
+
+def test_opening_first_minute_preview_is_exposed_without_completed_bar() -> None:
+    preview = pattern_with_preview(datetime(2026, 7, 16, 13, 30, tzinfo=timezone.utc))
+
+    payload = pattern_payload_at(
+        preview,
+        market_type="US",
+        now=datetime(2026, 7, 16, 13, 30, 35, tzinfo=timezone.utc),
+    )
+
+    assert payload["preview_status"] == "active"
+    assert payload["preview_bar_time"] == "2026-07-16T13:30:00.000Z"
+
+
+def test_previous_trading_date_preview_is_cleared() -> None:
+    preview = pattern_with_preview(
+        datetime(2026, 7, 15, 14, 36, tzinfo=timezone.utc),
+        preview_trading_date=date(2026, 7, 15),
+    )
+
+    payload = pattern_payload_at(
+        preview,
+        market_type="US",
+        now=datetime(2026, 7, 16, 14, 36, 35, tzinfo=timezone.utc),
+    )
+
+    assert payload["status"] == "active"
+    assert_preview_cleared(payload)
 
 
 @pytest.mark.asyncio

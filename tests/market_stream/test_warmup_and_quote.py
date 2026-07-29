@@ -591,6 +591,107 @@ async def test_unconfirmed_candle_updates_preview_not_trend_and_confirmation_cle
 
 
 @pytest.mark.asyncio
+async def test_late_unconfirmed_cannot_replace_confirmed_candle() -> None:
+    redis = FakeRedis()
+    app = service(redis)
+    activate(app)
+    unfinished = bar(0, close="10.5", confirmed=False, received=10)
+    confirmed = bar(0, close="11", confirmed=True, received=20)
+    late_unconfirmed = bar(0, close="11.5", confirmed=False, received=50)
+
+    await app._handle_event(candle_event(unfinished, 2))
+    await app._handle_event(candle_event(confirmed, 2))
+    formal_before = app.pattern_states["AAPL.US"]
+    stored_pattern_before = await app.repository.get_pattern_state("AAPL.US")
+    stored_bars_before = await app.repository.get_recent_bars("AAPL.US", 10)
+    pending_candle_before = app.pending_candles["AAPL.US"]
+    pending_patterns_before = dict(app.pending_patterns)
+    writes_before = redis.pipeline_executes
+
+    await app._handle_event(candle_event(late_unconfirmed, 2))
+
+    assert list(app.bars_1m["AAPL.US"]) == [confirmed]
+    assert app.current_candles["AAPL.US"] == confirmed
+    assert app.pending_candles["AAPL.US"] == pending_candle_before == confirmed
+    assert "AAPL.US" not in app.pending_bars
+    assert app.pending_patterns == pending_patterns_before
+    assert app.pattern_states["AAPL.US"] == formal_before
+    assert app.pattern_states["AAPL.US"].preview_bar_time is None
+    assert await app.repository.get_pattern_state("AAPL.US") == stored_pattern_before
+    assert await app.repository.get_recent_bars("AAPL.US", 10) == stored_bars_before == [confirmed]
+    assert redis.pipeline_executes == writes_before
+
+
+@pytest.mark.asyncio
+async def test_newer_unconfirmed_replaces_unconfirmed_candle() -> None:
+    app = service()
+    activate(app)
+    first = bar(0, close="10.5", confirmed=False, received=10)
+    newer = bar(0, close="11", confirmed=False, received=20)
+
+    await app._handle_event(candle_event(first, 2))
+    await app._handle_event(candle_event(newer, 2))
+
+    assert list(app.bars_1m["AAPL.US"]) == [newer]
+    assert app.current_candles["AAPL.US"] == newer
+    assert app.pending_candles["AAPL.US"] == newer
+
+
+@pytest.mark.asyncio
+async def test_confirmed_replaces_unconfirmed_even_with_older_received_at() -> None:
+    app = service()
+    activate(app)
+    unfinished = bar(0, close="10.5", confirmed=False, received=50)
+    confirmed = bar(0, close="11", confirmed=True, received=40)
+
+    await app._handle_event(candle_event(unfinished, 2))
+    await app._handle_event(candle_event(confirmed, 2))
+
+    assert list(app.bars_1m["AAPL.US"]) == [confirmed]
+    assert app.current_candles["AAPL.US"] == confirmed
+    assert await app.repository.get_recent_bars("AAPL.US", 10) == [confirmed]
+    assert app.pattern_states["AAPL.US"].preview_bar_time is None
+
+
+@pytest.mark.asyncio
+async def test_newer_confirmed_correction_wins_and_older_confirmed_is_rejected() -> None:
+    redis = FakeRedis()
+    app = service(redis)
+    activate(app)
+    initial = bar(0, close="10.5", confirmed=True, received=20)
+    corrected = bar(0, close="11", confirmed=True, received=40)
+    older = bar(0, close="10.8", confirmed=True, received=30)
+
+    await app._handle_event(candle_event(initial, 2))
+    await app._handle_event(candle_event(corrected, 2))
+    pattern_before = app.pattern_states["AAPL.US"]
+    writes_before = redis.pipeline_executes
+    await app._handle_event(candle_event(older, 2))
+
+    assert list(app.bars_1m["AAPL.US"]) == [corrected]
+    assert app.current_candles["AAPL.US"] == corrected
+    assert app.pending_candles["AAPL.US"] == corrected
+    assert await app.repository.get_recent_bars("AAPL.US", 10) == [corrected]
+    assert app.pattern_states["AAPL.US"] == pattern_before
+    assert redis.pipeline_executes == writes_before
+
+
+@pytest.mark.asyncio
+async def test_stale_connection_candle_is_rejected_before_live_memory_update() -> None:
+    redis = FakeRedis()
+    app = service(redis)
+    activate(app, connection=3)
+
+    await app._handle_event(candle_event(bar(0, confirmed=True, received=20), 2))
+
+    assert "AAPL.US" not in app.bars_1m
+    assert "AAPL.US" not in app.current_candles
+    assert "AAPL.US" not in app.pending_candles
+    assert "AAPL.US" not in app.pattern_states
+    assert redis.pipeline_executes == 0
+
+
+@pytest.mark.asyncio
 async def test_quote_updates_only_matching_preview_and_is_throttled() -> None:
     redis = FakeRedis()
     app = service(redis)

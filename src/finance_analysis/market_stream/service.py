@@ -356,7 +356,10 @@ class MarketStreamService:
             candle.confirmed,
         ):
             return False, len(bars)
-        if previous is not None and candle.received_at < previous.received_at:
+        if previous is not None and (candle.confirmed, candle.received_at) < (
+            previous.confirmed,
+            previous.received_at,
+        ):
             return False, len(bars)
         existing[candle.identity] = candle
         ordered = sorted(existing.values(), key=lambda item: (item.bar_time, item.trade_session or ""))
