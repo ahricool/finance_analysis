@@ -204,12 +204,38 @@ class QuantRepository:
             ).returning(MarketRegimeSnapshot)
             row = session.execute(stmt).scalar_one(); session.expunge(row); return row
 
-    def market_regimes(self, market: str, date_from: date | None = None, date_to: date | None = None, limit: int = 365) -> list[MarketRegimeSnapshot]:
+    def market_regimes(
+        self,
+        market: str,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        limit: int = 365,
+        model_version: str | None = None,
+    ) -> list[MarketRegimeSnapshot]:
         clauses = [MarketRegimeSnapshot.market == market]
         if date_from: clauses.append(MarketRegimeSnapshot.trade_date >= date_from)
         if date_to: clauses.append(MarketRegimeSnapshot.trade_date <= date_to)
+        if model_version: clauses.append(MarketRegimeSnapshot.model_version == model_version)
         with self.db.get_session() as session:
-            rows = list(session.execute(select(MarketRegimeSnapshot).where(*clauses).order_by(desc(MarketRegimeSnapshot.trade_date)).limit(limit)).scalars())
+            ranked = select(
+                MarketRegimeSnapshot.id.label("snapshot_id"),
+                func.row_number().over(
+                    partition_by=MarketRegimeSnapshot.trade_date,
+                    order_by=(
+                        desc(MarketRegimeSnapshot.generated_at),
+                        desc(MarketRegimeSnapshot.id),
+                    ),
+                ).label("version_rank"),
+            ).where(*clauses).subquery()
+            rows = list(
+                session.execute(
+                    select(MarketRegimeSnapshot)
+                    .join(ranked, ranked.c.snapshot_id == MarketRegimeSnapshot.id)
+                    .where(ranked.c.version_rank == 1)
+                    .order_by(desc(MarketRegimeSnapshot.trade_date))
+                    .limit(limit)
+                ).scalars()
+            )
             return self._detach(session, rows)
 
     def save_sector_regimes(self, values: Iterable[dict[str, Any]]) -> None:
@@ -219,18 +245,46 @@ class QuantRepository:
                     constraint="uix_sector_regime_version", set_={k: v for k, v in value.items() if k not in {"market", "trade_date", "sector_key", "model_version"}}
                 ))
 
-    def sector_regimes(self, market: str, trade_date: date | None = None, sector_key: str | None = None) -> list[SectorRegimeSnapshot]:
+    def sector_regimes(
+        self,
+        market: str,
+        trade_date: date | None = None,
+        sector_key: str | None = None,
+        model_version: str | None = None,
+    ) -> list[SectorRegimeSnapshot]:
         clauses = [SectorRegimeSnapshot.market == market]
-        if trade_date:
-            clauses.append(SectorRegimeSnapshot.trade_date == trade_date)
-        else:
-            latest_date = select(func.max(SectorRegimeSnapshot.trade_date)).where(
-                SectorRegimeSnapshot.market == market
-            ).scalar_subquery()
-            clauses.append(SectorRegimeSnapshot.trade_date == latest_date)
         if sector_key: clauses.append(SectorRegimeSnapshot.sector_key == sector_key)
+        if model_version: clauses.append(SectorRegimeSnapshot.model_version == model_version)
         with self.db.get_session() as session:
-            rows = list(session.execute(select(SectorRegimeSnapshot).where(*clauses).order_by(desc(SectorRegimeSnapshot.trade_date), SectorRegimeSnapshot.rank)).scalars())
+            selection_clauses = list(clauses)
+            if trade_date:
+                selection_clauses.append(SectorRegimeSnapshot.trade_date == trade_date)
+            selected = session.execute(
+                select(
+                    SectorRegimeSnapshot.trade_date,
+                    SectorRegimeSnapshot.model_version,
+                )
+                .where(*selection_clauses)
+                .order_by(
+                    desc(SectorRegimeSnapshot.trade_date),
+                    desc(SectorRegimeSnapshot.generated_at),
+                    desc(SectorRegimeSnapshot.id),
+                )
+                .limit(1)
+            ).first()
+            if selected is None:
+                return []
+            rows = list(
+                session.execute(
+                    select(SectorRegimeSnapshot)
+                    .where(
+                        *clauses,
+                        SectorRegimeSnapshot.trade_date == selected.trade_date,
+                        SectorRegimeSnapshot.model_version == selected.model_version,
+                    )
+                    .order_by(SectorRegimeSnapshot.rank)
+                ).scalars()
+            )
             return self._detach(session, rows)
 
     def list_model_definitions(self) -> list[ModelDefinition]:
@@ -421,16 +475,46 @@ class QuantRepository:
                     raise ValueError(f"Universe {universe.key} is not enabled")
             session.add_all(IntradayConfirmation(**value) for value in values)
 
-    def latest_signals(self, market: str, universe_id: int | None = None, code: str | None = None, limit: int = 200) -> list[ModelSignal]:
+    def latest_signals(
+        self,
+        market: str,
+        universe_id: int | None = None,
+        code: str | None = None,
+        limit: int = 200,
+        model_version: str | None = None,
+    ) -> list[ModelSignal]:
         scope = [ModelSignal.market == market]
         if universe_id:
             scope.append(ModelSignal.universe_id == universe_id)
         if code:
             scope.append(ModelSignal.code == code.upper())
-        latest_date = select(func.max(ModelSignal.trade_date)).where(*scope).scalar_subquery()
-        clauses = [*scope, ModelSignal.trade_date == latest_date]
+        if model_version:
+            scope.append(ModelSignal.model_version == model_version)
         with self.db.get_session() as session:
-            rows = list(session.execute(select(ModelSignal).where(*clauses).order_by(ModelSignal.universe_rank).limit(limit)).scalars())
+            selected = session.execute(
+                select(ModelSignal.trade_date, ModelSignal.model_version)
+                .where(*scope)
+                .order_by(
+                    desc(ModelSignal.trade_date),
+                    desc(ModelSignal.generated_at),
+                    desc(ModelSignal.id),
+                )
+                .limit(1)
+            ).first()
+            if selected is None:
+                return []
+            rows = list(
+                session.execute(
+                    select(ModelSignal)
+                    .where(
+                        *scope,
+                        ModelSignal.trade_date == selected.trade_date,
+                        ModelSignal.model_version == selected.model_version,
+                    )
+                    .order_by(ModelSignal.universe_rank, ModelSignal.code)
+                    .limit(limit)
+                ).scalars()
+            )
             return self._detach(session, rows)
 
     def signal_history(
@@ -439,21 +523,62 @@ class QuantRepository:
         code: str,
         universe_id: int | None = None,
         limit: int = 365,
+        model_version: str | None = None,
     ) -> list[ModelSignal]:
         clauses = [ModelSignal.market == market.upper(), ModelSignal.code == code.upper()]
         if universe_id is not None:
             clauses.append(ModelSignal.universe_id == universe_id)
+        if model_version:
+            clauses.append(ModelSignal.model_version == model_version)
         with self.db.get_session() as session:
-            rows = list(session.execute(
-                select(ModelSignal).where(*clauses).order_by(desc(ModelSignal.trade_date)).limit(limit)
-            ).scalars())
+            ranked = select(
+                ModelSignal.id.label("signal_id"),
+                func.row_number().over(
+                    partition_by=ModelSignal.trade_date,
+                    order_by=(desc(ModelSignal.generated_at), desc(ModelSignal.id)),
+                ).label("version_rank"),
+            ).where(*clauses).subquery()
+            rows = list(
+                session.execute(
+                    select(ModelSignal)
+                    .join(ranked, ranked.c.signal_id == ModelSignal.id)
+                    .where(ranked.c.version_rank == 1)
+                    .order_by(desc(ModelSignal.trade_date))
+                    .limit(limit)
+                ).scalars()
+            )
             return self._detach(session, rows)
 
-    def latest_portfolios(self, market: str, universe_id: int | None = None, limit: int = 50) -> list[PortfolioRecommendation]:
+    def latest_portfolios(
+        self,
+        market: str,
+        universe_id: int | None = None,
+        limit: int = 50,
+        model_version: str | None = None,
+    ) -> list[PortfolioRecommendation]:
         clauses = [PortfolioRecommendation.market == market]
         if universe_id: clauses.append(PortfolioRecommendation.universe_id == universe_id)
+        if model_version: clauses.append(PortfolioRecommendation.model_version == model_version)
         with self.db.get_session() as session:
-            rows = list(session.execute(select(PortfolioRecommendation).where(*clauses).order_by(desc(PortfolioRecommendation.trade_date)).limit(limit)).scalars())
+            ranked = select(
+                PortfolioRecommendation.id.label("recommendation_id"),
+                func.row_number().over(
+                    partition_by=PortfolioRecommendation.trade_date,
+                    order_by=(
+                        desc(PortfolioRecommendation.generated_at),
+                        desc(PortfolioRecommendation.id),
+                    ),
+                ).label("version_rank"),
+            ).where(*clauses).subquery()
+            rows = list(
+                session.execute(
+                    select(PortfolioRecommendation)
+                    .join(ranked, ranked.c.recommendation_id == PortfolioRecommendation.id)
+                    .where(ranked.c.version_rank == 1)
+                    .order_by(desc(PortfolioRecommendation.trade_date))
+                    .limit(limit)
+                ).scalars()
+            )
             return self._detach(session, rows)
 
     def portfolio(
@@ -479,16 +604,32 @@ class QuantRepository:
         trade_date: date | None = None,
         code: str | None = None,
         universe_id: int | None = None,
+        recommendation_id: int | None = None,
         limit: int = 200,
     ) -> list[IntradayConfirmation]:
         clauses = []
         if trade_date: clauses.append(IntradayConfirmation.trade_date == trade_date)
         if code: clauses.append(IntradayConfirmation.code == code.upper())
         with self.db.get_session() as session:
-            rows = list(session.execute(
-                select(IntradayConfirmation)
-                .join(PortfolioRecommendationItem, PortfolioRecommendationItem.id == IntradayConfirmation.recommendation_item_id)
-                .join(PortfolioRecommendation, PortfolioRecommendation.id == PortfolioRecommendationItem.recommendation_id)
+            ranked = (
+                select(
+                    IntradayConfirmation.id.label("confirmation_id"),
+                    func.row_number().over(
+                        partition_by=IntradayConfirmation.recommendation_item_id,
+                        order_by=(
+                            desc(IntradayConfirmation.evaluated_at),
+                            desc(IntradayConfirmation.id),
+                        ),
+                    ).label("confirmation_rank"),
+                )
+                .join(
+                    PortfolioRecommendationItem,
+                    PortfolioRecommendationItem.id == IntradayConfirmation.recommendation_item_id,
+                )
+                .join(
+                    PortfolioRecommendation,
+                    PortfolioRecommendation.id == PortfolioRecommendationItem.recommendation_id,
+                )
                 .where(
                     PortfolioRecommendation.market == market.upper(),
                     *(
@@ -496,10 +637,24 @@ class QuantRepository:
                         if universe_id is not None
                         else []
                     ),
+                    *(
+                        [PortfolioRecommendation.id == recommendation_id]
+                        if recommendation_id is not None
+                        else []
+                    ),
                     *clauses,
                 )
-                .order_by(desc(IntradayConfirmation.evaluated_at)).limit(limit)
-            ).scalars())
+                .subquery()
+            )
+            rows = list(
+                session.execute(
+                    select(IntradayConfirmation)
+                    .join(ranked, ranked.c.confirmation_id == IntradayConfirmation.id)
+                    .where(ranked.c.confirmation_rank == 1)
+                    .order_by(desc(IntradayConfirmation.evaluated_at))
+                    .limit(limit)
+                ).scalars()
+            )
             return self._detach(session, rows)
 
 

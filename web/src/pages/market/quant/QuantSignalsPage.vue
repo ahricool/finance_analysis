@@ -42,6 +42,7 @@ watch(market, async (current) => {
         模型选股排名
       </h2><p class="text-xs text-muted-text">
         模型预测仅用于研究和组合建议，不代表真实订单。
+        <span v-if="ranking?.modelVersion">当前版本：{{ ranking.modelVersion }}。</span>
       </p>
     </header>
     <ApiErrorAlert

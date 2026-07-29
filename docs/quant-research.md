@@ -113,6 +113,11 @@ do not change. `source/daily.csv` and Qlib OHLC/VWAP binaries use the same
 forward-adjusted price units, while Qlib `factor.day.bin` contains
 `forward_adjustment_factor` (adjusted price divided by raw price).
 
+Daily inference and production training require at least 90% of the fixed
+Universe by default. `QUANT_MIN_UNIVERSE_COVERAGE` can raise or lower this
+threshold within `(0, 1]`. Falling below it fails before model fan-out or
+training instead of producing rankings from a misleadingly small subset.
+
 Legacy raw snapshots remain immutable historical artifacts and are never
 relabeled. Model metadata records its training price mode; prediction fails if
 that mode differs from the prediction dataset, so models trained on legacy raw

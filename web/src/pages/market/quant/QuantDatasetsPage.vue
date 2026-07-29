@@ -69,7 +69,7 @@ function validationText(item: QuantDatasetSnapshot): string {
 }
 
 function canTrain(item: QuantDatasetSnapshot): boolean {
-  return item.status === 'ready' && Boolean(item.artifactUri);
+  return item.trainable;
 }
 
 async function load(current = market.value): Promise<void> {
@@ -192,7 +192,10 @@ watch(
             <td class="whitespace-nowrap px-3 py-4">
               <Badge :variant="statusVariant(item.status)">{{ statusLabel(item.status) }}</Badge>
             </td>
-            <td class="whitespace-nowrap px-3 py-4 tabular-nums">{{ formatCount(item.symbolCount) }}</td>
+            <td class="whitespace-nowrap px-3 py-4 tabular-nums">
+              {{ formatCount(item.symbolCount) }} / {{ formatCount(item.universeMemberCount) }}
+              <p class="text-xs text-muted-text">{{ (item.universeCoverageRatio * 100).toFixed(1) }}%</p>
+            </td>
             <td class="whitespace-nowrap px-3 py-4 tabular-nums">{{ formatCount(item.rowCount) }}</td>
             <td class="whitespace-nowrap px-3 py-4">{{ priceModeLabel(item.priceMode) }}</td>
             <td class="whitespace-nowrap px-3 py-4 font-mono text-xs">{{ item.featureVersion }}</td>
@@ -212,6 +215,9 @@ watch(
                 使用此数据集训练
               </Button>
               <span v-else-if="item.status === 'ready' && !item.artifactUri" class="text-xs text-warning">缺少数据制品</span>
+              <span v-else-if="item.status === 'ready' && item.universeCoverageRatio < item.minimumUniverseCoverage" class="text-xs text-warning">
+                Universe 覆盖率低于 {{ (item.minimumUniverseCoverage * 100).toFixed(0) }}%
+              </span>
               <span v-else class="text-xs text-muted-text">不可训练</span>
             </td>
           </tr>

@@ -134,6 +134,15 @@ class QlibDatasetExporter:
                 benchmark_codes,
                 price_mode=price_mode.value,
             )
+            minimum_coverage = get_quant_config().minimum_universe_coverage
+            universe_coverage = len(candidate_codes) / len(universe_codes) if universe_codes else 0.0
+            report["universe_coverage"] = {
+                "universe_members": len(universe_codes),
+                "dataset_symbols": len(candidate_codes),
+                "coverage_ratio": universe_coverage,
+                "minimum_coverage_ratio": minimum_coverage,
+                "meets_minimum": universe_coverage >= minimum_coverage,
+            }
             report["adjustment_coverage"] = loaded.adjustment_coverage
             report["adjustment_sources"] = loaded.adjustment_sources
             if not report["valid"]:

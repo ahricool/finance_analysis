@@ -27,6 +27,10 @@ const readyDataset: QuantDatasetSnapshot = {
   artifactUri: 'quant://datasets/cn-ready',
   rowCount: 620000,
   symbolCount: 300,
+  universeMemberCount: 302,
+  universeCoverageRatio: 300 / 302,
+  minimumUniverseCoverage: 0.9,
+  trainable: true,
   status: 'ready',
   validationResult: { valid: true },
   createdAt: '2026-07-22T06:30:00Z',
@@ -92,8 +96,8 @@ describe('QuantModelsPage training entry', () => {
     ]);
     vi.mocked(quantApi.datasets).mockResolvedValue([
       readyDataset,
-      { ...readyDataset, id: 9, status: 'building', artifactUri: null },
-      { ...readyDataset, id: 10, status: 'ready', artifactUri: null },
+      { ...readyDataset, id: 9, status: 'building', artifactUri: null, trainable: false },
+      { ...readyDataset, id: 10, status: 'ready', artifactUri: null, trainable: false },
     ]);
     vi.mocked(quantApi.createModelRun).mockResolvedValue({
       modelRunId: 19,
@@ -154,7 +158,9 @@ describe('QuantModelsPage training entry', () => {
   });
 
   it('shows the empty state and routes to the independent dataset builder', async () => {
-    vi.mocked(quantApi.datasets).mockResolvedValue([{ ...readyDataset, status: 'building', artifactUri: null }]);
+    vi.mocked(quantApi.datasets).mockResolvedValue([
+      { ...readyDataset, status: 'building', artifactUri: null, trainable: false },
+    ]);
     const { wrapper, router } = await mountPage('admin');
 
     await wrapper.get('[data-testid="open-quant-training"]').trigger('click');

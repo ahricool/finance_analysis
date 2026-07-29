@@ -13,6 +13,13 @@ def _float(name: str, default: float) -> float:
     return float(os.getenv(name, default))
 
 
+def _ratio(name: str, default: float) -> float:
+    value = _float(name, default)
+    if not 0 < value <= 1:
+        raise ValueError(f"{name} must be greater than 0 and at most 1, got {value}")
+    return value
+
+
 @dataclass(frozen=True)
 class RegimeConfig:
     risk_on_exposure: float = 0.80
@@ -73,6 +80,9 @@ class QuantConfig:
         default_factory=lambda: Path(os.getenv("QUANT_ARTIFACT_ROOT", get_data_dir() / "quant"))
     )
     cache_ttl_seconds: int = field(default_factory=lambda: int(os.getenv("QUANT_CACHE_TTL_SECONDS", "86400")))
+    minimum_universe_coverage: float = field(
+        default_factory=lambda: _ratio("QUANT_MIN_UNIVERSE_COVERAGE", 0.90)
+    )
     regime: RegimeConfig = field(default_factory=RegimeConfig)
     fusion: FusionConfig = field(default_factory=FusionConfig)
     portfolio: PortfolioConfig = field(default_factory=PortfolioConfig)
