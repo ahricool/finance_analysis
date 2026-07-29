@@ -48,7 +48,7 @@ def finalize_quant_model(result: dict[str, Any], model_run_id: int) -> dict[str,
 
 
 @celery_app.task(name="quant.model.train.failed")
-def fail_quant_model(failed_task_id: str, model_run_id: int) -> dict[str, Any]:
+def fail_quant_model(failed_task_id: str, *, model_run_id: int) -> dict[str, Any]:
     async_result = celery_app.AsyncResult(failed_task_id)
     detail = async_result.result
     reason = f"Qlib task {failed_task_id} failed"

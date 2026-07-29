@@ -68,7 +68,12 @@ def _dispatch(market: str) -> dict[str, Any]:
     header = [celery_app.signature("qlib.model.predict", kwargs=payload, queue=QUEUE_QLIB) for payload in requests]
     callback = finalize_quant_daily.s(context=context, _skip_task_record=True).set(queue=QUEUE_ANALYSIS)
     error_callback = fail_quant_daily.s(context=context, _skip_task_record=True).set(queue=QUEUE_ANALYSIS)
-    result = chord(header, body=callback).apply_async(link_error=error_callback)
+    # A chord-level ``link_error`` option is forwarded to the header group by
+    # Celery and makes publication fail with "Cannot add link to group".  The
+    # body errback is also the mechanism Celery's result backend consults when
+    # a header member fails, so attach it to the callback signature instead.
+    callback.link_error(error_callback)
+    result = chord(header, body=callback).apply_async()
     return {
         "status": "prediction_dispatched",
         "trade_date": context["trade_date"],
@@ -117,7 +122,7 @@ def finalize_quant_daily(
 
 @celery_app.task(name="quant.daily.failed")
 def fail_quant_daily(
-    failed_task_id: str, context: dict[str, Any], _skip_task_record: bool = False
+    failed_task_id: str, *, context: dict[str, Any], _skip_task_record: bool = False
 ) -> dict[str, Any]:
     del _skip_task_record
     detail = celery_app.AsyncResult(failed_task_id).result

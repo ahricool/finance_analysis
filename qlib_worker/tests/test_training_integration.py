@@ -119,7 +119,8 @@ def test_train_retry_restart_and_predict(monkeypatch, tmp_path: Path) -> None:
         model_key="cross_section_lgbm",
     )
     assert predicted["model_run_id"] == 101
-    assert {item["code"] for item in predicted["predictions"]} >= {"A.US", "B.US", "C.US"}
+    assert {item["code"] for item in predicted["predictions"]} == {"A.US", "B.US", "C.US"}
+    assert "QQQ.US" not in {item["code"] for item in predicted["predictions"]}
 
     metadata["price_mode"] = "raw"
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")

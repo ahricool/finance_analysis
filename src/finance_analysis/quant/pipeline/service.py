@@ -35,6 +35,7 @@ from finance_analysis.quant.signals.fusion import SignalFusion
 from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 
 PROTOCOL_VERSION = 1
+SUPPORTED_QLIB_FEATURE_CONFIG = {"base": "Alpha158"}
 
 
 class QuantTrainingPipeline:
@@ -362,45 +363,49 @@ class QuantDailyPipeline:
             current_weights=current_weights,
         )
         warnings: list[str] = [*context.get("warnings", []), *portfolio["warnings"]]
-        self.repository.replace_signals(
-            market, universe.id, trade_date, context["cross_section_model_version"], signal_values
-        )
-        recommendation = self.repository.save_portfolio(
-            {
-                "trade_date": trade_date,
-                "market": market,
-                "universe_id": universe.id,
-                "model_version": context["cross_section_model_version"],
-                "market_regime_id": regime["id"],
-                "status": "ready",
-                "max_equity_exposure": regime["max_equity_exposure"],
-                "target_equity_exposure": portfolio["target_equity_exposure"],
-                "config": portfolio["config"],
-                "summary": {
-                    "sector_exposure": portfolio["sector_exposure"],
-                    "coverage": context.get("coverage", {}),
-                },
-                "warnings": warnings,
+        portfolio_values = {
+            "trade_date": trade_date,
+            "market": market,
+            "universe_id": universe.id,
+            "model_version": context["cross_section_model_version"],
+            "market_regime_id": regime["id"],
+            "status": "ready",
+            "max_equity_exposure": regime["max_equity_exposure"],
+            "target_equity_exposure": portfolio["target_equity_exposure"],
+            "config": portfolio["config"],
+            "summary": {
+                "sector_exposure": portfolio["sector_exposure"],
+                "coverage": context.get("coverage", {}),
             },
-            [
-                {
-                    "symbol_id": item["symbol_id"],
-                    "code": item["code"],
-                    "sector_key": item.get("sector_key"),
-                    "rank": item["rank"],
-                    "previous_rank": item.get("previous_rank"),
-                    "action": item["action"],
-                    "current_weight": item["current_weight"],
-                    "target_weight": item["target_weight"],
-                    "weight_change": item["weight_change"],
-                    "final_score": item["final_score"],
-                    "predicted_return": item.get("predicted_return"),
-                    "signal": item["signal"],
-                    "reasons": item["reasons"],
-                    "constraints": {"applied": item["constraints"]},
-                }
-                for item in portfolio["items"]
-            ],
+            "warnings": warnings,
+        }
+        portfolio_items = [
+            {
+                "symbol_id": item["symbol_id"],
+                "code": item["code"],
+                "sector_key": item.get("sector_key"),
+                "rank": item["rank"],
+                "previous_rank": item.get("previous_rank"),
+                "action": item["action"],
+                "current_weight": item["current_weight"],
+                "target_weight": item["target_weight"],
+                "weight_change": item["weight_change"],
+                "final_score": item["final_score"],
+                "predicted_return": item.get("predicted_return"),
+                "signal": item["signal"],
+                "reasons": item["reasons"],
+                "constraints": {"applied": item["constraints"]},
+            }
+            for item in portfolio["items"]
+        ]
+        recommendation = self.repository.replace_signals_and_save_portfolio(
+            market,
+            universe.id,
+            trade_date,
+            context["cross_section_model_version"],
+            signal_values,
+            portfolio_values,
+            portfolio_items,
         )
         keys = cache_keys(market, universe_key)
         if not self.cache.set(keys["ranking"], public):
@@ -424,6 +429,12 @@ class QuantDailyPipeline:
         model = self.repository.production_model(market, model_key)
         if not model or not model.artifact_uri:
             raise ModelNotPublishedError(f"No production {market} {model_key} model artifact")
+        feature_config = getattr(model, "feature_config", None)
+        if feature_config is not None and dict(feature_config) != SUPPORTED_QLIB_FEATURE_CONFIG:
+            raise ModelNotPublishedError(
+                f"Production {market} {model_key} model uses unsupported feature_config={feature_config}; "
+                "retrain and publish an Alpha158-only model"
+            )
         return model
 
     def _preflight_production_models(self, market: str) -> tuple[Any, Any]:

@@ -30,6 +30,11 @@ def load_features(
     manifest: dict[str, Any],
     feature_config: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
+    config = feature_config or {}
+    if set(config) - {"base"} or config.get("base", "Alpha158") != "Alpha158":
+        raise ValueError(
+            "Only Alpha158 features are supported; legacy custom-feature models must be retrained"
+        )
     # The worker process is replaced after every task. Initializing here avoids
     # retaining a provider/cache configured for a previous dataset.
     qlib.init(provider_uri=str(dataset), region=REG_US, kernels=1)
@@ -47,9 +52,4 @@ def load_features(
     features.columns = [
         "_".join(map(str, column)) if isinstance(column, tuple) else str(column) for column in features.columns
     ]
-    config = feature_config or {}
-    if set(config) - {"base"} or config.get("base", "Alpha158") != "Alpha158":
-        raise ValueError(
-            "Only Alpha158 features are supported; legacy custom-feature models must be retrained"
-        )
     return features.replace([np.inf, -np.inf], np.nan).sort_index()

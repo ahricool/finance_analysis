@@ -71,12 +71,16 @@ def default_universe_for_market(market: str) -> str:
 
 def get_quant_universe_codes(market: str) -> set[str]:
     """Return the canonical codes for the market's single fixed Quant Universe."""
-    normalized_market = get_quant_market_config(market).market
+    config = get_quant_market_config(market)
+    normalized_market = config.market
     reference = SP500_STOCK_INDEX if normalized_market == "US" else CSI300_STOCK_INDEX
-    return {
+    codes = {
         MarketDataScopeResolver.canonical_code(code, normalized_market)
         for code in reference
     }
+    # The reference lists also carry benchmark ETFs so market-data sync can
+    # fetch them.  Benchmarks are model dependencies, not rankable members.
+    return codes - set(config.benchmark_dependencies)
 
 
 def validate_universe_for_market(market: str, universe_key: str | None = None) -> str:
