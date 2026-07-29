@@ -28,6 +28,7 @@ FIXED_ACCOUNTS = (
 )
 FIXED_ACCOUNT_BY_CODE = {item.account_code: item for item in FIXED_ACCOUNTS}
 CURRENCY_BY_MARKET = {item.market: item.currency for item in FIXED_ACCOUNTS}
+_NON_US_CANONICAL_SUFFIXES = (".HK", ".SH", ".SZ")
 
 
 def coerce_decimal(value: Decimal | int | str, *, field_name: str) -> Decimal:
@@ -57,6 +58,20 @@ def normalized_decimal_identity(value: Decimal | int | str) -> str:
     return normalized.rstrip("0").rstrip(".") if "." in normalized else normalized
 
 
+def normalize_portfolio_canonical_symbol(market: str, code: str) -> str:
+    """Normalize a portfolio security code before canonical market validation."""
+    normalized_market = str(market or "").strip().upper()
+    normalized_code = str(code or "").strip().upper()
+    if (
+        normalized_market == "US"
+        and normalized_code
+        and not normalized_code.endswith(".US")
+        and not normalized_code.endswith(_NON_US_CANONICAL_SUFFIXES)
+    ):
+        return f"{normalized_code}.US"
+    return normalized_code
+
+
 def build_option_canonical_symbol(
     underlying_canonical_symbol: str,
     expiration_date: date,
@@ -64,7 +79,7 @@ def build_option_canonical_symbol(
     strike_price: Decimal | int | str,
 ) -> str:
     """Build the stable internal identity for a standard US option contract."""
-    underlying = str(underlying_canonical_symbol or "").strip().upper()
+    underlying = normalize_portfolio_canonical_symbol("US", underlying_canonical_symbol)
     kind = str(option_type or "").strip().upper()
     if kind not in {"CALL", "PUT"}:
         raise ValueError("option_type must be CALL or PUT")

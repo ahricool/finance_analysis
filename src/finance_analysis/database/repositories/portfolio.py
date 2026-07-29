@@ -19,14 +19,15 @@ from finance_analysis.database.models import (
     PortfolioAccount,
     Position,
 )
+from finance_analysis.database.models.stock import validate_market_data_code
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.portfolio.domain import (
     CURRENCY_BY_MARKET,
     FIXED_ACCOUNTS,
     build_option_canonical_symbol,
+    normalize_portfolio_canonical_symbol,
 )
 from finance_analysis.stocks.markets import normalize_market_type
-from finance_analysis.database.models.stock import validate_market_data_code
 
 
 def _position_load_options():
@@ -187,7 +188,8 @@ class InstrumentRepository:
         normalized_type = asset_type.strip().upper()
         if normalized_type not in {"STOCK", "ETF"}:
             raise ValueError("asset_type must be STOCK or ETF")
-        canonical = validate_market_data_code(normalized_market, canonical_symbol)
+        normalized_symbol = normalize_portfolio_canonical_symbol(normalized_market, canonical_symbol)
+        canonical = validate_market_data_code(normalized_market, normalized_symbol)
         currency = CURRENCY_BY_MARKET[normalized_market]
 
         def _write(session: Session) -> int:

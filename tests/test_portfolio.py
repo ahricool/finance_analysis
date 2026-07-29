@@ -27,6 +27,7 @@ from finance_analysis.interfaces.api.v1.schemas.portfolio import (
 from finance_analysis.portfolio.domain import (
     build_option_canonical_symbol,
     current_us_market_date,
+    normalize_portfolio_canonical_symbol,
     option_days_to_expiration,
 )
 from finance_analysis.portfolio.service import (
@@ -107,6 +108,71 @@ def test_option_canonical_symbol_is_stable_across_decimal_spellings() -> None:
     expected = "SPY.US|2026-08-21|CALL|650"
     for strike in ("650", "650.0", "650.00000000", Decimal("650.00")):
         assert build_option_canonical_symbol("spy.us", date(2026, 8, 21), "call", strike) == expected
+
+
+def test_portfolio_canonical_symbol_normalizes_us_without_changing_cn_or_hk_rules() -> None:
+    assert normalize_portfolio_canonical_symbol("US", "AAPL") == "AAPL.US"
+    assert normalize_portfolio_canonical_symbol("US", "aapl") == "AAPL.US"
+    assert normalize_portfolio_canonical_symbol("US", "AAPL.US") == "AAPL.US"
+    assert normalize_portfolio_canonical_symbol("CN", "600519.sh") == "600519.SH"
+    assert normalize_portfolio_canonical_symbol("HK", "700.hk") == "700.HK"
+    assert build_option_canonical_symbol("SPY", date(2026, 8, 21), "CALL", "650") == (
+        "SPY.US|2026-08-21|CALL|650"
+    )
+
+
+def test_us_equities_and_option_underlying_are_normalized_before_storage(portfolio_service) -> None:
+    portfolio_service.ensure_fixed_portfolio_accounts(1)
+    portfolio_service.ensure_fixed_portfolio_accounts(2)
+    first_us = portfolio_service.accounts.get_by_code(1, "US")
+    second_us = portfolio_service.accounts.get_by_code(2, "US")
+
+    first = portfolio_service.create_equity_position(
+        1,
+        first_us.id,
+        canonical_symbol="AAPL",
+        display_symbol="AAPL",
+        name="Apple",
+        asset_type="STOCK",
+        quantity="1",
+        avg_cost="100",
+        opened_at=None,
+        notes=None,
+    )
+    second = portfolio_service.create_equity_position(
+        2,
+        second_us.id,
+        canonical_symbol="aapl",
+        display_symbol="AAPL",
+        name="Apple",
+        asset_type="STOCK",
+        quantity="2",
+        avg_cost="101",
+        opened_at=None,
+        notes=None,
+    )
+    assert first.instrument.canonical_symbol == "AAPL.US"
+    assert second.instrument.canonical_symbol == "AAPL.US"
+
+    option = portfolio_service.create_option_position(
+        1,
+        first_us.id,
+        underlying_canonical_symbol="SPY",
+        underlying_display_symbol="SPY",
+        underlying_name="SPDR S&P 500 ETF Trust",
+        underlying_asset_type="ETF",
+        option_type="CALL",
+        expiration_date=date(2026, 8, 21),
+        strike_price="650",
+        quantity="1",
+        avg_cost="3.50",
+        contract_multiplier="100",
+        opened_at=None,
+        notes=None,
+    )
+    option_payload = portfolio_service.position_payload(option)
+    assert option_payload["canonical_symbol"] == "SPY.US|2026-08-21|CALL|650"
+    assert option_payload["option"]["underlying_canonical_symbol"] == "SPY.US"
 
 
 def test_option_dte_uses_new_york_date_boundary() -> None:
@@ -210,7 +276,7 @@ def test_equity_and_option_positions_enforce_market_quantity_and_cost(portfolio_
     option = portfolio_service.create_option_position(
         1,
         us.id,
-        underlying_canonical_symbol="SPY.US",
+        underlying_canonical_symbol="SPY",
         underlying_display_symbol="SPY",
         underlying_name="SPDR S&P 500 ETF Trust",
         underlying_asset_type="ETF",
@@ -229,6 +295,23 @@ def test_equity_and_option_positions_enforce_market_quantity_and_cost(portfolio_
     assert payload["option"]["underlying_canonical_symbol"] == "SPY.US"
     assert payload["option"]["days_to_expiration"] == 24
     assert option.instrument.market_data_symbol_id is None
+    with pytest.raises(PortfolioValidationError, match="must equal 100"):
+        portfolio_service.create_option_position(
+            1,
+            us.id,
+            underlying_canonical_symbol="QQQ",
+            underlying_display_symbol="QQQ",
+            underlying_name="Invesco QQQ Trust",
+            underlying_asset_type="ETF",
+            option_type="CALL",
+            expiration_date=date(2026, 9, 18),
+            strike_price="700",
+            quantity="1",
+            avg_cost="2",
+            contract_multiplier="50",
+            opened_at=None,
+            notes=None,
+        )
     with pytest.raises(PortfolioValidationError, match="integer"):
         portfolio_service.create_option_position(
             1,
@@ -394,7 +477,7 @@ def test_portfolio_api_accounts_cash_positions_and_ownership(monkeypatch, portfo
     created = client.post(
         f"/api/v1/portfolio/accounts/{us_id}/positions/equities",
         json={
-            "canonical_symbol": "AAPL.US",
+            "canonical_symbol": "AAPL",
             "display_symbol": "AAPL",
             "name": "Apple",
             "asset_type": "STOCK",
@@ -403,6 +486,7 @@ def test_portfolio_api_accounts_cash_positions_and_ownership(monkeypatch, portfo
         },
     )
     assert created.status_code == 201
+    assert created.json()["canonical_symbol"] == "AAPL.US"
     assert created.json()["cost_amount"] == "200.00000000"
     listed = client.get(f"/api/v1/portfolio/accounts/{us_id}/positions")
     assert listed.json()[0]["id"] == created.json()["id"]

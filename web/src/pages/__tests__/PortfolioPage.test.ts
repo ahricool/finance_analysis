@@ -130,6 +130,23 @@ function setField(labelText: string, value: string): void {
   input.dispatchEvent(new Event(input instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
 }
 
+async function selectCreateAssetType(assetType: 'STOCK' | 'ETF' | 'OPTION'): Promise<void> {
+  const input = document.body.querySelector<HTMLInputElement>(`[data-create-asset-type="${assetType}"]`);
+  if (!input) throw new Error(`Missing create asset type ${assetType}`);
+  input.checked = true;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  await flushPromises();
+}
+
+async function clickDialogButton(text: string): Promise<void> {
+  const button = Array.from(document.body.querySelectorAll('button')).find(
+    (item) => item.textContent?.trim() === text,
+  );
+  if (!button) throw new Error(`Missing dialog button ${text}`);
+  button.click();
+  await flushPromises();
+}
+
 describe('portfolio page', () => {
   beforeEach(() => {
     mocks.listAccounts.mockResolvedValue([...accounts]);
@@ -153,7 +170,7 @@ describe('portfolio page', () => {
     expect(page.findAll('[role="tab"]')).toHaveLength(3);
     expect(page.get('[data-account-code="CN"]').attributes('aria-selected')).toBe('true');
     expect(page.text()).toContain('存在未定价股票/ETF');
-    expect(page.find('[data-testid="add-option"]').exists()).toBe(false);
+    expect(page.findAll('[data-testid="add-position"]')).toHaveLength(1);
     expect(page.text()).not.toContain('新建账户');
     expect(page.text()).not.toContain('编辑账户');
     expect(mocks.listPositions).toHaveBeenCalledWith(1, 'ALL', 'ALL');
@@ -163,7 +180,7 @@ describe('portfolio page', () => {
     const page = await mountPage();
     await page.get('[data-account-code="US"]').trigger('click');
     await flushPromises();
-    expect(page.find('[data-testid="add-option"]').exists()).toBe(true);
+    expect(page.find('[data-testid="add-position"]').exists()).toBe(true);
     const section = page.get('[data-testid="option-section"]');
     expect(section.text()).toContain('期权仅作手工持仓记录，不提供实时价格、市值或盈亏');
     expect(section.text()).toContain('已到期，待确认处理');
@@ -176,12 +193,13 @@ describe('portfolio page', () => {
     expect(optionHeaders).not.toContain('未实现盈亏');
   });
 
-  it('maps autocomplete ETF asset type separately from its CN market and submits strings', async () => {
+  it('uses the ETF radio as the final asset type even when autocomplete reports stock', async () => {
     const page = await mountPage();
-    const add = page.findAll('button').find((item) => item.text().includes('添加股票 / ETF'))!;
-    await add.trigger('click');
+    await page.get('[data-testid="add-position"]').trigger('click');
+    await selectCreateAssetType('ETF');
     const autocomplete = page.findComponent({ name: 'StockAutocomplete' });
-    autocomplete.vm.$emit('submit', '510300.SH', '沪深300ETF', 'autocomplete', 'CN', 'etf');
+    autocomplete.vm.$emit('update:modelValue', '510300');
+    autocomplete.vm.$emit('submit', '510300.SH', '沪深300ETF', 'autocomplete', 'CN', 'stock');
     await flushPromises();
     setField('数量', '10.25');
     setField('平均成本', '4.12345678');
@@ -203,16 +221,35 @@ describe('portfolio page', () => {
     const page = await mountPage();
     await page.get('[data-account-code="US"]').trigger('click');
     await flushPromises();
-    await page.get('[data-testid="add-option"]').trigger('click');
-    page.findComponent({ name: 'StockAutocomplete' }).vm.$emit(
+    await page.get('[data-testid="add-position"]').trigger('click');
+    await selectCreateAssetType('OPTION');
+    const underlyingTypeRadios = document.body.querySelectorAll<HTMLInputElement>(
+      'input[name="option-underlying-type"]',
+    );
+    underlyingTypeRadios[1]!.checked = true;
+    underlyingTypeRadios[1]!.dispatchEvent(new Event('change', { bubbles: true }));
+    const autocomplete = page.findComponent({ name: 'StockAutocomplete' });
+    autocomplete.vm.$emit('update:modelValue', 'SPY');
+    autocomplete.vm.$emit(
       'submit',
-      'SPY.US',
+      'SPY',
       'SPDR S&P 500 ETF Trust',
       'autocomplete',
       'US',
       'etf',
     );
     await flushPromises();
+    expect(document.body.textContent).toContain('合约乘数：100');
+    const optionDialog = document.body.querySelector('[role="dialog"]');
+    expect(optionDialog?.textContent).toContain('张数');
+    expect(
+      Array.from(optionDialog?.querySelectorAll('label') ?? []).some(
+        (label) => label.textContent?.trim() === '数量',
+      ),
+    ).toBe(false);
+    expect(
+      Array.from(document.body.querySelectorAll('label')).some((label) => label.textContent?.includes('合约乘数')),
+    ).toBe(false);
     setField('到期日', '2026-08-21');
     setField('行权价', '650');
     setField('张数', '2');
@@ -224,10 +261,121 @@ describe('portfolio page', () => {
       3,
       expect.objectContaining({
         underlying_asset_type: 'ETF',
+        underlying_canonical_symbol: 'SPY',
         quantity: '-2',
         avg_cost: '3.50',
         contract_multiplier: '100',
       }),
     );
+  });
+
+  it('shows create radios by account and never exposes option creation for CN or HK', async () => {
+    const page = await mountPage();
+    await page.get('[data-testid="add-position"]').trigger('click');
+    expect(document.body.querySelectorAll('input[name="create-asset-type"]')).toHaveLength(2);
+    expect(document.body.querySelector('[data-create-asset-type="OPTION"]')).toBeNull();
+
+    await clickDialogButton('取消');
+    await page.get('[data-account-code="HK"]').trigger('click');
+    await flushPromises();
+    await page.get('[data-testid="add-position"]').trigger('click');
+    expect(document.body.querySelectorAll('input[name="create-asset-type"]')).toHaveLength(2);
+    expect(document.body.querySelector('[data-create-asset-type="OPTION"]')).toBeNull();
+
+    await clickDialogButton('取消');
+    await page.get('[data-account-code="US"]').trigger('click');
+    await flushPromises();
+    await page.get('[data-testid="add-position"]').trigger('click');
+    expect(document.body.querySelectorAll('input[name="create-asset-type"]')).toHaveLength(3);
+  });
+
+  it('submits STOCK from the radio and replaces a selection after edited autocomplete text', async () => {
+    const page = await mountPage();
+    await page.get('[data-account-code="US"]').trigger('click');
+    await flushPromises();
+    await page.get('[data-testid="add-position"]').trigger('click');
+    const autocomplete = page.findComponent({ name: 'StockAutocomplete' });
+    autocomplete.vm.$emit('update:modelValue', 'AAPL');
+    autocomplete.vm.$emit('submit', 'AAPL', 'Apple', 'autocomplete', 'US', 'etf');
+    await flushPromises();
+    setField('数量', '2');
+    setField('平均成本', '100');
+
+    autocomplete.vm.$emit('update:modelValue', 'MSFT');
+    document.body.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(document.body.textContent).toContain('请从搜索结果中选择标的');
+    expect(mocks.createEquity).not.toHaveBeenCalled();
+
+    autocomplete.vm.$emit('update:modelValue', 'MSFT');
+    autocomplete.vm.$emit('submit', 'MSFT', 'Microsoft', 'autocomplete', 'US', 'stock');
+    await flushPromises();
+    document.body.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(mocks.createEquity).toHaveBeenCalledWith(
+      3,
+      expect.objectContaining({ canonical_symbol: 'MSFT', asset_type: 'STOCK' }),
+    );
+  });
+
+  it('invalidates edited ETF and option underlyings until a new result is selected', async () => {
+    const page = await mountPage();
+    await page.get('[data-testid="add-position"]').trigger('click');
+    await selectCreateAssetType('ETF');
+    let autocomplete = page.findComponent({ name: 'StockAutocomplete' });
+    autocomplete.vm.$emit('update:modelValue', '510300');
+    autocomplete.vm.$emit('submit', '510300.SH', '沪深300ETF', 'autocomplete', 'CN', 'stock');
+    setField('数量', '10');
+    setField('平均成本', '4');
+    autocomplete.vm.$emit('update:modelValue', '510500');
+    document.body.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(mocks.createEquity).not.toHaveBeenCalled();
+
+    await clickDialogButton('取消');
+    await page.get('[data-account-code="US"]').trigger('click');
+    await flushPromises();
+    await page.get('[data-testid="add-position"]').trigger('click');
+    await selectCreateAssetType('OPTION');
+    autocomplete = page.findComponent({ name: 'StockAutocomplete' });
+    autocomplete.vm.$emit('update:modelValue', 'SPY');
+    autocomplete.vm.$emit('submit', 'SPY', 'SPY ETF', 'autocomplete', 'US', 'stock');
+    setField('到期日', '2026-08-21');
+    setField('行权价', '650');
+    setField('张数', '1');
+    setField('平均成本', '3');
+    autocomplete.vm.$emit('update:modelValue', 'QQQ');
+    document.body.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(mocks.createOption).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain('请从搜索结果中选择标的');
+  });
+
+  it('clears symbol and type-specific fields whenever the create asset radio changes', async () => {
+    const page = await mountPage();
+    await page.get('[data-account-code="US"]').trigger('click');
+    await flushPromises();
+    await page.get('[data-testid="add-position"]').trigger('click');
+    let autocomplete = page.findComponent({ name: 'StockAutocomplete' });
+    autocomplete.vm.$emit('update:modelValue', 'AAPL');
+    autocomplete.vm.$emit('submit', 'AAPL', 'Apple', 'autocomplete', 'US', 'stock');
+    setField('数量', '2');
+    setField('平均成本', '100');
+
+    await selectCreateAssetType('OPTION');
+    autocomplete = page.findComponent({ name: 'StockAutocomplete' });
+    expect(autocomplete.props('modelValue')).toBe('');
+    setField('到期日', '2026-08-21');
+    setField('行权价', '650');
+    autocomplete.vm.$emit('update:modelValue', 'SPY');
+    autocomplete.vm.$emit('submit', 'SPY', 'SPY ETF', 'autocomplete', 'US', 'etf');
+
+    await selectCreateAssetType('ETF');
+    autocomplete = page.findComponent({ name: 'StockAutocomplete' });
+    expect(autocomplete.props('modelValue')).toBe('');
+    expect((document.querySelector('input[inputmode="decimal"]') as HTMLInputElement).value).toBe('');
+    const dialogText = document.body.querySelector('[role="dialog"]')?.textContent;
+    expect(dialogText).not.toContain('行权价');
+    expect(dialogText).not.toContain('到期日');
   });
 });

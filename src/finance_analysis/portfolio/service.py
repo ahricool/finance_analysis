@@ -193,8 +193,8 @@ class PortfolioService:
         if strike <= 0:
             raise PortfolioValidationError("strike_price must be greater than 0")
         multiplier = self._parse_decimal(contract_multiplier, field_name="contract_multiplier")
-        if multiplier <= 0:
-            raise PortfolioValidationError("contract_multiplier must be greater than 0")
+        if multiplier != Decimal("100"):
+            raise PortfolioValidationError("standard US option contract_multiplier must equal 100")
         parsed_quantity = self._validate_quantity("OPTION", quantity)
         parsed_cost = self._validate_cost(avg_cost)
         if expiration_date < current_us_market_date(self.now_provider()):

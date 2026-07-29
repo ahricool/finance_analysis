@@ -22,8 +22,17 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 type AssetFilter = PortfolioAssetType | 'ALL';
-type DialogMode = 'equity' | 'option' | 'edit' | null;
+type CreateAssetType = 'STOCK' | 'ETF' | 'OPTION';
+type EquityAssetType = Exclude<CreateAssetType, 'OPTION'>;
+type DialogMode = 'create' | 'edit' | null;
 type PositionDirection = 'LONG' | 'SHORT';
+
+interface SelectedSecurity {
+  canonicalCode: string;
+  displayCode: string;
+  name: string;
+  market: PortfolioMarket;
+}
 
 const ACCOUNT_ORDER: PortfolioMarket[] = ['CN', 'HK', 'US'];
 const DECIMAL_PATTERN = /^\d+(?:\.\d+)?$/;
@@ -46,10 +55,9 @@ const saving = ref(false);
 const formError = ref<string | null>(null);
 
 const stockQuery = ref('');
-const selectedCanonical = ref('');
-const selectedDisplay = ref('');
-const selectedName = ref('');
-const selectedUnderlyingType = ref<'STOCK' | 'ETF'>('STOCK');
+const selectedSecurity = ref<SelectedSecurity | null>(null);
+const createAssetType = ref<CreateAssetType>('STOCK');
+const optionUnderlyingType = ref<EquityAssetType>('STOCK');
 const quantity = ref('');
 const avgCost = ref('');
 const openedAt = ref('');
@@ -60,7 +68,6 @@ const expirationDate = ref('');
 const strikePrice = ref('');
 const optionContracts = ref('');
 const optionDirection = ref<PositionDirection>('LONG');
-const contractMultiplier = ref('100');
 const cashInput = ref('');
 const cashSaving = ref(false);
 
@@ -113,6 +120,11 @@ const availableAssetFilters = computed<{ value: AssetFilter; label: string }[]>(
   { value: 'ETF', label: 'ETF' },
   ...(selectedAccountCode.value === 'US' ? [{ value: 'OPTION' as const, label: '期权' }] : []),
 ]);
+const availableCreateAssetTypes = computed<{ value: CreateAssetType; label: string }[]>(() => [
+  { value: 'STOCK', label: '股票' },
+  { value: 'ETF', label: 'ETF' },
+  ...(selectedAccountCode.value === 'US' ? [{ value: 'OPTION' as const, label: '期权' }] : []),
+]);
 
 function sumNumbers(values: Array<string | number>): number {
   return values.reduce<number>((sum, value) => sum + Number(value), 0);
@@ -151,10 +163,9 @@ function positionPnl(position: PortfolioPosition): number | null {
 
 function resetForm(): void {
   stockQuery.value = '';
-  selectedCanonical.value = '';
-  selectedDisplay.value = '';
-  selectedName.value = '';
-  selectedUnderlyingType.value = 'STOCK';
+  selectedSecurity.value = null;
+  createAssetType.value = 'STOCK';
+  optionUnderlyingType.value = 'STOCK';
   quantity.value = '';
   avgCost.value = '';
   openedAt.value = '';
@@ -165,18 +176,19 @@ function resetForm(): void {
   strikePrice.value = '';
   optionContracts.value = '';
   optionDirection.value = 'LONG';
-  contractMultiplier.value = '100';
   formError.value = null;
 }
 
-function openCreateEquity(): void {
+function openCreatePosition(): void {
   resetForm();
-  dialogMode.value = 'equity';
+  dialogMode.value = 'create';
 }
 
-function openCreateOption(): void {
+function changeCreateAssetType(assetType: CreateAssetType): void {
+  if (assetType === 'OPTION' && selectedAccountCode.value !== 'US') return;
   resetForm();
-  dialogMode.value = 'option';
+  createAssetType.value = assetType;
+  dialogMode.value = 'create';
 }
 
 function openEdit(position: PortfolioPosition): void {
@@ -197,6 +209,12 @@ function closeDialog(): void {
   editingPosition.value = null;
 }
 
+function handleAutocompleteInput(value: string): void {
+  stockQuery.value = value;
+  selectedSecurity.value = null;
+  formError.value = null;
+}
+
 function handleAutocomplete(
   canonicalCode: string,
   name?: string,
@@ -204,6 +222,7 @@ function handleAutocomplete(
   market?: Market,
   assetType?: AssetType,
 ): void {
+  selectedSecurity.value = null;
   if (source !== 'autocomplete' || !selectedAccount.value) {
     formError.value = '请从搜索结果中选择标的';
     return;
@@ -218,11 +237,14 @@ function handleAutocomplete(
     formError.value = '仅支持股票和 ETF';
     return;
   }
-  selectedCanonical.value = canonicalCode;
-  selectedDisplay.value = canonicalCode.split('.')[0] ?? canonicalCode;
-  selectedName.value = name ?? '';
-  selectedUnderlyingType.value = assetType === 'etf' ? 'ETF' : 'STOCK';
-  stockQuery.value = name ? `${name}（${selectedDisplay.value}）` : selectedDisplay.value;
+  const displayCode = canonicalCode.split('.')[0] ?? canonicalCode;
+  selectedSecurity.value = {
+    canonicalCode,
+    displayCode,
+    name: name ?? '',
+    market: normalizedMarket,
+  };
+  stockQuery.value = name ? `${name}（${displayCode}）` : displayCode;
   formError.value = null;
 }
 
@@ -231,7 +253,7 @@ function validNonNegativeDecimal(value: string): boolean {
 }
 
 function validateCommon(): string | null {
-  if (!selectedCanonical.value) return '请从搜索结果中选择标的';
+  if (!selectedSecurity.value) return '请从搜索结果中选择标的';
   if (!validNonNegativeDecimal(avgCost.value)) return '平均成本必须是大于等于 0 的数字';
   if (openedAt.value && toIso(openedAt.value) === null) return '建仓时间格式不正确';
   return null;
@@ -268,23 +290,23 @@ async function savePosition(): Promise<void> {
         status: editStatus.value,
         notes: notes.value.trim() || null,
       });
-    } else if (dialogMode.value === 'equity') {
+    } else if (dialogMode.value === 'create' && createAssetType.value !== 'OPTION') {
       const validation = validateCommon();
       if (validation || !validNonNegativeDecimal(quantity.value) || Number(quantity.value) <= 0) {
         formError.value = validation ?? '数量必须大于 0';
         return;
       }
       await portfolioApi.createEquity(account.id, {
-        canonical_symbol: selectedCanonical.value,
-        display_symbol: selectedDisplay.value,
-        name: selectedName.value || undefined,
-        asset_type: selectedUnderlyingType.value,
+        canonical_symbol: selectedSecurity.value!.canonicalCode,
+        display_symbol: selectedSecurity.value!.displayCode,
+        name: selectedSecurity.value!.name || undefined,
+        asset_type: createAssetType.value,
         quantity: quantity.value.trim(),
         avg_cost: avgCost.value.trim(),
         opened_at: toIso(openedAt.value),
         notes: notes.value.trim() || null,
       });
-    } else if (dialogMode.value === 'option') {
+    } else if (dialogMode.value === 'create' && createAssetType.value === 'OPTION') {
       const validation = validateCommon();
       if (validation) {
         formError.value = validation;
@@ -294,22 +316,20 @@ async function savePosition(): Promise<void> {
       else if (!validNonNegativeDecimal(strikePrice.value) || Number(strikePrice.value) <= 0)
         formError.value = '行权价必须大于 0';
       else if (!POSITIVE_INTEGER_PATTERN.test(optionContracts.value)) formError.value = '张数必须为正整数';
-      else if (!validNonNegativeDecimal(contractMultiplier.value) || Number(contractMultiplier.value) <= 0)
-        formError.value = '合约乘数必须大于 0';
       if (formError.value) return;
       const signedQuantity =
         optionDirection.value === 'SHORT' ? `-${optionContracts.value}` : optionContracts.value;
       await portfolioApi.createOption(account.id, {
-        underlying_canonical_symbol: selectedCanonical.value,
-        underlying_display_symbol: selectedDisplay.value,
-        underlying_name: selectedName.value || undefined,
-        underlying_asset_type: selectedUnderlyingType.value,
+        underlying_canonical_symbol: selectedSecurity.value!.canonicalCode,
+        underlying_display_symbol: selectedSecurity.value!.displayCode,
+        underlying_name: selectedSecurity.value!.name || undefined,
+        underlying_asset_type: optionUnderlyingType.value,
         option_type: optionType.value,
         expiration_date: expirationDate.value,
         strike_price: strikePrice.value.trim(),
         quantity: signedQuantity,
         avg_cost: avgCost.value.trim(),
-        contract_multiplier: contractMultiplier.value.trim(),
+        contract_multiplier: '100',
         opened_at: toIso(openedAt.value),
         notes: notes.value.trim() || null,
       });
@@ -432,16 +452,12 @@ onMounted(async () => {
         <p class="mt-1 text-sm text-secondary-text">按市场管理固定账户的现金、股票、ETF 与美股期权记录。</p>
       </div>
       <div class="flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm" @click="openCreateEquity">
-          <Plus class="h-4 w-4" />添加股票 / ETF
-        </Button>
         <Button
-          v-if="selectedAccountCode === 'US'"
-          data-testid="add-option"
+          data-testid="add-position"
           size="sm"
-          @click="openCreateOption"
+          @click="openCreatePosition"
         >
-          <Plus class="h-4 w-4" />添加期权
+          <Plus class="h-4 w-4" />添加持仓
         </Button>
       </div>
     </div>
@@ -554,16 +570,86 @@ onMounted(async () => {
       <div v-if="!filteredPositions.length" class="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-secondary-text">当前筛选下暂无持仓记录。</div>
     </template>
 
-    <Dialog :is-open="dialogMode !== null" :title="dialogMode === 'edit' ? '编辑持仓' : dialogMode === 'option' ? '添加期权' : '添加股票 / ETF'" width="max-w-xl" @close="closeDialog">
-      <form class="space-y-4" @submit.prevent="savePosition">
+    <Dialog
+      :is-open="dialogMode !== null"
+      :title="dialogMode === 'edit' ? '编辑持仓' : '添加持仓'"
+      width="max-w-xl"
+      @close="closeDialog"
+    >
+      <form
+        class="space-y-4"
+        @submit.prevent="savePosition"
+      >
         <template v-if="dialogMode !== 'edit'">
-          <label class="block text-sm font-medium">标的</label>
-          <StockAutocomplete v-model="stockQuery" :placeholder="`搜索${selectedAccount?.name ?? ''}标的`" @submit="handleAutocomplete" />
-          <p v-if="selectedCanonical" class="text-xs text-cyan">已选择 {{ selectedCanonical }} · {{ selectedUnderlyingType }}</p>
+          <fieldset>
+            <legend class="text-sm font-medium">
+              持仓类型
+            </legend>
+            <div class="mt-2 flex flex-wrap gap-4">
+              <label
+                v-for="assetType in availableCreateAssetTypes"
+                :key="assetType.value"
+                class="flex items-center gap-2 text-sm"
+              >
+                <input
+                  :checked="createAssetType === assetType.value"
+                  :data-create-asset-type="assetType.value"
+                  type="radio"
+                  name="create-asset-type"
+                  :value="assetType.value"
+                  @change="changeCreateAssetType(assetType.value)"
+                />
+                {{ assetType.label }}
+              </label>
+            </div>
+          </fieldset>
+          <fieldset v-if="createAssetType === 'OPTION'">
+            <legend class="text-sm font-medium">
+              标的类型
+            </legend>
+            <div class="mt-2 flex gap-4">
+              <label class="flex items-center gap-2 text-sm">
+                <input
+                  v-model="optionUnderlyingType"
+                  type="radio"
+                  name="option-underlying-type"
+                  value="STOCK"
+                />股票
+              </label>
+              <label class="flex items-center gap-2 text-sm">
+                <input
+                  v-model="optionUnderlyingType"
+                  type="radio"
+                  name="option-underlying-type"
+                  value="ETF"
+                />ETF
+              </label>
+            </div>
+          </fieldset>
+          <label class="block text-sm font-medium">{{ createAssetType === 'OPTION' ? '期权标的' : '标的' }}</label>
+          <StockAutocomplete
+            :model-value="stockQuery"
+            :placeholder="`搜索${selectedAccount?.name ?? ''}标的`"
+            @update:model-value="handleAutocompleteInput"
+            @submit="handleAutocomplete"
+          />
+          <p v-if="selectedSecurity" class="text-xs text-cyan">
+            已选择 {{ selectedSecurity.canonicalCode }} ·
+            {{ createAssetType === 'OPTION' ? optionUnderlyingType : createAssetType }}
+          </p>
         </template>
-        <template v-if="dialogMode === 'option'">
+        <template v-if="dialogMode === 'create' && createAssetType === 'OPTION'">
           <div class="grid grid-cols-2 gap-3"><label class="text-sm">Call / Put<select v-model="optionType" class="input-surface mt-1 w-full rounded-xl p-2"><option value="CALL">Call</option><option value="PUT">Put</option></select></label><Input v-model="expirationDate" label="到期日" type="date" /></div>
-          <div class="grid grid-cols-2 gap-3"><Input v-model="strikePrice" label="行权价" inputmode="decimal" /><Input v-model="contractMultiplier" label="合约乘数" inputmode="decimal" /></div>
+          <div class="grid grid-cols-2 items-end gap-3">
+            <Input
+              v-model="strikePrice"
+              label="行权价"
+              inputmode="decimal"
+            />
+            <p class="rounded-xl border border-border/70 bg-muted/30 px-3 py-2 text-sm text-secondary-text">
+              合约乘数：100
+            </p>
+          </div>
           <div class="grid grid-cols-2 gap-3"><Input v-model="optionContracts" label="张数" inputmode="numeric" /><label class="text-sm">持仓方向<select v-model="optionDirection" class="input-surface mt-1 w-full rounded-xl p-2"><option value="LONG">多头</option><option value="SHORT">空头</option></select></label></div>
         </template>
         <template v-else-if="dialogMode === 'edit' && editingPosition?.asset_type === 'OPTION'">
