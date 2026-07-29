@@ -240,6 +240,9 @@ class UserRepository:
         created = self.get_by_uid(uid)
         if created is None:
             raise RuntimeError("failed to load user after create")
+        from finance_analysis.portfolio.service import ensure_fixed_portfolio_accounts
+
+        ensure_fixed_portfolio_accounts(uid, self.db)
         return created
 
     def user_needs_password_setup(self, email: str) -> Optional[bool]:
@@ -262,26 +265,29 @@ class UserRepository:
                 .limit(1)
             ).scalars().first()
             if existing:
-                return existing.id
+                uid = existing.id
+            else:
+                row = User(
+                    username=DEFAULT_ADMIN_USERNAME,
+                    email=DEFAULT_ADMIN_EMAIL,
+                    password_hash=None,
+                    avatar_url=None,
+                    role="admin",
+                    extra={},
+                )
+                session.add(row)
+                session.flush()
+                uid = row.id
+                session.commit()
+                logger.info(
+                    "Created default admin user %s (%s) without password — set via first login",
+                    DEFAULT_ADMIN_USERNAME,
+                    DEFAULT_ADMIN_EMAIL,
+                )
+        from finance_analysis.portfolio.service import ensure_fixed_portfolio_accounts
 
-            row = User(
-                username=DEFAULT_ADMIN_USERNAME,
-                email=DEFAULT_ADMIN_EMAIL,
-                password_hash=None,
-                avatar_url=None,
-                role="admin",
-                extra={},
-            )
-            session.add(row)
-            session.flush()
-            uid = row.id
-            session.commit()
-            logger.info(
-                "Created default admin user %s (%s) without password — set via first login",
-                DEFAULT_ADMIN_USERNAME,
-                DEFAULT_ADMIN_EMAIL,
-            )
-            return uid
+        ensure_fixed_portfolio_accounts(uid, self.db)
+        return uid
 
     def to_public_dict(self, user: User) -> Dict[str, Any]:
         return {

@@ -7,13 +7,13 @@ import logging
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Iterable, cast
+from typing import Any, cast
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from finance_analysis.core.time import utc_isoformat, utc_now
 from finance_analysis.database.config import get_database_config
-from finance_analysis.database.repositories.stock_list import StockListRepo
+from finance_analysis.database.repositories.portfolio import PositionRepository
 from finance_analysis.database.repositories.user import UserRepository
 from finance_analysis.database.repositories.watch_list import WatchListRepo
 from finance_analysis.integrations.market_data.providers.longbridge.market import _to_longbridge_symbol
@@ -48,12 +48,8 @@ class TrackedStock:
 
 
 def _load_tracked_stocks(uid: int) -> list[TrackedStock]:
-    items: Iterable[Any] = [
-        *WatchListRepo().list_all(uid=uid),
-        *StockListRepo().list_all(uid=uid),
-    ]
     tracked: dict[str, TrackedStock] = {}
-    for item in items:
+    for item in WatchListRepo().list_all(uid=uid):
         code = str(item.code).strip().upper()
         market_type = str(item.market_type).strip().upper()
         try:
@@ -63,6 +59,27 @@ def _load_tracked_stocks(uid: int) -> list[TrackedStock]:
             continue
         if symbol:
             tracked[symbol.upper()] = TrackedStock(code=code, market_type=market_type, symbol=symbol)
+    position_repo = PositionRepository()
+    positions = []
+    for market in ("CN", "HK", "US"):
+        positions.extend(position_repo.list_open_by_uid_and_market(uid, market))
+    for position in positions:
+        instrument = position.instrument
+        if instrument.asset_type not in {"STOCK", "ETF"}:
+            continue
+        code = str(instrument.canonical_symbol).strip().upper()
+        market_type = str(instrument.market).strip().upper()
+        try:
+            symbol = _to_longbridge_symbol(code)
+        except Exception as exc:
+            logger.warning("无法转换持仓行情代码: code=%s market=%s error=%s", code, market_type, exc)
+            continue
+        if symbol:
+            tracked[symbol.upper()] = TrackedStock(
+                code=instrument.display_symbol,
+                market_type=market_type,
+                symbol=symbol,
+            )
     return list(tracked.values())
 
 

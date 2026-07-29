@@ -20,9 +20,9 @@ from finance_analysis.interfaces.api.v1.endpoints import (
     celery_demo,
     history,
     market_data,
+    portfolio,
     quant,
     signals,
-    stock_list,
     stocks,
     tasks,
     usage,
@@ -86,11 +86,7 @@ router.include_router(
     tags=["WatchList"],
 )
 
-router.include_router(
-    stock_list.router,
-    prefix="/stock-list",
-    tags=["StockList"],
-)
+router.include_router(portfolio.router, prefix="/portfolio", tags=["Portfolio"])
 
 router.include_router(
     calendar.router,

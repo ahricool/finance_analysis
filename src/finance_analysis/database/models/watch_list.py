@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Watch list and stock holding ORM models."""
+"""Watch-list ORM model."""
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, UniqueConstraint
 
 from finance_analysis.database.base import Base
 from finance_analysis.core.time import utc_now
@@ -24,29 +24,4 @@ class WatchListItem(Base):
 
     __table_args__ = (
         UniqueConstraint("uid", "market_type", "code", name="uix_watch_list_uid_market_code"),
-    )
-
-
-class StockHolding(Base):
-    """持仓股 — 用户实际持有的股票，含数量字段。
-
-    注意：分析任务的默认股票列表请使用 :class:`WatchListItem`（自选股）。
-    """
-
-    __tablename__ = 'stock_list'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    uid = Column(Integer, nullable=False, index=True)
-    code = Column(String(16), nullable=False, index=True)
-    name = Column(String(64), nullable=True)
-    quantity = Column(Numeric(24, 8), nullable=False, default=0)
-    avg_cost = Column(Numeric(24, 8), nullable=True)
-    opened_at = Column(DateTime(timezone=True), nullable=True)
-    market_type = Column(String(8), nullable=False, default="CN", index=True)
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("uid", "market_type", "code", name="uix_stock_list_uid_market_code"),
     )

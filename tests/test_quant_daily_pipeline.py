@@ -361,9 +361,13 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
             return {"AAPL.US": members[0][1], "NVDA.US": members[1][1]}.get(code)
 
     holdings = MagicMock()
-    holdings.list_all.return_value = [
-        SimpleNamespace(code="AAPL", quantity=10),
-        SimpleNamespace(code="NVDA.US", quantity=5),
+    holdings.list_open_by_uid_and_market.return_value = [
+        SimpleNamespace(
+            instrument=SimpleNamespace(canonical_symbol="AAPL.US"), quantity=10
+        ),
+        SimpleNamespace(
+            instrument=SimpleNamespace(canonical_symbol="NVDA.US"), quantity=5
+        ),
     ]
     captured = {}
 
@@ -441,7 +445,7 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
     assert all(item["risk_penalty"] == 0.04 for item in captured["signals"])
     assert repository.portfolio_values["warnings"] == ["行情覆盖 2/3；已跳过缺失数据标的"]
     assert repository.portfolio_values["summary"]["coverage"]["skipped_members"] == 1
-    holdings.list_all.assert_called_once_with(uid=7)
+    holdings.list_open_by_uid_and_market.assert_called_once_with(7, "US", ("STOCK", "ETF"))
 
 
 def test_finalize_rejects_unsupported_callback_context_before_writes() -> None:

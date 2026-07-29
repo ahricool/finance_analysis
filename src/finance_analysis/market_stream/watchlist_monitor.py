@@ -33,17 +33,15 @@ def load_watchlist_targets(
     single-repository behavior for callers that inject a custom source.
     """
     if repo is None and holdings_repo is None:
+        from finance_analysis.database.repositories.portfolio import PositionRepository
         from finance_analysis.database.repositories.watch_list import WatchListRepo
-        from finance_analysis.database.repositories.stock_list import StockListRepo
 
         repo = WatchListRepo()
-        holdings_repo = StockListRepo()
+        holdings_repo = PositionRepository()
 
     targets: dict[str, SubscriptionTarget] = {}
-    items = list(repo.list_all()) if repo is not None else []
-    if holdings_repo is not None:
-        items.extend(holdings_repo.list_all())
-    for item in items:
+    watch_items = list(repo.list_all()) if repo is not None else []
+    for item in watch_items:
         code = str(getattr(item, "code", "") or "").strip()
         raw_market = getattr(item, "market_type", None)
         try:
@@ -60,6 +58,23 @@ def load_watchlist_targets(
                 raw_market,
                 exc,
             )
+    if holdings_repo is not None:
+        positions = holdings_repo.list_all_open_equities()
+        for position in positions:
+            instrument = getattr(position, "instrument", None)
+            if instrument is None or getattr(instrument, "asset_type", None) not in {"STOCK", "ETF"}:
+                continue
+            code = str(getattr(instrument, "canonical_symbol", "") or "").strip()
+            raw_market = getattr(instrument, "market", None)
+            try:
+                market_type = normalize_market_type(raw_market, code)
+                symbol = _to_longbridge_symbol(code)
+                if not symbol or not _symbol_matches_market(symbol, market_type):
+                    logger.warning("跳过无法转换的持仓标的: code=%r market=%r", code, raw_market)
+                    continue
+                targets[symbol] = SubscriptionTarget(symbol=symbol, market_type=market_type)
+            except Exception as exc:
+                logger.warning("跳过无效持仓标的: code=%r market=%r error=%s", code, raw_market, exc)
     return targets
 
 

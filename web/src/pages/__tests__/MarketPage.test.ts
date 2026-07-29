@@ -21,7 +21,7 @@ describe('MarketPage', () => {
   it('renders market tabs with the current tab selected', async () => {
     const wrapper = await mountMarket('/market/signals');
 
-    expect(wrapper.text()).toContain('管理自选股、持仓股并查看历史信号。');
+    expect(wrapper.text()).toContain('管理自选股、投资组合并查看历史信号。');
     expect(wrapper.get('[data-testid="market-desktop-nav"]').classes()).toContain('lg:block');
     const mobileNav = wrapper.get('[data-testid="market-mobile-nav"]');
     expect(mobileNav.classes()).toContain('lg:hidden');
