@@ -110,6 +110,7 @@ class MarketStreamService:
         self.pending_patterns: dict[str, PatternState] = {}
         self.pattern_states: dict[str, PatternState] = {}
         self.quote_preview_calculated_at: dict[str, float] = {}
+        self.quote_preview_tasks: dict[str, asyncio.Task[None]] = {}
         self.quote_snapshot_dates: dict[str, date] = {}
         self.quote_snapshot_attempts: dict[str, datetime] = {}
         self.regular_session_closes: dict[str, dict[date, Decimal]] = {}
@@ -169,6 +170,11 @@ class MarketStreamService:
         finally:
             self.stop_event.set()
             await self.manager.stop()
+            preview_tasks = list(self.quote_preview_tasks.values())
+            for task in preview_tasks:
+                task.cancel()
+            await asyncio.gather(*preview_tasks, return_exceptions=True)
+            self.quote_preview_tasks.clear()
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -294,6 +300,7 @@ class MarketStreamService:
                     as_of=max(candle.received_at, candle.bar_time + timedelta(minutes=1)),
                 )
                 self.quote_preview_calculated_at.pop(candle.symbol, None)
+                self._cancel_quote_preview_task(candle.symbol)
                 await self._update_pattern_state(candle.symbol, state.market_type)
         else:
             await self._update_pattern_state(candle.symbol, state.market_type)
@@ -323,6 +330,7 @@ class MarketStreamService:
             self.pattern_states.pop(candle.symbol, None)
             self.pending_patterns.pop(candle.symbol, None)
             self.quote_preview_calculated_at.pop(candle.symbol, None)
+            self._cancel_quote_preview_task(candle.symbol)
         state.trading_date = candle_date
 
         bars = self.bars_1m.setdefault(candle.symbol, deque(maxlen=self.config.bar_limit))
@@ -358,6 +366,7 @@ class MarketStreamService:
         self.current_candles[candle.symbol] = current
         if previous_current is None or previous_current.identity != current.identity:
             self.quote_preview_calculated_at.pop(candle.symbol, None)
+            self._cancel_quote_preview_task(candle.symbol)
         self.pending_candles[candle.symbol] = current
         return True, len(updated)
 
@@ -457,9 +466,64 @@ class MarketStreamService:
         now = time.monotonic()
         previous = self.quote_preview_calculated_at.get(symbol)
         if previous is not None and now - previous < QUOTE_PREVIEW_THROTTLE_SECONDS:
+            if symbol not in self.quote_preview_tasks:
+                state = self.manager.symbol_states.get(symbol)
+                if state is not None:
+                    delay = QUOTE_PREVIEW_THROTTLE_SECONDS - (now - previous)
+                    self.quote_preview_tasks[symbol] = asyncio.create_task(
+                        self._update_quote_preview_after_delay(
+                            symbol,
+                            market_type,
+                            symbol_generation=state.generation,
+                            connection_generation=self.manager.connection_generation,
+                            delay=delay,
+                        ),
+                        name=f"market-stream-pattern-preview-{symbol}",
+                    )
             return
+        self._cancel_quote_preview_task(symbol)
         self.quote_preview_calculated_at[symbol] = now
         await self._update_pattern_state(symbol, market_type, defer_write=True)
+
+    async def _update_quote_preview_after_delay(
+        self,
+        symbol: str,
+        market_type: MarketType,
+        *,
+        symbol_generation: int,
+        connection_generation: int,
+        delay: float,
+    ) -> None:
+        """Run one trailing preview refresh with the newest in-memory quote after the throttle window."""
+        task = asyncio.current_task()
+        try:
+            await asyncio.sleep(max(0, delay))
+            state = self.manager.symbol_states.get(symbol)
+            quote = self.quotes.get(symbol)
+            candle = self.current_candles.get(symbol)
+            if (
+                connection_generation != self.manager.connection_generation
+                or state is None
+                or state.generation != symbol_generation
+                or symbol not in self.manager.desired_targets
+                or state.status in {SymbolStatus.REMOVING, SymbolStatus.INACTIVE, SymbolStatus.PENDING}
+                or quote is None
+                or candle is None
+                or not quote_updates_preview_bar(candle, quote, market_type)
+            ):
+                return
+            self.quote_preview_calculated_at[symbol] = time.monotonic()
+            await self._update_pattern_state(symbol, market_type, defer_write=True)
+        except asyncio.CancelledError:
+            raise
+        finally:
+            if self.quote_preview_tasks.get(symbol) is task:
+                self.quote_preview_tasks.pop(symbol, None)
+
+    def _cancel_quote_preview_task(self, symbol: str) -> None:
+        task = self.quote_preview_tasks.pop(symbol, None)
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
 
     async def _load_warmup(
         self,
@@ -686,6 +750,7 @@ class MarketStreamService:
             self.pending_patterns.pop(symbol, None)
             self.pattern_states.pop(symbol, None)
             self.quote_preview_calculated_at.pop(symbol, None)
+            self._cancel_quote_preview_task(symbol)
             self.quote_snapshot_dates.pop(symbol, None)
             self.quote_snapshot_attempts.pop(symbol, None)
             self.regular_session_closes.pop(symbol, None)
@@ -705,6 +770,9 @@ class MarketStreamService:
             quote.sequence = None
             self.pending_quotes.pop(symbol, None)
         self.quote_preview_calculated_at.clear()
+        for task in self.quote_preview_tasks.values():
+            task.cancel()
+        self.quote_preview_tasks.clear()
         for symbol, bars in list(self.bars_1m.items()):
             confirmed = deque((bar for bar in bars if bar.confirmed), maxlen=self.config.bar_limit)
             self.bars_1m[symbol] = confirmed

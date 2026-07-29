@@ -620,6 +620,27 @@ async def test_quote_updates_only_matching_preview_and_is_throttled() -> None:
 
 
 @pytest.mark.asyncio
+async def test_quote_throttle_trailing_refresh_uses_latest_tick(monkeypatch) -> None:
+    app = service()
+    activate(app)
+    for index in range(15):
+        await app._handle_event(candle_event(bar(index), 2))
+    unfinished = bar(15, close="10.2", confirmed=False)
+    await app._handle_event(candle_event(unfinished, 2))
+    monkeypatch.setattr("finance_analysis.market_stream.service.QUOTE_PREVIEW_THROTTLE_SECONDS", 0.01)
+    first_time = unfinished.bar_time + timedelta(seconds=10)
+
+    await app._handle_event(quote_event("13", 1, 2, received_at=first_time))
+    await app._handle_event(quote_event("14", 2, 2, received_at=first_time + timedelta(seconds=1)))
+    assert app.pending_patterns["AAPL.US"].preview_price == Decimal("13")
+
+    await asyncio.sleep(0.02)
+
+    assert app.pending_patterns["AAPL.US"].preview_price == Decimal("14")
+    assert "AAPL.US" not in app.quote_preview_tasks
+
+
+@pytest.mark.asyncio
 async def test_quote_without_matching_unfinished_candle_does_not_create_preview() -> None:
     app = service()
     activate(app)
@@ -677,6 +698,7 @@ async def test_symbol_remove_clears_preview_memory_and_throttle_state() -> None:
     assert "AAPL.US" not in app.pattern_states
     assert "AAPL.US" not in app.pending_patterns
     assert "AAPL.US" not in app.quote_preview_calculated_at
+    assert "AAPL.US" not in app.quote_preview_tasks
 
 
 @pytest.mark.asyncio
