@@ -23,7 +23,7 @@ const emit = defineEmits<{
 
 function itemClass(key: string): string[] {
   return [
-    'flex h-11 min-w-0 items-center gap-2 rounded-xl text-sm font-medium transition-colors',
+    'flex h-11 min-w-0 items-center gap-2 rounded-xl font-sans text-sm font-medium leading-5 tracking-normal transition-colors',
     props.responsive
       ? 'justify-center px-2 lg:w-full lg:justify-start lg:px-3'
       : 'w-full justify-start px-3 text-left',
@@ -48,7 +48,7 @@ function itemClass(key: string): string[] {
       v-else
       type="button"
       :aria-current="activeKey === item.key ? 'page' : undefined"
-      :class="itemClass(item.key)"
+      :class="[itemClass(item.key), 'appearance-none border-0']"
       @click="emit('select', item.key)"
     >
       <component :is="item.icon" class="h-4 w-4 shrink-0" />

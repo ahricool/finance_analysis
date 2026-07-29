@@ -171,7 +171,7 @@ async function onLogoutConfirm() {
                 </div>
                 <div class="border-t border-border/70 py-1">
                   <RouterLink
-                    to="/profile"
+                    to="/profile/info"
                     class="flex h-11 w-full items-center gap-2 rounded-xl px-4 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
                   >
                     <UserRound class="h-4 w-4" />

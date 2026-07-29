@@ -42,7 +42,15 @@ describe('section layout primitives', () => {
       ]),
     );
     expect(wrapper.get('button').classes()).toEqual(
-      expect.arrayContaining(['h-11', 'text-sm', 'font-medium', 'text-primary']),
+      expect.arrayContaining([
+        'h-11',
+        'font-sans',
+        'text-sm',
+        'font-medium',
+        'leading-5',
+        'tracking-normal',
+        'text-primary',
+      ]),
     );
   });
 });
