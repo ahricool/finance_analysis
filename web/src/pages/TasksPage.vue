@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { tasksApi, type TaskRunQuery } from '@/api/tasks';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Badge from '@/components/common/Badge.vue';
-import Button from '@/components/common/Button.vue';
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
-import Dialog from '@/components/common/Dialog.vue';
-import InlineAlert from '@/components/common/InlineAlert.vue';
-import Pagination from '@/components/common/Pagination.vue';
-import SectionNavPanel from '@/components/common/SectionNavPanel.vue';
-import SectionPageHeader from '@/components/common/SectionPageHeader.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Badge from '@/components/app/AppBadge.vue';
+import Button from '@/components/app/AppButton.vue';
+import ConfirmDialog from '@/components/app/AppConfirmDialog.vue';
+import Dialog from '@/components/app/AppDialog.vue';
+import InlineAlert from '@/components/app/AppAlert.vue';
+import Pagination from '@/components/app/AppPagination.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import AppInput from '@/components/app/AppInput.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
+import SectionNavPanel from '@/components/app/AppSectionNav.vue';
+import SectionPageHeader from '@/components/app/AppPageHeader.vue';
 import { useAuthStore } from '@/stores/authStore';
 import type { ScheduledSyncMode, ScheduledTask, TaskRun, TaskRunDetail, TaskStatus } from '@/types/tasks';
 import { formatDateTimeInDisplayTimezone, toUtcIsoString } from '@/utils/format';
@@ -128,9 +131,9 @@ function statusLabel(value?: string | null): string {
   return value ? map[value] ?? value : '从未执行';
 }
 
-function statusVariant(value?: string | null): 'default' | 'success' | 'warning' | 'danger' | 'info' {
+function statusVariant(value?: string | null): 'default' | 'success' | 'warning' | 'destructive' | 'info' {
   if (value === 'completed') return 'success';
-  if (value === 'failed') return 'danger';
+  if (value === 'failed') return 'destructive';
   if (value === 'processing') return 'info';
   if (value === 'retrying') return 'warning';
   return 'default';
@@ -356,7 +359,7 @@ onBeforeUnmount(() => {
                   <p class="text-xs text-muted-text">任务定义来自后端 APScheduler 代码注册表。</p>
                 </div>
               </div>
-              <Button variant="secondary" size="sm" :is-loading="scheduledLoading" @click="loadScheduled">
+              <Button variant="secondary" size="sm" :loading="scheduledLoading" @click="loadScheduled">
                 <RotateCw class="h-4 w-4" />
                 刷新
               </Button>
@@ -428,7 +431,7 @@ onBeforeUnmount(() => {
                         <Button
                           variant="secondary"
                           size="sm"
-                          :is-loading="runningJobId === item.jobId"
+                          :loading="runningJobId === item.jobId"
                           :disabled="!!item.latestRun && ['pending', 'processing', 'retrying'].includes(item.latestRun.status)"
                           @click="selectScheduledJob(item, 'incremental')"
                         >
@@ -448,7 +451,7 @@ onBeforeUnmount(() => {
                         v-else
                         variant="secondary"
                         size="sm"
-                        :is-loading="runningJobId === item.jobId"
+                        :loading="runningJobId === item.jobId"
                         :disabled="!!item.latestRun && ['pending', 'processing', 'retrying'].includes(item.latestRun.status)"
                         @click="selectScheduledJob(item)"
                       >
@@ -475,7 +478,7 @@ onBeforeUnmount(() => {
                     <p class="text-xs text-muted-text">{{ isAdmin ? '全部用户和系统任务。' : '自己的任务执行记录。' }}</p>
                   </div>
                 </div>
-                <Button variant="secondary" size="sm" :is-loading="runsLoading" @click="loadRuns(runsPage)">
+                <Button variant="secondary" size="sm" :loading="runsLoading" @click="loadRuns(runsPage)">
                   <RotateCw class="h-4 w-4" />
                   刷新
                 </Button>
@@ -537,37 +540,15 @@ onBeforeUnmount(() => {
                     </label>
                   </div>
                 </details>
-                <input
-                  v-model="filters.taskType"
-                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
-                  placeholder="任务类型"
-                />
-                <select v-model="filters.source" class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm">
-                  <option v-for="option in sourceOptions" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
-                <select v-model="filters.triggerSource" class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm">
-                  <option v-for="option in triggerOptions" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
+                <AppInput v-model="filters.taskType" placeholder="任务类型" />
+                <AppSelect v-model="filters.source" :options="sourceOptions" />
+                <AppSelect v-model="filters.triggerSource" :options="triggerOptions" />
               </div>
 
               <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div class="grid gap-2 sm:grid-cols-2 lg:w-[360px]">
-                  <input
-                    v-model="filters.startedFrom"
-                    class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
-                    type="date"
-                    aria-label="开始日期"
-                  />
-                  <input
-                    v-model="filters.startedTo"
-                    class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
-                    type="date"
-                    aria-label="结束日期"
-                  />
+                  <AppDatePicker v-model="filters.startedFrom" placeholder="开始日期" />
+                  <AppDatePicker v-model="filters.startedTo" placeholder="结束日期" />
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
                   <Button variant="secondary" size="sm" @click="submitFilters">查询</Button>
@@ -657,11 +638,11 @@ onBeforeUnmount(() => {
     </div>
 
     <Dialog
-      :is-open="detailLoading || !!detail || !!detailError"
+      :open="detailLoading || !!detail || !!detailError"
       title="任务详情"
-      width="max-w-4xl"
+      class="max-w-4xl"
       eyebrow="DETAIL VIEW"
-      @close="detail = null; detailError = null"
+      @update:open="detail = null; detailError = null"
     >
       <div v-if="detailLoading" class="py-10 text-center text-sm text-muted-text">加载中...</div>
       <ApiErrorAlert v-else-if="detailError" :error="detailError" @dismiss="detailError = null" />
@@ -728,13 +709,13 @@ onBeforeUnmount(() => {
     </Dialog>
 
     <ConfirmDialog
-      :is-open="!!selectedJob"
+      :open="!!selectedJob"
       title="立即执行定时任务"
-      :message="selectedJob ? `确认立即执行“${selectedJob.name}”${selectedSyncMode === 'full' ? '全量同步' : selectedSyncMode === 'incremental' ? '增量同步' : ''}吗？任务将在后台运行，执行结果可在执行记录中查看。` : ''"
+      :description="selectedJob ? `确认立即执行“${selectedJob.name}”${selectedSyncMode === 'full' ? '全量同步' : selectedSyncMode === 'incremental' ? '增量同步' : ''}吗？任务将在后台运行，执行结果可在执行记录中查看。` : ''"
       confirm-text="立即执行"
       cancel-text="取消"
       @confirm="confirmRunScheduled"
-      @cancel="selectedJob = null; selectedSyncMode = null"
+      @update:open="selectedJob = null; selectedSyncMode = null"
     />
   </div>
 </template>

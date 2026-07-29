@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { isParsedApiError } from '@/api/error';
 import type { ParsedApiError } from '@/api/error';
-import Button from '@/components/common/Button.vue';
-import Input from '@/components/common/Input.vue';
+import Button from '@/components/app/AppButton.vue';
+import Input from '@/components/app/AppInput.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
 import SettingsSectionCard from '@/components/settings/SettingsSectionCard.vue';
 import { useAuth } from '@/composables/useAuth';
@@ -129,7 +129,7 @@ async function handleSubmit(e: Event) {
         variant="success"
       />
 
-      <Button type="submit" variant="primary" :is-loading="isSubmitting">保存新密码</Button>
+      <Button type="submit" variant="default" :loading="isSubmitting">保存新密码</Button>
     </form>
   </SettingsSectionCard>
 </template>

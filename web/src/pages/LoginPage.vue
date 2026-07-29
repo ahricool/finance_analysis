@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { isParsedApiError, type ParsedApiError } from '@/api/error';
-import Button from '@/components/common/Button.vue';
-import Input from '@/components/common/Input.vue';
+import Button from '@/components/app/AppButton.vue';
+import Input from '@/components/app/AppInput.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
 import { useAuth } from '@/composables/useAuth';
 import { APP_NAME } from '@/config/app';
@@ -238,11 +238,11 @@ onUnmounted(() => {
 
             <Button
               type="submit"
-              variant="primary"
+              variant="default"
               size="lg"
               class="h-11 w-full"
               :disabled="isSubmitting"
-              :is-loading="isSubmitting"
+              :loading="isSubmitting"
               :loading-text="loadingText"
               data-testid="login-submit"
             >

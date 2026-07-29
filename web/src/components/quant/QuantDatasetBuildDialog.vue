@@ -1,19 +1,20 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { quantApi } from '@/api/quant';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Button from '@/components/common/Button.vue';
-import Dialog from '@/components/common/Dialog.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Button from '@/components/app/AppButton.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import Dialog from '@/components/app/AppDialog.vue';
 import type { DatasetBuildAccepted, QuantMarket } from '@/types/quant';
 import { computed, ref, watch } from 'vue';
 
 const props = defineProps<{
-  isOpen: boolean;
+  open: boolean;
   market: QuantMarket;
 }>();
 
 const emit = defineEmits<{
-  close: [];
+  'update:open': [value: boolean];
   submitted: [result: DatasetBuildAccepted];
 }>();
 
@@ -46,7 +47,7 @@ function resetForm(): void {
 }
 
 function requestClose(): void {
-  if (!submitting.value) emit('close');
+  if (!submitting.value) emit('update:open', false);
 }
 
 async function submit(): Promise<void> {
@@ -72,18 +73,18 @@ async function submit(): Promise<void> {
   }
 }
 
-watch(() => props.isOpen, (isOpen) => {
+watch(() => props.open, (isOpen) => {
   if (isOpen) resetForm();
 });
 </script>
 
 <template>
   <Dialog
-    :is-open="isOpen"
+    :open="open"
     title="构建数据集"
     description="提交后将在后台构建数据集。任务完成且状态变为 ready 后，才能用于模型训练。"
-    width="max-w-2xl"
-    @close="requestClose"
+    class="max-w-2xl"
+    @update:open="requestClose"
   >
     <form class="space-y-5" data-testid="dataset-build-form" @submit.prevent="submit">
       <ApiErrorAlert v-if="error" :error="error" @dismiss="error = null" />
@@ -114,26 +115,8 @@ watch(() => props.isOpen, (isOpen) => {
       </label>
 
       <div class="grid gap-4 sm:grid-cols-2">
-        <label class="text-sm">
-          <span class="mb-1.5 block text-xs font-medium text-muted-text">开始日期</span>
-          <input
-            v-model="dateFrom"
-            data-testid="dataset-date-from"
-            type="date"
-            required
-            class="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground"
-          >
-        </label>
-        <label class="text-sm">
-          <span class="mb-1.5 block text-xs font-medium text-muted-text">结束日期</span>
-          <input
-            v-model="dateTo"
-            data-testid="dataset-date-to"
-            type="date"
-            required
-            class="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground"
-          >
-        </label>
+        <AppDatePicker v-model="dateFrom" label="开始日期" data-testid="dataset-date-from" />
+        <AppDatePicker v-model="dateTo" label="结束日期" data-testid="dataset-date-to" />
       </div>
 
       <div class="rounded-xl border border-cyan/20 bg-cyan/10 p-3 text-xs leading-5 text-secondary-text">
@@ -149,7 +132,7 @@ watch(() => props.isOpen, (isOpen) => {
           type="submit"
           data-testid="submit-dataset-build"
           :disabled="!dateRangeValid"
-          :is-loading="submitting"
+          :loading="submitting"
           loading-text="提交中"
         >
           提交构建任务

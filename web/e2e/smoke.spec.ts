@@ -161,16 +161,29 @@ test.describe('web smoke', () => {
     await expect(composer).not.toHaveAttribute('title', /.+/);
   });
 
-  test('mobile shell exposes every main destination and navigates from calendar to market', async ({ page }) => {
+  test('mobile shell exposes primary destinations, More sheet, and market navigation', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockAuthenticatedSession(page);
     await page.goto('/calendar');
 
     const mobileNav = page.getByTestId('mobile-main-nav');
     await expect(mobileNav).toBeVisible();
-    for (const label of ['分析', '日历', '市场', '回测', '量化', '问股']) {
+    for (const label of ['分析', '日历', '市场', '问股']) {
       await expect(mobileNav.getByRole('link', { name: label })).toBeVisible();
     }
+    await expect(mobileNav.getByRole('button', { name: '更多' })).toBeVisible();
+
+    await mobileNav.getByRole('button', { name: '更多' }).click();
+    const moreSheet = page.getByRole('dialog', { name: '更多功能' });
+    await expect(moreSheet).toBeVisible();
+    for (const label of ['回测', '量化', '任务', '个人中心']) {
+      await expect(moreSheet.getByRole('link', { name: label })).toBeVisible();
+    }
+    await moreSheet.getByRole('link', { name: '回测' }).click();
+    await expect(page).toHaveURL(/\/market\/backtests$/);
+    await expect(moreSheet).toBeHidden();
+
+    await page.goto('/calendar');
 
     await expect(mobileNav.getByRole('link', { name: '日历' })).toHaveAttribute('aria-current', 'page');
 
@@ -185,7 +198,7 @@ test.describe('web smoke', () => {
       await marketNav.evaluate((element) => element.scrollWidth <= element.clientWidth),
     ).toBe(true);
 
-    await page.setViewportSize({ width: 320, height: 568 });
+    await page.setViewportSize({ width: 360, height: 800 });
     for (const link of await marketNav.getByRole('link').all()) {
       await expect(link).toBeVisible();
     }
@@ -196,6 +209,84 @@ test.describe('web smoke', () => {
     await page.setViewportSize({ width: 844, height: 390 });
     await expect(mobileNav).toBeHidden();
     await expect(page.getByTestId('desktop-main-nav').getByRole('link', { name: '市场' })).toBeVisible();
+  });
+
+  test('shell remains usable without horizontal overflow at all required breakpoints', async ({ page }) => {
+    await mockAuthenticatedSession(page);
+    const viewports = [
+      { width: 360, height: 800 },
+      { width: 375, height: 812 },
+      { width: 390, height: 844 },
+      { width: 430, height: 932 },
+      { width: 768, height: 1024 },
+      { width: 1280, height: 800 },
+    ];
+
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      await page.goto('/calendar');
+      await expect(page.getByRole('heading', { name: '日历记录' })).toBeVisible();
+      if (viewport.width < 768) {
+        await expect(page.getByTestId('mobile-main-nav')).toBeVisible();
+      } else {
+        await expect(page.getByTestId('desktop-main-nav')).toBeVisible();
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+  });
+
+  test('date, time, datetime, select, combobox, dialog, and popover controls are operable', async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockAuthenticatedSession(page);
+    await page.goto('/calendar');
+
+    const displayDateField = page.getByText('展示日期', { exact: true }).locator('..');
+    const displayDateButton = displayDateField.getByRole('button').first();
+    const previousDisplay = await displayDateButton.textContent();
+    await displayDateButton.click();
+    const calendar = page.locator('[data-slot="calendar"]').last();
+    await expect(calendar).toBeVisible();
+    const alternateDate = calendar.locator('[data-slot="calendar-cell-trigger"]:not([data-selected]):not([data-disabled])').first();
+    await alternateDate.click();
+    await expect(calendar).toBeHidden();
+    expect(await displayDateButton.textContent()).not.toBe(previousDisplay);
+
+    await page.getByTestId('add-finance-event').click();
+    const eventDialog = page.getByRole('dialog', { name: '新增财经事件' });
+    await expect(eventDialog).toBeVisible();
+    const eventType = eventDialog.getByRole('combobox').first();
+    await eventType.click();
+    await page.waitForTimeout(100);
+    expect(pageErrors).toEqual([]);
+    const comboboxPopover = page.locator('[data-slot="popover-content"]').last();
+    await expect(comboboxPopover).toBeVisible();
+    await comboboxPopover.locator('[data-slot="command-input"]').fill('财报');
+    await page.getByRole('option', { name: /财报/ }).click();
+    await expect(eventType).toContainText('财报');
+    await eventDialog.getByRole('button', { name: '取消' }).click();
+    await expect(eventDialog).toBeHidden();
+
+    await page.getByTestId('add-calendar-entry').click();
+    const entryDialog = page.getByRole('dialog', { name: '新增日历记录' });
+    await expect(entryDialog).toBeVisible();
+    const dateTimeButton = entryDialog.getByText('记录时间 *', { exact: true }).locator('..').getByRole('button').first();
+    await dateTimeButton.click();
+    const dateTimeDialog = page.getByRole('dialog', { name: '选择日期和时间' });
+    await expect(dateTimeDialog).toBeVisible();
+    const timeButton = dateTimeDialog.getByText('时间', { exact: true }).locator('..').getByRole('button').first();
+    await timeButton.click();
+    const timePopover = page.locator('[data-slot="popover-content"]').last();
+    const timeSelects = timePopover.locator('[data-slot="select-trigger"]');
+    await timeSelects.nth(0).click();
+    await page.getByRole('option', { name: '10', exact: true }).click();
+    await timeSelects.nth(1).click();
+    await page.getByRole('option', { name: '30', exact: true }).click();
+    await timePopover.getByRole('button', { name: '确认' }).click();
+    await dateTimeDialog.getByRole('button', { name: '确认' }).click();
+    await expect(dateTimeButton).toContainText('10:30');
+    await entryDialog.getByRole('button', { name: '取消' }).click();
   });
 
   test('settings and theme navigation entries are removed after login', async ({ page }) => {

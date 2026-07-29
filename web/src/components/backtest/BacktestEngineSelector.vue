@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Badge from '@/components/common/Badge.vue';
+import Badge from '@/components/app/AppBadge.vue';
 import type { BacktestEngine, BacktestEngineKey } from '@/types/backtests';
 import { marketLabels } from '@/utils/backtests';
 

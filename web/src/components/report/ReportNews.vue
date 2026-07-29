@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Card from '@/components/common/Card.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Card from '@/components/app/AppCard.vue';
 import DashboardPanelHeader from '@/components/dashboard/DashboardPanelHeader.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
 import { historyApi } from '@/api/history';

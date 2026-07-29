@@ -4,8 +4,12 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import BacktestEngineSelector from '@/components/backtest/BacktestEngineSelector.vue';
 import BacktestPreflightPanel from '@/components/backtest/BacktestPreflightPanel.vue';
 import BacktestRunTable from '@/components/backtest/BacktestRunTable.vue';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Button from '@/components/common/Button.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Button from '@/components/app/AppButton.vue';
+import AppCombobox from '@/components/app/AppCombobox.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import AppInput from '@/components/app/AppInput.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
 import type {
   BacktestConfig,
   BacktestEngine,
@@ -238,64 +242,27 @@ onBeforeUnmount(() => {
         />
       </div>
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <label class="text-xs text-muted-text"><span class="mb-1.5 block">策略</span><select
-          v-model="form.strategyKey"
-          class="input-surface h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
-        ><option
-          v-for="item in strategies"
-          :key="item.key"
-          :value="item.key"
-        >{{ item.name }}</option></select></label>
-        <label class="text-xs text-muted-text"><span class="mb-1.5 block">市场</span><select
-          v-model="form.market"
-          class="input-surface h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
-        ><option
-          v-for="item in marketOptions"
-          :key="item"
-          :value="item"
-          :disabled="!marketSupported(item)"
-        >{{ marketLabels[item] }}{{ marketSupported(item) ? '' : '（不支持）' }}</option></select></label>
-        <label class="text-xs text-muted-text md:col-span-2"><span class="mb-1.5 block">标的搜索</span><div class="flex gap-2"><input
+        <AppSelect v-model="form.strategyKey" label="策略" :options="strategies.map((item) => ({ value: item.key, label: item.name }))" />
+        <AppSelect :model-value="form.market" label="市场" :options="marketOptions.map((item) => ({ value: item, label: `${marketLabels[item]}${marketSupported(item) ? '' : '（不支持）'}`, disabled: !marketSupported(item) }))" @update:model-value="form.market = $event as BacktestMarket" />
+        <label class="text-xs text-muted-foreground md:col-span-2"><span class="mb-1.5 block">标的搜索</span><div class="flex gap-2"><AppInput
           v-model="symbolKeyword"
-          class="input-surface h-11 min-w-0 flex-1 rounded-xl border bg-transparent px-3 text-sm text-foreground"
+          class="min-w-0 flex-1"
           placeholder="代码或名称"
           @keyup.enter="loadSymbols()"
-        ><Button
+        /><Button
           variant="secondary"
           @click="loadSymbols()"
         ><Search class="h-4 w-4" />搜索</Button></div></label>
-        <label class="text-xs text-muted-text"><span class="mb-1.5 block">回测标的</span><select
-          v-model="form.code"
-          class="input-surface h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
-        ><option
-          v-for="item in symbols"
-          :key="item.id"
-          :value="item.code"
-        >{{ item.code }} · {{ item.name }}</option></select></label>
-        <label class="text-xs text-muted-text"><span class="mb-1.5 block">开始日期</span><input
-          v-model="form.startDate"
-          type="date"
-          class="input-surface h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
-        ></label>
-        <label class="text-xs text-muted-text"><span class="mb-1.5 block">结束日期</span><input
-          v-model="form.endDate"
-          type="date"
-          class="input-surface h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
-        ></label>
+        <AppCombobox v-model="form.code" label="回测标的" :options="symbols.map((item) => ({ value: item.code, label: `${item.code} · ${item.name}` }))" />
+        <AppDatePicker v-model="form.startDate" label="开始日期" />
+        <AppDatePicker v-model="form.endDate" label="结束日期" />
         <label class="text-xs text-muted-text"><span class="mb-1.5 block">初始资金</span><input
           v-model.number="form.initialCash"
           type="number"
           min="1"
           class="input-surface h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
         ></label>
-        <label class="text-xs text-muted-text"><span class="mb-1.5 block">基准标的</span><select
-          v-model="form.benchmarkCode"
-          class="input-surface h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
-        ><option :value="null">不设置</option><option
-          v-for="item in symbols"
-          :key="item.id"
-          :value="item.code"
-        >{{ item.code }}</option></select></label>
+        <AppSelect :model-value="form.benchmarkCode ?? ''" label="基准标的" :options="[{ value: '', label: '不设置' }, ...symbols.map((item) => ({ value: item.code, label: item.code }))]" @update:model-value="form.benchmarkCode = $event || null" />
       </div>
       <div
         v-if="selectedStrategy"
@@ -328,13 +295,13 @@ onBeforeUnmount(() => {
         <Button
           variant="secondary"
           :disabled="!canCheck"
-          :is-loading="checking"
+          :loading="checking"
           @click="checkData"
         >
           检查数据
         </Button><Button
           :disabled="!canStart"
-          :is-loading="submitting"
+          :loading="submitting"
           @click="startBacktest"
         >
           开始回测

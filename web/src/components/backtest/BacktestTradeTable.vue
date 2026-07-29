@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Badge from '@/components/common/Badge.vue';
+import Badge from '@/components/app/AppBadge.vue';
 import type { BacktestTrade } from '@/types/backtests';
 import { formatMoney, formatPct } from '@/utils/backtests';
 
@@ -21,8 +21,16 @@ defineProps<{ trades: BacktestTrade[] }>();
     </div>
     <div
       v-else
-      class="overflow-x-auto"
+      class="min-w-0"
     >
+      <div class="space-y-3 p-3 md:hidden">
+        <article v-for="trade in trades" :key="trade.id" class="rounded-xl border bg-background p-4 text-xs">
+          <div class="flex items-center justify-between gap-3"><p class="font-medium">{{ trade.tradeDate }}</p><Badge :variant="trade.side === 'buy' ? 'destructive' : 'success'">{{ trade.side === 'buy' ? '买入' : '卖出' }}</Badge></div>
+          <dl class="mt-3 grid grid-cols-2 gap-3 border-y py-3"><div><dt class="text-muted-foreground">数量 / 价格</dt><dd class="mt-1">{{ trade.quantity }} / {{ formatMoney(trade.price) }}</dd></div><div><dt class="text-muted-foreground">成交金额</dt><dd class="mt-1">{{ formatMoney(trade.grossAmount) }}</dd></div><div><dt class="text-muted-foreground">总费用</dt><dd class="mt-1">{{ formatMoney(trade.totalFee) }}</dd></div><div><dt class="text-muted-foreground">收益</dt><dd class="mt-1">{{ formatPct(trade.returnPct) }}</dd></div></dl>
+          <p class="mt-3 text-muted-foreground">交易后现金 {{ formatMoney(trade.cashAfter) }} · 持仓 {{ trade.positionAfter }}</p>
+        </article>
+      </div>
+      <div class="hidden overflow-x-auto md:block">
       <table class="min-w-[1100px] w-full text-left text-xs">
         <thead class="bg-elevated/60 text-muted-text">
           <tr>
@@ -63,7 +71,7 @@ defineProps<{ trades: BacktestTrade[] }>();
             </td><td class="p-3">
               {{ trade.tradeDate }}
             </td><td class="p-3">
-              <Badge :variant="trade.side === 'buy' ? 'danger' : 'success'">
+              <Badge :variant="trade.side === 'buy' ? 'destructive' : 'success'">
                 {{ trade.side === 'buy' ? '买入' : '卖出' }}
               </Badge>
             </td><td class="p-3">
@@ -88,6 +96,7 @@ defineProps<{ trades: BacktestTrade[] }>();
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
   </section>
 </template>

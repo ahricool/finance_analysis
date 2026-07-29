@@ -14,7 +14,9 @@ function readStored(): ThemePreference {
 export const theme = ref<ThemePreference>(readStored());
 
 export const systemPrefersDark = ref(
-  typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches,
+  typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-color-scheme: dark)').matches,
 );
 
 export const resolvedTheme = computed<'light' | 'dark'>(() => {
@@ -40,6 +42,10 @@ let themeWatchStarted = false;
 export function initThemeRuntime() {
   if (typeof window === 'undefined') return;
   theme.value = readStored();
+  if (typeof window.matchMedia !== 'function') {
+    applyResolved(resolvedTheme.value);
+    return;
+  }
   const mq = window.matchMedia('(prefers-color-scheme: dark)');
   systemPrefersDark.value = mq.matches;
   const onChange = () => {

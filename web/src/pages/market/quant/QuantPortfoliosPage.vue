@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import EmptyState from '@/components/common/EmptyState.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import EmptyState from '@/components/app/AppEmptyState.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { IntradayConfirmation, Portfolio } from '@/types/quant';
 import { actionLabels, formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { authApi, type NotificationSettings, type UserGender, type UserProfileResponse } from '@/api/auth';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import Button from '@/components/common/Button.vue';
-import Input from '@/components/common/Input.vue';
-import SectionNavPanel from '@/components/common/SectionNavPanel.vue';
-import SectionPageHeader from '@/components/common/SectionPageHeader.vue';
+import Button from '@/components/app/AppButton.vue';
+import Input from '@/components/app/AppInput.vue';
+import SectionNavPanel from '@/components/app/AppSectionNav.vue';
+import SectionPageHeader from '@/components/app/AppPageHeader.vue';
 import AvatarCropper from '@/components/profile/AvatarCropper.vue';
 import ChangePasswordCard from '@/components/settings/ChangePasswordCard.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
@@ -255,7 +255,7 @@ onBeforeUnmount(clearAvatarSource);
               v-if="avatarSourceUrl"
               :source-url="avatarSourceUrl"
               :is-submitting="isUploadingAvatar"
-              @cancel="clearAvatarSource"
+              @update:open="clearAvatarSource"
               @error="avatarError = $event"
               @cropped="uploadCroppedAvatar"
             />
@@ -311,7 +311,7 @@ onBeforeUnmount(clearAvatarSource);
               </fieldset>
 
               <div>
-                <Button type="submit" variant="primary" :is-loading="isSavingInfo">
+                <Button type="submit" variant="default" :loading="isSavingInfo">
                   <Save class="h-4 w-4" />
                   保存信息
                 </Button>
@@ -374,7 +374,7 @@ onBeforeUnmount(clearAvatarSource);
               @input="notificationForm.telegramBotToken = ($event.target as HTMLInputElement).value"
             />
 
-            <Button type="submit" variant="primary" :is-loading="isSavingNotification">
+            <Button type="submit" variant="default" :loading="isSavingNotification">
               <Save class="h-4 w-4" />
               保存通知
             </Button>

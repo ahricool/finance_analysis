@@ -8,12 +8,16 @@ import {
   type PortfolioPosition,
   type PositionStatus,
 } from '@/api/portfolio';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Button from '@/components/common/Button.vue';
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
-import Dialog from '@/components/common/Dialog.vue';
-import Input from '@/components/common/Input.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Button from '@/components/app/AppButton.vue';
+import ConfirmDialog from '@/components/app/AppConfirmDialog.vue';
+import Dialog from '@/components/app/AppDialog.vue';
+import Input from '@/components/app/AppInput.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import AppDateTimePicker from '@/components/app/AppDateTimePicker.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
+import { Textarea } from '@/components/ui/textarea';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { AssetType, Market } from '@/types/stockIndex';
 import { formatDecimalText, formatMarketCurrencyAmount } from '@/utils/marketCurrency';
@@ -485,7 +489,7 @@ onMounted(async () => {
         <p class="text-xs text-secondary-text">现金余额 · {{ selectedAccount.currency }}</p>
         <div class="mt-2 flex items-center gap-2">
           <input v-model="cashInput" class="input-surface min-w-0 flex-1 rounded-lg px-2 py-1.5 text-sm" aria-label="现金余额" />
-          <Button size="xsm" :is-loading="cashSaving" @click="saveCash">保存</Button>
+          <Button size="xs" :loading="cashSaving" @click="saveCash">保存</Button>
         </div>
       </div>
       <div class="rounded-2xl border border-border/70 bg-card p-4">
@@ -523,10 +527,7 @@ onMounted(async () => {
       >
         {{ option.label }}
       </button>
-      <select v-model="statusFilter" class="ml-auto rounded-xl border border-border bg-card px-3 py-1.5 text-xs">
-        <option value="OPEN">持有中</option><option value="CLOSED">已平仓</option>
-        <option value="EXPIRED">已失效</option><option value="ALL">全部状态</option>
-      </select>
+      <AppSelect :model-value="statusFilter" class="ml-auto min-w-32" :options="[{ value: 'OPEN', label: '持有中' }, { value: 'CLOSED', label: '已平仓' }, { value: 'EXPIRED', label: '已失效' }, { value: 'ALL', label: '全部状态' }]" @update:model-value="statusFilter = $event as PositionStatus | 'ALL'" />
     </div>
 
     <div v-if="loading" class="rounded-2xl border border-border/70 bg-card p-10 text-center text-secondary-text">加载中...</div>
@@ -545,7 +546,7 @@ onMounted(async () => {
                 <td>{{ quotePrice(position) === null ? '—' : amount(quotePrice(position)) }}</td>
                 <td>{{ amount(position.avg_cost) }}</td><td>{{ amount(position.cost_amount) }}</td>
                 <td>{{ amount(positionMarketValue(position)) }}</td><td>{{ amount(positionPnl(position)) }}</td>
-                <td><div class="flex gap-1"><Button variant="ghost" size="xsm" aria-label="编辑持仓" @click="openEdit(position)"><Pencil class="h-3.5 w-3.5" /></Button><Button variant="danger-subtle" size="xsm" aria-label="删除持仓" @click="deletingPosition = position"><Trash2 class="h-3.5 w-3.5" /></Button></div></td>
+                <td><div class="flex gap-1"><Button variant="ghost" size="xs" aria-label="编辑持仓" @click="openEdit(position)"><Pencil class="h-3.5 w-3.5" /></Button><Button variant="destructive" size="xs" aria-label="删除持仓" @click="deletingPosition = position"><Trash2 class="h-3.5 w-3.5" /></Button></div></td>
               </tr>
             </tbody>
           </table>
@@ -562,19 +563,19 @@ onMounted(async () => {
         <p class="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-500">期权仅作手工持仓记录，不提供实时价格、市值或盈亏。</p>
         <div class="hidden overflow-hidden rounded-2xl border border-border/70 bg-card md:block">
           <table class="w-full text-sm"><thead class="bg-muted/40 text-left text-xs text-secondary-text"><tr><th class="p-3">标的</th><th>方向</th><th>Call/Put</th><th>行权价</th><th>到期日 / DTE</th><th>张数</th><th>平均成本</th><th>乘数</th><th>成本金额</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody class="divide-y divide-border/60"><tr v-for="position in optionPositions" :key="position.id"><td class="p-3">{{ position.option?.underlying_display_symbol }}</td><td>{{ position.position_side === 'LONG' ? '多头' : '空头' }}</td><td>{{ position.option?.option_type === 'CALL' ? 'Call' : 'Put' }}</td><td>{{ amount(position.option?.strike_price ?? null) }}</td><td>{{ position.option?.expiration_date }}<p :class="dteClass(position)" class="text-xs">{{ dteLabel(position) }}</p></td><td>{{ formatDecimalText(position.quantity.replace('-', '')) }} 张</td><td>{{ amount(position.avg_cost) }}</td><td>{{ formatDecimalText(position.contract_multiplier) }}</td><td>{{ amount(position.cost_amount) }}</td><td>{{ position.status }}</td><td><div class="flex gap-1"><Button v-if="position.option?.expiration_action_required" variant="ghost" size="xsm" @click="markStatus(position, 'CLOSED')">标记已平仓</Button><Button v-if="position.option?.expiration_action_required" variant="ghost" size="xsm" @click="markStatus(position, 'EXPIRED')">标记失效</Button><Button variant="ghost" size="xsm" aria-label="编辑期权" @click="openEdit(position)"><Pencil class="h-3.5 w-3.5" /></Button><Button variant="danger-subtle" size="xsm" aria-label="删除期权" @click="deletingPosition = position"><Trash2 class="h-3.5 w-3.5" /></Button></div></td></tr></tbody>
+            <tbody class="divide-y divide-border/60"><tr v-for="position in optionPositions" :key="position.id"><td class="p-3">{{ position.option?.underlying_display_symbol }}</td><td>{{ position.position_side === 'LONG' ? '多头' : '空头' }}</td><td>{{ position.option?.option_type === 'CALL' ? 'Call' : 'Put' }}</td><td>{{ amount(position.option?.strike_price ?? null) }}</td><td>{{ position.option?.expiration_date }}<p :class="dteClass(position)" class="text-xs">{{ dteLabel(position) }}</p></td><td>{{ formatDecimalText(position.quantity.replace('-', '')) }} 张</td><td>{{ amount(position.avg_cost) }}</td><td>{{ formatDecimalText(position.contract_multiplier) }}</td><td>{{ amount(position.cost_amount) }}</td><td>{{ position.status }}</td><td><div class="flex gap-1"><Button v-if="position.option?.expiration_action_required" variant="ghost" size="xs" @click="markStatus(position, 'CLOSED')">标记已平仓</Button><Button v-if="position.option?.expiration_action_required" variant="ghost" size="xs" @click="markStatus(position, 'EXPIRED')">标记失效</Button><Button variant="ghost" size="xs" aria-label="编辑期权" @click="openEdit(position)"><Pencil class="h-3.5 w-3.5" /></Button><Button variant="destructive" size="xs" aria-label="删除期权" @click="deletingPosition = position"><Trash2 class="h-3.5 w-3.5" /></Button></div></td></tr></tbody>
           </table>
         </div>
-        <div class="grid gap-3 md:hidden"><article v-for="position in optionPositions" :key="position.id" class="rounded-2xl border border-border/70 bg-card p-4"><div class="flex justify-between"><div><p class="font-semibold">{{ position.option?.underlying_display_symbol }}</p><p class="text-xs text-amber-500">{{ position.position_side === 'LONG' ? '多头' : '空头' }} · {{ position.option?.option_type }}</p></div><div class="flex gap-2"><button aria-label="编辑期权" @click="openEdit(position)"><Pencil class="h-4 w-4" /></button><button aria-label="删除期权" @click="deletingPosition = position"><Trash2 class="h-4 w-4 text-red-500" /></button></div></div><dl class="mt-3 grid grid-cols-2 gap-2 text-sm"><div><dt class="text-xs text-secondary-text">行权价</dt><dd>{{ amount(position.option?.strike_price ?? null) }}</dd></div><div><dt class="text-xs text-secondary-text">到期日 / DTE</dt><dd>{{ position.option?.expiration_date }} · <span :class="dteClass(position)">{{ dteLabel(position) }}</span></dd></div><div><dt class="text-xs text-secondary-text">张数</dt><dd>{{ formatDecimalText(position.quantity.replace('-', '')) }}</dd></div><div><dt class="text-xs text-secondary-text">成本金额</dt><dd>{{ amount(position.cost_amount) }}</dd></div><div><dt class="text-xs text-secondary-text">状态</dt><dd>{{ position.status }}</dd></div></dl><div v-if="position.option?.expiration_action_required" class="mt-3 flex gap-2"><Button size="xsm" variant="secondary" @click="markStatus(position, 'CLOSED')">标记已平仓</Button><Button size="xsm" variant="danger-subtle" @click="markStatus(position, 'EXPIRED')">标记到期失效</Button></div></article></div>
+        <div class="grid gap-3 md:hidden"><article v-for="position in optionPositions" :key="position.id" class="rounded-2xl border border-border/70 bg-card p-4"><div class="flex justify-between"><div><p class="font-semibold">{{ position.option?.underlying_display_symbol }}</p><p class="text-xs text-amber-500">{{ position.position_side === 'LONG' ? '多头' : '空头' }} · {{ position.option?.option_type }}</p></div><div class="flex gap-2"><button aria-label="编辑期权" @click="openEdit(position)"><Pencil class="h-4 w-4" /></button><button aria-label="删除期权" @click="deletingPosition = position"><Trash2 class="h-4 w-4 text-red-500" /></button></div></div><dl class="mt-3 grid grid-cols-2 gap-2 text-sm"><div><dt class="text-xs text-secondary-text">行权价</dt><dd>{{ amount(position.option?.strike_price ?? null) }}</dd></div><div><dt class="text-xs text-secondary-text">到期日 / DTE</dt><dd>{{ position.option?.expiration_date }} · <span :class="dteClass(position)">{{ dteLabel(position) }}</span></dd></div><div><dt class="text-xs text-secondary-text">张数</dt><dd>{{ formatDecimalText(position.quantity.replace('-', '')) }}</dd></div><div><dt class="text-xs text-secondary-text">成本金额</dt><dd>{{ amount(position.cost_amount) }}</dd></div><div><dt class="text-xs text-secondary-text">状态</dt><dd>{{ position.status }}</dd></div></dl><div v-if="position.option?.expiration_action_required" class="mt-3 flex gap-2"><Button size="xs" variant="secondary" @click="markStatus(position, 'CLOSED')">标记已平仓</Button><Button size="xs" variant="destructive" @click="markStatus(position, 'EXPIRED')">标记到期失效</Button></div></article></div>
       </section>
       <div v-if="!filteredPositions.length" class="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-secondary-text">当前筛选下暂无持仓记录。</div>
     </template>
 
     <Dialog
-      :is-open="dialogMode !== null"
+      :open="dialogMode !== null"
       :title="dialogMode === 'edit' ? '编辑持仓' : '添加持仓'"
-      width="max-w-xl"
-      @close="closeDialog"
+      class="max-w-xl"
+      @update:open="closeDialog"
     >
       <form
         class="space-y-4"
@@ -639,7 +640,7 @@ onMounted(async () => {
           </p>
         </template>
         <template v-if="dialogMode === 'create' && createAssetType === 'OPTION'">
-          <div class="grid grid-cols-2 gap-3"><label class="text-sm">Call / Put<select v-model="optionType" class="input-surface mt-1 w-full rounded-xl p-2"><option value="CALL">Call</option><option value="PUT">Put</option></select></label><Input v-model="expirationDate" label="到期日" type="date" /></div>
+          <div class="grid gap-3 sm:grid-cols-2"><AppSelect v-model="optionType" label="Call / Put" :options="[{ value: 'CALL', label: 'Call' }, { value: 'PUT', label: 'Put' }]" /><AppDatePicker v-model="expirationDate" label="到期日" /></div>
           <div class="grid grid-cols-2 items-end gap-3">
             <Input
               v-model="strikePrice"
@@ -650,20 +651,20 @@ onMounted(async () => {
               合约乘数：100
             </p>
           </div>
-          <div class="grid grid-cols-2 gap-3"><Input v-model="optionContracts" label="张数" inputmode="numeric" /><label class="text-sm">持仓方向<select v-model="optionDirection" class="input-surface mt-1 w-full rounded-xl p-2"><option value="LONG">多头</option><option value="SHORT">空头</option></select></label></div>
+          <div class="grid gap-3 sm:grid-cols-2"><Input v-model="optionContracts" label="张数" inputmode="numeric" /><AppSelect :model-value="optionDirection" label="持仓方向" :options="[{ value: 'LONG', label: '多头' }, { value: 'SHORT', label: '空头' }]" @update:model-value="optionDirection = $event as PositionDirection" /></div>
         </template>
         <template v-else-if="dialogMode === 'edit' && editingPosition?.asset_type === 'OPTION'">
-          <div class="grid grid-cols-2 gap-3"><Input v-model="optionContracts" label="张数" inputmode="numeric" /><label class="text-sm">持仓方向<select v-model="optionDirection" class="input-surface mt-1 w-full rounded-xl p-2"><option value="LONG">多头</option><option value="SHORT">空头</option></select></label></div>
+          <div class="grid gap-3 sm:grid-cols-2"><Input v-model="optionContracts" label="张数" inputmode="numeric" /><AppSelect :model-value="optionDirection" label="持仓方向" :options="[{ value: 'LONG', label: '多头' }, { value: 'SHORT', label: '空头' }]" @update:model-value="optionDirection = $event as PositionDirection" /></div>
         </template>
         <Input v-else v-model="quantity" label="数量" inputmode="decimal" />
         <Input v-model="avgCost" label="平均成本" inputmode="decimal" />
-        <Input v-model="openedAt" label="建仓时间" type="datetime-local" />
-        <label v-if="dialogMode === 'edit'" class="block text-sm">状态<select v-model="editStatus" class="input-surface mt-1 w-full rounded-xl p-2"><option value="OPEN">OPEN</option><option value="CLOSED">CLOSED</option><option v-if="editingPosition?.asset_type === 'OPTION'" value="EXPIRED">EXPIRED</option></select></label>
-        <label class="block text-sm">备注<textarea v-model="notes" class="input-surface mt-1 min-h-20 w-full rounded-xl p-3" /></label>
+        <AppDateTimePicker v-model="openedAt" label="建仓时间" />
+        <AppSelect v-if="dialogMode === 'edit'" :model-value="editStatus" label="状态" :options="[{ value: 'OPEN', label: 'OPEN' }, { value: 'CLOSED', label: 'CLOSED' }, ...(editingPosition?.asset_type === 'OPTION' ? [{ value: 'EXPIRED', label: 'EXPIRED' }] : [])]" @update:model-value="editStatus = $event as PositionStatus" />
+        <label class="grid gap-2 text-sm">备注<Textarea v-model="notes" class="min-h-20" /></label>
         <p v-if="formError" class="text-sm text-red-500">{{ formError }}</p>
-        <div class="flex justify-end gap-2"><Button variant="secondary" @click="closeDialog">取消</Button><Button type="submit" :is-loading="saving">保存</Button></div>
+        <div class="flex justify-end gap-2"><Button variant="secondary" @click="closeDialog">取消</Button><Button type="submit" :loading="saving">保存</Button></div>
       </form>
     </Dialog>
-    <ConfirmDialog :is-open="deletingPosition !== null" title="删除持仓记录" :message="`确认删除 ${deletingPosition?.display_symbol ?? ''}？此操作不可撤销。`" confirm-text="删除" is-danger @cancel="deletingPosition = null" @confirm="confirmDelete" />
+    <ConfirmDialog :open="deletingPosition !== null" title="删除持仓记录" :description="`确认删除 ${deletingPosition?.display_symbol ?? ''}？此操作不可撤销。`" confirm-text="删除" destructive @update:open="deletingPosition = null" @confirm="confirmDelete" />
   </div>
 </template>

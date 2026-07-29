@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Card from '@/components/common/Card.vue';
+import Card from '@/components/app/AppCard.vue';
 import DashboardPanelHeader from '@/components/dashboard/DashboardPanelHeader.vue';
 import type { ReportDetails as ReportDetailsType, ReportLanguage } from '@/types/analysis';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';

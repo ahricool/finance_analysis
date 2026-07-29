@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import Drawer from '@/components/common/Drawer.vue';
-import Tooltip from '@/components/common/Tooltip.vue';
+import Drawer from '@/components/app/AppSheet.vue';
+import Tooltip from '@/components/app/AppTooltip.vue';
 import { historyApi } from '@/api/history';
 import type { ReportLanguage } from '@/types/analysis';
 import { markdownToPlainText } from '@/utils/markdown';
@@ -100,11 +100,10 @@ onUnmounted(() => {
 
 <template>
   <Drawer
-    :is-open="isOpen"
-    width="max-w-3xl"
-    :z-index="100"
-    backdrop-class-name="bg-background/56 backdrop-blur-[2px]"
-    @close="handleClose"
+    :open="isOpen"
+    :title="stockName || stockCode || text.fullReport"
+    class="sm:max-w-3xl"
+    @update:open="handleClose"
   >
     <div class="mb-4 flex items-center justify-between gap-3">
       <div class="flex flex-1 items-center gap-3">

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import EmptyState from '@/components/common/EmptyState.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import EmptyState from '@/components/app/AppEmptyState.vue';
+import AppInput from '@/components/app/AppInput.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { SignalRanking } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
@@ -56,23 +58,9 @@ watch(market, async (current) => {
       加载中...
     </div>
     <template v-else>
-      <div class="flex gap-2">
-        <input
-          v-model="filter"
-          placeholder="股票代码"
-          class="rounded-xl border border-border bg-background px-3 py-2 text-sm"
-        ><select
-          v-model="vetoed"
-          class="rounded-xl border border-border bg-background px-3 py-2 text-sm"
-        >
-          <option value="all">
-            全部
-          </option><option value="true">
-            已否决
-          </option><option value="false">
-            未否决
-          </option>
-        </select>
+      <div class="grid gap-2 sm:grid-cols-2">
+        <AppInput v-model="filter" placeholder="股票代码" />
+        <AppSelect v-model="vetoed" :options="[{ value: 'all', label: '全部' }, { value: 'true', label: '已否决' }, { value: 'false', label: '未否决' }]" />
       </div>
       <div
         v-if="items.length"

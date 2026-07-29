@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { quantApi } from '@/api/quant';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Badge from '@/components/common/Badge.vue';
-import Button from '@/components/common/Button.vue';
-import EmptyState from '@/components/common/EmptyState.vue';
-import InlineAlert from '@/components/common/InlineAlert.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Badge from '@/components/app/AppBadge.vue';
+import Button from '@/components/app/AppButton.vue';
+import EmptyState from '@/components/app/AppEmptyState.vue';
+import InlineAlert from '@/components/app/AppAlert.vue';
 import QuantDatasetBuildDialog from '@/components/quant/QuantDatasetBuildDialog.vue';
 import QuantTrainingDialog from '@/components/quant/QuantTrainingDialog.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
@@ -43,10 +43,10 @@ function statusLabel(status: QuantDatasetSnapshot['status']): string {
   return { pending: '等待中', building: '构建中', ready: '已就绪', failed: '失败' }[status];
 }
 
-function statusVariant(status: QuantDatasetSnapshot['status']): 'default' | 'info' | 'success' | 'danger' {
+function statusVariant(status: QuantDatasetSnapshot['status']): 'default' | 'info' | 'success' | 'destructive' {
   if (status === 'building') return 'info';
   if (status === 'ready') return 'success';
-  if (status === 'failed') return 'danger';
+  if (status === 'failed') return 'destructive';
   return 'default';
 }
 
@@ -159,7 +159,28 @@ watch(
     </InlineAlert>
 
     <div v-if="loading" class="py-12 text-center text-muted-text">加载中...</div>
-    <div v-else-if="rows.length" class="max-w-full overflow-x-auto rounded-2xl border border-border bg-card">
+    <template v-else-if="rows.length">
+      <div class="space-y-3 md:hidden" data-testid="quant-dataset-mobile-list">
+        <article v-for="item in rows" :key="item.id" class="rounded-xl border bg-card p-4 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="font-mono text-sm font-semibold">#{{ item.id }} · {{ item.market }}</p>
+              <p class="mt-1 text-xs text-muted-foreground">{{ universeByMarket[item.market].name }} · {{ item.featureVersion }}</p>
+            </div>
+            <Badge :variant="statusVariant(item.status)">{{ statusLabel(item.status) }}</Badge>
+          </div>
+          <dl class="mt-3 grid grid-cols-2 gap-3 border-y py-3 text-xs">
+            <div><dt class="text-muted-foreground">日期范围</dt><dd class="mt-1 font-medium">{{ item.dateFrom }}<br>{{ item.dateTo }}</dd></div>
+            <div><dt class="text-muted-foreground">Universe 覆盖</dt><dd class="mt-1 font-medium">{{ formatCount(item.symbolCount) }} / {{ formatCount(item.universeMemberCount) }}<br>{{ (item.universeCoverageRatio * 100).toFixed(1) }}%</dd></div>
+            <div><dt class="text-muted-foreground">数据行数</dt><dd class="mt-1 font-medium tabular-nums">{{ formatCount(item.rowCount) }}</dd></div>
+            <div><dt class="text-muted-foreground">价格模式</dt><dd class="mt-1 font-medium">{{ priceModeLabel(item.priceMode) }}</dd></div>
+          </dl>
+          <p class="mt-3 line-clamp-2 break-all text-xs text-muted-foreground">{{ validationText(item) }}</p>
+          <Button v-if="canTrain(item) && isAdmin" variant="secondary" size="sm" class="mt-3 w-full" @click="openTraining(item)">使用此数据集训练</Button>
+          <p v-else class="mt-3 text-center text-xs text-muted-foreground">当前数据集不可训练</p>
+        </article>
+      </div>
+      <div class="hidden max-w-full overflow-x-auto rounded-2xl border border-border bg-card md:block">
       <table class="min-w-[1680px] w-full text-left text-sm" data-testid="quant-dataset-table">
         <thead class="border-b border-border text-xs text-muted-text">
           <tr>
@@ -223,7 +244,8 @@ watch(
           </tr>
         </tbody>
       </table>
-    </div>
+      </div>
+    </template>
     <EmptyState
       v-else
       title="暂无数据集"
@@ -236,17 +258,17 @@ watch(
 
     <QuantDatasetBuildDialog
       v-if="isAdmin"
-      :is-open="buildOpen"
+      :open="buildOpen"
       :market="market"
-      @close="buildOpen = false"
+      @update:open="buildOpen = false"
       @submitted="handleBuildSubmitted"
     />
     <QuantTrainingDialog
       v-if="isAdmin"
-      :is-open="trainingOpen"
+      :open="trainingOpen"
       :market="market"
       :initial-dataset-id="trainingDatasetId"
-      @close="trainingOpen = false"
+      @update:open="trainingOpen = false"
       @created="handleTrainingCreated"
       @open-dataset-builder="openDatasetBuilder"
     />

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
 import path from 'path';
 
@@ -33,5 +33,9 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, '../static'),
     emptyOutDir: true,
+  },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./tests/setup.ts'],
   },
 });

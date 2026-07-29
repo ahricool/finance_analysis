@@ -16,6 +16,33 @@ vi.mock('@/api/quant', () => ({
   },
 }));
 
+vi.mock('@/components/app/AppDialog.vue', () => ({
+  default: {
+    inheritAttrs: false,
+    props: ['open', 'title', 'description'],
+    emits: ['update:open'],
+    template: '<div v-if="open" role="dialog"><h2>{{ title }}</h2><p>{{ description }}</p><slot /></div>',
+  },
+}));
+
+vi.mock('@/components/app/AppDatePicker.vue', () => ({
+  default: {
+    inheritAttrs: false,
+    props: ['modelValue', 'label'],
+    emits: ['update:modelValue'],
+    template: '<label>{{ label }}<input v-bind="$attrs" type="text" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" /></label>',
+  },
+}));
+
+vi.mock('@/components/app/AppSelect.vue', () => ({
+  default: {
+    inheritAttrs: false,
+    props: ['modelValue', 'options', 'label'],
+    emits: ['update:modelValue'],
+    template: '<label>{{ label }}<select v-bind="$attrs" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option v-for="item in options" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>',
+  },
+}));
+
 const snapshots: QuantDatasetSnapshot[] = [
   {
     id: 8,
@@ -125,18 +152,16 @@ describe('QuantDatasetsPage', () => {
     vi.useRealTimers();
   });
 
-  it('opens a centered build dialog with the default five-year range and no drawer animation', async () => {
+  it('opens the build dialog with the default five-year range', async () => {
     const { wrapper } = await mountPage();
 
     await wrapper.get('[data-testid="open-dataset-build"]').trigger('click');
 
     expect(wrapper.get('[role="dialog"]').text()).toContain('构建数据集');
-    expect(wrapper.get('[data-testid="dialog-panel"]').classes()).toContain('max-w-2xl');
     expect(wrapper.get('[data-testid="dataset-date-from"]').element).toHaveProperty('value', '2021-07-22');
     expect(wrapper.get('[data-testid="dataset-date-to"]').element).toHaveProperty('value', '2026-07-22');
     expect(wrapper.get('[data-testid="dataset-universe"]').element).toHaveProperty('value', '沪深300 / cn_csi300');
-    expect(wrapper.html()).not.toContain('animate-slide-in-right');
-    expect(wrapper.html()).not.toContain('quant-training-drawer');
+    expect(wrapper.find('[data-testid="quant-training-drawer"]').exists()).toBe(false);
   });
 
   it('does not submit an invalid date range', async () => {

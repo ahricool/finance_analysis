@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
-import Tooltip from '@/components/common/Tooltip.vue';
+import Tooltip from '@/components/app/AppTooltip.vue';
 import { calculateZeroDteStatus } from '@/utils/zeroDteStatus';
 import { ArrowDownRight, ArrowUpRight, Clock3, Minus, ShieldX } from 'lucide-vue-next';
 import { computed } from 'vue';

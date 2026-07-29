@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Button from '@/components/common/Button.vue';
+import Button from '@/components/app/AppButton.vue';
 import Cropper from 'cropperjs';
 import 'cropperjs/dist/cropper.css';
 import { RotateCcw, ZoomIn, ZoomOut } from 'lucide-vue-next';
@@ -95,7 +95,7 @@ watch(() => props.sourceUrl, initCropper);
       </div>
       <div class="flex items-center gap-2">
         <Button type="button" variant="ghost" size="sm" @click="emit('cancel')">取消</Button>
-        <Button type="button" variant="primary" size="sm" :is-loading="isSubmitting" @click="emitCropped">
+        <Button type="button" variant="default" size="sm" :loading="isSubmitting" @click="emitCropped">
           使用头像
         </Button>
       </div>

@@ -65,7 +65,7 @@ describe('ProfilePage route navigation', () => {
     ['/profile/notification', '/profile/notification', '消息通知'],
   ])('activates the matching tab for %s', async (path, activeHref, sectionTitle) => {
     const { wrapper } = await mountProfile(path);
-    const links = wrapper.findAll('aside a');
+    const links = wrapper.findAll('nav a');
 
     expect(links).toHaveLength(3);
     expect(links.map((link) => link.attributes('href'))).toEqual([
@@ -73,8 +73,8 @@ describe('ProfilePage route navigation', () => {
       '/profile/password',
       '/profile/notification',
     ]);
-    expect(wrapper.find('aside button').exists()).toBe(false);
-    expect(wrapper.get(`aside a[href="${activeHref}"]`).classes()).toContain('text-primary');
+    expect(wrapper.find('nav button').exists()).toBe(false);
+    expect(wrapper.get(`nav a[href="${activeHref}"]`).classes()).toContain('text-primary');
     expect(wrapper.get('section h2').text()).toBe(sectionTitle);
     expect(authApi.getProfile).toHaveBeenCalledTimes(1);
 
@@ -84,20 +84,20 @@ describe('ProfilePage route navigation', () => {
   it('switches tabs through the router without reloading profile data', async () => {
     const { router, wrapper } = await mountProfile('/profile/info');
 
-    await wrapper.get('aside a[href="/profile/password"]').trigger('click');
+    await wrapper.get('nav a[href="/profile/password"]').trigger('click');
     await flushPromises();
     expect(router.currentRoute.value.path).toBe('/profile/password');
-    expect(wrapper.get('aside a[href="/profile/password"]').classes()).toContain('text-primary');
+    expect(wrapper.get('nav a[href="/profile/password"]').classes()).toContain('text-primary');
 
-    await wrapper.get('aside a[href="/profile/notification"]').trigger('click');
+    await wrapper.get('nav a[href="/profile/notification"]').trigger('click');
     await flushPromises();
     expect(router.currentRoute.value.path).toBe('/profile/notification');
-    expect(wrapper.get('aside a[href="/profile/notification"]').classes()).toContain('text-primary');
+    expect(wrapper.get('nav a[href="/profile/notification"]').classes()).toContain('text-primary');
 
     router.back();
     await flushPromises();
     expect(router.currentRoute.value.path).toBe('/profile/password');
-    expect(wrapper.get('aside a[href="/profile/password"]').classes()).toContain('text-primary');
+    expect(wrapper.get('nav a[href="/profile/password"]').classes()).toContain('text-primary');
 
     router.forward();
     await flushPromises();

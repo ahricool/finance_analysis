@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { quantApi } from '@/api/quant';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Button from '@/components/common/Button.vue';
-import Dialog from '@/components/common/Dialog.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Button from '@/components/app/AppButton.vue';
+import AppInput from '@/components/app/AppInput.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
+import Dialog from '@/components/app/AppDialog.vue';
 import type {
   ModelRunCreateAccepted,
   QuantDatasetSnapshot,
@@ -16,13 +18,13 @@ import { computed, ref, watch } from 'vue';
 type TrainableModelKey = 'cross_section_lgbm' | 'time_series_lgbm';
 
 const props = defineProps<{
-  isOpen: boolean;
+  open: boolean;
   market: QuantMarket;
   initialDatasetId?: number | null;
 }>();
 
 const emit = defineEmits<{
-  close: [];
+  'update:open': [value: boolean];
   created: [result: ModelRunCreateAccepted];
   openDatasetBuilder: [market: QuantMarket];
 }>();
@@ -111,7 +113,7 @@ async function loadOptions(): Promise<void> {
 }
 
 function requestClose(): void {
-  if (!creatingRun.value) emit('close');
+  if (!creatingRun.value) emit('update:open', false);
 }
 
 function openDatasetBuilder(): void {
@@ -137,7 +139,7 @@ async function createRun(): Promise<void> {
   }
 }
 
-watch(() => props.isOpen, (isOpen) => {
+watch(() => props.open, (isOpen) => {
   if (!isOpen) {
     requestVersion += 1;
     return;
@@ -152,24 +154,24 @@ watch(() => props.isOpen, (isOpen) => {
 });
 
 watch(selectedMarket, (current, previous) => {
-  if (!props.isOpen || current === previous) return;
+  if (!props.open || current === previous) return;
   selectedDatasetId.value = null;
   generateModelVersion();
   void loadOptions();
 });
 
 watch(modelKey, () => {
-  if (props.isOpen) generateModelVersion();
+  if (props.open) generateModelVersion();
 });
 </script>
 
 <template>
   <Dialog
-    :is-open="isOpen"
+    :open="open"
     title="创建训练任务"
     description="选择一个已就绪的数据集快照，使用后端默认 Walk-forward 配置启动训练。"
-    width="max-w-3xl"
-    @close="requestClose"
+    class="max-w-3xl"
+    @update:open="requestClose"
   >
     <form class="space-y-5" data-testid="training-run-form" @submit.prevent="createRun">
       <ApiErrorAlert v-if="error" :error="error" @dismiss="error = null" />
@@ -196,7 +198,7 @@ watch(modelKey, () => {
       <section>
         <div class="mb-2 flex items-center justify-between gap-3">
           <h3 class="text-sm font-semibold text-foreground">数据集快照</h3>
-          <Button variant="ghost" size="sm" :is-loading="loadingOptions" loading-text="刷新中" @click="loadOptions">
+          <Button variant="ghost" size="sm" :loading="loadingOptions" loading-text="刷新中" @click="loadOptions">
             刷新
           </Button>
         </div>
@@ -248,29 +250,15 @@ watch(modelKey, () => {
       </section>
 
       <div class="grid gap-4 sm:grid-cols-2">
+        <AppSelect
+          v-model="modelKey"
+          label="模型类型"
+          data-testid="training-model-select"
+          :options="trainableDefinitions.map((item) => ({ value: item.key, label: `${item.name} · ${item.key}` }))"
+          :disabled="loadingOptions || trainableDefinitions.length === 0"
+        />
         <label class="text-sm">
-          <span class="mb-1.5 block text-xs font-medium text-muted-text">模型类型</span>
-          <select
-            v-model="modelKey"
-            data-testid="training-model-select"
-            class="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground"
-            :disabled="loadingOptions || trainableDefinitions.length === 0"
-          >
-            <option v-for="item in trainableDefinitions" :key="item.key" :value="item.key">
-              {{ item.name }} · {{ item.key }}
-            </option>
-          </select>
-        </label>
-        <label class="text-sm">
-          <span class="mb-1.5 block text-xs font-medium text-muted-text">模型版本</span>
-          <input
-            v-model="modelVersion"
-            data-testid="training-model-version"
-            required
-            maxlength="96"
-            pattern="[A-Za-z0-9][A-Za-z0-9._-]*"
-            class="h-10 w-full rounded-xl border border-border bg-card px-3 font-mono text-sm text-foreground"
-          >
+          <AppInput v-model="modelVersion" label="模型版本" data-testid="training-model-version" required maxlength="96" class="font-mono" />
           <span v-if="modelVersion && !modelVersionValid" class="mt-1 block text-xs text-danger">
             只能包含字母、数字、点、下划线和连字符，且必须以字母或数字开头。
           </span>
@@ -301,7 +289,7 @@ watch(modelKey, () => {
           type="submit"
           data-testid="create-training-run"
           :disabled="!canCreateRun"
-          :is-loading="creatingRun"
+          :loading="creatingRun"
           loading-text="创建中"
         >
           创建并启动训练

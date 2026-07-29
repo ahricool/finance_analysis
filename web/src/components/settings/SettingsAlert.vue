@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import Button from '@/components/common/Button.vue';
-import InlineAlert from '@/components/common/InlineAlert.vue';
+import Button from '@/components/app/AppButton.vue';
+import InlineAlert from '@/components/app/AppAlert.vue';
 import { cn } from '@/utils/cn';
 import { computed } from 'vue';
 
@@ -24,8 +24,8 @@ const emit = defineEmits<{
   action: [];
 }>();
 
-const variantMap: Record<NonNullable<typeof props.variant>, 'danger' | 'success' | 'warning'> = {
-  error: 'danger',
+const variantMap: Record<NonNullable<typeof props.variant>, 'destructive' | 'success' | 'warning'> = {
+  error: 'destructive',
   success: 'success',
   warning: 'warning',
 };
@@ -57,8 +57,8 @@ const presentationClassName = computed(() =>
     <template v-if="actionLabel" #action>
       <Button
         type="button"
-        variant="settings-secondary"
-        size="xsm"
+        variant="outline"
+        size="xs"
         @click="emit('action')"
       >
         {{ actionLabel }}

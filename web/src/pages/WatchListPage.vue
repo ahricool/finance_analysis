@@ -2,9 +2,12 @@
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import type { RealtimePatternState, RealtimeTrend } from '@/api/realtimeMarket';
 import { watchListApi, type MarketType, type WatchListItem, type WatchListItemCreate } from '@/api/watchList';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Button from '@/components/common/Button.vue';
-import Input from '@/components/common/Input.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Button from '@/components/app/AppButton.vue';
+import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
+import AppDialog from '@/components/app/AppDialog.vue';
+import Input from '@/components/app/AppInput.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
 import PatternStatus from '@/components/stocks/PatternStatus.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
@@ -17,7 +20,7 @@ import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import { looksLikeStockCode } from '@/utils/validation';
 import { calculateZeroDteStatus, zeroDteStatusSortValue } from '@/utils/zeroDteStatus';
-import { Eye, Heart, Pencil, Plus, Star, Trash2, X } from 'lucide-vue-next';
+import { Eye, Heart, Pencil, Plus, Star, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 
 type MarketFilter = MarketType | 'ALL';
@@ -350,7 +353,7 @@ onMounted(loadList);
           <p class="text-xs text-secondary-text">共 {{ total }} 只</p>
         </div>
       </div>
-      <Button variant="primary" size="sm" @click="openCreate">
+      <Button variant="default" size="sm" @click="openCreate">
         <Plus class="mr-1.5 h-4 w-4" />
         添加
       </Button>
@@ -376,17 +379,7 @@ onMounted(loadList);
     <template v-else>
       <div class="mb-3 rounded-2xl border border-border/70 bg-card/94 p-4 shadow-soft-card">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <label class="block text-sm font-medium text-foreground">
-            <span class="mb-1 block text-xs text-muted-text">市场</span>
-            <select
-              v-model="selectedMarket"
-              class="h-9 w-full min-w-[180px] rounded-xl border border-border/70 bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary"
-            >
-              <option v-for="option in marketFilterOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-          </label>
+          <AppSelect v-model="selectedMarket" label="市场" class="min-w-[180px]" :options="marketFilterOptions" />
           <div class="flex items-center gap-3">
             <RealtimeStatus :status="realtimeStatus" />
             <p class="whitespace-nowrap text-xs text-muted-text">显示 {{ visibleItems.length }} / {{ total }} 只</p>
@@ -394,8 +387,19 @@ onMounted(loadList);
         </div>
       </div>
 
-      <!-- Table -->
-      <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
+      <div class="grid gap-3 md:hidden">
+        <article v-for="item in visibleItems" :key="`mobile-${item.id}`" class="rounded-xl border bg-card p-4" @click="detailItem = item">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0"><p class="truncate font-medium">{{ item.name || item.code }}</p><p class="mt-0.5 font-mono text-xs text-primary">{{ item.code }} · {{ marketLabel(item.market_type) }}</p></div>
+            <button type="button" class="inline-flex size-10 items-center justify-center rounded-lg" :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'" @click.stop="toggleFavorite(item)"><Heart class="size-4" :class="item.is_favorite && 'fill-current text-destructive'" /></button>
+          </div>
+          <div class="mt-4 grid grid-cols-2 gap-3 text-sm"><div><p class="text-xs text-muted-foreground">最新价</p><p class="mt-1 font-semibold tabular-nums">{{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}</p></div><div><p class="text-xs text-muted-foreground">今日涨跌</p><p class="mt-1 font-semibold tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)">{{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%') }}</p></div></div>
+          <div class="mt-4 flex justify-end gap-1"><Button variant="ghost" size="sm" @click.stop="openEdit(item)"><Pencil />编辑</Button><Button variant="ghost" size="sm" class="text-destructive" @click.stop="openDelete(item)"><Trash2 />删除</Button></div>
+        </article>
+      </div>
+
+      <!-- Desktop table -->
+      <div class="hidden overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card md:block">
         <table class="w-full min-w-[1420px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[78px]" />
@@ -521,26 +525,11 @@ onMounted(loadList);
       :stock="detailItem"
       :quote="detailItem ? getQuote(detailItem.code, detailItem.market_type) : undefined"
       kind="watchlist"
-      @close="detailItem = null"
+      @update:open="detailItem = null"
     />
 
     <!-- Add / Edit Dialog -->
-    <Teleport to="body">
-      <div
-        v-if="showDialog"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-        @click.self="closeDialog"
-      >
-        <div class="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
-          <div class="mb-5 flex items-center justify-between">
-            <h2 class="text-base font-semibold text-foreground">
-              {{ editingId !== null ? '编辑自选股' : '添加自选股' }}
-            </h2>
-            <button class="rounded-lg p-1 text-secondary-text hover:text-foreground" @click="closeDialog">
-              <X class="h-5 w-5" />
-            </button>
-          </div>
-
+    <AppDialog :open="showDialog" :title="editingId !== null ? '编辑自选股' : '添加自选股'" class="max-w-md" @update:open="showDialog = $event">
           <div class="space-y-4">
             <div>
               <label class="mb-1 block text-sm font-medium text-foreground">股票 *</label>
@@ -551,17 +540,7 @@ onMounted(loadList);
                 @submit="handleStockAutocompleteSubmit"
               />
             </div>
-            <div>
-              <label class="mb-1 block text-sm font-medium text-foreground">市场</label>
-              <select
-                v-model="formMarketType"
-                class="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary"
-              >
-                <option v-for="option in marketOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </div>
+            <AppSelect v-model="formMarketType" label="市场" :options="marketOptions" />
             <div>
               <label class="mb-1 block text-sm font-medium text-foreground">备注（可选）</label>
               <Input v-model="formNotes" placeholder="备注信息" />
@@ -571,32 +550,12 @@ onMounted(loadList);
 
           <div class="mt-6 flex justify-end gap-3">
             <Button variant="ghost" @click="closeDialog">取消</Button>
-            <Button variant="primary" :disabled="saving" @click="save">
+            <Button variant="default" :disabled="saving" @click="save">
               {{ saving ? '保存中…' : '保存' }}
             </Button>
           </div>
-        </div>
-      </div>
-    </Teleport>
+    </AppDialog>
 
-    <!-- Delete Confirm Dialog -->
-    <Teleport to="body">
-      <div
-        v-if="showDeleteConfirm"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-        @click.self="showDeleteConfirm = false"
-      >
-        <div class="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl">
-          <h2 class="mb-2 text-base font-semibold text-foreground">删除自选股</h2>
-          <p class="mb-5 text-sm text-secondary-text">
-            确认从自选股中移除 <span class="font-mono font-semibold text-foreground">{{ deletingCode }}</span>？
-          </p>
-          <div class="flex justify-end gap-3">
-            <Button variant="ghost" @click="showDeleteConfirm = false">取消</Button>
-            <Button variant="danger" @click="confirmDelete">确认删除</Button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <AppConfirmDialog :open="showDeleteConfirm" title="删除自选股" :description="`确认从自选股中移除 ${deletingCode}？`" confirm-text="确认删除" destructive @update:open="showDeleteConfirm = $event" @confirm="confirmDelete" />
   </div>
 </template>

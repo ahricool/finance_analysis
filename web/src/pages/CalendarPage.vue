@@ -7,12 +7,16 @@ import {
   type FinanceEventItem,
 } from '@/api/calendar';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Button from '@/components/common/Button.vue';
-import Dialog from '@/components/common/Dialog.vue';
-import Input from '@/components/common/Input.vue';
-import Pagination from '@/components/common/Pagination.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Button from '@/components/app/AppButton.vue';
+import Dialog from '@/components/app/AppDialog.vue';
+import Input from '@/components/app/AppInput.vue';
+import Pagination from '@/components/app/AppPagination.vue';
+import AppCombobox from '@/components/app/AppCombobox.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import AppDateTimePicker from '@/components/app/AppDateTimePicker.vue';
 import CollapsibleCalendarSection from '@/components/calendar/CollapsibleCalendarSection.vue';
+import { Textarea } from '@/components/ui/textarea';
 import { useTimezoneStore } from '@/stores/timezoneStore';
 import {
   formatDateOnly,
@@ -228,10 +232,6 @@ function goToDate(date: string) {
   void Promise.all([loadSelectedDateDetails(), loadRangeSummary()]);
 }
 
-function selectDisplayDate(event: Event) {
-  goToDate((event.target as HTMLInputElement).value);
-}
-
 function shiftRange(step: number) {
   const currentIndex = rangeDates.value.findIndex((d) => formatDate(d) === selectedDate.value);
   const selectedIndex = currentIndex >= 0 ? currentIndex : 1;
@@ -442,16 +442,7 @@ watch(displayTimezone, () => {
           <p class="text-xs text-secondary-text">按 7 日视图查看财经事件与自动化任务记录</p>
         </div>
       </div>
-      <label class="flex items-center gap-2 text-xs font-medium text-secondary-text">
-        展示日期
-        <input
-          :value="selectedDate"
-          type="date"
-          aria-label="展示日期"
-          class="h-9 rounded-xl border border-border/70 bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary"
-          @change="selectDisplayDate"
-        />
-      </label>
+      <AppDatePicker :model-value="selectedDate" label="展示日期" class="w-full sm:w-auto" :clearable="false" @update:model-value="goToDate" />
     </div>
 
     <div class="mb-4 rounded-2xl border border-border/60 bg-card p-4">
@@ -553,7 +544,7 @@ watch(displayTimezone, () => {
         @update:open="eventsOpen = $event"
       >
         <template #actions>
-          <Button size="xsm" variant="secondary" data-testid="add-finance-event" @click="openCreate('event')">
+          <Button size="xs" variant="secondary" data-testid="add-finance-event" @click="openCreate('event')">
             <Plus class="h-3.5 w-3.5" />
             新增事件
           </Button>
@@ -615,7 +606,7 @@ watch(displayTimezone, () => {
         <template #actions>
           <Button
             v-if="definition.category === 'other'"
-            size="xsm"
+            size="xs"
             variant="secondary"
             data-testid="add-calendar-entry"
             @click="openCreate('entry')"
@@ -665,38 +656,33 @@ watch(displayTimezone, () => {
     </div>
 
     <Dialog
-      :is-open="!!createMode"
+      :open="!!createMode"
       :title="createTitle"
-      width="max-w-2xl"
-      @close="closeCreate"
+      class="max-w-2xl"
+      @update:open="closeCreate"
     >
       <form class="space-y-4" data-testid="calendar-create-form" @submit.prevent="submitCreate">
         <ApiErrorAlert v-if="createError" :error="createError" />
 
         <template v-if="createMode === 'event'">
           <div class="grid gap-4 sm:grid-cols-2">
-            <Input v-model="eventForm.eventDate" label="事件日期 *" type="date" required />
-            <Input
+            <AppDatePicker v-model="eventForm.eventDate" label="事件日期 *" :clearable="false" />
+            <AppDateTimePicker
               v-model="eventForm.eventTime"
               label="具体时间（可选）"
-              type="datetime-local"
-              :hint="`按 ${displayTimezone} 录入`"
             />
-            <Input
+            <AppCombobox
               v-model="eventForm.calendarType"
               label="事件类型 *"
-              list="calendar-event-types"
-              maxlength="32"
               placeholder="例如 macro"
-              required
+              :options="[
+                { value: 'macro', label: '宏观' },
+                { value: 'earnings', label: '财报' },
+                { value: 'dividend', label: '分红' },
+                { value: 'split', label: '拆股' },
+                { value: 'ipo', label: 'IPO' },
+              ]"
             />
-            <datalist id="calendar-event-types">
-              <option value="macro">宏观</option>
-              <option value="earnings">财报</option>
-              <option value="dividend">分红</option>
-              <option value="split">拆股</option>
-              <option value="ipo">IPO</option>
-            </datalist>
             <Input v-model="eventForm.market" label="市场 *" maxlength="16" required />
             <Input v-model="eventForm.symbol" label="股票代码" maxlength="32" placeholder="例如 AAPL" />
             <Input v-model="eventForm.counterName" label="标的名称" maxlength="128" />
@@ -706,31 +692,29 @@ watch(displayTimezone, () => {
           <Input v-model="eventForm.title" label="标题 *" maxlength="120" required />
           <div>
             <label class="mb-2 block text-sm font-medium text-foreground" for="event-content">详情内容</label>
-            <textarea
+            <Textarea
               id="event-content"
               v-model="eventForm.content"
-              class="input-surface input-focus-glow min-h-32 w-full rounded-xl border bg-transparent px-4 py-3 text-sm text-foreground focus:outline-none"
+              class="min-h-32"
               placeholder="支持 Markdown"
             />
           </div>
         </template>
 
         <template v-else-if="createMode === 'entry'">
-          <Input
+          <AppDateTimePicker
             v-model="entryForm.time"
             label="记录时间 *"
-            type="datetime-local"
-            :hint="`按 ${displayTimezone} 录入`"
-            required
+            :clearable="false"
           />
           <Input v-model="entryForm.title" label="标题 *" maxlength="120" required />
           <Input v-model="entryForm.type" label="记录类型" maxlength="32" placeholder="例如 manual_note" />
           <div>
             <label class="mb-2 block text-sm font-medium text-foreground" for="entry-content">详情内容</label>
-            <textarea
+            <Textarea
               id="entry-content"
               v-model="entryForm.content"
-              class="input-surface input-focus-glow min-h-32 w-full rounded-xl border bg-transparent px-4 py-3 text-sm text-foreground focus:outline-none"
+              class="min-h-32"
               placeholder="支持 Markdown"
             />
           </div>
@@ -738,16 +722,16 @@ watch(displayTimezone, () => {
 
         <div class="flex justify-end gap-2 pt-2">
           <Button variant="ghost" :disabled="createSaving" @click="closeCreate">取消</Button>
-          <Button type="submit" :is-loading="createSaving" loading-text="保存中…">保存</Button>
+          <Button type="submit" :loading="createSaving" loading-text="保存中…">保存</Button>
         </div>
       </form>
     </Dialog>
 
     <Dialog
-      :is-open="!!detail"
+      :open="!!detail"
       :title="detailTitle"
-      width="max-w-4xl"
-      @close="closeDetail"
+      class="max-w-4xl"
+      @update:open="closeDetail"
     >
       <div v-if="detail?.kind === 'event'" class="space-y-5">
         <div class="grid gap-3 sm:grid-cols-2">

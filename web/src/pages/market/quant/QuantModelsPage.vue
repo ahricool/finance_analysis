@@ -3,10 +3,10 @@ import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Button from '@/components/common/Button.vue';
-import EmptyState from '@/components/common/EmptyState.vue';
-import InlineAlert from '@/components/common/InlineAlert.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Button from '@/components/app/AppButton.vue';
+import EmptyState from '@/components/app/AppEmptyState.vue';
+import InlineAlert from '@/components/app/AppAlert.vue';
 import QuantTrainingDialog from '@/components/quant/QuantTrainingDialog.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { useAuthStore } from '@/stores/authStore';
@@ -151,9 +151,9 @@ watch(
 
     <QuantTrainingDialog
       v-if="isAdmin"
-      :is-open="trainingOpen"
+      :open="trainingOpen"
       :market="market"
-      @close="trainingOpen = false"
+      @update:open="trainingOpen = false"
       @created="handleCreated"
       @open-dataset-builder="openDatasetBuilder"
     />

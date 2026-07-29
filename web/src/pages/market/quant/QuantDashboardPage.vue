@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import EmptyState from '@/components/common/EmptyState.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import EmptyState from '@/components/app/AppEmptyState.vue';
 import MarketScoreChart from '@/components/quant/MarketScoreChart.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { MarketRegime, QuantCapabilities, SectorRegime, SignalRanking } from '@/types/quant';

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { RealtimeTrend, TrendDirection } from '@/api/realtimeMarket';
-import Tooltip from '@/components/common/Tooltip.vue';
+import Tooltip from '@/components/app/AppTooltip.vue';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { computed } from 'vue';
 

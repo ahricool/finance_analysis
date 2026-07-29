@@ -1,0 +1,7 @@
+<script setup lang="ts">
+import type { Component } from 'vue'; import type { RouteLocationRaw } from 'vue-router';
+export type AppSectionNavItem = { key: string; label: string; icon: Component; to?: RouteLocationRaw };
+defineProps<{ items: AppSectionNavItem[]; activeKey: string; compact?: boolean }>();
+const emit = defineEmits<{ select: [key: string] }>();
+</script>
+<template><nav class="grid gap-1 rounded-xl border bg-card p-1.5" :class="compact ? 'grid-flow-col auto-cols-fr' : ''"><template v-for="item in items" :key="item.key"><RouterLink v-if="item.to" :to="item.to" class="flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors lg:justify-start" :class="activeKey === item.key ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'"><component :is="item.icon" class="size-4 shrink-0" /><span class="truncate">{{ item.label }}</span></RouterLink><button v-else type="button" class="flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors lg:justify-start" :class="activeKey === item.key ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'" @click="emit('select', item.key)"><component :is="item.icon" class="size-4 shrink-0" /><span class="truncate">{{ item.label }}</span></button></template></nav></template>

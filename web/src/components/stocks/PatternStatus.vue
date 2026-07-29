@@ -5,7 +5,7 @@ import type {
   RealtimePatternSignal,
   RealtimePatternState,
 } from '@/api/realtimeMarket';
-import Tooltip from '@/components/common/Tooltip.vue';
+import Tooltip from '@/components/app/AppTooltip.vue';
 import { formatDateTimeInDisplayTimezone, getDisplayTimezone } from '@/utils/format';
 import { computed } from 'vue';
 

@@ -24,6 +24,38 @@ vi.mock('@/composables/useRealtimeQuotes', () => ({
   }),
 }));
 
+vi.mock('@/components/app/AppDialog.vue', () => ({
+  default: {
+    props: ['open', 'title', 'description'],
+    emits: ['update:open'],
+    template: '<teleport to="body"><div v-if="open" role="dialog"><h2>{{ title }}</h2><button type="button" aria-label="关闭弹窗" @click="$emit(\'update:open\', false)">关闭</button><slot /></div></teleport>',
+  },
+}));
+
+vi.mock('@/components/app/AppDatePicker.vue', () => ({
+  default: {
+    props: ['modelValue', 'label'],
+    emits: ['update:modelValue'],
+    template: '<label>{{ label }}<input type="text" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" /></label>',
+  },
+}));
+
+vi.mock('@/components/app/AppDateTimePicker.vue', () => ({
+  default: {
+    props: ['modelValue', 'label'],
+    emits: ['update:modelValue'],
+    template: '<label>{{ label }}<input type="text" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" /></label>',
+  },
+}));
+
+vi.mock('@/components/app/AppSelect.vue', () => ({
+  default: {
+    props: ['modelValue', 'options', 'label'],
+    emits: ['update:modelValue'],
+    template: '<label>{{ label }}<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option v-for="item in options" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>',
+  },
+}));
+
 const accounts = [
   { id: 1, account_code: 'CN', name: 'A股账户', market: 'CN', currency: 'CNY', cash_balance: '1000.00' },
   { id: 2, account_code: 'HK', name: '港股账户', market: 'HK', currency: 'HKD', cash_balance: '2000.00' },
@@ -203,6 +235,7 @@ describe('portfolio page', () => {
     await flushPromises();
     setField('数量', '10.25');
     setField('平均成本', '4.12345678');
+    await flushPromises();
     document.body.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await flushPromises();
     expect(mocks.createEquity).toHaveBeenCalledWith(
@@ -255,6 +288,7 @@ describe('portfolio page', () => {
     setField('张数', '2');
     setField('持仓方向', 'SHORT');
     setField('平均成本', '3.50');
+    await flushPromises();
     document.body.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await flushPromises();
     expect(mocks.createOption).toHaveBeenCalledWith(

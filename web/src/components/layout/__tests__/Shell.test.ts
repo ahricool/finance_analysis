@@ -5,146 +5,82 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Shell from '../Shell.vue';
 import { useAuthStore } from '@/stores/authStore';
 
-vi.mock('@/stores/agentChatStore', () => ({
-  useAgentChatStore: () => false,
-}));
+vi.mock('@/stores/agentChatStore', () => ({ useAgentChatStore: () => false }));
 
 function createTestRouter() {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      {
-        path: '/',
-        component: { template: '<div />' },
-      },
-      {
-        path: '/analysis',
-        component: { template: '<div />' },
-      },
-      {
-        path: '/:pathMatch(.*)*',
-        component: { template: '<div />' },
-      },
+      { path: '/', component: { template: '<div />' } },
+      { path: '/analysis', component: { template: '<div />' } },
+      { path: '/:pathMatch(.*)*', component: { template: '<div />' } },
     ],
   });
 }
 
-describe('Shell user menu', () => {
+async function mountShell(path: string) {
+  const router = createTestRouter();
+  await router.push(path);
+  await router.isReady();
+  return { router, wrapper: mount(Shell, { global: { plugins: [router] } }) };
+}
+
+describe('Shell navigation', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
   });
 
-  it('keeps only the avatar visible in the nav and renders user details in the popup', async () => {
-    const authStore = useAuthStore();
-    authStore.currentUser = {
+  it('keeps account details out of the header and exposes a click user-menu trigger', async () => {
+    useAuthStore().currentUser = {
       uid: 1,
       username: 'Alice',
       email: 'alice@example.com',
       avatarUrl: null,
       role: 'admin',
-      extra: {
-        gender: 'female',
-      },
+      extra: { gender: 'female' },
     };
+    const { wrapper } = await mountShell('/analysis');
 
-    const router = createTestRouter();
-    await router.push('/');
-    await router.isReady();
-
-    const wrapper = mount(Shell, {
-      global: {
-        plugins: [router],
-      },
-    });
-
-    const avatarButton = wrapper.get('button[aria-label="查看当前登录用户信息"]');
-    expect(avatarButton.text()).toBe('');
-
-    const popup = wrapper.get('[aria-label="当前登录用户"] .absolute');
-    expect(popup.classes()).toContain('group-hover:visible');
-    expect(popup.text()).toContain('性别');
-    expect(popup.text()).toContain('女');
-    expect(popup.text()).toContain('角色');
-    expect(popup.text()).toContain('女王');
-    expect(popup.text()).toContain('邮箱');
-    expect(popup.text()).toContain('alice@example.com');
-    expect(popup.text().indexOf('性别')).toBeLessThan(popup.text().indexOf('角色'));
-    expect(popup.text().indexOf('角色')).toBeLessThan(popup.text().indexOf('邮箱'));
-    expect(popup.text().indexOf('邮箱')).toBeLessThan(popup.text().indexOf('个人中心'));
-    expect(popup.text().indexOf('个人中心')).toBeLessThan(popup.text().indexOf('退出'));
-    expect(popup.get('a[href="/profile/info"]').text()).toContain('个人中心');
-    expect(popup.find('.lucide-chevron-right').exists()).toBe(true);
-    expect(popup.find('a[href="/tasks"]').exists()).toBe(false);
-    expect(popup.text()).not.toContain('任务中心');
-    expect(popup.get('button').text()).toBe('退出');
+    expect(wrapper.get('button[aria-label="打开用户菜单"]')).toBeTruthy();
+    expect(wrapper.get('header').text()).not.toContain('alice@example.com');
+    expect(wrapper.get('header').text()).not.toContain('退出登录');
   });
 
   it.each(['/market/watch-list', '/market/holdings', '/market/signals', '/market/signals/123'])(
-    'keeps market navigation active on %s',
+    'marks market navigation active on %s',
     async (path) => {
-      const router = createTestRouter();
-      await router.push(path);
-      await router.isReady();
-
-      const wrapper = mount(Shell, {
-        global: {
-          plugins: [router],
-        },
-      });
-
+      const { wrapper } = await mountShell(path);
       const marketLinks = wrapper.findAll('a[aria-label="市场"]');
       expect(marketLinks).toHaveLength(2);
-      expect(marketLinks.every((link) => link.classes().includes('text-[hsl(var(--primary))]'))).toBe(true);
       expect(marketLinks.every((link) => link.attributes('aria-current') === 'page')).toBe(true);
-      expect(marketLinks.every((link) => link.find('span.absolute').exists())).toBe(true);
+      expect(marketLinks.every((link) => link.classes().includes('text-primary'))).toBe(true);
     },
   );
 
   it.each([
     ['/market/backtests/123', '回测'],
     ['/market/quant/signals/NVDA.US', '量化'],
-  ])('highlights only %s as %s', async (path, label) => {
-    const router = createTestRouter();
-    await router.push(path);
-    await router.isReady();
-
-    const wrapper = mount(Shell, { global: { plugins: [router] } });
-    const activeLinks = wrapper.findAll('a[aria-current="page"]');
-
-    expect(activeLinks).toHaveLength(2);
-    expect(activeLinks.every((link) => link.attributes('aria-label') === label)).toBe(true);
-    expect(wrapper.findAll('a[aria-label="市场"]').every((link) => !link.attributes('aria-current'))).toBe(true);
+  ])('marks only the %s module as %s', async (path, label) => {
+    const { wrapper } = await mountShell(path);
+    const activeLinks = wrapper.findAll('[data-testid="desktop-main-nav"] a[aria-current="page"]');
+    expect(activeLinks).toHaveLength(1);
+    expect(activeLinks[0].attributes('aria-label')).toBe(label);
+    expect(wrapper.get('button[aria-label="更多"]').attributes('aria-current')).toBe('page');
   });
 
-  it('shows every core destination in the mobile nav and navigates from calendar to market', async () => {
-    const router = createTestRouter();
-    await router.push('/calendar');
-    await router.isReady();
-
-    const wrapper = mount(Shell, {
-      global: {
-        plugins: [router],
-      },
-    });
-
+  it('uses four primary mobile destinations plus a More entry and supports route changes', async () => {
+    const { router, wrapper } = await mountShell('/calendar');
     const mobileNav = wrapper.get('[data-testid="mobile-main-nav"]');
-    expect(mobileNav.find('.grid-cols-7').exists()).toBe(true);
+
+    expect(mobileNav.find('.grid-cols-5').exists()).toBe(true);
     expect(mobileNav.findAll('a').map((link) => link.attributes('aria-label'))).toEqual([
-      '分析',
-      '日历',
-      '市场',
-      '回测',
-      '量化',
-      '问股',
-      '任务',
+      '分析', '日历', '市场', '问股',
     ]);
+    expect(mobileNav.get('button[aria-label="更多"]').text()).toContain('更多');
     expect(mobileNav.get('a[aria-label="日历"]').attributes('aria-current')).toBe('page');
 
     await mobileNav.get('a[aria-label="市场"]').trigger('click');
-
-    await vi.waitFor(() => {
-      expect(router.currentRoute.value.path).toBe('/market/watch-list');
-    });
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/market/watch-list'));
     expect(mobileNav.get('a[aria-label="市场"]').attributes('aria-current')).toBe('page');
   });
 });

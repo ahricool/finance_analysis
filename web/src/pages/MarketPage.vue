@@ -2,9 +2,9 @@
 import { Activity, Star, Wallet } from 'lucide-vue-next';
 import { computed } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
-import SectionNavItems from '@/components/common/SectionNavItems.vue';
-import SectionNavPanel from '@/components/common/SectionNavPanel.vue';
-import SectionPageHeader from '@/components/common/SectionPageHeader.vue';
+import SectionNavItems from '@/components/app/AppSectionNav.vue';
+import SectionNavPanel from '@/components/app/AppSectionNav.vue';
+import SectionPageHeader from '@/components/app/AppPageHeader.vue';
 
 type MarketTab = 'watch-list' | 'holdings' | 'signals';
 

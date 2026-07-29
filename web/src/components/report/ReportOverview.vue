@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import Badge from '@/components/common/Badge.vue';
-import Card from '@/components/common/Card.vue';
-import ScoreGauge from '@/components/common/ScoreGauge.vue';
+import Badge from '@/components/app/AppBadge.vue';
+import Card from '@/components/app/AppCard.vue';
+import ScoreGauge from '@/components/report/ScoreGauge.vue';
 import { formatDateTime } from '@/utils/format';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import type {
@@ -96,8 +96,8 @@ function getBoardStatusLabel(status: BoardStatus): string {
   return status === 'leading' ? text.value.leadingBoard : text.value.laggingBoard;
 }
 
-function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
-  return status === 'leading' ? 'success' : 'danger';
+function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
+  return status === 'leading' ? 'success' : 'destructive';
 }
 </script>
 
@@ -105,7 +105,7 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'danger' {
   <div class="space-y-5">
     <div class="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-3">
       <div class="space-y-5 lg:col-span-2">
-        <Card variant="gradient" padding="md" class="home-report-hero">
+        <Card variant="default" padding="md" class="home-report-hero">
           <div class="mb-5 flex items-start justify-between">
             <div class="flex-1">
               <div class="flex items-center gap-3">

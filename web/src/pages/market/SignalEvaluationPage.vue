@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { signalsApi, type SignalListQuery } from '@/api/signals';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Badge from '@/components/common/Badge.vue';
-import Button from '@/components/common/Button.vue';
-import Drawer from '@/components/common/Drawer.vue';
-import Input from '@/components/common/Input.vue';
-import Pagination from '@/components/common/Pagination.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Badge from '@/components/app/AppBadge.vue';
+import Button from '@/components/app/AppButton.vue';
+import Drawer from '@/components/app/AppSheet.vue';
+import Input from '@/components/app/AppInput.vue';
+import Pagination from '@/components/app/AppPagination.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import AppSelect from '@/components/app/AppSelect.vue';
 import type {
   SignalDirection,
   SignalEvaluationItem,
@@ -30,7 +32,7 @@ import {
 import { Activity, Search, SlidersHorizontal } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 
-type BadgeVariant = 'default' | 'success' | 'warning' | 'danger' | 'info';
+type BadgeVariant = 'default' | 'success' | 'warning' | 'destructive' | 'info';
 
 const items = ref<SignalItem[]>([]);
 const total = ref(0);
@@ -140,7 +142,7 @@ function resetFilters() {
 }
 
 function directionVariant(direction: string): BadgeVariant {
-  if (direction === 'bullish') return 'danger';
+  if (direction === 'bullish') return 'destructive';
   if (direction === 'bearish') return 'success';
   if (direction === 'sideways') return 'warning';
   return 'default';
@@ -208,36 +210,8 @@ onMounted(() => {
         筛选条件
       </div>
       <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <label class="block text-xs text-muted-text">
-          <span class="mb-1.5 block">市场</span>
-          <select
-            v-model="filters.market"
-            class="input-surface input-focus-glow h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground outline-none"
-          >
-            <option
-              v-for="option in marketOptions"
-              :key="option.value"
-              :value="option.value"
-            >
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
-        <label class="block text-xs text-muted-text">
-          <span class="mb-1.5 block">方向</span>
-          <select
-            v-model="filters.direction"
-            class="input-surface input-focus-glow h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground outline-none"
-          >
-            <option
-              v-for="option in directionOptions"
-              :key="option.value"
-              :value="option.value"
-            >
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
+        <AppSelect :model-value="filters.market" label="市场" :options="marketOptions" @update:model-value="filters.market = $event as SignalMarket | ''" />
+        <AppSelect :model-value="filters.direction" label="方向" :options="directionOptions" @update:model-value="filters.direction = $event as SignalDirection | ''" />
         <Input
           v-model="filters.signalType"
           label="信号类型"
@@ -249,16 +223,8 @@ onMounted(() => {
           placeholder="例如 NVDA"
         />
         <div class="grid grid-cols-2 gap-2 sm:col-span-2 xl:col-span-1">
-          <Input
-            v-model="filters.dateFrom"
-            label="开始日期"
-            type="date"
-          />
-          <Input
-            v-model="filters.dateTo"
-            label="结束日期"
-            type="date"
-          />
+          <AppDatePicker v-model="filters.dateFrom" label="开始日期" />
+          <AppDatePicker v-model="filters.dateTo" label="结束日期" />
         </div>
       </div>
       <div class="mt-4 flex flex-wrap justify-end gap-2">
@@ -271,9 +237,9 @@ onMounted(() => {
         </Button>
         <Button
           type="submit"
-          variant="primary"
+          variant="default"
           size="sm"
-          :is-loading="loading"
+          :loading="loading"
         >
           <Search class="h-4 w-4" />
           查询
@@ -313,7 +279,33 @@ onMounted(() => {
     </div>
 
     <template v-else>
-      <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card">
+      <div class="space-y-3 md:hidden" data-testid="signal-mobile-list">
+        <article v-for="item in items" :key="item.id" class="rounded-xl border bg-card p-4 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="font-semibold text-foreground">{{ item.code }} <span class="text-xs font-normal text-muted-foreground">{{ marketLabel(item.market) }}</span></p>
+              <p class="mt-1 truncate text-sm text-muted-foreground">{{ signalTypeLabel(item.signalType) }} · {{ item.signalVersion }}</p>
+            </div>
+            <Badge :variant="directionVariant(item.direction)">{{ directionLabel(item.direction) }}</Badge>
+          </div>
+          <div class="mt-3 flex items-end justify-between gap-3 border-t pt-3">
+            <div>
+              <p class="text-xs text-muted-foreground">信号价格</p>
+              <p class="font-mono text-sm font-medium">{{ formatSignalPrice(item.signalPrice) }}</p>
+            </div>
+            <p class="text-right text-xs text-muted-foreground">{{ formatDateTimeInDisplayTimezone(item.signalAt) }}</p>
+          </div>
+          <div class="mt-3 grid grid-cols-2 gap-2" data-testid="signal-returns-grid">
+            <div v-for="period in SIGNAL_PERIODS" :key="period" class="rounded-lg bg-muted/50 px-2.5 py-2 text-xs">
+              <span class="text-muted-foreground">{{ period }}</span>
+              <span class="ml-2 font-mono" :class="evaluationState(item.evaluation, period) === 'evaluated' ? returnClass(item.evaluation[period]?.returnPct) : 'text-secondary-text'">{{ evaluationStatusLabel(item.evaluation, period) }}</span>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" class="mt-3 w-full" @click="openDetail(item)">查看详情</Button>
+        </article>
+      </div>
+
+      <div class="hidden overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card md:block">
         <table class="w-full min-w-[1020px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[160px]" />
@@ -429,10 +421,10 @@ onMounted(() => {
     </template>
 
     <Drawer
-      :is-open="selectedSignal !== null"
+      :open="selectedSignal !== null"
       title="信号评估详情"
-      width="max-w-3xl"
-      @close="closeDetail"
+      class="sm:max-w-3xl"
+      @update:open="closeDetail"
     >
       <div
         v-if="detailLoading"

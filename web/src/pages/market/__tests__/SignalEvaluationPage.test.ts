@@ -11,6 +11,15 @@ vi.mock('@/api/signals', () => ({
   signalsApi: apiMocks,
 }));
 
+vi.mock('@/components/app/AppSelect.vue', () => ({
+  default: {
+    inheritAttrs: false,
+    props: ['modelValue', 'options', 'label'],
+    emits: ['update:modelValue'],
+    template: '<label>{{ label }}<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option v-for="item in options" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>',
+  },
+}));
+
 const signal = {
   id: 1,
   market: 'US' as const,

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import SectionNavItems from '@/components/common/SectionNavItems.vue';
-import SectionNavPanel from '@/components/common/SectionNavPanel.vue';
-import SectionPageHeader from '@/components/common/SectionPageHeader.vue';
+import SectionNavItems from '@/components/app/AppSectionNav.vue';
+import SectionNavPanel from '@/components/app/AppSectionNav.vue';
+import SectionPageHeader from '@/components/app/AppPageHeader.vue';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { BarChart3, Bot, BriefcaseBusiness, Database, LayoutDashboard } from 'lucide-vue-next';
 import { computed } from 'vue';

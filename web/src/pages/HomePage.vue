@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { analysisApi } from '@/api/analysis';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Button from '@/components/common/Button.vue';
-import EmptyState from '@/components/common/EmptyState.vue';
-import InlineAlert from '@/components/common/InlineAlert.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Button from '@/components/app/AppButton.vue';
+import EmptyState from '@/components/app/AppEmptyState.vue';
+import InlineAlert from '@/components/app/AppAlert.vue';
+import AppSheet from '@/components/app/AppSheet.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import HistoryList from '@/components/history/HistoryList.vue';
@@ -20,7 +21,7 @@ import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 
 type MarketReviewNotice = {
-  variant: 'success' | 'warning' | 'danger';
+  variant: 'success' | 'warning' | 'destructive';
   title: string;
   message: string;
 } | null;
@@ -194,8 +195,8 @@ function handleHistoryPageChange(page: number) {
             <Button
               type="button"
               variant="secondary"
-              size="md"
-              :is-loading="isSubmittingMarketReview"
+              size="default"
+              :loading="isSubmittingMarketReview"
               loading-text="提交中"
               class="h-10 flex-1 whitespace-nowrap md:flex-none"
               @click="handleTriggerMarketReview"
@@ -203,10 +204,12 @@ function handleHistoryPageChange(page: number) {
               <BarChart3 class="h-4 w-4" aria-hidden="true" />
               大盘复盘
             </Button>
-            <button
+            <Button
               type="button"
               :disabled="!query || isAnalyzing"
-              class="btn-primary flex h-10 flex-1 items-center justify-center gap-1.5 whitespace-nowrap md:flex-none"
+              :loading="isAnalyzing"
+              loading-text="分析中"
+              class="h-10 flex-1 whitespace-nowrap md:flex-none"
               @click="handleSubmitAnalysisWrapper()"
             >
               <template v-if="isAnalyzing">
@@ -221,7 +224,7 @@ function handleHistoryPageChange(page: number) {
                 分析中
               </template>
               <template v-else>分析</template>
-            </button>
+            </Button>
           </div>
         </div>
       </header>
@@ -229,7 +232,7 @@ function handleHistoryPageChange(page: number) {
       <div v-if="inputError || duplicateError" class="px-3 pb-2 md:px-4">
         <InlineAlert
           v-if="inputError"
-          variant="danger"
+          variant="destructive"
           title="输入有误"
           class="rounded-xl px-3 py-2 text-xs shadow-none"
         >
@@ -263,17 +266,8 @@ function handleHistoryPageChange(page: number) {
           </div>
         </div>
 
-        <div
-          v-if="sidebarOpen"
-          class="fixed inset-0 z-40 md:hidden"
-          @click="sidebarOpen = false"
-        >
-          <div class="page-drawer-overlay absolute inset-0" />
-          <div
-            class="dashboard-card absolute bottom-0 left-0 top-0 flex w-72 flex-col overflow-hidden !rounded-none !rounded-r-xl p-3 shadow-2xl"
-            @click.stop
-          >
-            <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+        <AppSheet :open="sidebarOpen" title="历史分析" side="left" @update:open="sidebarOpen = $event">
+            <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden py-3">
               <HistoryList
                 :items="historyItems"
                 :is-loading="isLoadingHistory"
@@ -286,8 +280,7 @@ function handleHistoryPageChange(page: number) {
                 @page-change="handleHistoryPageChange"
               />
             </div>
-          </div>
-        </div>
+        </AppSheet>
 
         <section
           ref="dashboardScrollRef"
@@ -320,7 +313,7 @@ function handleHistoryPageChange(page: number) {
           <div v-else-if="selectedReport" class="space-y-4 pb-8">
             <div class="flex flex-wrap items-center justify-end gap-2">
               <Button
-                variant="home-action-ai"
+                variant="default"
                 size="sm"
                 :disabled="isAnalyzing || selectedReport.meta.id === undefined"
                 @click="handleReanalyze"
@@ -336,7 +329,7 @@ function handleHistoryPageChange(page: number) {
                 {{ reportText.reanalyze }}
               </Button>
               <Button
-                variant="home-action-ai"
+                variant="default"
                 size="sm"
                 :disabled="selectedReport.meta.id === undefined"
                 @click="handleAskFollowUp"
@@ -352,7 +345,7 @@ function handleHistoryPageChange(page: number) {
                 追问 AI
               </Button>
               <Button
-                variant="home-action-ai"
+                variant="default"
                 size="sm"
                 :disabled="selectedReport.meta.id === undefined"
                 @click="unref(openMarkdownDrawer)()"
@@ -398,7 +391,7 @@ function handleHistoryPageChange(page: number) {
       :stock-name="selectedReport.meta.stockName || ''"
       :stock-code="selectedReport.meta.stockCode"
       :report-language="reportLanguage"
-      @close="() => unref(closeMarkdownDrawer)()"
+      @update:open="() => unref(closeMarkdownDrawer)()"
     />
 
   </div>

@@ -1,285 +1,107 @@
 <script setup lang="ts">
-import { ChevronRight, LogOut, User, UserRound } from 'lucide-vue-next';
-import { computed, ref } from 'vue';
-import { RouterLink, RouterView, useRoute } from 'vue-router';
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
-import StatusDot from '@/components/common/StatusDot.vue';
-import TimezoneSwitcher from '@/components/timezone/TimezoneSwitcher.vue';
-import { useAuth } from '@/composables/useAuth';
-import { APP_NAME } from '@/config/app';
-import { mainNavItems } from '@/config/mainNav';
-import { useAgentChatStore } from '@/stores/agentChatStore';
-import { cn } from '@/utils/cn';
+import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import { LogOut, Menu, Moon, Sun, User, UserRound } from 'lucide-vue-next';
+import { RouterLink, RouterView, useRoute } from 'vue-router';
+import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
+import AppStatusDot from '@/components/app/AppStatusDot.vue';
+import TimezoneSwitcher from '@/components/timezone/TimezoneSwitcher.vue';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Switch } from '@/components/ui/switch';
+import { useAuth } from '@/composables/useAuth';
+import { useTheme } from '@/composables/useTheme';
+import { APP_NAME } from '@/config/app';
+import { mainNavItems, type MainNavItem } from '@/config/mainNav';
+import { useAgentChatStore } from '@/stores/agentChatStore';
 import { useAuthStore } from '@/stores/authStore';
+import { cn } from '@/lib/utils';
 
+const route = useRoute();
 const authStore = useAuthStore();
 const { currentUser } = storeToRefs(authStore);
 const { logout } = useAuth();
-const completionBadge = useAgentChatStore((s) => s.completionBadge);
+const { resolvedTheme, setTheme } = useTheme();
+const completionBadge = useAgentChatStore((state) => state.completionBadge);
 const showLogoutConfirm = ref(false);
-const route = useRoute();
+const mobileMoreOpen = ref(false);
 
-function isNavItemActive(
-  item: (typeof mainNavItems)[number],
-  isActive: boolean,
-  isExactActive: boolean,
-): boolean {
-  if (item.activePaths) {
-    return item.activePaths.some((path) => route.path === path || route.path.startsWith(`${path}/`));
-  }
+const mobilePrimaryKeys = new Set(['analysis', 'calendar', 'market', 'chat']);
+const mobilePrimaryItems = computed(() => mainNavItems.filter((item) => mobilePrimaryKeys.has(item.key)));
+const mobileMoreItems = computed(() => mainNavItems.filter((item) => !mobilePrimaryKeys.has(item.key)));
+
+function isNavItemActive(item: MainNavItem, isActive = false, isExactActive = false): boolean {
+  if (item.activePaths) return item.activePaths.some((path) => route.path === path || route.path.startsWith(`${path}/`));
   if (item.activePathPrefix) return route.path.startsWith(item.activePathPrefix);
   return item.exact ? isExactActive : isActive;
 }
 
-const genderLabel = computed(() => {
-  switch (currentUser.value?.extra?.gender) {
-    case 'female':
-      return '女';
-    case 'male':
-      return '男';
-    default:
-      return '未知';
-  }
-});
+const moreActive = computed(() => mobileMoreItems.value.some((item) => isNavItemActive(item)) || route.path.startsWith('/profile'));
+const initials = computed(() => (currentUser.value?.username || currentUser.value?.email || 'U').slice(0, 1).toUpperCase());
 
-const roleLabel = computed(() => {
-  switch (currentUser.value?.role) {
-    case 'admin':
-      return '女王';
-    case 'user':
-      return '华尔街韭菜';
-    default:
-      return '未知领域';
-  }
-});
-
-async function onLogoutConfirm() {
-  showLogoutConfirm.value = false;
-  await logout();
-}
+function toggleTheme(checked: boolean) { setTheme(checked ? 'dark' : 'light'); }
+async function onLogoutConfirm() { showLogoutConfirm.value = false; await logout(); }
+watch(() => route.fullPath, () => { mobileMoreOpen.value = false; });
 </script>
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header
-      class="fixed inset-x-0 top-0 z-50 border-b border-border/70 bg-card/90 pt-[env(safe-area-inset-top)] shadow-soft-card backdrop-blur-xl md:pt-0"
-    >
-      <div class="shell-safe-inline mx-auto flex h-16 w-full max-w-[1280px] items-center gap-3">
-        <RouterLink
-          to="/analysis"
-          class="flex min-w-max items-center gap-2.5 rounded-xl px-2 py-1.5 text-foreground transition-colors hover:bg-hover"
-          aria-label="回到分析"
-        >
-          <span class="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card">
-            <img
-              src="/flower.svg"
-              alt=""
-              class="h-10 w-10"
-            />
-          </span>
-          <span class="hidden font-display text-lg leading-none text-black md:block">{{ APP_NAME }}</span>
+    <header class="fixed inset-x-0 top-0 z-40 border-b bg-background/92 pt-[env(safe-area-inset-top)] backdrop-blur-xl md:pt-0">
+      <div class="safe-inline mx-auto flex h-16 w-full max-w-7xl items-center gap-3">
+        <RouterLink to="/analysis" class="flex min-w-0 items-center gap-2 rounded-lg p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="回到分析">
+          <span class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary/10"><img src="/flower.svg" alt="" class="size-8" /></span>
+          <span class="hidden truncate text-sm font-semibold tracking-tight lg:block">{{ APP_NAME }}</span>
         </RouterLink>
 
-        <nav
-          class="hidden min-w-0 flex-1 items-center gap-0.5 px-1 md:flex lg:gap-1"
-          aria-label="主导航"
-          data-testid="desktop-main-nav"
-        >
-          <RouterLink
-            v-for="item in mainNavItems"
-            :key="item.key"
-            v-slot="{ href, navigate, isActive, isExactActive }"
-            :to="item.to"
-            custom
-          >
-            <a
-              :href="href"
-              :aria-label="item.label"
-              :aria-current="isNavItemActive(item, isActive, isExactActive) ? 'page' : undefined"
-              :class="
-                cn(
-                  'group relative inline-flex h-10 min-w-max items-center justify-center gap-1.5 rounded-xl px-2.5 text-sm font-medium transition-colors lg:px-3',
-                  isNavItemActive(item, isActive, isExactActive)
-                    ? 'bg-[var(--nav-active-bg)] text-[hsl(var(--primary))]'
-                    : 'text-secondary-text hover:bg-[var(--nav-hover-bg)] hover:text-foreground',
-                )
-              "
-              @click="navigate"
-            >
-              <component
-                :is="item.icon"
-                class="h-4 w-4 shrink-0"
-              />
-              <span>{{ item.label }}</span>
-              <span
-                v-if="isNavItemActive(item, isActive, isExactActive)"
-                class="absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-[var(--nav-indicator-bg)]"
-              />
-              <StatusDot
-                v-if="item.badge === 'completion' && completionBadge"
-                tone="info"
-                data-testid="chat-completion-badge"
-                class="absolute right-1 top-1 border-2 border-background shadow-[0_0_10px_var(--nav-indicator-shadow)]"
-                aria-label="问股有新消息"
-              />
+        <nav class="hidden min-w-0 flex-1 items-center justify-center gap-1 md:flex" aria-label="主导航" data-testid="desktop-main-nav">
+          <RouterLink v-for="item in mainNavItems" :key="item.key" v-slot="{ href, navigate, isActive, isExactActive }" :to="item.to" custom>
+            <a :href="href" :aria-label="item.label" :aria-current="isNavItemActive(item, isActive, isExactActive) ? 'page' : undefined" :class="cn('relative inline-flex h-10 items-center gap-2 rounded-lg px-2.5 text-sm font-medium transition-colors lg:px-3', isNavItemActive(item, isActive, isExactActive) ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground')" @click="navigate">
+              <component :is="item.icon" class="size-4" /><span>{{ item.label }}</span>
+              <AppStatusDot v-if="item.badge === 'completion' && completionBadge" tone="info" class="absolute right-1 top-1 border border-background" aria-label="问股有新消息" />
             </a>
           </RouterLink>
         </nav>
 
-        <div class="flex min-w-max shrink-0 items-center gap-2">
-          <div
-            v-if="currentUser"
-            class="group relative flex items-center"
-            aria-label="当前登录用户"
-          >
-            <button
-              type="button"
-              class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-primary/15 text-primary shadow-sm transition-colors hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/35 focus:ring-offset-2 focus:ring-offset-background"
-              aria-haspopup="dialog"
-              aria-label="查看当前登录用户信息"
-            >
-              <img
-                v-if="currentUser.avatarUrl"
-                :src="currentUser.avatarUrl"
-                alt=""
-                class="h-full w-full object-cover"
-              />
-              <User
-                v-else
-                class="h-5 w-5"
-              />
-            </button>
-
-            <div
-              class="invisible absolute right-0 top-full z-50 w-72 pt-2 opacity-0 transition duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
-            >
-              <div class="overflow-hidden rounded-2xl border border-border/70 bg-card p-2 text-sm shadow-soft-card-strong">
-                <div class="space-y-1 px-2 py-2 text-secondary-text">
-                  <div class="flex min-w-0 items-center justify-between gap-3 rounded-xl px-2 py-2">
-                    <span class="shrink-0 text-foreground">性别</span>
-                    <span class="min-w-0 flex-1 truncate text-right">{{ genderLabel }}</span>
-                  </div>
-                  <div class="flex min-w-0 items-center justify-between gap-3 rounded-xl px-2 py-2">
-                    <span class="shrink-0 text-foreground">角色</span>
-                    <span class="min-w-0 flex-1 truncate text-right">{{ roleLabel }}</span>
-                  </div>
-                  <div class="flex min-w-0 items-start justify-between gap-3 rounded-xl px-2 py-2">
-                    <span class="shrink-0 text-foreground">邮箱</span>
-                    <span class="min-w-0 flex-1 break-all text-right">{{ currentUser.email }}</span>
-                  </div>
-                </div>
-                <div class="border-t border-border/70 py-1">
-                  <RouterLink
-                    to="/profile/info"
-                    class="flex h-11 w-full items-center gap-2 rounded-xl px-4 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
-                  >
-                    <UserRound class="h-4 w-4" />
-                    <span>个人中心</span>
-                    <ChevronRight class="ml-auto h-4 w-4 text-muted-text" />
-                  </RouterLink>
-                  <button
-                    type="button"
-                    class="flex h-11 w-full items-center gap-2 rounded-xl px-4 text-sm font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/35"
-                    @click="showLogoutConfirm = true"
-                  >
-                    <LogOut class="h-4 w-4" />
-                    <span>退出</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DropdownMenu v-if="currentUser">
+          <DropdownMenuTrigger aria-label="打开用户菜单" class="ml-auto rounded-full outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+            <Avatar class="size-10 border"><AvatarImage v-if="currentUser.avatarUrl" :src="currentUser.avatarUrl" alt="" /><AvatarFallback class="bg-primary/10 text-primary"><User class="size-4" /><span class="sr-only">{{ initials }}</span></AvatarFallback></Avatar>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" class="w-64">
+            <DropdownMenuLabel><p class="truncate">{{ currentUser.username }}</p><p class="truncate text-xs font-normal text-muted-foreground">{{ currentUser.email }}</p></DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem as-child><RouterLink to="/profile/info" class="cursor-pointer"><UserRound />个人中心</RouterLink></DropdownMenuItem>
+            <DropdownMenuItem class="justify-between" @select.prevent><span class="flex items-center gap-2"><Moon v-if="resolvedTheme === 'dark'" /><Sun v-else />深色模式</span><Switch :model-value="resolvedTheme === 'dark'" aria-label="切换深色模式" @update:model-value="toggleTheme" /></DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem class="text-destructive focus:text-destructive" @select="showLogoutConfirm = true"><LogOut />退出登录</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
 
-    <main
-      class="shell-safe-inline mx-auto min-h-screen w-full max-w-[1280px] pb-[calc(5rem+env(safe-area-inset-bottom))] pt-[calc(5rem+env(safe-area-inset-top))] md:pb-4 md:pt-20"
-    >
-      <RouterView />
-    </main>
+    <main class="safe-inline mx-auto min-h-screen w-full max-w-7xl pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-[calc(4rem+env(safe-area-inset-top))] md:pb-8 md:pt-20"><RouterView /></main>
 
-    <nav
-      class="fixed inset-x-0 bottom-0 z-50 border-t border-border/70 bg-card/95 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] shadow-[0_-8px_20px_hsl(var(--foreground)/0.06)] backdrop-blur-xl md:hidden"
-      aria-label="主导航"
-      data-testid="mobile-main-nav"
-    >
-      <div class="mx-auto grid h-16 max-w-xl grid-cols-7 px-1">
-        <RouterLink
-          v-for="item in mainNavItems"
-          :key="item.key"
-          v-slot="{ href, navigate, isActive, isExactActive }"
-          :to="item.to"
-          custom
-        >
-          <a
-            :href="href"
-            :aria-label="item.label"
-            :aria-current="isNavItemActive(item, isActive, isExactActive) ? 'page' : undefined"
-            :class="
-              cn(
-                'group relative mx-0.5 my-1.5 flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-xs font-medium transition-colors',
-                isNavItemActive(item, isActive, isExactActive)
-                  ? 'bg-[var(--nav-active-bg)] text-[hsl(var(--primary))]'
-                  : 'text-secondary-text hover:bg-[var(--nav-hover-bg)] hover:text-foreground',
-              )
-            "
-            @click="navigate"
-          >
-            <component
-              :is="item.icon"
-              class="h-5 w-5 shrink-0"
-            />
-            <span class="truncate">{{ item.label }}</span>
-            <span
-              v-if="isNavItemActive(item, isActive, isExactActive)"
-              class="absolute inset-x-4 bottom-0 h-0.5 rounded-full bg-[var(--nav-indicator-bg)]"
-            />
-            <StatusDot
-              v-if="item.badge === 'completion' && completionBadge"
-              tone="info"
-              data-testid="chat-completion-badge-mobile"
-              class="absolute right-[calc(50%-1rem)] top-1.5 border-2 border-background shadow-[0_0_10px_var(--nav-indicator-shadow)]"
-              aria-label="问股有新消息"
-            />
-          </a>
+    <nav class="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden" aria-label="主导航" data-testid="mobile-main-nav">
+      <div class="mx-auto grid h-16 max-w-lg grid-cols-5 px-[max(.25rem,env(safe-area-inset-left))] pr-[max(.25rem,env(safe-area-inset-right))]">
+        <RouterLink v-for="item in mobilePrimaryItems" :key="item.key" v-slot="{ href, navigate, isActive, isExactActive }" :to="item.to" custom>
+          <a :href="href" :aria-label="item.label" :aria-current="isNavItemActive(item, isActive, isExactActive) ? 'page' : undefined" :class="cn('relative m-1 flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] font-medium', isNavItemActive(item, isActive, isExactActive) ? 'bg-primary/10 text-primary' : 'text-muted-foreground')" @click="navigate"><component :is="item.icon" class="size-5" /><span class="truncate">{{ item.label }}</span><AppStatusDot v-if="item.badge === 'completion' && completionBadge" tone="info" class="absolute right-[calc(50%-1rem)] top-1" /></a>
         </RouterLink>
+        <button type="button" aria-label="更多" :aria-current="moreActive ? 'page' : undefined" :class="cn('m-1 flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] font-medium', moreActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground')" @click="mobileMoreOpen = true"><Menu class="size-5" /><span>更多</span></button>
       </div>
     </nav>
 
-    <TimezoneSwitcher />
+    <Sheet v-model:open="mobileMoreOpen"><SheetContent side="bottom" class="max-h-[85dvh] rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"><SheetHeader class="text-left"><SheetTitle>更多功能</SheetTitle><SheetDescription>回测、量化、任务与账号设置</SheetDescription></SheetHeader><nav class="mt-4 grid gap-2" aria-label="更多功能"><RouterLink v-for="item in mobileMoreItems" :key="item.key" :to="item.to" class="flex min-h-12 items-center gap-3 rounded-xl border px-4 text-sm font-medium" :class="isNavItemActive(item) ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-card text-foreground'"><component :is="item.icon" class="size-5" />{{ item.label }}</RouterLink><RouterLink to="/profile/info" class="flex min-h-12 items-center gap-3 rounded-xl border bg-card px-4 text-sm font-medium"><UserRound class="size-5" />个人中心</RouterLink></nav></SheetContent></Sheet>
 
-    <ConfirmDialog
-      :is-open="showLogoutConfirm"
-      title="退出登录"
-      message="确认退出当前登录状态吗？退出后需要重新输入密码。"
-      confirm-text="确认退出"
-      cancel-text="取消"
-      :is-danger="true"
-      @confirm="onLogoutConfirm"
-      @cancel="showLogoutConfirm = false"
-    />
+    <TimezoneSwitcher />
+    <AppConfirmDialog :open="showLogoutConfirm" title="退出登录" description="确认退出当前登录状态吗？退出后需要重新输入密码。" confirm-text="确认退出" destructive @confirm="onLogoutConfirm" @update:open="showLogoutConfirm = $event" />
   </div>
 </template>
 
 <style scoped>
-.shell-safe-inline {
-  padding-left: max(0.75rem, env(safe-area-inset-left));
-  padding-right: max(0.75rem, env(safe-area-inset-right));
-}
-
-@media (min-width: 640px) {
-  .shell-safe-inline {
-    padding-left: max(1rem, env(safe-area-inset-left));
-    padding-right: max(1rem, env(safe-area-inset-right));
-  }
-}
-
-@media (min-width: 1024px) {
-  .shell-safe-inline {
-    padding-left: max(1.5rem, env(safe-area-inset-left));
-    padding-right: max(1.5rem, env(safe-area-inset-right));
-  }
-}
+.safe-inline { padding-left: max(.75rem, env(safe-area-inset-left)); padding-right: max(.75rem, env(safe-area-inset-right)); }
+@media (min-width: 640px) { .safe-inline { padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right)); } }
+@media (min-width: 1024px) { .safe-inline { padding-left: max(1.5rem, env(safe-area-inset-left)); padding-right: max(1.5rem, env(safe-area-inset-right)); } }
 </style>

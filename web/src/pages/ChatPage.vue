@@ -2,14 +2,15 @@
 import { agentApi } from '@/api/agent';
 import type { SkillInfo } from '@/api/agent';
 import { getParsedApiError } from '@/api/error';
-import ApiErrorAlert from '@/components/common/ApiErrorAlert.vue';
-import Badge from '@/components/common/Badge.vue';
-import Button from '@/components/common/Button.vue';
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue';
-import EmptyState from '@/components/common/EmptyState.vue';
-import InlineAlert from '@/components/common/InlineAlert.vue';
-import ScrollArea from '@/components/common/ScrollArea.vue';
-import Tooltip from '@/components/common/Tooltip.vue';
+import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import Badge from '@/components/app/AppBadge.vue';
+import Button from '@/components/app/AppButton.vue';
+import ConfirmDialog from '@/components/app/AppConfirmDialog.vue';
+import EmptyState from '@/components/app/AppEmptyState.vue';
+import InlineAlert from '@/components/app/AppAlert.vue';
+import AppSheet from '@/components/app/AppSheet.vue';
+import ScrollArea from '@/components/app/AppScrollArea.vue';
+import Tooltip from '@/components/app/AppTooltip.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
 import { cn } from '@/utils/cn';
 import { formatDate } from '@/utils/format';
@@ -565,16 +566,7 @@ function onTextareaInput(e: Event) {
       </ScrollArea>
     </div>
 
-    <div
-      v-if="sidebarOpen"
-      class="fixed inset-0 z-40 md:hidden"
-      @click="sidebarOpen = false"
-    >
-      <div class="page-drawer-overlay absolute inset-0" />
-      <div
-        class="absolute left-0 top-0 bottom-0 w-72 flex flex-col glass-card overflow-hidden border-r border-white/10 bg-card/90 shadow-2xl"
-        @click.stop
-      >
+    <AppSheet :open="sidebarOpen" title="历史对话" side="left" @update:open="sidebarOpen = $event">
         <div class="flex items-center justify-between border-b border-white/5 bg-white/2 p-3.5">
           <h2 class="text-sm font-semibold text-cyan uppercase tracking-[0.2em] flex items-center gap-2">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -616,18 +608,17 @@ function onTextareaInput(e: Event) {
             </div>
           </div>
         </ScrollArea>
-      </div>
-    </div>
+    </AppSheet>
 
     <ConfirmDialog
-      :is-open="Boolean(deleteConfirmId)"
+      :open="Boolean(deleteConfirmId)"
       title="删除对话"
-      message="删除后，该对话将不可恢复，确认删除吗？"
+      description="删除后，该对话将不可恢复，确认删除吗？"
       confirm-text="删除"
       cancel-text="取消"
-      is-danger
+      destructive
       @confirm="confirmDelete"
-      @cancel="deleteConfirmId = null"
+      @update:open="deleteConfirmId = null"
     />
 
     <div class="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
@@ -658,7 +649,7 @@ function onTextareaInput(e: Event) {
             <Tooltip content="导出会话为 Markdown 文件">
               <span class="inline-flex">
                 <Button
-                  variant="action-primary"
+                  variant="default"
                   size="sm"
                   aria-label="导出会话为 Markdown 文件"
                   @click="downloadSession(messages)"
@@ -678,7 +669,7 @@ function onTextareaInput(e: Event) {
             <Tooltip content="发送到已配置的通知机器人/邮箱">
               <span class="inline-flex">
                 <Button
-                  variant="action-primary"
+                  variant="default"
                   size="sm"
                   :disabled="sending"
                   aria-label="发送到已配置的通知机器人/邮箱"
@@ -711,7 +702,7 @@ function onTextareaInput(e: Event) {
         <p class="text-secondary-text text-sm">向 AI 询问个股分析，获取基于技能视角的交易建议与实时决策报告。</p>
         <InlineAlert
           v-if="sendToast"
-          :variant="sendToast.type === 'success' ? 'success' : 'danger'"
+          :variant="sendToast.type === 'success' ? 'success' : 'destructive'"
           :title="sendToast.type === 'success' ? '发送成功' : '发送失败'"
           class="max-w-md rounded-xl px-3 py-2 text-xs shadow-none"
         >
@@ -988,10 +979,10 @@ function onTextareaInput(e: Event) {
                 @input="onTextareaInput"
               />
               <Button
-                variant="primary"
+                variant="default"
                 :disabled="!input.trim() || loading"
-                :is-loading="loading"
-                class="btn-primary flex-shrink-0"
+                :loading="loading"
+                class="flex-shrink-0"
                 @click="handleSend()"
               >
                 发送

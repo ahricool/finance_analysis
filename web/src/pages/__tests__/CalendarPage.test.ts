@@ -16,6 +16,30 @@ vi.mock('@/api/calendar', () => ({
   },
 }));
 
+vi.mock('@/components/app/AppDialog.vue', () => ({
+  default: {
+    props: ['open', 'title', 'description'],
+    emits: ['update:open'],
+    template: '<teleport to="body"><div v-if="open" role="dialog"><h2>{{ title }}</h2><p v-if="description">{{ description }}</p><button type="button" aria-label="关闭弹窗" @click="$emit(\'update:open\', false)">关闭</button><slot /></div></teleport>',
+  },
+}));
+
+vi.mock('@/components/app/AppDatePicker.vue', () => ({
+  default: {
+    props: ['modelValue', 'label'],
+    emits: ['update:modelValue'],
+    template: '<label>{{ label }}<input type="text" :aria-label="label" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" /></label>',
+  },
+}));
+
+vi.mock('@/components/app/AppDateTimePicker.vue', () => ({
+  default: {
+    props: ['modelValue', 'label'],
+    emits: ['update:modelValue'],
+    template: '<label>{{ label }}<input type="text" :aria-label="label" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" /></label>',
+  },
+}));
+
 const mockEvent: FinanceEventItem = {
   id: 1,
   provider: 'longbridge',
@@ -350,9 +374,9 @@ describe('CalendarPage', () => {
     expect(dialog?.textContent).toContain('美股盘前扫描');
     expect(dialog?.textContent).toContain('执行结果');
 
-    const backdrop = document.body.querySelector('[role="presentation"] > div');
-    expect(backdrop).not.toBeNull();
-    await backdrop!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const closeButton = document.body.querySelector('button[aria-label="关闭弹窗"]');
+    expect(closeButton).not.toBeNull();
+    await closeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await flushPromises();
 
     expect(findDialog()).toBeNull();
@@ -388,7 +412,8 @@ describe('CalendarPage', () => {
     const dialog = findDialog()!;
     const inputFor = (text: string) => {
       const label = [...dialog.querySelectorAll('label')].find((item) => item.textContent?.includes(text));
-      return dialog.querySelector<HTMLInputElement>(`#${label?.htmlFor}`)!;
+      return label?.querySelector<HTMLInputElement>('input')
+        ?? dialog.querySelector<HTMLInputElement>(`#${label?.htmlFor}`)!;
     };
     const setInput = (text: string, value: string) => {
       const input = inputFor(text);
@@ -405,6 +430,7 @@ describe('CalendarPage', () => {
     setInput('币种', 'USD');
     dialog.querySelector<HTMLTextAreaElement>('#event-content')!.value = '产品发布详情';
     dialog.querySelector<HTMLTextAreaElement>('#event-content')!.dispatchEvent(new Event('input', { bubbles: true }));
+    await flushPromises();
     dialog.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await flushPromises();
 
@@ -436,7 +462,8 @@ describe('CalendarPage', () => {
     const labels = [...dialog.querySelectorAll('label')];
     const setInput = (text: string, value: string) => {
       const label = labels.find((item) => item.textContent?.includes(text));
-      const input = dialog.querySelector<HTMLInputElement>(`#${label?.htmlFor}`)!;
+      const input = label?.querySelector<HTMLInputElement>('input')
+        ?? dialog.querySelector<HTMLInputElement>(`#${label?.htmlFor}`)!;
       input.value = value;
       input.dispatchEvent(new Event('input', { bubbles: true }));
     };
@@ -446,6 +473,7 @@ describe('CalendarPage', () => {
     const content = dialog.querySelector<HTMLTextAreaElement>('#entry-content')!;
     content.value = '补充当天复盘';
     content.dispatchEvent(new Event('input', { bubbles: true }));
+    await flushPromises();
     dialog.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await flushPromises();
 

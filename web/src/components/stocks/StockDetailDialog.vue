@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
+import AppSheet from '@/components/app/AppSheet.vue';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import {
   formatDecimalText,
@@ -31,7 +32,7 @@ const props = defineProps<{
   quote?: RealtimeQuote;
   kind: 'watchlist' | 'holding';
 }>();
-defineEmits<{ close: [] }>();
+const emit = defineEmits<{ 'update:open': [value: boolean] }>();
 
 const marketName = computed(() => ({ CN: 'A 股', HK: '港股', US: '美股' })[props.stock?.market_type ?? 'CN']);
 const currencyCode = computed(() => getMarketCurrencyCode(props.stock?.market_type));
@@ -87,16 +88,8 @@ function movementClass(value: number | null | undefined): string {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      v-if="stock"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="stock-detail-title"
-      @click.self="$emit('close')"
-    >
-      <div class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl">
+  <AppSheet :open="Boolean(stock)" :title="stock?.name || stock?.code || '股票详情'" description="股票完整信息与实时行情快照" @update:open="emit('update:open', $event)">
+      <div v-if="stock" class="w-full overflow-y-auto">
         <header class="sticky top-0 z-10 flex items-start justify-between border-b border-border/70 bg-card px-6 py-5">
           <div>
             <div class="flex flex-wrap items-center gap-2">
@@ -106,7 +99,7 @@ function movementClass(value: number | null | undefined): string {
             </div>
             <p class="mt-1 text-xs text-muted-text">股票完整信息与每 5 秒更新的行情快照</p>
           </div>
-          <button class="rounded-lg p-1.5 text-secondary-text hover:bg-hover hover:text-foreground" aria-label="关闭详情" @click="$emit('close')">
+          <button class="rounded-lg p-1.5 text-secondary-text hover:bg-hover hover:text-foreground" aria-label="关闭详情" @click="emit('update:open', false)">
             <X class="h-5 w-5" />
           </button>
         </header>
@@ -179,6 +172,5 @@ function movementClass(value: number | null | undefined): string {
           </section>
         </div>
       </div>
-    </div>
-  </Teleport>
+  </AppSheet>
 </template>

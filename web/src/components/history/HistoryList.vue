@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import Pagination from '@/components/common/Pagination.vue';
-import ScrollArea from '@/components/common/ScrollArea.vue';
+import Pagination from '@/components/app/AppPagination.vue';
+import ScrollArea from '@/components/app/AppScrollArea.vue';
 import DashboardPanelHeader from '@/components/dashboard/DashboardPanelHeader.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
 import HistoryListItem from '@/components/history/HistoryListItem.vue';
