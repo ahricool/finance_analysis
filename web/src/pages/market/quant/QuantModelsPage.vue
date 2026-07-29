@@ -55,17 +55,25 @@ async function handleCreated(result: ModelRunCreateAccepted): Promise<void> {
 
 async function openDatasetBuilder(targetMarket: QuantMarket): Promise<void> {
   trainingOpen.value = false;
-  await router.push({ path: '/market/quant/datasets', query: { market: targetMarket, build: '1' } });
+  await router.push({
+    path: '/market/quant/datasets',
+    query: { market: targetMarket, build: '1' },
+  });
 }
 
-watch(market, (current) => {
-  trainingOpen.value = false;
-  createdRun.value = null;
-  void load(current);
-}, { immediate: true });
+watch(
+  market,
+  (current) => {
+    trainingOpen.value = false;
+    createdRun.value = null;
+    void load(current);
+  },
+  { immediate: true },
+);
 
 watch(
-  () => [router.currentRoute.value.query.createdRun, router.currentRoute.value.query.taskId] as const,
+  () =>
+    [router.currentRoute.value.query.createdRun, router.currentRoute.value.query.taskId] as const,
   ([runId, taskId]) => {
     const id = Number(runId);
     if (!Number.isInteger(id) || id <= 0 || typeof taskId !== 'string') return;
@@ -79,23 +87,39 @@ watch(
   <div class="space-y-4">
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h2 class="text-lg font-semibold">模型运行</h2>
-        <p class="text-xs text-muted-text">
+        <h2 class="text-lg font-semibold">
+          模型运行
+        </h2>
+        <p class="text-xs text-muted-foreground">
           候选模型必须由管理员手动发布，训练不会自动替换 production。
         </p>
       </div>
-      <Button v-if="isAdmin" data-testid="open-quant-training" @click="openTraining">
+      <Button
+        v-if="isAdmin"
+        data-testid="open-quant-training"
+        @click="openTraining"
+      >
         创建训练任务
       </Button>
     </header>
 
-    <ApiErrorAlert v-if="error" :error="error" />
-    <InlineAlert v-if="createdRun" variant="success" title="训练任务已创建">
+    <ApiErrorAlert
+      v-if="error"
+      :error="error"
+    />
+    <InlineAlert
+      v-if="createdRun"
+      variant="success"
+      title="训练任务已创建"
+    >
       ModelRun #{{ createdRun.modelRunId }} 已提交，训练将在后台执行。
       <template #action>
         <div class="flex flex-wrap gap-2">
           <RouterLink
-            :to="{ path: `/market/quant/models/${createdRun.modelRunId}`, query: { market: createdRun.market } }"
+            :to="{
+              path: `/market/quant/models/${createdRun.modelRunId}`,
+              query: { market: createdRun.market },
+            }"
             class="inline-flex h-9 items-center rounded-xl border border-success/30 px-3 text-sm font-medium hover:bg-success/10"
           >
             查看模型运行
@@ -109,12 +133,22 @@ watch(
         </div>
       </template>
     </InlineAlert>
-    <div v-if="loading" class="py-12 text-center text-muted-text">加载中...</div>
-    <div v-else-if="rows.length" class="overflow-x-auto rounded-2xl border border-border bg-card">
+    <div
+      v-if="loading"
+      class="py-12 text-center text-muted-foreground"
+    >
+      加载中...
+    </div>
+    <div
+      v-else-if="rows.length"
+      class="overflow-x-auto rounded-2xl border border-border bg-card"
+    >
       <table class="w-full text-sm">
-        <thead class="text-left text-xs text-muted-text">
+        <thead class="text-left text-xs text-muted-foreground">
           <tr>
-            <th class="p-3">模型</th>
+            <th class="p-3">
+              模型
+            </th>
             <th>版本</th>
             <th>状态</th>
             <th>训练/测试区间</th>
@@ -124,7 +158,11 @@ watch(
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in rows" :key="item.id" class="border-t border-border">
+          <tr
+            v-for="item in rows"
+            :key="item.id"
+            class="border-t border-border"
+          >
             <td class="p-3">
               <RouterLink
                 :to="{ path: `/market/quant/models/${item.id}`, query: marketQuery() }"

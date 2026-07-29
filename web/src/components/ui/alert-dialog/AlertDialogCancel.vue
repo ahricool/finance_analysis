@@ -16,6 +16,7 @@ const props = withDefaults(
   {
     variant: 'outline',
     size: 'default',
+    class: '',
   },
 )
 

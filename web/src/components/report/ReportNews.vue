@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Card from '@/components/app/AppCard.vue';
 import DashboardPanelHeader from '@/components/dashboard/DashboardPanelHeader.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
+import { Card } from '@/components/ui/card';
 import { historyApi } from '@/api/history';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import type { NewsIntelItem, ReportLanguage } from '@/types/analysis';
@@ -16,6 +16,7 @@ const props = withDefaults(
     language?: ReportLanguage;
   }>(),
   {
+    recordId: undefined,
     limit: 8,
     language: 'zh',
   },
@@ -57,16 +58,27 @@ watch(
 </script>
 
 <template>
-  <Card v-if="recordId" variant="bordered" padding="md" class="home-panel-card">
+  <Card
+    v-if="recordId"
+    class="p-5"
+  >
     <DashboardPanelHeader>
-      <template #eyebrow>{{ text.newsFeed }}</template>
-      <template #title>{{ text.relatedNews }}</template>
+      <template #eyebrow>
+        {{ text.newsFeed }}
+      </template>
+      <template #title>
+        {{ text.relatedNews }}
+      </template>
       <template #actions>
         <div class="flex items-center gap-2">
-          <div v-if="isLoading" class="home-spinner h-3.5 w-3.5 animate-spin border-2" aria-hidden="true" />
+          <div
+            v-if="isLoading"
+            class="size-3.5 animate-spin rounded-full border-2 border-primary/25 border-t-primary"
+            aria-hidden="true"
+          />
           <button
             type="button"
-            class="home-accent-link text-xs"
+            class="text-primary underline-offset-4 hover:underline text-xs"
             :aria-label="text.refresh"
             @click="fetchNews"
           >
@@ -84,7 +96,12 @@ watch(
       @action="fetchNews"
     />
 
-    <DashboardStateBlock v-if="isLoading && !error" compact loading :title="text.loadingNews" />
+    <DashboardStateBlock
+      v-if="isLoading && !error"
+      compact
+      loading
+      :title="text.loadingNews"
+    />
 
     <DashboardStateBlock
       v-else-if="!isLoading && !error && items.length === 0"
@@ -93,7 +110,12 @@ watch(
       :description="text.noNewsDescription"
     >
       <template #icon>
-        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg
+          class="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
           <path
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -104,20 +126,23 @@ watch(
       </template>
     </DashboardStateBlock>
 
-    <div v-else-if="!isLoading && !error && items.length > 0" class="space-y-3 text-left">
+    <div
+      v-else-if="!isLoading && !error && items.length > 0"
+      class="space-y-3 text-left"
+    >
       <div
         v-for="(item, index) in items"
         :key="`${item.title}-${index}`"
-        class="home-subpanel home-news-item group p-4"
+        class="rounded-xl border bg-muted/40 group p-4"
       >
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0 flex-1 text-left">
-            <p class="home-news-title text-left text-sm font-medium leading-6 text-foreground">
+            <p class="text-left text-sm font-medium leading-6 text-foreground">
               {{ item.title }}
             </p>
             <p
               v-if="item.snippet"
-              class="home-news-snippet mt-2 overflow-hidden text-left text-sm leading-6 text-secondary-text [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
+              class="mt-2 overflow-hidden text-left text-sm leading-6 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
             >
               {{ item.snippet }}
             </p>
@@ -127,11 +152,16 @@ watch(
             :href="item.url"
             target="_blank"
             rel="noopener noreferrer"
-            class="home-accent-pill-link shrink-0 whitespace-nowrap px-2.5 py-1 text-xs"
+            class="text-primary underline-offset-4 hover:underline shrink-0 whitespace-nowrap px-2.5 py-1 text-xs"
             :aria-label="text.openLink"
           >
             {{ text.openLink }}
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg
+              class="h-3.5 w-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"

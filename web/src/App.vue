@@ -49,19 +49,28 @@ watch(
 
 <template>
   <ThemeProvider>
-    <div v-if="isLoading" class="flex min-h-screen items-center justify-center bg-base">
-      <div class="h-8 w-8 animate-spin rounded-full border-2 border-cyan/20 border-t-cyan" />
+    <div
+      v-if="isLoading"
+      class="flex min-h-screen items-center justify-center bg-background"
+    >
+      <div class="h-8 w-8 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
     </div>
     <div
       v-else-if="loadError"
-      class="flex min-h-screen flex-col items-center justify-center gap-4 bg-base px-4"
+      class="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-4"
     >
       <div class="w-full max-w-lg">
         <ApiErrorAlert :error="loadError" />
       </div>
-      <Button @click="void auth.refreshStatus()">重试</Button>
+      <Button @click="void auth.refreshStatus()">
+        重试
+      </Button>
     </div>
     <RouterView v-else />
-    <Toaster position="top-center" close-button rich-colors />
+    <Toaster
+      position="top-center"
+      close-button
+      rich-colors
+    />
   </ThemeProvider>
 </template>

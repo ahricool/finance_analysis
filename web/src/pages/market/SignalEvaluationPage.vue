@@ -64,12 +64,12 @@ const filters = reactive<{
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 const hasFilters = computed(() =>
   Boolean(
-    filters.market
-      || filters.direction
-      || filters.signalType.trim()
-      || filters.keyword.trim()
-      || filters.dateFrom
-      || filters.dateTo,
+    filters.market ||
+      filters.direction ||
+      filters.signalType.trim() ||
+      filters.keyword.trim() ||
+      filters.dateFrom ||
+      filters.dateTo,
   ),
 );
 
@@ -187,21 +187,23 @@ onMounted(() => {
 <template>
   <div class="min-w-0 space-y-4">
     <header class="flex items-start gap-3">
-      <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary-gradient text-primary-foreground shadow-soft-card">
+      <div
+        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm"
+      >
         <Activity class="h-5 w-5" />
       </div>
       <div>
         <h2 class="text-lg font-semibold text-foreground">
           信号效果评估
         </h2>
-        <p class="mt-1 text-xs leading-5 text-secondary-text">
+        <p class="mt-1 text-xs leading-5 text-muted-foreground">
           展示信号产生后30分钟、1小时及后续交易日的客观价格表现，不代表完整交易策略收益。
         </p>
       </div>
     </header>
 
     <form
-      class="rounded-2xl border border-border/70 bg-card/94 p-4 shadow-soft-card"
+      class="rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm"
       data-testid="signal-filters"
       @submit.prevent="submitFilters"
     >
@@ -210,8 +212,18 @@ onMounted(() => {
         筛选条件
       </div>
       <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <AppSelect :model-value="filters.market" label="市场" :options="marketOptions" @update:model-value="filters.market = $event as SignalMarket | ''" />
-        <AppSelect :model-value="filters.direction" label="方向" :options="directionOptions" @update:model-value="filters.direction = $event as SignalDirection | ''" />
+        <AppSelect
+          :model-value="filters.market"
+          label="市场"
+          :options="marketOptions"
+          @update:model-value="filters.market = $event as SignalMarket | ''"
+        />
+        <AppSelect
+          :model-value="filters.direction"
+          label="方向"
+          :options="directionOptions"
+          @update:model-value="filters.direction = $event as SignalDirection | ''"
+        />
         <Input
           v-model="filters.signalType"
           label="信号类型"
@@ -223,8 +235,14 @@ onMounted(() => {
           placeholder="例如 NVDA"
         />
         <div class="grid grid-cols-2 gap-2 sm:col-span-2 xl:col-span-1">
-          <AppDatePicker v-model="filters.dateFrom" label="开始日期" />
-          <AppDatePicker v-model="filters.dateTo" label="结束日期" />
+          <AppDatePicker
+            v-model="filters.dateFrom"
+            label="开始日期"
+          />
+          <AppDatePicker
+            v-model="filters.dateTo"
+            label="结束日期"
+          />
         </div>
       </div>
       <div class="mt-4 flex flex-wrap justify-end gap-2">
@@ -272,40 +290,85 @@ onMounted(() => {
       class="rounded-2xl border border-dashed border-border/70 px-6 py-16 text-center"
       data-testid="signal-empty-state"
     >
-      <Activity class="mx-auto h-10 w-10 text-muted-text/40" />
-      <p class="mt-3 text-sm text-secondary-text">
+      <Activity class="mx-auto h-10 w-10 text-muted-foreground/40" />
+      <p class="mt-3 text-sm text-muted-foreground">
         {{ hasFilters ? '没有符合当前筛选条件的信号' : '暂无信号记录' }}
       </p>
     </div>
 
     <template v-else>
-      <div class="space-y-3 md:hidden" data-testid="signal-mobile-list">
-        <article v-for="item in items" :key="item.id" class="rounded-xl border bg-card p-4 shadow-sm">
+      <div
+        class="space-y-3 md:hidden"
+        data-testid="signal-mobile-list"
+      >
+        <article
+          v-for="item in items"
+          :key="item.id"
+          class="rounded-xl border bg-card p-4 shadow-sm"
+        >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <p class="font-semibold text-foreground">{{ item.code }} <span class="text-xs font-normal text-muted-foreground">{{ marketLabel(item.market) }}</span></p>
-              <p class="mt-1 truncate text-sm text-muted-foreground">{{ signalTypeLabel(item.signalType) }} · {{ item.signalVersion }}</p>
+              <p class="font-semibold text-foreground">
+                {{ item.code }}
+                <span class="text-xs font-normal text-muted-foreground">{{
+                  marketLabel(item.market)
+                }}</span>
+              </p>
+              <p class="mt-1 truncate text-sm text-muted-foreground">
+                {{ signalTypeLabel(item.signalType) }} · {{ item.signalVersion }}
+              </p>
             </div>
-            <Badge :variant="directionVariant(item.direction)">{{ directionLabel(item.direction) }}</Badge>
+            <Badge :variant="directionVariant(item.direction)">
+              {{ directionLabel(item.direction) }}
+            </Badge>
           </div>
           <div class="mt-3 flex items-end justify-between gap-3 border-t pt-3">
             <div>
-              <p class="text-xs text-muted-foreground">信号价格</p>
-              <p class="font-mono text-sm font-medium">{{ formatSignalPrice(item.signalPrice) }}</p>
+              <p class="text-xs text-muted-foreground">
+                信号价格
+              </p>
+              <p class="font-mono text-sm font-medium">
+                {{ formatSignalPrice(item.signalPrice) }}
+              </p>
             </div>
-            <p class="text-right text-xs text-muted-foreground">{{ formatDateTimeInDisplayTimezone(item.signalAt) }}</p>
+            <p class="text-right text-xs text-muted-foreground">
+              {{ formatDateTimeInDisplayTimezone(item.signalAt) }}
+            </p>
           </div>
-          <div class="mt-3 grid grid-cols-2 gap-2" data-testid="signal-returns-grid">
-            <div v-for="period in SIGNAL_PERIODS" :key="period" class="rounded-lg bg-muted/50 px-2.5 py-2 text-xs">
+          <div
+            class="mt-3 grid grid-cols-2 gap-2"
+            data-testid="signal-returns-grid"
+          >
+            <div
+              v-for="period in SIGNAL_PERIODS"
+              :key="period"
+              class="rounded-lg bg-muted/50 px-2.5 py-2 text-xs"
+            >
               <span class="text-muted-foreground">{{ period }}</span>
-              <span class="ml-2 font-mono" :class="evaluationState(item.evaluation, period) === 'evaluated' ? returnClass(item.evaluation[period]?.returnPct) : 'text-secondary-text'">{{ evaluationStatusLabel(item.evaluation, period) }}</span>
+              <span
+                class="ml-2 font-mono"
+                :class="
+                  evaluationState(item.evaluation, period) === 'evaluated'
+                    ? returnClass(item.evaluation[period]?.returnPct)
+                    : 'text-muted-foreground'
+                "
+              >{{ evaluationStatusLabel(item.evaluation, period) }}</span>
             </div>
           </div>
-          <Button variant="outline" size="sm" class="mt-3 w-full" @click="openDetail(item)">查看详情</Button>
+          <Button
+            variant="outline"
+            size="sm"
+            class="mt-3 w-full"
+            @click="openDetail(item)"
+          >
+            查看详情
+          </Button>
         </article>
       </div>
 
-      <div class="hidden overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card md:block">
+      <div
+        class="hidden overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-sm md:block"
+      >
         <table class="w-full min-w-[1020px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[160px]" />
@@ -316,7 +379,7 @@ onMounted(() => {
             <col class="w-[260px]" />
             <col class="w-[80px]" />
           </colgroup>
-          <thead class="border-b border-border/70 text-xs text-muted-text">
+          <thead class="border-b border-border/70 text-xs text-muted-foreground">
             <tr>
               <th class="px-4 py-3 font-medium">
                 信号时间
@@ -345,20 +408,20 @@ onMounted(() => {
             <tr
               v-for="item in items"
               :key="item.id"
-              class="align-top hover:bg-hover/50"
+              class="align-top hover:bg-muted/50"
             >
-              <td class="px-4 py-4 text-secondary-text">
+              <td class="px-4 py-4 text-muted-foreground">
                 {{ formatDateTimeInDisplayTimezone(item.signalAt) }}
               </td>
               <td class="px-4 py-4">
-                <span class="text-xs text-muted-text">{{ marketLabel(item.market) }} ·</span>
+                <span class="text-xs text-muted-foreground">{{ marketLabel(item.market) }} ·</span>
                 <span class="ml-1 font-semibold text-foreground">{{ item.code }}</span>
               </td>
               <td class="px-4 py-4">
                 <p class="font-medium text-foreground">
                   {{ signalTypeLabel(item.signalType) }}
                 </p>
-                <p class="mt-0.5 text-xs text-muted-text">
+                <p class="mt-0.5 text-xs text-muted-foreground">
                   {{ item.signalVersion }}
                 </p>
               </td>
@@ -380,13 +443,13 @@ onMounted(() => {
                     :key="period"
                     class="grid grid-cols-[34px_minmax(0,1fr)] items-center gap-1 text-xs"
                   >
-                    <span class="font-medium text-muted-text">{{ period }}</span>
+                    <span class="font-medium text-muted-foreground">{{ period }}</span>
                     <span
                       :class="[
                         'whitespace-nowrap font-mono',
                         evaluationState(item.evaluation, period) === 'evaluated'
                           ? returnClass(item.evaluation[period]?.returnPct)
-                          : 'text-secondary-text',
+                          : 'text-muted-foreground',
                       ]"
                     >
                       {{ evaluationStatusLabel(item.evaluation, period) }}
@@ -409,7 +472,7 @@ onMounted(() => {
       </div>
 
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p class="text-xs text-muted-text">
+        <p class="text-xs text-muted-foreground">
           共 {{ total }} 条，当前第 {{ page }} 页
         </p>
         <Pagination
@@ -434,7 +497,7 @@ onMounted(() => {
         <div
           v-for="index in 5"
           :key="index"
-          class="h-12 animate-pulse rounded-xl bg-elevated"
+          class="h-12 animate-pulse rounded-xl bg-card"
         />
       </div>
       <ApiErrorAlert
@@ -446,81 +509,92 @@ onMounted(() => {
         v-else-if="selectedSignal"
         class="space-y-6"
       >
-        <dl class="grid gap-3 rounded-2xl border border-border/70 bg-elevated/45 p-4 sm:grid-cols-2">
+        <dl class="grid gap-3 rounded-2xl border border-border/70 bg-card/45 p-4 sm:grid-cols-2">
           <div>
-            <dt class="text-xs text-muted-text">
+            <dt class="text-xs text-muted-foreground">
               Signal ID
-            </dt><dd class="mt-1 text-sm">
+            </dt>
+            <dd class="mt-1 text-sm">
               {{ selectedSignal.id }}
             </dd>
           </div>
           <div>
-            <dt class="text-xs text-muted-text">
+            <dt class="text-xs text-muted-foreground">
               市场
-            </dt><dd class="mt-1 text-sm">
+            </dt>
+            <dd class="mt-1 text-sm">
               {{ marketLabel(selectedSignal.market) }}
             </dd>
           </div>
           <div>
-            <dt class="text-xs text-muted-text">
+            <dt class="text-xs text-muted-foreground">
               股票代码
-            </dt><dd class="mt-1 text-sm font-semibold">
+            </dt>
+            <dd class="mt-1 text-sm font-semibold">
               {{ selectedSignal.code }}
             </dd>
           </div>
           <div>
-            <dt class="text-xs text-muted-text">
+            <dt class="text-xs text-muted-foreground">
               信号类型
-            </dt><dd class="mt-1 text-sm">
+            </dt>
+            <dd class="mt-1 text-sm">
               {{ signalTypeLabel(selectedSignal.signalType) }}
             </dd>
           </div>
           <div>
-            <dt class="text-xs text-muted-text">
+            <dt class="text-xs text-muted-foreground">
               原始 signal_type
-            </dt><dd class="mt-1 break-all text-sm">
+            </dt>
+            <dd class="mt-1 break-all text-sm">
               {{ selectedSignal.signalType || '—' }}
             </dd>
           </div>
           <div>
-            <dt class="text-xs text-muted-text">
+            <dt class="text-xs text-muted-foreground">
               信号版本
-            </dt><dd class="mt-1 text-sm">
+            </dt>
+            <dd class="mt-1 text-sm">
               {{ selectedSignal.signalVersion }}
             </dd>
           </div>
           <div>
-            <dt class="text-xs text-muted-text">
+            <dt class="text-xs text-muted-foreground">
               方向
-            </dt><dd class="mt-1 text-sm">
+            </dt>
+            <dd class="mt-1 text-sm">
               {{ directionLabel(selectedSignal.direction) }}
             </dd>
           </div>
           <div>
-            <dt class="text-xs text-muted-text">
+            <dt class="text-xs text-muted-foreground">
               信号价格
-            </dt><dd class="mt-1 font-mono text-sm">
+            </dt>
+            <dd class="mt-1 font-mono text-sm">
               {{ formatSignalPrice(selectedSignal.signalPrice) }}
             </dd>
           </div>
           <div>
-            <dt class="text-xs text-muted-text">
+            <dt class="text-xs text-muted-foreground">
               信号时间
-            </dt><dd class="mt-1 text-sm">
+            </dt>
+            <dd class="mt-1 text-sm">
               {{ formatDateTimeInDisplayTimezone(selectedSignal.signalAt) }}
             </dd>
           </div>
           <div>
-            <dt class="text-xs text-muted-text">
+            <dt class="text-xs text-muted-foreground">
               创建时间
-            </dt><dd class="mt-1 text-sm">
+            </dt>
+            <dd class="mt-1 text-sm">
               {{ formatDateTimeInDisplayTimezone(selectedSignal.createdAt) }}
             </dd>
           </div>
           <div>
-            <dt class="text-xs text-muted-text">
+            <dt class="text-xs text-muted-foreground">
               更新时间
-            </dt><dd class="mt-1 text-sm">
+            </dt>
+            <dd class="mt-1 text-sm">
               {{ formatDateTimeInDisplayTimezone(selectedSignal.updatedAt) }}
             </dd>
           </div>
@@ -540,9 +614,7 @@ onMounted(() => {
                 <h4 class="font-semibold text-foreground">
                   {{ period }}
                 </h4>
-                <Badge
-                  :variant="periodStatus(period) === '已评价' ? 'info' : 'default'"
-                >
+                <Badge :variant="periodStatus(period) === '已评价' ? 'info' : 'default'">
                   {{ periodStatus(period) }}
                 </Badge>
               </div>
@@ -551,37 +623,42 @@ onMounted(() => {
                 class="space-y-2 text-sm"
               >
                 <div class="flex justify-between gap-3">
-                  <dt class="text-muted-text">
+                  <dt class="text-muted-foreground">
                     目标价格
-                  </dt><dd class="font-mono">
+                  </dt>
+                  <dd class="font-mono">
                     {{ formatSignalPrice(periodItem(period)?.price) }}
                   </dd>
                 </div>
                 <div class="flex justify-between gap-3">
-                  <dt class="text-muted-text">
+                  <dt class="text-muted-foreground">
                     收益率
-                  </dt><dd :class="returnClass(periodItem(period)?.returnPct)">
+                  </dt>
+                  <dd :class="returnClass(periodItem(period)?.returnPct)">
                     {{ formatReturnPct(periodItem(period)?.returnPct) }}
                   </dd>
                 </div>
                 <div class="flex justify-between gap-3">
-                  <dt class="text-muted-text">
+                  <dt class="text-muted-foreground">
                     期间最大涨幅
-                  </dt><dd :class="returnClass(periodItem(period)?.maxReturnPct)">
+                  </dt>
+                  <dd :class="returnClass(periodItem(period)?.maxReturnPct)">
                     {{ formatReturnPct(periodItem(period)?.maxReturnPct) }}
                   </dd>
                 </div>
                 <div class="flex justify-between gap-3">
-                  <dt class="text-muted-text">
+                  <dt class="text-muted-foreground">
                     期间最小涨幅
-                  </dt><dd :class="returnClass(periodItem(period)?.minReturnPct)">
+                  </dt>
+                  <dd :class="returnClass(periodItem(period)?.minReturnPct)">
                     {{ formatReturnPct(periodItem(period)?.minReturnPct) }}
                   </dd>
                 </div>
                 <div class="flex justify-between gap-3">
-                  <dt class="text-muted-text">
+                  <dt class="text-muted-foreground">
                     评价时间
-                  </dt><dd class="text-right">
+                  </dt>
+                  <dd class="text-right">
                     {{ formatDateTimeInDisplayTimezone(periodItem(period)?.evaluatedAt) }}
                   </dd>
                 </div>
@@ -591,25 +668,27 @@ onMounted(() => {
                 class="space-y-2 text-sm"
               >
                 <div class="flex justify-between gap-3">
-                  <dt class="text-muted-text">
+                  <dt class="text-muted-foreground">
                     状态
-                  </dt><dd>不适用</dd>
+                  </dt>
+                  <dd>不适用</dd>
                 </div>
                 <div class="flex justify-between gap-3">
-                  <dt class="text-muted-text">
+                  <dt class="text-muted-foreground">
                     原因
-                  </dt><dd>{{ notApplicableReason(periodItem(period)) }}</dd>
+                  </dt>
+                  <dd>{{ notApplicableReason(periodItem(period)) }}</dd>
                 </div>
               </dl>
               <p
                 v-else-if="evaluationState(selectedSignal.evaluation, period) === 'pending'"
-                class="text-sm text-secondary-text"
+                class="text-sm text-muted-foreground"
               >
                 状态：待评估
               </p>
               <p
                 v-else
-                class="text-sm text-secondary-text"
+                class="text-sm text-muted-foreground"
               >
                 状态：数据异常
               </p>

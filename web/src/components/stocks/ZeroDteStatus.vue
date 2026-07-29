@@ -17,25 +17,40 @@ const result = computed(() => calculateZeroDteStatus(props.quote, props.marketTy
 const appearance = computed(() => {
   switch (result.value?.status) {
     case 'CALL确认':
-      return { className: 'border-red-500/35 bg-red-500/12 text-red-600 dark:text-red-400', icon: ArrowUpRight };
+      return {
+        className: 'border-red-500/35 bg-red-500/12 text-red-600 dark:text-red-400',
+        icon: ArrowUpRight,
+      };
     case 'CALL观察':
       return { className: 'border-red-400/25 bg-red-500/7 text-red-500', icon: ArrowUpRight };
     case 'CALL延续':
       return { className: 'border-red-400/20 bg-red-500/5 text-red-500/80', icon: ArrowUpRight };
     case 'PUT确认':
-      return { className: 'border-emerald-500/35 bg-emerald-500/12 text-emerald-600 dark:text-emerald-400', icon: ArrowDownRight };
+      return {
+        className: 'border-emerald-500/35 bg-emerald-500/12 text-emerald-600 dark:text-emerald-400',
+        icon: ArrowDownRight,
+      };
     case 'PUT观察':
-      return { className: 'border-emerald-400/25 bg-emerald-500/7 text-emerald-500', icon: ArrowDownRight };
+      return {
+        className: 'border-emerald-400/25 bg-emerald-500/7 text-emerald-500',
+        icon: ArrowDownRight,
+      };
     case 'PUT延续':
-      return { className: 'border-emerald-400/20 bg-emerald-500/5 text-emerald-500/80', icon: ArrowDownRight };
+      return {
+        className: 'border-emerald-400/20 bg-emerald-500/5 text-emerald-500/80',
+        icon: ArrowDownRight,
+      };
     case '已经失效':
-      return { className: 'border-amber-500/35 bg-amber-500/10 text-amber-600 dark:text-amber-400', icon: ShieldX };
+      return {
+        className: 'border-amber-500/35 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+        icon: ShieldX,
+      };
     case '信号过期':
     case '当日已收盘':
     case '上个交易日信号':
-      return { className: 'border-border bg-muted/35 text-muted-text', icon: Clock3 };
+      return { className: 'border-border bg-muted/35 text-muted-foreground', icon: Clock3 };
     default:
-      return { className: 'border-border bg-background text-secondary-text', icon: Minus };
+      return { className: 'border-border bg-background text-muted-foreground', icon: Minus };
   }
 });
 
@@ -79,12 +94,14 @@ const tooltip = computed(() => {
       </span>
       <span
         v-if="helper"
-        class="whitespace-nowrap text-[10px] text-muted-text"
-      >{{ helper }}</span>
+        class="whitespace-nowrap text-[10px] text-muted-foreground"
+      >{{
+        helper
+      }}</span>
     </span>
     <span
       v-else
-      class="text-xs text-muted-text"
+      class="text-xs text-muted-foreground"
     >—</span>
   </Tooltip>
 </template>

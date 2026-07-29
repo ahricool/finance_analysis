@@ -43,7 +43,9 @@ function statusLabel(status: QuantDatasetSnapshot['status']): string {
   return { pending: '等待中', building: '构建中', ready: '已就绪', failed: '失败' }[status];
 }
 
-function statusVariant(status: QuantDatasetSnapshot['status']): 'default' | 'info' | 'success' | 'destructive' {
+function statusVariant(
+  status: QuantDatasetSnapshot['status'],
+): 'default' | 'info' | 'success' | 'destructive' {
   if (status === 'building') return 'info';
   if (status === 'ready') return 'success';
   if (status === 'failed') return 'destructive';
@@ -116,11 +118,15 @@ async function openDatasetBuilder(targetMarket: QuantMarket): Promise<void> {
   buildOpen.value = true;
 }
 
-watch(market, (current) => {
-  buildOpen.value = false;
-  trainingOpen.value = false;
-  void load(current);
-}, { immediate: true });
+watch(
+  market,
+  (current) => {
+    buildOpen.value = false;
+    trainingOpen.value = false;
+    void load(current);
+  },
+  { immediate: true },
+);
 
 watch(
   () => [route.query.build, isAdmin.value] as const,
@@ -135,18 +141,32 @@ watch(
   <div class="min-w-0 space-y-4">
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h2 class="text-lg font-semibold">数据集</h2>
-        <p class="text-xs text-muted-text">
+        <h2 class="text-lg font-semibold">
+          数据集
+        </h2>
+        <p class="text-xs text-muted-foreground">
           数据集由后台异步构建；只有已就绪且存在制品的数据集可以用于训练。
         </p>
       </div>
-      <Button v-if="isAdmin" data-testid="open-dataset-build" @click="buildOpen = true">
+      <Button
+        v-if="isAdmin"
+        data-testid="open-dataset-build"
+        @click="buildOpen = true"
+      >
         构建数据集
       </Button>
     </header>
 
-    <ApiErrorAlert v-if="error" :error="error" @dismiss="error = null" />
-    <InlineAlert v-if="submittedBuild" variant="success" title="数据集构建任务已提交">
+    <ApiErrorAlert
+      v-if="error"
+      :error="error"
+      @dismiss="error = null"
+    />
+    <InlineAlert
+      v-if="submittedBuild"
+      variant="success"
+      title="数据集构建任务已提交"
+    >
       任务 ID：<span class="break-all font-mono">{{ submittedBuild.taskId }}</span>。完成后刷新列表查看状态。
       <template #action>
         <RouterLink
@@ -158,92 +178,229 @@ watch(
       </template>
     </InlineAlert>
 
-    <div v-if="loading" class="py-12 text-center text-muted-text">加载中...</div>
+    <div
+      v-if="loading"
+      class="py-12 text-center text-muted-foreground"
+    >
+      加载中...
+    </div>
     <template v-else-if="rows.length">
-      <div class="space-y-3 md:hidden" data-testid="quant-dataset-mobile-list">
-        <article v-for="item in rows" :key="item.id" class="rounded-xl border bg-card p-4 shadow-sm">
+      <div
+        class="space-y-3 md:hidden"
+        data-testid="quant-dataset-mobile-list"
+      >
+        <article
+          v-for="item in rows"
+          :key="item.id"
+          class="rounded-xl border bg-card p-4 shadow-sm"
+        >
           <div class="flex items-start justify-between gap-3">
             <div>
-              <p class="font-mono text-sm font-semibold">#{{ item.id }} · {{ item.market }}</p>
-              <p class="mt-1 text-xs text-muted-foreground">{{ universeByMarket[item.market].name }} · {{ item.featureVersion }}</p>
+              <p class="font-mono text-sm font-semibold">
+                #{{ item.id }} · {{ item.market }}
+              </p>
+              <p class="mt-1 text-xs text-muted-foreground">
+                {{ universeByMarket[item.market].name }} · {{ item.featureVersion }}
+              </p>
             </div>
-            <Badge :variant="statusVariant(item.status)">{{ statusLabel(item.status) }}</Badge>
+            <Badge :variant="statusVariant(item.status)">
+              {{ statusLabel(item.status) }}
+            </Badge>
           </div>
           <dl class="mt-3 grid grid-cols-2 gap-3 border-y py-3 text-xs">
-            <div><dt class="text-muted-foreground">日期范围</dt><dd class="mt-1 font-medium">{{ item.dateFrom }}<br>{{ item.dateTo }}</dd></div>
-            <div><dt class="text-muted-foreground">Universe 覆盖</dt><dd class="mt-1 font-medium">{{ formatCount(item.symbolCount) }} / {{ formatCount(item.universeMemberCount) }}<br>{{ (item.universeCoverageRatio * 100).toFixed(1) }}%</dd></div>
-            <div><dt class="text-muted-foreground">数据行数</dt><dd class="mt-1 font-medium tabular-nums">{{ formatCount(item.rowCount) }}</dd></div>
-            <div><dt class="text-muted-foreground">价格模式</dt><dd class="mt-1 font-medium">{{ priceModeLabel(item.priceMode) }}</dd></div>
+            <div>
+              <dt class="text-muted-foreground">
+                日期范围
+              </dt>
+              <dd class="mt-1 font-medium">
+                {{ item.dateFrom }}<br />{{ item.dateTo }}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-muted-foreground">
+                Universe 覆盖
+              </dt>
+              <dd class="mt-1 font-medium">
+                {{ formatCount(item.symbolCount) }} / {{ formatCount(item.universeMemberCount)
+                }}<br />{{ (item.universeCoverageRatio * 100).toFixed(1) }}%
+              </dd>
+            </div>
+            <div>
+              <dt class="text-muted-foreground">
+                数据行数
+              </dt>
+              <dd class="mt-1 font-medium tabular-nums">
+                {{ formatCount(item.rowCount) }}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-muted-foreground">
+                价格模式
+              </dt>
+              <dd class="mt-1 font-medium">
+                {{ priceModeLabel(item.priceMode) }}
+              </dd>
+            </div>
           </dl>
-          <p class="mt-3 line-clamp-2 break-all text-xs text-muted-foreground">{{ validationText(item) }}</p>
-          <Button v-if="canTrain(item) && isAdmin" variant="secondary" size="sm" class="mt-3 w-full" @click="openTraining(item)">使用此数据集训练</Button>
-          <p v-else class="mt-3 text-center text-xs text-muted-foreground">当前数据集不可训练</p>
+          <p class="mt-3 line-clamp-2 break-all text-xs text-muted-foreground">
+            {{ validationText(item) }}
+          </p>
+          <Button
+            v-if="canTrain(item) && isAdmin"
+            variant="secondary"
+            size="sm"
+            class="mt-3 w-full"
+            @click="openTraining(item)"
+          >
+            使用此数据集训练
+          </Button>
+          <p
+            v-else
+            class="mt-3 text-center text-xs text-muted-foreground"
+          >
+            当前数据集不可训练
+          </p>
         </article>
       </div>
-      <div class="hidden max-w-full overflow-x-auto rounded-2xl border border-border bg-card md:block">
-      <table class="min-w-[1680px] w-full text-left text-sm" data-testid="quant-dataset-table">
-        <thead class="border-b border-border text-xs text-muted-text">
-          <tr>
-            <th class="px-3 py-3 font-medium">数据集 ID</th>
-            <th class="px-3 py-3 font-medium">市场</th>
-            <th class="px-3 py-3 font-medium">Universe</th>
-            <th class="px-3 py-3 font-medium">开始日期</th>
-            <th class="px-3 py-3 font-medium">结束日期</th>
-            <th class="px-3 py-3 font-medium">状态</th>
-            <th class="px-3 py-3 font-medium">股票数量</th>
-            <th class="px-3 py-3 font-medium">数据行数</th>
-            <th class="px-3 py-3 font-medium">价格模式</th>
-            <th class="px-3 py-3 font-medium">特征版本</th>
-            <th class="px-3 py-3 font-medium">创建时间</th>
-            <th class="px-3 py-3 font-medium">完成时间</th>
-            <th class="min-w-[240px] px-3 py-3 font-medium">验证结果 / 失败原因</th>
-            <th class="px-3 py-3 font-medium">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in rows" :key="item.id" class="border-b border-border/60 last:border-0">
-            <td class="whitespace-nowrap px-3 py-4 font-mono">#{{ item.id }}</td>
-            <td class="whitespace-nowrap px-3 py-4">{{ item.market }}</td>
-            <td class="whitespace-nowrap px-3 py-4">
-              <p class="font-medium text-foreground">{{ universeByMarket[item.market].name }}</p>
-              <p class="font-mono text-xs text-muted-text">{{ universeByMarket[item.market].key }}</p>
-            </td>
-            <td class="whitespace-nowrap px-3 py-4">{{ item.dateFrom }}</td>
-            <td class="whitespace-nowrap px-3 py-4">{{ item.dateTo }}</td>
-            <td class="whitespace-nowrap px-3 py-4">
-              <Badge :variant="statusVariant(item.status)">{{ statusLabel(item.status) }}</Badge>
-            </td>
-            <td class="whitespace-nowrap px-3 py-4 tabular-nums">
-              {{ formatCount(item.symbolCount) }} / {{ formatCount(item.universeMemberCount) }}
-              <p class="text-xs text-muted-text">{{ (item.universeCoverageRatio * 100).toFixed(1) }}%</p>
-            </td>
-            <td class="whitespace-nowrap px-3 py-4 tabular-nums">{{ formatCount(item.rowCount) }}</td>
-            <td class="whitespace-nowrap px-3 py-4">{{ priceModeLabel(item.priceMode) }}</td>
-            <td class="whitespace-nowrap px-3 py-4 font-mono text-xs">{{ item.featureVersion }}</td>
-            <td class="whitespace-nowrap px-3 py-4 text-xs">{{ formatDateTimeInDisplayTimezone(item.createdAt) }}</td>
-            <td class="whitespace-nowrap px-3 py-4 text-xs">{{ formatDateTimeInDisplayTimezone(item.finishedAt) }}</td>
-            <td class="max-w-[320px] px-3 py-4 text-xs text-secondary-text">
-              <span class="line-clamp-3 break-all">{{ validationText(item) }}</span>
-            </td>
-            <td class="whitespace-nowrap px-3 py-4">
-              <Button
-                v-if="canTrain(item) && isAdmin"
-                variant="secondary"
-                size="sm"
-                :data-testid="`train-with-dataset-${item.id}`"
-                @click="openTraining(item)"
-              >
-                使用此数据集训练
-              </Button>
-              <span v-else-if="item.status === 'ready' && !item.artifactUri" class="text-xs text-warning">缺少数据制品</span>
-              <span v-else-if="item.status === 'ready' && item.universeCoverageRatio < item.minimumUniverseCoverage" class="text-xs text-warning">
-                Universe 覆盖率低于 {{ (item.minimumUniverseCoverage * 100).toFixed(0) }}%
-              </span>
-              <span v-else class="text-xs text-muted-text">不可训练</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div
+        class="hidden max-w-full overflow-x-auto rounded-2xl border border-border bg-card md:block"
+      >
+        <table
+          class="min-w-[1680px] w-full text-left text-sm"
+          data-testid="quant-dataset-table"
+        >
+          <thead class="border-b border-border text-xs text-muted-foreground">
+            <tr>
+              <th class="px-3 py-3 font-medium">
+                数据集 ID
+              </th>
+              <th class="px-3 py-3 font-medium">
+                市场
+              </th>
+              <th class="px-3 py-3 font-medium">
+                Universe
+              </th>
+              <th class="px-3 py-3 font-medium">
+                开始日期
+              </th>
+              <th class="px-3 py-3 font-medium">
+                结束日期
+              </th>
+              <th class="px-3 py-3 font-medium">
+                状态
+              </th>
+              <th class="px-3 py-3 font-medium">
+                股票数量
+              </th>
+              <th class="px-3 py-3 font-medium">
+                数据行数
+              </th>
+              <th class="px-3 py-3 font-medium">
+                价格模式
+              </th>
+              <th class="px-3 py-3 font-medium">
+                特征版本
+              </th>
+              <th class="px-3 py-3 font-medium">
+                创建时间
+              </th>
+              <th class="px-3 py-3 font-medium">
+                完成时间
+              </th>
+              <th class="min-w-[240px] px-3 py-3 font-medium">
+                验证结果 / 失败原因
+              </th>
+              <th class="px-3 py-3 font-medium">
+                操作
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="item in rows"
+              :key="item.id"
+              class="border-b border-border/60 last:border-0"
+            >
+              <td class="whitespace-nowrap px-3 py-4 font-mono">
+                #{{ item.id }}
+              </td>
+              <td class="whitespace-nowrap px-3 py-4">
+                {{ item.market }}
+              </td>
+              <td class="whitespace-nowrap px-3 py-4">
+                <p class="font-medium text-foreground">
+                  {{ universeByMarket[item.market].name }}
+                </p>
+                <p class="font-mono text-xs text-muted-foreground">
+                  {{ universeByMarket[item.market].key }}
+                </p>
+              </td>
+              <td class="whitespace-nowrap px-3 py-4">
+                {{ item.dateFrom }}
+              </td>
+              <td class="whitespace-nowrap px-3 py-4">
+                {{ item.dateTo }}
+              </td>
+              <td class="whitespace-nowrap px-3 py-4">
+                <Badge :variant="statusVariant(item.status)">
+                  {{ statusLabel(item.status) }}
+                </Badge>
+              </td>
+              <td class="whitespace-nowrap px-3 py-4 tabular-nums">
+                {{ formatCount(item.symbolCount) }} / {{ formatCount(item.universeMemberCount) }}
+                <p class="text-xs text-muted-foreground">
+                  {{ (item.universeCoverageRatio * 100).toFixed(1) }}%
+                </p>
+              </td>
+              <td class="whitespace-nowrap px-3 py-4 tabular-nums">
+                {{ formatCount(item.rowCount) }}
+              </td>
+              <td class="whitespace-nowrap px-3 py-4">
+                {{ priceModeLabel(item.priceMode) }}
+              </td>
+              <td class="whitespace-nowrap px-3 py-4 font-mono text-xs">
+                {{ item.featureVersion }}
+              </td>
+              <td class="whitespace-nowrap px-3 py-4 text-xs">
+                {{ formatDateTimeInDisplayTimezone(item.createdAt) }}
+              </td>
+              <td class="whitespace-nowrap px-3 py-4 text-xs">
+                {{ formatDateTimeInDisplayTimezone(item.finishedAt) }}
+              </td>
+              <td class="max-w-[320px] px-3 py-4 text-xs text-muted-foreground">
+                <span class="line-clamp-3 break-all">{{ validationText(item) }}</span>
+              </td>
+              <td class="whitespace-nowrap px-3 py-4">
+                <Button
+                  v-if="canTrain(item) && isAdmin"
+                  variant="secondary"
+                  size="sm"
+                  :data-testid="`train-with-dataset-${item.id}`"
+                  @click="openTraining(item)"
+                >
+                  使用此数据集训练
+                </Button>
+                <span
+                  v-else-if="item.status === 'ready' && !item.artifactUri"
+                  class="text-xs text-warning"
+                >缺少数据制品</span>
+                <span
+                  v-else-if="
+                    item.status === 'ready' &&
+                      item.universeCoverageRatio < item.minimumUniverseCoverage
+                  "
+                  class="text-xs text-warning"
+                >
+                  Universe 覆盖率低于 {{ (item.minimumUniverseCoverage * 100).toFixed(0) }}%
+                </span>
+                <span
+                  v-else
+                  class="text-xs text-muted-foreground"
+                >不可训练</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </template>
     <EmptyState
@@ -251,8 +408,16 @@ watch(
       title="暂无数据集"
       description="构建任务提交后会在后台运行，生成记录后即可在这里查看状态。"
     >
-      <template v-if="isAdmin" #action>
-        <Button variant="secondary" @click="buildOpen = true">构建数据集</Button>
+      <template
+        v-if="isAdmin"
+        #action
+      >
+        <Button
+          variant="secondary"
+          @click="buildOpen = true"
+        >
+          构建数据集
+        </Button>
       </template>
     </EmptyState>
 

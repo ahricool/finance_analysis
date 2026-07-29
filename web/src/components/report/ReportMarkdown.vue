@@ -99,6 +99,8 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <!-- eslint-disable vue/no-v-html -->
+  <!-- v-html values in this template come from DOMPurify-backed Markdown renderers. -->
   <Drawer
     :open="isOpen"
     :title="stockName || stockCode || text.fullReport"
@@ -108,9 +110,14 @@ onUnmounted(() => {
     <div class="mb-4 flex items-center justify-between gap-3">
       <div class="flex flex-1 items-center gap-3">
         <div
-          class="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--home-action-report-bg)] text-[var(--home-action-report-text)]"
+          class="flex size-8 items-center justify-center rounded-lg bg-secondary text-secondary-foreground"
         >
-          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg
+            class="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
@@ -123,7 +130,9 @@ onUnmounted(() => {
           <h2 class="text-base font-semibold text-foreground">
             {{ stockName || stockCode }}
           </h2>
-          <p class="text-xs text-muted-text">{{ text.fullReport }}</p>
+          <p class="text-xs text-muted-foreground">
+            {{ text.fullReport }}
+          </p>
         </div>
       </div>
 
@@ -133,7 +142,7 @@ onUnmounted(() => {
             <button
               type="button"
               :disabled="isLoading || !content || copiedType !== null"
-              class="home-surface-button flex h-10 w-10 items-center justify-center rounded-lg text-secondary-text hover:text-foreground disabled:opacity-50"
+              class="border border-border bg-background transition-colors hover:bg-muted flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground disabled:opacity-50"
               :aria-label="text.copyMarkdownSource"
               @click="handleCopyMarkdown"
             >
@@ -144,9 +153,20 @@ onUnmounted(() => {
                 stroke="currentColor"
                 viewBox="0 0 24 24"
               >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
-              <svg v-else class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg
+                v-else
+                class="h-6 w-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -163,7 +183,7 @@ onUnmounted(() => {
             <button
               type="button"
               :disabled="isLoading || !content || copiedType !== null"
-              class="home-surface-button flex h-10 w-10 items-center justify-center rounded-lg text-secondary-text hover:text-foreground disabled:opacity-50"
+              class="border border-border bg-background transition-colors hover:bg-muted flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground disabled:opacity-50"
               :aria-label="text.copyPlainText"
               @click="handleCopyPlainText"
             >
@@ -174,9 +194,20 @@ onUnmounted(() => {
                 stroke="currentColor"
                 viewBox="0 0 24 24"
               >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
-              <svg v-else class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg
+                v-else
+                class="h-6 w-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -190,13 +221,26 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div v-if="isLoading" class="flex h-64 flex-col items-center justify-center">
-      <div class="home-spinner h-10 w-10 animate-spin border-[3px]" />
-      <p class="mt-4 text-sm text-secondary-text">{{ text.loadingReport }}</p>
+    <div
+      v-if="isLoading"
+      class="flex h-64 flex-col items-center justify-center"
+    >
+      <div class="size-10 animate-spin rounded-full border-[3px] border-primary/25 border-t-primary" />
+      <p class="mt-4 text-sm text-muted-foreground">
+        {{ text.loadingReport }}
+      </p>
     </div>
-    <div v-else-if="error" class="flex h-64 flex-col items-center justify-center">
-      <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-danger/10">
-        <svg class="h-6 w-6 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div
+      v-else-if="error"
+      class="flex h-64 flex-col items-center justify-center"
+    >
+      <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10">
+        <svg
+          class="h-6 w-6 text-destructive"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
           <path
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -205,38 +249,26 @@ onUnmounted(() => {
           />
         </svg>
       </div>
-      <p class="text-sm text-danger">{{ error }}</p>
+      <p class="text-sm text-destructive">
+        {{ error }}
+      </p>
       <button
         type="button"
-        class="home-surface-button mt-4 rounded-lg px-4 py-2 text-sm text-secondary-text"
+        class="border border-border bg-background transition-colors hover:bg-muted mt-4 rounded-lg px-4 py-2 text-sm text-muted-foreground"
         @click="handleClose"
       >
         {{ text.dismiss }}
       </button>
-    </div>
-    <div
+    </div>    <div
       v-else
-      class="home-markdown-prose prose prose-invert prose-sm max-w-none whitespace-pre-line break-words
-        prose-headings:mb-2 prose-headings:mt-4 prose-headings:font-semibold prose-headings:text-foreground
-        prose-h1:text-xl
-        prose-h2:text-lg
-        prose-h3:text-base
-        prose-p:mb-3 prose-p:last:mb-0 prose-p:leading-relaxed
-        prose-strong:font-semibold prose-strong:text-foreground
-        prose-ul:my-2 prose-ol:my-2 prose-li:my-1
-        prose-code:rounded prose-code:px-1.5 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none
-        prose-pre:border
-        prose-table:border-collapse
-        prose-hr:my-4
-        prose-a:no-underline hover:prose-a:underline
-        prose-blockquote:text-secondary-text"
+      class="prose max-w-none whitespace-pre-line break-words prose-headings:mb-2 prose-headings:mt-4 prose-headings:font-semibold prose-headings:text-foreground prose-h1:text-xl prose-h2:text-lg prose-h3:text-base prose-p:mb-3 prose-p:last:mb-0 prose-p:leading-relaxed prose-strong:font-semibold prose-strong:text-foreground prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-code:rounded prose-code:px-1.5 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-table:border-collapse prose-hr:my-4 prose-a:no-underline hover:prose-a:underline prose-blockquote:text-muted-foreground"
       v-html="htmlContent"
     />
 
-    <div class="home-divider mt-6 flex justify-end border-t pt-4">
+    <div class="border-border mt-6 flex justify-end border-t pt-4">
       <button
         type="button"
-        class="home-surface-button rounded-lg px-4 py-2 text-sm text-secondary-text hover:text-foreground"
+        class="border border-border bg-background transition-colors hover:bg-muted rounded-lg px-4 py-2 text-sm text-muted-foreground hover:text-foreground"
         @click="handleClose"
       >
         {{ text.dismiss }}

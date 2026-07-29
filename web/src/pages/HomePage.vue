@@ -60,7 +60,9 @@ const {
   closeMarkdownDrawer,
 } = useHomeDashboardState();
 
-const reportLanguage = computed(() => normalizeReportLanguage(selectedReport.value?.meta.reportLanguage));
+const reportLanguage = computed(() =>
+  normalizeReportLanguage(selectedReport.value?.meta.reportLanguage),
+);
 const reportText = computed(() => getReportText(reportLanguage.value));
 
 useDashboardLifecycle({
@@ -163,21 +165,33 @@ function handleHistoryPageChange(page: number) {
 
 <template>
   <div
-    data-testid="home-dashboard"
+    data-testid="analysis-workspace"
     class="flex h-[calc(100dvh-9rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full flex-col overflow-hidden md:h-[calc(100vh-5.5rem)] md:flex-row lg:h-[calc(100vh-6rem)]"
   >
     <div class="mx-auto flex w-full max-w-full min-w-0 flex-1 flex-col">
-      <header class="flex min-w-0 flex-shrink-0 items-center overflow-hidden px-3 py-3 md:px-4 md:py-4">
+      <header
+        class="flex min-w-0 flex-shrink-0 items-center overflow-hidden px-3 py-3 md:px-4 md:py-4"
+      >
         <div class="flex min-w-0 flex-1 flex-col gap-2.5 md:flex-row md:items-center">
           <div class="flex min-w-0 flex-1 items-center gap-2.5">
             <button
               type="button"
-              class="-ml-1 flex-shrink-0 rounded-lg p-1.5 text-secondary-text transition-colors hover:bg-hover hover:text-foreground md:hidden"
+              class="-ml-1 flex-shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
               aria-label="历史记录"
               @click="sidebarOpen = true"
             >
-              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+              <svg
+                class="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
               </svg>
             </button>
             <div class="relative min-w-0 flex-1">
@@ -185,7 +199,7 @@ function handleHistoryPageChange(page: number) {
                 :model-value="query"
                 :disabled="isAnalyzing"
                 placeholder="输入股票代码或名称，如 600519、贵州茅台、AAPL"
-                :class="inputError ? 'border-danger/50' : undefined"
+                :class="inputError ? 'border-destructive/50' : undefined"
                 @update:model-value="(v: string) => unref(setQuery)(v)"
                 @submit="onStockAutocompleteSubmit"
               />
@@ -201,7 +215,10 @@ function handleHistoryPageChange(page: number) {
               class="h-10 flex-1 whitespace-nowrap md:flex-none"
               @click="handleTriggerMarketReview"
             >
-              <BarChart3 class="h-4 w-4" aria-hidden="true" />
+              <BarChart3
+                class="h-4 w-4"
+                aria-hidden="true"
+              />
               大盘复盘
             </Button>
             <Button
@@ -213,8 +230,19 @@ function handleHistoryPageChange(page: number) {
               @click="handleSubmitAnalysisWrapper()"
             >
               <template v-if="isAnalyzing">
-                <svg class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <svg
+                  class="h-3.5 w-3.5 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    class="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                  />
                   <path
                     class="opacity-75"
                     fill="currentColor"
@@ -223,13 +251,18 @@ function handleHistoryPageChange(page: number) {
                 </svg>
                 分析中
               </template>
-              <template v-else>分析</template>
+              <template v-else>
+                分析
+              </template>
             </Button>
           </div>
         </div>
       </header>
 
-      <div v-if="inputError || duplicateError" class="px-3 pb-2 md:px-4">
+      <div
+        v-if="inputError || duplicateError"
+        class="px-3 pb-2 md:px-4"
+      >
         <InlineAlert
           v-if="inputError"
           variant="destructive"
@@ -266,28 +299,36 @@ function handleHistoryPageChange(page: number) {
           </div>
         </div>
 
-        <AppSheet :open="sidebarOpen" title="历史分析" side="left" @update:open="sidebarOpen = $event">
-            <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden py-3">
-              <HistoryList
-                :items="historyItems"
-                :is-loading="isLoadingHistory"
-                :current-page="currentPage"
-                :total-pages="historyTotalPages"
-                :total-count="historyTotal"
-                :selected-id="selectedReport?.meta.id"
-                class="min-h-0 flex-1 overflow-hidden"
-                @item-click="handleHistoryItemClick"
-                @page-change="handleHistoryPageChange"
-              />
-            </div>
+        <AppSheet
+          :open="sidebarOpen"
+          title="历史分析"
+          side="left"
+          @update:open="sidebarOpen = $event"
+        >
+          <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden py-3">
+            <HistoryList
+              :items="historyItems"
+              :is-loading="isLoadingHistory"
+              :current-page="currentPage"
+              :total-pages="historyTotalPages"
+              :total-count="historyTotal"
+              :selected-id="selectedReport?.meta.id"
+              class="min-h-0 flex-1 overflow-hidden"
+              @item-click="handleHistoryItemClick"
+              @page-change="handleHistoryPageChange"
+            />
+          </div>
         </AppSheet>
 
         <section
           ref="dashboardScrollRef"
-          data-testid="home-dashboard-scroll"
+          data-testid="analysis-workspace-scroll"
           class="min-h-0 min-w-0 flex-1 touch-pan-y overflow-x-auto overflow-y-auto px-3 pb-4 md:px-6"
         >
-          <div v-if="marketReviewNotice" class="mb-3">
+          <div
+            v-if="marketReviewNotice"
+            class="mb-3"
+          >
             <InlineAlert
               :variant="marketReviewNotice.variant"
               :title="marketReviewNotice.title"
@@ -297,7 +338,10 @@ function handleHistoryPageChange(page: number) {
             </InlineAlert>
           </div>
 
-          <div v-if="marketReviewError" class="mb-3">
+          <div
+            v-if="marketReviewError"
+            class="mb-3"
+          >
             <ApiErrorAlert
               :error="marketReviewError"
               class="mb-1"
@@ -305,12 +349,26 @@ function handleHistoryPageChange(page: number) {
             />
           </div>
 
-          <ApiErrorAlert v-if="error" :error="error" class="mb-3" @dismiss="() => unref(clearError)()" />
+          <ApiErrorAlert
+            v-if="error"
+            :error="error"
+            class="mb-3"
+            @dismiss="() => unref(clearError)()"
+          />
 
-          <div v-if="isLoadingReport" class="flex h-full flex-col items-center justify-center">
-            <DashboardStateBlock title="加载报告中..." loading />
+          <div
+            v-if="isLoadingReport"
+            class="flex h-full flex-col items-center justify-center"
+          >
+            <DashboardStateBlock
+              title="加载报告中..."
+              loading
+            />
           </div>
-          <div v-else-if="selectedReport" class="space-y-4 pb-8">
+          <div
+            v-else-if="selectedReport"
+            class="space-y-4 pb-8"
+          >
             <div class="flex flex-wrap items-center justify-end gap-2">
               <Button
                 variant="default"
@@ -318,7 +376,12 @@ function handleHistoryPageChange(page: number) {
                 :disabled="isAnalyzing || selectedReport.meta.id === undefined"
                 @click="handleReanalyze"
               >
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  class="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
@@ -334,7 +397,12 @@ function handleHistoryPageChange(page: number) {
                 :disabled="selectedReport.meta.id === undefined"
                 @click="handleAskFollowUp"
               >
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  class="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
@@ -350,7 +418,12 @@ function handleHistoryPageChange(page: number) {
                 :disabled="selectedReport.meta.id === undefined"
                 @click="unref(openMarkdownDrawer)()"
               >
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  class="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
@@ -361,16 +434,27 @@ function handleHistoryPageChange(page: number) {
                 {{ reportText.fullReport }}
               </Button>
             </div>
-            <ReportSummary :data="selectedReport" is-history />
+            <ReportSummary
+              :data="selectedReport"
+              is-history
+            />
           </div>
-          <div v-else class="flex h-full items-center justify-center">
+          <div
+            v-else
+            class="flex h-full items-center justify-center"
+          >
             <EmptyState
               title="开始分析"
               description="输入股票代码进行分析，或从左侧选择历史报告查看。"
               class="max-w-xl border-dashed"
             >
               <template #icon>
-                <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg
+                  class="h-6 w-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
@@ -393,6 +477,5 @@ function handleHistoryPageChange(page: number) {
       :report-language="reportLanguage"
       @update:open="() => unref(closeMarkdownDrawer)()"
     />
-
   </div>
 </template>

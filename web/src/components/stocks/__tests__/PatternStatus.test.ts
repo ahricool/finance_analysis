@@ -5,7 +5,9 @@ import PatternStatus from '../PatternStatus.vue';
 
 const NOW = new Date('2026-07-22T14:36:00Z');
 
-function pattern(overrides: Partial<NonNullable<RealtimePatternState['signal']>> = {}): RealtimePatternState {
+function pattern(
+  overrides: Partial<NonNullable<RealtimePatternState['signal']>> = {},
+): RealtimePatternState {
   return {
     timeframe: '1m',
     status: 'active',
@@ -149,7 +151,10 @@ describe('PatternStatus', () => {
   });
 
   it('keeps quality, reasons, levels, times, bar age, trading date and session in the tooltip', async () => {
-    const wrapper = mount(PatternStatus, { attachTo: document.body, props: { pattern: pattern(), now: NOW } });
+    const wrapper = mount(PatternStatus, {
+      attachTo: document.body,
+      props: { pattern: pattern(), now: NOW },
+    });
     await wrapper.get('[tabindex="0"]').trigger('focus');
     const content = document.body.querySelector('[role="tooltip"]')?.textContent ?? '';
     expect(content).toContain('形态名称：假突破前高回收');
@@ -215,6 +220,6 @@ describe('PatternStatus', () => {
   ])('handles missing and empty states', (value, text) => {
     const wrapper = mount(PatternStatus, { props: { pattern: value, now: NOW } });
     expect(wrapper.text()).toContain(text);
-    expect(wrapper.get('span.font-semibold').classes()).toContain('text-muted-text');
+    expect(wrapper.get('span.font-semibold').classes()).toContain('text-muted-foreground');
   });
 });

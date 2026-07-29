@@ -9,6 +9,7 @@ const props = withDefaults(defineProps<{
   class?: HTMLAttributes['class']
 }>(), {
   align: 'inline-start',
+  class: '',
 })
 
 function handleInputGroupAddonClick(e: MouseEvent) {

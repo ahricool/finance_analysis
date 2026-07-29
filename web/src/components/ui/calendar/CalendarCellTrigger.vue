@@ -8,6 +8,7 @@ import { buttonVariants } from '@/components/ui/button'
 
 const props = withDefaults(defineProps<CalendarCellTriggerProps & { class?: HTMLAttributes['class'] }>(), {
   as: 'button',
+  class: '',
 })
 
 const delegatedProps = reactiveOmit(props, 'class')

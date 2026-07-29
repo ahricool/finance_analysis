@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 
 const props = withDefaults(
   defineProps<SelectTriggerProps & { class?: HTMLAttributes['class'], size?: 'sm' | 'default' }>(),
-  { size: 'default' },
+  { size: 'default', class: '' },
 )
 
 const delegatedProps = reactiveOmit(props, 'class', 'size')

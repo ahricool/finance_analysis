@@ -75,27 +75,60 @@ watch(() => props.sourceUrl, initCropper);
 <template>
   <div class="space-y-4">
     <div class="overflow-hidden rounded-xl border border-border/70 bg-muted/30">
-      <img ref="imageRef" :src="sourceUrl" alt="" class="block max-h-[360px] w-full object-contain" />
+      <img
+        ref="imageRef"
+        :src="sourceUrl"
+        alt=""
+        class="block max-h-[360px] w-full object-contain"
+      />
     </div>
 
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-2">
-        <Button type="button" variant="secondary" size="sm" @click="cropper?.zoom(0.1)">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          @click="cropper?.zoom(0.1)"
+        >
           <ZoomIn class="h-4 w-4" />
           放大
         </Button>
-        <Button type="button" variant="secondary" size="sm" @click="cropper?.zoom(-0.1)">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          @click="cropper?.zoom(-0.1)"
+        >
           <ZoomOut class="h-4 w-4" />
           缩小
         </Button>
-        <Button type="button" variant="secondary" size="sm" @click="cropper?.rotate(-90)">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          @click="cropper?.rotate(-90)"
+        >
           <RotateCcw class="h-4 w-4" />
           左转
         </Button>
       </div>
       <div class="flex items-center gap-2">
-        <Button type="button" variant="ghost" size="sm" @click="emit('cancel')">取消</Button>
-        <Button type="button" variant="default" size="sm" :loading="isSubmitting" @click="emitCropped">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          @click="emit('cancel')"
+        >
+          取消
+        </Button>
+        <Button
+          type="button"
+          variant="default"
+          size="sm"
+          :loading="isSubmitting"
+          @click="emitCropped"
+        >
           使用头像
         </Button>
       </div>

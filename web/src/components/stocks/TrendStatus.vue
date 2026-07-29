@@ -26,7 +26,7 @@ const label = computed(() => {
 
 const dotClass = computed(() => {
   const trend = props.trend;
-  if (!usable.value || !trend) return 'bg-muted-text';
+  if (!usable.value || !trend) return 'bg-muted-foreground';
   if (trend.state === 'neutral' || trend.streak < 2) return 'bg-amber-500';
   return trend.state === 'above' ? 'bg-red-500' : 'bg-emerald-500';
 });
@@ -65,7 +65,9 @@ const tooltip = computed(() => {
     content-class="whitespace-pre-line"
     focusable
   >
-    <span class="inline-flex items-center gap-2 whitespace-nowrap text-xs font-medium text-foreground">
+    <span
+      class="inline-flex items-center gap-2 whitespace-nowrap text-xs font-medium text-foreground"
+    >
       <span
         data-testid="trend-dot"
         class="h-2.5 w-2.5 shrink-0 rounded-full"

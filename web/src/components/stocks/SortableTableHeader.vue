@@ -30,9 +30,18 @@ defineEmits<{
       @click="$emit('sort')"
     >
       {{ label }}
-      <ArrowUp v-if="active && direction === 'asc'" class="h-3.5 w-3.5" />
-      <ArrowDown v-else-if="active" class="h-3.5 w-3.5" />
-      <ArrowUpDown v-else class="h-3.5 w-3.5 opacity-50" />
+      <ArrowUp
+        v-if="active && direction === 'asc'"
+        class="h-3.5 w-3.5"
+      />
+      <ArrowDown
+        v-else-if="active"
+        class="h-3.5 w-3.5"
+      />
+      <ArrowUpDown
+        v-else
+        class="h-3.5 w-3.5 opacity-50"
+      />
     </button>
   </th>
 </template>

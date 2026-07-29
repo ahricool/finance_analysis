@@ -4,10 +4,10 @@ import { cn } from '@/utils/cn';
 import type { StockSuggestion } from '@/types/stockIndex';
 
 const MARKET_BADGE_CONFIG = {
-  CN: { label: 'A股', className: 'border-danger/25 bg-danger/10 text-danger' },
+  CN: { label: 'A股', className: 'border-destructive/25 bg-destructive/10 text-destructive' },
   HK: { label: '港股', className: 'border-success/25 bg-success/10 text-success' },
-  US: { label: '美股', className: 'border-cyan/25 bg-cyan/10 text-cyan' },
-  INDEX: { label: '指数', className: 'border-purple/25 bg-purple/10 text-purple' },
+  US: { label: '美股', className: 'border-primary/25 bg-primary/10 text-primary' },
+  INDEX: { label: '指数', className: 'border-border bg-muted text-muted-foreground' },
   ETF: { label: 'ETF', className: 'border-warning/25 bg-warning/10 text-warning' },
   BSE: { label: '北交所', className: 'border-orange-500/25 bg-orange-500/10 text-orange-500' },
 } as const;
@@ -30,12 +30,15 @@ function marketLabel(market: string) {
 
 function matchTypeClass(matchType: string) {
   const configMap = {
-    exact: 'border-cyan/25 bg-cyan/10 text-cyan',
-    prefix: 'border-purple/25 bg-purple/10 text-purple',
+    exact: 'border-primary/25 bg-primary/10 text-primary',
+    prefix: 'border-primary/20 bg-primary/5 text-primary',
     contains: 'border-warning/25 bg-warning/10 text-warning',
-    fuzzy: 'border-border/55 bg-elevated/75 text-muted-text',
+    fuzzy: 'border-border/55 bg-card/75 text-muted-foreground',
   };
-  return cn('shrink-0 shadow-none', configMap[matchType as keyof typeof configMap] || configMap.fuzzy);
+  return cn(
+    'shrink-0 shadow-none',
+    configMap[matchType as keyof typeof configMap] || configMap.fuzzy,
+  );
 }
 
 function matchTypeLabel(matchType: string) {
@@ -64,14 +67,10 @@ const emit = defineEmits<{
   <ul
     v-if="props.suggestions.length > 0"
     id="suggestions-list"
-    class="z-[200] max-h-60 overflow-auto rounded-b-lg rounded-t-none border-x border-b"
+    class="z-[200] max-h-60 overflow-auto rounded-b-lg rounded-t-none border-x border-b border-border bg-popover/95 shadow-xl backdrop-blur-sm"
     :style="{
       position: 'fixed',
       ...props.listStyle,
-      backgroundColor: 'hsl(var(--card) / 0.85)',
-      borderColor: 'var(--border-accent)',
-      boxShadow:
-        '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3), -4px 0 15px -3px rgba(0, 0, 0, 0.2), 4px 0 15px -3px rgba(0, 0, 0, 0.2)',
     }"
     role="listbox"
   >
@@ -83,8 +82,8 @@ const emit = defineEmits<{
       :class="
         cn(
           'flex cursor-pointer items-center justify-between px-4 py-1',
-          'hover:bg-[var(--autocomplete-hover-bg)]/25',
-          index === highlightedIndex && 'bg-[var(--autocomplete-hover-bg)]/25',
+          'hover:bg-accent/60',
+          index === highlightedIndex && 'bg-accent/60',
         )
       "
       @mousedown.prevent
@@ -92,19 +91,27 @@ const emit = defineEmits<{
       @mouseenter="emit('mouseEnter', index)"
     >
       <div class="flex items-center gap-3">
-        <Badge variant="default" size="sm" :class="marketBadgeClass(suggestion.market)">
+        <Badge
+          variant="default"
+          size="sm"
+          :class="marketBadgeClass(suggestion.market)"
+        >
           {{ marketLabel(suggestion.market) }}
         </Badge>
         <div class="flex flex-col">
-          <span class="text-sm font-medium text-primary-text">
+          <span class="text-sm font-medium text-foreground">
             {{ suggestion.nameZh }}
           </span>
-          <span class="text-sm text-secondary-text">
+          <span class="text-sm text-muted-foreground">
             {{ suggestion.displayCode }}
           </span>
         </div>
       </div>
-      <Badge variant="default" size="sm" :class="matchTypeClass(suggestion.matchType)">
+      <Badge
+        variant="default"
+        size="sm"
+        :class="matchTypeClass(suggestion.matchType)"
+      >
         {{ matchTypeLabel(suggestion.matchType) }}
       </Badge>
     </li>

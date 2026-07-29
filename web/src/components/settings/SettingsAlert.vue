@@ -16,6 +16,7 @@ const props = withDefaults(
   {
     variant: 'error',
     presentation: 'inline',
+    actionLabel: '',
     class: '',
   },
 );
@@ -24,16 +25,19 @@ const emit = defineEmits<{
   action: [];
 }>();
 
-const variantMap: Record<NonNullable<typeof props.variant>, 'destructive' | 'success' | 'warning'> = {
+const variantMap: Record<
+  NonNullable<typeof props.variant>,
+  'destructive' | 'success' | 'warning'
+> = {
   error: 'destructive',
   success: 'success',
   warning: 'warning',
 };
 
 const toastHighlightStyle = [
-  'relative overflow-hidden bg-card/95 text-foreground shadow-soft-card-strong backdrop-blur-sm',
+  'relative overflow-hidden bg-card/95 text-foreground shadow-xl backdrop-blur-sm',
   'before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-1.5',
-  'before:bg-gradient-to-r before:from-cyan/80 before:via-primary/70 before:to-purple/70',
+  'before:bg-gradient-to-r before:from-primary/80 before:via-primary/60 before:to-primary/30',
 ].join(' ');
 
 const toastVariantStyles: Record<NonNullable<typeof props.variant>, string> = {
@@ -54,7 +58,10 @@ const presentationClassName = computed(() =>
     :class="cn(presentationClassName, props.class)"
   >
     {{ message }}
-    <template v-if="actionLabel" #action>
+    <template
+      v-if="actionLabel"
+      #action
+    >
       <Button
         type="button"
         variant="outline"

@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, useId } from 'vue';
 import { Check, ChevronsUpDown, X } from 'lucide-vue-next';
 import AppButton from './AppButton.vue';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
@@ -14,29 +21,43 @@ export type AppComboboxOption = {
   disabled?: boolean;
 };
 
-const props = withDefaults(defineProps<{
-  modelValue?: string;
-  options: AppComboboxOption[];
-  label?: string;
-  placeholder?: string;
-  searchPlaceholder?: string;
-  emptyText?: string;
-  clearable?: boolean;
-  disabled?: boolean;
-  class?: string;
-}>(), {
-  modelValue: '',
-  label: '',
-  placeholder: '请选择',
-  searchPlaceholder: '搜索…',
-  emptyText: '没有匹配项',
-  clearable: true,
-  disabled: false,
-  class: '',
-});
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string;
+    options: AppComboboxOption[];
+    label?: string;
+    placeholder?: string;
+    searchPlaceholder?: string;
+    emptyText?: string;
+    clearable?: boolean;
+    disabled?: boolean;
+    error?: string;
+    hint?: string;
+    id?: string;
+    class?: string;
+  }>(),
+  {
+    modelValue: '',
+    label: '',
+    placeholder: '请选择',
+    searchPlaceholder: '搜索…',
+    emptyText: '没有匹配项',
+    clearable: true,
+    disabled: false,
+    error: '',
+    hint: '',
+    id: undefined,
+    class: '',
+  },
+);
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 const open = ref(false);
+const generatedId = useId();
+const triggerId = computed(() => props.id ?? generatedId);
+const descriptionId = computed(() =>
+  props.error ? `${triggerId.value}-error` : props.hint ? `${triggerId.value}-hint` : undefined,
+);
 const selected = computed(() => props.options.find((option) => option.value === props.modelValue));
 
 function choose(value: string) {
@@ -47,19 +68,31 @@ function choose(value: string) {
 
 <template>
   <div :class="['grid min-w-0 gap-2', props.class]">
-    <Label v-if="label">{{ label }}</Label>
+    <Label
+      v-if="label"
+      :for="triggerId"
+    >{{ label }}</Label>
     <div class="flex min-w-0 gap-1">
-      <Popover v-model:open="open" modal>
+      <Popover
+        v-model:open="open"
+        modal
+      >
         <PopoverTrigger as-child>
           <AppButton
+            :id="triggerId"
             variant="outline"
             class="h-10 min-w-0 flex-1 justify-between px-3 font-normal"
             role="combobox"
             :aria-label="label || placeholder"
             :aria-expanded="open"
+            :aria-invalid="error ? true : undefined"
+            :aria-describedby="descriptionId"
             :disabled="disabled"
           >
-            <span class="truncate" :class="!selected && 'text-muted-foreground'">
+            <span
+              class="truncate"
+              :class="!selected && 'text-muted-foreground'"
+            >
               {{ selected?.label ?? placeholder }}
             </span>
             <ChevronsUpDown class="ml-2 size-4 shrink-0 opacity-50" />
@@ -78,7 +111,9 @@ function choose(value: string) {
                   :disabled="option.disabled"
                   @select="choose(option.value)"
                 >
-                  <Check :class="cn('size-4', option.value === modelValue ? 'opacity-100' : 'opacity-0')" />
+                  <Check
+                    :class="cn('size-4', option.value === modelValue ? 'opacity-100' : 'opacity-0')"
+                  />
                   {{ option.label }}
                 </CommandItem>
               </CommandGroup>
@@ -96,5 +131,20 @@ function choose(value: string) {
         <X />
       </AppButton>
     </div>
+    <p
+      v-if="error"
+      :id="`${triggerId}-error`"
+      class="text-xs text-destructive"
+      role="alert"
+    >
+      {{ error }}
+    </p>
+    <p
+      v-else-if="hint"
+      :id="`${triggerId}-hint`"
+      class="text-xs text-muted-foreground"
+    >
+      {{ hint }}
+    </p>
   </div>
 </template>

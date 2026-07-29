@@ -12,10 +12,16 @@ const label = computed(() => {
 </script>
 
 <template>
-  <span class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-text">
+  <span class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
     <span
       class="h-1.5 w-1.5 rounded-full"
-      :class="status === 'connected' ? 'bg-emerald-500' : status === 'unauthorized' ? 'bg-destructive' : 'animate-pulse bg-amber-500'"
+      :class="
+        status === 'connected'
+          ? 'bg-emerald-500'
+          : status === 'unauthorized'
+            ? 'bg-destructive'
+            : 'animate-pulse bg-amber-500'
+      "
     />
     {{ label }}
   </span>

@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Shell from '../Shell.vue';
+import { theme } from '@/composables/useTheme';
 import { useAuthStore } from '@/stores/authStore';
 
 vi.mock('@/stores/agentChatStore', () => ({ useAgentChatStore: () => false }));
@@ -58,7 +59,9 @@ describe('Shell navigation', () => {
   );
 
   it.each([
+    ['/market/backtests', '回测'],
     ['/market/backtests/123', '回测'],
+    ['/market/quant/models', '量化'],
     ['/market/quant/signals/NVDA.US', '量化'],
   ])('marks only the %s module as %s', async (path, label) => {
     const { wrapper } = await mountShell(path);
@@ -68,13 +71,61 @@ describe('Shell navigation', () => {
     expect(wrapper.get('button[aria-label="更多"]').attributes('aria-current')).toBe('page');
   });
 
+  it.each(['/tasks', '/tasks/runs'])(
+    'marks More and the task sheet entry active on %s',
+    async (path) => {
+      const { wrapper } = await mountShell(path);
+      const moreButton = wrapper.get('button[aria-label="更多"]');
+
+      expect(moreButton.attributes('aria-current')).toBe('page');
+      await moreButton.trigger('click');
+
+      await vi.waitFor(() => {
+        const taskLink = document.body.querySelector<HTMLAnchorElement>('a[href="/tasks"]');
+        expect(taskLink?.getAttribute('aria-current')).toBe('page');
+        expect(taskLink?.classList.contains('text-primary')).toBe(true);
+      });
+      wrapper.unmount();
+    },
+  );
+
+  it('toggles dark mode from the keyboard-accessible checkbox menu item', async () => {
+    useAuthStore().currentUser = {
+      uid: 1,
+      username: 'Alice',
+      email: 'alice@example.com',
+      avatarUrl: null,
+      role: 'admin',
+      extra: { gender: 'female' },
+    };
+    theme.value = 'light';
+    localStorage.setItem('theme', 'light');
+    const { wrapper } = await mountShell('/analysis');
+
+    await wrapper.get('button[aria-label="打开用户菜单"]').trigger('click');
+    await vi.waitFor(() => {
+      expect(document.body.querySelector('[role="menuitemcheckbox"]')).not.toBeNull();
+    });
+
+    const themeItem = document.body.querySelector<HTMLElement>('[role="menuitemcheckbox"]')!;
+    themeItem.focus();
+    themeItem.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    await vi.waitFor(() => expect(localStorage.getItem('theme')).toBe('dark'));
+    expect(themeItem.getAttribute('aria-checked')).toBe('true');
+    wrapper.unmount();
+  });
+
   it('uses four primary mobile destinations plus a More entry and supports route changes', async () => {
     const { router, wrapper } = await mountShell('/calendar');
     const mobileNav = wrapper.get('[data-testid="mobile-main-nav"]');
 
     expect(mobileNav.find('.grid-cols-5').exists()).toBe(true);
     expect(mobileNav.findAll('a').map((link) => link.attributes('aria-label'))).toEqual([
-      '分析', '日历', '市场', '问股',
+      '分析',
+      '日历',
+      '市场',
+      '问股',
     ]);
     expect(mobileNav.get('button[aria-label="更多"]').text()).toContain('更多');
     expect(mobileNav.get('a[aria-label="日历"]').attributes('aria-current')).toBe('page');

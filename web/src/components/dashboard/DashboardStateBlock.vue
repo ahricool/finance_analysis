@@ -17,6 +17,7 @@ const props = withDefaults(
     compact: false,
     loading: false,
     titleAs: 'p',
+    description: '',
     class: '',
     titleClassName: '',
     descriptionClassName: '',
@@ -36,10 +37,14 @@ const titleTag = computed(() => props.titleAs);
       )
     "
   >
-    <div v-if="loading" class="home-spinner h-6 w-6 animate-spin border-2" aria-hidden="true" />
+    <div
+      v-if="loading"
+      class="size-6 animate-spin rounded-full border-2 border-primary/25 border-t-primary"
+      aria-hidden="true"
+    />
     <div
       v-else-if="$slots.icon"
-      class="home-state-icon-muted flex h-11 w-11 items-center justify-center rounded-full bg-subtle"
+      class="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground"
     >
       <slot name="icon" />
     </div>
@@ -47,13 +52,7 @@ const titleTag = computed(() => props.titleAs);
     <div class="space-y-1">
       <component
         :is="titleTag"
-        :class="
-          cn(
-            'text-secondary-text',
-            compact ? 'text-xs' : 'text-sm',
-            titleClassName,
-          )
-        "
+        :class="cn('text-muted-foreground', compact ? 'text-xs' : 'text-sm', titleClassName)"
       >
         {{ title }}
       </component>
@@ -61,8 +60,8 @@ const titleTag = computed(() => props.titleAs);
         v-if="description"
         :class="
           cn(
-            'mx-auto max-w-xs text-secondary-text',
-            compact ? 'text-label' : 'text-xs',
+            'mx-auto max-w-xs text-muted-foreground',
+            'text-xs',
             descriptionClassName,
           )
         "
@@ -70,7 +69,10 @@ const titleTag = computed(() => props.titleAs);
         {{ description }}
       </p>
     </div>
-    <div v-if="$slots.action" class="flex items-center justify-center">
+    <div
+      v-if="$slots.action"
+      class="flex items-center justify-center"
+    >
       <slot name="action" />
     </div>
   </div>

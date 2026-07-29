@@ -22,29 +22,33 @@ const confirmationLabels: Record<string, string> = {
   insufficient_data: '数据不足',
 };
 
-watch(market, async (current) => {
-  const version = ++requestVersion;
-  item.value = null;
-  confirmations.value = {};
-  error.value = null;
-  loading.value = true;
-  const results = await Promise.allSettled([quantApi.portfolio(current)]);
-  if (version !== requestVersion) return;
-  if (results[0].status === 'fulfilled') item.value = results[0].value;
-  else error.value = getParsedApiError(results[0].reason);
-  if (item.value) {
-    const confirmationResults = await Promise.allSettled([
-      quantApi.confirmations(current, item.value.id),
-    ]);
+watch(
+  market,
+  async (current) => {
+    const version = ++requestVersion;
+    item.value = null;
+    confirmations.value = {};
+    error.value = null;
+    loading.value = true;
+    const results = await Promise.allSettled([quantApi.portfolio(current)]);
     if (version !== requestVersion) return;
-    if (confirmationResults[0].status === 'fulfilled') {
-      confirmations.value = Object.fromEntries(
-        confirmationResults[0].value.map((row) => [row.code, row]),
-      );
+    if (results[0].status === 'fulfilled') item.value = results[0].value;
+    else error.value = getParsedApiError(results[0].reason);
+    if (item.value) {
+      const confirmationResults = await Promise.allSettled([
+        quantApi.confirmations(current, item.value.id),
+      ]);
+      if (version !== requestVersion) return;
+      if (confirmationResults[0].status === 'fulfilled') {
+        confirmations.value = Object.fromEntries(
+          confirmationResults[0].value.map((row) => [row.code, row]),
+        );
+      }
     }
-  }
-  loading.value = false;
-}, { immediate: true });
+    loading.value = false;
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -53,7 +57,7 @@ watch(market, async (current) => {
       <h2 class="text-lg font-semibold">
         组合建议
       </h2>
-      <p class="text-xs text-muted-text">
+      <p class="text-xs text-muted-foreground">
         研究建议，不执行真实券商订单，也不保证收益。
       </p>
     </header>
@@ -63,26 +67,29 @@ watch(market, async (current) => {
     />
     <div
       v-if="loading"
-      class="py-12 text-center text-muted-text"
+      class="py-12 text-center text-muted-foreground"
     >
       加载中...
     </div>
     <template v-else-if="item">
       <section class="grid gap-3 sm:grid-cols-3">
         <div class="rounded-xl border border-border bg-card p-3">
-          <p class="text-xs text-muted-text">
+          <p class="text-xs text-muted-foreground">
             交易日
-          </p><p>{{ item.tradeDate }}</p>
+          </p>
+          <p>{{ item.tradeDate }}</p>
         </div>
         <div class="rounded-xl border border-border bg-card p-3">
-          <p class="text-xs text-muted-text">
+          <p class="text-xs text-muted-foreground">
             目标总仓位
-          </p><p>{{ formatPercent(item.targetEquityExposure) }}</p>
+          </p>
+          <p>{{ formatPercent(item.targetEquityExposure) }}</p>
         </div>
         <div class="rounded-xl border border-border bg-card p-3">
-          <p class="text-xs text-muted-text">
+          <p class="text-xs text-muted-foreground">
             最大总仓位
-          </p><p>{{ formatPercent(item.maxEquityExposure) }}</p>
+          </p>
+          <p>{{ formatPercent(item.maxEquityExposure) }}</p>
         </div>
       </section>
       <div
@@ -93,11 +100,19 @@ watch(market, async (current) => {
       </div>
       <div class="overflow-x-auto rounded-2xl border border-border bg-card">
         <table class="w-full text-sm">
-          <thead class="text-left text-xs text-muted-text">
+          <thead class="text-left text-xs text-muted-foreground">
             <tr>
               <th class="p-3">
                 股票
-              </th><th>行业</th><th>动作</th><th>当前权重</th><th>目标权重</th><th>变化</th><th>得分</th><th>预测收益</th><th>分钟确认</th>
+              </th>
+              <th>行业</th>
+              <th>动作</th>
+              <th>当前权重</th>
+              <th>目标权重</th>
+              <th>变化</th>
+              <th>得分</th>
+              <th>预测收益</th>
+              <th>分钟确认</th>
             </tr>
           </thead>
           <tbody>
@@ -108,13 +123,28 @@ watch(market, async (current) => {
             >
               <td class="p-3">
                 {{ row.code }}
-              </td><td>{{ row.sectorKey ?? '—' }}</td><td>{{ actionLabels[row.action] ?? row.action }}</td><td>{{ formatPercent(row.currentWeight) }}</td><td>{{ formatPercent(row.targetWeight) }}</td><td>{{ formatPercent(row.weightChange) }}</td><td>{{ formatScore(row.finalScore) }}</td><td>{{ formatPredictedReturn(row.predictedReturn) }}</td>
+              </td>
+              <td>{{ row.sectorKey ?? '—' }}</td>
+              <td>{{ actionLabels[row.action] ?? row.action }}</td>
+              <td>{{ formatPercent(row.currentWeight) }}</td>
+              <td>{{ formatPercent(row.targetWeight) }}</td>
+              <td>{{ formatPercent(row.weightChange) }}</td>
+              <td>{{ formatScore(row.finalScore) }}</td>
+              <td>{{ formatPredictedReturn(row.predictedReturn) }}</td>
               <td>
-                <span>{{ confirmationLabels[confirmations[row.code]?.decision] ?? '等待确认' }}</span><details
+                <span>{{
+                  confirmationLabels[confirmations[row.code]?.decision] ?? '等待确认'
+                }}</span>
+                <details
                   v-if="confirmations[row.code]"
-                  class="text-xs text-muted-text"
+                  class="text-xs text-muted-foreground"
                 >
-                  <summary>确认详情</summary><p>价格 {{ formatScore(confirmations[row.code].price) }} / VWAP {{ formatScore(confirmations[row.code].vwap) }}</p><p>{{ confirmations[row.code].reasons.join('；') }}</p>
+                  <summary>确认详情</summary>
+                  <p>
+                    价格 {{ formatScore(confirmations[row.code].price) }} / VWAP
+                    {{ formatScore(confirmations[row.code].vwap) }}
+                  </p>
+                  <p>{{ confirmations[row.code].reasons.join('；') }}</p>
                 </details>
               </td>
             </tr>

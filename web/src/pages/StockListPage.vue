@@ -86,7 +86,9 @@ const filteredPositions = computed(() =>
   ),
 );
 const equityPositions = computed(() =>
-  filteredPositions.value.filter((item) => item.asset_type === 'STOCK' || item.asset_type === 'ETF'),
+  filteredPositions.value.filter(
+    (item) => item.asset_type === 'STOCK' || item.asset_type === 'ETF',
+  ),
 );
 const optionPositions = computed(() =>
   filteredPositions.value.filter((item) => item.asset_type === 'OPTION'),
@@ -142,7 +144,9 @@ function toDatetimeLocal(value: string | null): string {
   if (!value) return '';
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '';
-  return new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  return new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
 }
 
 function toIso(value: string): string | null {
@@ -274,7 +278,8 @@ async function savePosition(): Promise<void> {
       const rawQuantity = position.asset_type === 'OPTION' ? optionContracts.value : quantity.value;
       if (
         (position.asset_type === 'OPTION' && !POSITIVE_INTEGER_PATTERN.test(rawQuantity)) ||
-        (position.asset_type !== 'OPTION' && (!validNonNegativeDecimal(rawQuantity) || Number(rawQuantity) <= 0))
+        (position.asset_type !== 'OPTION' &&
+          (!validNonNegativeDecimal(rawQuantity) || Number(rawQuantity) <= 0))
       ) {
         formError.value = position.asset_type === 'OPTION' ? '张数必须为正整数' : '数量必须大于 0';
         return;
@@ -319,7 +324,8 @@ async function savePosition(): Promise<void> {
       if (!expirationDate.value) formError.value = '请选择到期日';
       else if (!validNonNegativeDecimal(strikePrice.value) || Number(strikePrice.value) <= 0)
         formError.value = '行权价必须大于 0';
-      else if (!POSITIVE_INTEGER_PATTERN.test(optionContracts.value)) formError.value = '张数必须为正整数';
+      else if (!POSITIVE_INTEGER_PATTERN.test(optionContracts.value))
+        formError.value = '张数必须为正整数';
       if (formError.value) return;
       const signedQuantity =
         optionDirection.value === 'SHORT' ? `-${optionContracts.value}` : optionContracts.value;
@@ -398,7 +404,10 @@ async function confirmDelete(): Promise<void> {
   }
 }
 
-async function markStatus(position: PortfolioPosition, status: 'CLOSED' | 'EXPIRED'): Promise<void> {
+async function markStatus(
+  position: PortfolioPosition,
+  status: 'CLOSED' | 'EXPIRED',
+): Promise<void> {
   try {
     await portfolioApi.updatePosition(position.id, { status });
     await loadPositions();
@@ -417,20 +426,22 @@ function dteLabel(position: PortfolioPosition): string {
 
 function dteClass(position: PortfolioPosition): string {
   const dte = position.option?.days_to_expiration;
-  if (dte === undefined || dte > 7) return 'text-secondary-text';
+  if (dte === undefined || dte > 7) return 'text-muted-foreground';
   if (dte >= 1) return 'text-amber-500';
   return 'text-red-500';
 }
 
 watch(selectedAccountCode, () => {
-  if (selectedAccountCode.value !== 'US' && assetFilter.value === 'OPTION') assetFilter.value = 'ALL';
+  if (selectedAccountCode.value !== 'US' && assetFilter.value === 'OPTION')
+    assetFilter.value = 'ALL';
 });
 
 onMounted(async () => {
   loading.value = true;
   try {
     accounts.value = (await portfolioApi.listAccounts()).sort(
-      (left, right) => ACCOUNT_ORDER.indexOf(left.account_code) - ACCOUNT_ORDER.indexOf(right.account_code),
+      (left, right) =>
+        ACCOUNT_ORDER.indexOf(left.account_code) - ACCOUNT_ORDER.indexOf(right.account_code),
     );
     const queryAccount = String(route.query.account ?? '').toUpperCase();
     selectedAccountCode.value = ACCOUNT_ORDER.includes(queryAccount as PortfolioMarket)
@@ -446,14 +457,21 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="space-y-5" data-testid="portfolio-page">
+  <div
+    class="space-y-5"
+    data-testid="portfolio-page"
+  >
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <div class="flex items-center gap-2">
-          <BriefcaseBusiness class="h-5 w-5 text-cyan" />
-          <h2 class="text-xl font-semibold text-foreground">投资组合</h2>
+          <BriefcaseBusiness class="h-5 w-5 text-primary" />
+          <h2 class="text-xl font-semibold text-foreground">
+            投资组合
+          </h2>
         </div>
-        <p class="mt-1 text-sm text-secondary-text">按市场管理固定账户的现金、股票、ETF 与美股期权记录。</p>
+        <p class="mt-1 text-sm text-muted-foreground">
+          按市场管理固定账户的现金、股票、ETF 与美股期权记录。
+        </p>
       </div>
       <div class="flex flex-wrap gap-2">
         <Button
@@ -466,9 +484,16 @@ onMounted(async () => {
       </div>
     </div>
 
-    <ApiErrorAlert v-if="error" :error="error" @dismiss="error = null" />
+    <ApiErrorAlert
+      v-if="error"
+      :error="error"
+      @dismiss="error = null"
+    />
 
-    <div class="grid grid-cols-3 gap-1 rounded-2xl border border-border/70 bg-card p-1" role="tablist">
+    <div
+      class="grid grid-cols-3 gap-1 rounded-2xl border border-border/70 bg-card p-1"
+      role="tablist"
+    >
       <button
         v-for="account in accounts"
         :key="account.account_code"
@@ -477,40 +502,85 @@ onMounted(async () => {
         :aria-selected="selectedAccountCode === account.account_code"
         :data-account-code="account.account_code"
         class="rounded-xl px-3 py-2 text-sm font-medium transition-colors"
-        :class="selectedAccountCode === account.account_code ? 'bg-primary/15 text-cyan' : 'text-secondary-text hover:bg-hover'"
+        :class="
+          selectedAccountCode === account.account_code
+            ? 'bg-primary/15 text-primary'
+            : 'text-muted-foreground hover:bg-muted'
+        "
         @click="selectAccount(account.account_code)"
       >
         {{ account.name }}
       </button>
     </div>
 
-    <section v-if="selectedAccount" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="账户汇总">
+    <section
+      v-if="selectedAccount"
+      class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
+      aria-label="账户汇总"
+    >
       <div class="rounded-2xl border border-border/70 bg-card p-4">
-        <p class="text-xs text-secondary-text">现金余额 · {{ selectedAccount.currency }}</p>
+        <p class="text-xs text-muted-foreground">
+          现金余额 · {{ selectedAccount.currency }}
+        </p>
         <div class="mt-2 flex items-center gap-2">
-          <input v-model="cashInput" class="input-surface min-w-0 flex-1 rounded-lg px-2 py-1.5 text-sm" aria-label="现金余额" />
-          <Button size="xs" :loading="cashSaving" @click="saveCash">保存</Button>
+          <input
+            v-model="cashInput"
+            class="border-input bg-background shadow-xs min-w-0 flex-1 rounded-lg px-2 py-1.5 text-sm"
+            aria-label="现金余额"
+          />
+          <Button
+            size="xs"
+            :loading="cashSaving"
+            @click="saveCash"
+          >
+            保存
+          </Button>
         </div>
       </div>
       <div class="rounded-2xl border border-border/70 bg-card p-4">
-        <p class="text-xs text-secondary-text">股票/ETF 持仓成本</p>
-        <p class="mt-2 text-lg font-semibold">{{ amount(equityCost) }}</p>
+        <p class="text-xs text-muted-foreground">
+          股票/ETF 持仓成本
+        </p>
+        <p class="mt-2 text-lg font-semibold">
+          {{ amount(equityCost) }}
+        </p>
       </div>
       <div class="rounded-2xl border border-border/70 bg-card p-4">
-        <p class="text-xs text-secondary-text">股票/ETF 实时市值</p>
-        <p class="mt-2 text-lg font-semibold">{{ amount(equityMarketValue) }}</p>
-        <p v-if="hasUnpricedEquity" class="mt-1 text-xs text-amber-500">存在未定价股票/ETF</p>
+        <p class="text-xs text-muted-foreground">
+          股票/ETF 实时市值
+        </p>
+        <p class="mt-2 text-lg font-semibold">
+          {{ amount(equityMarketValue) }}
+        </p>
+        <p
+          v-if="hasUnpricedEquity"
+          class="mt-1 text-xs text-amber-500"
+        >
+          存在未定价股票/ETF
+        </p>
       </div>
       <div class="rounded-2xl border border-border/70 bg-card p-4">
-        <p class="text-xs text-secondary-text">股票/ETF 未实现盈亏</p>
-        <p class="mt-2 text-lg font-semibold" :class="unrealizedPnl !== null && unrealizedPnl < 0 ? 'text-emerald-500' : 'text-red-500'">
+        <p class="text-xs text-muted-foreground">
+          股票/ETF 未实现盈亏
+        </p>
+        <p
+          class="mt-2 text-lg font-semibold"
+          :class="unrealizedPnl !== null && unrealizedPnl < 0 ? 'text-emerald-500' : 'text-red-500'"
+        >
           {{ amount(unrealizedPnl) }}
         </p>
       </div>
       <div class="rounded-2xl border border-border/70 bg-card p-4">
-        <p class="text-xs text-secondary-text">可定价资产 · 不含期权</p>
-        <p class="mt-2 text-lg font-semibold">{{ amount(pricedAssets) }}</p>
-        <p v-if="selectedAccountCode === 'US'" class="mt-1 text-xs text-secondary-text">
+        <p class="text-xs text-muted-foreground">
+          可定价资产 · 不含期权
+        </p>
+        <p class="mt-2 text-lg font-semibold">
+          {{ amount(pricedAssets) }}
+        </p>
+        <p
+          v-if="selectedAccountCode === 'US'"
+          class="mt-1 text-xs text-muted-foreground"
+        >
           期权 {{ openOptions.length }} 笔 · 成本 {{ amount(optionCost) }}
         </p>
       </div>
@@ -522,53 +592,339 @@ onMounted(async () => {
         :key="option.value"
         type="button"
         class="rounded-full border px-3 py-1.5 text-xs font-medium"
-        :class="assetFilter === option.value ? 'border-cyan/40 bg-cyan/10 text-cyan' : 'border-border text-secondary-text'"
+        :class="
+          assetFilter === option.value
+            ? 'border-primary/40 bg-primary/10 text-primary'
+            : 'border-border text-muted-foreground'
+        "
         @click="assetFilter = option.value"
       >
         {{ option.label }}
       </button>
-      <AppSelect :model-value="statusFilter" class="ml-auto min-w-32" :options="[{ value: 'OPEN', label: '持有中' }, { value: 'CLOSED', label: '已平仓' }, { value: 'EXPIRED', label: '已失效' }, { value: 'ALL', label: '全部状态' }]" @update:model-value="statusFilter = $event as PositionStatus | 'ALL'" />
+      <AppSelect
+        :model-value="statusFilter"
+        class="ml-auto min-w-32"
+        :options="[
+          { value: 'OPEN', label: '持有中' },
+          { value: 'CLOSED', label: '已平仓' },
+          { value: 'EXPIRED', label: '已失效' },
+          { value: 'ALL', label: '全部状态' },
+        ]"
+        @update:model-value="statusFilter = $event as PositionStatus | 'ALL'"
+      />
     </div>
 
-    <div v-if="loading" class="rounded-2xl border border-border/70 bg-card p-10 text-center text-secondary-text">加载中...</div>
+    <div
+      v-if="loading"
+      class="rounded-2xl border border-border/70 bg-card p-10 text-center text-muted-foreground"
+    >
+      加载中...
+    </div>
     <template v-else>
-      <section v-if="equityPositions.length" data-testid="equity-section">
+      <section
+        v-if="equityPositions.length"
+        data-testid="equity-section"
+      >
         <div class="hidden overflow-hidden rounded-2xl border border-border/70 bg-card md:block">
           <table class="w-full text-sm">
-            <thead class="bg-muted/40 text-left text-xs text-secondary-text">
-              <tr><th class="p-3">标的</th><th>类型</th><th>数量</th><th>最新价格</th><th>平均成本</th><th>成本金额</th><th>持仓市值</th><th>未实现盈亏</th><th>操作</th></tr>
+            <thead class="bg-muted/40 text-left text-xs text-muted-foreground">
+              <tr>
+                <th class="p-3">
+                  标的
+                </th>
+                <th>类型</th>
+                <th>数量</th>
+                <th>最新价格</th>
+                <th>平均成本</th>
+                <th>成本金额</th>
+                <th>持仓市值</th>
+                <th>未实现盈亏</th>
+                <th>操作</th>
+              </tr>
             </thead>
             <tbody class="divide-y divide-border/60">
-              <tr v-for="position in equityPositions" :key="position.id">
-                <td class="p-3"><p class="font-medium">{{ position.display_symbol }}</p><p class="text-xs text-secondary-text">{{ position.name || '—' }}</p></td>
+              <tr
+                v-for="position in equityPositions"
+                :key="position.id"
+              >
+                <td class="p-3">
+                  <p class="font-medium">
+                    {{ position.display_symbol }}
+                  </p>
+                  <p class="text-xs text-muted-foreground">
+                    {{ position.name || '—' }}
+                  </p>
+                </td>
                 <td>{{ position.asset_type === 'ETF' ? 'ETF' : '股票' }}</td>
                 <td>{{ formatDecimalText(position.quantity) }} 股</td>
                 <td>{{ quotePrice(position) === null ? '—' : amount(quotePrice(position)) }}</td>
-                <td>{{ amount(position.avg_cost) }}</td><td>{{ amount(position.cost_amount) }}</td>
-                <td>{{ amount(positionMarketValue(position)) }}</td><td>{{ amount(positionPnl(position)) }}</td>
-                <td><div class="flex gap-1"><Button variant="ghost" size="xs" aria-label="编辑持仓" @click="openEdit(position)"><Pencil class="h-3.5 w-3.5" /></Button><Button variant="destructive" size="xs" aria-label="删除持仓" @click="deletingPosition = position"><Trash2 class="h-3.5 w-3.5" /></Button></div></td>
+                <td>{{ amount(position.avg_cost) }}</td>
+                <td>{{ amount(position.cost_amount) }}</td>
+                <td>{{ amount(positionMarketValue(position)) }}</td>
+                <td>{{ amount(positionPnl(position)) }}</td>
+                <td>
+                  <div class="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      aria-label="编辑持仓"
+                      @click="openEdit(position)"
+                    >
+                      <Pencil class="h-3.5 w-3.5" />
+                    </Button><Button
+                      variant="destructive"
+                      size="xs"
+                      aria-label="删除持仓"
+                      @click="deletingPosition = position"
+                    >
+                      <Trash2 class="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
         <div class="grid gap-3 md:hidden">
-          <article v-for="position in equityPositions" :key="position.id" class="rounded-2xl border border-border/70 bg-card p-4">
-            <div class="flex justify-between"><div><p class="font-semibold">{{ position.display_symbol }} · {{ position.name }}</p><p class="text-xs text-cyan">{{ position.asset_type }}</p></div><div class="flex gap-1"><button aria-label="编辑持仓" @click="openEdit(position)"><Pencil class="h-4 w-4" /></button><button aria-label="删除持仓" @click="deletingPosition = position"><Trash2 class="h-4 w-4 text-red-500" /></button></div></div>
-            <dl class="mt-3 grid grid-cols-2 gap-2 text-sm"><div><dt class="text-xs text-secondary-text">数量</dt><dd>{{ formatDecimalText(position.quantity) }} 股</dd></div><div><dt class="text-xs text-secondary-text">最新价格</dt><dd>{{ amount(quotePrice(position)) }}</dd></div><div><dt class="text-xs text-secondary-text">市值</dt><dd>{{ amount(positionMarketValue(position)) }}</dd></div><div><dt class="text-xs text-secondary-text">未实现盈亏</dt><dd>{{ amount(positionPnl(position)) }}</dd></div></dl>
+          <article
+            v-for="position in equityPositions"
+            :key="position.id"
+            class="rounded-2xl border border-border/70 bg-card p-4"
+          >
+            <div class="flex justify-between">
+              <div>
+                <p class="font-semibold">
+                  {{ position.display_symbol }} · {{ position.name }}
+                </p>
+                <p class="text-xs text-primary">
+                  {{ position.asset_type }}
+                </p>
+              </div>
+              <div class="flex gap-1">
+                <button
+                  aria-label="编辑持仓"
+                  @click="openEdit(position)"
+                >
+                  <Pencil class="h-4 w-4" />
+                </button><button
+                  aria-label="删除持仓"
+                  @click="deletingPosition = position"
+                >
+                  <Trash2 class="h-4 w-4 text-red-500" />
+                </button>
+              </div>
+            </div>
+            <dl class="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  数量
+                </dt>
+                <dd>{{ formatDecimalText(position.quantity) }} 股</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  最新价格
+                </dt>
+                <dd>{{ amount(quotePrice(position)) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  市值
+                </dt>
+                <dd>{{ amount(positionMarketValue(position)) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  未实现盈亏
+                </dt>
+                <dd>{{ amount(positionPnl(position)) }}</dd>
+              </div>
+            </dl>
           </article>
         </div>
       </section>
 
-      <section v-if="selectedAccountCode === 'US' && optionPositions.length" data-testid="option-section" class="space-y-3">
-        <p class="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-500">期权仅作手工持仓记录，不提供实时价格、市值或盈亏。</p>
+      <section
+        v-if="selectedAccountCode === 'US' && optionPositions.length"
+        data-testid="option-section"
+        class="space-y-3"
+      >
+        <p class="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-500">
+          期权仅作手工持仓记录，不提供实时价格、市值或盈亏。
+        </p>
         <div class="hidden overflow-hidden rounded-2xl border border-border/70 bg-card md:block">
-          <table class="w-full text-sm"><thead class="bg-muted/40 text-left text-xs text-secondary-text"><tr><th class="p-3">标的</th><th>方向</th><th>Call/Put</th><th>行权价</th><th>到期日 / DTE</th><th>张数</th><th>平均成本</th><th>乘数</th><th>成本金额</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody class="divide-y divide-border/60"><tr v-for="position in optionPositions" :key="position.id"><td class="p-3">{{ position.option?.underlying_display_symbol }}</td><td>{{ position.position_side === 'LONG' ? '多头' : '空头' }}</td><td>{{ position.option?.option_type === 'CALL' ? 'Call' : 'Put' }}</td><td>{{ amount(position.option?.strike_price ?? null) }}</td><td>{{ position.option?.expiration_date }}<p :class="dteClass(position)" class="text-xs">{{ dteLabel(position) }}</p></td><td>{{ formatDecimalText(position.quantity.replace('-', '')) }} 张</td><td>{{ amount(position.avg_cost) }}</td><td>{{ formatDecimalText(position.contract_multiplier) }}</td><td>{{ amount(position.cost_amount) }}</td><td>{{ position.status }}</td><td><div class="flex gap-1"><Button v-if="position.option?.expiration_action_required" variant="ghost" size="xs" @click="markStatus(position, 'CLOSED')">标记已平仓</Button><Button v-if="position.option?.expiration_action_required" variant="ghost" size="xs" @click="markStatus(position, 'EXPIRED')">标记失效</Button><Button variant="ghost" size="xs" aria-label="编辑期权" @click="openEdit(position)"><Pencil class="h-3.5 w-3.5" /></Button><Button variant="destructive" size="xs" aria-label="删除期权" @click="deletingPosition = position"><Trash2 class="h-3.5 w-3.5" /></Button></div></td></tr></tbody>
+          <table class="w-full text-sm">
+            <thead class="bg-muted/40 text-left text-xs text-muted-foreground">
+              <tr>
+                <th class="p-3">
+                  标的
+                </th>
+                <th>方向</th>
+                <th>Call/Put</th>
+                <th>行权价</th>
+                <th>到期日 / DTE</th>
+                <th>张数</th>
+                <th>平均成本</th>
+                <th>乘数</th>
+                <th>成本金额</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-border/60">
+              <tr
+                v-for="position in optionPositions"
+                :key="position.id"
+              >
+                <td class="p-3">
+                  {{ position.option?.underlying_display_symbol }}
+                </td>
+                <td>{{ position.position_side === 'LONG' ? '多头' : '空头' }}</td>
+                <td>{{ position.option?.option_type === 'CALL' ? 'Call' : 'Put' }}</td>
+                <td>{{ amount(position.option?.strike_price ?? null) }}</td>
+                <td>
+                  {{ position.option?.expiration_date }}
+                  <p
+                    :class="dteClass(position)"
+                    class="text-xs"
+                  >
+                    {{ dteLabel(position) }}
+                  </p>
+                </td>
+                <td>{{ formatDecimalText(position.quantity.replace('-', '')) }} 张</td>
+                <td>{{ amount(position.avg_cost) }}</td>
+                <td>{{ formatDecimalText(position.contract_multiplier) }}</td>
+                <td>{{ amount(position.cost_amount) }}</td>
+                <td>{{ position.status }}</td>
+                <td>
+                  <div class="flex gap-1">
+                    <Button
+                      v-if="position.option?.expiration_action_required"
+                      variant="ghost"
+                      size="xs"
+                      @click="markStatus(position, 'CLOSED')"
+                    >
+                      标记已平仓
+                    </Button><Button
+                      v-if="position.option?.expiration_action_required"
+                      variant="ghost"
+                      size="xs"
+                      @click="markStatus(position, 'EXPIRED')"
+                    >
+                      标记失效
+                    </Button><Button
+                      variant="ghost"
+                      size="xs"
+                      aria-label="编辑期权"
+                      @click="openEdit(position)"
+                    >
+                      <Pencil class="h-3.5 w-3.5" />
+                    </Button><Button
+                      variant="destructive"
+                      size="xs"
+                      aria-label="删除期权"
+                      @click="deletingPosition = position"
+                    >
+                      <Trash2 class="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
           </table>
         </div>
-        <div class="grid gap-3 md:hidden"><article v-for="position in optionPositions" :key="position.id" class="rounded-2xl border border-border/70 bg-card p-4"><div class="flex justify-between"><div><p class="font-semibold">{{ position.option?.underlying_display_symbol }}</p><p class="text-xs text-amber-500">{{ position.position_side === 'LONG' ? '多头' : '空头' }} · {{ position.option?.option_type }}</p></div><div class="flex gap-2"><button aria-label="编辑期权" @click="openEdit(position)"><Pencil class="h-4 w-4" /></button><button aria-label="删除期权" @click="deletingPosition = position"><Trash2 class="h-4 w-4 text-red-500" /></button></div></div><dl class="mt-3 grid grid-cols-2 gap-2 text-sm"><div><dt class="text-xs text-secondary-text">行权价</dt><dd>{{ amount(position.option?.strike_price ?? null) }}</dd></div><div><dt class="text-xs text-secondary-text">到期日 / DTE</dt><dd>{{ position.option?.expiration_date }} · <span :class="dteClass(position)">{{ dteLabel(position) }}</span></dd></div><div><dt class="text-xs text-secondary-text">张数</dt><dd>{{ formatDecimalText(position.quantity.replace('-', '')) }}</dd></div><div><dt class="text-xs text-secondary-text">成本金额</dt><dd>{{ amount(position.cost_amount) }}</dd></div><div><dt class="text-xs text-secondary-text">状态</dt><dd>{{ position.status }}</dd></div></dl><div v-if="position.option?.expiration_action_required" class="mt-3 flex gap-2"><Button size="xs" variant="secondary" @click="markStatus(position, 'CLOSED')">标记已平仓</Button><Button size="xs" variant="destructive" @click="markStatus(position, 'EXPIRED')">标记到期失效</Button></div></article></div>
+        <div class="grid gap-3 md:hidden">
+          <article
+            v-for="position in optionPositions"
+            :key="position.id"
+            class="rounded-2xl border border-border/70 bg-card p-4"
+          >
+            <div class="flex justify-between">
+              <div>
+                <p class="font-semibold">
+                  {{ position.option?.underlying_display_symbol }}
+                </p>
+                <p class="text-xs text-amber-500">
+                  {{ position.position_side === 'LONG' ? '多头' : '空头' }} ·
+                  {{ position.option?.option_type }}
+                </p>
+              </div>
+              <div class="flex gap-2">
+                <button
+                  aria-label="编辑期权"
+                  @click="openEdit(position)"
+                >
+                  <Pencil class="h-4 w-4" />
+                </button><button
+                  aria-label="删除期权"
+                  @click="deletingPosition = position"
+                >
+                  <Trash2 class="h-4 w-4 text-red-500" />
+                </button>
+              </div>
+            </div>
+            <dl class="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  行权价
+                </dt>
+                <dd>{{ amount(position.option?.strike_price ?? null) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  到期日 / DTE
+                </dt>
+                <dd>
+                  {{ position.option?.expiration_date }} ·
+                  <span :class="dteClass(position)">{{ dteLabel(position) }}</span>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  张数
+                </dt>
+                <dd>{{ formatDecimalText(position.quantity.replace('-', '')) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  成本金额
+                </dt>
+                <dd>{{ amount(position.cost_amount) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  状态
+                </dt>
+                <dd>{{ position.status }}</dd>
+              </div>
+            </dl>
+            <div
+              v-if="position.option?.expiration_action_required"
+              class="mt-3 flex gap-2"
+            >
+              <Button
+                size="xs"
+                variant="secondary"
+                @click="markStatus(position, 'CLOSED')"
+              >
+                标记已平仓
+              </Button><Button
+                size="xs"
+                variant="destructive"
+                @click="markStatus(position, 'EXPIRED')"
+              >
+                标记到期失效
+              </Button>
+            </div>
+          </article>
+        </div>
       </section>
-      <div v-if="!filteredPositions.length" class="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-secondary-text">当前筛选下暂无持仓记录。</div>
+      <div
+        v-if="!filteredPositions.length"
+        class="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground"
+      >
+        当前筛选下暂无持仓记录。
+      </div>
     </template>
 
     <Dialog
@@ -627,44 +983,143 @@ onMounted(async () => {
               </label>
             </div>
           </fieldset>
-          <label class="block text-sm font-medium">{{ createAssetType === 'OPTION' ? '期权标的' : '标的' }}</label>
+          <label class="block text-sm font-medium">{{
+            createAssetType === 'OPTION' ? '期权标的' : '标的'
+          }}</label>
           <StockAutocomplete
             :model-value="stockQuery"
             :placeholder="`搜索${selectedAccount?.name ?? ''}标的`"
             @update:model-value="handleAutocompleteInput"
             @submit="handleAutocomplete"
           />
-          <p v-if="selectedSecurity" class="text-xs text-cyan">
+          <p
+            v-if="selectedSecurity"
+            class="text-xs text-primary"
+          >
             已选择 {{ selectedSecurity.canonicalCode }} ·
             {{ createAssetType === 'OPTION' ? optionUnderlyingType : createAssetType }}
           </p>
         </template>
         <template v-if="dialogMode === 'create' && createAssetType === 'OPTION'">
-          <div class="grid gap-3 sm:grid-cols-2"><AppSelect v-model="optionType" label="Call / Put" :options="[{ value: 'CALL', label: 'Call' }, { value: 'PUT', label: 'Put' }]" /><AppDatePicker v-model="expirationDate" label="到期日" /></div>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <AppSelect
+              v-model="optionType"
+              label="Call / Put"
+              :options="[
+                { value: 'CALL', label: 'Call' },
+                { value: 'PUT', label: 'Put' },
+              ]"
+            /><AppDatePicker
+              v-model="expirationDate"
+              label="到期日"
+            />
+          </div>
           <div class="grid grid-cols-2 items-end gap-3">
             <Input
               v-model="strikePrice"
               label="行权价"
               inputmode="decimal"
             />
-            <p class="rounded-xl border border-border/70 bg-muted/30 px-3 py-2 text-sm text-secondary-text">
+            <p
+              class="rounded-xl border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+            >
               合约乘数：100
             </p>
           </div>
-          <div class="grid gap-3 sm:grid-cols-2"><Input v-model="optionContracts" label="张数" inputmode="numeric" /><AppSelect :model-value="optionDirection" label="持仓方向" :options="[{ value: 'LONG', label: '多头' }, { value: 'SHORT', label: '空头' }]" @update:model-value="optionDirection = $event as PositionDirection" /></div>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <Input
+              v-model="optionContracts"
+              label="张数"
+              inputmode="numeric"
+            /><AppSelect
+              :model-value="optionDirection"
+              label="持仓方向"
+              :options="[
+                { value: 'LONG', label: '多头' },
+                { value: 'SHORT', label: '空头' },
+              ]"
+              @update:model-value="optionDirection = $event as PositionDirection"
+            />
+          </div>
         </template>
         <template v-else-if="dialogMode === 'edit' && editingPosition?.asset_type === 'OPTION'">
-          <div class="grid gap-3 sm:grid-cols-2"><Input v-model="optionContracts" label="张数" inputmode="numeric" /><AppSelect :model-value="optionDirection" label="持仓方向" :options="[{ value: 'LONG', label: '多头' }, { value: 'SHORT', label: '空头' }]" @update:model-value="optionDirection = $event as PositionDirection" /></div>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <Input
+              v-model="optionContracts"
+              label="张数"
+              inputmode="numeric"
+            /><AppSelect
+              :model-value="optionDirection"
+              label="持仓方向"
+              :options="[
+                { value: 'LONG', label: '多头' },
+                { value: 'SHORT', label: '空头' },
+              ]"
+              @update:model-value="optionDirection = $event as PositionDirection"
+            />
+          </div>
         </template>
-        <Input v-else v-model="quantity" label="数量" inputmode="decimal" />
-        <Input v-model="avgCost" label="平均成本" inputmode="decimal" />
-        <AppDateTimePicker v-model="openedAt" label="建仓时间" />
-        <AppSelect v-if="dialogMode === 'edit'" :model-value="editStatus" label="状态" :options="[{ value: 'OPEN', label: 'OPEN' }, { value: 'CLOSED', label: 'CLOSED' }, ...(editingPosition?.asset_type === 'OPTION' ? [{ value: 'EXPIRED', label: 'EXPIRED' }] : [])]" @update:model-value="editStatus = $event as PositionStatus" />
-        <label class="grid gap-2 text-sm">备注<Textarea v-model="notes" class="min-h-20" /></label>
-        <p v-if="formError" class="text-sm text-red-500">{{ formError }}</p>
-        <div class="flex justify-end gap-2"><Button variant="secondary" @click="closeDialog">取消</Button><Button type="submit" :loading="saving">保存</Button></div>
+        <Input
+          v-else
+          v-model="quantity"
+          label="数量"
+          inputmode="decimal"
+        />
+        <Input
+          v-model="avgCost"
+          label="平均成本"
+          inputmode="decimal"
+        />
+        <AppDateTimePicker
+          v-model="openedAt"
+          label="建仓时间"
+        />
+        <AppSelect
+          v-if="dialogMode === 'edit'"
+          :model-value="editStatus"
+          label="状态"
+          :options="[
+            { value: 'OPEN', label: 'OPEN' },
+            { value: 'CLOSED', label: 'CLOSED' },
+            ...(editingPosition?.asset_type === 'OPTION'
+              ? [{ value: 'EXPIRED', label: 'EXPIRED' }]
+              : []),
+          ]"
+          @update:model-value="editStatus = $event as PositionStatus"
+        />
+        <label class="grid gap-2 text-sm">备注<Textarea
+          v-model="notes"
+          class="min-h-20"
+        /></label>
+        <p
+          v-if="formError"
+          class="text-sm text-red-500"
+        >
+          {{ formError }}
+        </p>
+        <div class="flex justify-end gap-2">
+          <Button
+            variant="secondary"
+            @click="closeDialog"
+          >
+            取消
+          </Button><Button
+            type="submit"
+            :loading="saving"
+          >
+            保存
+          </Button>
+        </div>
       </form>
     </Dialog>
-    <ConfirmDialog :open="deletingPosition !== null" title="删除持仓记录" :description="`确认删除 ${deletingPosition?.display_symbol ?? ''}？此操作不可撤销。`" confirm-text="删除" destructive @update:open="deletingPosition = null" @confirm="confirmDelete" />
+    <ConfirmDialog
+      :open="deletingPosition !== null"
+      title="删除持仓记录"
+      :description="`确认删除 ${deletingPosition?.display_symbol ?? ''}？此操作不可撤销。`"
+      confirm-text="删除"
+      destructive
+      @update:open="deletingPosition = null"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>

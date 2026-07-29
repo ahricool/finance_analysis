@@ -20,6 +20,7 @@ const props = withDefaults(
   {
     position: 'item-aligned',
     align: 'center',
+    class: '',
   },
 )
 const emits = defineEmits<SelectContentEmits>()

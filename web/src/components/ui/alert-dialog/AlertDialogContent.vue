@@ -21,6 +21,7 @@ const props = withDefaults(
   }>(),
   {
     size: 'default',
+    class: '',
   },
 )
 const emits = defineEmits<AlertDialogContentEmits>()

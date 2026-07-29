@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import type { RealtimePatternState, RealtimeTrend } from '@/api/realtimeMarket';
-import { watchListApi, type MarketType, type WatchListItem, type WatchListItemCreate } from '@/api/watchList';
+import {
+  watchListApi,
+  type MarketType,
+  type WatchListItem,
+  type WatchListItemCreate,
+} from '@/api/watchList';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import Button from '@/components/app/AppButton.vue';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
@@ -90,7 +95,8 @@ const visibleItems = computed(() => {
 
   const direction = sortDirection.value === 'asc' ? 1 : -1;
   return [...filtered].sort(
-    (a, b) => compareSortValues(sortValue(a, activeSortKey), sortValue(b, activeSortKey)) * direction,
+    (a, b) =>
+      compareSortValues(sortValue(a, activeSortKey), sortValue(b, activeSortKey)) * direction,
   );
 });
 
@@ -111,10 +117,13 @@ function formatSignedQuoteNumber(value: number | null | undefined, suffix = ''):
 function movementClass(value: number | null | undefined): string {
   if (value && value > 0) return 'text-red-500';
   if (value && value < 0) return 'text-emerald-500';
-  return 'text-secondary-text';
+  return 'text-muted-foreground';
 }
 
-function sortValue(item: WatchListItem, key: WatchListSortKey): string | number | boolean | null | undefined {
+function sortValue(
+  item: WatchListItem,
+  key: WatchListSortKey,
+): string | number | boolean | null | undefined {
   const quote = getQuote(item.code, item.market_type);
   if (key === 'last_price') return quote?.last_price;
   if (key === 'change_amount') return quote?.change_amount;
@@ -122,7 +131,9 @@ function sortValue(item: WatchListItem, key: WatchListSortKey): string | number 
   if (key === 'trend') return trendSortValue(quote?.trend_1m);
   if (key === 'pattern') return patternSortValue(quote?.pattern_1m);
   if (key === 'zero_dte') {
-    return zeroDteStatusSortValue(calculateZeroDteStatus(quote, item.market_type, currentTime.value));
+    return zeroDteStatusSortValue(
+      calculateZeroDteStatus(quote, item.market_type, currentTime.value),
+    );
   }
   return item[key];
 }
@@ -138,7 +149,9 @@ function patternSortValue(pattern: RealtimePatternState | null | undefined): num
   const signal = pattern?.status === 'active' ? pattern.signal : null;
   if (!signal) return null;
   const stage = { forming: 1, warning: 2, confirmed: 3 }[signal.stage];
-  const direction = ['bullish_continuation', 'bearish_to_bullish', 'bullish_breakout'].includes(signal.direction)
+  const direction = ['bullish_continuation', 'bearish_to_bullish', 'bullish_breakout'].includes(
+    signal.direction,
+  )
     ? 1
     : ['bearish_continuation', 'bullish_to_bearish', 'bearish_breakout'].includes(signal.direction)
       ? -1
@@ -149,7 +162,9 @@ function patternSortValue(pattern: RealtimePatternState | null | undefined): num
 function normalizeSortValue(value: string | number | boolean | null | undefined): string | number {
   if (typeof value === 'boolean') return value ? 1 : 0;
   if (typeof value === 'number') return value;
-  return String(value ?? '').trim().toLocaleLowerCase();
+  return String(value ?? '')
+    .trim()
+    .toLocaleLowerCase();
 }
 
 function compareSortValues(
@@ -345,26 +360,47 @@ onMounted(loadList);
     <!-- Header -->
     <div class="mb-6 flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary-gradient text-[hsl(var(--primary-foreground))] shadow-soft-card">
+        <div
+          class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-[hsl(var(--primary-foreground))] shadow-sm"
+        >
           <Star class="h-5 w-5" />
         </div>
         <div>
-          <h1 class="text-lg font-semibold text-foreground">自选股</h1>
-          <p class="text-xs text-secondary-text">共 {{ total }} 只</p>
+          <h1 class="text-lg font-semibold text-foreground">
+            自选股
+          </h1>
+          <p class="text-xs text-muted-foreground">
+            共 {{ total }} 只
+          </p>
         </div>
       </div>
-      <Button variant="default" size="sm" @click="openCreate">
+      <Button
+        variant="default"
+        size="sm"
+        @click="openCreate"
+      >
         <Plus class="mr-1.5 h-4 w-4" />
         添加
       </Button>
     </div>
 
     <!-- Error -->
-    <ApiErrorAlert v-if="error" :error="error" class="mb-4" />
+    <ApiErrorAlert
+      v-if="error"
+      :error="error"
+      class="mb-4"
+    />
 
     <!-- Loading skeleton -->
-    <div v-if="loading" class="space-y-2">
-      <div v-for="n in 4" :key="n" class="h-14 animate-pulse rounded-xl bg-card" />
+    <div
+      v-if="loading"
+      class="space-y-2"
+    >
+      <div
+        v-for="n in 4"
+        :key="n"
+        class="h-14 animate-pulse rounded-xl bg-card"
+      />
     </div>
 
     <!-- Empty state -->
@@ -372,34 +408,104 @@ onMounted(loadList);
       v-else-if="!items.length"
       class="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border/60 py-16 text-center"
     >
-      <Eye class="h-10 w-10 text-secondary-text/40" />
-      <p class="text-sm text-secondary-text">暂无自选股，点击「添加」开始关注</p>
+      <Eye class="h-10 w-10 text-muted-foreground/40" />
+      <p class="text-sm text-muted-foreground">
+        暂无自选股，点击「添加」开始关注
+      </p>
     </div>
 
     <template v-else>
-      <div class="mb-3 rounded-2xl border border-border/70 bg-card/94 p-4 shadow-soft-card">
+      <div class="mb-3 rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <AppSelect v-model="selectedMarket" label="市场" class="min-w-[180px]" :options="marketFilterOptions" />
+          <AppSelect
+            v-model="selectedMarket"
+            label="市场"
+            class="min-w-[180px]"
+            :options="marketFilterOptions"
+          />
           <div class="flex items-center gap-3">
             <RealtimeStatus :status="realtimeStatus" />
-            <p class="whitespace-nowrap text-xs text-muted-text">显示 {{ visibleItems.length }} / {{ total }} 只</p>
+            <p class="whitespace-nowrap text-xs text-muted-foreground">
+              显示 {{ visibleItems.length }} / {{ total }} 只
+            </p>
           </div>
         </div>
       </div>
 
       <div class="grid gap-3 md:hidden">
-        <article v-for="item in visibleItems" :key="`mobile-${item.id}`" class="rounded-xl border bg-card p-4" @click="detailItem = item">
+        <article
+          v-for="item in visibleItems"
+          :key="`mobile-${item.id}`"
+          class="rounded-xl border bg-card p-4"
+          @click="detailItem = item"
+        >
           <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0"><p class="truncate font-medium">{{ item.name || item.code }}</p><p class="mt-0.5 font-mono text-xs text-primary">{{ item.code }} · {{ marketLabel(item.market_type) }}</p></div>
-            <button type="button" class="inline-flex size-10 items-center justify-center rounded-lg" :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'" @click.stop="toggleFavorite(item)"><Heart class="size-4" :class="item.is_favorite && 'fill-current text-destructive'" /></button>
+            <div class="min-w-0">
+              <p class="truncate font-medium">
+                {{ item.name || item.code }}
+              </p>
+              <p class="mt-0.5 font-mono text-xs text-primary">
+                {{ item.code }} · {{ marketLabel(item.market_type) }}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="inline-flex size-10 items-center justify-center rounded-lg"
+              :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
+              @click.stop="toggleFavorite(item)"
+            >
+              <Heart
+                class="size-4"
+                :class="item.is_favorite && 'fill-current text-destructive'"
+              />
+            </button>
           </div>
-          <div class="mt-4 grid grid-cols-2 gap-3 text-sm"><div><p class="text-xs text-muted-foreground">最新价</p><p class="mt-1 font-semibold tabular-nums">{{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}</p></div><div><p class="text-xs text-muted-foreground">今日涨跌</p><p class="mt-1 font-semibold tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)">{{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%') }}</p></div></div>
-          <div class="mt-4 flex justify-end gap-1"><Button variant="ghost" size="sm" @click.stop="openEdit(item)"><Pencil />编辑</Button><Button variant="ghost" size="sm" class="text-destructive" @click.stop="openDelete(item)"><Trash2 />删除</Button></div>
+          <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p class="text-xs text-muted-foreground">
+                最新价
+              </p>
+              <p class="mt-1 font-semibold tabular-nums">
+                {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
+              </p>
+            </div>
+            <div>
+              <p class="text-xs text-muted-foreground">
+                今日涨跌
+              </p>
+              <p
+                class="mt-1 font-semibold tabular-nums"
+                :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)"
+              >
+                {{
+                  formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%')
+                }}
+              </p>
+            </div>
+          </div>
+          <div class="mt-4 flex justify-end gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              @click.stop="openEdit(item)"
+            >
+              <Pencil />编辑
+            </Button><Button
+              variant="ghost"
+              size="sm"
+              class="text-destructive"
+              @click.stop="openDelete(item)"
+            >
+              <Trash2 />删除
+            </Button>
+          </div>
         </article>
       </div>
 
       <!-- Desktop table -->
-      <div class="hidden overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-soft-card md:block">
+      <div
+        class="hidden overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-sm md:block"
+      >
         <table class="w-full min-w-[1420px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[78px]" />
@@ -414,30 +520,90 @@ onMounted(loadList);
             <col class="w-[140px]" />
             <col class="w-[152px]" />
           </colgroup>
-          <thead class="border-b border-border/70 text-xs text-muted-text">
+          <thead class="border-b border-border/70 text-xs text-muted-foreground">
             <tr>
-              <SortableTableHeader label="关注" :active="sortKey === 'is_favorite'" :direction="sortDirection" @sort="toggleSort('is_favorite')" />
-              <SortableTableHeader label="代码" :active="sortKey === 'code'" :direction="sortDirection" @sort="toggleSort('code')" />
-              <SortableTableHeader label="名称" :active="sortKey === 'name'" :direction="sortDirection" @sort="toggleSort('name')" />
-              <SortableTableHeader label="市场" :active="sortKey === 'market_type'" :direction="sortDirection" @sort="toggleSort('market_type')" />
-              <SortableTableHeader label="最新价" align="right" :active="sortKey === 'last_price'" :direction="sortDirection" @sort="toggleSort('last_price')" />
-              <SortableTableHeader label="今日涨跌额" align="right" :active="sortKey === 'change_amount'" :direction="sortDirection" @sort="toggleSort('change_amount')" />
-              <SortableTableHeader label="今日涨跌幅" align="right" :active="sortKey === 'change_pct'" :direction="sortDirection" @sort="toggleSort('change_pct')" />
-              <SortableTableHeader label="趋势持续" :active="sortKey === 'trend'" :direction="sortDirection" @sort="toggleSort('trend')" />
-              <SortableTableHeader label="最近形态" :active="sortKey === 'pattern'" :direction="sortDirection" @sort="toggleSort('pattern')" />
-              <SortableTableHeader label="0DTE状态" :active="sortKey === 'zero_dte'" :direction="sortDirection" @sort="toggleSort('zero_dte')" />
-              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">操作</th>
+              <SortableTableHeader
+                label="关注"
+                :active="sortKey === 'is_favorite'"
+                :direction="sortDirection"
+                @sort="toggleSort('is_favorite')"
+              />
+              <SortableTableHeader
+                label="代码"
+                :active="sortKey === 'code'"
+                :direction="sortDirection"
+                @sort="toggleSort('code')"
+              />
+              <SortableTableHeader
+                label="名称"
+                :active="sortKey === 'name'"
+                :direction="sortDirection"
+                @sort="toggleSort('name')"
+              />
+              <SortableTableHeader
+                label="市场"
+                :active="sortKey === 'market_type'"
+                :direction="sortDirection"
+                @sort="toggleSort('market_type')"
+              />
+              <SortableTableHeader
+                label="最新价"
+                align="right"
+                :active="sortKey === 'last_price'"
+                :direction="sortDirection"
+                @sort="toggleSort('last_price')"
+              />
+              <SortableTableHeader
+                label="今日涨跌额"
+                align="right"
+                :active="sortKey === 'change_amount'"
+                :direction="sortDirection"
+                @sort="toggleSort('change_amount')"
+              />
+              <SortableTableHeader
+                label="今日涨跌幅"
+                align="right"
+                :active="sortKey === 'change_pct'"
+                :direction="sortDirection"
+                @sort="toggleSort('change_pct')"
+              />
+              <SortableTableHeader
+                label="趋势持续"
+                :active="sortKey === 'trend'"
+                :direction="sortDirection"
+                @sort="toggleSort('trend')"
+              />
+              <SortableTableHeader
+                label="最近形态"
+                :active="sortKey === 'pattern'"
+                :direction="sortDirection"
+                @sort="toggleSort('pattern')"
+              />
+              <SortableTableHeader
+                label="0DTE状态"
+                :active="sortKey === 'zero_dte'"
+                :direction="sortDirection"
+                @sort="toggleSort('zero_dte')"
+              />
+              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">
+                操作
+              </th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!visibleItems.length">
-              <td colspan="11" class="px-4 py-10 text-center text-muted-text">当前筛选下暂无自选股</td>
+              <td
+                colspan="11"
+                class="px-4 py-10 text-center text-muted-foreground"
+              >
+                当前筛选下暂无自选股
+              </td>
             </tr>
             <template v-else>
               <tr
                 v-for="item in visibleItems"
                 :key="item.id"
-                class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-hover/70 focus-visible:bg-hover/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
                 tabindex="0"
                 :aria-label="`查看 ${item.name || item.code} 详情`"
                 @click="detailItem = item"
@@ -451,43 +617,71 @@ onMounted(loadList);
                     :class="
                       item.is_favorite
                         ? 'text-red-500 hover:text-red-600'
-                        : 'text-secondary-text hover:text-red-500'
+                        : 'text-muted-foreground hover:text-red-500'
                     "
                     :disabled="togglingFavoriteId === item.id"
                     :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
                     :aria-pressed="item.is_favorite"
                     @click.stop="toggleFavorite(item)"
                   >
-                    <Heart class="h-4 w-4" :class="{ 'fill-current': item.is_favorite }" />
+                    <Heart
+                      class="h-4 w-4"
+                      :class="{ 'fill-current': item.is_favorite }"
+                    />
                   </button>
                 </td>
                 <td class="px-4 py-3">
-                  <button class="font-mono text-sm font-semibold text-primary hover:underline" @click.stop="detailItem = item">
+                  <button
+                    class="font-mono text-sm font-semibold text-primary hover:underline"
+                    @click.stop="detailItem = item"
+                  >
                     {{ item.code }}
                   </button>
                 </td>
                 <td class="truncate px-4 py-3 font-medium text-foreground">
-                  <button class="max-w-full truncate text-left hover:text-primary hover:underline" @click.stop="detailItem = item">{{ item.name || '—' }}</button>
+                  <button
+                    class="max-w-full truncate text-left hover:text-primary hover:underline"
+                    @click.stop="detailItem = item"
+                  >
+                    {{ item.name || '—' }}
+                  </button>
                 </td>
                 <td class="px-4 py-3">
-                  <span class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-secondary-text">
+                  <span
+                    class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                  >
                     {{ marketLabel(item.market_type) }}
                   </span>
                 </td>
-                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground">
+                <td
+                  class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground"
+                >
                   {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
                 </td>
-                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)">
-                  {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount) }}
+                <td
+                  class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
+                  :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)"
+                >
+                  {{
+                    formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount)
+                  }}
                 </td>
-                <td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums" :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)">
-                  {{ formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%') }}
+                <td
+                  class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
+                  :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)"
+                >
+                  {{
+                    formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%')
+                  }}
                 </td>
                 <td class="px-4 py-3">
                   <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
                 </td>
                 <td class="px-4 py-3">
-                  <PatternStatus :pattern="getQuote(item.code, item.market_type)?.pattern_1m" :now="currentTime" />
+                  <PatternStatus
+                    :pattern="getQuote(item.code, item.market_type)?.pattern_1m"
+                    :now="currentTime"
+                  />
                 </td>
                 <td class="px-4 py-3">
                   <ZeroDteStatus
@@ -499,14 +693,14 @@ onMounted(loadList);
                 <td class="px-4 py-3 text-right">
                   <div class="flex justify-end gap-1">
                     <button
-                      class="rounded-lg p-1.5 text-secondary-text hover:bg-hover hover:text-foreground"
+                      class="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                       aria-label="编辑"
                       @click.stop="openEdit(item)"
                     >
                       <Pencil class="h-4 w-4" />
                     </button>
                     <button
-                      class="rounded-lg p-1.5 text-secondary-text hover:bg-destructive/10 hover:text-destructive"
+                      class="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                       aria-label="删除"
                       @click.stop="openDelete(item)"
                     >
@@ -529,33 +723,67 @@ onMounted(loadList);
     />
 
     <!-- Add / Edit Dialog -->
-    <AppDialog :open="showDialog" :title="editingId !== null ? '编辑自选股' : '添加自选股'" class="max-w-md" @update:open="showDialog = $event">
-          <div class="space-y-4">
-            <div>
-              <label class="mb-1 block text-sm font-medium text-foreground">股票 *</label>
-              <StockAutocomplete
-                v-model="formStockQuery"
-                placeholder="搜索股票代码、名称或拼音"
-                :disabled="editingId !== null"
-                @submit="handleStockAutocompleteSubmit"
-              />
-            </div>
-            <AppSelect v-model="formMarketType" label="市场" :options="marketOptions" />
-            <div>
-              <label class="mb-1 block text-sm font-medium text-foreground">备注（可选）</label>
-              <Input v-model="formNotes" placeholder="备注信息" />
-            </div>
-            <p v-if="formError" class="text-sm text-destructive">{{ formError }}</p>
-          </div>
+    <AppDialog
+      :open="showDialog"
+      :title="editingId !== null ? '编辑自选股' : '添加自选股'"
+      class="max-w-md"
+      @update:open="showDialog = $event"
+    >
+      <div class="space-y-4">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-foreground">股票 *</label>
+          <StockAutocomplete
+            v-model="formStockQuery"
+            placeholder="搜索股票代码、名称或拼音"
+            :disabled="editingId !== null"
+            @submit="handleStockAutocompleteSubmit"
+          />
+        </div>
+        <AppSelect
+          v-model="formMarketType"
+          label="市场"
+          :options="marketOptions"
+        />
+        <div>
+          <label class="mb-1 block text-sm font-medium text-foreground">备注（可选）</label>
+          <Input
+            v-model="formNotes"
+            placeholder="备注信息"
+          />
+        </div>
+        <p
+          v-if="formError"
+          class="text-sm text-destructive"
+        >
+          {{ formError }}
+        </p>
+      </div>
 
-          <div class="mt-6 flex justify-end gap-3">
-            <Button variant="ghost" @click="closeDialog">取消</Button>
-            <Button variant="default" :disabled="saving" @click="save">
-              {{ saving ? '保存中…' : '保存' }}
-            </Button>
-          </div>
+      <div class="mt-6 flex justify-end gap-3">
+        <Button
+          variant="ghost"
+          @click="closeDialog"
+        >
+          取消
+        </Button>
+        <Button
+          variant="default"
+          :disabled="saving"
+          @click="save"
+        >
+          {{ saving ? '保存中…' : '保存' }}
+        </Button>
+      </div>
     </AppDialog>
 
-    <AppConfirmDialog :open="showDeleteConfirm" title="删除自选股" :description="`确认从自选股中移除 ${deletingCode}？`" confirm-text="确认删除" destructive @update:open="showDeleteConfirm = $event" @confirm="confirmDelete" />
+    <AppConfirmDialog
+      :open="showDeleteConfirm"
+      title="删除自选股"
+      :description="`确认从自选股中移除 ${deletingCode}？`"
+      confirm-text="确认删除"
+      destructive
+      @update:open="showDeleteConfirm = $event"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>

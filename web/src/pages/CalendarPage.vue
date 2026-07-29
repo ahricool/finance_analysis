@@ -103,11 +103,17 @@ const detailTitle = computed(() => {
   if (!detail.value) return '';
   return detail.value.kind === 'event' ? '财经事件详情' : '日历记录详情';
 });
-const createTitle = computed(() => (createMode.value === 'event' ? '新增财经事件' : '新增日历记录'));
+const createTitle = computed(() =>
+  createMode.value === 'event' ? '新增财经事件' : '新增日历记录',
+);
 
-const rangeDates = computed(() => Array.from({ length: 7 }, (_, i) => addDays(dateRangeStart.value, i)));
+const rangeDates = computed(() =>
+  Array.from({ length: 7 }, (_, i) => addDays(dateRangeStart.value, i)),
+);
 const rangeEnd = computed(() => addDays(dateRangeStart.value, 6));
-const rangeDisplay = computed(() => `${formatMonthDay(dateRangeStart.value)} - ${formatMonthDay(rangeEnd.value)}`);
+const rangeDisplay = computed(
+  () => `${formatMonthDay(dateRangeStart.value)} - ${formatMonthDay(rangeEnd.value)}`,
+);
 const isDefaultTodayView = computed(
   () =>
     formatDate(dateRangeStart.value) === defaultRangeStart(todayInDisplayTimezone.value) &&
@@ -208,7 +214,10 @@ async function loadRangeSummary() {
   summaryLoading.value = true;
   error.value = null;
   try {
-    const result = await calendarApi.getSummary(formatDate(dateRangeStart.value), formatDate(rangeEnd.value));
+    const result = await calendarApi.getSummary(
+      formatDate(dateRangeStart.value),
+      formatDate(rangeEnd.value),
+    );
     summaryByDate.value = Object.fromEntries(result.items.map((item) => [item.date, item]));
   } catch (e) {
     error.value = getParsedApiError(e);
@@ -257,10 +266,10 @@ function dateSummary(d: Date): CalendarSummaryItem {
 }
 
 function countToneClass(count: number): string {
-  if (count <= 0) return 'text-muted-text';
+  if (count <= 0) return 'text-muted-foreground';
   if (count <= 2) return 'text-primary';
   if (count <= 5) return 'text-warning';
-  return 'text-danger';
+  return 'text-destructive';
 }
 
 function countTone(count: number): string {
@@ -274,9 +283,10 @@ function dateButtonClass(d: Date) {
   const date = formatDate(d);
   const selected = selectedDate.value === date;
   const today = todayInDisplayTimezone.value === date;
-  if (selected) return 'border-primary bg-primary/10 text-primary shadow-[0_0_0_1px_hsl(var(--primary)/0.18)]';
+  if (selected)
+    return 'border-primary bg-primary/10 text-primary shadow-[0_0_0_1px_hsl(var(--primary)/0.18)]';
   if (today) return 'border-primary/35 bg-primary/5 hover:bg-primary/10';
-  return 'border-border/60 hover:bg-hover';
+  return 'border-border/60 hover:bg-muted';
 }
 
 function openEventDetail(item: FinanceEventItem) {
@@ -431,25 +441,39 @@ watch(displayTimezone, () => {
 </script>
 
 <template>
+  <!-- eslint-disable vue/no-v-html -->
+  <!-- v-html values in this template come from DOMPurify-backed Markdown renderers. -->
   <div class="mx-auto w-full px-4 py-6 sm:px-6">
     <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-3">
-        <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary-gradient text-[hsl(var(--primary-foreground))] shadow-soft-card">
+        <div
+          class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-[hsl(var(--primary-foreground))] shadow-sm"
+        >
           <CalendarDays class="h-5 w-5" />
         </div>
         <div>
-          <h1 class="text-lg font-semibold text-foreground">日历记录</h1>
-          <p class="text-xs text-secondary-text">按 7 日视图查看财经事件与自动化任务记录</p>
+          <h1 class="text-lg font-semibold text-foreground">
+            日历记录
+          </h1>
+          <p class="text-xs text-muted-foreground">
+            按 7 日视图查看财经事件与自动化任务记录
+          </p>
         </div>
       </div>
-      <AppDatePicker :model-value="selectedDate" label="展示日期" class="w-full sm:w-auto" :clearable="false" @update:model-value="goToDate" />
+      <AppDatePicker
+        :model-value="selectedDate"
+        label="展示日期"
+        class="w-full sm:w-auto"
+        :clearable="false"
+        @update:model-value="goToDate"
+      />
     </div>
 
     <div class="mb-4 rounded-2xl border border-border/60 bg-card p-4">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
         <button
           type="button"
-          class="rounded-lg p-2 text-secondary-text transition-colors hover:bg-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          class="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="上一周期"
           :disabled="summaryLoading"
           @click="shiftRange(-1)"
@@ -458,13 +482,13 @@ watch(displayTimezone, () => {
         </button>
         <p class="text-center text-sm font-medium">
           <span>7 日视图</span>
-          <span class="mx-2 text-secondary-text">/</span>
-          <span class="font-mono text-secondary-text">{{ rangeDisplay }}</span>
+          <span class="mx-2 text-muted-foreground">/</span>
+          <span class="font-mono text-muted-foreground">{{ rangeDisplay }}</span>
         </p>
         <div class="flex items-center gap-2">
           <button
             type="button"
-            class="rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-secondary-text transition-colors hover:bg-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            class="rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="isDefaultTodayView"
             @click="goToday"
           >
@@ -472,7 +496,7 @@ watch(displayTimezone, () => {
           </button>
           <button
             type="button"
-            class="rounded-lg p-2 text-secondary-text transition-colors hover:bg-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            class="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="下一周期"
             :disabled="summaryLoading"
             @click="shiftRange(1)"
@@ -495,12 +519,14 @@ watch(displayTimezone, () => {
         >
           <span class="block whitespace-nowrap text-sm font-semibold">{{ formatMonthDay(d) }}</span>
           <span
-            class="block whitespace-nowrap text-[11px] text-secondary-text"
+            class="block whitespace-nowrap text-[11px] text-muted-foreground"
             :class="selectedDate === formatDate(d) ? 'text-primary' : ''"
           >
             {{ weekdayCn(d) }}
           </span>
-          <span class="mt-1 flex w-full flex-col items-center gap-0.5 text-[11px] text-secondary-text min-[520px]:flex-row min-[520px]:justify-center min-[520px]:gap-2">
+          <span
+            class="mt-1 flex w-full flex-col items-center gap-0.5 text-[11px] text-muted-foreground min-[520px]:flex-row min-[520px]:justify-center min-[520px]:gap-2"
+          >
             <span class="whitespace-nowrap">
               财经
               <span
@@ -531,7 +557,11 @@ watch(displayTimezone, () => {
       </div>
     </div>
 
-    <ApiErrorAlert v-if="error" :error="error" class="mb-4" />
+    <ApiErrorAlert
+      v-if="error"
+      :error="error"
+      class="mb-4"
+    />
 
     <div class="space-y-3">
       <CollapsibleCalendarSection
@@ -544,33 +574,56 @@ watch(displayTimezone, () => {
         @update:open="eventsOpen = $event"
       >
         <template #actions>
-          <Button size="xs" variant="secondary" data-testid="add-finance-event" @click="openCreate('event')">
+          <Button
+            size="xs"
+            variant="secondary"
+            data-testid="add-finance-event"
+            @click="openCreate('event')"
+          >
             <Plus class="h-3.5 w-3.5" />
             新增事件
           </Button>
         </template>
 
-        <div v-if="eventsLoading" class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <div v-for="n in 3" :key="n" class="h-16 animate-pulse rounded-xl bg-hover" />
+        <div
+          v-if="eventsLoading"
+          class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          <div
+            v-for="n in 3"
+            :key="n"
+            class="h-16 animate-pulse rounded-xl bg-muted"
+          />
         </div>
-        <div v-else-if="!events.length" class="py-6 text-sm text-secondary-text">当天暂无财经事件</div>
+        <div
+          v-else-if="!events.length"
+          class="py-6 text-sm text-muted-foreground"
+        >
+          当天暂无财经事件
+        </div>
         <template v-else>
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <button
               v-for="item in events"
               :key="item.id"
               type="button"
-              class="terminal-card terminal-card-hover flex h-full w-full cursor-pointer items-start justify-between gap-3 p-3 text-left"
+              class="rounded-xl border bg-card text-card-foreground shadow-sm transition-colors hover:border-primary/30 hover:bg-muted/40 flex h-full w-full cursor-pointer items-start justify-between gap-3 p-3 text-left"
               :class="isHighImportance(item) ? 'border-warning/30' : ''"
               @click="openEventDetail(item)"
             >
               <span class="min-w-0 flex-1">
-                <span class="mb-1 flex flex-wrap items-center gap-2 text-xs text-secondary-text">
-                  <span class="rounded-full bg-hover px-2 py-0.5">{{ eventTypeLabel(item.calendar_type) }}</span>
+                <span class="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span class="rounded-full bg-muted px-2 py-0.5">{{
+                    eventTypeLabel(item.calendar_type)
+                  }}</span>
                   <span>{{ eventName(item) }}</span>
                   <span
                     class="rounded-full px-2 py-0.5"
-                    :class="isHighImportance(item) ? 'bg-warning/10 text-warning' : 'bg-hover text-secondary-text'"
+                    :class="
+                      isHighImportance(item)
+                        ? 'bg-warning/10 text-warning'
+                        : 'bg-muted text-muted-foreground'
+                    "
                   >
                     {{ importanceLabel(item) }}
                   </span>
@@ -578,9 +631,11 @@ watch(displayTimezone, () => {
                   <span>{{ eventTime(item) }}</span>
                 </span>
                 <span class="block text-sm font-medium">{{ item.title }}</span>
-                <span class="mt-1 block text-xs text-secondary-text">{{ formatDateOnly(item.event_date) }}</span>
+                <span class="mt-1 block text-xs text-muted-foreground">{{
+                  formatDateOnly(item.event_date)
+                }}</span>
               </span>
-              <FileSearch class="mt-0.5 h-4 w-4 shrink-0 text-secondary-text" />
+              <FileSearch class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             </button>
           </div>
           <Pagination
@@ -616,12 +671,19 @@ watch(displayTimezone, () => {
           </Button>
         </template>
 
-        <div v-if="entrySections[definition.category].loading" class="space-y-2">
-          <div v-for="n in 3" :key="n" class="h-12 animate-pulse rounded-xl bg-hover" />
+        <div
+          v-if="entrySections[definition.category].loading"
+          class="space-y-2"
+        >
+          <div
+            v-for="n in 3"
+            :key="n"
+            class="h-12 animate-pulse rounded-xl bg-muted"
+          />
         </div>
         <div
           v-else-if="!entrySections[definition.category].items.length"
-          class="py-6 text-sm text-secondary-text"
+          class="py-6 text-sm text-muted-foreground"
         >
           当天暂无{{ definition.title }}记录
         </div>
@@ -631,18 +693,20 @@ watch(displayTimezone, () => {
               v-for="item in entrySections[definition.category].items"
               :key="item.id"
               type="button"
-              class="terminal-card terminal-card-hover flex w-full cursor-pointer items-start justify-between gap-3 p-3 text-left"
+              class="rounded-xl border bg-card text-card-foreground shadow-sm transition-colors hover:border-primary/30 hover:bg-muted/40 flex w-full cursor-pointer items-start justify-between gap-3 p-3 text-left"
               @click="openEntryDetail(item)"
             >
               <span class="min-w-0 flex-1">
                 <span class="block text-sm font-medium">{{ item.title }}</span>
-                <span class="mt-1 flex flex-wrap items-center gap-2 text-xs text-secondary-text">
-                  <span class="rounded-full bg-hover px-2 py-0.5">{{ entryTypeLabel(item.type) }}</span>
+                <span class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span class="rounded-full bg-muted px-2 py-0.5">{{
+                    entryTypeLabel(item.type)
+                  }}</span>
                   <span>{{ formatDateTimeInDisplayTimezone(item.time) }}</span>
                   <span v-if="item.content">点击查看执行结果与报告</span>
                 </span>
               </span>
-              <FileSearch class="mt-0.5 h-4 w-4 shrink-0 text-secondary-text" />
+              <FileSearch class="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             </button>
           </div>
           <Pagination
@@ -661,12 +725,23 @@ watch(displayTimezone, () => {
       class="max-w-2xl"
       @update:open="closeCreate"
     >
-      <form class="space-y-4" data-testid="calendar-create-form" @submit.prevent="submitCreate">
-        <ApiErrorAlert v-if="createError" :error="createError" />
+      <form
+        class="space-y-4"
+        data-testid="calendar-create-form"
+        @submit.prevent="submitCreate"
+      >
+        <ApiErrorAlert
+          v-if="createError"
+          :error="createError"
+        />
 
         <template v-if="createMode === 'event'">
           <div class="grid gap-4 sm:grid-cols-2">
-            <AppDatePicker v-model="eventForm.eventDate" label="事件日期 *" :clearable="false" />
+            <AppDatePicker
+              v-model="eventForm.eventDate"
+              label="事件日期 *"
+              :clearable="false"
+            />
             <AppDateTimePicker
               v-model="eventForm.eventTime"
               label="具体时间（可选）"
@@ -683,15 +758,48 @@ watch(displayTimezone, () => {
                 { value: 'ipo', label: 'IPO' },
               ]"
             />
-            <Input v-model="eventForm.market" label="市场 *" maxlength="16" required />
-            <Input v-model="eventForm.symbol" label="股票代码" maxlength="32" placeholder="例如 AAPL" />
-            <Input v-model="eventForm.counterName" label="标的名称" maxlength="128" />
-            <Input v-model="eventForm.currency" label="币种" maxlength="16" placeholder="例如 USD" />
-            <Input v-model="eventForm.star" label="星级（0-5）" type="number" min="0" max="5" />
+            <Input
+              v-model="eventForm.market"
+              label="市场 *"
+              maxlength="16"
+              required
+            />
+            <Input
+              v-model="eventForm.symbol"
+              label="股票代码"
+              maxlength="32"
+              placeholder="例如 AAPL"
+            />
+            <Input
+              v-model="eventForm.counterName"
+              label="标的名称"
+              maxlength="128"
+            />
+            <Input
+              v-model="eventForm.currency"
+              label="币种"
+              maxlength="16"
+              placeholder="例如 USD"
+            />
+            <Input
+              v-model="eventForm.star"
+              label="星级（0-5）"
+              type="number"
+              min="0"
+              max="5"
+            />
           </div>
-          <Input v-model="eventForm.title" label="标题 *" maxlength="120" required />
+          <Input
+            v-model="eventForm.title"
+            label="标题 *"
+            maxlength="120"
+            required
+          />
           <div>
-            <label class="mb-2 block text-sm font-medium text-foreground" for="event-content">详情内容</label>
+            <label
+              class="mb-2 block text-sm font-medium text-foreground"
+              for="event-content"
+            >详情内容</label>
             <Textarea
               id="event-content"
               v-model="eventForm.content"
@@ -707,10 +815,23 @@ watch(displayTimezone, () => {
             label="记录时间 *"
             :clearable="false"
           />
-          <Input v-model="entryForm.title" label="标题 *" maxlength="120" required />
-          <Input v-model="entryForm.type" label="记录类型" maxlength="32" placeholder="例如 manual_note" />
+          <Input
+            v-model="entryForm.title"
+            label="标题 *"
+            maxlength="120"
+            required
+          />
+          <Input
+            v-model="entryForm.type"
+            label="记录类型"
+            maxlength="32"
+            placeholder="例如 manual_note"
+          />
           <div>
-            <label class="mb-2 block text-sm font-medium text-foreground" for="entry-content">详情内容</label>
+            <label
+              class="mb-2 block text-sm font-medium text-foreground"
+              for="entry-content"
+            >详情内容</label>
             <Textarea
               id="entry-content"
               v-model="entryForm.content"
@@ -721,8 +842,20 @@ watch(displayTimezone, () => {
         </template>
 
         <div class="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" :disabled="createSaving" @click="closeCreate">取消</Button>
-          <Button type="submit" :loading="createSaving" loading-text="保存中…">保存</Button>
+          <Button
+            variant="ghost"
+            :disabled="createSaving"
+            @click="closeCreate"
+          >
+            取消
+          </Button>
+          <Button
+            type="submit"
+            :loading="createSaving"
+            loading-text="保存中…"
+          >
+            保存
+          </Button>
         </div>
       </form>
     </Dialog>
@@ -733,77 +866,145 @@ watch(displayTimezone, () => {
       class="max-w-4xl"
       @update:open="closeDetail"
     >
-      <div v-if="detail?.kind === 'event'" class="space-y-5">
+      <div
+        v-if="detail?.kind === 'event'"
+        class="space-y-5"
+      >
         <div class="grid gap-3 sm:grid-cols-2">
           <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-text">类型</p>
-            <p class="mt-1 text-sm font-medium text-foreground">{{ eventTypeLabel(detail.item.calendar_type) }}</p>
+            <p class="text-xs text-muted-foreground">
+              类型
+            </p>
+            <p class="mt-1 text-sm font-medium text-foreground">
+              {{ eventTypeLabel(detail.item.calendar_type) }}
+            </p>
           </div>
           <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-text">标的 / 名称</p>
-            <p class="mt-1 text-sm text-foreground">{{ eventName(detail.item) }}</p>
+            <p class="text-xs text-muted-foreground">
+              标的 / 名称
+            </p>
+            <p class="mt-1 text-sm text-foreground">
+              {{ eventName(detail.item) }}
+            </p>
           </div>
-          <div v-if="detail.item.star !== null" class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-text">Provider star</p>
-            <p class="mt-1 text-sm text-foreground">{{ detail.item.star }}</p>
+          <div
+            v-if="detail.item.star !== null"
+            class="rounded-xl border border-border/60 bg-background/60 p-3"
+          >
+            <p class="text-xs text-muted-foreground">
+              Provider star
+            </p>
+            <p class="mt-1 text-sm text-foreground">
+              {{ detail.item.star }}
+            </p>
           </div>
           <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-text">重要性</p>
-            <p class="mt-1 text-sm text-foreground">{{ importanceLabel(detail.item) }}</p>
+            <p class="text-xs text-muted-foreground">
+              重要性
+            </p>
+            <p class="mt-1 text-sm text-foreground">
+              {{ importanceLabel(detail.item) }}
+            </p>
           </div>
           <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-text">时间</p>
-            <p class="mt-1 text-sm text-foreground">{{ eventTime(detail.item) }}</p>
+            <p class="text-xs text-muted-foreground">
+              时间
+            </p>
+            <p class="mt-1 text-sm text-foreground">
+              {{ eventTime(detail.item) }}
+            </p>
           </div>
-          <div v-if="detail.item.importance_reason" class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2">
-            <p class="text-xs text-muted-text">重要性原因</p>
-            <p class="mt-1 text-sm text-foreground">{{ detail.item.importance_reason }}</p>
+          <div
+            v-if="detail.item.importance_reason"
+            class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2"
+          >
+            <p class="text-xs text-muted-foreground">
+              重要性原因
+            </p>
+            <p class="mt-1 text-sm text-foreground">
+              {{ detail.item.importance_reason }}
+            </p>
           </div>
           <div class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2">
-            <p class="text-xs text-muted-text">标题</p>
-            <p class="mt-1 text-sm font-medium text-foreground">{{ detail.item.title }}</p>
+            <p class="text-xs text-muted-foreground">
+              标题
+            </p>
+            <p class="mt-1 text-sm font-medium text-foreground">
+              {{ detail.item.title }}
+            </p>
           </div>
           <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-text">日期</p>
-            <p class="mt-1 text-sm text-foreground">{{ formatDateOnly(detail.item.event_date) }}</p>
+            <p class="text-xs text-muted-foreground">
+              日期
+            </p>
+            <p class="mt-1 text-sm text-foreground">
+              {{ formatDateOnly(detail.item.event_date) }}
+            </p>
           </div>
         </div>
 
         <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-          <p class="text-xs text-muted-text">详情内容</p>
-          <div
+          <p class="text-xs text-muted-foreground">
+            详情内容
+          </p>          <div
             v-if="detail.item.content"
             class="prose prose-sm mt-3 max-w-none text-sm text-foreground dark:prose-invert"
             v-html="renderMarkdown(detail.item.content)"
           />
-          <p v-else class="mt-2 text-sm text-secondary-text">该事件暂无详情内容</p>
+          <p
+            v-else
+            class="mt-2 text-sm text-muted-foreground"
+          >
+            该事件暂无详情内容
+          </p>
         </div>
       </div>
 
-      <div v-else-if="detail?.kind === 'entry'" class="space-y-5">
+      <div
+        v-else-if="detail?.kind === 'entry'"
+        class="space-y-5"
+      >
         <div class="grid gap-3 sm:grid-cols-2">
           <div class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2">
-            <p class="text-xs text-muted-text">标题</p>
-            <p class="mt-1 text-sm font-medium text-foreground">{{ detail.item.title }}</p>
+            <p class="text-xs text-muted-foreground">
+              标题
+            </p>
+            <p class="mt-1 text-sm font-medium text-foreground">
+              {{ detail.item.title }}
+            </p>
           </div>
           <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-text">类型</p>
-            <p class="mt-1 text-sm text-foreground">{{ entryTypeLabel(detail.item.type) }}</p>
+            <p class="text-xs text-muted-foreground">
+              类型
+            </p>
+            <p class="mt-1 text-sm text-foreground">
+              {{ entryTypeLabel(detail.item.type) }}
+            </p>
           </div>
           <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-text">时间</p>
-            <p class="mt-1 text-sm text-foreground">{{ formatDateTimeInDisplayTimezone(detail.item.time) }}</p>
+            <p class="text-xs text-muted-foreground">
+              时间
+            </p>
+            <p class="mt-1 text-sm text-foreground">
+              {{ formatDateTimeInDisplayTimezone(detail.item.time) }}
+            </p>
           </div>
         </div>
 
         <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-          <p class="text-xs text-muted-text">详情内容</p>
-          <div
+          <p class="text-xs text-muted-foreground">
+            详情内容
+          </p>          <div
             v-if="detail.item.content"
             class="prose prose-sm mt-3 max-w-none text-sm text-foreground dark:prose-invert"
             v-html="renderMarkdown(detail.item.content)"
           />
-          <p v-else class="mt-2 text-sm text-secondary-text">该记录暂无详情内容</p>
+          <p
+            v-else
+            class="mt-2 text-sm text-muted-foreground"
+          >
+            该记录暂无详情内容
+          </p>
         </div>
       </div>
     </Dialog>

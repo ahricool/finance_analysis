@@ -35,7 +35,7 @@ describe('agentChatStore.startStream', () => {
       messages: [],
       loading: false,
       progressSteps: [],
-      sessionId: 'session-test',
+      sessionId: 'conversation-test',
       sessions: [],
       sessionsLoading: false,
       chatError: null,
@@ -58,7 +58,10 @@ describe('agentChatStore.startStream', () => {
 
     await useAgentChatStore
       .getState()
-      .startStream({ message: '分析茅台', session_id: 'session-test' }, { skillName: '趋势技能' });
+      .startStream(
+        { message: '分析茅台', session_id: 'conversation-test' },
+        { skillName: '趋势技能' },
+      );
 
     const state = useAgentChatStore.getState();
     expect(state.loading).toBe(false);
@@ -80,23 +83,19 @@ describe('agentChatStore.startStream', () => {
 
   it('preserves multiple selected skills on streamed user and assistant messages', async () => {
     vi.mocked(agentApi.chatStream).mockResolvedValue(
-      createStreamResponse([
-        'data: {"type":"done","success":true,"content":"多策略分析结果"}',
-      ]),
+      createStreamResponse(['data: {"type":"done","success":true,"content":"多策略分析结果"}']),
     );
 
-    await useAgentChatStore
-      .getState()
-      .startStream(
-        {
-          message: '分析茅台',
-          session_id: 'session-test',
-          skills: ['bull_trend', 'ma_golden_cross'],
-        },
-        {
-          skillNames: ['趋势分析', '均线金叉'],
-        },
-      );
+    await useAgentChatStore.getState().startStream(
+      {
+        message: '分析茅台',
+        session_id: 'conversation-test',
+        skills: ['bull_trend', 'ma_golden_cross'],
+      },
+      {
+        skillNames: ['趋势分析', '均线金叉'],
+      },
+    );
 
     const state = useAgentChatStore.getState();
     expect(state.messages).toHaveLength(2);
@@ -126,7 +125,10 @@ describe('agentChatStore.startStream', () => {
 
     await useAgentChatStore
       .getState()
-      .startStream({ message: '分析茅台', session_id: 'session-test' }, { skillName: '趋势技能' });
+      .startStream(
+        { message: '分析茅台', session_id: 'conversation-test' },
+        { skillName: '趋势技能' },
+      );
 
     const state = useAgentChatStore.getState();
     expect(state.loading).toBe(false);
@@ -148,7 +150,10 @@ describe('agentChatStore.startStream', () => {
 
     await useAgentChatStore
       .getState()
-      .startStream({ message: '分析茅台', session_id: 'session-test' }, { skillName: '趋势技能' });
+      .startStream(
+        { message: '分析茅台', session_id: 'conversation-test' },
+        { skillName: '趋势技能' },
+      );
 
     const state = useAgentChatStore.getState();
     expect(state.loading).toBe(false);
@@ -163,14 +168,15 @@ describe('agentChatStore.startStream', () => {
 
   it('falls back when SSE error fields are empty strings', async () => {
     vi.mocked(agentApi.chatStream).mockResolvedValue(
-      createStreamResponse([
-        'data: {"type":"error","error":"","message":"   ","content":""}',
-      ]),
+      createStreamResponse(['data: {"type":"error","error":"","message":"   ","content":""}']),
     );
 
     await useAgentChatStore
       .getState()
-      .startStream({ message: '分析茅台', session_id: 'session-test' }, { skillName: '趋势技能' });
+      .startStream(
+        { message: '分析茅台', session_id: 'conversation-test' },
+        { skillName: '趋势技能' },
+      );
 
     const state = useAgentChatStore.getState();
     expect(state.loading).toBe(false);

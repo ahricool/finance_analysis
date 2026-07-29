@@ -42,10 +42,24 @@ const shouldShowModel = computed(() =>
       :details="report.details"
       :is-history="isHistory"
     />
-    <ReportStrategy :strategy="report.strategy" :language="reportLanguage" />
-    <ReportNews :record-id="recordId" :limit="8" :language="reportLanguage" />
-    <ReportDetails :details="report.details" :record-id="recordId" :language="reportLanguage" />
-    <p v-if="shouldShowModel" class="px-1 text-xs text-muted-text">
+    <ReportStrategy
+      :strategy="report.strategy"
+      :language="reportLanguage"
+    />
+    <ReportNews
+      :record-id="recordId"
+      :limit="8"
+      :language="reportLanguage"
+    />
+    <ReportDetails
+      :details="report.details"
+      :record-id="recordId"
+      :language="reportLanguage"
+    />
+    <p
+      v-if="shouldShowModel"
+      class="px-1 text-xs text-muted-foreground"
+    >
       {{ text.analysisModel }}: {{ modelUsed }}
     </p>
   </div>

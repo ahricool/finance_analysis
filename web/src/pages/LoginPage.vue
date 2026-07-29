@@ -17,7 +17,9 @@ const route = useRoute();
 
 const rawRedirect = computed(() => (route.query.redirect as string) ?? '');
 const redirect = computed(() =>
-  rawRedirect.value.startsWith('/') && !rawRedirect.value.startsWith('//') ? rawRedirect.value : '/analysis',
+  rawRedirect.value.startsWith('/') && !rawRedirect.value.startsWith('//')
+    ? rawRedirect.value
+    : '/analysis',
 );
 
 const step = ref<LoginStep>('email');
@@ -45,18 +47,6 @@ const loadingText = computed(() => {
   if (step.value === 'setup') return '正在设置...';
   return '正在登录...';
 });
-
-function onEmailInput(e: Event) {
-  email.value = (e.target as HTMLInputElement).value;
-}
-
-function onPasswordInput(e: Event) {
-  password.value = (e.target as HTMLInputElement).value;
-}
-
-function onPasswordConfirmInput(e: Event) {
-  passwordConfirm.value = (e.target as HTMLInputElement).value;
-}
 
 function resetToEmailStep() {
   step.value = 'email';
@@ -134,9 +124,13 @@ onUnmounted(() => {
       <div class="w-full max-w-[340px] shrink-0 -translate-y-4 sm:-translate-y-6 lg:col-start-2">
         <div class="mb-6 flex items-center gap-2.5">
           <span
-            class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-soft-card"
+            class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm"
           >
-            <img src="/flower.svg" alt="" class="h-11 w-11" />
+            <img
+              src="/flower.svg"
+              alt=""
+              class="h-11 w-11"
+            />
           </span>
           <span
             class="font-display text-3xl font-semibold leading-none text-white [text-shadow:0_3px_12px_rgba(0,0,0,0.65)] sm:text-4xl"
@@ -145,82 +139,85 @@ onUnmounted(() => {
           </span>
         </div>
 
-        <div class="rounded-2xl border border-border/80 bg-card p-6 shadow-soft-card sm:p-7">
+        <div class="rounded-2xl border border-border/80 bg-card p-6 shadow-sm sm:p-7">
           <div class="mb-6">
-            <h1 class="flex items-center gap-2 text-xl font-semibold tracking-tight text-foreground">
+            <h1
+              class="flex items-center gap-2 text-xl font-semibold tracking-tight text-foreground"
+            >
               <Lock class="h-5 w-5 text-primary" />
               <span>{{ stepTitle }}</span>
             </h1>
-            <p v-if="step !== 'email'" class="mt-2 text-sm text-muted-foreground">
+            <p
+              v-if="step !== 'email'"
+              class="mt-2 text-sm text-muted-foreground"
+            >
               {{ email }}
             </p>
           </div>
 
-          <form class="space-y-5" @submit="handleSubmit">
+          <form
+            class="space-y-5"
+            @submit="handleSubmit"
+          >
             <div class="space-y-4">
               <Input
                 v-if="step === 'email'"
                 id="email"
+                v-model="email"
                 type="email"
-                icon-type="mail"
                 label="邮箱"
                 placeholder="请输入邮箱"
-                :value="email"
                 :disabled="isSubmitting"
                 autocomplete="email"
                 data-testid="login-email"
-                @input="onEmailInput"
               />
 
               <template v-if="step === 'password'">
                 <Input
                   id="password"
+                  v-model="password"
                   type="password"
                   allow-toggle-password
-                  icon-type="password"
                   label="登录密码"
                   placeholder="请输入密码"
-                  :value="password"
                   :disabled="isSubmitting"
                   autofocus
                   autocomplete="current-password"
                   data-testid="login-password"
-                  @input="onPasswordInput"
                 />
               </template>
 
               <template v-if="step === 'setup'">
                 <Input
                   id="password"
+                  v-model="password"
                   type="password"
                   allow-toggle-password
-                  icon-type="password"
                   label="设置密码"
                   placeholder="至少 6 位"
-                  :value="password"
                   :disabled="isSubmitting"
                   autofocus
                   autocomplete="new-password"
                   data-testid="login-password"
-                  @input="onPasswordInput"
                 />
                 <Input
                   id="password-confirm"
+                  v-model="passwordConfirm"
                   type="password"
                   allow-toggle-password
-                  icon-type="password"
                   label="确认密码"
                   placeholder="再次输入密码"
-                  :value="passwordConfirm"
                   :disabled="isSubmitting"
                   autocomplete="new-password"
                   data-testid="login-password-confirm"
-                  @input="onPasswordConfirmInput"
                 />
               </template>
             </div>
 
-            <div v-if="setupSuccessMessage" class="overflow-hidden">
+            <div
+              v-if="setupSuccessMessage"
+              class="overflow-hidden"
+            >
               <SettingsAlert
                 title="设置成功"
                 :message="setupSuccessMessage"
@@ -228,7 +225,10 @@ onUnmounted(() => {
               />
             </div>
 
-            <div v-if="error" class="animate-[loginErr_0.25s_ease-out] overflow-hidden">
+            <div
+              v-if="error"
+              class="animate-[loginErr_0.25s_ease-out] overflow-hidden"
+            >
               <SettingsAlert
                 title="验证未通过"
                 :message="isParsedApiError(error) ? error.message : String(error)"
@@ -261,7 +261,6 @@ onUnmounted(() => {
             </button>
           </form>
         </div>
-
       </div>
     </div>
   </div>

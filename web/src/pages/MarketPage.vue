@@ -20,7 +20,6 @@ const activeTab = computed<MarketTab>(() => {
   if (route.path.endsWith('/signals')) return 'signals';
   return 'watch-list';
 });
-
 </script>
 
 <template>
@@ -31,11 +30,15 @@ const activeTab = computed<MarketTab>(() => {
     />
 
     <nav
-      class="grid grid-cols-3 gap-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-soft-card backdrop-blur-sm lg:hidden"
+      class="grid grid-cols-3 gap-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-sm backdrop-blur-sm lg:hidden"
       aria-label="市场页面导航"
       data-testid="market-mobile-nav"
     >
-      <SectionNavItems :items="navItems" :active-key="activeTab" responsive />
+      <SectionNavItems
+        :items="navItems"
+        :active-key="activeTab"
+        responsive
+      />
     </nav>
 
     <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">

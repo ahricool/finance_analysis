@@ -53,7 +53,7 @@ test.describe('ReportMarkdown component', () => {
     await expect(page.getByText('历史分析')).toBeVisible({ timeout: 10_000 });
 
     // Click on the first history item to select it
-    const firstHistoryItem = page.locator('.home-history-item').first();
+    const firstHistoryItem = page.getByTestId('analysis-history-item').first();
     await expect(firstHistoryItem).toBeVisible({ timeout: 10_000 });
     await firstHistoryItem.click();
     // Wait for detailed report button to be enabled (indicates selection is complete)
@@ -98,7 +98,7 @@ test.describe('ReportMarkdown component', () => {
     await expect(page.getByText('历史分析')).toBeVisible({ timeout: 10_000 });
 
     // Click on the first history item to select it
-    const firstHistoryItem = page.locator('.home-history-item').first();
+    const firstHistoryItem = page.getByTestId('analysis-history-item').first();
     await expect(firstHistoryItem).toBeVisible({ timeout: 10_000 });
     await firstHistoryItem.click();
     // Wait for detailed report button to be enabled (indicates selection is complete)
@@ -127,8 +127,8 @@ test.describe('ReportMarkdown component', () => {
     expect(clipboardText).not.toMatch(/\*\*[^*]+\*\*/); // No bold
     // Verify table syntax is removed (no standalone pipe separators)
     const lines = clipboardText.split('\n');
-    const hasTableSeparators = lines.some(line =>
-      line.match(/^\|[\s|:-]+\|$/) || line.match(/^[\s|:-]+$/)
+    const hasTableSeparators = lines.some(
+      (line) => line.match(/^\|[\s|:-]+\|$/) || line.match(/^[\s|:-]+$/),
     );
     expect(hasTableSeparators).toBeFalsy();
 
@@ -148,7 +148,9 @@ test.describe('ReportMarkdown component', () => {
 
     // On mobile, a report should already be selected (showing in main content)
     // Wait for main content to load
-    await expect(page.getByPlaceholder('输入股票代码或名称，如 600519、贵州茅台、AAPL')).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByPlaceholder('输入股票代码或名称，如 600519、贵州茅台、AAPL'),
+    ).toBeVisible({ timeout: 10_000 });
 
     // Click the "完整分析报告" button to open the markdown drawer
     const detailedReportButton = page.getByRole('button', { name: '完整分析报告' });
@@ -156,7 +158,9 @@ test.describe('ReportMarkdown component', () => {
     await detailedReportButton.click();
 
     // Verify drawer content is visible (this ensures drawer is fully open)
-    await expect(page.getByRole('dialog').getByText('完整分析报告')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('dialog').getByText('完整分析报告')).toBeVisible({
+      timeout: 10000,
+    });
 
     // Verify toolbar buttons are visible and clickable on mobile
     const copyMarkdownButton = page.getByRole('button', { name: '复制 Markdown 源码' });
@@ -180,7 +184,7 @@ test.describe('ReportMarkdown component', () => {
     await expect(page.getByText('历史分析')).toBeVisible({ timeout: 10_000 });
 
     // Click on the first history item to select it
-    const firstHistoryItem = page.locator('.home-history-item').first();
+    const firstHistoryItem = page.getByTestId('analysis-history-item').first();
     await expect(firstHistoryItem).toBeVisible({ timeout: 10_000 });
     await firstHistoryItem.click();
     // Wait for detailed report button to be enabled (indicates selection is complete)

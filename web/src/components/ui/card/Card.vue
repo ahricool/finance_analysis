@@ -7,6 +7,7 @@ const props = withDefaults(defineProps<{
   size?: 'default' | 'sm'
 }>(), {
   size: 'default',
+  class: '',
 })
 </script>
 

@@ -21,11 +21,12 @@ const cards = [
     <div
       v-for="card in cards"
       :key="card[0]"
-      class="rounded-2xl border border-border/70 bg-card/94 p-4 shadow-soft-card"
+      class="rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm"
     >
-      <p class="text-xs text-muted-text">
+      <p class="text-xs text-muted-foreground">
         {{ card[0] }}
-      </p><p class="mt-2 text-lg font-semibold text-foreground">
+      </p>
+      <p class="mt-2 text-lg font-semibold text-foreground">
         {{ card[1]() }}
       </p>
     </div>

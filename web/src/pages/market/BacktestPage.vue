@@ -54,15 +54,23 @@ const form = reactive<BacktestConfig>({
 });
 
 const selectedEngine = computed(() => engines.value.find((item) => item.key === form.engine));
-const selectedStrategy = computed(() => strategies.value.find((item) => item.key === form.strategyKey));
+const selectedStrategy = computed(() =>
+  strategies.value.find((item) => item.key === form.strategyKey),
+);
 const marketOptions: BacktestMarket[] = ['US', 'CN', 'HK'];
-const canCheck = computed(() => Boolean(form.strategyKey && form.code && form.startDate && form.endDate));
+const canCheck = computed(() =>
+  Boolean(form.strategyKey && form.code && form.startDate && form.endDate),
+);
 const canStart = computed(() => preflightResult.value?.ready === true && !submitting.value);
-const hasActiveRuns = computed(() => runs.value.some((item) => item.status === 'pending' || item.status === 'processing'));
+const hasActiveRuns = computed(() =>
+  runs.value.some((item) => item.status === 'pending' || item.status === 'processing'),
+);
 
 function marketSupported(market: BacktestMarket): boolean {
-  return Boolean(selectedEngine.value?.supportedMarkets.includes(market)
-    && selectedStrategy.value?.supportedMarkets.includes(market));
+  return Boolean(
+    selectedEngine.value?.supportedMarkets.includes(market) &&
+      selectedStrategy.value?.supportedMarkets.includes(market),
+  );
 }
 
 function invalidatePreflight() {
@@ -78,14 +86,17 @@ async function loadStrategies() {
 
 function resetParameters() {
   const strategy = selectedStrategy.value;
-  form.parameters = Object.fromEntries((strategy?.parameters ?? []).map((item) => [item.key, item.default]));
+  form.parameters = Object.fromEntries(
+    (strategy?.parameters ?? []).map((item) => [item.key, item.default]),
+  );
 }
 
 async function loadSymbols(keyword = symbolKeyword.value) {
   symbols.value = marketSupported(form.market)
     ? await backtestsApi.symbols(form.market, form.engine, keyword.trim())
     : [];
-  if (!symbols.value.some((item) => item.code === form.code)) form.code = symbols.value[0]?.code ?? '';
+  if (!symbols.value.some((item) => item.code === form.code))
+    form.code = symbols.value[0]?.code ?? '';
 }
 
 async function setDefaultBenchmark() {
@@ -126,7 +137,10 @@ async function checkData() {
   checking.value = true;
   error.value = null;
   try {
-    preflightResult.value = await backtestsApi.preflight({ ...form, parameters: { ...form.parameters } });
+    preflightResult.value = await backtestsApi.preflight({
+      ...form,
+      parameters: { ...form.parameters },
+    });
   } catch (err) {
     error.value = getParsedApiError(err);
   } finally {
@@ -167,24 +181,40 @@ async function reuse(run: BacktestRun) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-watch(() => form.engine, async () => {
-  invalidatePreflight();
-  if (!engines.value.length) return;
-  await loadStrategies();
-  resetParameters();
-  await refreshForMarket();
-});
-watch(() => form.strategyKey, async () => {
-  invalidatePreflight();
-  resetParameters();
-  if (strategies.value.length) await refreshForMarket();
-});
-watch(() => form.market, async () => {
-  invalidatePreflight();
-  if (strategies.value.length) await refreshForMarket();
-});
 watch(
-  () => [form.code, form.startDate, form.endDate, form.initialCash, form.benchmarkCode, JSON.stringify(form.parameters)],
+  () => form.engine,
+  async () => {
+    invalidatePreflight();
+    if (!engines.value.length) return;
+    await loadStrategies();
+    resetParameters();
+    await refreshForMarket();
+  },
+);
+watch(
+  () => form.strategyKey,
+  async () => {
+    invalidatePreflight();
+    resetParameters();
+    if (strategies.value.length) await refreshForMarket();
+  },
+);
+watch(
+  () => form.market,
+  async () => {
+    invalidatePreflight();
+    if (strategies.value.length) await refreshForMarket();
+  },
+);
+watch(
+  () => [
+    form.code,
+    form.startDate,
+    form.endDate,
+    form.initialCash,
+    form.benchmarkCode,
+    JSON.stringify(form.parameters),
+  ],
   invalidatePreflight,
 );
 
@@ -192,7 +222,8 @@ onMounted(async () => {
   loading.value = true;
   try {
     engines.value = (await backtestsApi.engines()).sort((a, b) => a.displayOrder - b.displayOrder);
-    form.engine = engines.value.find((item) => item.isDefault && item.available)?.key ?? 'backtrader';
+    form.engine =
+      engines.value.find((item) => item.isDefault && item.available)?.key ?? 'backtrader';
     await loadStrategies();
     resetParameters();
     await refreshForMarket();
@@ -213,13 +244,16 @@ onBeforeUnmount(() => {
 <template>
   <div class="min-w-0 space-y-5">
     <header class="flex items-start gap-3">
-      <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary-gradient text-primary-foreground">
+      <div
+        class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground"
+      >
         <FlaskConical class="h-5 w-5" />
       </div>
       <div>
         <h2 class="text-lg font-semibold text-foreground">
           策略回测
-        </h2><p class="mt-1 text-xs text-secondary-text">
+        </h2>
+        <p class="mt-1 text-xs text-muted-foreground">
           选择回测引擎、策略、标的和时间范围，使用数据库历史行情执行日线策略回测。
         </p>
       </div>
@@ -230,39 +264,78 @@ onBeforeUnmount(() => {
       :error="error"
     />
     <section
-      class="space-y-5 rounded-2xl border border-border/70 bg-card/94 p-4 shadow-soft-card"
+      class="space-y-5 rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm"
       :aria-busy="loading"
     >
       <div>
         <h3 class="mb-3 text-sm font-semibold text-foreground">
           1. 回测引擎
-        </h3><BacktestEngineSelector
+        </h3>
+        <BacktestEngineSelector
           v-model="form.engine"
           :engines="engines"
         />
       </div>
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <AppSelect v-model="form.strategyKey" label="策略" :options="strategies.map((item) => ({ value: item.key, label: item.name }))" />
-        <AppSelect :model-value="form.market" label="市场" :options="marketOptions.map((item) => ({ value: item, label: `${marketLabels[item]}${marketSupported(item) ? '' : '（不支持）'}`, disabled: !marketSupported(item) }))" @update:model-value="form.market = $event as BacktestMarket" />
-        <label class="text-xs text-muted-foreground md:col-span-2"><span class="mb-1.5 block">标的搜索</span><div class="flex gap-2"><AppInput
-          v-model="symbolKeyword"
-          class="min-w-0 flex-1"
-          placeholder="代码或名称"
-          @keyup.enter="loadSymbols()"
-        /><Button
-          variant="secondary"
-          @click="loadSymbols()"
-        ><Search class="h-4 w-4" />搜索</Button></div></label>
-        <AppCombobox v-model="form.code" label="回测标的" :options="symbols.map((item) => ({ value: item.code, label: `${item.code} · ${item.name}` }))" />
-        <AppDatePicker v-model="form.startDate" label="开始日期" />
-        <AppDatePicker v-model="form.endDate" label="结束日期" />
-        <label class="text-xs text-muted-text"><span class="mb-1.5 block">初始资金</span><input
+        <AppSelect
+          v-model="form.strategyKey"
+          label="策略"
+          :options="strategies.map((item) => ({ value: item.key, label: item.name }))"
+        />
+        <AppSelect
+          :model-value="form.market"
+          label="市场"
+          :options="
+            marketOptions.map((item) => ({
+              value: item,
+              label: `${marketLabels[item]}${marketSupported(item) ? '' : '（不支持）'}`,
+              disabled: !marketSupported(item),
+            }))
+          "
+          @update:model-value="form.market = $event as BacktestMarket"
+        />
+        <label class="text-xs text-muted-foreground md:col-span-2"><span class="mb-1.5 block">标的搜索</span>
+          <div class="flex gap-2">
+            <AppInput
+              v-model="symbolKeyword"
+              class="min-w-0 flex-1"
+              placeholder="代码或名称"
+              @keyup.enter="loadSymbols()"
+            /><Button
+              variant="secondary"
+              @click="loadSymbols()"
+            ><Search class="h-4 w-4" />搜索</Button>
+          </div></label>
+        <AppCombobox
+          v-model="form.code"
+          label="回测标的"
+          :options="
+            symbols.map((item) => ({ value: item.code, label: `${item.code} · ${item.name}` }))
+          "
+        />
+        <AppDatePicker
+          v-model="form.startDate"
+          label="开始日期"
+        />
+        <AppDatePicker
+          v-model="form.endDate"
+          label="结束日期"
+        />
+        <label class="text-xs text-muted-foreground"><span class="mb-1.5 block">初始资金</span><input
           v-model.number="form.initialCash"
           type="number"
           min="1"
-          class="input-surface h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
-        ></label>
-        <AppSelect :model-value="form.benchmarkCode ?? ''" label="基准标的" :options="[{ value: '', label: '不设置' }, ...symbols.map((item) => ({ value: item.code, label: item.code }))]" @update:model-value="form.benchmarkCode = $event || null" />
+          class="border-input bg-background shadow-xs h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
+        /></label>
+        <AppSelect
+          :model-value="form.benchmarkCode ?? ''"
+          label="基准标的"
+          :options="[
+            { value: '', label: '不设置' },
+            ...symbols.map((item) => ({ value: item.code, label: item.code })),
+          ]"
+          @update:model-value="form.benchmarkCode = $event || null"
+        />
       </div>
       <div
         v-if="selectedStrategy"
@@ -271,20 +344,27 @@ onBeforeUnmount(() => {
         <label
           v-for="parameter in selectedStrategy.parameters"
           :key="parameter.key"
-          class="text-xs text-muted-text"
+          class="text-xs text-muted-foreground"
         ><span class="mb-1.5 block">{{ parameter.name }}</span><input
           v-model.number="form.parameters[parameter.key]"
           type="number"
           :min="parameter.minimum"
           :max="parameter.maximum"
-          class="input-surface h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
-        ><span class="mt-1 block">范围 {{ parameter.minimum }}–{{ parameter.maximum }}，默认 {{ parameter.default }}</span></label>
+          class="border-input bg-background shadow-xs h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
+        /><span class="mt-1 block">范围 {{ parameter.minimum }}–{{ parameter.maximum }}，默认
+          {{ parameter.default }}</span></label>
       </div>
-      <details class="rounded-xl border border-border/70 p-3 text-xs text-secondary-text">
+      <details class="rounded-xl border border-border/70 p-3 text-xs text-muted-foreground">
         <summary class="cursor-pointer font-medium text-foreground">
           高级设置（只读）
-        </summary><dl class="mt-3 grid gap-2 sm:grid-cols-2">
-          <div>价格口径：未复权原始价格</div><div>目标仓位：100% / 0%</div><div>信号：收盘后计算</div><div>成交：下一交易日开盘</div><div>手续费：按市场默认模型</div><div>市场规则版本：1.0.0</div>
+        </summary>
+        <dl class="mt-3 grid gap-2 sm:grid-cols-2">
+          <div>价格口径：未复权原始价格</div>
+          <div>目标仓位：100% / 0%</div>
+          <div>信号：收盘后计算</div>
+          <div>成交：下一交易日开盘</div>
+          <div>手续费：按市场默认模型</div>
+          <div>市场规则版本：1.0.0</div>
         </dl>
       </details>
       <BacktestPreflightPanel

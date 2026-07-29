@@ -146,11 +146,17 @@ const gaugeTheme = computed(() =>
 
 <template>
   <div :class="cn('flex flex-col items-center', props.class)">
-    <span v-if="showLabel" class="label-uppercase mb-3 text-secondary-text">
+    <span
+      v-if="showLabel"
+      class="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3 text-muted-foreground"
+    >
       {{ text.fearGreedIndex }}
     </span>
 
-    <div class="relative" :style="{ width: `${layout.width}px`, height: `${layout.width}px` }">
+    <div
+      class="relative"
+      :style="{ width: `${layout.width}px`, height: `${layout.width}px` }"
+    >
       <svg
         class="gauge-ring overflow-visible"
         :width="layout.width"
@@ -158,19 +164,44 @@ const gaugeTheme = computed(() =>
         :style="gaugeTheme.svgFilter ? { filter: gaugeTheme.svgFilter } : {}"
       >
         <defs>
-          <linearGradient :id="`gauge-gradient-${uniqueId}`" x1="0%" y1="0%" x2="100%" y2="100%">
+          <linearGradient
+            :id="`gauge-gradient-${uniqueId}`"
+            x1="0%"
+            y1="0%"
+            x2="100%"
+            y2="100%"
+          >
             <template v-if="isDark">
-              <stop offset="0%" :stop-color="colors.color" stop-opacity="0.6" />
-              <stop offset="100%" :stop-color="colors.color" stop-opacity="1" />
+              <stop
+                offset="0%"
+                :stop-color="colors.color"
+                stop-opacity="0.6"
+              />
+              <stop
+                offset="100%"
+                :stop-color="colors.color"
+                stop-opacity="1"
+              />
             </template>
             <template v-else>
-              <stop offset="0%" :stop-color="colors.lightColor" stop-opacity="0.9" />
-              <stop offset="100%" :stop-color="colors.lightEndColor" stop-opacity="1" />
+              <stop
+                offset="0%"
+                :stop-color="colors.lightColor"
+                stop-opacity="0.9"
+              />
+              <stop
+                offset="100%"
+                :stop-color="colors.lightEndColor"
+                stop-opacity="1"
+              />
             </template>
           </linearGradient>
 
           <filter :id="`gauge-glow-${uniqueId}`">
-            <feGaussianBlur :stdDeviation="gaugeTheme.glowBlur" result="blur" />
+            <feGaussianBlur
+              :stdDeviation="gaugeTheme.glowBlur"
+              result="blur"
+            />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />

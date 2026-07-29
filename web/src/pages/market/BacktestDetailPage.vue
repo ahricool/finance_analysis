@@ -23,32 +23,46 @@ let timer: ReturnType<typeof setInterval> | null = null;
 
 const duration = computed(() => {
   if (!run.value?.startedAt || !run.value.finishedAt) return '—';
-  const seconds = Math.max(0, (Date.parse(run.value.finishedAt) - Date.parse(run.value.startedAt)) / 1000);
+  const seconds = Math.max(
+    0,
+    (Date.parse(run.value.finishedAt) - Date.parse(run.value.startedAt)) / 1000,
+  );
   return seconds < 60 ? `${seconds.toFixed(1)} 秒` : `${(seconds / 60).toFixed(1)} 分钟`;
 });
 
 async function load() {
   try {
     run.value = await backtestsApi.run(runId);
-    if (run.value.status === 'completed') [trades.value, equity.value] = await Promise.all([backtestsApi.trades(runId), backtestsApi.equity(runId)]);
+    if (run.value.status === 'completed')
+      [trades.value, equity.value] = await Promise.all([
+        backtestsApi.trades(runId),
+        backtestsApi.equity(runId),
+      ]);
     if (run.value.status === 'pending' || run.value.status === 'processing') {
       if (!timer) timer = setInterval(() => void load(), 5000);
     } else if (timer) {
-      clearInterval(timer); timer = null;
+      clearInterval(timer);
+      timer = null;
     }
-  } catch (err) { error.value = getParsedApiError(err); }
-  finally { loading.value = false; }
+  } catch (err) {
+    error.value = getParsedApiError(err);
+  } finally {
+    loading.value = false;
+  }
 }
 
 onMounted(load);
-onBeforeUnmount(() => { if (timer) clearInterval(timer); timer = null; });
+onBeforeUnmount(() => {
+  if (timer) clearInterval(timer);
+  timer = null;
+});
 </script>
 
 <template>
   <div class="min-w-0 space-y-5">
     <RouterLink
       to="/market/backtests"
-      class="inline-flex items-center gap-2 text-sm text-secondary-text hover:text-primary"
+      class="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary"
     >
       <ArrowLeft class="h-4 w-4" />返回策略回测
     </RouterLink>
@@ -58,64 +72,81 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); timer = null; });
     />
     <div
       v-if="loading"
-      class="p-10 text-center text-muted-text"
+      class="p-10 text-center text-muted-foreground"
     >
       加载中...
     </div>
     <template v-else-if="run">
-      <section class="rounded-2xl border border-primary/30 bg-card/94 p-5 shadow-soft-card">
+      <section class="rounded-2xl border border-primary/30 bg-card/94 p-5 shadow-sm">
         <div class="flex flex-wrap items-center gap-3">
           <h2 class="text-xl font-semibold text-foreground">
             回测 #{{ run.id }}
-          </h2><Badge
+          </h2>
+          <Badge
             :variant="run.engine === 'backtrader' ? 'success' : 'info'"
             size="md"
           >
             {{ engineLabels[run.engine] }} · v{{ run.engineVersion || '未知' }}
           </Badge><Badge variant="default">
-            {{ statusLabels[run.status] }} {{ run.status === 'processing' ? `${run.progress}%` : '' }}
+            {{ statusLabels[run.status] }}
+            {{ run.status === 'processing' ? `${run.progress}%` : '' }}
           </Badge>
         </div>
         <dl class="mt-5 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <dt class="text-muted-text">
+            <dt class="text-muted-foreground">
               策略
-            </dt><dd>{{ run.strategyName }} · v{{ run.strategyVersion }}</dd>
-          </div><div>
-            <dt class="text-muted-text">
+            </dt>
+            <dd>{{ run.strategyName }} · v{{ run.strategyVersion }}</dd>
+          </div>
+          <div>
+            <dt class="text-muted-foreground">
               市场 / 标的
-            </dt><dd>{{ marketLabels[run.market] }} · {{ run.code }}</dd>
-          </div><div>
-            <dt class="text-muted-text">
+            </dt>
+            <dd>{{ marketLabels[run.market] }} · {{ run.code }}</dd>
+          </div>
+          <div>
+            <dt class="text-muted-foreground">
               日期范围
-            </dt><dd>{{ run.startDate }} — {{ run.endDate }}</dd>
-          </div><div>
-            <dt class="text-muted-text">
+            </dt>
+            <dd>{{ run.startDate }} — {{ run.endDate }}</dd>
+          </div>
+          <div>
+            <dt class="text-muted-foreground">
               初始资金
-            </dt><dd>{{ formatMoney(run.initialCash) }}</dd>
-          </div><div>
-            <dt class="text-muted-text">
+            </dt>
+            <dd>{{ formatMoney(run.initialCash) }}</dd>
+          </div>
+          <div>
+            <dt class="text-muted-foreground">
               耗时
-            </dt><dd>{{ duration }}</dd>
-          </div><div>
-            <dt class="text-muted-text">
+            </dt>
+            <dd>{{ duration }}</dd>
+          </div>
+          <div>
+            <dt class="text-muted-foreground">
               Task ID
-            </dt><dd class="break-all">
+            </dt>
+            <dd class="break-all">
               {{ run.taskId || '—' }}
             </dd>
-          </div><div>
-            <dt class="text-muted-text">
+          </div>
+          <div>
+            <dt class="text-muted-foreground">
               基准
-            </dt><dd>{{ run.benchmarkCode || '未设置' }}</dd>
-          </div><div>
-            <dt class="text-muted-text">
+            </dt>
+            <dd>{{ run.benchmarkCode || '未设置' }}</dd>
+          </div>
+          <div>
+            <dt class="text-muted-foreground">
               参数
-            </dt><dd>{{ JSON.stringify(run.parameters) }}</dd>
+            </dt>
+            <dd>{{ JSON.stringify(run.parameters) }}</dd>
           </div>
         </dl>
         <p
           v-if="run.error"
-          class="mt-4 rounded-xl bg-danger/10 p-3 text-xs text-danger"
+          class="mt-4 rounded-xl bg-destructive/10 p-3 text-xs text-destructive"
         >
           {{ run.error }}
         </p>
@@ -135,17 +166,34 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); timer = null; });
       <details class="rounded-2xl border border-border/70 bg-card/94 p-4 text-xs">
         <summary class="cursor-pointer font-semibold text-foreground">
           运行配置
-        </summary><div class="mt-4 grid gap-4 lg:grid-cols-2">
+        </summary>
+        <div class="mt-4 grid gap-4 lg:grid-cols-2">
           <div>
-            <h4 class="mb-2 text-muted-text">
+            <h4 class="mb-2 text-muted-foreground">
               Engine config
-            </h4><pre class="overflow-auto rounded-xl bg-elevated/60 p-3">{{ JSON.stringify(run.engineConfig, null, 2) }}</pre>
-          </div><div>
-            <h4 class="mb-2 text-muted-text">
-              策略 / 市场规则
-            </h4><pre class="overflow-auto rounded-xl bg-elevated/60 p-3">{{ JSON.stringify({ parameters: run.parameters, marketRuleVersion: run.marketRuleVersion, priceMode: run.priceMode }, null, 2) }}</pre>
+            </h4>
+            <pre class="overflow-auto rounded-xl bg-card/60 p-3">{{
+              JSON.stringify(run.engineConfig, null, 2)
+            }}</pre>
           </div>
-        </div><ul
+          <div>
+            <h4 class="mb-2 text-muted-foreground">
+              策略 / 市场规则
+            </h4>
+            <pre class="overflow-auto rounded-xl bg-card/60 p-3">{{
+              JSON.stringify(
+                {
+                  parameters: run.parameters,
+                  marketRuleVersion: run.marketRuleVersion,
+                  priceMode: run.priceMode,
+                },
+                null,
+                2,
+              )
+            }}</pre>
+          </div>
+        </div>
+        <ul
           v-if="run.warnings.length"
           class="mt-3 list-disc pl-5 text-warning"
         >
