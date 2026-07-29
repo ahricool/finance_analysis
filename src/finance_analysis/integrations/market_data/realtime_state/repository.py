@@ -211,7 +211,11 @@ class RealtimeStateRepository:
         bars_by_symbol: Mapping[str, Iterable[CandleState]],
     ) -> None:
         valid_by_symbol = {
-            symbol: {self._bar_field(bar): bar for bar in bars if bar.symbol == symbol and bar.is_valid()}
+            symbol: {
+                self._bar_field(bar): bar
+                for bar in bars
+                if bar.symbol == symbol and bar.confirmed and bar.is_valid()
+            }
             for symbol, bars in bars_by_symbol.items()
         }
         valid_by_symbol = {symbol: bars for symbol, bars in valid_by_symbol.items() if bars}

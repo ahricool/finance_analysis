@@ -9,7 +9,7 @@ import socket
 import time
 import uuid
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Iterable
@@ -30,6 +30,7 @@ from finance_analysis.market_stream.config import (
 )
 from finance_analysis.market_stream.leader_lock import LeaderLock
 from finance_analysis.market_stream.patterns.detector import calculate_pattern_state
+from finance_analysis.market_stream.patterns.features import quote_updates_preview_bar
 from finance_analysis.market_stream.patterns.models import PatternState
 from finance_analysis.market_stream.subscription_manager import (
     SubscriptionManager,
@@ -50,6 +51,7 @@ from finance_analysis.stocks.markets import MarketType
 logger = logging.getLogger(__name__)
 QUOTE_SNAPSHOT_RETRY_SECONDS = 60
 FULL_QUOTE_SNAPSHOT_FIELDS = ("last_price", "pre_close", "open", "high", "low")
+QUOTE_PREVIEW_THROTTLE_SECONDS = 0.75
 
 
 def _has_complete_quote_snapshot(payload: dict[str, Any]) -> bool:
@@ -106,6 +108,9 @@ class MarketStreamService:
         self.pending_bars: dict[str, dict[tuple[datetime, str], CandleState]] = {}
         self.pending_trends: dict[str, TrendState] = {}
         self.pending_patterns: dict[str, PatternState] = {}
+        self.pattern_states: dict[str, PatternState] = {}
+        self.quote_preview_calculated_at: dict[str, float] = {}
+        self.quote_preview_tasks: dict[str, asyncio.Task[None]] = {}
         self.quote_snapshot_dates: dict[str, date] = {}
         self.quote_snapshot_attempts: dict[str, datetime] = {}
         self.regular_session_closes: dict[str, dict[date, Decimal]] = {}
@@ -165,6 +170,11 @@ class MarketStreamService:
         finally:
             self.stop_event.set()
             await self.manager.stop()
+            preview_tasks = list(self.quote_preview_tasks.values())
+            for task in preview_tasks:
+                task.cancel()
+            await asyncio.gather(*preview_tasks, return_exceptions=True)
+            self.quote_preview_tasks.clear()
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -241,6 +251,7 @@ class MarketStreamService:
                     self.quote_snapshot_dates[event.symbol] = quote_date
                     self.quote_snapshot_attempts.pop(event.symbol, None)
                 self.pending_quotes[event.symbol] = quote
+                await self._update_quote_preview(event.symbol, state.market_type, quote)
         elif event.event_type == "candle_1m":
             candle = event_to_candle(event)
             if candle.is_valid():
@@ -288,7 +299,11 @@ class MarketStreamService:
                     state.market_type,
                     as_of=max(candle.received_at, candle.bar_time + timedelta(minutes=1)),
                 )
+                self.quote_preview_calculated_at.pop(candle.symbol, None)
+                self._cancel_quote_preview_task(candle.symbol)
                 await self._update_pattern_state(candle.symbol, state.market_type)
+        else:
+            await self._update_pattern_state(candle.symbol, state.market_type)
         if (
             state.status in {SymbolStatus.INSUFFICIENT_HISTORY, SymbolStatus.ERROR}
             and count >= self.config.minimum_history_bars
@@ -300,6 +315,7 @@ class MarketStreamService:
         candle: CandleState,
         state: SymbolRuntimeState,
     ) -> tuple[bool, int]:
+        previous_current = self.current_candles.get(candle.symbol)
         candle_date = market_trading_date(candle.bar_time, state.market_type)
         if state.trading_date is not None and candle_date < state.trading_date:
             return False, len(self.bars_1m.get(candle.symbol, ()))
@@ -311,6 +327,10 @@ class MarketStreamService:
             )
             self.bars_1m.pop(candle.symbol, None)
             self.current_candles.pop(candle.symbol, None)
+            self.pattern_states.pop(candle.symbol, None)
+            self.pending_patterns.pop(candle.symbol, None)
+            self.quote_preview_calculated_at.pop(candle.symbol, None)
+            self._cancel_quote_preview_task(candle.symbol)
         state.trading_date = candle_date
 
         bars = self.bars_1m.setdefault(candle.symbol, deque(maxlen=self.config.bar_limit))
@@ -336,7 +356,10 @@ class MarketStreamService:
             candle.confirmed,
         ):
             return False, len(bars)
-        if previous is not None and candle.received_at < previous.received_at:
+        if previous is not None and (candle.confirmed, candle.received_at) < (
+            previous.confirmed,
+            previous.received_at,
+        ):
             return False, len(bars)
         existing[candle.identity] = candle
         ordered = sorted(existing.values(), key=lambda item: (item.bar_time, item.trade_session or ""))
@@ -344,6 +367,9 @@ class MarketStreamService:
         self.bars_1m[candle.symbol] = updated
         current = updated[-1]
         self.current_candles[candle.symbol] = current
+        if previous_current is None or previous_current.identity != current.identity:
+            self.quote_preview_calculated_at.pop(candle.symbol, None)
+            self._cancel_quote_preview_task(candle.symbol)
         self.pending_candles[candle.symbol] = current
         return True, len(updated)
 
@@ -404,14 +430,28 @@ class MarketStreamService:
             self.redis_degraded = True
             logger.warning("Redis 趋势写入失败: symbol=%s error=%s", symbol, exc)
 
-    async def _update_pattern_state(self, symbol: str, market_type: MarketType) -> None:
+    async def _update_pattern_state(
+        self,
+        symbol: str,
+        market_type: MarketType,
+        *,
+        defer_write: bool = False,
+    ) -> None:
         try:
             pattern = calculate_pattern_state(
                 list(self.bars_1m.get(symbol, ())),
                 market_type=market_type,
+                include_preview=True,
+                quote=self.quotes.get(symbol),
             )
         except Exception as exc:
             logger.warning("1 分钟形态计算失败: symbol=%s error=%s", symbol, exc, exc_info=True)
+            return
+        if pattern.symbol != symbol:
+            pattern = replace(pattern, symbol=symbol)
+        self.pattern_states[symbol] = pattern
+        if defer_write:
+            self.pending_patterns[symbol] = pattern
             return
         try:
             await self.repository.write_pattern_state(pattern)
@@ -420,6 +460,73 @@ class MarketStreamService:
             self.pending_patterns[symbol] = pattern
             self.redis_degraded = True
             logger.warning("Redis 形态写入失败: symbol=%s error=%s", symbol, exc)
+
+    async def _update_quote_preview(self, symbol: str, market_type: MarketType, quote: QuoteState) -> None:
+        """Queue a throttled preview refresh when a quote matches the current unfinished minute."""
+        candle = self.current_candles.get(symbol)
+        if candle is None or not quote_updates_preview_bar(candle, quote, market_type):
+            return
+        now = time.monotonic()
+        previous = self.quote_preview_calculated_at.get(symbol)
+        if previous is not None and now - previous < QUOTE_PREVIEW_THROTTLE_SECONDS:
+            if symbol not in self.quote_preview_tasks:
+                state = self.manager.symbol_states.get(symbol)
+                if state is not None:
+                    delay = QUOTE_PREVIEW_THROTTLE_SECONDS - (now - previous)
+                    self.quote_preview_tasks[symbol] = asyncio.create_task(
+                        self._update_quote_preview_after_delay(
+                            symbol,
+                            market_type,
+                            symbol_generation=state.generation,
+                            connection_generation=self.manager.connection_generation,
+                            delay=delay,
+                        ),
+                        name=f"market-stream-pattern-preview-{symbol}",
+                    )
+            return
+        self._cancel_quote_preview_task(symbol)
+        self.quote_preview_calculated_at[symbol] = now
+        await self._update_pattern_state(symbol, market_type, defer_write=True)
+
+    async def _update_quote_preview_after_delay(
+        self,
+        symbol: str,
+        market_type: MarketType,
+        *,
+        symbol_generation: int,
+        connection_generation: int,
+        delay: float,
+    ) -> None:
+        """Run one trailing preview refresh with the newest in-memory quote after the throttle window."""
+        task = asyncio.current_task()
+        try:
+            await asyncio.sleep(max(0, delay))
+            state = self.manager.symbol_states.get(symbol)
+            quote = self.quotes.get(symbol)
+            candle = self.current_candles.get(symbol)
+            if (
+                connection_generation != self.manager.connection_generation
+                or state is None
+                or state.generation != symbol_generation
+                or symbol not in self.manager.desired_targets
+                or state.status in {SymbolStatus.REMOVING, SymbolStatus.INACTIVE, SymbolStatus.PENDING}
+                or quote is None
+                or candle is None
+                or not quote_updates_preview_bar(candle, quote, market_type)
+            ):
+                return
+            self.quote_preview_calculated_at[symbol] = time.monotonic()
+            await self._update_pattern_state(symbol, market_type, defer_write=True)
+        except asyncio.CancelledError:
+            raise
+        finally:
+            if self.quote_preview_tasks.get(symbol) is task:
+                self.quote_preview_tasks.pop(symbol, None)
+
+    def _cancel_quote_preview_task(self, symbol: str) -> None:
+        task = self.quote_preview_tasks.pop(symbol, None)
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
 
     async def _load_warmup(
         self,
@@ -520,16 +627,20 @@ class MarketStreamService:
             if bars:
                 self.current_candles[state.symbol] = bars[-1]
                 self.pending_candles[state.symbol] = bars[-1]
+            else:
+                self.current_candles.pop(state.symbol, None)
+                self.pending_candles.pop(state.symbol, None)
             finalize(len(bars), error, trading_date)
 
         try:
-            await self.repository.upsert_bars(state.symbol, bars)
+            confirmed_bars = [bar for bar in bars if bar.confirmed]
+            await self.repository.upsert_bars(state.symbol, confirmed_bars)
             if bars:
                 await self.repository.write_current_candle(bars[-1])
-            self._discard_pending_bars(state.symbol, bars)
+            self._discard_pending_bars(state.symbol, confirmed_bars)
             self.redis_degraded = False
         except Exception as exc:
-            self._queue_pending_bars(state.symbol, bars)
+            self._queue_pending_bars(state.symbol, confirmed_bars)
             self.redis_degraded = True
             logger.warning("Redis warmup 写入失败: symbol=%s error=%s", state.symbol, exc)
         if bars:
@@ -538,7 +649,7 @@ class MarketStreamService:
                 state.market_type,
                 as_of=bars[-1].bar_time + timedelta(minutes=1),
             )
-            await self._update_pattern_state(state.symbol, state.market_type)
+        await self._update_pattern_state(state.symbol, state.market_type)
         logger.info(
             "warmup 数据合并: %s cache=%s history=%s realtime=%s final=%s elapsed=%.3fs",
             state.symbol,
@@ -594,6 +705,8 @@ class MarketStreamService:
     def _queue_pending_bars(self, symbol: str, bars: Iterable[CandleState]) -> None:
         pending = self.pending_bars.setdefault(symbol, {})
         for bar in bars:
+            if not bar.confirmed:
+                continue
             existing = pending.get(bar.identity)
             if existing is None or (bar.confirmed, bar.received_at) >= (
                 existing.confirmed,
@@ -603,6 +716,8 @@ class MarketStreamService:
         if len(pending) > self.config.bar_limit:
             retained = sorted(pending.items(), key=lambda item: item[0])[-self.config.bar_limit :]
             self.pending_bars[symbol] = dict(retained)
+        elif not pending:
+            self.pending_bars.pop(symbol, None)
 
     def _discard_pending_bars(self, symbol: str, bars: Iterable[CandleState]) -> None:
         pending = self.pending_bars.get(symbol)
@@ -636,6 +751,9 @@ class MarketStreamService:
             self.pending_bars.pop(symbol, None)
             self.pending_trends.pop(symbol, None)
             self.pending_patterns.pop(symbol, None)
+            self.pattern_states.pop(symbol, None)
+            self.quote_preview_calculated_at.pop(symbol, None)
+            self._cancel_quote_preview_task(symbol)
             self.quote_snapshot_dates.pop(symbol, None)
             self.quote_snapshot_attempts.pop(symbol, None)
             self.regular_session_closes.pop(symbol, None)
@@ -654,6 +772,29 @@ class MarketStreamService:
         for symbol, quote in self.quotes.items():
             quote.sequence = None
             self.pending_quotes.pop(symbol, None)
+        self.quote_preview_calculated_at.clear()
+        for task in self.quote_preview_tasks.values():
+            task.cancel()
+        self.quote_preview_tasks.clear()
+        for symbol, bars in list(self.bars_1m.items()):
+            confirmed = deque((bar for bar in bars if bar.confirmed), maxlen=self.config.bar_limit)
+            self.bars_1m[symbol] = confirmed
+            if confirmed:
+                self.current_candles[symbol] = confirmed[-1]
+            else:
+                self.current_candles.pop(symbol, None)
+            self.pending_candles.pop(symbol, None)
+            target = self.manager.desired_targets.get(symbol)
+            if target is not None:
+                pattern = calculate_pattern_state(
+                    list(confirmed),
+                    market_type=target.market_type,
+                    include_preview=True,
+                )
+                if pattern.symbol != symbol:
+                    pattern = replace(pattern, symbol=symbol)
+                self.pattern_states[symbol] = pattern
+                self.pending_patterns[symbol] = pattern
         symbols = {key.symbol for key in self.warming_buffers if key.connection_generation <= connection_generation}
         for symbol in symbols:
             async with self._symbol_lock(symbol):

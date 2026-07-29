@@ -23,6 +23,8 @@ from finance_analysis.market_review.trading_calendar import get_completed_tradin
 from finance_analysis.market_stream.config import (
     is_regular_session_minute,
     is_regular_trade_session,
+    latest_completed_bar_time,
+    market_spec,
     market_trading_date,
 )
 from finance_analysis.market_stream.patterns.config import PatternConfig
@@ -120,6 +122,11 @@ def _pattern_payload(pattern: PatternState) -> dict[str, Any]:
         "trading_date": pattern.trading_date.isoformat() if pattern.trading_date else None,
         "bar_time": utc_isoformat(pattern.bar_time),
         "signal": _pattern_signal_payload(pattern.signal) if pattern.signal else None,
+        "preview_status": pattern.preview_status,
+        "preview_signal": _pattern_signal_payload(pattern.preview_signal) if pattern.preview_signal else None,
+        "preview_bar_time": utc_isoformat(pattern.preview_bar_time),
+        "preview_price": _number(pattern.preview_price),
+        "preview_updated_at": utc_isoformat(pattern.preview_updated_at),
     }
 
 
@@ -129,6 +136,33 @@ def _display_trading_date(market_type: str, now: datetime) -> date:
     if is_market_open(market, local_date):
         return local_date
     return get_completed_trading_days(market, 1, now)[-1]
+
+
+def _preview_bar_is_current(
+    preview_bar_time: datetime,
+    *,
+    now: datetime,
+    market_type: MarketType,
+    display_date: date | None,
+) -> bool:
+    """Return whether a preview bar is the market's still-forming regular-session minute."""
+    if display_date is None or market_trading_date(now, market_type) != display_date:
+        return False
+    if not is_regular_session_minute(now, market_type):
+        return False
+    if market_trading_date(preview_bar_time, market_type) != display_date:
+        return False
+    if not is_regular_session_minute(preview_bar_time, market_type):
+        return False
+
+    spec = market_spec(market_type)
+    current_minute = now.astimezone(spec.timezone).replace(second=0, microsecond=0)
+    preview_minute = preview_bar_time.astimezone(spec.timezone).replace(second=0, microsecond=0)
+    if preview_minute != current_minute:
+        return False
+
+    latest_completed = latest_completed_bar_time(now, market_type)
+    return latest_completed is None or preview_bar_time > latest_completed
 
 
 def _quote_payload(
@@ -158,7 +192,7 @@ def _quote_payload(
         trend_is_current = False
     if not trend_is_current:
         trend = TrendState(symbol=stock.symbol, trading_date=display_date)
-    original_pattern = pattern
+    preview_is_current = False
     try:
         pattern_is_current = pattern is not None and pattern.trading_date == display_date
         if pattern_is_current and pattern is not None and pattern.bar_time is not None:
@@ -174,14 +208,43 @@ def _quote_payload(
                 and is_regular_trade_session(pattern.signal.trade_session)
                 and pattern.signal.bars_ago <= PATTERN_CONFIG.maximum_age_bars
             )
+        preview_is_current = pattern is not None and pattern.preview_bar_time is not None
+        if preview_is_current and pattern is not None and pattern.preview_bar_time is not None:
+            preview_is_current = _preview_bar_is_current(
+                pattern.preview_bar_time,
+                now=now,
+                market_type=cast(MarketType, stock.market_type),
+                display_date=display_date,
+            )
+        if preview_is_current and pattern is not None and pattern.preview_signal is not None:
+            preview_is_current = (
+                pattern.preview_signal.trading_date == display_date
+                and is_regular_trade_session(pattern.preview_signal.trade_session)
+                and not pattern.preview_signal.confirmed
+                and pattern.preview_signal.stage != "confirmed"
+            )
     except Exception as exc:
         logger.warning("形态交易日校验失败: symbol=%s error=%s", stock.symbol, exc)
         pattern_is_current = False
-    if not pattern_is_current:
+        preview_is_current = False
+    if pattern is None:
         pattern = PatternState(
             symbol=stock.symbol,
-            status="insufficient" if original_pattern is None else "none",
+            status="insufficient",
             trading_date=display_date,
+        )
+    else:
+        pattern = PatternState(
+            symbol=pattern.symbol,
+            status=pattern.status if pattern_is_current else "none",
+            signal=pattern.signal if pattern_is_current else None,
+            trading_date=pattern.trading_date if pattern_is_current else display_date,
+            bar_time=pattern.bar_time if pattern_is_current else None,
+            preview_status=pattern.preview_status if preview_is_current else "none",
+            preview_signal=pattern.preview_signal if preview_is_current else None,
+            preview_bar_time=pattern.preview_bar_time if preview_is_current else None,
+            preview_price=pattern.preview_price if preview_is_current else None,
+            preview_updated_at=pattern.preview_updated_at if preview_is_current else None,
         )
     if not quote_is_current:
         if quote is not None:

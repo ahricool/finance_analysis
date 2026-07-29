@@ -33,6 +33,28 @@ function pattern(overrides: Partial<NonNullable<RealtimePatternState['signal']>>
   };
 }
 
+function withPreview(
+  formal: RealtimePatternState = pattern(),
+  overrides: Partial<NonNullable<RealtimePatternState['preview_signal']>> = {},
+): RealtimePatternState {
+  const source = pattern().signal!;
+  return {
+    ...formal,
+    preview_status: 'active',
+    preview_bar_time: '2026-07-22T14:36:00Z',
+    preview_price: 133.25,
+    preview_updated_at: '2026-07-22T14:36:20Z',
+    preview_signal: {
+      ...source,
+      stage: 'warning',
+      confirmed: false,
+      confirmed_at: null,
+      reasons: [...source.reasons, '实时预览：当前一分钟K线尚未收盘，信号可能变化'],
+      ...overrides,
+    },
+  };
+}
+
 afterEach(() => {
   document.body.innerHTML = '';
 });
@@ -50,7 +72,7 @@ describe('PatternStatus', () => {
       props: { pattern: pattern({ direction, stage, confirmed: stage === 'confirmed' }), now: NOW },
     });
     expect(wrapper.text()).toContain(text);
-    expect(wrapper.get('span.flex').classes()).toContain(color);
+    expect(wrapper.get('span.font-semibold').classes()).toContain(color);
   });
 
   it('displays the backend quality score directly without recalculation', () => {
@@ -145,6 +167,47 @@ describe('PatternStatus', () => {
     expect(content).toContain('交易时段：Intraday');
   });
 
+  it('renders only a live preview when no formal signal exists', () => {
+    const wrapper = mount(PatternStatus, {
+      props: {
+        pattern: withPreview({ timeframe: '1m', status: 'none', signal: null }),
+        now: NOW,
+      },
+    });
+    expect(wrapper.text()).toContain('实时预览');
+    expect(wrapper.text()).toContain('未收盘');
+    expect(wrapper.text()).not.toContain('暂无近期形态');
+    expect(wrapper.find('.text-red-500').exists()).toBe(false);
+    expect(wrapper.find('.text-amber-500').exists()).toBe(true);
+  });
+
+  it('renders formal and preview signals separately even when they match', () => {
+    const wrapper = mount(PatternStatus, { props: { pattern: withPreview(), now: NOW } });
+    expect(wrapper.text()).toContain('正式 · 多转空确认');
+    expect(wrapper.text()).toContain('实时预览 · 多转空预警 · 未收盘');
+  });
+
+  it('shows preview price, bar time, update time and warning in the tooltip', async () => {
+    const wrapper = mount(PatternStatus, {
+      attachTo: document.body,
+      props: { pattern: withPreview(), now: NOW },
+    });
+    await wrapper.get('[tabindex="0"]').trigger('focus');
+    const content = document.body.querySelector('[role="tooltip"]')?.textContent ?? '';
+    expect(content).toContain('【正式形态】');
+    expect(content).toContain('【实时预览 · 当前一分钟K线未收盘】');
+    expect(content).toContain('当前预览价格：133.25');
+    expect(content).toContain('当前K线时间：');
+    expect(content).toContain('预览更新时间：');
+    expect(content).toContain('一分钟K线尚未收盘，信号可能变化，不作为正式确认信号');
+  });
+
+  it('accepts old API data without preview fields', () => {
+    const wrapper = mount(PatternStatus, { props: { pattern: pattern(), now: NOW } });
+    expect(wrapper.text()).toContain('正式 · 多转空确认');
+    expect(wrapper.text()).not.toContain('实时预览');
+  });
+
   it.each([
     [undefined, '数据不足'],
     [{ timeframe: '1m', status: 'insufficient' } as RealtimePatternState, '数据不足'],
@@ -152,6 +215,6 @@ describe('PatternStatus', () => {
   ])('handles missing and empty states', (value, text) => {
     const wrapper = mount(PatternStatus, { props: { pattern: value, now: NOW } });
     expect(wrapper.text()).toContain(text);
-    expect(wrapper.get('span.flex').classes()).toContain('text-muted-text');
+    expect(wrapper.get('span.font-semibold').classes()).toContain('text-muted-text');
   });
 });

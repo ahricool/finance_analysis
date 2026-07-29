@@ -129,11 +129,18 @@ class PatternState:
     signal: PatternSignal | None = None
     trading_date: date | None = None
     bar_time: datetime | None = None
+    preview_status: PatternStateStatus = "insufficient"
+    preview_signal: PatternSignal | None = None
+    preview_bar_time: datetime | None = None
+    preview_price: Decimal | None = None
+    preview_updated_at: datetime | None = None
     timeframe: Literal["1m"] = "1m"
 
     def __post_init__(self) -> None:
         if (self.status == "active") != (self.signal is not None):
             raise ValueError("active pattern state must contain exactly one signal")
+        if (self.preview_status == "active") != (self.preview_signal is not None):
+            raise ValueError("active preview pattern state must contain exactly one signal")
 
     def to_mapping(self) -> dict[str, str]:
         return {
@@ -145,6 +152,15 @@ class PatternState:
             ),
             "trading_date": self.trading_date.isoformat() if self.trading_date else "",
             "bar_time": self.bar_time.isoformat() if self.bar_time else "",
+            "preview_status": self.preview_status,
+            "preview_signal": (
+                json.dumps(self.preview_signal.to_dict(), ensure_ascii=False, separators=(",", ":"))
+                if self.preview_signal
+                else ""
+            ),
+            "preview_bar_time": self.preview_bar_time.isoformat() if self.preview_bar_time else "",
+            "preview_price": str(self.preview_price) if self.preview_price is not None else "",
+            "preview_updated_at": self.preview_updated_at.isoformat() if self.preview_updated_at else "",
         }
 
     @classmethod
@@ -158,6 +174,15 @@ class PatternState:
             status = "insufficient"
         if status != "active":
             signal = None
+        preview_status = str(value.get("preview_status") or "insufficient")
+        if preview_status not in {"insufficient", "none", "active"}:
+            preview_status = "insufficient"
+        raw_preview_signal = value.get("preview_signal")
+        preview_signal = PatternSignal.from_dict(json.loads(str(raw_preview_signal))) if raw_preview_signal else None
+        if preview_status == "active" and preview_signal is None:
+            preview_status = "insufficient"
+        if preview_status != "active":
+            preview_signal = None
         return cls(
             symbol=str(value["symbol"]),
             timeframe="1m",
@@ -165,4 +190,9 @@ class PatternState:
             signal=signal,
             trading_date=_date(value.get("trading_date")),
             bar_time=_datetime(value.get("bar_time")),
+            preview_status=cast(PatternStateStatus, preview_status),
+            preview_signal=preview_signal,
+            preview_bar_time=_datetime(value.get("preview_bar_time")),
+            preview_price=_decimal(value.get("preview_price")),
+            preview_updated_at=_datetime(value.get("preview_updated_at")),
         )
