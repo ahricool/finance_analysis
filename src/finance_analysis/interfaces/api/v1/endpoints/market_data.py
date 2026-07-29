@@ -120,6 +120,11 @@ def _pattern_payload(pattern: PatternState) -> dict[str, Any]:
         "trading_date": pattern.trading_date.isoformat() if pattern.trading_date else None,
         "bar_time": utc_isoformat(pattern.bar_time),
         "signal": _pattern_signal_payload(pattern.signal) if pattern.signal else None,
+        "preview_status": pattern.preview_status,
+        "preview_signal": _pattern_signal_payload(pattern.preview_signal) if pattern.preview_signal else None,
+        "preview_bar_time": utc_isoformat(pattern.preview_bar_time),
+        "preview_price": _number(pattern.preview_price),
+        "preview_updated_at": utc_isoformat(pattern.preview_updated_at),
     }
 
 
@@ -158,7 +163,7 @@ def _quote_payload(
         trend_is_current = False
     if not trend_is_current:
         trend = TrendState(symbol=stock.symbol, trading_date=display_date)
-    original_pattern = pattern
+    preview_is_current = False
     try:
         pattern_is_current = pattern is not None and pattern.trading_date == display_date
         if pattern_is_current and pattern is not None and pattern.bar_time is not None:
@@ -174,14 +179,41 @@ def _quote_payload(
                 and is_regular_trade_session(pattern.signal.trade_session)
                 and pattern.signal.bars_ago <= PATTERN_CONFIG.maximum_age_bars
             )
+        preview_is_current = pattern is not None and pattern.preview_bar_time is not None
+        if preview_is_current and pattern is not None and pattern.preview_bar_time is not None:
+            preview_is_current = (
+                market_trading_date(pattern.preview_bar_time, cast(MarketType, stock.market_type)) == display_date
+                and is_regular_session_minute(pattern.preview_bar_time, cast(MarketType, stock.market_type))
+            )
+        if preview_is_current and pattern is not None and pattern.preview_signal is not None:
+            preview_is_current = (
+                pattern.preview_signal.trading_date == display_date
+                and is_regular_trade_session(pattern.preview_signal.trade_session)
+                and not pattern.preview_signal.confirmed
+                and pattern.preview_signal.stage != "confirmed"
+            )
     except Exception as exc:
         logger.warning("形态交易日校验失败: symbol=%s error=%s", stock.symbol, exc)
         pattern_is_current = False
-    if not pattern_is_current:
+        preview_is_current = False
+    if pattern is None:
         pattern = PatternState(
             symbol=stock.symbol,
-            status="insufficient" if original_pattern is None else "none",
+            status="insufficient",
             trading_date=display_date,
+        )
+    else:
+        pattern = PatternState(
+            symbol=pattern.symbol,
+            status=pattern.status if pattern_is_current else "none",
+            signal=pattern.signal if pattern_is_current else None,
+            trading_date=pattern.trading_date if pattern_is_current else display_date,
+            bar_time=pattern.bar_time if pattern_is_current else None,
+            preview_status=pattern.preview_status if preview_is_current else "none",
+            preview_signal=pattern.preview_signal if preview_is_current else None,
+            preview_bar_time=pattern.preview_bar_time if preview_is_current else None,
+            preview_price=pattern.preview_price if preview_is_current else None,
+            preview_updated_at=pattern.preview_updated_at if preview_is_current else None,
         )
     if not quote_is_current:
         if quote is not None:

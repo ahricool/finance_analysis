@@ -66,6 +66,11 @@ export interface RealtimePatternState {
   trading_date?: string | null;
   bar_time?: string | null;
   signal?: RealtimePatternSignal | null;
+  preview_status?: PatternStateStatus;
+  preview_signal?: RealtimePatternSignal | null;
+  preview_bar_time?: string | null;
+  preview_price?: number | null;
+  preview_updated_at?: string | null;
 }
 
 export interface RealtimeQuote {

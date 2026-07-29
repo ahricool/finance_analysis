@@ -218,6 +218,20 @@ async def test_bars_sorted_replaced_trimmed_and_queried() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unconfirmed_bar_is_never_written_to_confirmed_history() -> None:
+    redis = FakeRedis()
+    repo = RealtimeStateRepository(redis)
+    unfinished = candle(1, "11")
+    unfinished.confirmed = False
+
+    await repo.upsert_bars("AAPL.US", [candle(0), unfinished])
+
+    restored = await repo.get_recent_bars("AAPL.US", 10)
+    assert len(restored) == 1
+    assert restored[0] == candle(0)
+
+
+@pytest.mark.asyncio
 async def test_post_close_stored_bars_keep_multiple_days_without_heartbeat() -> None:
     redis = FakeRedis()
     repository = RealtimeStateRepository(redis)

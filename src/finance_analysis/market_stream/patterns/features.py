@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from decimal import Decimal
 from statistics import median
 
-from finance_analysis.integrations.market_data.realtime_state.models import CandleState
+from finance_analysis.integrations.market_data.realtime_state.models import CandleState, QuoteState
 from finance_analysis.market_stream.config import (
     is_regular_session_minute,
     is_regular_trade_session,
@@ -183,6 +183,75 @@ def sanitize_bars(bars: Sequence[CandleState], market_type: MarketType) -> list[
     return [bar for bar in ordered if market_trading_date(bar.bar_time, market_type) == target_date]
 
 
+def quote_updates_preview_bar(bar: CandleState, quote: QuoteState, market_type: MarketType) -> bool:
+    """Return whether a newer regular-session quote can update an unfinished minute bar."""
+    if (
+        bar.confirmed
+        or quote.symbol != bar.symbol
+        or quote.last_price is None
+        or quote.last_price <= ZERO
+        or quote.event_time is None
+        or quote.received_at is None
+        or quote.trading_date is None
+        or quote.event_time.tzinfo is None
+        or quote.event_time.utcoffset() is None
+        or quote.received_at <= bar.received_at
+        or quote.event_time < bar.bar_time
+        or quote.event_time >= bar.bar_time + timedelta(minutes=1)
+        or quote.trading_date != market_trading_date(bar.bar_time, market_type)
+        or market_trading_date(quote.event_time, market_type) != quote.trading_date
+        or not is_regular_session_minute(quote.event_time, market_type)
+        or not is_regular_trade_session(quote.trade_session)
+    ):
+        return False
+    return quote.event_time.replace(second=0, microsecond=0) == bar.bar_time.replace(second=0, microsecond=0)
+
+
+def prepare_preview_bars(
+    bars: Sequence[CandleState],
+    market_type: MarketType,
+    *,
+    quote: QuoteState | None = None,
+) -> list[CandleState]:
+    """Prepare current-day confirmed history plus at most one latest unfinished regular-session bar."""
+    candidates: dict[tuple[datetime, str], CandleState] = {}
+    for bar in bars:
+        if (
+            not bar.is_valid()
+            or bar.bar_time.tzinfo is None
+            or bar.bar_time.utcoffset() is None
+            or not is_regular_session_minute(bar.bar_time, market_type)
+            or not is_regular_trade_session(bar.trade_session)
+        ):
+            continue
+        previous = candidates.get(bar.identity)
+        if previous is None or (bar.confirmed, bar.received_at) >= (previous.confirmed, previous.received_at):
+            candidates[bar.identity] = bar
+    ordered = sorted(candidates.values(), key=lambda bar: (bar.bar_time, bar.trade_session or ""))
+    if not ordered:
+        return []
+    target_date = market_trading_date(ordered[-1].bar_time, market_type)
+    current_day = [bar for bar in ordered if market_trading_date(bar.bar_time, market_type) == target_date]
+    if not current_day:
+        return []
+    latest = current_day[-1]
+    prepared = [bar for bar in current_day if bar.confirmed]
+    if not latest.confirmed:
+        preview_bar = latest
+        if quote is not None and quote_updates_preview_bar(preview_bar, quote, market_type):
+            price = quote.last_price
+            assert price is not None and quote.received_at is not None
+            preview_bar = replace(
+                preview_bar,
+                close=price,
+                high=max(preview_bar.high, price),
+                low=min(preview_bar.low, price),
+                received_at=quote.received_at,
+            )
+        prepared.append(preview_bar)
+    return prepared
+
+
 def session_minute_index(value: datetime, market_type: MarketType) -> int:
     spec = market_spec(market_type)
     local = value.astimezone(spec.timezone)
@@ -272,8 +341,9 @@ def prepare_context(
     *,
     market_type: MarketType,
     config: PatternConfig,
+    preview: bool = False,
 ) -> PatternContext | None:
-    ordered = sanitize_bars(bars, market_type)
+    ordered = prepare_preview_bars(bars, market_type) if preview else sanitize_bars(bars, market_type)
     if len(ordered) < config.minimum_history_bars:
         return None
     atr = robust_atr(ordered, config.baseline_window)

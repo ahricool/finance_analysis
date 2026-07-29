@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from copy import deepcopy
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -460,12 +462,35 @@ async def test_redis_failure_after_activation_does_not_lose_memory_bars() -> Non
     assert [item.close for item in app.bars_1m["AAPL.US"]] == [Decimal("10"), Decimal("12")]
     assert finalized[0][0] == 2
     assert app.redis_degraded
-    assert len(app.pending_bars["AAPL.US"]) == 2
+    assert len(app.pending_bars["AAPL.US"]) == 1
 
     assert await app._flush_pending_redis()
     assert "AAPL.US" not in app.pending_bars
     restored = await app.repository.get_recent_bars("AAPL.US", 10)
-    assert [item.close for item in restored] == [Decimal("10"), Decimal("12")]
+    assert [item.close for item in restored] == [Decimal("10")]
+
+
+@pytest.mark.asyncio
+async def test_warmup_builds_formal_history_and_unfinished_preview_immediately() -> None:
+    app = service()
+    state = set_warming(app)
+    key = WarmupTaskKey("AAPL.US", state.generation, app.manager.connection_generation)
+    unfinished = bar(15, close="11", confirmed=False)
+    app.warming_buffers[key] = {unfinished.identity: unfinished}
+
+    def finalize(count, error, trading_date):
+        state.status = SymbolStatus.ACTIVE
+
+    result = WarmupResult("AAPL.US", "US", [], [bar(index) for index in range(15)], 0.1)
+    assert await app._apply_warmup(state, key.connection_generation, result, None, finalize)
+
+    pattern_state = app.pattern_states["AAPL.US"]
+    assert pattern_state.trading_date == date(2026, 6, 26)
+    assert pattern_state.preview_bar_time == unfinished.bar_time
+    assert pattern_state.preview_price == Decimal("11")
+    stored = await app.repository.get_recent_bars("AAPL.US", 20)
+    assert len(stored) == 15
+    assert all(item.confirmed for item in stored)
 
 
 @pytest.mark.asyncio
@@ -508,6 +533,22 @@ async def test_connection_cleanup_resets_quote_sequence_for_new_connection() -> 
     assert app.quotes["AAPL.US"].sequence == 1
 
 
+@pytest.mark.asyncio
+async def test_connection_cleanup_drops_unfinished_preview_memory() -> None:
+    app = service()
+    activate(app)
+    await app._handle_event(candle_event(bar(0), 2))
+    await app._handle_event(candle_event(bar(1, confirmed=False), 2))
+    app.quote_preview_calculated_at["AAPL.US"] = 10.0
+
+    await app._cleanup_connection_buffers(2)
+
+    assert all(item.confirmed for item in app.bars_1m["AAPL.US"])
+    assert app.current_candles["AAPL.US"].confirmed
+    assert "AAPL.US" not in app.quote_preview_calculated_at
+    assert app.pattern_states["AAPL.US"].preview_bar_time is None
+
+
 def activate(app: MarketStreamService, *, connection: int = 2) -> SymbolRuntimeState:
     state = set_warming(app, connection=connection)
     state.status = SymbolStatus.ACTIVE
@@ -517,7 +558,7 @@ def activate(app: MarketStreamService, *, connection: int = 2) -> SymbolRuntimeS
 
 
 @pytest.mark.asyncio
-async def test_unconfirmed_candle_does_not_update_trend_but_confirmation_does() -> None:
+async def test_unconfirmed_candle_updates_preview_not_trend_and_confirmation_clears_preview() -> None:
     redis = FakeRedis()
     app = service(redis)
     activate(app)
@@ -525,11 +566,17 @@ async def test_unconfirmed_candle_does_not_update_trend_but_confirmation_does() 
         await app._handle_event(candle_event(bar(index, close=str(10 + index / 10)), 2))
     before = redis.pipeline_executes
     stored_before = dict(redis.hashes[keys.trend_key("AAPL.US")])
-    pattern_before = dict(redis.hashes[keys.pattern_key("AAPL.US")])
+    formal_before = await app.repository.get_pattern_state("AAPL.US")
     await app._handle_event(candle_event(bar(4, close="10.4", confirmed=False), 2))
     assert redis.hashes[keys.trend_key("AAPL.US")] == stored_before
-    assert redis.hashes[keys.pattern_key("AAPL.US")] == pattern_before
-    assert redis.pipeline_executes == before
+    preview = await app.repository.get_pattern_state("AAPL.US")
+    assert preview is not None and formal_before is not None
+    assert preview.status == formal_before.status
+    assert preview.signal == formal_before.signal
+    assert preview.preview_status == "insufficient"
+    assert preview.preview_bar_time == bar(4).bar_time
+    assert preview.preview_price == Decimal("10.4")
+    assert redis.pipeline_executes == before + 1
 
     await app._handle_event(candle_event(bar(4, close="10.4", confirmed=True, received=61), 2))
     restored = await app.repository.get_trend_state("AAPL.US")
@@ -539,6 +586,97 @@ async def test_unconfirmed_candle_does_not_update_trend_but_confirmation_does() 
     pattern_state = await app.repository.get_pattern_state("AAPL.US")
     assert pattern_state is not None
     assert pattern_state.status == "insufficient"
+    assert pattern_state.preview_signal is None
+    assert pattern_state.preview_bar_time is None
+
+
+@pytest.mark.asyncio
+async def test_quote_updates_only_matching_preview_and_is_throttled() -> None:
+    redis = FakeRedis()
+    app = service(redis)
+    activate(app)
+    for index in range(15):
+        await app._handle_event(candle_event(bar(index, close=str(10 + index / 100)), 2))
+    unfinished = bar(15, close="10.2", confirmed=False)
+    await app._handle_event(candle_event(unfinished, 2))
+    formal = app.pattern_states["AAPL.US"].signal
+    stored_before = await app.repository.get_pattern_state("AAPL.US")
+
+    first_time = unfinished.bar_time + timedelta(seconds=10)
+    await app._handle_event(quote_event("13", 1, 2, received_at=first_time))
+    assert app.pending_patterns["AAPL.US"].preview_price == Decimal("13")
+    assert await app.repository.get_pattern_state("AAPL.US") == stored_before
+
+    await app._handle_event(quote_event("14", 2, 2, received_at=first_time + timedelta(seconds=1)))
+    assert app.pending_patterns["AAPL.US"].preview_price == Decimal("13")
+
+    app.quote_preview_calculated_at["AAPL.US"] -= 1
+    await app._handle_event(quote_event("11", 3, 2, received_at=first_time + timedelta(seconds=2)))
+    assert app.pending_patterns["AAPL.US"].preview_price == Decimal("11")
+    assert app.pending_patterns["AAPL.US"].signal == formal
+    assert await app._flush_pending_redis()
+    restored = await app.repository.get_pattern_state("AAPL.US")
+    assert restored is not None and restored.preview_price == Decimal("11")
+
+
+@pytest.mark.asyncio
+async def test_quote_without_matching_unfinished_candle_does_not_create_preview() -> None:
+    app = service()
+    activate(app)
+
+    await app._handle_event(quote_event("11", 1, 2))
+
+    assert "AAPL.US" not in app.pattern_states
+    assert "AAPL.US" not in app.pending_patterns
+
+
+@pytest.mark.asyncio
+async def test_confirmed_candle_bypasses_quote_throttle_and_clears_preview() -> None:
+    app = service()
+    activate(app)
+    await app._handle_event(candle_event(bar(0, confirmed=False), 2))
+    app.quote_preview_calculated_at["AAPL.US"] = time.monotonic()
+
+    await app._handle_event(candle_event(bar(0, confirmed=True, received=61), 2))
+
+    pattern_state = await app.repository.get_pattern_state("AAPL.US")
+    assert pattern_state is not None and pattern_state.preview_bar_time is None
+    assert "AAPL.US" not in app.quote_preview_calculated_at
+
+
+@pytest.mark.asyncio
+async def test_new_trading_date_clears_old_formal_and_preview_state() -> None:
+    app = service()
+    state = activate(app)
+    await app._handle_event(candle_event(bar(0), 2))
+    await app._handle_event(candle_event(bar(1, confirmed=False), 2))
+    app.quote_preview_calculated_at["AAPL.US"] = 10.0
+    next_time = datetime(2026, 6, 29, 13, 30, tzinfo=timezone.utc)
+    next_day = replace(bar(0, confirmed=False), bar_time=next_time, received_at=next_time)
+
+    await app._handle_event(candle_event(next_day, 2))
+
+    assert state.trading_date == date(2026, 6, 29)
+    assert list(app.bars_1m["AAPL.US"]) == [next_day]
+    assert app.pattern_states["AAPL.US"].signal is None
+    assert app.pattern_states["AAPL.US"].preview_bar_time == next_day.bar_time
+    assert "AAPL.US" not in app.quote_preview_calculated_at
+
+
+@pytest.mark.asyncio
+async def test_symbol_remove_clears_preview_memory_and_throttle_state() -> None:
+    app = service()
+    activate(app)
+    await app._handle_event(candle_event(bar(0, confirmed=False), 2))
+    app.quote_preview_calculated_at["AAPL.US"] = 10.0
+
+    await app._remove_symbol_state("AAPL.US")
+
+    assert "AAPL.US" not in app.bars_1m
+    assert "AAPL.US" not in app.current_candles
+    assert "AAPL.US" not in app.pattern_states
+    assert "AAPL.US" not in app.pending_patterns
+    assert "AAPL.US" not in app.quote_preview_calculated_at
 
 
 @pytest.mark.asyncio
@@ -608,6 +746,22 @@ async def test_pattern_redis_failure_is_pending_and_recovers_without_stopping_st
     assert await app._flush_pending_redis()
     assert "AAPL.US" not in app.pending_patterns
     assert await app.repository.get_pattern_state("AAPL.US") is not None
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_preview_redis_failure_uses_pending_retry() -> None:
+    redis = FakeRedis()
+    repository = FailingPatternRepository(redis)
+    app = service(redis, repository)
+    activate(app)
+
+    await app._handle_event(candle_event(bar(0, confirmed=False), 2))
+
+    assert "AAPL.US" in app.pending_patterns
+    assert app.pending_patterns["AAPL.US"].preview_bar_time == bar(0).bar_time
+    assert await app._flush_pending_redis()
+    restored = await app.repository.get_pattern_state("AAPL.US")
+    assert restored is not None and restored.preview_bar_time == bar(0).bar_time
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,9 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
+import pytest
+
+from finance_analysis.integrations.market_data.realtime_state.models import QuoteState
 from finance_analysis.market_stream.patterns.config import PatternConfig
 from finance_analysis.market_stream.patterns.detector import (
     calculate_pattern_state,
@@ -19,6 +22,7 @@ from finance_analysis.market_stream.patterns.features import (
     median_body,
     median_volume,
     normalized_distance,
+    prepare_preview_bars,
     range_width,
     robust_atr,
     rolling_high,
@@ -92,6 +96,88 @@ def test_unconfirmed_pattern_bar_cannot_change_final_state() -> None:
     assert warning.status == "active"
     assert after_unconfirmed == warning
     assert after_unconfirmed.signal is not None and after_unconfirmed.signal.stage == "warning"
+
+
+def test_preview_keeps_only_latest_unconfirmed_current_day_regular_bar() -> None:
+    confirmed = baseline(count=3)
+    first_unconfirmed = replace(candle(3, (100, 101, 99, 100.5)), confirmed=False)
+    latest_unconfirmed = replace(candle(4, (100.5, 102, 100, 101.5)), confirmed=False)
+    old_unconfirmed = replace(first_unconfirmed, bar_time=first_unconfirmed.bar_time - timedelta(days=1))
+    postmarket = replace(latest_unconfirmed, bar_time=latest_unconfirmed.bar_time + timedelta(hours=8), trade_session="Post")
+
+    result = prepare_preview_bars(
+        [old_unconfirmed, *confirmed, first_unconfirmed, postmarket, latest_unconfirmed],
+        "US",
+    )
+
+    assert result[:-1] == confirmed
+    assert result[-1] == latest_unconfirmed
+    assert sum(not bar.confirmed for bar in result) == 1
+
+
+def test_preview_quote_updates_temporary_ohlc_without_mutating_source() -> None:
+    unfinished = replace(candle(15, (100, 101, 99, 100)), confirmed=False)
+    quote = QuoteState(symbol=unfinished.symbol)
+    quote_time = unfinished.bar_time + timedelta(seconds=30)
+    quote.merge(
+        {"last_price": "102", "trade_session": "Intraday"},
+        event_time=quote_time,
+        received_at=unfinished.received_at + timedelta(seconds=1),
+        trading_date=date(2026, 7, 22),
+    )
+
+    prepared = prepare_preview_bars([*baseline(), unfinished], "US", quote=quote)
+
+    assert prepared[-1].close == Decimal("102")
+    assert prepared[-1].high == Decimal("102")
+    assert prepared[-1].low == Decimal("99")
+    assert unfinished.close == Decimal("100")
+    assert unfinished.high == Decimal("101")
+    assert unfinished.low == Decimal("99")
+
+
+@pytest.mark.parametrize("change", ["minute", "date", "stale", "symbol", "session"])
+def test_preview_rejects_quote_from_other_minute_date_or_older_data(change: str) -> None:
+    unfinished = replace(candle(15, (100, 101, 99, 100)), confirmed=False)
+    event_time = unfinished.bar_time + timedelta(seconds=20)
+    received_at = unfinished.received_at + timedelta(seconds=1)
+    trading_date = date(2026, 7, 22)
+    if change == "minute":
+        event_time += timedelta(minutes=1)
+    elif change == "date":
+        trading_date -= timedelta(days=1)
+    elif change == "stale":
+        received_at = unfinished.received_at
+    symbol = "QQQ.US" if change == "symbol" else unfinished.symbol
+    trade_session = "Post" if change == "session" else "Intraday"
+    quote = QuoteState(symbol=symbol)
+    quote.merge(
+        {"last_price": "102", "trade_session": trade_session},
+        event_time=event_time,
+        received_at=received_at,
+        trading_date=trading_date,
+    )
+
+    assert prepare_preview_bars([*baseline(), unfinished], "US", quote=quote)[-1].close == unfinished.close
+
+
+def test_confirmed_preview_signal_is_downgraded_without_changing_formal_signal(monkeypatch) -> None:
+    confirmed_signal = signal(stage="confirmed", minute=14)
+
+    def fixed_signals(*args, **kwargs):
+        return [confirmed_signal]
+
+    monkeypatch.setattr("finance_analysis.market_stream.patterns.detector.detect_pattern_signals", fixed_signals)
+    unfinished = replace(candle(15, (100, 101, 99, 100.5)), confirmed=False)
+    state = calculate_pattern_state([*baseline(), unfinished], market_type="US", include_preview=True)
+
+    assert state.signal is confirmed_signal
+    assert state.signal.confirmed and state.signal.stage == "confirmed"
+    assert state.preview_signal is not None
+    assert not state.preview_signal.confirmed
+    assert state.preview_signal.stage == "warning"
+    assert state.preview_signal.confirmed_at is None
+    assert "当前一分钟K线尚未收盘" in state.preview_signal.reasons[-1]
 
 
 def test_zero_or_tiny_atr_returns_insufficient_safely() -> None:
@@ -194,17 +280,35 @@ def test_patterns_older_than_maximum_age_are_not_selected() -> None:
 
 def test_quality_score_bounds_and_state_round_trip() -> None:
     original_signal = signal(stage="confirmed", score=100)
+    preview_signal = replace(original_signal, stage="warning", confirmed=False, confirmed_at=None)
     state = PatternState(
         symbol="SPY.US",
         status="active",
         signal=original_signal,
         trading_date=date(2026, 7, 22),
         bar_time=START + timedelta(minutes=20),
+        preview_status="active",
+        preview_signal=preview_signal,
+        preview_bar_time=START + timedelta(minutes=21),
+        preview_price=Decimal("101.25"),
+        preview_updated_at=START + timedelta(minutes=21, seconds=20),
     )
     restored = PatternState.from_mapping(state.to_mapping())
     assert restored == state
     assert restored.signal is not None
     assert 0 <= restored.signal.quality_score <= 100
+
+
+def test_old_pattern_mapping_without_preview_fields_uses_safe_defaults() -> None:
+    mapping = PatternState(symbol="SPY.US", status="none").to_mapping()
+    for key in ["preview_status", "preview_signal", "preview_bar_time", "preview_price", "preview_updated_at"]:
+        mapping.pop(key)
+
+    restored = PatternState.from_mapping(mapping)
+
+    assert restored.preview_status == "insufficient"
+    assert restored.preview_signal is None
+    assert restored.preview_bar_time is None
 
 
 def test_calculate_state_distinguishes_insufficient_none_and_active() -> None:
