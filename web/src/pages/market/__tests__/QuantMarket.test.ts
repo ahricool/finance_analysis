@@ -39,7 +39,7 @@ describe('quant market context', () => {
     vi.mocked(quantApi.marketRegime).mockRejectedValue({ response: { status: 404, data: { detail: 'missing' } } });
     vi.mocked(quantApi.marketRegimeHistory).mockResolvedValue([]);
     vi.mocked(quantApi.sectors).mockResolvedValue([]);
-    vi.mocked(quantApi.signals).mockResolvedValue({ tradeDate: null, market: 'US', universe: 'us_sp500', marketRegime: null, maxEquityExposure: null, items: [] });
+    vi.mocked(quantApi.signals).mockResolvedValue({ tradeDate: null, market: 'US', universe: 'us_sp500', modelVersion: null, marketRegime: null, maxEquityExposure: null, items: [] });
   });
 
   it('defaults to US and stores CN selection in the route query', async () => {
@@ -64,14 +64,14 @@ describe('quant market context', () => {
     let resolveUs!: (value: Awaited<ReturnType<typeof quantApi.signals>>) => void;
     vi.mocked(quantApi.signals).mockImplementation((market) => {
       if (market === 'US') return new Promise((resolve) => { resolveUs = resolve; });
-      return Promise.resolve({ tradeDate: null, market: 'CN', universe: 'cn_csi300', marketRegime: null, maxEquityExposure: null, items: [] });
+      return Promise.resolve({ tradeDate: null, market: 'CN', universe: 'cn_csi300', modelVersion: null, marketRegime: null, maxEquityExposure: null, items: [] });
     });
     const { wrapper, router } = await mountMarket('/market/quant?market=US');
     await flushPromises();
     await router.push('/market/quant?market=CN');
     await flushPromises();
     resolveUs({
-      tradeDate: '2026-07-17', market: 'US', universe: 'us_sp500', marketRegime: 'risk_on', maxEquityExposure: 0.8,
+      tradeDate: '2026-07-17', market: 'US', universe: 'us_sp500', modelVersion: 'model-v1', marketRegime: 'risk_on', maxEquityExposure: 0.8,
       items: [{ id: 1, market: 'US', tradeDate: '2026-07-17', code: 'AAPL.US' } as never],
     });
     await flushPromises();

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -17,6 +18,7 @@ from finance_analysis.quant.exceptions import (
 )
 from finance_analysis.quant.features.service import DailyResearchService
 from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
+from finance_analysis.quant.markets import get_quant_universe_codes
 from finance_analysis.quant.pipeline.service import PROTOCOL_VERSION, QuantDailyPipeline, QuantTrainingPipeline
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
 
@@ -105,9 +107,13 @@ def test_daily_research_uses_primary_and_broad_benchmarks_without_removed_risk_c
         TwoBenchmarkRegimeService,
     )
 
-    result = DailyResearchService(repository, symbol_repository).run(
-        "CN", "cn_csi300", TRADE_DATE
-    )
+    service = DailyResearchService(repository, symbol_repository)
+    with pytest.raises(FeatureDataMissingError, match="coverage below minimum"):
+        service.run("CN", "cn_csi300", TRADE_DATE)
+    repository.save_market_regime.assert_not_called()
+
+    service.config = replace(service.config, minimum_universe_coverage=0.5)
+    result = service.run("CN", "cn_csi300", TRADE_DATE)
 
     assert captured["benchmark_labels"] == ("159915.SZ", "510300.SH")
     assert set(captured["universe"]) == {"600519.SH"}
@@ -514,6 +520,7 @@ def test_training_rejects_missing_dataset_artifact_before_marking_training() -> 
         status="ready",
         artifact_uri="quant://datasets/missing",
         price_mode="forward_adjusted",
+        symbol_count=len(get_quant_universe_codes("CN")),
     )
     artifact_store = MagicMock()
     artifact_store.resolve_uri.side_effect = ModelArtifactMissingError(

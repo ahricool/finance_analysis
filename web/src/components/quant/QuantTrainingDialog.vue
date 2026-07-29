@@ -40,7 +40,7 @@ let requestVersion = 0;
 
 const marketLocked = computed(() => props.initialDatasetId !== null && props.initialDatasetId !== undefined);
 const readyDatasets = computed(() => datasets.value.filter((item) => (
-  item.market === selectedMarket.value && item.status === 'ready' && Boolean(item.artifactUri)
+  item.market === selectedMarket.value && item.trainable
 )));
 const selectedDataset = computed(() => (
   readyDatasets.value.find((item) => item.id === selectedDatasetId.value) ?? null
@@ -223,7 +223,8 @@ watch(modelKey, () => {
                   <span class="text-sm text-foreground">{{ item.dateFrom }} → {{ item.dateTo }}</span>
                 </div>
                 <p class="mt-1 text-xs leading-5 text-secondary-text">
-                  {{ formatCount(item.symbolCount) }} 只股票 · {{ formatCount(item.rowCount) }} 行
+                  {{ formatCount(item.symbolCount) }} / {{ formatCount(item.universeMemberCount) }} 只股票
+                  · 覆盖率 {{ (item.universeCoverageRatio * 100).toFixed(1) }}% · {{ formatCount(item.rowCount) }} 行
                   · {{ priceModeLabel(item.priceMode) }} · {{ item.featureVersion }}
                 </p>
                 <p class="mt-0.5 text-xs text-muted-text">

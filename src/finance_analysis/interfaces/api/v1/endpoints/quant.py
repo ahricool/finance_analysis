@@ -19,6 +19,7 @@ from finance_analysis.interfaces.api.v1.schemas.quant import (
     PublishRequest,
 )
 from finance_analysis.quant.capabilities import get_quant_capabilities
+from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.markets import get_quant_universe_codes
 from finance_analysis.quant.models import QLIB_TRAINABLE_MODEL_KEYS
 from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
@@ -38,6 +39,25 @@ def _universe(repo: QuantRepository, market: str, key: str | None):
         return repo.supported_universe(market, key)
     except ValueError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
+def _dataset_payload(row) -> dict:
+    universe_members = len(get_quant_universe_codes(row.market))
+    dataset_symbols = int(row.symbol_count or 0)
+    coverage_ratio = dataset_symbols / universe_members if universe_members else 0.0
+    minimum_coverage = get_quant_config().minimum_universe_coverage
+    return {
+        **encoded(row),
+        "universe_member_count": universe_members,
+        "universe_coverage_ratio": coverage_ratio,
+        "minimum_universe_coverage": minimum_coverage,
+        "trainable": (
+            row.status == "ready"
+            and bool(row.artifact_uri)
+            and row.price_mode == DEFAULT_QUANT_PRICE_MODE.value
+            and coverage_ratio >= minimum_coverage
+        ),
+    }
 
 
 @router.get("/capabilities")
@@ -92,7 +112,7 @@ async def models(market: QuantMarket = "US", _: User = Depends(require_current_u
 async def datasets(market: QuantMarket = "US", _: User = Depends(require_current_user)):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
-    return encoded(repo.list_datasets(market=market, universe_id=universe.id))
+    return [_dataset_payload(row) for row in repo.list_datasets(market=market, universe_id=universe.id)]
 
 
 @router.get("/datasets/{snapshot_id}")
@@ -102,7 +122,7 @@ async def dataset(snapshot_id: int, market: QuantMarket = "US", _: User = Depend
     row = repo.get_dataset(snapshot_id)
     if not row or row.market != market or row.universe_id != universe.id:
         raise HTTPException(404, "Dataset snapshot not found")
-    return encoded(row)
+    return _dataset_payload(row)
 
 
 @router.post("/datasets/build", status_code=status.HTTP_202_ACCEPTED)
@@ -147,28 +167,46 @@ async def market_regime_history(
     model_version: str | None = None,
     _: User = Depends(require_current_user),
 ):
-    rows = QuantRepository().market_regimes(market, date_from, date_to)
-    if model_version:
-        rows = [row for row in rows if row.model_version == model_version]
-    return encoded(rows)
+    return encoded(
+        QuantRepository().market_regimes(
+            market,
+            date_from,
+            date_to,
+            model_version=model_version,
+        )
+    )
 
 
 @router.get("/sectors/ranking")
 async def sector_ranking(
     market: QuantMarket = "US",
     trade_date: date | None = None,
+    model_version: str | None = None,
     _: User = Depends(require_current_user),
 ):
-    return encoded(QuantRepository().sector_regimes(market, trade_date))
+    return encoded(
+        QuantRepository().sector_regimes(
+            market,
+            trade_date,
+            model_version=model_version,
+        )
+    )
 
 
 @router.get("/sectors/{sector_key}")
 async def sector_detail(
     sector_key: str,
     market: QuantMarket = "US",
+    model_version: str | None = None,
     _: User = Depends(require_current_user),
 ):
-    return encoded(QuantRepository().sector_regimes(market, sector_key=sector_key))
+    return encoded(
+        QuantRepository().sector_regimes(
+            market,
+            sector_key=sector_key,
+            model_version=model_version,
+        )
+    )
 
 
 @router.post("/model-runs", status_code=status.HTTP_202_ACCEPTED)
@@ -196,6 +234,15 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
             409,
             f"Production training requires dataset price_mode={DEFAULT_QUANT_PRICE_MODE.value}",
         )
+    universe_members = len(get_quant_universe_codes(market))
+    coverage_ratio = int(dataset.symbol_count or 0) / universe_members if universe_members else 0.0
+    minimum_coverage = get_quant_config().minimum_universe_coverage
+    if coverage_ratio < minimum_coverage:
+        raise HTTPException(
+            409,
+            f"Dataset universe coverage {coverage_ratio:.2%} is below the "
+            f"{minimum_coverage:.2%} minimum",
+        )
     values = body.model_dump(exclude={"universe"})
     values.update(
         {
@@ -220,7 +267,7 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
         repo.update_model_run(run.id, status="failed", progress=100, error=message)
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, message) from exc
     repo.update_model_run(run.id, task_id=task.id)
-    return {"model_run_id": run.id, "task_id": task.id, "status": "draft", "market": market}
+    return {"model_run_id": run.id, "task_id": task.id, "status": "pending", "market": market}
 
 
 @router.get("/model-runs")
@@ -271,11 +318,12 @@ async def publish_model(
 async def signals(
     market: QuantMarket = "US",
     universe: str | None = None,
+    model_version: str | None = None,
     _: User = Depends(require_current_user),
 ):
     repo = QuantRepository()
     definition = _universe(repo, market, universe)
-    rows = repo.latest_signals(market, definition.id)
+    rows = repo.latest_signals(market, definition.id, model_version=model_version)
     regimes = (
         repo.market_regimes(market, date_from=rows[0].trade_date, date_to=rows[0].trade_date, limit=1)
         if rows
@@ -285,6 +333,7 @@ async def signals(
         "trade_date": rows[0].trade_date if rows else None,
         "market": market,
         "universe": definition.key,
+        "model_version": rows[0].model_version if rows else model_version,
         "market_regime": regimes[0].regime if regimes else None,
         "max_equity_exposure": regimes[0].max_equity_exposure if regimes else None,
         "items": encoded(rows),
@@ -292,31 +341,59 @@ async def signals(
 
 
 @router.get("/signals/{code}")
-async def signal(code: str, market: QuantMarket = "US", _: User = Depends(require_current_user)):
+async def signal(
+    code: str,
+    market: QuantMarket = "US",
+    model_version: str | None = None,
+    _: User = Depends(require_current_user),
+):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
-    rows = repo.latest_signals(market, universe.id, code=code)
+    rows = repo.latest_signals(
+        market,
+        universe.id,
+        code=code,
+        model_version=model_version,
+    )
     if not rows:
         raise HTTPException(404, f"{market} signal not found")
     return encoded(rows[0])
 
 
 @router.get("/signals/{code}/history")
-async def signal_history(code: str, market: QuantMarket = "US", _: User = Depends(require_current_user)):
+async def signal_history(
+    code: str,
+    market: QuantMarket = "US",
+    model_version: str | None = None,
+    _: User = Depends(require_current_user),
+):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
-    return encoded(repo.signal_history(market, code, universe.id))
+    return encoded(
+        repo.signal_history(
+            market,
+            code,
+            universe.id,
+            model_version=model_version,
+        )
+    )
 
 
 @router.get("/portfolios/latest")
 async def latest_portfolio(
     market: QuantMarket = "US",
     universe: str | None = None,
+    model_version: str | None = None,
     _: User = Depends(require_current_user),
 ):
     repo = QuantRepository()
     definition = _universe(repo, market, universe)
-    rows = repo.latest_portfolios(market, definition.id, 1)
+    rows = repo.latest_portfolios(
+        market,
+        definition.id,
+        1,
+        model_version=model_version,
+    )
     if not rows:
         raise HTTPException(404, f"{market} portfolio recommendation not found")
     result = repo.portfolio(rows[0].id, market, definition.id)
@@ -327,10 +404,20 @@ async def latest_portfolio(
 
 
 @router.get("/portfolios")
-async def portfolios(market: QuantMarket = "US", _: User = Depends(require_current_user)):
+async def portfolios(
+    market: QuantMarket = "US",
+    model_version: str | None = None,
+    _: User = Depends(require_current_user),
+):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
-    return encoded(repo.latest_portfolios(market, universe.id))
+    return encoded(
+        repo.latest_portfolios(
+            market,
+            universe.id,
+            model_version=model_version,
+        )
+    )
 
 
 @router.get("/portfolios/{recommendation_id}")
@@ -345,18 +432,32 @@ async def portfolio(
     if not result:
         raise HTTPException(404, "Portfolio recommendation not found")
     row, items = result
-    return {**encoded(row), "items": encoded(items)}
+    return {**encoded(row), "universe": universe.key, "items": encoded(items)}
 
 
 @router.get("/intraday-confirmations")
 async def confirmations(
     market: QuantMarket = "US",
     trade_date: date | None = None,
+    recommendation_id: int | None = None,
     _: User = Depends(require_current_user),
 ):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
-    return encoded(repo.confirmations(market, trade_date, universe_id=universe.id))
+    if recommendation_id is not None and not repo.portfolio(
+        recommendation_id,
+        market,
+        universe.id,
+    ):
+        raise HTTPException(404, "Portfolio recommendation not found")
+    return encoded(
+        repo.confirmations(
+            market,
+            trade_date,
+            universe_id=universe.id,
+            recommendation_id=recommendation_id,
+        )
+    )
 
 
 @router.get("/intraday-confirmations/{code}")

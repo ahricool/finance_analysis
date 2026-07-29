@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.endpoints import quant as quant_endpoint
 from finance_analysis.interfaces.api.v1.schemas.quant import ModelRunCreateRequest
-from finance_analysis.quant.markets import validate_universe_for_market
+from finance_analysis.quant.markets import get_quant_universe_codes, validate_universe_for_market
 
 
 class FakeQuantRepository:
@@ -20,6 +20,7 @@ class FakeQuantRepository:
         self.calls = []
         self.created_model_run = None
         self.model_run_updates = []
+        self.signal_rows = []
 
     def get_universe(self, key):
         self.calls.append(("get_universe", key))
@@ -64,6 +65,7 @@ class FakeQuantRepository:
             status="ready",
             artifact_uri="quant://datasets/us-ready",
             price_mode="forward_adjusted",
+            symbol_count=len(get_quant_universe_codes("US")),
         )
 
     def create_model_run(self, values):
@@ -73,9 +75,9 @@ class FakeQuantRepository:
     def update_model_run(self, run_id, **values):
         self.model_run_updates.append((run_id, values))
 
-    def latest_signals(self, market, universe_id=None, code=None):
-        self.calls.append(("latest_signals", market, universe_id, code))
-        return []
+    def latest_signals(self, market, universe_id=None, code=None, model_version=None):
+        self.calls.append(("latest_signals", market, universe_id, code, model_version))
+        return self.signal_rows
 
     def market_regimes(self, *args, **kwargs):
         return []
@@ -88,16 +90,33 @@ class FakeQuantRepository:
         self.calls.append(("list_datasets", market, universe_id))
         return []
 
-    def latest_portfolios(self, market, universe_id=None):
-        self.calls.append(("latest_portfolios", market, universe_id))
+    def latest_portfolios(self, market, universe_id=None, limit=50, model_version=None):
+        self.calls.append(("latest_portfolios", market, universe_id, limit, model_version))
         return []
 
-    def signal_history(self, market, code, universe_id=None):
-        self.calls.append(("signal_history", market, code, universe_id))
+    def portfolio(self, recommendation_id, market=None, universe_id=None):
+        self.calls.append(("portfolio", recommendation_id, market, universe_id))
+        return SimpleNamespace(id=recommendation_id, market=market, universe_id=universe_id), []
+
+    def confirmations(
+        self,
+        market,
+        trade_date=None,
+        code=None,
+        universe_id=None,
+        recommendation_id=None,
+    ):
+        self.calls.append(
+            ("confirmations", market, trade_date, code, universe_id, recommendation_id)
+        )
         return []
 
-    def sector_regimes(self, market, trade_date=None, sector_key=None):
-        self.calls.append(("sector_regimes", market, trade_date, sector_key))
+    def signal_history(self, market, code, universe_id=None, model_version=None):
+        self.calls.append(("signal_history", market, code, universe_id, model_version))
+        return []
+
+    def sector_regimes(self, market, trade_date=None, sector_key=None, model_version=None):
+        self.calls.append(("sector_regimes", market, trade_date, sector_key, model_version))
         return [SimpleNamespace(market=market, trade_date=date(2026, 7, 17), sector_key="电子")]
 
 
@@ -119,7 +138,7 @@ def test_signal_ranking_uses_cn_default_universe_and_market_filter(monkeypatch):
     assert response.status_code == 200
     assert response.json()["market"] == "CN"
     assert response.json()["universe"] == "cn_csi300"
-    assert ("latest_signals", "CN", 2, None) in repository.calls
+    assert ("latest_signals", "CN", 2, None, None) in repository.calls
 
 
 def test_quant_api_rejects_unsupported_market_and_scopes_signal_history(monkeypatch):
@@ -129,7 +148,7 @@ def test_quant_api_rejects_unsupported_market_and_scopes_signal_history(monkeypa
     response = client.get("/quant/signals/600519.SH/history?market=CN")
 
     assert response.status_code == 200
-    assert ("signal_history", "CN", "600519.SH", 2) in repository.calls
+    assert ("signal_history", "CN", "600519.SH", 2, None) in repository.calls
 
 
 def test_sector_ranking_without_date_delegates_latest_market_only_query(monkeypatch):
@@ -139,7 +158,7 @@ def test_sector_ranking_without_date_delegates_latest_market_only_query(monkeypa
 
     assert response.status_code == 200
     assert response.json()[0]["market"] == "CN"
-    assert ("sector_regimes", "CN", None, None) in repository.calls
+    assert ("sector_regimes", "CN", None, None, None) in repository.calls
 
 
 def test_quant_api_rejects_unsupported_and_cross_market_universes(monkeypatch):
@@ -179,7 +198,30 @@ def test_normal_model_dataset_and_portfolio_lists_filter_the_supported_universe(
 
     assert ("list_model_runs", "CN", 2) in repository.calls
     assert ("list_datasets", "CN", 2) in repository.calls
-    assert ("latest_portfolios", "CN", 2) in repository.calls
+    assert ("latest_portfolios", "CN", 2, 50, None) in repository.calls
+
+
+def test_dataset_contract_exposes_coverage_and_trainability(monkeypatch):
+    client, _ = _client(monkeypatch)
+
+    response = client.get("/quant/datasets/5?market=US")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["universe_member_count"] == len(get_quant_universe_codes("US"))
+    assert payload["universe_coverage_ratio"] == 1
+    assert payload["minimum_universe_coverage"] == pytest.approx(0.9)
+    assert payload["trainable"] is True
+
+
+def test_confirmation_list_is_scoped_to_the_displayed_recommendation(monkeypatch):
+    client, repository = _client(monkeypatch)
+
+    response = client.get("/quant/intraday-confirmations?market=US&recommendation_id=42")
+
+    assert response.status_code == 200
+    assert ("portfolio", 42, "US", 1) in repository.calls
+    assert ("confirmations", "US", None, None, 1, 42) in repository.calls
 
 
 def test_model_definitions_expose_only_worker_trainable_models(monkeypatch):
@@ -213,6 +255,7 @@ def test_model_run_defaults_match_worker_contract_and_dispatch_explicit_run(monk
 
     assert response.status_code == 202
     assert response.json()["model_run_id"] == 77
+    assert response.json()["status"] == "pending"
     assert repository.created_model_run["target_config"]["benchmark"] == "sector_or_market"
     assert repository.created_model_run["split_config"]["prediction_horizon"] == 5
     apply_async.assert_called_once_with(
@@ -220,6 +263,50 @@ def test_model_run_defaults_match_worker_contract_and_dispatch_explicit_run(monk
         queue="analysis",
     )
     assert repository.model_run_updates[-1] == (77, {"task_id": "training-task-1"})
+
+
+def test_signal_ranking_exposes_and_filters_model_version(monkeypatch):
+    client, repository = _client(monkeypatch)
+    repository.signal_rows = [
+        SimpleNamespace(
+            id=1,
+            market="US",
+            trade_date=date(2026, 7, 22),
+            code="AAPL.US",
+            model_version="model-v2",
+        )
+    ]
+
+    response = client.get("/quant/signals/ranking?market=US&model_version=model-v2")
+
+    assert response.status_code == 200
+    assert response.json()["model_version"] == "model-v2"
+    assert ("latest_signals", "US", 1, None, "model-v2") in repository.calls
+
+
+def test_model_run_rejects_dataset_below_minimum_universe_coverage(monkeypatch):
+    client, repository = _client(monkeypatch)
+    original = repository.get_dataset
+
+    def incomplete_dataset(snapshot_id):
+        dataset = original(snapshot_id)
+        dataset.symbol_count = 1
+        return dataset
+
+    repository.get_dataset = incomplete_dataset
+    response = client.post(
+        "/quant/model-runs",
+        json={
+            "market": "US",
+            "model_key": "cross_section_lgbm",
+            "model_version": "incomplete-dataset-rejected",
+            "dataset_snapshot_id": 5,
+        },
+    )
+
+    assert response.status_code == 409
+    assert "coverage" in response.json()["detail"]
+    assert repository.created_model_run is None
 
 
 def test_model_run_rejects_legacy_raw_dataset(monkeypatch):

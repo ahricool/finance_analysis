@@ -17,6 +17,7 @@ describe('quant API market scope', () => {
         trade_date: null,
         market: 'CN',
         universe: 'cn_csi300',
+        model_version: null,
         market_regime: null,
         max_equity_exposure: null,
         items: [],
@@ -35,7 +36,7 @@ describe('quant API market scope', () => {
   it('serializes dataset and model training requests with backend field names', async () => {
     vi.mocked(apiClient.post)
       .mockResolvedValueOnce({ data: { task_id: 'dataset-task', status: 'pending', market: 'CN', universe: 'cn_csi300' } })
-      .mockResolvedValueOnce({ data: { model_run_id: 19, task_id: 'training-task', status: 'draft', market: 'CN' } });
+      .mockResolvedValueOnce({ data: { model_run_id: 19, task_id: 'training-task', status: 'pending', market: 'CN' } });
 
     const dataset = await quantApi.buildDataset('CN', '2021-01-01', '2026-07-22');
     const training = await quantApi.createModelRun({
@@ -58,5 +59,14 @@ describe('quant API market scope', () => {
     });
     expect(dataset.taskId).toBe('dataset-task');
     expect(training.modelRunId).toBe(19);
+    expect(training.status).toBe('pending');
+  });
+
+  it('scopes confirmations to the portfolio recommendation shown by the UI', async () => {
+    await quantApi.confirmations('US', 42);
+
+    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/quant/intraday-confirmations', {
+      params: { market: 'US', recommendation_id: 42 },
+    });
   });
 });

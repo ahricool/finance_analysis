@@ -28,15 +28,20 @@ watch(market, async (current) => {
   confirmations.value = {};
   error.value = null;
   loading.value = true;
-  const results = await Promise.allSettled([
-    quantApi.portfolio(current),
-    quantApi.confirmations(current),
-  ]);
+  const results = await Promise.allSettled([quantApi.portfolio(current)]);
   if (version !== requestVersion) return;
   if (results[0].status === 'fulfilled') item.value = results[0].value;
   else error.value = getParsedApiError(results[0].reason);
-  if (results[1].status === 'fulfilled') {
-    confirmations.value = Object.fromEntries(results[1].value.map((row) => [row.code, row]));
+  if (item.value) {
+    const confirmationResults = await Promise.allSettled([
+      quantApi.confirmations(current, item.value.id),
+    ]);
+    if (version !== requestVersion) return;
+    if (confirmationResults[0].status === 'fulfilled') {
+      confirmations.value = Object.fromEntries(
+        confirmationResults[0].value.map((row) => [row.code, row]),
+      );
+    }
   }
   loading.value = false;
 }, { immediate: true });

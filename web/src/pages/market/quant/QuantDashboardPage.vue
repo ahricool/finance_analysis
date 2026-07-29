@@ -99,7 +99,7 @@ watch(market, async (current) => {
           <p class="text-xs text-muted-text">
             模型 / 行情日期
           </p><p class="mt-2 text-sm font-medium">
-            {{ regime?.modelVersion ?? '—' }}
+            {{ ranking?.modelVersion ?? '—' }}
           </p><p class="text-xs text-muted-text">
             {{ ranking?.tradeDate ?? '—' }}
           </p>

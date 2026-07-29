@@ -82,9 +82,12 @@ class DailyResearchService:
             or pd.Timestamp(frames[code]["date"].iloc[-1]).date() != trade_date
         }
         eligible_codes = sorted(universe_codes - missing_symbols - missing_daily)
-        if not eligible_codes:
+        coverage_ratio = len(eligible_codes) / len(universe_codes) if universe_codes else 0.0
+        if coverage_ratio < self.config.minimum_universe_coverage:
             raise FeatureDataMissingError(
-                f"No rankable {market_config.market} fixed-universe symbols for {trade_date}; "
+                f"{market_config.market} fixed-universe coverage below minimum for {trade_date}: "
+                f"rankable={len(eligible_codes)} universe={len(universe_codes)} "
+                f"coverage={coverage_ratio:.2%} minimum={self.config.minimum_universe_coverage:.2%}; "
                 f"missing_symbols={sorted(missing_symbols)} missing_daily={sorted(missing_daily)}"
             )
         member_frames = {code: frames[code] for code in eligible_codes}
@@ -150,7 +153,6 @@ class DailyResearchService:
             )
         self.repository.save_daily_features(daily_values)
         skipped_codes = sorted(universe_codes - set(eligible_codes))
-        coverage_ratio = len(eligible_codes) / len(universe_codes) if universe_codes else 0.0
         warnings = []
         if skipped_codes:
             sample = "、".join(skipped_codes[:10])
@@ -171,6 +173,7 @@ class DailyResearchService:
                 "daily_data_missing": len(missing_daily),
                 "skipped_members": len(skipped_codes),
                 "coverage_ratio": coverage_ratio,
+                "minimum_coverage_ratio": self.config.minimum_universe_coverage,
                 "skipped_codes": skipped_codes,
                 "adjustment": loaded.adjustment_coverage,
             },

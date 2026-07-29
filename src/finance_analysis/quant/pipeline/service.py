@@ -67,6 +67,16 @@ class QuantTrainingPipeline:
                 f"Production training requires price_mode={DEFAULT_QUANT_PRICE_MODE.value}; "
                 f"dataset uses {dataset.price_mode}"
             )
+        universe_members = len(get_quant_universe_codes(run.market))
+        dataset_symbols = int(dataset.symbol_count or 0)
+        coverage_ratio = dataset_symbols / universe_members if universe_members else 0.0
+        minimum_coverage = get_quant_config().minimum_universe_coverage
+        if coverage_ratio < minimum_coverage:
+            raise QuantDatasetMissingError(
+                f"Dataset universe coverage below minimum: symbols={dataset_symbols} "
+                f"universe={universe_members} coverage={coverage_ratio:.2%} "
+                f"minimum={minimum_coverage:.2%}"
+            )
         (self.artifact_store or ArtifactStore()).resolve_uri(dataset.artifact_uri)
         self.repository.update_model_run(
             run_id,
