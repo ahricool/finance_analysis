@@ -20,8 +20,10 @@ env:
   DOCKERHUB_REGISTRY: docker.io
   GHCR_IMAGE_NAME: ${{ github.repository }}
   GHCR_WEB_IMAGE_NAME: ${{ github.repository }}_web
+  GHCR_QLIB_IMAGE_NAME: ${{ github.repository }}_qlib
   DOCKERHUB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
   DOCKERHUB_WEB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}-web
+  DOCKERHUB_QLIB_IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}-qlib
   HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' && 'true' || 'false' }}
   HAS_DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME != '' && 'true' || 'false' }}
   BUILDKIT_IMAGE: moby/buildkit:v0.31.0
@@ -158,6 +160,18 @@ jobs:
             type=sha,format=short
             type=sha,format=long
 
+      - name: Extract Qlib worker metadata for GHCR
+        id: meta-ghcr-qlib
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_QLIB_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=ref,event=tag
+            type=raw,value=${{ inputs.release_tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=sha,format=short
+            type=sha,format=long
+
       - name: Extract backend metadata for Docker Hub
         if: ${{ env.HAS_DOCKERHUB_TOKEN == 'true' && env.HAS_DOCKERHUB_USERNAME == 'true' }}
         id: meta-dockerhub-backend
@@ -184,10 +198,24 @@ jobs:
             type=sha,format=short
             type=sha,format=long
 
+      - name: Extract Qlib worker metadata for Docker Hub
+        if: ${{ env.HAS_DOCKERHUB_TOKEN == 'true' && env.HAS_DOCKERHUB_USERNAME == 'true' }}
+        id: meta-dockerhub-qlib
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_QLIB_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=ref,event=tag
+            type=raw,value=${{ inputs.release_tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=sha,format=short
+            type=sha,format=long
+
       - name: Pre-publish docker smoke
         run: |
           docker build -t stock-analysis:release -f Dockerfile .
           docker build -t stock-analysis-web:release -f Dockerfile.web .
+          docker build -t stock-analysis-qlib:release -f qlib_worker/Dockerfile .
           docker run --rm stock-analysis:release python -c "
           from finance_analysis.config import load_env; print('ok-config')
           from finance_analysis.database import DatabaseManager; print('ok-storage')
@@ -197,6 +225,12 @@ jobs:
           print('release-smoke-ok')
           "
           docker run --rm stock-analysis-web:release nginx -t
+          docker run --rm stock-analysis-qlib:release python -c "
+          import qlib
+          assert qlib.__version__ == '0.9.7'
+          from qlib_worker.celery_app import celery_app
+          print('qlib-release-smoke-ok')
+          "
 
       - name: Build and push backend release images
         uses: docker/build-push-action@v7
@@ -226,15 +260,31 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
+      - name: Build and push Qlib worker release images
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: qlib_worker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.meta-ghcr-qlib.outputs.tags }}
+            ${{ steps.meta-dockerhub-qlib.outputs.tags }}
+          labels: ${{ steps.meta-ghcr-qlib.outputs.labels }}
+          cache-from: type=gha,scope=qlib
+          cache-to: type=gha,mode=max,scope=qlib
+
       - name: Publish summary
         run: |
           echo "### Docker release published" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Backend GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Web GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_WEB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Qlib GHCR: \`${{ env.GHCR_REGISTRY }}/${{ env.GHCR_QLIB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
           if [[ "${{ env.HAS_DOCKERHUB_TOKEN }}" == "true" && "${{ env.HAS_DOCKERHUB_USERNAME }}" == "true" ]]; then
             echo "- Backend Docker Hub: \`${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
             echo "- Web Docker Hub: \`${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_WEB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Qlib Docker Hub: \`${{ env.DOCKERHUB_REGISTRY }}/${{ env.DOCKERHUB_QLIB_IMAGE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "- Docker Hub: skipped (missing \`DOCKERHUB_TOKEN\` / \`DOCKERHUB_USERNAME\` secret)" >> "$GITHUB_STEP_SUMMARY"
           fi
