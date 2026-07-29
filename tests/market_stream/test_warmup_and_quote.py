@@ -145,9 +145,9 @@ def quote_reference_event(pre_close: str, connection_generation: int) -> MarketE
     )
 
 
-def service(redis: FakeRedis | None = None, repository=None) -> MarketStreamService:
+def service(redis: FakeRedis | None = None, repository=None, **config_overrides) -> MarketStreamService:
     redis = redis or FakeRedis()
-    config = MarketStreamConfig(redis_url="redis://fake", bar_limit=420)
+    config = MarketStreamConfig(redis_url="redis://fake", bar_limit=420, **config_overrides)
     return MarketStreamService(
         config=config,
         repository=repository or RealtimeStateRepository(redis, bar_limit=420),
@@ -539,13 +539,13 @@ async def test_connection_cleanup_drops_unfinished_preview_memory() -> None:
     activate(app)
     await app._handle_event(candle_event(bar(0), 2))
     await app._handle_event(candle_event(bar(1, confirmed=False), 2))
-    app.quote_preview_calculated_at["AAPL.US"] = 10.0
+    app.pattern_preview_calculated_at["AAPL.US"] = 10.0
 
     await app._cleanup_connection_buffers(2)
 
     assert all(item.confirmed for item in app.bars_1m["AAPL.US"])
     assert app.current_candles["AAPL.US"].confirmed
-    assert "AAPL.US" not in app.quote_preview_calculated_at
+    assert "AAPL.US" not in app.pattern_preview_calculated_at
     assert app.pattern_states["AAPL.US"].preview_bar_time is None
 
 
@@ -569,14 +569,17 @@ async def test_unconfirmed_candle_updates_preview_not_trend_and_confirmation_cle
     formal_before = await app.repository.get_pattern_state("AAPL.US")
     await app._handle_event(candle_event(bar(4, close="10.4", confirmed=False), 2))
     assert redis.hashes[keys.trend_key("AAPL.US")] == stored_before
-    preview = await app.repository.get_pattern_state("AAPL.US")
-    assert preview is not None and formal_before is not None
+    preview = app.pattern_states["AAPL.US"]
+    assert formal_before is not None
     assert preview.status == formal_before.status
     assert preview.signal == formal_before.signal
     assert preview.preview_status == "insufficient"
     assert preview.preview_bar_time == bar(4).bar_time
     assert preview.preview_price == Decimal("10.4")
-    assert redis.pipeline_executes == before + 1
+    assert await app.repository.get_pattern_state("AAPL.US") == formal_before
+    assert redis.pipeline_executes == before
+    assert await app._flush_pending_redis()
+    assert await app.repository.get_pattern_state("AAPL.US") == preview
 
     await app._handle_event(candle_event(bar(4, close="10.4", confirmed=True, received=61), 2))
     restored = await app.repository.get_trend_state("AAPL.US")
@@ -635,6 +638,32 @@ async def test_newer_unconfirmed_replaces_unconfirmed_candle() -> None:
     assert list(app.bars_1m["AAPL.US"]) == [newer]
     assert app.current_candles["AAPL.US"] == newer
     assert app.pending_candles["AAPL.US"] == newer
+
+
+def test_enqueue_coalesces_unconfirmed_candles_to_latest_value() -> None:
+    app = service()
+    first = candle_event(bar(0, close="10.5", confirmed=False, received=10), 2)
+    newer = candle_event(bar(0, close="11", confirmed=False, received=20), 2)
+
+    app._enqueue_event(first)
+    app._enqueue_event(newer)
+
+    assert app.event_queue.empty()
+    assert app.pending_unconfirmed_candle_events == {"AAPL.US": newer}
+    app._flush_unconfirmed_candle_events_once()
+    assert app.event_queue.get_nowait() == newer
+
+
+def test_confirmed_candle_bypasses_merge_and_discards_older_unconfirmed() -> None:
+    app = service()
+    unfinished = candle_event(bar(0, confirmed=False, received=20), 2)
+    confirmed = candle_event(bar(0, confirmed=True, received=21), 2)
+
+    app._enqueue_event(unfinished)
+    app._enqueue_event(confirmed)
+
+    assert "AAPL.US" not in app.pending_unconfirmed_candle_events
+    assert app.event_queue.get_nowait() == confirmed
 
 
 @pytest.mark.asyncio
@@ -705,13 +734,13 @@ async def test_quote_updates_only_matching_preview_and_is_throttled() -> None:
 
     first_time = unfinished.bar_time + timedelta(seconds=10)
     await app._handle_event(quote_event("13", 1, 2, received_at=first_time))
-    assert app.pending_patterns["AAPL.US"].preview_price == Decimal("13")
+    assert app.pending_patterns["AAPL.US"].preview_price == Decimal("10.2")
     assert await app.repository.get_pattern_state("AAPL.US") == stored_before
 
     await app._handle_event(quote_event("14", 2, 2, received_at=first_time + timedelta(seconds=1)))
-    assert app.pending_patterns["AAPL.US"].preview_price == Decimal("13")
+    assert app.pending_patterns["AAPL.US"].preview_price == Decimal("10.2")
 
-    app.quote_preview_calculated_at["AAPL.US"] -= 1
+    app.pattern_preview_calculated_at["AAPL.US"] -= app.config.pattern_preview_interval_seconds
     await app._handle_event(quote_event("11", 3, 2, received_at=first_time + timedelta(seconds=2)))
     assert app.pending_patterns["AAPL.US"].preview_price == Decimal("11")
     assert app.pending_patterns["AAPL.US"].signal == formal
@@ -721,24 +750,23 @@ async def test_quote_updates_only_matching_preview_and_is_throttled() -> None:
 
 
 @pytest.mark.asyncio
-async def test_quote_throttle_trailing_refresh_uses_latest_tick(monkeypatch) -> None:
-    app = service()
+async def test_quote_throttle_trailing_refresh_uses_latest_tick() -> None:
+    app = service(pattern_preview_interval_seconds=0.01)
     activate(app)
     for index in range(15):
         await app._handle_event(candle_event(bar(index), 2))
     unfinished = bar(15, close="10.2", confirmed=False)
     await app._handle_event(candle_event(unfinished, 2))
-    monkeypatch.setattr("finance_analysis.market_stream.service.QUOTE_PREVIEW_THROTTLE_SECONDS", 0.01)
     first_time = unfinished.bar_time + timedelta(seconds=10)
 
     await app._handle_event(quote_event("13", 1, 2, received_at=first_time))
     await app._handle_event(quote_event("14", 2, 2, received_at=first_time + timedelta(seconds=1)))
-    assert app.pending_patterns["AAPL.US"].preview_price == Decimal("13")
+    assert app.pending_patterns["AAPL.US"].preview_price == Decimal("10.2")
 
     await asyncio.sleep(0.02)
 
     assert app.pending_patterns["AAPL.US"].preview_price == Decimal("14")
-    assert "AAPL.US" not in app.quote_preview_tasks
+    assert "AAPL.US" not in app.pattern_preview_tasks
 
 
 @pytest.mark.asyncio
@@ -757,13 +785,13 @@ async def test_confirmed_candle_bypasses_quote_throttle_and_clears_preview() -> 
     app = service()
     activate(app)
     await app._handle_event(candle_event(bar(0, confirmed=False), 2))
-    app.quote_preview_calculated_at["AAPL.US"] = time.monotonic()
+    app.pattern_preview_calculated_at["AAPL.US"] = time.monotonic()
 
     await app._handle_event(candle_event(bar(0, confirmed=True, received=61), 2))
 
     pattern_state = await app.repository.get_pattern_state("AAPL.US")
     assert pattern_state is not None and pattern_state.preview_bar_time is None
-    assert "AAPL.US" not in app.quote_preview_calculated_at
+    assert "AAPL.US" not in app.pattern_preview_calculated_at
 
 
 @pytest.mark.asyncio
@@ -772,7 +800,7 @@ async def test_new_trading_date_clears_old_formal_and_preview_state() -> None:
     state = activate(app)
     await app._handle_event(candle_event(bar(0), 2))
     await app._handle_event(candle_event(bar(1, confirmed=False), 2))
-    app.quote_preview_calculated_at["AAPL.US"] = 10.0
+    app.pattern_preview_calculated_at["AAPL.US"] = 10.0
     next_time = datetime(2026, 6, 29, 13, 30, tzinfo=timezone.utc)
     next_day = replace(bar(0, confirmed=False), bar_time=next_time, received_at=next_time)
 
@@ -782,7 +810,7 @@ async def test_new_trading_date_clears_old_formal_and_preview_state() -> None:
     assert list(app.bars_1m["AAPL.US"]) == [next_day]
     assert app.pattern_states["AAPL.US"].signal is None
     assert app.pattern_states["AAPL.US"].preview_bar_time == next_day.bar_time
-    assert "AAPL.US" not in app.quote_preview_calculated_at
+    assert "AAPL.US" in app.pattern_preview_calculated_at
 
 
 @pytest.mark.asyncio
@@ -790,7 +818,7 @@ async def test_symbol_remove_clears_preview_memory_and_throttle_state() -> None:
     app = service()
     activate(app)
     await app._handle_event(candle_event(bar(0, confirmed=False), 2))
-    app.quote_preview_calculated_at["AAPL.US"] = 10.0
+    app.pattern_preview_calculated_at["AAPL.US"] = 10.0
 
     await app._remove_symbol_state("AAPL.US")
 
@@ -798,8 +826,8 @@ async def test_symbol_remove_clears_preview_memory_and_throttle_state() -> None:
     assert "AAPL.US" not in app.current_candles
     assert "AAPL.US" not in app.pattern_states
     assert "AAPL.US" not in app.pending_patterns
-    assert "AAPL.US" not in app.quote_preview_calculated_at
-    assert "AAPL.US" not in app.quote_preview_tasks
+    assert "AAPL.US" not in app.pattern_preview_calculated_at
+    assert "AAPL.US" not in app.pattern_preview_tasks
 
 
 @pytest.mark.asyncio

@@ -110,6 +110,8 @@ class MarketStreamConfig:
     heartbeat_seconds: int = 5
     leader_lock_ttl_seconds: int = 30
     redis_flush_interval_ms: int = 250
+    unconfirmed_candle_merge_interval_ms: int = 1_000
+    pattern_preview_interval_seconds: float = 5.0
     warmup_concurrency: int = 3
     bar_limit: int = 420
     minimum_history_bars: int = 15
@@ -128,6 +130,10 @@ class MarketStreamConfig:
             raise ValueError("bar_limit must be at least minimum_history_bars")
         if self.event_queue_size < 1:
             raise ValueError("event_queue_size must be positive")
+        if self.unconfirmed_candle_merge_interval_ms < 1:
+            raise ValueError("unconfirmed_candle_merge_interval_ms must be positive")
+        if self.pattern_preview_interval_seconds <= 0:
+            raise ValueError("pattern_preview_interval_seconds must be positive")
 
     @classmethod
     def from_env(cls) -> "MarketStreamConfig":
