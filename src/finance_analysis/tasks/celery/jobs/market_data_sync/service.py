@@ -69,7 +69,11 @@ class MarketDataSyncService:
         deleted_adjustment_rows = int(
             self.adjustment_repository.delete_before_symbols(symbol_ids, retention_cutoff) or 0
         )
-        daily_days_by_code = {}
+        factor_gaps_before = self._missing_factor_gaps(symbol_ids, retention_cutoff, latest_completed_day)
+        repair_symbol_ids = set(factor_gaps_before)
+        daily_days_by_code: dict[str, list[date]] = {}
+        adjustment_days_by_code: dict[str, list[date]] = {}
+        force_full_factor_window_by_code: dict[str, bool] = {}
         for symbol in symbols:
             has_history = self.stock_repository.has_daily_data(symbol.id) if self.sync_mode == "incremental" else False
             natural_days = (
@@ -78,18 +82,24 @@ class MarketDataSyncService:
                 else self.config.market_data_initial_daily_days
             )
             daily_days_by_code[symbol.code] = self._refresh_days(natural_days)
-        adjustment_days_by_code = {code: list(days) for code, days in daily_days_by_code.items()}
+            force_full_factor_window = not has_history or symbol.id in repair_symbol_ids
+            adjustment_days_by_code[symbol.code] = (
+                list(full_adjustment_days)
+                if force_full_factor_window
+                else list(daily_days_by_code[symbol.code])
+            )
+            force_full_factor_window_by_code[symbol.code] = force_full_factor_window
         self.router.prepare_batches(symbols, daily_days_by_code, adjustment_days_by_code)
         logger.info(
             "market=%s job=market_data_sync sync_mode=%s symbol_count=%s initial_days=%s refresh_days=%s "
-            "retention_days=%s adjustment_window=matches_daily deleted_daily_rows=%s "
-            "deleted_adjustment_rows=%s",
+            "retention_days=%s factor_repair_symbols=%s deleted_daily_rows=%s deleted_adjustment_rows=%s",
             self.market,
             self.sync_mode,
             len(symbols),
             self.config.market_data_initial_daily_days,
             self.config.market_data_refresh_daily_days,
             self.config.market_data_retention_daily_days,
+            len(repair_symbol_ids),
             deleted_daily_rows,
             deleted_adjustment_rows,
         )
@@ -106,6 +116,7 @@ class MarketDataSyncService:
                     daily_days_by_code[symbol.code],
                     adjustment_days_by_code[symbol.code],
                     full_adjustment_days,
+                    force_full_factor_window_by_code[symbol.code],
                 ): symbol
                 for symbol in symbols
             }
@@ -122,11 +133,26 @@ class MarketDataSyncService:
                             AdjustmentResult("failed", reason=str(exc)),
                         )
                     )
+        factor_gaps_after = self._missing_factor_gaps(symbol_ids, retention_cutoff, latest_completed_day)
+        self._apply_unresolved_factor_gaps(results, symbols, factor_gaps_after)
         summary = self._summarize(
             results,
             len(symbols),
             deleted_daily_rows=deleted_daily_rows,
             deleted_adjustment_rows=deleted_adjustment_rows,
+        )
+        codes_by_id = {symbol.id: symbol.code for symbol in symbols}
+        summary.update(
+            {
+                "factor_repair_symbols": len(repair_symbol_ids),
+                "factor_repair_codes": sorted(codes_by_id[symbol_id] for symbol_id in repair_symbol_ids),
+                "missing_factor_rows_before": self._missing_factor_row_count(factor_gaps_before),
+                "missing_factor_rows_after": self._missing_factor_row_count(factor_gaps_after),
+                "unresolved_factor_gaps": self._serialize_factor_gaps(symbols, factor_gaps_after)[
+                    :MAX_RESULT_ITEMS
+                ],
+                "unresolved_factor_gaps_truncated": len(factor_gaps_after) > MAX_RESULT_ITEMS,
+            }
         )
         if summary["success_symbols"] + summary["partial_symbols"] == 0:
             raise MarketDataSyncError(f"All {len(symbols)} {self.market} symbols failed; see task log")
@@ -156,15 +182,81 @@ class MarketDataSyncService:
         start = end - timedelta(days=natural_days - 1)
         return get_trading_days_between(self.market.lower(), start, end)
 
+    def _missing_factor_gaps(
+        self,
+        symbol_ids: list[int],
+        start_date: date,
+        end_date: date,
+    ) -> dict[int, dict[str, Any]]:
+        return dict(
+            self.adjustment_repository.missing_adjustment_factor_gaps(
+                symbol_ids,
+                start_date,
+                end_date,
+            )
+        )
+
+    @staticmethod
+    def _missing_factor_row_count(gaps: dict[int, dict[str, Any]]) -> int:
+        return sum(int(gap["missing_rows"]) for gap in gaps.values())
+
+    @staticmethod
+    def _serialize_factor_gaps(
+        symbols: list[Any],
+        gaps: dict[int, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        codes_by_id = {symbol.id: symbol.code for symbol in symbols}
+        return [
+            {
+                "code": codes_by_id[symbol_id],
+                "first_missing_date": str(gap["first_missing_date"]),
+                "last_missing_date": str(gap["last_missing_date"]),
+                "missing_rows": int(gap["missing_rows"]),
+            }
+            for symbol_id, gap in sorted(gaps.items(), key=lambda item: codes_by_id[item[0]])
+        ]
+
+    def _apply_unresolved_factor_gaps(
+        self,
+        results: list[SymbolResult],
+        symbols: list[Any],
+        gaps: dict[int, dict[str, Any]],
+    ) -> None:
+        gaps_by_code = {
+            symbol.code: gaps[symbol.id]
+            for symbol in symbols
+            if symbol.id in gaps
+        }
+        for result in results:
+            gap = gaps_by_code.get(result.code)
+            if gap is None:
+                continue
+            reason = (
+                f"unresolved adjustment factor gaps: missing_rows={int(gap['missing_rows'])}, "
+                f"range={gap['first_missing_date']}..{gap['last_missing_date']}"
+            )
+            if result.adjustment.status == "success":
+                result.adjustment.status = "partial"
+            if reason not in result.adjustment.reason:
+                result.adjustment.reason = "; ".join(filter(None, [result.adjustment.reason, reason]))
+            if reason not in result.adjustment.fallback_reasons:
+                result.adjustment.fallback_reasons.append(reason)
+
     def _sync_symbol(
         self,
         symbol: Any,
         daily_days: list[date],
         adjustment_days: list[date],
         full_adjustment_days: list[date] | None = None,
+        force_full_factor_window: bool = False,
     ) -> SymbolResult:
         daily = self._sync_daily(symbol, daily_days)
-        adjustment = self._sync_adjustment(symbol, adjustment_days, full_adjustment_days)
+        adjustment = self._sync_adjustment(
+            symbol,
+            adjustment_days,
+            full_adjustment_days,
+            force_full_factor_window=force_full_factor_window,
+        )
         return SymbolResult(symbol.code, daily, adjustment)
 
     def _sync_daily(self, symbol: Any, requested_days: list[date]) -> DailyResult:
@@ -213,6 +305,8 @@ class MarketDataSyncService:
         symbol: Any,
         requested_days: list[date],
         full_adjustment_days: list[date] | None = None,
+        *,
+        force_full_factor_window: bool = False,
     ) -> AdjustmentResult:
         routed = self.router.fetch_adjustment(symbol, requested_days)
         if routed.provider is None or routed.data is None:
@@ -242,7 +336,7 @@ class MarketDataSyncService:
                 reason="provider returned no in-window daily adjustment factors",
                 fallback_reasons=routed.fallback_reasons,
             )
-        replace_full_factor_window = False
+        replace_full_factor_window = force_full_factor_window
         is_recent_probe = bool(full_adjustment_days and requested_days != full_adjustment_days)
         if is_recent_probe and self.adjustment_repository.has_adjustment_factor_changes(
             symbol.id,
@@ -431,6 +525,12 @@ class MarketDataSyncService:
             "adjustment_factor_rows": sum(result.adjustment.adjustment_factor_rows for result in results),
             "deleted_daily_rows": deleted_daily_rows,
             "deleted_adjustment_rows": deleted_adjustment_rows,
+            "factor_repair_symbols": 0,
+            "factor_repair_codes": [],
+            "missing_factor_rows_before": 0,
+            "missing_factor_rows_after": 0,
+            "unresolved_factor_gaps": [],
+            "unresolved_factor_gaps_truncated": False,
             "failure_count": len(failures),
             "failures": failures[:MAX_RESULT_ITEMS],
             "failures_truncated": len(failures) > MAX_RESULT_ITEMS,
