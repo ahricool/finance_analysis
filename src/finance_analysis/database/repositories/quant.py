@@ -334,6 +334,65 @@ class QuantRepository:
             session.add_all(PortfolioRecommendationItem(recommendation_id=row.id, **item) for item in items)
             session.flush(); session.refresh(row); session.expunge(row); return row
 
+    def replace_signals_and_save_portfolio(
+        self,
+        market: str,
+        universe_id: int,
+        trade_date: date,
+        model_version: str,
+        signals: list[dict[str, Any]],
+        portfolio_values: dict[str, Any],
+        portfolio_items: list[dict[str, Any]],
+    ) -> PortfolioRecommendation:
+        """Atomically publish one daily signal set and its portfolio recommendation."""
+        with self.db.session_scope() as session:
+            self._require_supported_universe_row(session, market, universe_id)
+            if (
+                portfolio_values["market"] != market
+                or portfolio_values["universe_id"] != universe_id
+                or portfolio_values["trade_date"] != trade_date
+                or portfolio_values["model_version"] != model_version
+            ):
+                raise ValueError("Signal and portfolio publication scopes must match")
+            session.execute(
+                delete(ModelSignal).where(
+                    ModelSignal.market == market,
+                    ModelSignal.universe_id == universe_id,
+                    ModelSignal.trade_date == trade_date,
+                    ModelSignal.model_version == model_version,
+                )
+            )
+            if signals:
+                session.add_all(ModelSignal(**value) for value in signals)
+            existing = session.execute(
+                select(PortfolioRecommendation).where(
+                    PortfolioRecommendation.trade_date == trade_date,
+                    PortfolioRecommendation.universe_id == universe_id,
+                    PortfolioRecommendation.model_version == model_version,
+                )
+            ).scalar_one_or_none()
+            if existing:
+                session.execute(
+                    delete(PortfolioRecommendationItem).where(
+                        PortfolioRecommendationItem.recommendation_id == existing.id
+                    )
+                )
+                for key, value in portfolio_values.items():
+                    setattr(existing, key, value)
+                row = existing
+            else:
+                row = PortfolioRecommendation(**portfolio_values)
+                session.add(row)
+                session.flush()
+            session.add_all(
+                PortfolioRecommendationItem(recommendation_id=row.id, **item)
+                for item in portfolio_items
+            )
+            session.flush()
+            session.refresh(row)
+            session.expunge(row)
+            return row
+
     def save_confirmations(self, values: list[dict[str, Any]]) -> None:
         with self.db.session_scope() as session:
             if not values:

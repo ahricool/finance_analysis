@@ -6,9 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from celery.canvas import _chord
 import pandas as pd
 import pytest
+from celery.canvas import _chord
+from celery.utils.functional import arity_greater
+
 from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.database.seed import seed_quant_reference_data
 from finance_analysis.database.session import DatabaseManager
@@ -69,15 +71,12 @@ def test_fixed_quant_constituents_ignore_watchlist_and_benchmark_dependencies():
 
     assert "WATCHLIST-ONLY.US" in market_data_scope.universe_codes
     assert "WATCHLIST-ONLY.US" not in us_members
-    assert us_members == {f"{code}.US" for code in SP500_STOCK_INDEX}
-    assert cn_members == set(CSI300_STOCK_INDEX)
-    assert us_members & market_data_scope.benchmark_dependency_codes == {"QQQ.US", "SPY.US"}
+    assert us_members == {f"{code}.US" for code in SP500_STOCK_INDEX} - {"QQQ.US", "SPY.US"}
+    assert cn_members == set(CSI300_STOCK_INDEX) - {"159915.SZ", "510300.SH"}
+    assert not us_members & market_data_scope.benchmark_dependency_codes
     empty_watchlist = MagicMock()
     empty_watchlist.list_all.return_value = []
-    assert cn_members & MarketDataScopeResolver(empty_watchlist).resolve("CN").benchmark_dependency_codes == {
-        "159915.SZ",
-        "510300.SH",
-    }
+    assert not cn_members & MarketDataScopeResolver(empty_watchlist).resolve("CN").benchmark_dependency_codes
 
 
 def test_quant_market_configuration_selects_cn_close_and_defaults():
@@ -260,7 +259,22 @@ def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(
     assert captured["body"].kwargs["context"]["lifecycle_task_id"] == "parent-task-id"
     assert captured["body"].kwargs["_skip_task_record"] is True
     assert captured["body"].options["queue"] == "analysis"
-    assert captured["body"].options["link_error"]["task"] == "quant.daily.failed"
+    errbacks = captured["body"].options["link_error"]
+    assert len(errbacks) == 1
+    assert errbacks[0]["task"] == "quant.daily.failed"
+    assert "link_error" not in captured["options"]
+
+
+def test_quant_errbacks_use_celery_legacy_task_id_signature() -> None:
+    """Celery schedules one-argument errbacks with the failed task id.
+
+    Two or more positional parameters make Celery invoke an errback inline as
+    ``(request, exc, traceback)``, which conflicts with our pre-bound context.
+    """
+    from finance_analysis.tasks.celery.jobs.quant_training.tasks import fail_quant_model
+
+    assert not arity_greater(quant_daily_tasks.fail_quant_daily.__header__, 1)
+    assert not arity_greater(fail_quant_model.__header__, 1)
 
 
 def test_quant_daily_final_status_records_partial_coverage(monkeypatch) -> None:

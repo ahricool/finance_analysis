@@ -86,6 +86,7 @@ class QlibDatasetExporter:
         key_parts = (
             market,
             universe,
+            ",".join(sorted(candidate_codes)),
             date_from,
             date_to,
             frequency,

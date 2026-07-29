@@ -50,8 +50,22 @@ def predict_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
         features = load_features(dataset, manifest, metadata.get("feature_config", {}))
         target_date = pd.Timestamp(payload.trade_date)
         rows = features[features.index.get_level_values("datetime") == target_date].copy()
+        symbols = manifest.get("symbols")
+        if not isinstance(symbols, list) or not symbols or not all(isinstance(code, str) for code in symbols):
+            raise ValueError("Prediction dataset manifest symbols must be a non-empty string list")
+        expected_codes = set(symbols)
+        rows = rows[rows.index.get_level_values("instrument").isin(expected_codes)]
         if rows.empty:
             raise ValueError(f"No prediction features for trade_date {payload.trade_date}")
+        actual_codes = list(rows.index.get_level_values("instrument"))
+        missing_codes = sorted(expected_codes - set(actual_codes))
+        duplicate_codes = sorted(code for code in set(actual_codes) if actual_codes.count(code) > 1)
+        if missing_codes or duplicate_codes or len(actual_codes) != len(expected_codes):
+            raise ValueError(
+                f"Prediction feature coverage mismatch for {payload.trade_date}: "
+                f"expected={len(expected_codes)} actual={len(actual_codes)} "
+                f"missing={missing_codes} duplicates={duplicate_codes}"
+            )
         columns = list(bundle["columns"])
         raw = pd.Series(runner.predict(bundle["model"], rows, columns, bundle["medians"]), index=rows.index)
         result = pd.DataFrame(

@@ -86,6 +86,10 @@ with Qlib `Alpha158`. Dataset exports do not contain custom feature panels, and
 news or structured events are not uploaded, scored, joined into model inputs,
 or fused into daily signals. Existing event-related database columns and tables
 remain unused solely for migration compatibility.
+Production models whose stored `feature_config` still contains legacy keys
+such as `ablation` are rejected before daily fan-out. After upgrading from a
+custom-feature release, retrain and publish both daily models with
+`{"base": "Alpha158"}` before enabling the scheduled pipeline.
 The binary fields include VWAP. Turnover/volume is used when provider units are
 valid, common legacy unit factors are checked against the daily price range,
 and missing turnover uses an explicit OHLC typical-price proxy only when volume

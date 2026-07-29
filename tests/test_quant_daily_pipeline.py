@@ -263,6 +263,30 @@ def test_prepare_rejects_missing_model_artifact_before_universe_lookup() -> None
     repository.get_universe.assert_not_called()
 
 
+def test_prepare_rejects_legacy_production_model_before_universe_lookup() -> None:
+    repository = MagicMock()
+    repository.production_model.return_value = SimpleNamespace(
+        artifact_uri="quant://cn/legacy",
+        feature_config={"base": "Alpha158", "ablation": "all_features"},
+    )
+    artifact_store = MagicMock()
+    pipeline = QuantDailyPipeline(
+        repository=repository,
+        cache=MagicMock(),
+        exporter=MagicMock(),
+        symbol_repository=MagicMock(),
+        holding_repository=MagicMock(),
+        artifact_store=artifact_store,
+        owner_uid=7,
+    )
+
+    with pytest.raises(ModelNotPublishedError, match="retrain and publish an Alpha158-only model"):
+        pipeline.prepare(market="CN", trade_date=TRADE_DATE)
+
+    repository.get_universe.assert_not_called()
+    artifact_store.resolve_uri.assert_not_called()
+
+
 def test_prepare_rejects_unsupported_universe_before_lookup() -> None:
     pipeline = QuantDailyPipeline(
         repository=MagicMock(),
@@ -318,11 +342,11 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
                 2: {**common, "close": 200.0},
             }
 
-        def replace_signals(self, market, universe_id, trade_date, model_version, values):
-            self.replaced = values
-
-        def save_portfolio(self, values, items):
-            self.portfolio_values = values
+        def replace_signals_and_save_portfolio(
+            self, market, universe_id, trade_date, model_version, signals, portfolio_values, portfolio_items
+        ):
+            self.replaced = signals
+            self.portfolio_values = portfolio_values
             return SimpleNamespace(id=99)
 
     class Symbols:
@@ -437,6 +461,7 @@ def test_finalize_rejects_unsupported_callback_context_before_writes() -> None:
 
     repository.replace_signals.assert_not_called()
     repository.save_portfolio.assert_not_called()
+    repository.replace_signals_and_save_portfolio.assert_not_called()
 
 
 def test_training_and_dataset_export_reject_unsupported_universe() -> None:
