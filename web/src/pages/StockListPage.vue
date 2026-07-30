@@ -22,11 +22,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { AssetType, Market } from '@/types/stockIndex';
 import { formatDecimalText, formatMarketCurrencyAmount } from '@/utils/marketCurrency';
-import { BriefcaseBusiness, Pencil, Plus, Trash2 } from 'lucide-vue-next';
+import { Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -432,8 +433,8 @@ function dteLabel(position: PortfolioPosition): string {
 function dteClass(position: PortfolioPosition): string {
   const dte = position.option?.days_to_expiration;
   if (dte === undefined || dte > 7) return 'text-muted-foreground';
-  if (dte >= 1) return 'text-amber-500';
-  return 'text-red-500';
+  if (dte >= 1) return 'text-warning';
+  return 'text-destructive';
 }
 
 watch(selectedAccountCode, () => {
@@ -468,12 +469,9 @@ onMounted(async () => {
   >
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <div class="flex items-center gap-2">
-          <BriefcaseBusiness class="h-5 w-5 text-primary" />
-          <h2 class="text-xl font-semibold text-foreground">
-            投资组合
-          </h2>
-        </div>
+        <h2 class="text-xl font-semibold tracking-tight text-foreground">
+          投资组合
+        </h2>
         <p class="mt-1 text-sm text-muted-foreground">
           按市场管理固定账户的现金、股票、ETF 与美股期权记录。
         </p>
@@ -522,9 +520,9 @@ onMounted(async () => {
         </CardHeader>
         <CardContent>
           <div class="flex items-center gap-2">
-            <input
+            <Input
               v-model="cashInput"
-              class="border-input bg-background shadow-xs min-w-0 flex-1 rounded-lg px-2 py-1.5 text-sm"
+              class="h-8 min-w-0 flex-1"
               aria-label="现金余额"
             />
             <LoadingButton
@@ -549,7 +547,7 @@ onMounted(async () => {
       <Card>
         <CardHeader>
           <CardDescription>股票/ETF 未实现盈亏</CardDescription><CardTitle
-            :class="unrealizedPnl !== null && unrealizedPnl < 0 ? 'text-emerald-500' : 'text-red-500'"
+            :class="unrealizedPnl !== null && unrealizedPnl < 0 ? 'text-market-down' : 'text-market-up'"
           >
             {{ amount(unrealizedPnl) }}
           </CardTitle>
@@ -603,7 +601,7 @@ onMounted(async () => {
         v-if="equityPositions.length"
         data-testid="equity-section"
       >
-        <div class="hidden overflow-hidden rounded-2xl border border-border/70 bg-card md:block">
+        <div class="hidden overflow-hidden rounded-xl border bg-card md:block">
           <table class="w-full text-sm">
             <thead class="bg-muted/40 text-left text-xs text-muted-foreground">
               <tr>
@@ -667,14 +665,14 @@ onMounted(async () => {
           <article
             v-for="position in equityPositions"
             :key="position.id"
-            class="rounded-2xl border border-border/70 bg-card p-4"
+            class="rounded-xl border bg-card p-4"
           >
             <div class="flex justify-between">
               <div>
                 <p class="font-semibold">
                   {{ position.display_symbol }} · {{ position.name }}
                 </p>
-                <p class="text-xs text-primary">
+                <p class="text-xs text-muted-foreground">
                   {{ position.asset_type }}
                 </p>
               </div>
@@ -688,7 +686,7 @@ onMounted(async () => {
                   aria-label="删除持仓"
                   @click="deletingPosition = position"
                 >
-                  <Trash2 class="h-4 w-4 text-red-500" />
+                  <Trash2 class="h-4 w-4 text-destructive" />
                 </button>
               </div>
             </div>
@@ -727,10 +725,10 @@ onMounted(async () => {
         data-testid="option-section"
         class="space-y-3"
       >
-        <p class="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-500">
+        <p class="rounded-lg border border-warning/25 bg-warning/10 p-3 text-xs text-warning">
           期权仅作手工持仓记录，不提供实时价格、市值或盈亏。
         </p>
-        <div class="hidden overflow-hidden rounded-2xl border border-border/70 bg-card md:block">
+        <div class="hidden overflow-hidden rounded-xl border bg-card md:block">
           <table class="w-full text-sm">
             <thead class="bg-muted/40 text-left text-xs text-muted-foreground">
               <tr>
@@ -815,14 +813,14 @@ onMounted(async () => {
           <article
             v-for="position in optionPositions"
             :key="position.id"
-            class="rounded-2xl border border-border/70 bg-card p-4"
+            class="rounded-xl border bg-card p-4"
           >
             <div class="flex justify-between">
               <div>
                 <p class="font-semibold">
                   {{ position.option?.underlying_display_symbol }}
                 </p>
-                <p class="text-xs text-amber-500">
+                <p class="text-xs text-warning">
                   {{ position.position_side === 'LONG' ? '多头' : '空头' }} ·
                   {{ position.option?.option_type }}
                 </p>
@@ -837,7 +835,7 @@ onMounted(async () => {
                   aria-label="删除期权"
                   @click="deletingPosition = position"
                 >
-                  <Trash2 class="h-4 w-4 text-red-500" />
+                  <Trash2 class="h-4 w-4 text-destructive" />
                 </button>
               </div>
             </div>
@@ -971,7 +969,7 @@ onMounted(async () => {
             />
             <p
               v-if="selectedSecurity"
-              class="text-xs text-primary"
+              class="text-xs text-muted-foreground"
             >
               已选择 {{ selectedSecurity.canonicalCode }} ·
               {{ createAssetType === 'OPTION' ? optionUnderlyingType : createAssetType }}
@@ -1070,7 +1068,7 @@ onMounted(async () => {
           /></label>
           <p
             v-if="formError"
-            class="text-sm text-red-500"
+            class="text-sm text-destructive"
           >
             {{ formError }}
           </p>
