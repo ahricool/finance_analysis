@@ -17,11 +17,11 @@ const emit = defineEmits<{ 'update:modelValue': [value: BacktestEngineKey] }>();
       :key="engine.key"
       type="button"
       :disabled="!engine.available"
-      class="rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50"
+      class="rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50"
       :class="
         modelValue === engine.key
-          ? 'border-primary bg-primary/8 shadow-sm'
-          : 'border-border/70 bg-card/70 hover:border-primary/50'
+          ? 'border-primary bg-muted'
+          : 'hover:bg-muted/50'
       "
       @click="emit('update:modelValue', engine.key)"
     >

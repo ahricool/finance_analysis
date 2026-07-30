@@ -37,7 +37,7 @@ watch(
   <div class="space-y-4">
     <RouterLink
       to="/market/quant/signals"
-      class="text-sm text-primary"
+      class="text-sm font-medium underline-offset-4 hover:underline"
     >
       ← 返回排名
     </RouterLink><ApiErrorAlert
@@ -77,7 +77,7 @@ watch(
           </p>
         </div>
       </section>
-      <section class="rounded-2xl border border-border bg-card p-4">
+      <section class="rounded-xl border bg-card p-4">
         <h3 class="text-sm font-semibold">
           原因说明
         </h3>
@@ -98,7 +98,7 @@ watch(
           }}</pre>
         </details>
       </section>
-      <section class="rounded-2xl border border-border bg-card p-4">
+      <section class="rounded-xl border bg-card p-4">
         <h3 class="mb-2 text-sm font-semibold">
           历史
         </h3>

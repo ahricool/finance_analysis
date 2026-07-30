@@ -409,7 +409,7 @@ onBeforeUnmount(() => {
         />
         <Alert
           v-if="scheduledSuccess"
-          class="border-success/30 text-success"
+          variant="success"
         >
           <AlertTitle>提交成功</AlertTitle><AlertDescription class="text-current/80">
             {{ scheduledSuccess }}

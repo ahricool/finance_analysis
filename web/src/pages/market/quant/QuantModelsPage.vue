@@ -113,7 +113,7 @@ watch(
     />
     <Alert
       v-if="createdRun"
-      class="border-success/30 text-success"
+      variant="success"
     >
       <AlertTitle>训练任务已创建</AlertTitle>
       <AlertDescription class="text-current/80">
@@ -169,7 +169,7 @@ watch(
               <TableCell>
                 <RouterLink
                   :to="{ path: `/market/quant/models/${item.id}`, query: marketQuery() }"
-                  class="text-primary"
+                  class="font-medium underline-offset-4 hover:underline"
                 >
                   {{ item.modelKey }}
                 </RouterLink>
@@ -191,7 +191,7 @@ watch(
             <CardTitle class="text-base">
               <RouterLink
                 :to="{ path: `/market/quant/models/${item.id}`, query: marketQuery() }"
-                class="text-primary"
+                class="font-medium underline-offset-4 hover:underline"
               >
                 {{ item.modelKey }}
               </RouterLink>

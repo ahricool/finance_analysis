@@ -174,7 +174,7 @@ watch(
         </div>
 
         <div
-          class="rounded-xl border border-primary/20 bg-primary/10 p-3 text-xs leading-5 text-muted-foreground"
+          class="rounded-lg border bg-muted/50 p-3 text-xs leading-5 text-muted-foreground"
         >
           <p class="font-medium text-foreground">
             数据范围说明

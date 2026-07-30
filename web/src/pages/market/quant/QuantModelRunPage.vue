@@ -49,7 +49,7 @@ async function publish() {
   <div class="space-y-4">
     <RouterLink
       to="/market/quant/models"
-      class="text-sm text-primary"
+      class="text-sm font-medium underline-offset-4 hover:underline"
     >
       ← 返回模型列表
     </RouterLink><ApiErrorAlert
@@ -98,7 +98,7 @@ async function publish() {
           <p>{{ item.testStart ?? '—' }} → {{ item.testEnd ?? '—' }}</p>
         </div>
       </section>
-      <section class="rounded-2xl border border-border bg-card p-4">
+      <section class="rounded-xl border bg-card p-4">
         <h3 class="text-sm font-semibold">
           评价指标
         </h3>

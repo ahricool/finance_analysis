@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import type { BacktestSummary } from '@/types/backtests';
 import { formatMoney, formatPct } from '@/utils/backtests';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 const props = defineProps<{ summary: BacktestSummary }>();
-const cards = [
+const metrics = [
   ['总收益', () => formatPct(props.summary.totalReturnPct)],
   ['年化收益', () => formatPct(props.summary.annualizedReturnPct)],
   ['基准收益', () => formatPct(props.summary.benchmarkReturnPct)],
@@ -18,19 +17,19 @@ const cards = [
 </script>
 
 <template>
-  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-    <Card
-      v-for="card in cards"
-      :key="card[0]"
+  <dl
+    class="grid grid-cols-2 gap-x-6 gap-y-4 rounded-xl border bg-card p-4 sm:grid-cols-3 xl:grid-cols-5"
+  >
+    <div
+      v-for="metric in metrics"
+      :key="metric[0]"
     >
-      <CardHeader class="pb-1">
-        <CardTitle class="text-sm font-medium text-muted-foreground">
-          {{ card[0] }}
-        </CardTitle>
-      </CardHeader>
-      <CardContent class="text-2xl font-semibold tracking-tight">
-        {{ card[1]() }}
-      </CardContent>
-    </Card>
-  </div>
+      <dt class="text-xs text-muted-foreground">
+        {{ metric[0] }}
+      </dt>
+      <dd class="mt-1 font-mono text-lg font-semibold tabular-nums tracking-tight">
+        {{ metric[1]() }}
+      </dd>
+    </div>
+  </dl>
 </template>

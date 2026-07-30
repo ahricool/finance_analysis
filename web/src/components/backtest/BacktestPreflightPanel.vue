@@ -7,7 +7,7 @@ defineProps<{ result: BacktestPreflight }>();
 
 <template>
   <section
-    class="rounded-2xl border p-4"
+    class="rounded-xl border p-4"
     :class="
       result.ready ? 'border-success/40 bg-success/5' : 'border-destructive/40 bg-destructive/5'
     "
