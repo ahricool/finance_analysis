@@ -35,7 +35,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: BacktestEngineKey] }>();
         </Badge>
         <Badge
           v-if="engine.isDefault"
-          variant="info"
+          variant="secondary"
         >
           默认
         </Badge>

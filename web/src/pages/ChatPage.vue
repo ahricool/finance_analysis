@@ -813,8 +813,7 @@ function onTextareaInput(e: Event) {
                     class="mb-2"
                   >
                     <Badge
-                      variant="info"
-                      class="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary shadow-none"
+                      variant="secondary"
                       :aria-label="`技能 ${getMessageSkillLabel(msg)}`"
                     >
                       <Zap class="size-3" />
