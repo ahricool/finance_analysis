@@ -30,7 +30,6 @@ import type {
 import { formatDateTimeInDisplayTimezone, toUtcIsoString } from '@/utils/format';
 import {
   ClipboardCheck,
-  ClipboardList,
   ChevronDown,
   Copy,
   ListChecks,
@@ -381,13 +380,8 @@ onBeforeUnmount(() => {
       <template v-if="activeTab === 'scheduled' && isAdmin">
         <Card>
           <CardHeader>
-            <div class="flex items-center gap-3">
-              <ClipboardCheck class="h-5 w-5 text-primary" />
-              <div>
-                <CardTitle>定时任务</CardTitle>
-                <CardDescription>任务定义来自后端 APScheduler 代码注册表。</CardDescription>
-              </div>
-            </div>
+            <CardTitle>定时任务</CardTitle>
+            <CardDescription>任务定义来自后端 APScheduler 代码注册表。</CardDescription>
             <CardAction>
               <LoadingButton
                 variant="secondary"
@@ -534,7 +528,7 @@ onBeforeUnmount(() => {
                   <p class="mt-1 text-xs text-muted-foreground">
                     {{ item.description }}
                   </p>
-                  <p class="mt-1 font-mono text-[11px] text-muted-foreground">
+                  <p class="mt-1 font-mono text-xs text-muted-foreground">
                     {{ item.jobId }}
                   </p>
                 </td>
@@ -642,15 +636,10 @@ onBeforeUnmount(() => {
       <template v-else>
         <Card>
           <CardHeader>
-            <div class="flex items-center gap-3">
-              <ClipboardList class="h-5 w-5 text-primary" />
-              <div>
-                <CardTitle>执行记录</CardTitle>
-                <CardDescription>
-                  {{ isAdmin ? '全部用户和系统任务。' : '自己的任务执行记录。' }}
-                </CardDescription>
-              </div>
-            </div>
+            <CardTitle>执行记录</CardTitle>
+            <CardDescription>
+              {{ isAdmin ? '全部用户和系统任务。' : '自己的任务执行记录。' }}
+            </CardDescription>
             <CardAction>
               <LoadingButton
                 variant="secondary"
@@ -705,7 +694,7 @@ onBeforeUnmount(() => {
                     </button>
                     <button
                       type="button"
-                      class="rounded-lg px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                      class="rounded-lg px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
                       @click="selectDefaultStatuses"
                     >
                       默认
@@ -717,7 +706,7 @@ onBeforeUnmount(() => {
                     class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-muted"
                   >
                     <input
-                      class="h-4 w-4 rounded border-border/70 text-primary focus:ring-primary/40"
+                      class="h-4 w-4 rounded accent-primary"
                       type="checkbox"
                       :checked="filters.statuses.includes(option.value)"
                       :disabled="
@@ -898,11 +887,11 @@ onBeforeUnmount(() => {
                   </p>
                   <p
                     v-if="isAdmin"
-                    class="mt-1 font-mono text-[11px] text-muted-foreground"
+                    class="mt-1 font-mono text-xs text-muted-foreground"
                   >
                     {{ shortTaskId(item.taskId) }}
                     <button
-                      class="ml-1 align-middle text-primary"
+                      class="ml-1 align-middle text-muted-foreground hover:text-foreground"
                       aria-label="复制 Task ID"
                       @click="copyText(item.taskId)"
                     >
