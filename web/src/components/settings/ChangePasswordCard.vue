@@ -3,8 +3,8 @@ import { isParsedApiError } from '@/api/error';
 import type { ParsedApiError } from '@/api/error';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
-import SettingsAlert from '@/components/settings/SettingsAlert.vue';
-import SettingsSectionCard from '@/components/settings/SettingsSectionCard.vue';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/composables/useAuth';
 import { ref } from 'vue';
 
@@ -64,36 +64,39 @@ async function handleSubmit(e: Event) {
 </script>
 
 <template>
-  <SettingsSectionCard title="修改密码">
-    <form
-      class="space-y-4"
-      @submit="handleSubmit"
-    >
-      <FieldInput
-        id="change-pass-current"
-        v-model="currentPassword"
-        type="password"
-        allow-toggle-password
-        label="当前密码"
-        class="max-w-sm"
-        placeholder="输入当前密码"
-        :disabled="isSubmitting"
-        autocomplete="current-password"
-      />
+  <Card>
+    <CardHeader>
+      <CardTitle>修改密码</CardTitle>
+    </CardHeader>
+    <CardContent>
+      <form
+        class="space-y-4"
+        @submit="handleSubmit"
+      >
+        <FieldInput
+          id="change-pass-current"
+          v-model="currentPassword"
+          type="password"
+          allow-toggle-password
+          label="当前密码"
+          class="max-w-sm"
+          placeholder="输入当前密码"
+          :disabled="isSubmitting"
+          autocomplete="current-password"
+        />
 
-      <FieldInput
-        id="change-pass-new"
-        v-model="newPassword"
-        type="password"
-        allow-toggle-password
-        label="新密码"
-        class="max-w-sm"
-        placeholder="输入新密码"
-        :disabled="isSubmitting"
-        autocomplete="new-password"
-      />
+        <FieldInput
+          id="change-pass-new"
+          v-model="newPassword"
+          type="password"
+          allow-toggle-password
+          label="新密码"
+          class="max-w-sm"
+          placeholder="输入新密码"
+          :disabled="isSubmitting"
+          autocomplete="new-password"
+        />
 
-      <div>
         <FieldInput
           id="change-pass-confirm"
           v-model="newPasswordConfirm"
@@ -105,36 +108,32 @@ async function handleSubmit(e: Event) {
           :disabled="isSubmitting"
           autocomplete="new-password"
         />
-      </div>
 
-      <SettingsAlert
-        v-if="error && isParsedApiError(error)"
-        title="修改失败"
-        :message="error.message"
-        variant="error"
-        class="!mt-3"
-      />
-      <SettingsAlert
-        v-else-if="error"
-        title="修改失败"
-        :message="String(error)"
-        variant="error"
-        class="!mt-3"
-      />
-      <SettingsAlert
-        v-if="success"
-        title="修改成功"
-        message="登录密码已更新。"
-        variant="success"
-      />
+        <Alert
+          v-if="error"
+          variant="destructive"
+        >
+          <AlertTitle>修改失败</AlertTitle>
+          <AlertDescription>
+            {{ isParsedApiError(error) ? error.message : String(error) }}
+          </AlertDescription>
+        </Alert>
+        <Alert
+          v-if="success"
+          variant="success"
+        >
+          <AlertTitle>修改成功</AlertTitle>
+          <AlertDescription>登录密码已更新。</AlertDescription>
+        </Alert>
 
-      <LoadingButton
-        type="submit"
-        variant="default"
-        :loading="isSubmitting"
-      >
-        保存新密码
-      </LoadingButton>
-    </form>
-  </SettingsSectionCard>
+        <LoadingButton
+          type="submit"
+          variant="default"
+          :loading="isSubmitting"
+        >
+          保存新密码
+        </LoadingButton>
+      </form>
+    </CardContent>
+  </Card>
 </template>
