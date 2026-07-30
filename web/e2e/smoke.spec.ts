@@ -245,20 +245,15 @@ test.describe('web smoke', () => {
       'page',
     );
 
-    const marketNav = page.getByTestId('market-mobile-nav');
+    const marketNav = page.getByTestId('module-tabs');
     await expect(marketNav).toBeVisible();
-    await expect(marketNav.getByRole('link')).toHaveCount(3);
-    expect(await marketNav.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
-      true,
-    );
+    await expect(marketNav.getByRole('tab')).toHaveCount(3);
+    await expect(marketNav.locator('[data-reka-scroll-area-viewport]')).toBeVisible();
 
     await page.setViewportSize({ width: 360, height: 800 });
-    for (const link of await marketNav.getByRole('link').all()) {
+    for (const link of await marketNav.getByRole('tab').all()) {
       await expect(link).toBeVisible();
     }
-    expect(await marketNav.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
-      true,
-    );
 
     await page.setViewportSize({ width: 844, height: 390 });
     await expect(mobileNav).toBeHidden();

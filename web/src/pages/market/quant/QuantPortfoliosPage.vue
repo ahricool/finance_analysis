@@ -2,7 +2,11 @@
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import EmptyState from '@/components/app/AppEmptyState.vue';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { IntradayConfirmation, Portfolio } from '@/types/quant';
 import { actionLabels, formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
@@ -67,95 +71,111 @@ watch(
     />
     <div
       v-if="loading"
-      class="py-12 text-center text-muted-foreground"
+      class="grid gap-3 sm:grid-cols-3"
     >
-      加载中...
+      <Skeleton
+        v-for="index in 6"
+        :key="index"
+        class="h-24 w-full"
+      />
     </div>
     <template v-else-if="item">
       <section class="grid gap-3 sm:grid-cols-3">
-        <div class="rounded-xl border border-border bg-card p-3">
-          <p class="text-xs text-muted-foreground">
-            交易日
-          </p>
-          <p>{{ item.tradeDate }}</p>
-        </div>
-        <div class="rounded-xl border border-border bg-card p-3">
-          <p class="text-xs text-muted-foreground">
-            目标总仓位
-          </p>
-          <p>{{ formatPercent(item.targetEquityExposure) }}</p>
-        </div>
-        <div class="rounded-xl border border-border bg-card p-3">
-          <p class="text-xs text-muted-foreground">
-            最大总仓位
-          </p>
-          <p>{{ formatPercent(item.maxEquityExposure) }}</p>
-        </div>
+        <Card><CardHeader><CardDescription>交易日</CardDescription><CardTitle>{{ item.tradeDate }}</CardTitle></CardHeader></Card>
+        <Card><CardHeader><CardDescription>目标总仓位</CardDescription><CardTitle>{{ formatPercent(item.targetEquityExposure) }}</CardTitle></CardHeader></Card>
+        <Card><CardHeader><CardDescription>最大总仓位</CardDescription><CardTitle>{{ formatPercent(item.maxEquityExposure) }}</CardTitle></CardHeader></Card>
       </section>
-      <div
+      <Alert
         v-if="item.warnings.length"
-        class="rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning"
+        class="border-warning/30 text-warning"
       >
-        {{ item.warnings.join('；') }}
-      </div>
-      <div class="overflow-x-auto rounded-2xl border border-border bg-card">
-        <table class="w-full text-sm">
-          <thead class="text-left text-xs text-muted-foreground">
-            <tr>
-              <th class="p-3">
-                股票
-              </th>
-              <th>行业</th>
-              <th>动作</th>
-              <th>当前权重</th>
-              <th>目标权重</th>
-              <th>变化</th>
-              <th>得分</th>
-              <th>预测收益</th>
-              <th>分钟确认</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="row in item.items"
-              :key="row.id"
-              class="border-t border-border"
-            >
-              <td class="p-3">
+        <AlertTitle>组合约束提示</AlertTitle><AlertDescription class="text-current/80">
+          {{ item.warnings.join('；') }}
+        </AlertDescription>
+      </Alert>
+      <Card>
+        <CardHeader><CardTitle>调仓建议</CardTitle><CardDescription>展示目标权重、信号得分和分钟级确认结果。</CardDescription></CardHeader>
+        <CardContent class="hidden md:block">
+          <table class="w-full text-sm">
+            <thead class="text-left text-xs text-muted-foreground">
+              <tr>
+                <th class="p-3">
+                  股票
+                </th>
+                <th>行业</th>
+                <th>动作</th>
+                <th>当前权重</th>
+                <th>目标权重</th>
+                <th>变化</th>
+                <th>得分</th>
+                <th>预测收益</th>
+                <th>分钟确认</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in item.items"
+                :key="row.id"
+                class="border-t border-border"
+              >
+                <td class="p-3">
+                  {{ row.code }}
+                </td>
+                <td>{{ row.sectorKey ?? '—' }}</td>
+                <td>{{ actionLabels[row.action] ?? row.action }}</td>
+                <td>{{ formatPercent(row.currentWeight) }}</td>
+                <td>{{ formatPercent(row.targetWeight) }}</td>
+                <td>{{ formatPercent(row.weightChange) }}</td>
+                <td>{{ formatScore(row.finalScore) }}</td>
+                <td>{{ formatPredictedReturn(row.predictedReturn) }}</td>
+                <td>
+                  <span>{{
+                    confirmationLabels[confirmations[row.code]?.decision] ?? '等待确认'
+                  }}</span>
+                  <details
+                    v-if="confirmations[row.code]"
+                    class="text-xs text-muted-foreground"
+                  >
+                    <summary>确认详情</summary>
+                    <p>
+                      价格 {{ formatScore(confirmations[row.code].price) }} / VWAP
+                      {{ formatScore(confirmations[row.code].vwap) }}
+                    </p>
+                    <p>{{ confirmations[row.code].reasons.join('；') }}</p>
+                  </details>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </CardContent>
+        <CardContent class="space-y-3 md:hidden">
+          <Card
+            v-for="row in item.items"
+            :key="row.id"
+          >
+            <CardHeader>
+              <CardTitle class="text-base">
                 {{ row.code }}
-              </td>
-              <td>{{ row.sectorKey ?? '—' }}</td>
-              <td>{{ actionLabels[row.action] ?? row.action }}</td>
-              <td>{{ formatPercent(row.currentWeight) }}</td>
-              <td>{{ formatPercent(row.targetWeight) }}</td>
-              <td>{{ formatPercent(row.weightChange) }}</td>
-              <td>{{ formatScore(row.finalScore) }}</td>
-              <td>{{ formatPredictedReturn(row.predictedReturn) }}</td>
-              <td>
-                <span>{{
-                  confirmationLabels[confirmations[row.code]?.decision] ?? '等待确认'
-                }}</span>
-                <details
-                  v-if="confirmations[row.code]"
-                  class="text-xs text-muted-foreground"
-                >
-                  <summary>确认详情</summary>
-                  <p>
-                    价格 {{ formatScore(confirmations[row.code].price) }} / VWAP
-                    {{ formatScore(confirmations[row.code].vwap) }}
-                  </p>
-                  <p>{{ confirmations[row.code].reasons.join('；') }}</p>
-                </details>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              </CardTitle><CardDescription>{{ row.sectorKey ?? '未分类' }}</CardDescription><Badge variant="outline">
+                {{ actionLabels[row.action] ?? row.action }}
+              </Badge>
+            </CardHeader><CardContent class="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p class="text-xs text-muted-foreground">
+                  目标权重
+                </p>{{ formatPercent(row.targetWeight) }}
+              </div><div>
+                <p class="text-xs text-muted-foreground">
+                  预测收益
+                </p>{{ formatPredictedReturn(row.predictedReturn) }}
+              </div>
+            </CardContent>
+          </Card>
+        </CardContent>
+      </Card>
     </template>
-    <EmptyState
-      v-else
-      :title="market === 'CN' ? 'A股组合建议尚未就绪' : '暂无组合建议'"
-      description="当前市场尚未生成可展示的组合建议。"
-    />
+    <Empty v-else>
+      <EmptyHeader><EmptyTitle>{{ market === 'CN' ? 'A股组合建议尚未就绪' : '暂无组合建议' }}</EmptyTitle><EmptyDescription>当前市场尚未生成可展示的组合建议。</EmptyDescription></EmptyHeader>
+    </Empty>
   </div>
 </template>

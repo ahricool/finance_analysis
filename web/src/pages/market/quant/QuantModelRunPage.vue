@@ -2,7 +2,7 @@
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Button from '@/components/app/AppButton.vue';
+import { Button } from '@/components/ui/button';
 import type { ModelRun } from '@/types/quant';
 import { formatScore } from '@/utils/quant';
 import { computed, ref, watch } from 'vue';

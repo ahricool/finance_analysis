@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { cn } from '@/utils/cn';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 const props = withDefaults(
   defineProps<{
@@ -12,35 +13,18 @@ const props = withDefaults(
 </script>
 
 <template>
-  <div
-    :class="
-      cn(
-        'rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm backdrop-blur-sm',
-        props.class,
-      )
-    "
-  >
-    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div class="min-w-0 space-y-1">
-        <h2 class="text-base font-semibold text-foreground">
-          {{ title }}
-        </h2>
-        <p
-          v-if="description"
-          class="text-xs leading-6 text-muted-foreground"
-        >
-          {{ description }}
-        </p>
-      </div>
-      <div
-        v-if="$slots.actions"
-        class="flex shrink-0 items-center gap-2"
-      >
+  <Card :class="cn(props.class)">
+    <CardHeader>
+      <CardTitle>{{ title }}</CardTitle>
+      <CardDescription v-if="description">
+        {{ description }}
+      </CardDescription>
+      <CardAction v-if="$slots.actions">
         <slot name="actions" />
-      </div>
-    </div>
-    <div class="space-y-5">
+      </CardAction>
+    </CardHeader>
+    <CardContent class="space-y-5">
       <slot />
-    </div>
-  </div>
+    </CardContent>
+  </Card>
 </template>

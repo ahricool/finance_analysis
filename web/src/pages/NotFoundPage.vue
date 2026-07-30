@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 import { House } from 'lucide-vue-next';
-import AppButton from '@/components/app/AppButton.vue';
+import { Button } from '@/components/ui/button';
 
 const router = useRouter();
 </script>
@@ -19,9 +19,9 @@ const router = useRouter();
       抱歉，您访问的页面不存在或已被移动
     </p>
 
-    <AppButton @click="router.push('/analysis')">
+    <Button @click="router.push('/analysis')">
       <House />
       返回分析
-    </AppButton>
+    </Button>
   </div>
 </template>

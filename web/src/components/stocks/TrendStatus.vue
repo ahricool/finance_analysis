@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { RealtimeTrend, TrendDirection } from '@/api/realtimeMarket';
-import Tooltip from '@/components/app/AppTooltip.vue';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { computed } from 'vue';
 
@@ -60,20 +60,24 @@ const tooltip = computed(() => {
 </script>
 
 <template>
-  <Tooltip
-    :content="tooltip"
-    content-class="whitespace-pre-line"
-    focusable
-  >
-    <span
-      class="inline-flex items-center gap-2 whitespace-nowrap text-xs font-medium text-foreground"
-    >
-      <span
-        data-testid="trend-dot"
-        class="h-2.5 w-2.5 shrink-0 rounded-full"
-        :class="dotClass"
-      />
-      <span>{{ label }}</span>
-    </span>
-  </Tooltip>
+  <TooltipProvider :delay-duration="0">
+    <Tooltip>
+      <TooltipTrigger as-child>
+        <span
+          tabindex="0"
+          class="inline-flex items-center gap-2 whitespace-nowrap text-xs font-medium text-foreground"
+        >
+          <span
+            data-testid="trend-dot"
+            class="h-2.5 w-2.5 shrink-0 rounded-full"
+            :class="dotClass"
+          />
+          <span>{{ label }}</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent class="whitespace-pre-line">
+        {{ tooltip }}
+      </TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
 </template>

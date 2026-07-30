@@ -56,7 +56,7 @@ describe('quant market context', () => {
     expect(router.currentRoute.value.query.market).toBe('CN');
     expect(controls.get('button[aria-checked="true"]').text()).toBe('A股');
     expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围：沪深300');
-    expect(controls.classes()).toContain('min-w-[132px]');
+    expect(controls.classes()).toContain('rounded-lg');
     expect(quantApi.signals).toHaveBeenLastCalledWith('CN');
   });
 

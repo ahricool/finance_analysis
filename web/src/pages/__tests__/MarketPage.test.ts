@@ -22,16 +22,12 @@ describe('MarketPage', () => {
     const wrapper = await mountMarket('/market/signals');
 
     expect(wrapper.text()).toContain('管理自选股、投资组合并查看历史信号。');
-    expect(wrapper.get('[data-testid="market-desktop-nav"]').classes()).toContain('lg:block');
-    const mobileNav = wrapper.get('[data-testid="market-mobile-nav"]');
-    expect(mobileNav.classes()).toContain('lg:hidden');
-    expect(mobileNav.classes()).toContain('grid-cols-3');
-    expect(mobileNav.classes()).not.toContain('overflow-x-auto');
-    expect(wrapper.findAll('a[href="/market/watch-list"]')).toHaveLength(2);
-    expect(wrapper.findAll('a[href="/market/holdings"]')).toHaveLength(2);
+    expect(wrapper.get('[data-testid="module-tabs"]').attributes('aria-label')).toBe('市场页面导航');
+    expect(wrapper.findAll('a[href="/market/watch-list"]')).toHaveLength(1);
+    expect(wrapper.findAll('a[href="/market/holdings"]')).toHaveLength(1);
     const signalLinks = wrapper.findAll('a[href="/market/signals"]');
-    expect(signalLinks).toHaveLength(2);
-    expect(signalLinks.every((link) => link.classes().includes('text-primary'))).toBe(true);
+    expect(signalLinks).toHaveLength(1);
+    expect(signalLinks[0]?.attributes('data-state')).toBe('active');
     expect(wrapper.text()).toContain('信号内容');
     expect(wrapper.text()).not.toContain('策略回测');
     expect(wrapper.text()).not.toContain('量化研究');

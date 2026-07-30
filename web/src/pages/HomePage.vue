@@ -2,11 +2,9 @@
 import { analysisApi } from '@/api/analysis';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Button from '@/components/app/AppButton.vue';
-import EmptyState from '@/components/app/AppEmptyState.vue';
-import InlineAlert from '@/components/app/AppAlert.vue';
-import AppSheet from '@/components/app/AppSheet.vue';
-import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
+import { Button } from '@/components/ui/button';
+import LoadingButton from '@/components/app/LoadingButton.vue';
+import PageHeader from '@/components/layout/PageHeader.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import HistoryList from '@/components/history/HistoryList.vue';
 import ReportMarkdown from '@/components/report/ReportMarkdown.vue';
@@ -15,7 +13,13 @@ import { useDashboardLifecycle } from '@/composables/useDashboardLifecycle';
 import { useHomeDashboardState } from '@/composables/useHomeDashboardState';
 import { useTimezoneStore } from '@/stores/timezoneStore';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
-import { BarChart3 } from 'lucide-vue-next';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Card, CardContent } from '@/components/ui/card';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { Separator } from '@/components/ui/separator';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Skeleton } from '@/components/ui/skeleton';
+import { BarChart3, FileText, History, MessageCircle, RefreshCw, Search } from 'lucide-vue-next';
 import { computed, ref, unref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
@@ -166,34 +170,28 @@ function handleHistoryPageChange(page: number) {
 <template>
   <div
     data-testid="analysis-workspace"
-    class="flex h-[calc(100dvh-9rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full flex-col overflow-hidden md:h-[calc(100vh-5.5rem)] md:flex-row lg:h-[calc(100vh-6rem)]"
+    class="flex h-[calc(100dvh-9rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full flex-col gap-4 overflow-hidden py-4 md:h-[calc(100vh-5rem)] lg:h-[calc(100vh-5.5rem)]"
   >
-    <div class="mx-auto flex w-full max-w-full min-w-0 flex-1 flex-col">
-      <header
-        class="flex min-w-0 flex-shrink-0 items-center overflow-hidden px-3 py-3 md:px-4 md:py-4"
-      >
-        <div class="flex min-w-0 flex-1 flex-col gap-2.5 md:flex-row md:items-center">
+    <PageHeader
+      title="股票分析"
+      description="搜索标的、生成分析报告，并从历史记录继续研究。"
+    >
+      <template #actions>
+        <Button
+          class="md:hidden"
+          variant="outline"
+          size="sm"
+          @click="sidebarOpen = true"
+        >
+          <History />历史记录
+        </Button>
+      </template>
+    </PageHeader>
+
+    <Card class="shrink-0 py-0">
+      <CardContent class="p-4">
+        <div class="flex min-w-0 flex-col gap-3 md:flex-row md:items-center">
           <div class="flex min-w-0 flex-1 items-center gap-2.5">
-            <button
-              type="button"
-              class="-ml-1 flex-shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
-              aria-label="历史记录"
-              @click="sidebarOpen = true"
-            >
-              <svg
-                class="h-5 w-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 6h16M4 12h16M4 18h16"
-                />
-              </svg>
-            </button>
             <div class="relative min-w-0 flex-1">
               <StockAutocomplete
                 :model-value="query"
@@ -206,7 +204,7 @@ function handleHistoryPageChange(page: number) {
             </div>
           </div>
           <div class="flex min-w-0 flex-shrink-0 items-center gap-2.5">
-            <Button
+            <LoadingButton
               type="button"
               variant="secondary"
               size="default"
@@ -220,8 +218,8 @@ function handleHistoryPageChange(page: number) {
                 aria-hidden="true"
               />
               大盘复盘
-            </Button>
-            <Button
+            </LoadingButton>
+            <LoadingButton
               type="button"
               :disabled="!query || isAnalyzing"
               :loading="isAnalyzing"
@@ -229,166 +227,138 @@ function handleHistoryPageChange(page: number) {
               class="h-10 flex-1 whitespace-nowrap md:flex-none"
               @click="handleSubmitAnalysisWrapper()"
             >
-              <template v-if="isAnalyzing">
-                <svg
-                  class="h-3.5 w-3.5 animate-spin"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    class="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    stroke-width="4"
-                  />
-                  <path
-                    class="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-                分析中
-              </template>
-              <template v-else>
-                分析
-              </template>
-            </Button>
+              <Search />分析
+            </LoadingButton>
           </div>
         </div>
-      </header>
+      </CardContent>
+    </Card>
 
-      <div
-        v-if="inputError || duplicateError"
-        class="px-3 pb-2 md:px-4"
+    <div
+      v-if="inputError || duplicateError"
+    >
+      <Alert
+        v-if="inputError"
+        variant="destructive"
       >
-        <InlineAlert
-          v-if="inputError"
-          variant="destructive"
-          title="输入有误"
-          class="rounded-xl px-3 py-2 text-xs shadow-none"
-        >
-          {{ inputError }}
-        </InlineAlert>
-        <InlineAlert
-          v-else-if="duplicateError"
-          variant="warning"
-          title="任务已存在"
-          class="rounded-xl px-3 py-2 text-xs shadow-none"
-        >
+        <AlertTitle>输入有误</AlertTitle><AlertDescription>{{ inputError }}</AlertDescription>
+      </Alert>
+      <Alert
+        v-else-if="duplicateError"
+        class="border-warning/30 text-warning"
+      >
+        <AlertTitle>任务已存在</AlertTitle><AlertDescription class="text-current/80">
           {{ duplicateError }}
-        </InlineAlert>
+        </AlertDescription>
+      </Alert>
+    </div>
+
+    <div class="flex min-h-0 flex-1 overflow-hidden">
+      <div class="hidden w-[clamp(18rem,22vw,22rem)] shrink-0 self-start pb-4 pl-4 md:flex">
+        <div class="flex w-full flex-col gap-3">
+          <HistoryList
+            :items="historyItems"
+            :is-loading="isLoadingHistory"
+            :current-page="currentPage"
+            :total-pages="historyTotalPages"
+            :total-count="historyTotal"
+            :selected-id="selectedReport?.meta.id"
+            fit-height
+            class="w-full overflow-hidden"
+            @item-click="handleHistoryItemClick"
+            @page-change="handleHistoryPageChange"
+          />
+        </div>
       </div>
 
-      <div class="flex min-h-0 flex-1 overflow-hidden">
-        <div class="hidden w-[clamp(18rem,22vw,22rem)] shrink-0 self-start pb-4 pl-4 md:flex">
-          <div class="flex w-full flex-col gap-3">
-            <HistoryList
-              :items="historyItems"
-              :is-loading="isLoadingHistory"
-              :current-page="currentPage"
-              :total-pages="historyTotalPages"
-              :total-count="historyTotal"
-              :selected-id="selectedReport?.meta.id"
-              fit-height
-              class="w-full overflow-hidden"
-              @item-click="handleHistoryItemClick"
-              @page-change="handleHistoryPageChange"
-            />
-          </div>
+      <Sheet v-model:open="sidebarOpen">
+        <SheetContent
+          side="left"
+          class="flex w-[min(92vw,24rem)] flex-col p-0"
+        >
+          <SheetHeader class="p-4 text-left">
+            <SheetTitle>历史分析</SheetTitle>
+            <SheetDescription>选择一份历史报告继续查看或追问。</SheetDescription>
+          </SheetHeader>
+          <Separator />
+          <HistoryList
+            :items="historyItems"
+            :is-loading="isLoadingHistory"
+            :current-page="currentPage"
+            :total-pages="historyTotalPages"
+            :total-count="historyTotal"
+            :selected-id="selectedReport?.meta.id"
+            class="min-h-0 flex-1 rounded-none border-0 shadow-none"
+            @item-click="handleHistoryItemClick"
+            @page-change="handleHistoryPageChange"
+          />
+        </SheetContent>
+      </Sheet>
+
+      <section
+        ref="dashboardScrollRef"
+        data-testid="analysis-workspace-scroll"
+        class="min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto pb-4 pl-4"
+      >
+        <div
+          v-if="marketReviewNotice"
+          class="mb-3"
+        >
+          <Alert
+            :variant="marketReviewNotice.variant === 'destructive' ? 'destructive' : 'default'"
+            :class="marketReviewNotice.variant === 'success' && 'border-success/30 text-success'"
+          >
+            <AlertTitle>{{ marketReviewNotice.title }}</AlertTitle>
+            <AlertDescription class="text-current/80">
+              {{ marketReviewNotice.message }}
+            </AlertDescription>
+          </Alert>
         </div>
 
-        <AppSheet
-          :open="sidebarOpen"
-          title="历史分析"
-          side="left"
-          @update:open="sidebarOpen = $event"
+        <div
+          v-if="marketReviewError"
+          class="mb-3"
         >
-          <div class="flex h-full min-h-0 flex-col gap-3 overflow-hidden py-3">
-            <HistoryList
-              :items="historyItems"
-              :is-loading="isLoadingHistory"
-              :current-page="currentPage"
-              :total-pages="historyTotalPages"
-              :total-count="historyTotal"
-              :selected-id="selectedReport?.meta.id"
-              class="min-h-0 flex-1 overflow-hidden"
-              @item-click="handleHistoryItemClick"
-              @page-change="handleHistoryPageChange"
-            />
-          </div>
-        </AppSheet>
-
-        <section
-          ref="dashboardScrollRef"
-          data-testid="analysis-workspace-scroll"
-          class="min-h-0 min-w-0 flex-1 touch-pan-y overflow-x-auto overflow-y-auto px-3 pb-4 md:px-6"
-        >
-          <div
-            v-if="marketReviewNotice"
-            class="mb-3"
-          >
-            <InlineAlert
-              :variant="marketReviewNotice.variant"
-              :title="marketReviewNotice.title"
-              class="rounded-xl px-3 py-2 text-xs shadow-none"
-            >
-              {{ marketReviewNotice.message }}
-            </InlineAlert>
-          </div>
-
-          <div
-            v-if="marketReviewError"
-            class="mb-3"
-          >
-            <ApiErrorAlert
-              :error="marketReviewError"
-              class="mb-1"
-              @dismiss="marketReviewError = null"
-            />
-          </div>
-
           <ApiErrorAlert
-            v-if="error"
-            :error="error"
-            class="mb-3"
-            @dismiss="() => unref(clearError)()"
+            :error="marketReviewError"
+            class="mb-1"
+            @dismiss="marketReviewError = null"
           />
+        </div>
 
-          <div
-            v-if="isLoadingReport"
-            class="flex h-full flex-col items-center justify-center"
+        <ApiErrorAlert
+          v-if="error"
+          :error="error"
+          class="mb-3"
+          @dismiss="() => unref(clearError)()"
+        />
+
+        <div
+          v-if="isLoadingReport"
+          class="grid gap-4 md:grid-cols-2"
+        >
+          <Card
+            v-for="index in 4"
+            :key="index"
           >
-            <DashboardStateBlock
-              title="加载报告中..."
-              loading
-            />
-          </div>
-          <div
-            v-else-if="selectedReport"
-            class="space-y-4 pb-8"
-          >
-            <div class="flex flex-wrap items-center justify-end gap-2">
+            <CardContent class="space-y-3 p-6">
+              <Skeleton class="h-5 w-1/3" /><Skeleton class="h-4 w-full" /><Skeleton class="h-4 w-5/6" /><Skeleton class="h-32 w-full" />
+            </CardContent>
+          </Card>
+        </div>
+        <div
+          v-else-if="selectedReport"
+          class="space-y-4 pb-8"
+        >
+          <Card class="py-0">
+            <CardContent class="flex flex-wrap items-center justify-end gap-2 p-3">
               <Button
                 variant="default"
                 size="sm"
                 :disabled="isAnalyzing || selectedReport.meta.id === undefined"
                 @click="handleReanalyze"
               >
-                <svg
-                  class="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
+                <RefreshCw />
                 {{ reportText.reanalyze }}
               </Button>
               <Button
@@ -397,19 +367,7 @@ function handleHistoryPageChange(page: number) {
                 :disabled="selectedReport.meta.id === undefined"
                 @click="handleAskFollowUp"
               >
-                <svg
-                  class="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                  />
-                </svg>
+                <MessageCircle />
                 追问 AI
               </Button>
               <Button
@@ -418,57 +376,30 @@ function handleHistoryPageChange(page: number) {
                 :disabled="selectedReport.meta.id === undefined"
                 @click="unref(openMarkdownDrawer)()"
               >
-                <svg
-                  class="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  />
-                </svg>
+                <FileText />
                 {{ reportText.fullReport }}
               </Button>
-            </div>
-            <ReportSummary
-              :data="selectedReport"
-              is-history
-            />
-          </div>
-          <div
-            v-else
-            class="flex h-full items-center justify-center"
-          >
-            <EmptyState
-              title="开始分析"
-              description="输入股票代码进行分析，或从左侧选择历史报告查看。"
-              class="max-w-xl border-dashed"
-            >
-              <template #icon>
-                <svg
-                  class="h-6 w-6"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="1.5"
-                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                  />
-                </svg>
-              </template>
-            </EmptyState>
-          </div>
-        </section>
-      </div>
+            </CardContent>
+          </Card>
+          <ReportSummary
+            :data="selectedReport"
+            is-history
+          />
+        </div>
+        <div
+          v-else
+          class="flex h-full items-center justify-center"
+        >
+          <Empty class="max-w-xl">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <BarChart3 />
+              </EmptyMedia><EmptyTitle>开始分析</EmptyTitle><EmptyDescription>输入股票代码进行分析，或从历史记录选择报告查看。</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </div>
+      </section>
     </div>
-
     <ReportMarkdown
       v-if="markdownDrawerOpen && selectedReport?.meta.id"
       :record-id="selectedReport.meta.id"

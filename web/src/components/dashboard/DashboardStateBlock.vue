@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { cn } from '@/utils/cn';
+import { Skeleton } from '@/components/ui/skeleton';
 import { computed } from 'vue';
 
 const props = withDefaults(
@@ -39,9 +40,13 @@ const titleTag = computed(() => props.titleAs);
   >
     <div
       v-if="loading"
-      class="size-6 animate-spin rounded-full border-2 border-primary/25 border-t-primary"
-      aria-hidden="true"
-    />
+      class="w-full max-w-xs space-y-3"
+      aria-label="加载中"
+    >
+      <Skeleton class="mx-auto size-10 rounded-full" />
+      <Skeleton class="mx-auto h-4 w-2/3" />
+      <Skeleton class="mx-auto h-3 w-1/2" />
+    </div>
     <div
       v-else-if="$slots.icon"
       class="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground"

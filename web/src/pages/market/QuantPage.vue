@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import SectionNavItems from '@/components/app/AppSectionNav.vue';
-import SectionNavPanel from '@/components/app/AppSectionNav.vue';
-import SectionPageHeader from '@/components/app/AppPageHeader.vue';
+import ModuleTabs from '@/components/layout/ModuleTabs.vue';
+import PageHeader from '@/components/layout/PageHeader.vue';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { BarChart3, Bot, BriefcaseBusiness, Database, LayoutDashboard } from 'lucide-vue-next';
 import { computed } from 'vue';
@@ -45,71 +46,50 @@ const activeTab = computed<QuantTab>(() => {
 </script>
 
 <template>
-  <div class="space-y-5">
-    <SectionPageHeader
+  <div class="space-y-6 py-4 sm:py-6">
+    <PageHeader
       title="量化研究"
       description="管理量化数据集、模型训练、选股信号与组合建议。"
+      section="市场"
     >
-      <div class="mt-2 flex flex-wrap items-center justify-between gap-3">
-        <p
-          class="text-xs text-muted-foreground"
-          data-testid="quant-scope-description"
-        >
-          {{ scopeDescription }}
-        </p>
+      <template #actions>
         <div
-          class="inline-flex min-w-[132px] rounded-xl border border-border/70 bg-card/94 p-1 shadow-sm"
+          class="flex items-center gap-1 rounded-lg bg-muted p-1"
           role="radiogroup"
           aria-label="量化市场"
           data-testid="quant-market-switcher"
         >
-          <button
-            v-for="option in [
-              { value: 'US', label: '美股' },
-              { value: 'CN', label: 'A股' },
-            ]"
+          <Button
+            v-for="option in [{ value: 'US', label: '美股' }, { value: 'CN', label: 'A股' }]"
             :key="option.value"
-            type="button"
+            size="sm"
+            :variant="market === option.value ? 'default' : 'ghost'"
             role="radio"
             :aria-checked="market === option.value"
-            class="h-9 flex-1 rounded-lg px-3 text-sm font-medium transition-colors"
-            :class="
-              market === option.value
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            "
             @click="setMarket(option.value as 'US' | 'CN')"
           >
             {{ option.label }}
-          </button>
+          </Button>
         </div>
-      </div>
-    </SectionPageHeader>
+      </template>
+    </PageHeader>
 
-    <nav
-      class="grid grid-cols-2 gap-1 rounded-2xl border border-border/70 bg-card/94 p-2 shadow-sm backdrop-blur-sm sm:grid-cols-3 lg:hidden"
-      aria-label="量化研究导航"
-      data-testid="quant-mobile-nav"
-    >
-      <SectionNavItems
+    <div class="flex flex-col gap-2">
+      <ModuleTabs
         :items="navItems"
         :active-key="activeTab"
-        responsive
+        label="量化研究导航"
       />
-    </nav>
-
-    <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <SectionNavPanel
-        class="hidden lg:block"
-        data-testid="quant-desktop-nav"
-        :items="navItems"
-        :active-key="activeTab"
-        responsive
-      />
-
-      <section class="min-w-0">
-        <RouterView />
-      </section>
+      <p
+        class="text-xs text-muted-foreground"
+        data-testid="quant-scope-description"
+      >
+        {{ scopeDescription }}
+      </p>
     </div>
+    <Separator />
+    <section class="min-w-0">
+      <RouterView />
+    </section>
   </div>
 </template>

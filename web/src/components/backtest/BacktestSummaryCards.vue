@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BacktestSummary } from '@/types/backtests';
 import { formatMoney, formatPct } from '@/utils/backtests';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 const props = defineProps<{ summary: BacktestSummary }>();
 const cards = [
@@ -18,17 +19,18 @@ const cards = [
 
 <template>
   <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-    <div
+    <Card
       v-for="card in cards"
       :key="card[0]"
-      class="rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm"
     >
-      <p class="text-xs text-muted-foreground">
-        {{ card[0] }}
-      </p>
-      <p class="mt-2 text-lg font-semibold text-foreground">
+      <CardHeader class="pb-1">
+        <CardTitle class="text-sm font-medium text-muted-foreground">
+          {{ card[0] }}
+        </CardTitle>
+      </CardHeader>
+      <CardContent class="text-2xl font-semibold tracking-tight">
         {{ card[1]() }}
-      </p>
-    </div>
+      </CardContent>
+    </Card>
   </div>
 </template>

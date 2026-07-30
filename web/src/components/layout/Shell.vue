@@ -7,6 +7,7 @@ import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import AppStatusDot from '@/components/app/AppStatusDot.vue';
 import TimezoneSwitcher from '@/components/timezone/TimezoneSwitcher.vue';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -20,16 +21,19 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/composables/useAuth';
 import { useTheme } from '@/composables/useTheme';
 import { APP_NAME } from '@/config/app';
 import { mainNavItems, type MainNavItem } from '@/config/mainNav';
 import { useAgentChatStore } from '@/stores/agentChatStore';
 import { useAuthStore } from '@/stores/authStore';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils/cn';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -110,26 +114,25 @@ watch(
           aria-label="主导航"
           data-testid="desktop-main-nav"
         >
-          <RouterLink
+          <Button
             v-for="item in mainNavItems"
             :key="item.key"
-            v-slot="{ href, navigate }"
-            :to="item.to"
-            custom
+            as-child
+            variant="ghost"
+            size="sm"
           >
-            <a
-              :href="href"
+            <RouterLink
+              :to="item.to"
               :aria-label="item.label"
               :aria-current="isNavItemActive(item) ? 'page' : undefined"
               :class="
                 cn(
-                  'relative inline-flex h-10 items-center gap-2 rounded-lg px-2.5 text-sm font-medium transition-colors lg:px-3',
+                  'relative gap-2 px-2.5 lg:px-3',
                   isNavItemActive(item)
                     ? 'bg-primary/10 text-primary'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                 )
               "
-              @click="navigate"
             >
               <component
                 :is="item.icon"
@@ -141,8 +144,8 @@ watch(
                 class="absolute right-1 top-1 border border-background"
                 aria-label="问股有新消息"
               />
-            </a>
-          </RouterLink>
+            </RouterLink>
+          </Button>
         </nav>
 
         <DropdownMenu v-if="currentUser">
@@ -214,49 +217,50 @@ watch(
       <div
         class="mx-auto grid h-16 max-w-lg grid-cols-5 px-[max(.25rem,env(safe-area-inset-left))] pr-[max(.25rem,env(safe-area-inset-right))]"
       >
-        <RouterLink
+        <Button
           v-for="item in mobilePrimaryItems"
           :key="item.key"
-          v-slot="{ href, navigate }"
-          :to="item.to"
-          custom
+          as-child
+          variant="ghost"
+          class="m-1 h-auto min-h-12 min-w-0 p-0"
         >
-          <a
-            :href="href"
+          <RouterLink
+            :to="item.to"
             :aria-label="item.label"
             :aria-current="isNavItemActive(item) ? 'page' : undefined"
             :class="
               cn(
-                'relative m-1 flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] font-medium',
+                'relative flex size-full min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] font-medium',
                 isNavItemActive(item) ? 'bg-primary/10 text-primary' : 'text-muted-foreground',
               )
             "
-            @click="navigate"
-          ><component
-            :is="item.icon"
-            class="size-5"
-          /><span class="truncate">{{
-            item.label
-          }}</span><AppStatusDot
-            v-if="item.badge === 'completion' && completionBadge"
-            tone="info"
-            class="absolute right-[calc(50%-1rem)] top-1"
-          /></a>
-        </RouterLink>
-        <button
-          type="button"
+          >
+            <component
+              :is="item.icon"
+              class="size-5"
+            /><span class="truncate">{{
+              item.label
+            }}</span><AppStatusDot
+              v-if="item.badge === 'completion' && completionBadge"
+              tone="info"
+              class="absolute right-[calc(50%-1rem)] top-1"
+            />
+          </RouterLink>
+        </Button>
+        <Button
+          variant="ghost"
           aria-label="更多"
           :aria-current="moreActive ? 'page' : undefined"
           :class="
             cn(
-              'm-1 flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] font-medium',
+              'm-1 h-auto min-h-12 min-w-0 flex-col gap-0.5 rounded-lg p-0 text-[11px] font-medium',
               moreActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground',
             )
           "
           @click="mobileMoreOpen = true"
         >
           <Menu class="size-5" /><span>更多</span>
-        </button>
+        </Button>
       </div>
     </nav>
 
@@ -268,33 +272,44 @@ watch(
         <SheetHeader class="text-left">
           <SheetTitle>更多功能</SheetTitle><SheetDescription>回测、量化、任务与账号设置</SheetDescription>
         </SheetHeader>
-        <nav
-          class="mt-4 grid gap-2"
-          aria-label="更多功能"
-        >
-          <RouterLink
-            v-for="item in mobileMoreItems"
-            :key="item.key"
-            :to="item.to"
-            class="flex min-h-12 items-center gap-3 rounded-xl border px-4 text-sm font-medium"
-            :aria-current="isNavItemActive(item) ? 'page' : undefined"
-            :class="
-              isNavItemActive(item)
-                ? 'border-primary/30 bg-primary/10 text-primary'
-                : 'bg-card text-foreground'
-            "
+        <Separator />
+        <ScrollArea class="min-h-0 flex-1">
+          <nav
+            class="grid gap-2 pr-3"
+            aria-label="更多功能"
           >
-            <component
-              :is="item.icon"
-              class="size-5"
-            />{{ item.label }}
-          </RouterLink><RouterLink
-            to="/profile/info"
-            class="flex min-h-12 items-center gap-3 rounded-xl border bg-card px-4 text-sm font-medium"
-          >
-            <UserRound class="size-5" />个人中心
-          </RouterLink>
-        </nav>
+            <Button
+              v-for="item in mobileMoreItems"
+              :key="item.key"
+              as-child
+              variant="outline"
+              class="h-12 justify-start"
+            >
+              <RouterLink
+                :to="item.to"
+                :aria-current="isNavItemActive(item) ? 'page' : undefined"
+                :class="isNavItemActive(item) ? 'border-primary/30 bg-primary/10 text-primary' : ''"
+              >
+                <component
+                  :is="item.icon"
+                  class="size-5"
+                />{{ item.label }}
+              </RouterLink>
+            </Button>
+            <Button
+              as-child
+              variant="outline"
+              class="h-12 justify-start"
+            >
+              <RouterLink to="/profile/info">
+                <UserRound class="size-5" />个人中心
+              </RouterLink>
+            </Button>
+          </nav>
+        </ScrollArea>
+        <SheetFooter class="text-xs text-muted-foreground">
+          必要操作均可通过触控完成
+        </SheetFooter>
       </SheetContent>
     </Sheet>
 

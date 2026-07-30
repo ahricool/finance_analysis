@@ -16,13 +16,19 @@ vi.mock('@/api/quant', () => ({
   },
 }));
 
-vi.mock('@/components/app/AppDialog.vue', () => ({
-  default: {
+vi.mock('@/components/ui/dialog', () => ({
+  Dialog: {
     inheritAttrs: false,
-    props: ['open', 'title', 'description'],
+    props: ['open'],
     emits: ['update:open'],
-    template: '<div v-if="open" role="dialog"><h2>{{ title }}</h2><p>{{ description }}</p><slot /></div>',
+    template: '<div v-if="open" role="dialog"><slot /></div>',
   },
+  DialogContent: { template: '<div><slot /></div>' },
+  DialogScrollContent: { template: '<div><slot /></div>' },
+  DialogHeader: { template: '<header><slot /></header>' },
+  DialogTitle: { template: '<h2><slot /></h2>' },
+  DialogDescription: { template: '<p><slot /></p>' },
+  DialogFooter: { template: '<footer><slot /></footer>' },
 }));
 
 vi.mock('@/components/app/AppDatePicker.vue', () => ({
@@ -34,7 +40,7 @@ vi.mock('@/components/app/AppDatePicker.vue', () => ({
   },
 }));
 
-vi.mock('@/components/app/AppSelect.vue', () => ({
+vi.mock('@/components/forms/FieldSelect.vue', () => ({
   default: {
     inheritAttrs: false,
     props: ['modelValue', 'options', 'label'],

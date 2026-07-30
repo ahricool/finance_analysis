@@ -3,14 +3,17 @@ import { agentApi } from '@/api/agent';
 import type { SkillInfo } from '@/api/agent';
 import { getParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Badge from '@/components/app/AppBadge.vue';
-import Button from '@/components/app/AppButton.vue';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import LoadingButton from '@/components/app/LoadingButton.vue';
 import ConfirmDialog from '@/components/app/AppConfirmDialog.vue';
-import EmptyState from '@/components/app/AppEmptyState.vue';
-import InlineAlert from '@/components/app/AppAlert.vue';
-import AppSheet from '@/components/app/AppSheet.vue';
-import ScrollArea from '@/components/app/AppScrollArea.vue';
-import Tooltip from '@/components/app/AppTooltip.vue';
+import ChatScrollArea from '@/components/chat/ChatScrollArea.vue';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
 import { cn } from '@/utils/cn';
 import { formatDate } from '@/utils/format';
@@ -29,6 +32,7 @@ import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 import { useAgentChatStore, type Message, type ProgressStep } from '@/stores/agentChatStore';
 import { computed, nextTick, onMounted, onUnmounted, ref, unref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { ArrowDown, ChevronRight, Download, History, Lightbulb, Menu, Plus, Send, Trash2, Zap } from 'lucide-vue-next';
 
 const QUICK_QUESTIONS = [
   { label: '用缠论分析茅台', skill: 'chan_theory' },
@@ -84,7 +88,7 @@ const shouldStickToBottomRef = ref(true);
 type ChatScrollBehavior = 'auto' | 'instant' | 'smooth';
 let pendingScrollBehavior: ChatScrollBehavior = 'auto';
 
-const scrollAreaRef = ref<InstanceType<typeof ScrollArea> | null>(null);
+const scrollAreaRef = ref<InstanceType<typeof ChatScrollArea> | null>(null);
 
 watch(
   () => scrollAreaRef.value,
@@ -497,220 +501,165 @@ function onTextareaInput(e: Event) {
         <h2
           class="text-sm font-semibold text-primary uppercase tracking-[0.2em] flex items-center gap-2"
         >
-          <svg
-            class="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
+          <History class="size-5" />
           历史对话
         </h2>
-        <button
-          type="button"
-          class="rounded-lg p-1.5 text-muted-foreground transition-all hover:bg-white/10 hover:text-foreground"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           aria-label="开启新对话"
           @click="handleStartNewChat"
         >
-          <svg
-            class="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-        </button>
+          <Plus class="size-4" />
+        </Button>
       </div>
       <ScrollArea
-        class="flex-none"
+        class="max-h-[calc(100vh-10rem)] flex-none"
         data-testid="conversation-list-scroll"
-        viewport-class-name="h-auto max-h-[calc(100vh-10rem)] p-3"
       >
-        <DashboardStateBlock
-          v-if="sessionsLoading"
-          loading
-          compact
-          title="加载对话中..."
-          class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
-        />
-        <DashboardStateBlock
-          v-else-if="sessions.length === 0"
-          compact
-          title="暂无历史对话"
-          description="开始提问后，这里会保留会话记录。"
-          class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
-        />
-        <div
-          v-else
-          class="space-y-2"
-        >
+        <div class="p-3">
+          <DashboardStateBlock
+            v-if="sessionsLoading"
+            loading
+            compact
+            title="加载对话中..."
+            class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
+          />
+          <DashboardStateBlock
+            v-else-if="sessions.length === 0"
+            compact
+            title="暂无历史对话"
+            description="开始提问后，这里会保留会话记录。"
+            class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
+          />
           <div
-            v-for="s in sessions"
-            :key="s.session_id"
-            class="flex items-start gap-1"
+            v-else
+            class="space-y-2"
           >
-            <button
-              type="button"
-              :class="
-                cn(
-                  'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-lg border border-transparent p-2 text-left transition-colors hover:bg-muted',
-                  s.session_id === sessionId && 'border-primary/25 bg-primary/10',
-                )
-              "
-              :aria-label="`切换到对话 ${s.title}`"
-              :aria-current="s.session_id === sessionId ? 'page' : undefined"
-              @click="handleSwitchSession(s.session_id)"
+            <div
+              v-for="s in sessions"
+              :key="s.session_id"
+              class="flex items-start gap-1"
             >
-              <div
+              <button
+                type="button"
                 :class="
                   cn(
-                    'h-10 w-1 shrink-0 rounded-full bg-border',
-                    s.session_id === sessionId && 'bg-primary',
+                    'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-lg border border-transparent p-2 text-left transition-colors hover:bg-muted',
+                    s.session_id === sessionId && 'border-primary/25 bg-primary/10',
                   )
                 "
-              />
-              <div class="min-w-0 flex-1">
-                <span class="block truncate text-sm font-medium">{{ s.title }}</span>
-                <div class="mt-0.5 flex items-center gap-2">
-                  <span class="text-xs text-muted-foreground">{{ s.message_count }} 条对话</span>
-                  <template v-if="s.last_active">
-                    <span class="inline-block size-1 rounded-full bg-border" />
-                    <span class="text-xs text-muted-foreground">
-                      {{ formatDate(s.last_active) }}
-                    </span>
-                  </template>
-                </div>
-              </div>
-            </button>
-            <button
-              type="button"
-              class="inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              :aria-label="`删除对话 ${s.title}`"
-              @click="deleteConfirmId = s.session_id"
-            >
-              <svg
-                class="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+                :aria-label="`切换到对话 ${s.title}`"
+                :aria-current="s.session_id === sessionId ? 'page' : undefined"
+                @click="handleSwitchSession(s.session_id)"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                <div
+                  :class="
+                    cn(
+                      'h-10 w-1 shrink-0 rounded-full bg-border',
+                      s.session_id === sessionId && 'bg-primary',
+                    )
+                  "
                 />
-              </svg>
-            </button>
+                <div class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-medium">{{ s.title }}</span>
+                  <div class="mt-0.5 flex items-center gap-2">
+                    <span class="text-xs text-muted-foreground">{{ s.message_count }} 条对话</span>
+                    <template v-if="s.last_active">
+                      <span class="inline-block size-1 rounded-full bg-border" />
+                      <span class="text-xs text-muted-foreground">
+                        {{ formatDate(s.last_active) }}
+                      </span>
+                    </template>
+                  </div>
+                </div>
+              </button>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="shrink-0 text-muted-foreground hover:text-destructive"
+                :aria-label="`删除对话 ${s.title}`"
+                @click="deleteConfirmId = s.session_id"
+              >
+                <Trash2 class="size-4" />
+              </Button>
+            </div>
           </div>
         </div>
       </ScrollArea>
     </div>
 
-    <AppSheet
+    <Sheet
       :open="sidebarOpen"
-      title="历史对话"
-      side="left"
       @update:open="sidebarOpen = $event"
     >
-      <div class="flex items-center justify-between border-b border-border bg-muted/20 p-3.5">
-        <h2
-          class="text-sm font-semibold text-primary uppercase tracking-[0.2em] flex items-center gap-2"
-        >
-          <svg
-            class="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-          历史对话
-        </h2>
-        <button
-          type="button"
-          class="rounded-lg p-1.5 text-muted-foreground transition-all hover:bg-white/10 hover:text-foreground"
-          aria-label="开启新对话"
+      <SheetContent
+        side="left"
+        class="flex max-h-dvh w-[min(22rem,90vw)] flex-col overflow-hidden"
+      >
+        <SheetHeader class="text-left">
+          <SheetTitle class="flex items-center gap-2">
+            <History class="size-5 text-primary" />历史对话
+          </SheetTitle>
+          <SheetDescription>切换历史会话，或开启一段新的问股对话。</SheetDescription>
+        </SheetHeader>
+        <Separator />
+        <Button
+          variant="outline"
+          class="mx-4"
           @click="handleStartNewChat"
         >
-          <svg
-            class="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-        </button>
-      </div>
-      <ScrollArea
-        data-testid="conversation-list-scroll-mobile"
-        viewport-class-name="p-3"
-      >
-        <DashboardStateBlock
-          v-if="sessionsLoading"
-          loading
-          compact
-          title="加载对话中..."
-          class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
-        />
-        <div
-          v-else
-          class="space-y-2"
+          <Plus class="size-4" />开启新对话
+        </Button>
+        <ScrollArea
+          class="min-h-0 flex-1"
+          data-testid="conversation-list-scroll-mobile"
         >
-          <div
-            v-for="s in sessions"
-            :key="`m-${s.session_id}`"
-            class="flex items-start gap-1"
-          >
-            <button
-              type="button"
-              :class="
-                cn(
-                  'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-lg border border-transparent p-2 text-left transition-colors hover:bg-muted',
-                  s.session_id === sessionId && 'border-primary/25 bg-primary/10',
-                )
-              "
-              @click="handleSwitchSession(s.session_id)"
+          <div class="p-3">
+            <DashboardStateBlock
+              v-if="sessionsLoading"
+              loading
+              compact
+              title="加载对话中..."
+              class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
+            />
+            <div
+              v-else
+              class="space-y-2"
             >
               <div
-                :class="
-                  cn(
-                    'h-10 w-1 shrink-0 rounded-full bg-border',
-                    s.session_id === sessionId && 'bg-primary',
-                  )
-                "
-              />
-              <div class="min-w-0 flex-1">
-                <span class="block truncate text-sm font-medium">{{ s.title }}</span>
+                v-for="s in sessions"
+                :key="`m-${s.session_id}`"
+                class="flex items-start gap-1"
+              >
+                <button
+                  type="button"
+                  :class="
+                    cn(
+                      'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-lg border border-transparent p-2 text-left transition-colors hover:bg-muted',
+                      s.session_id === sessionId && 'border-primary/25 bg-primary/10',
+                    )
+                  "
+                  @click="handleSwitchSession(s.session_id)"
+                >
+                  <div
+                    :class="
+                      cn(
+                        'h-10 w-1 shrink-0 rounded-full bg-border',
+                        s.session_id === sessionId && 'bg-primary',
+                      )
+                    "
+                  />
+                  <div class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-medium">{{ s.title }}</span>
+                  </div>
+                </button>
               </div>
-            </button>
+            </div>
           </div>
-        </div>
-      </ScrollArea>
-    </AppSheet>
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
 
     <ConfirmDialog
       :open="Boolean(deleteConfirmId)"
@@ -727,137 +676,73 @@ function onTextareaInput(e: Event) {
       <header class="mb-4 flex-shrink-0 space-y-3">
         <div class="flex items-start justify-between gap-4">
           <h1 class="text-2xl font-bold text-foreground flex items-center gap-2">
-            <button
-              type="button"
-              class="md:hidden p-1.5 -ml-1 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="-ml-1 md:hidden"
               aria-label="历史对话"
               @click="sidebarOpen = true"
             >
-              <svg
-                class="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 6h16M4 12h16M4 18h16"
-                />
-              </svg>
-            </button>
-            <svg
-              class="w-6 h-6 text-primary"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-              />
-            </svg>
+              <Menu class="size-5" />
+            </Button>
+            <Lightbulb class="size-6 text-primary" />
             问股
           </h1>
           <div
             v-if="messages.length > 0"
             class="flex flex-shrink-0 flex-wrap items-center justify-end gap-2"
           >
-            <Tooltip content="导出会话为 Markdown 文件">
-              <span class="inline-flex">
-                <Button
-                  variant="default"
-                  size="sm"
-                  aria-label="导出会话为 Markdown 文件"
-                  @click="downloadSession(messages)"
-                >
-                  <svg
-                    class="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+            <TooltipProvider :delay-duration="0">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    aria-label="导出会话为 Markdown 文件"
+                    @click="downloadSession(messages)"
                   >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
-                  导出会话
-                </Button>
-              </span>
-            </Tooltip>
-            <Tooltip content="发送到已配置的通知机器人/邮箱">
-              <span class="inline-flex">
-                <Button
-                  variant="default"
-                  size="sm"
-                  :disabled="sending"
-                  aria-label="发送到已配置的通知机器人/邮箱"
-                  @click="sendChatToNotify"
-                >
-                  <template v-if="sending">
-                    <svg
-                      class="w-4 h-4 animate-spin"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        class="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        stroke-width="4"
-                      />
-                      <path
-                        class="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                      />
-                    </svg>
-                  </template>
-                  <svg
-                    v-else
-                    class="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+                    <Download class="size-4" />
+                    导出会话
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>导出会话为 Markdown 文件</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <LoadingButton
+                    variant="default"
+                    size="sm"
+                    :loading="sending"
+                    loading-text="发送中"
+                    aria-label="发送到已配置的通知机器人/邮箱"
+                    @click="sendChatToNotify"
                   >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                    />
-                  </svg>
-                  发送
-                </Button>
-              </span>
-            </Tooltip>
+                    <Send class="size-4" />
+                    发送
+                  </LoadingButton>
+                </TooltipTrigger>
+                <TooltipContent>发送到已配置的通知机器人/邮箱</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
         <p class="text-muted-foreground text-sm">
           向 AI 询问个股分析，获取基于技能视角的交易建议与实时决策报告。
         </p>
-        <InlineAlert
+        <Alert
           v-if="sendToast"
-          :variant="sendToast.type === 'success' ? 'success' : 'destructive'"
-          :title="sendToast.type === 'success' ? '发送成功' : '发送失败'"
+          :variant="sendToast.type === 'error' ? 'destructive' : 'default'"
           class="max-w-md rounded-xl px-3 py-2 text-xs shadow-none"
         >
-          {{ sendToast.message }}
-        </InlineAlert>
+          <AlertTitle>{{ sendToast.type === 'success' ? '发送成功' : '发送失败' }}</AlertTitle>
+          <AlertDescription>{{ sendToast.message }}</AlertDescription>
+        </Alert>
       </header>
 
       <div
         class="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden border border-border bg-card/78 rounded-xl border bg-card text-card-foreground shadow-sm"
       >
-        <ScrollArea
+        <ChatScrollArea
           ref="scrollAreaRef"
           class="relative z-10 flex-1"
           viewport-class-name="space-y-6 p-4 md:p-6"
@@ -868,40 +753,30 @@ function onTextareaInput(e: Event) {
             v-if="messages.length === 0 && !loading"
             class="flex h-full items-center justify-center"
           >
-            <EmptyState
-              title="开始问股"
-              description="输入「分析 600519」或「茅台现在能买吗」，AI 将调用实时数据工具为您生成决策报告。"
-              class="max-w-2xl border-dashed bg-card/55"
-            >
-              <template #icon>
-                <svg
-                  class="h-8 w-8"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="1.5"
-                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                  />
-                </svg>
-              </template>
-              <template #action>
+            <Empty class="max-w-2xl border-dashed bg-card/55">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Lightbulb class="size-6" />
+                </EmptyMedia>
+                <EmptyTitle>开始问股</EmptyTitle>
+                <EmptyDescription>
+                  输入「分析 600519」或「茅台现在能买吗」，AI 将调用实时数据工具为您生成决策报告。
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
                 <div class="flex max-w-lg flex-wrap justify-center gap-2">
-                  <button
+                  <Button
                     v-for="(q, i) in quickQuestions"
                     :key="i"
-                    type="button"
-                    class="min-h-10 rounded-lg border bg-background px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+                    variant="outline"
+                    size="sm"
                     @click="handleQuickQuestion(q)"
                   >
                     {{ q.label }}
-                  </button>
+                  </Button>
                 </div>
-              </template>
-            </EmptyState>
+              </EmptyContent>
+            </Empty>
           </div>
 
           <template v-else>
@@ -942,19 +817,7 @@ function onTextareaInput(e: Event) {
                       class="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary shadow-none"
                       :aria-label="`技能 ${getMessageSkillLabel(msg)}`"
                     >
-                      <svg
-                        class="w-3 h-3"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M13 10V3L4 14h7v7l9-11h-7z"
-                        />
-                      </svg>
+                      <Zap class="size-3" />
                       {{ getMessageSkillLabel(msg) }}
                     </Badge>
                   </div>
@@ -965,22 +828,12 @@ function onTextareaInput(e: Event) {
                     class="flex items-center gap-2 text-xs text-muted-foreground hover:text-muted-foreground transition-colors mb-2 w-full text-left"
                     @click="toggleThinking(msg.id)"
                   >
-                    <svg
+                    <ChevronRight
                       :class="[
                         'w-3 h-3 transition-transform flex-shrink-0',
                         expandedThinking.has(msg.id) ? 'rotate-90' : '',
                       ]"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M9 5l7 7-7 7"
-                      />
-                    </svg>
+                    />
                     <span class="flex items-center gap-1.5">
                       <span class="opacity-60">思考过程</span>
                       <span class="text-muted-foreground/50">·</span>
@@ -1077,7 +930,7 @@ function onTextareaInput(e: Event) {
           </div>
 
           <div ref="messagesEndRef" />
-        </ScrollArea>
+        </ChatScrollArea>
 
         <div
           v-if="showJumpToBottom"
@@ -1092,19 +945,7 @@ function onTextareaInput(e: Event) {
               scrollToBottom('smooth');
             "
           >
-            <svg
-              class="h-3.5 w-3.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M19 14l-7 7m0 0l-7-7m7 7V3"
-              />
-            </svg>
+            <ArrowDown class="size-3.5" />
             有新消息
           </button>
         </div>
@@ -1115,14 +956,13 @@ function onTextareaInput(e: Event) {
               v-if="chatError"
               :error="chatError"
             />
-            <InlineAlert
+            <Alert
               v-if="isFollowUpContextLoading"
-              variant="info"
-              title="追问上下文加载中"
               class="rounded-xl px-3 py-2 text-xs shadow-none"
             >
-              正在加载历史分析上下文；现在可直接发送追问。
-            </InlineAlert>
+              <AlertTitle>追问上下文加载中</AlertTitle>
+              <AlertDescription>正在加载历史分析上下文；现在可直接发送追问。</AlertDescription>
+            </Alert>
 
             <div
               v-if="skills.length > 0"
@@ -1205,7 +1045,7 @@ function onTextareaInput(e: Event) {
                 @keydown="handleKeyDown"
                 @input="onTextareaInput"
               />
-              <Button
+              <LoadingButton
                 variant="default"
                 :disabled="!input.trim() || loading"
                 :loading="loading"
@@ -1213,7 +1053,7 @@ function onTextareaInput(e: Event) {
                 @click="handleSend()"
               >
                 发送
-              </Button>
+              </LoadingButton>
             </div>
           </div>
         </div>

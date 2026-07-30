@@ -74,8 +74,8 @@ describe('ProfilePage route navigation', () => {
       '/profile/notification',
     ]);
     expect(wrapper.find('nav button').exists()).toBe(false);
-    expect(wrapper.get(`nav a[href="${activeHref}"]`).classes()).toContain('text-primary');
-    expect(wrapper.get('section h2').text()).toBe(sectionTitle);
+    expect(wrapper.get(`nav a[href="${activeHref}"]`).attributes('data-state')).toBe('active');
+    expect(wrapper.get('section [data-slot="card-title"]').text()).toBe(sectionTitle);
     expect(authApi.getProfile).toHaveBeenCalledTimes(1);
 
     wrapper.unmount();
@@ -87,17 +87,17 @@ describe('ProfilePage route navigation', () => {
     await wrapper.get('nav a[href="/profile/password"]').trigger('click');
     await flushPromises();
     expect(router.currentRoute.value.path).toBe('/profile/password');
-    expect(wrapper.get('nav a[href="/profile/password"]').classes()).toContain('text-primary');
+    expect(wrapper.get('nav a[href="/profile/password"]').attributes('data-state')).toBe('active');
 
     await wrapper.get('nav a[href="/profile/notification"]').trigger('click');
     await flushPromises();
     expect(router.currentRoute.value.path).toBe('/profile/notification');
-    expect(wrapper.get('nav a[href="/profile/notification"]').classes()).toContain('text-primary');
+    expect(wrapper.get('nav a[href="/profile/notification"]').attributes('data-state')).toBe('active');
 
     router.back();
     await flushPromises();
     expect(router.currentRoute.value.path).toBe('/profile/password');
-    expect(wrapper.get('nav a[href="/profile/password"]').classes()).toContain('text-primary');
+    expect(wrapper.get('nav a[href="/profile/password"]').attributes('data-state')).toBe('active');
 
     router.forward();
     await flushPromises();

@@ -5,7 +5,7 @@ import type { HTMLAttributes } from 'vue'
 import { ChevronDownIcon } from 'lucide-vue-next'
 import { reactiveOmit } from '@vueuse/core'
 import { SelectScrollDownButton, useForwardProps } from 'reka-ui'
-import { cn } from '@/lib/utils'
+import { cn } from '@/utils/cn'
 
 const props = defineProps<SelectScrollDownButtonProps & { class?: HTMLAttributes['class'] }>()
 

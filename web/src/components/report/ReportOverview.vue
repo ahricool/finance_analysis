@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Badge from '@/components/app/AppBadge.vue';
+import { Badge } from '@/components/ui/badge';
 import ScoreGauge from '@/components/report/ScoreGauge.vue';
 import { Card } from '@/components/ui/card';
 import { formatDateTime } from '@/utils/format';
@@ -10,6 +10,7 @@ import type {
   ReportSummary as ReportSummaryType,
 } from '@/types/analysis';
 import { computed } from 'vue';
+import { CalendarDays, ClipboardCheck, TrendingUp } from 'lucide-vue-next';
 
 type BoardStatus = 'leading' | 'lagging';
 
@@ -137,19 +138,7 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
                   {{ meta.stockCode }}
                 </span>
                 <span class="flex items-center gap-1 text-xs text-muted-foreground">
-                  <svg
-                    class="h-3.5 w-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    />
-                  </svg>
+                  <CalendarDays class="size-3.5" />
                   {{ formatDateTime(meta.createdAt) }}
                 </span>
               </div>
@@ -174,19 +163,7 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
               <div
                 class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-success/10"
               >
-                <svg
-                  class="h-4 w-4 text-success"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="1.5"
-                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
-                  />
-                </svg>
+                <ClipboardCheck class="size-4 text-success" />
               </div>
               <div class="space-y-1.5">
                 <h4 class="text-[11px] font-medium uppercase tracking-[0.16em]">
@@ -204,19 +181,7 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
               <div
                 class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-warning/10"
               >
-                <svg
-                  class="h-4 w-4 text-warning"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="1.5"
-                    d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
-                  />
-                </svg>
+                <TrendingUp class="size-4 text-warning" />
               </div>
               <div class="space-y-1.5">
                 <h4 class="text-[11px] font-medium uppercase tracking-[0.16em]">

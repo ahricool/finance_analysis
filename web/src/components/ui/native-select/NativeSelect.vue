@@ -4,7 +4,7 @@ import type { AcceptableValue } from 'reka-ui'
 import type { HTMLAttributes } from 'vue'
 import { ChevronDownIcon } from 'lucide-vue-next'
 import { reactiveOmit, useVModel } from '@vueuse/core'
-import { cn } from '@/lib/utils'
+import { cn } from '@/utils/cn'
 
 defineOptions({
   inheritAttrs: false,

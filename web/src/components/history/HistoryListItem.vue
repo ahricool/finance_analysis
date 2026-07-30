@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Badge from '@/components/app/AppBadge.vue';
+import { Badge } from '@/components/ui/badge';
 import { getSentimentColor, type HistoryItem } from '@/types/analysis';
 import { formatDateTime } from '@/utils/format';
 import { truncateStockName, isStockNameTruncated } from '@/utils/stockName';

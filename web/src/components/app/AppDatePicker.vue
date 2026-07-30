@@ -3,7 +3,7 @@ import type { DateValue } from 'reka-ui';
 import { CalendarDays, X } from 'lucide-vue-next';
 import { parseDate } from '@internationalized/date';
 import { computed, ref, useId } from 'vue';
-import AppButton from './AppButton.vue';
+import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -79,7 +79,7 @@ function choose(value: DateValue | undefined) {
     <div class="flex min-w-0 gap-1">
       <Popover v-model:open="open">
         <PopoverTrigger as-child>
-          <AppButton
+          <Button
             :id="triggerId"
             variant="outline"
             class="h-10 min-w-0 flex-1 justify-start px-3 font-normal"
@@ -94,7 +94,7 @@ function choose(value: DateValue | undefined) {
             >
               {{ display || placeholder }}
             </span>
-          </AppButton>
+          </Button>
         </PopoverTrigger>
         <PopoverContent
           align="start"
@@ -110,7 +110,7 @@ function choose(value: DateValue | undefined) {
           />
         </PopoverContent>
       </Popover>
-      <AppButton
+      <Button
         v-if="clearable && modelValue"
         variant="ghost"
         size="icon"
@@ -119,7 +119,7 @@ function choose(value: DateValue | undefined) {
         @click="emit('update:modelValue', '')"
       >
         <X />
-      </AppButton>
+      </Button>
     </div>
     <p
       v-if="error"

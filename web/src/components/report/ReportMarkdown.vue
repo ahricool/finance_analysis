@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import Drawer from '@/components/app/AppSheet.vue';
-import Tooltip from '@/components/app/AppTooltip.vue';
 import { historyApi } from '@/api/history';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { ReportLanguage } from '@/types/analysis';
 import { markdownToPlainText } from '@/utils/markdown';
 import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { Check, Code2, Copy, FileText } from 'lucide-vue-next';
 
 let fetchActive = true;
 
@@ -100,179 +106,102 @@ onUnmounted(() => {
 
 <template>
   <!-- eslint-disable vue/no-v-html -->
-  <!-- v-html values in this template come from DOMPurify-backed Markdown renderers. -->
-  <Drawer
+  <Sheet
     :open="isOpen"
-    :title="stockName || stockCode || text.fullReport"
-    class="sm:max-w-3xl"
-    @update:open="handleClose"
+    @update:open="!$event && handleClose()"
   >
-    <div class="mb-4 flex items-center justify-between gap-3">
-      <div class="flex flex-1 items-center gap-3">
+    <SheetContent class="flex max-h-dvh w-full flex-col overflow-hidden sm:max-w-3xl">
+      <SheetHeader class="text-left">
+        <SheetTitle class="flex items-center gap-2">
+          <FileText class="size-5 text-primary" />
+          {{ stockName || stockCode || text.fullReport }}
+        </SheetTitle>
+        <SheetDescription>{{ text.fullReport }}</SheetDescription>
+      </SheetHeader>
+      <Separator />
+
+      <div class="flex items-center justify-end gap-2">
+        <TooltipProvider :delay-duration="0">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                size="icon"
+                variant="outline"
+                :disabled="isLoading || !content || copiedType !== null"
+                :aria-label="text.copyMarkdownSource"
+                @click="handleCopyMarkdown"
+              >
+                <Check
+                  v-if="copiedType === 'markdown'"
+                  class="size-4 text-success"
+                />
+                <Code2
+                  v-else
+                  class="size-4"
+                />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{{ text.copyMarkdownSource }}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                size="icon"
+                variant="outline"
+                :disabled="isLoading || !content || copiedType !== null"
+                :aria-label="text.copyPlainText"
+                @click="handleCopyPlainText"
+              >
+                <Check
+                  v-if="copiedType === 'text'"
+                  class="size-4 text-success"
+                />
+                <Copy
+                  v-else
+                  class="size-4"
+                />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{{ text.copyPlainText }}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+
+      <ScrollArea class="min-h-0 flex-1 pr-4">
         <div
-          class="flex size-8 items-center justify-center rounded-lg bg-secondary text-secondary-foreground"
+          v-if="isLoading"
+          class="space-y-3 py-4"
         >
-          <svg
-            class="h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-            />
-          </svg>
-        </div>
-        <div>
-          <h2 class="text-base font-semibold text-foreground">
-            {{ stockName || stockCode }}
-          </h2>
-          <p class="text-xs text-muted-foreground">
-            {{ text.fullReport }}
-          </p>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-2">
-        <Tooltip :content="text.copyMarkdownSource">
-          <span class="inline-flex">
-            <button
-              type="button"
-              :disabled="isLoading || !content || copiedType !== null"
-              class="border border-border bg-background transition-colors hover:bg-muted flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground disabled:opacity-50"
-              :aria-label="text.copyMarkdownSource"
-              @click="handleCopyMarkdown"
-            >
-              <svg
-                v-if="copiedType === 'markdown'"
-                class="h-6 w-6 text-success"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-              <svg
-                v-else
-                class="h-6 w-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-                />
-              </svg>
-            </button>
-          </span>
-        </Tooltip>
-
-        <Tooltip :content="text.copyPlainText">
-          <span class="inline-flex">
-            <button
-              type="button"
-              :disabled="isLoading || !content || copiedType !== null"
-              class="border border-border bg-background transition-colors hover:bg-muted flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground disabled:opacity-50"
-              :aria-label="text.copyPlainText"
-              @click="handleCopyPlainText"
-            >
-              <svg
-                v-if="copiedType === 'text'"
-                class="h-6 w-6 text-success"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-              <svg
-                v-else
-                class="h-6 w-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                />
-              </svg>
-            </button>
-          </span>
-        </Tooltip>
-      </div>
-    </div>
-
-    <div
-      v-if="isLoading"
-      class="flex h-64 flex-col items-center justify-center"
-    >
-      <div class="size-10 animate-spin rounded-full border-[3px] border-primary/25 border-t-primary" />
-      <p class="mt-4 text-sm text-muted-foreground">
-        {{ text.loadingReport }}
-      </p>
-    </div>
-    <div
-      v-else-if="error"
-      class="flex h-64 flex-col items-center justify-center"
-    >
-      <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10">
-        <svg
-          class="h-6 w-6 text-destructive"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+          <Skeleton class="h-8 w-2/3" />
+          <Skeleton
+            v-for="line in 8"
+            :key="line"
+            class="h-4 w-full"
           />
-        </svg>
-      </div>
-      <p class="text-sm text-destructive">
-        {{ error }}
-      </p>
-      <button
-        type="button"
-        class="border border-border bg-background transition-colors hover:bg-muted mt-4 rounded-lg px-4 py-2 text-sm text-muted-foreground"
-        @click="handleClose"
-      >
-        {{ text.dismiss }}
-      </button>
-    </div>    <div
-      v-else
-      class="prose max-w-none whitespace-pre-line break-words prose-headings:mb-2 prose-headings:mt-4 prose-headings:font-semibold prose-headings:text-foreground prose-h1:text-xl prose-h2:text-lg prose-h3:text-base prose-p:mb-3 prose-p:last:mb-0 prose-p:leading-relaxed prose-strong:font-semibold prose-strong:text-foreground prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-code:rounded prose-code:px-1.5 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-table:border-collapse prose-hr:my-4 prose-a:no-underline hover:prose-a:underline prose-blockquote:text-muted-foreground"
-      v-html="htmlContent"
-    />
+        </div>
+        <Alert
+          v-else-if="error"
+          variant="destructive"
+        >
+          <AlertTitle>{{ text.loadReportFailed }}</AlertTitle>
+          <AlertDescription>{{ error }}</AlertDescription>
+        </Alert>
+        <div
+          v-else
+          class="prose max-w-none whitespace-pre-line break-words prose-headings:mb-2 prose-headings:mt-4 prose-headings:font-semibold prose-headings:text-foreground prose-h1:text-xl prose-h2:text-lg prose-h3:text-base prose-p:mb-3 prose-p:last:mb-0 prose-p:leading-relaxed prose-strong:font-semibold prose-strong:text-foreground prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-code:rounded prose-code:px-1.5 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-table:border-collapse prose-hr:my-4 prose-a:no-underline hover:prose-a:underline prose-blockquote:text-muted-foreground"
+          v-html="htmlContent"
+        />
+      </ScrollArea>
 
-    <div class="border-border mt-6 flex justify-end border-t pt-4">
-      <button
-        type="button"
-        class="border border-border bg-background transition-colors hover:bg-muted rounded-lg px-4 py-2 text-sm text-muted-foreground hover:text-foreground"
-        @click="handleClose"
-      >
-        {{ text.dismiss }}
-      </button>
-    </div>
-  </Drawer>
+      <Separator />
+      <SheetFooter class="pb-[max(0rem,env(safe-area-inset-bottom))]">
+        <Button
+          variant="outline"
+          @click="handleClose"
+        >
+          {{ text.dismiss }}
+        </Button>
+      </SheetFooter>
+    </SheetContent>
+  </Sheet>
 </template>

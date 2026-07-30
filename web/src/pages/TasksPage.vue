@@ -2,17 +2,23 @@
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { tasksApi, type TaskRunQuery } from '@/api/tasks';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Badge from '@/components/app/AppBadge.vue';
-import Button from '@/components/app/AppButton.vue';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import LoadingButton from '@/components/app/LoadingButton.vue';
 import ConfirmDialog from '@/components/app/AppConfirmDialog.vue';
-import Dialog from '@/components/app/AppDialog.vue';
-import InlineAlert from '@/components/app/AppAlert.vue';
 import Pagination from '@/components/app/AppPagination.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
-import AppInput from '@/components/app/AppInput.vue';
-import AppSelect from '@/components/app/AppSelect.vue';
-import SectionNavPanel from '@/components/app/AppSectionNav.vue';
-import SectionPageHeader from '@/components/app/AppPageHeader.vue';
+import FieldInput from '@/components/forms/FieldInput.vue';
+import FieldSelect from '@/components/forms/FieldSelect.vue';
+import ModuleTabs from '@/components/layout/ModuleTabs.vue';
+import PageHeader from '@/components/layout/PageHeader.vue';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 import type {
   ScheduledSyncMode,
@@ -359,34 +365,31 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="space-y-5">
-    <SectionPageHeader
+  <div class="space-y-6 py-4 sm:py-6">
+    <PageHeader
       title="任务中心"
       :description="isAdmin ? '查看定时任务定义和全部执行记录。' : '查看自己的任务执行记录。'"
     />
+    <ModuleTabs
+      :items="navItems"
+      :active-key="activeTab"
+      label="任务中心导航"
+    />
+    <Separator />
 
-    <div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <SectionNavPanel
-        :items="navItems"
-        :active-key="activeTab"
-      />
-
-      <section class="min-w-0 space-y-4">
-        <template v-if="activeTab === 'scheduled' && isAdmin">
-          <div class="rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm">
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div class="flex items-center gap-3">
-                <ClipboardCheck class="h-5 w-5 text-primary" />
-                <div>
-                  <h2 class="text-base font-semibold text-foreground">
-                    定时任务
-                  </h2>
-                  <p class="text-xs text-muted-foreground">
-                    任务定义来自后端 APScheduler 代码注册表。
-                  </p>
-                </div>
+    <section class="min-w-0 space-y-4">
+      <template v-if="activeTab === 'scheduled' && isAdmin">
+        <Card>
+          <CardHeader>
+            <div class="flex items-center gap-3">
+              <ClipboardCheck class="h-5 w-5 text-primary" />
+              <div>
+                <CardTitle>定时任务</CardTitle>
+                <CardDescription>任务定义来自后端 APScheduler 代码注册表。</CardDescription>
               </div>
-              <Button
+            </div>
+            <CardAction>
+              <LoadingButton
                 variant="secondary"
                 size="sm"
                 :loading="scheduledLoading"
@@ -394,158 +397,197 @@ onBeforeUnmount(() => {
               >
                 <RotateCw class="h-4 w-4" />
                 刷新
-              </Button>
-            </div>
-          </div>
+              </LoadingButton>
+            </CardAction>
+          </CardHeader>
+        </Card>
 
-          <ApiErrorAlert
-            v-if="scheduledError"
-            :error="scheduledError"
-            @dismiss="scheduledError = null"
-          />
-          <InlineAlert
-            v-if="scheduledSuccess"
-            variant="success"
-            title="提交成功"
-          >
+        <ApiErrorAlert
+          v-if="scheduledError"
+          :error="scheduledError"
+          @dismiss="scheduledError = null"
+        />
+        <Alert
+          v-if="scheduledSuccess"
+          class="border-success/30 text-success"
+        >
+          <AlertTitle>提交成功</AlertTitle><AlertDescription class="text-current/80">
             {{ scheduledSuccess }}
-          </InlineAlert>
+          </AlertDescription>
+        </Alert>
 
-          <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-sm">
-            <table class="w-full min-w-[1080px] text-left text-sm">
-              <thead class="border-b border-border/70 text-xs text-muted-foreground">
-                <tr>
-                  <th class="min-w-[260px] px-4 py-3 font-medium">
-                    任务
-                  </th>
-                  <th class="min-w-[180px] whitespace-nowrap px-4 py-3 font-medium">
-                    调度规则
-                  </th>
-                  <th class="min-w-[110px] whitespace-nowrap px-4 py-3 font-medium">
-                    调度状态
-                  </th>
-                  <th class="min-w-[180px] whitespace-nowrap px-4 py-3 font-medium">
-                    最近执行
-                  </th>
-                  <th class="min-w-[160px] whitespace-nowrap px-4 py-3 font-medium">
-                    下次执行
-                  </th>
-                  <th class="min-w-[120px] whitespace-nowrap px-4 py-3 font-medium">
-                    操作
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-if="scheduledLoading">
-                  <td
-                    colspan="6"
-                    class="px-4 py-10 text-center text-muted-foreground"
-                  >
-                    加载中...
-                  </td>
-                </tr>
-                <tr v-else-if="!scheduledItems.length">
-                  <td
-                    colspan="6"
-                    class="px-4 py-10 text-center text-muted-foreground"
-                  >
-                    暂无定时任务
-                  </td>
-                </tr>
-                <tr
-                  v-for="item in scheduledItems"
-                  v-else
-                  :key="item.jobId"
-                  class="border-b border-border/50 last:border-0"
+        <div
+          class="space-y-3 md:hidden"
+          data-testid="scheduled-task-cards"
+        >
+          <template v-if="scheduledLoading">
+            <Skeleton
+              v-for="index in 3"
+              :key="index"
+              class="h-40 w-full"
+            />
+          </template>
+          <Card
+            v-for="item in scheduledItems"
+            v-else
+            :key="item.jobId"
+          >
+            <CardHeader>
+              <CardTitle class="text-base">
+                {{ item.name }}
+              </CardTitle>
+              <CardDescription>{{ item.description }}</CardDescription>
+              <Badge :variant="item.schedulerStatus === 'active' ? 'success' : 'default'">
+                {{ schedulerStatusLabel(item.schedulerStatus) }}
+              </Badge>
+            </CardHeader>
+            <CardContent class="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p class="text-xs text-muted-foreground">
+                  调度规则
+                </p><p class="mt-1">
+                  {{ item.schedule }}
+                </p>
+              </div>
+              <div>
+                <p class="text-xs text-muted-foreground">
+                  下次执行
+                </p><p class="mt-1">
+                  {{ formatDateTimeInDisplayTimezone(item.nextRunTime) }}
+                </p>
+              </div>
+            </CardContent>
+            <CardContent
+              v-if="item.allowManualRun"
+              class="flex flex-wrap gap-2 pt-0"
+            >
+              <LoadingButton
+                size="sm"
+                :loading="runningJobId === item.jobId"
+                @click="selectScheduledJob(item, item.syncModes?.length ? 'incremental' : null)"
+              >
+                <Play />立即执行
+              </LoadingButton>
+              <Button
+                v-if="item.syncModes?.length"
+                size="sm"
+                variant="outline"
+                @click="selectScheduledJob(item, 'full')"
+              >
+                全量同步
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div class="hidden overflow-x-auto rounded-lg border md:block">
+          <table class="w-full min-w-[1080px] text-left text-sm">
+            <thead class="border-b border-border/70 text-xs text-muted-foreground">
+              <tr>
+                <th class="min-w-[260px] px-4 py-3 font-medium">
+                  任务
+                </th>
+                <th class="min-w-[180px] whitespace-nowrap px-4 py-3 font-medium">
+                  调度规则
+                </th>
+                <th class="min-w-[110px] whitespace-nowrap px-4 py-3 font-medium">
+                  调度状态
+                </th>
+                <th class="min-w-[180px] whitespace-nowrap px-4 py-3 font-medium">
+                  最近执行
+                </th>
+                <th class="min-w-[160px] whitespace-nowrap px-4 py-3 font-medium">
+                  下次执行
+                </th>
+                <th class="min-w-[120px] whitespace-nowrap px-4 py-3 font-medium">
+                  操作
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="scheduledLoading">
+                <td
+                  colspan="6"
+                  class="px-4 py-10 text-center text-muted-foreground"
                 >
-                  <td class="min-w-[260px] px-4 py-4">
-                    <p class="font-medium text-foreground">
-                      {{ item.name }}
-                    </p>
-                    <p class="mt-1 text-xs text-muted-foreground">
-                      {{ item.description }}
-                    </p>
-                    <p class="mt-1 font-mono text-[11px] text-muted-foreground">
-                      {{ item.jobId }}
-                    </p>
-                  </td>
-                  <td class="min-w-[180px] px-4 py-4">
-                    <p class="whitespace-nowrap text-foreground">
-                      {{ item.schedule }}
-                    </p>
-                    <p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">
-                      {{ item.timezone }}
-                    </p>
-                  </td>
-                  <td class="min-w-[110px] whitespace-nowrap px-4 py-4">
+                  加载中...
+                </td>
+              </tr>
+              <tr v-else-if="!scheduledItems.length">
+                <td
+                  colspan="6"
+                  class="px-4 py-10 text-center text-muted-foreground"
+                >
+                  暂无定时任务
+                </td>
+              </tr>
+              <tr
+                v-for="item in scheduledItems"
+                v-else
+                :key="item.jobId"
+                class="border-b border-border/50 last:border-0"
+              >
+                <td class="min-w-[260px] px-4 py-4">
+                  <p class="font-medium text-foreground">
+                    {{ item.name }}
+                  </p>
+                  <p class="mt-1 text-xs text-muted-foreground">
+                    {{ item.description }}
+                  </p>
+                  <p class="mt-1 font-mono text-[11px] text-muted-foreground">
+                    {{ item.jobId }}
+                  </p>
+                </td>
+                <td class="min-w-[180px] px-4 py-4">
+                  <p class="whitespace-nowrap text-foreground">
+                    {{ item.schedule }}
+                  </p>
+                  <p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">
+                    {{ item.timezone }}
+                  </p>
+                </td>
+                <td class="min-w-[110px] whitespace-nowrap px-4 py-4">
+                  <Badge
+                    class="whitespace-nowrap"
+                    :variant="item.schedulerStatus === 'active' ? 'success' : 'default'"
+                  >
+                    {{ schedulerStatusLabel(item.schedulerStatus) }}
+                  </Badge>
+                </td>
+                <td class="min-w-[180px] px-4 py-4">
+                  <template v-if="item.latestRun">
                     <Badge
                       class="whitespace-nowrap"
-                      :variant="item.schedulerStatus === 'active' ? 'success' : 'default'"
+                      :variant="statusVariant(item.latestRun.status)"
                     >
-                      {{ schedulerStatusLabel(item.schedulerStatus) }}
+                      {{ statusLabel(item.latestRun.status) }}
                     </Badge>
-                  </td>
-                  <td class="min-w-[180px] px-4 py-4">
-                    <template v-if="item.latestRun">
-                      <Badge
-                        class="whitespace-nowrap"
-                        :variant="statusVariant(item.latestRun.status)"
-                      >
-                        {{ statusLabel(item.latestRun.status) }}
-                      </Badge>
-                      <p class="mt-2 whitespace-nowrap text-xs text-muted-foreground">
-                        {{
-                          formatDateTimeInDisplayTimezone(
-                            item.latestRun.finishedAt || item.latestRun.startedAt,
-                          )
-                        }}
-                      </p>
-                      <p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">
-                        {{ formatDuration(item.latestRun.durationSeconds) }}
-                      </p>
-                    </template>
-                    <span
-                      v-else
-                      class="text-xs text-muted-foreground"
-                    >从未执行</span>
-                  </td>
-                  <td class="min-w-[160px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
-                    {{ formatDateTimeInDisplayTimezone(item.nextRunTime) }}
-                  </td>
-                  <td class="min-w-[120px] px-4 py-4">
-                    <div
-                      v-if="item.allowManualRun"
-                      class="flex items-center gap-2 whitespace-nowrap"
-                    >
-                      <template v-if="item.syncModes?.length">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          :loading="runningJobId === item.jobId"
-                          :disabled="
-                            !!item.latestRun &&
-                              ['pending', 'processing', 'retrying'].includes(item.latestRun.status)
-                          "
-                          @click="selectScheduledJob(item, 'incremental')"
-                        >
-                          <Play class="h-4 w-4" />
-                          增量同步
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          :disabled="
-                            !!runningJobId ||
-                              (!!item.latestRun &&
-                                ['pending', 'processing', 'retrying'].includes(item.latestRun.status))
-                          "
-                          @click="selectScheduledJob(item, 'full')"
-                        >
-                          全量同步
-                        </Button>
-                      </template>
-                      <Button
-                        v-else
+                    <p class="mt-2 whitespace-nowrap text-xs text-muted-foreground">
+                      {{
+                        formatDateTimeInDisplayTimezone(
+                          item.latestRun.finishedAt || item.latestRun.startedAt,
+                        )
+                      }}
+                    </p>
+                    <p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">
+                      {{ formatDuration(item.latestRun.durationSeconds) }}
+                    </p>
+                  </template>
+                  <span
+                    v-else
+                    class="text-xs text-muted-foreground"
+                  >从未执行</span>
+                </td>
+                <td class="min-w-[160px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
+                  {{ formatDateTimeInDisplayTimezone(item.nextRunTime) }}
+                </td>
+                <td class="min-w-[120px] px-4 py-4">
+                  <div
+                    v-if="item.allowManualRun"
+                    class="flex items-center gap-2 whitespace-nowrap"
+                  >
+                    <template v-if="item.syncModes?.length">
+                      <LoadingButton
                         variant="secondary"
                         size="sm"
                         :loading="runningJobId === item.jobId"
@@ -553,161 +595,184 @@ onBeforeUnmount(() => {
                           !!item.latestRun &&
                             ['pending', 'processing', 'retrying'].includes(item.latestRun.status)
                         "
-                        @click="selectScheduledJob(item)"
+                        @click="selectScheduledJob(item, 'incremental')"
                       >
                         <Play class="h-4 w-4" />
-                        立即执行
+                        增量同步
+                      </LoadingButton>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        :disabled="
+                          !!runningJobId ||
+                            (!!item.latestRun &&
+                              ['pending', 'processing', 'retrying'].includes(item.latestRun.status))
+                        "
+                        @click="selectScheduledJob(item, 'full')"
+                      >
+                        全量同步
                       </Button>
-                    </div>
-                    <span
+                    </template>
+                    <LoadingButton
                       v-else
-                      class="whitespace-nowrap text-xs text-muted-foreground"
-                    >不可手动执行</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm">
-            <div class="space-y-3">
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div class="flex items-center gap-3">
-                  <ClipboardList class="h-5 w-5 text-primary" />
-                  <div>
-                    <h2 class="text-base font-semibold text-foreground">
-                      执行记录
-                    </h2>
-                    <p class="text-xs text-muted-foreground">
-                      {{ isAdmin ? '全部用户和系统任务。' : '自己的任务执行记录。' }}
-                    </p>
+                      variant="secondary"
+                      size="sm"
+                      :loading="runningJobId === item.jobId"
+                      :disabled="
+                        !!item.latestRun &&
+                          ['pending', 'processing', 'retrying'].includes(item.latestRun.status)
+                      "
+                      @click="selectScheduledJob(item)"
+                    >
+                      <Play class="h-4 w-4" />
+                      立即执行
+                    </LoadingButton>
                   </div>
+                  <span
+                    v-else
+                    class="whitespace-nowrap text-xs text-muted-foreground"
+                  >不可手动执行</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
+      <template v-else>
+        <Card>
+          <CardHeader>
+            <div class="flex items-center gap-3">
+              <ClipboardList class="h-5 w-5 text-primary" />
+              <div>
+                <CardTitle>执行记录</CardTitle>
+                <CardDescription>
+                  {{ isAdmin ? '全部用户和系统任务。' : '自己的任务执行记录。' }}
+                </CardDescription>
+              </div>
+            </div>
+            <CardAction>
+              <LoadingButton
+                variant="secondary"
+                size="sm"
+                :loading="runsLoading"
+                @click="loadRuns(runsPage)"
+              >
+                <RotateCw class="h-4 w-4" />
+                刷新
+              </LoadingButton>
+            </CardAction>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <div class="grid gap-2 sm:grid-cols-2 lg:max-w-[560px]">
+              <Input
+                v-if="isAdmin"
+                v-model="filters.uid"
+                inputmode="numeric"
+                placeholder="UID"
+              />
+              <Input
+                v-model="filters.keyword"
+                placeholder="名称或 Task ID"
+              />
+            </div>
+
+            <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              <details
+                ref="statusFilterMenuRef"
+                class="group relative"
+              >
+                <summary
+                  class="flex h-9 w-full cursor-pointer list-none items-center justify-between gap-2 rounded-xl border border-border/70 bg-background px-3 text-sm text-foreground transition-colors hover:bg-muted [&::-webkit-details-marker]:hidden"
+                >
+                  <span class="truncate">{{ statusFilterLabel }}</span>
+                  <ChevronDown
+                    class="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+                  />
+                </summary>
+                <div
+                  class="absolute left-0 top-11 z-20 w-56 rounded-xl border border-border/70 bg-card p-2 shadow-xl"
+                >
+                  <div
+                    class="mb-2 flex items-center justify-between gap-2 border-b border-border/60 pb-2"
+                  >
+                    <button
+                      type="button"
+                      class="rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      @click="selectAllStatuses"
+                    >
+                      全选
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded-lg px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+                      @click="selectDefaultStatuses"
+                    >
+                      默认
+                    </button>
+                  </div>
+                  <label
+                    v-for="option in taskStatusOptions"
+                    :key="option.value"
+                    class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-muted"
+                  >
+                    <input
+                      class="h-4 w-4 rounded border-border/70 text-primary focus:ring-primary/40"
+                      type="checkbox"
+                      :checked="filters.statuses.includes(option.value)"
+                      :disabled="
+                        filters.statuses.length <= 1 && filters.statuses.includes(option.value)
+                      "
+                      @change="toggleStatusFilter(option.value)"
+                    />
+                    <span>{{ option.label }}</span>
+                  </label>
                 </div>
+              </details>
+              <FieldInput
+                v-model="filters.taskType"
+                placeholder="任务类型"
+              />
+              <FieldSelect
+                v-model="filters.source"
+                :options="sourceOptions"
+              />
+              <FieldSelect
+                v-model="filters.triggerSource"
+                :options="triggerOptions"
+              />
+            </div>
+
+            <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div class="grid gap-2 sm:grid-cols-2 lg:w-[360px]">
+                <AppDatePicker
+                  v-model="filters.startedFrom"
+                  placeholder="开始日期"
+                />
+                <AppDatePicker
+                  v-model="filters.startedTo"
+                  placeholder="结束日期"
+                />
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
                 <Button
                   variant="secondary"
                   size="sm"
-                  :loading="runsLoading"
-                  @click="loadRuns(runsPage)"
+                  @click="submitFilters"
                 >
-                  <RotateCw class="h-4 w-4" />
-                  刷新
+                  查询
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  @click="resetFilters"
+                >
+                  重置
                 </Button>
               </div>
-
-              <div class="grid gap-2 sm:grid-cols-2 lg:max-w-[560px]">
-                <input
-                  v-if="isAdmin"
-                  v-model="filters.uid"
-                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
-                  inputmode="numeric"
-                  placeholder="UID"
-                />
-                <input
-                  v-model="filters.keyword"
-                  class="h-9 w-full rounded-xl border border-border/70 bg-background px-3 text-sm"
-                  placeholder="名称或 Task ID"
-                />
-              </div>
-
-              <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                <details
-                  ref="statusFilterMenuRef"
-                  class="group relative"
-                >
-                  <summary
-                    class="flex h-9 w-full cursor-pointer list-none items-center justify-between gap-2 rounded-xl border border-border/70 bg-background px-3 text-sm text-foreground transition-colors hover:bg-muted [&::-webkit-details-marker]:hidden"
-                  >
-                    <span class="truncate">{{ statusFilterLabel }}</span>
-                    <ChevronDown
-                      class="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
-                    />
-                  </summary>
-                  <div
-                    class="absolute left-0 top-11 z-20 w-56 rounded-xl border border-border/70 bg-card p-2 shadow-xl"
-                  >
-                    <div
-                      class="mb-2 flex items-center justify-between gap-2 border-b border-border/60 pb-2"
-                    >
-                      <button
-                        type="button"
-                        class="rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        @click="selectAllStatuses"
-                      >
-                        全选
-                      </button>
-                      <button
-                        type="button"
-                        class="rounded-lg px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
-                        @click="selectDefaultStatuses"
-                      >
-                        默认
-                      </button>
-                    </div>
-                    <label
-                      v-for="option in taskStatusOptions"
-                      :key="option.value"
-                      class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-muted"
-                    >
-                      <input
-                        class="h-4 w-4 rounded border-border/70 text-primary focus:ring-primary/40"
-                        type="checkbox"
-                        :checked="filters.statuses.includes(option.value)"
-                        :disabled="
-                          filters.statuses.length <= 1 && filters.statuses.includes(option.value)
-                        "
-                        @change="toggleStatusFilter(option.value)"
-                      />
-                      <span>{{ option.label }}</span>
-                    </label>
-                  </div>
-                </details>
-                <AppInput
-                  v-model="filters.taskType"
-                  placeholder="任务类型"
-                />
-                <AppSelect
-                  v-model="filters.source"
-                  :options="sourceOptions"
-                />
-                <AppSelect
-                  v-model="filters.triggerSource"
-                  :options="triggerOptions"
-                />
-              </div>
-
-              <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                <div class="grid gap-2 sm:grid-cols-2 lg:w-[360px]">
-                  <AppDatePicker
-                    v-model="filters.startedFrom"
-                    placeholder="开始日期"
-                  />
-                  <AppDatePicker
-                    v-model="filters.startedTo"
-                    placeholder="结束日期"
-                  />
-                </div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    @click="submitFilters"
-                  >
-                    查询
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    @click="resetFilters"
-                  >
-                    重置
-                  </Button>
-                </div>
-              </div>
             </div>
-
-            <div class="mt-4 flex flex-wrap gap-2 text-xs">
+            <Separator />
+            <div class="flex flex-wrap gap-2 text-xs">
               <Badge
                 v-for="option in statusOptions.filter((item) => item.value)"
                 :key="option.value"
@@ -716,290 +781,354 @@ onBeforeUnmount(() => {
                 {{ option.label }} {{ runsStats[option.value] ?? 0 }}
               </Badge>
             </div>
-          </div>
+          </CardContent>
+        </Card>
 
-          <ApiErrorAlert
-            v-if="runsError"
-            :error="runsError"
-            @dismiss="runsError = null"
-          />
+        <ApiErrorAlert
+          v-if="runsError"
+          :error="runsError"
+          @dismiss="runsError = null"
+        />
 
-          <div class="overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-sm">
-            <table class="w-full min-w-[1320px] text-left text-sm">
-              <thead class="border-b border-border/70 text-xs text-muted-foreground">
-                <tr>
-                  <th class="min-w-[220px] px-4 py-3 font-medium">
-                    任务
-                  </th>
-                  <th class="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">
-                    状态
-                  </th>
-                  <th
-                    v-if="isAdmin"
-                    class="min-w-[112px] whitespace-nowrap px-4 py-3 font-medium"
-                  >
-                    所属用户
-                  </th>
-                  <th class="min-w-[220px] whitespace-nowrap px-4 py-3 font-medium">
-                    来源
-                  </th>
-                  <th class="min-w-[140px] whitespace-nowrap px-4 py-3 font-medium">
-                    提交时间
-                  </th>
-                  <th class="min-w-[80px] whitespace-nowrap px-4 py-3 font-medium">
-                    耗时
-                  </th>
-                  <th class="min-w-[280px] px-4 py-3 font-medium">
-                    消息
-                  </th>
-                  <th class="min-w-[112px] whitespace-nowrap px-4 py-3 font-medium">
-                    操作
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-if="runsLoading">
-                  <td
-                    :colspan="isAdmin ? 8 : 7"
-                    class="px-4 py-10 text-center text-muted-foreground"
-                  >
-                    加载中...
-                  </td>
-                </tr>
-                <tr v-else-if="!runs.length">
-                  <td
-                    :colspan="isAdmin ? 8 : 7"
-                    class="px-4 py-10 text-center text-muted-foreground"
-                  >
-                    暂无执行记录
-                  </td>
-                </tr>
-                <tr
-                  v-for="item in runs"
-                  v-else
-                  :key="item.taskId"
-                  class="border-b border-border/50 last:border-0"
+        <div
+          class="space-y-3 md:hidden"
+          data-testid="task-run-cards"
+        >
+          <template v-if="runsLoading">
+            <Skeleton
+              v-for="index in 4"
+              :key="index"
+              class="h-36 w-full"
+            />
+          </template>
+          <Card
+            v-for="item in runs"
+            v-else
+            :key="item.taskId"
+          >
+            <CardHeader>
+              <CardTitle class="text-base">
+                {{ item.taskName || item.taskType }}
+              </CardTitle>
+              <CardDescription>{{ item.source }} · {{ formatDateTimeInDisplayTimezone(item.createdAt) }}</CardDescription>
+              <Badge :variant="statusVariant(item.status)">
+                {{ statusLabel(item.status) }}
+              </Badge>
+            </CardHeader>
+            <CardContent class="text-sm text-muted-foreground">
+              <p class="line-clamp-3">
+                {{ item.message || '暂无执行消息' }}
+              </p>
+            </CardContent>
+            <CardContent class="pt-0">
+              <Button
+                variant="outline"
+                size="sm"
+                class="w-full"
+                @click="openDetail(item)"
+              >
+                查看详情
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div class="hidden overflow-x-auto rounded-lg border md:block">
+          <table class="w-full min-w-[1320px] text-left text-sm">
+            <thead class="border-b border-border/70 text-xs text-muted-foreground">
+              <tr>
+                <th class="min-w-[220px] px-4 py-3 font-medium">
+                  任务
+                </th>
+                <th class="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">
+                  状态
+                </th>
+                <th
+                  v-if="isAdmin"
+                  class="min-w-[112px] whitespace-nowrap px-4 py-3 font-medium"
                 >
-                  <td class="min-w-[220px] px-4 py-4">
-                    <p class="font-medium text-foreground">
-                      {{ item.taskName || item.taskType }}
-                    </p>
-                    <p class="mt-1 text-xs text-muted-foreground">
-                      {{ item.taskType }}
-                    </p>
-                    <p
-                      v-if="isAdmin"
-                      class="mt-1 font-mono text-[11px] text-muted-foreground"
-                    >
-                      {{ shortTaskId(item.taskId) }}
-                      <button
-                        class="ml-1 align-middle text-primary"
-                        aria-label="复制 Task ID"
-                        @click="copyText(item.taskId)"
-                      >
-                        <Copy class="inline h-3.5 w-3.5" />
-                      </button>
-                    </p>
-                  </td>
-                  <td class="min-w-[96px] whitespace-nowrap px-4 py-4">
-                    <Badge
-                      class="whitespace-nowrap"
-                      :variant="statusVariant(item.status)"
-                    >
-                      {{ statusLabel(item.status) }}
-                    </Badge>
-                  </td>
-                  <td
+                  所属用户
+                </th>
+                <th class="min-w-[220px] whitespace-nowrap px-4 py-3 font-medium">
+                  来源
+                </th>
+                <th class="min-w-[140px] whitespace-nowrap px-4 py-3 font-medium">
+                  提交时间
+                </th>
+                <th class="min-w-[80px] whitespace-nowrap px-4 py-3 font-medium">
+                  耗时
+                </th>
+                <th class="min-w-[280px] px-4 py-3 font-medium">
+                  消息
+                </th>
+                <th class="min-w-[112px] whitespace-nowrap px-4 py-3 font-medium">
+                  操作
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="runsLoading">
+                <td
+                  :colspan="isAdmin ? 8 : 7"
+                  class="px-4 py-10 text-center text-muted-foreground"
+                >
+                  加载中...
+                </td>
+              </tr>
+              <tr v-else-if="!runs.length">
+                <td
+                  :colspan="isAdmin ? 8 : 7"
+                  class="px-4 py-10 text-center text-muted-foreground"
+                >
+                  暂无执行记录
+                </td>
+              </tr>
+              <tr
+                v-for="item in runs"
+                v-else
+                :key="item.taskId"
+                class="border-b border-border/50 last:border-0"
+              >
+                <td class="min-w-[220px] px-4 py-4">
+                  <p class="font-medium text-foreground">
+                    {{ item.taskName || item.taskType }}
+                  </p>
+                  <p class="mt-1 text-xs text-muted-foreground">
+                    {{ item.taskType }}
+                  </p>
+                  <p
                     v-if="isAdmin"
-                    class="min-w-[112px] whitespace-nowrap px-4 py-4 text-xs text-muted-foreground"
+                    class="mt-1 font-mono text-[11px] text-muted-foreground"
                   >
-                    <template v-if="item.user">
-                      {{ item.user.username }}<br />{{ item.user.email }}
-                    </template>
-                    <span v-else>系统任务</span>
-                  </td>
-                  <td class="min-w-[220px] px-4 py-4 text-xs text-muted-foreground">
-                    <p>{{ item.source }}</p>
-                    <p>{{ triggerLabel(item.triggerSource) }}</p>
-                    <p
-                      v-if="isAdmin && item.schedulerJobId"
-                      class="font-mono"
+                    {{ shortTaskId(item.taskId) }}
+                    <button
+                      class="ml-1 align-middle text-primary"
+                      aria-label="复制 Task ID"
+                      @click="copyText(item.taskId)"
                     >
-                      {{ item.schedulerJobId }}
-                    </p>
-                  </td>
-                  <td class="min-w-[140px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
-                    {{ formatDateTimeInDisplayTimezone(item.createdAt) }}
-                  </td>
-                  <td class="min-w-[80px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
-                    {{ formatDuration(item.durationSeconds) }}
-                  </td>
-                  <td class="min-w-[280px] max-w-xs px-4 py-4 text-xs text-muted-foreground">
-                    <span class="line-clamp-2">{{ item.message || '—' }}</span>
-                  </td>
-                  <td class="min-w-[112px] whitespace-nowrap px-4 py-4">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      @click="openDetail(item)"
-                    >
-                      查看详情
-                    </Button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                      <Copy class="inline h-3.5 w-3.5" />
+                    </button>
+                  </p>
+                </td>
+                <td class="min-w-[96px] whitespace-nowrap px-4 py-4">
+                  <Badge
+                    class="whitespace-nowrap"
+                    :variant="statusVariant(item.status)"
+                  >
+                    {{ statusLabel(item.status) }}
+                  </Badge>
+                </td>
+                <td
+                  v-if="isAdmin"
+                  class="min-w-[112px] whitespace-nowrap px-4 py-4 text-xs text-muted-foreground"
+                >
+                  <template v-if="item.user">
+                    {{ item.user.username }}<br />{{ item.user.email }}
+                  </template>
+                  <span v-else>系统任务</span>
+                </td>
+                <td class="min-w-[220px] px-4 py-4 text-xs text-muted-foreground">
+                  <p>{{ item.source }}</p>
+                  <p>{{ triggerLabel(item.triggerSource) }}</p>
+                  <p
+                    v-if="isAdmin && item.schedulerJobId"
+                    class="font-mono"
+                  >
+                    {{ item.schedulerJobId }}
+                  </p>
+                </td>
+                <td class="min-w-[140px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
+                  {{ formatDateTimeInDisplayTimezone(item.createdAt) }}
+                </td>
+                <td class="min-w-[80px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
+                  {{ formatDuration(item.durationSeconds) }}
+                </td>
+                <td class="min-w-[280px] max-w-xs px-4 py-4 text-xs text-muted-foreground">
+                  <span class="line-clamp-2">{{ item.message || '—' }}</span>
+                </td>
+                <td class="min-w-[112px] whitespace-nowrap px-4 py-4">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    @click="openDetail(item)"
+                  >
+                    查看详情
+                  </Button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-          <Pagination
-            :current-page="runsPage"
-            :total-pages="totalPages"
-            class="pt-2"
-            @page-change="loadRuns"
-          />
-        </template>
-      </section>
-    </div>
+        <Pagination
+          :current-page="runsPage"
+          :total-pages="totalPages"
+          class="pt-2"
+          @page-change="loadRuns"
+        />
+      </template>
+    </section>
 
     <Dialog
       :open="detailLoading || !!detail || !!detailError"
-      title="任务详情"
-      class="max-w-4xl"
-      eyebrow="DETAIL VIEW"
       @update:open="
         detail = null;
         detailError = null;
       "
     >
-      <div
-        v-if="detailLoading"
-        class="py-10 text-center text-sm text-muted-foreground"
-      >
-        加载中...
-      </div>
-      <ApiErrorAlert
-        v-else-if="detailError"
-        :error="detailError"
-        @dismiss="detailError = null"
-      />
-      <div
-        v-else-if="detail"
-        class="space-y-5"
-      >
-        <div class="grid gap-3 sm:grid-cols-2">
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-foreground">
-              任务名称
-            </p>
-            <p class="mt-1 text-sm font-medium text-foreground">
-              {{ detail.taskName || detail.taskType }}
-            </p>
-          </div>
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-foreground">
-              状态
-            </p>
-            <Badge
-              class="mt-1"
-              :variant="statusVariant(detail.status)"
+      <DialogContent class="flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader class="p-6 text-left">
+          <DialogTitle>任务详情</DialogTitle>
+          <DialogDescription>查看任务状态、执行时间、输入和输出。</DialogDescription>
+        </DialogHeader>
+        <Separator />
+        <ScrollArea class="min-h-0 flex-1">
+          <div class="p-6">
+            <div
+              v-if="detailLoading"
+              class="space-y-3"
             >
-              {{ statusLabel(detail.status) }}
-            </Badge>
-          </div>
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-foreground">
-              Task ID
-            </p>
-            <p class="mt-1 break-all font-mono text-xs text-foreground">
-              {{ detail.taskId }}
-            </p>
-          </div>
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-foreground">
-              任务类型
-            </p>
-            <p class="mt-1 text-sm text-foreground">
-              {{ detail.taskType }}
-            </p>
-          </div>
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-foreground">
-              来源 / 触发
-            </p>
-            <p class="mt-1 text-sm text-foreground">
-              {{ detail.source }} / {{ triggerLabel(detail.triggerSource) }}
-            </p>
-          </div>
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-foreground">
-              耗时
-            </p>
-            <p class="mt-1 text-sm text-foreground">
-              {{ formatDuration(detail.durationSeconds) }}
-            </p>
-          </div>
-        </div>
+              <Skeleton
+                v-for="index in 6"
+                :key="index"
+                class="h-16 w-full"
+              />
+            </div>
+            <ApiErrorAlert
+              v-else-if="detailError"
+              :error="detailError"
+              @dismiss="detailError = null"
+            />
+            <div
+              v-else-if="detail"
+              class="space-y-5"
+            >
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+                  <p class="text-xs text-muted-foreground">
+                    任务名称
+                  </p>
+                  <p class="mt-1 text-sm font-medium text-foreground">
+                    {{ detail.taskName || detail.taskType }}
+                  </p>
+                </div>
+                <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+                  <p class="text-xs text-muted-foreground">
+                    状态
+                  </p>
+                  <Badge
+                    class="mt-1"
+                    :variant="statusVariant(detail.status)"
+                  >
+                    {{ statusLabel(detail.status) }}
+                  </Badge>
+                </div>
+                <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+                  <p class="text-xs text-muted-foreground">
+                    Task ID
+                  </p>
+                  <p class="mt-1 break-all font-mono text-xs text-foreground">
+                    {{ detail.taskId }}
+                  </p>
+                </div>
+                <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+                  <p class="text-xs text-muted-foreground">
+                    任务类型
+                  </p>
+                  <p class="mt-1 text-sm text-foreground">
+                    {{ detail.taskType }}
+                  </p>
+                </div>
+                <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+                  <p class="text-xs text-muted-foreground">
+                    来源 / 触发
+                  </p>
+                  <p class="mt-1 text-sm text-foreground">
+                    {{ detail.source }} / {{ triggerLabel(detail.triggerSource) }}
+                  </p>
+                </div>
+                <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+                  <p class="text-xs text-muted-foreground">
+                    耗时
+                  </p>
+                  <p class="mt-1 text-sm text-foreground">
+                    {{ formatDuration(detail.durationSeconds) }}
+                  </p>
+                </div>
+              </div>
 
-        <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-          <p class="text-xs text-muted-foreground">
-            执行时间
-          </p>
-          <div class="mt-2 grid gap-2 text-sm text-foreground sm:grid-cols-2">
-            <p>创建：{{ formatDateTimeInDisplayTimezone(detail.createdAt) }}</p>
-            <p>开始：{{ formatDateTimeInDisplayTimezone(detail.startedAt) }}</p>
-            <p>结束：{{ formatDateTimeInDisplayTimezone(detail.finishedAt) }}</p>
-            <p>更新：{{ formatDateTimeInDisplayTimezone(detail.updatedAt) }}</p>
+              <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+                <p class="text-xs text-muted-foreground">
+                  执行时间
+                </p>
+                <div class="mt-2 grid gap-2 text-sm text-foreground sm:grid-cols-2">
+                  <p>创建：{{ formatDateTimeInDisplayTimezone(detail.createdAt) }}</p>
+                  <p>开始：{{ formatDateTimeInDisplayTimezone(detail.startedAt) }}</p>
+                  <p>结束：{{ formatDateTimeInDisplayTimezone(detail.finishedAt) }}</p>
+                  <p>更新：{{ formatDateTimeInDisplayTimezone(detail.updatedAt) }}</p>
+                </div>
+              </div>
+
+              <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+                <p class="text-xs text-muted-foreground">
+                  Message
+                </p>
+                <p class="mt-2 whitespace-pre-wrap text-sm text-foreground">
+                  {{ detail.message || '—' }}
+                </p>
+              </div>
+
+              <details class="rounded-xl border border-border/60 bg-background/60 p-3">
+                <summary class="cursor-pointer text-sm font-medium text-foreground">
+                  Payload
+                </summary>
+                <pre
+                  class="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs text-muted-foreground"
+                >{{ formatJson(detail.payload) }}</pre>
+              </details>
+              <details class="rounded-xl border border-border/60 bg-background/60 p-3">
+                <summary class="cursor-pointer text-sm font-medium text-foreground">
+                  Result
+                </summary>
+                <pre
+                  class="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs text-muted-foreground"
+                >{{ formatJson(detail.result) }}</pre>
+              </details>
+              <details
+                v-if="detail.error"
+                class="rounded-xl border border-destructive/30 bg-destructive/5 p-3"
+              >
+                <summary class="cursor-pointer text-sm font-medium text-destructive">
+                  错误信息
+                </summary>
+                <pre
+                  class="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive"
+                >{{ detail.error }}</pre>
+              </details>
+              <div
+                v-if="isAdmin && detail.taskLog"
+                class="rounded-xl border border-border/60 bg-background/60 p-3"
+              >
+                <p class="text-xs text-muted-foreground">
+                  Task Log
+                </p>
+                <p class="mt-2 break-all font-mono text-xs text-foreground">
+                  {{ detail.taskLog }}
+                </p>
+              </div>
+            </div>
           </div>
-        </div>
-
-        <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-          <p class="text-xs text-muted-foreground">
-            Message
-          </p>
-          <p class="mt-2 whitespace-pre-wrap text-sm text-foreground">
-            {{ detail.message || '—' }}
-          </p>
-        </div>
-
-        <details class="rounded-xl border border-border/60 bg-background/60 p-3">
-          <summary class="cursor-pointer text-sm font-medium text-foreground">
-            Payload
-          </summary>
-          <pre
-            class="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs text-muted-foreground"
-          >{{ formatJson(detail.payload) }}</pre>
-        </details>
-        <details class="rounded-xl border border-border/60 bg-background/60 p-3">
-          <summary class="cursor-pointer text-sm font-medium text-foreground">
-            Result
-          </summary>
-          <pre
-            class="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs text-muted-foreground"
-          >{{ formatJson(detail.result) }}</pre>
-        </details>
-        <details
-          v-if="detail.error"
-          class="rounded-xl border border-destructive/30 bg-destructive/5 p-3"
-        >
-          <summary class="cursor-pointer text-sm font-medium text-destructive">
-            错误信息
-          </summary>
-          <pre
-            class="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive"
-          >{{ detail.error }}</pre>
-        </details>
-        <div
-          v-if="isAdmin && detail.taskLog"
-          class="rounded-xl border border-border/60 bg-background/60 p-3"
-        >
-          <p class="text-xs text-muted-foreground">
-            Task Log
-          </p>
-          <p class="mt-2 break-all font-mono text-xs text-foreground">
-            {{ detail.taskLog }}
-          </p>
-        </div>
-      </div>
+        </ScrollArea>
+        <Separator />
+        <DialogFooter class="p-4 sm:p-6">
+          <Button
+            variant="outline"
+            @click="detail = null; detailError = null"
+          >
+            关闭
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
 
     <ConfirmDialog

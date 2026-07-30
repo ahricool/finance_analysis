@@ -1,46 +1,28 @@
 <script setup lang="ts">
-import { computed, useId } from 'vue';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { computed, useId } from 'vue';
 
-export type AppSelectOption = { value: string; label: string; disabled?: boolean };
-const EMPTY_VALUE = '__app_select_empty__';
-const props = withDefaults(
-  defineProps<{
-    modelValue?: string;
-    options: AppSelectOption[];
-    label?: string;
-    placeholder?: string;
-    disabled?: boolean;
-    error?: string;
-    hint?: string;
-    id?: string;
-    class?: string;
-  }>(),
-  {
-    modelValue: '',
-    label: '',
-    placeholder: '请选择',
-    disabled: false,
-    error: '',
-    hint: '',
-    id: undefined,
-    class: '',
-  },
-);
+export type FieldSelectOption = { value: string; label: string; disabled?: boolean };
+const EMPTY_VALUE = '__field_select_empty__';
+const props = withDefaults(defineProps<{
+  modelValue?: string;
+  options: FieldSelectOption[];
+  label?: string;
+  placeholder?: string;
+  disabled?: boolean;
+  error?: string;
+  hint?: string;
+  id?: string;
+  class?: string;
+}>(), {
+  modelValue: '', label: '', placeholder: '请选择', disabled: false, error: '', hint: '', id: undefined, class: '',
+});
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 const generatedId = useId();
 const triggerId = computed(() => props.id ?? generatedId);
-const descriptionId = computed(() =>
-  props.error ? `${triggerId.value}-error` : props.hint ? `${triggerId.value}-hint` : undefined,
-);
-const selectValue = computed(() => (props.modelValue === '' ? EMPTY_VALUE : props.modelValue));
+const descriptionId = computed(() => props.error ? `${triggerId.value}-error` : props.hint ? `${triggerId.value}-hint` : undefined);
+const selectValue = computed(() => props.modelValue === '' ? EMPTY_VALUE : props.modelValue);
 function update(value: unknown) {
   emit('update:modelValue', String(value ?? '') === EMPTY_VALUE ? '' : String(value ?? ''));
 }

@@ -8,11 +8,10 @@ import {
   type WatchListItemCreate,
 } from '@/api/watchList';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Button from '@/components/app/AppButton.vue';
+import { Button } from '@/components/ui/button';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
-import AppDialog from '@/components/app/AppDialog.vue';
-import Input from '@/components/app/AppInput.vue';
-import AppSelect from '@/components/app/AppSelect.vue';
+import FieldInput from '@/components/forms/FieldInput.vue';
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import PatternStatus from '@/components/stocks/PatternStatus.vue';
 import RealtimeStatus from '@/components/stocks/RealtimeStatus.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
@@ -20,12 +19,18 @@ import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import TrendStatus from '@/components/stocks/TrendStatus.vue';
 import ZeroDteStatus from '@/components/stocks/ZeroDteStatus.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
+import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import { looksLikeStockCode } from '@/utils/validation';
 import { calculateZeroDteStatus, zeroDteStatusSortValue } from '@/utils/zeroDteStatus';
-import { Eye, Heart, Pencil, Plus, Star, Trash2 } from 'lucide-vue-next';
+import { Eye, Heart, MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 
 type MarketFilter = MarketType | 'ALL';
@@ -396,28 +401,32 @@ onMounted(loadList);
       v-if="loading"
       class="space-y-2"
     >
-      <div
-        v-for="n in 4"
+      <Skeleton
+        v-for="n in 5"
         :key="n"
-        class="h-14 animate-pulse rounded-xl bg-card"
+        class="h-16 w-full"
       />
     </div>
 
     <!-- Empty state -->
-    <div
+    <Empty
       v-else-if="!items.length"
-      class="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border/60 py-16 text-center"
     >
-      <Eye class="h-10 w-10 text-muted-foreground/40" />
-      <p class="text-sm text-muted-foreground">
-        暂无自选股，点击「添加」开始关注
-      </p>
-    </div>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Eye />
+        </EmptyMedia><EmptyTitle>暂无自选股</EmptyTitle><EmptyDescription>点击「添加」开始关注股票并跟踪实时行情。</EmptyDescription>
+      </EmptyHeader>
+      <Button @click="openCreate">
+        <Plus />添加自选股
+      </Button>
+    </Empty>
 
     <template v-else>
-      <div class="mb-3 rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <AppSelect
+      <Card class="mb-4">
+        <CardHeader><CardTitle>筛选与行情</CardTitle><CardDescription>按市场筛选自选股，并查看实时连接状态。</CardDescription></CardHeader>
+        <CardContent class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <FieldSelect
             v-model="selectedMarket"
             label="市场"
             class="min-w-[180px]"
@@ -429,38 +438,35 @@ onMounted(loadList);
               显示 {{ visibleItems.length }} / {{ total }} 只
             </p>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       <div class="grid gap-3 md:hidden">
-        <article
+        <Card
           v-for="item in visibleItems"
           :key="`mobile-${item.id}`"
-          class="rounded-xl border bg-card p-4"
           @click="detailItem = item"
         >
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <p class="truncate font-medium">
-                {{ item.name || item.code }}
-              </p>
-              <p class="mt-0.5 font-mono text-xs text-primary">
-                {{ item.code }} · {{ marketLabel(item.market_type) }}
-              </p>
-            </div>
-            <button
-              type="button"
-              class="inline-flex size-10 items-center justify-center rounded-lg"
-              :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
-              @click.stop="toggleFavorite(item)"
-            >
-              <Heart
-                class="size-4"
-                :class="item.is_favorite && 'fill-current text-destructive'"
-              />
-            </button>
-          </div>
-          <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <CardHeader>
+            <CardTitle class="truncate text-base">
+              {{ item.name || item.code }}
+            </CardTitle><CardDescription class="font-mono text-primary">
+              {{ item.code }} · {{ marketLabel(item.market_type) }}
+            </CardDescription><CardAction>
+              <Button
+                variant="ghost"
+                size="icon"
+                :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
+                @click.stop="toggleFavorite(item)"
+              >
+                <Heart
+                  class="size-4"
+                  :class="item.is_favorite && 'fill-current text-destructive'"
+                />
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent class="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p class="text-xs text-muted-foreground">
                 最新价
@@ -482,237 +488,255 @@ onMounted(loadList);
                 }}
               </p>
             </div>
-          </div>
-          <div class="mt-4 flex justify-end gap-1">
+          </CardContent>
+          <CardFooter class="justify-end">
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              @click.stop="openEdit(item)"
+              @click.stop="detailItem = item"
             >
-              <Pencil />编辑
-            </Button><Button
-              variant="ghost"
-              size="sm"
-              class="text-destructive"
-              @click.stop="openDelete(item)"
-            >
-              <Trash2 />删除
-            </Button>
-          </div>
-        </article>
+              查看详情
+            </Button><DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="更多操作"
+                  @click.stop
+                >
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger><DropdownMenuContent align="end">
+                <DropdownMenuItem @select="openEdit(item)">
+                  <Pencil />编辑
+                </DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem
+                  class="text-destructive"
+                  @select="openDelete(item)"
+                >
+                  <Trash2 />删除
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </CardFooter>
+        </Card>
       </div>
 
       <!-- Desktop table -->
-      <div
-        class="hidden overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-sm md:block"
-      >
-        <table class="w-full min-w-[1420px] table-fixed text-left text-sm">
-          <colgroup>
-            <col class="w-[78px]" />
-            <col class="w-[120px]" />
-            <col class="w-[170px]" />
-            <col class="w-[90px]" />
-            <col class="w-[120px]" />
-            <col class="w-[120px]" />
-            <col class="w-[110px]" />
-            <col class="w-[120px]" />
-            <col class="w-[210px]" />
-            <col class="w-[140px]" />
-            <col class="w-[152px]" />
-          </colgroup>
-          <thead class="border-b border-border/70 text-xs text-muted-foreground">
-            <tr>
-              <SortableTableHeader
-                label="关注"
-                :active="sortKey === 'is_favorite'"
-                :direction="sortDirection"
-                @sort="toggleSort('is_favorite')"
-              />
-              <SortableTableHeader
-                label="代码"
-                :active="sortKey === 'code'"
-                :direction="sortDirection"
-                @sort="toggleSort('code')"
-              />
-              <SortableTableHeader
-                label="名称"
-                :active="sortKey === 'name'"
-                :direction="sortDirection"
-                @sort="toggleSort('name')"
-              />
-              <SortableTableHeader
-                label="市场"
-                :active="sortKey === 'market_type'"
-                :direction="sortDirection"
-                @sort="toggleSort('market_type')"
-              />
-              <SortableTableHeader
-                label="最新价"
-                align="right"
-                :active="sortKey === 'last_price'"
-                :direction="sortDirection"
-                @sort="toggleSort('last_price')"
-              />
-              <SortableTableHeader
-                label="今日涨跌额"
-                align="right"
-                :active="sortKey === 'change_amount'"
-                :direction="sortDirection"
-                @sort="toggleSort('change_amount')"
-              />
-              <SortableTableHeader
-                label="今日涨跌幅"
-                align="right"
-                :active="sortKey === 'change_pct'"
-                :direction="sortDirection"
-                @sort="toggleSort('change_pct')"
-              />
-              <SortableTableHeader
-                label="趋势持续"
-                :active="sortKey === 'trend'"
-                :direction="sortDirection"
-                @sort="toggleSort('trend')"
-              />
-              <SortableTableHeader
-                label="最近形态"
-                :active="sortKey === 'pattern'"
-                :direction="sortDirection"
-                @sort="toggleSort('pattern')"
-              />
-              <SortableTableHeader
-                label="0DTE状态"
-                :active="sortKey === 'zero_dte'"
-                :direction="sortDirection"
-                @sort="toggleSort('zero_dte')"
-              />
-              <th class="whitespace-nowrap px-4 py-3 text-right font-medium">
-                操作
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="!visibleItems.length">
-              <td
-                colspan="11"
-                class="px-4 py-10 text-center text-muted-foreground"
-              >
-                当前筛选下暂无自选股
-              </td>
-            </tr>
-            <template v-else>
-              <tr
-                v-for="item in visibleItems"
-                :key="item.id"
-                class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
-                tabindex="0"
-                :aria-label="`查看 ${item.name || item.code} 详情`"
-                @click="detailItem = item"
-                @keydown.enter.self="detailItem = item"
-                @keydown.space.self.prevent="detailItem = item"
-              >
-                <td class="px-4 py-3">
-                  <button
-                    type="button"
-                    class="rounded-lg p-1.5 transition-colors disabled:opacity-50"
-                    :class="
-                      item.is_favorite
-                        ? 'text-red-500 hover:text-red-600'
-                        : 'text-muted-foreground hover:text-red-500'
-                    "
-                    :disabled="togglingFavoriteId === item.id"
-                    :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
-                    :aria-pressed="item.is_favorite"
-                    @click.stop="toggleFavorite(item)"
-                  >
-                    <Heart
-                      class="h-4 w-4"
-                      :class="{ 'fill-current': item.is_favorite }"
-                    />
-                  </button>
-                </td>
-                <td class="px-4 py-3">
-                  <button
-                    class="font-mono text-sm font-semibold text-primary hover:underline"
-                    @click.stop="detailItem = item"
-                  >
-                    {{ item.code }}
-                  </button>
-                </td>
-                <td class="truncate px-4 py-3 font-medium text-foreground">
-                  <button
-                    class="max-w-full truncate text-left hover:text-primary hover:underline"
-                    @click.stop="detailItem = item"
-                  >
-                    {{ item.name || '—' }}
-                  </button>
-                </td>
-                <td class="px-4 py-3">
-                  <span
-                    class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                  >
-                    {{ marketLabel(item.market_type) }}
-                  </span>
-                </td>
+      <Card class="hidden md:block">
+        <CardHeader><CardTitle>自选股列表</CardTitle><CardDescription>点击任一行打开行情详情；次要操作收纳在行菜单中。</CardDescription></CardHeader><CardContent>
+          <table class="w-full min-w-[1420px] table-fixed text-left text-sm">
+            <colgroup>
+              <col class="w-[78px]" />
+              <col class="w-[120px]" />
+              <col class="w-[170px]" />
+              <col class="w-[90px]" />
+              <col class="w-[120px]" />
+              <col class="w-[120px]" />
+              <col class="w-[110px]" />
+              <col class="w-[120px]" />
+              <col class="w-[210px]" />
+              <col class="w-[140px]" />
+              <col class="w-[152px]" />
+            </colgroup>
+            <thead class="border-b border-border/70 text-xs text-muted-foreground">
+              <tr>
+                <SortableTableHeader
+                  label="关注"
+                  :active="sortKey === 'is_favorite'"
+                  :direction="sortDirection"
+                  @sort="toggleSort('is_favorite')"
+                />
+                <SortableTableHeader
+                  label="代码"
+                  :active="sortKey === 'code'"
+                  :direction="sortDirection"
+                  @sort="toggleSort('code')"
+                />
+                <SortableTableHeader
+                  label="名称"
+                  :active="sortKey === 'name'"
+                  :direction="sortDirection"
+                  @sort="toggleSort('name')"
+                />
+                <SortableTableHeader
+                  label="市场"
+                  :active="sortKey === 'market_type'"
+                  :direction="sortDirection"
+                  @sort="toggleSort('market_type')"
+                />
+                <SortableTableHeader
+                  label="最新价"
+                  align="right"
+                  :active="sortKey === 'last_price'"
+                  :direction="sortDirection"
+                  @sort="toggleSort('last_price')"
+                />
+                <SortableTableHeader
+                  label="今日涨跌额"
+                  align="right"
+                  :active="sortKey === 'change_amount'"
+                  :direction="sortDirection"
+                  @sort="toggleSort('change_amount')"
+                />
+                <SortableTableHeader
+                  label="今日涨跌幅"
+                  align="right"
+                  :active="sortKey === 'change_pct'"
+                  :direction="sortDirection"
+                  @sort="toggleSort('change_pct')"
+                />
+                <SortableTableHeader
+                  label="趋势持续"
+                  :active="sortKey === 'trend'"
+                  :direction="sortDirection"
+                  @sort="toggleSort('trend')"
+                />
+                <SortableTableHeader
+                  label="最近形态"
+                  :active="sortKey === 'pattern'"
+                  :direction="sortDirection"
+                  @sort="toggleSort('pattern')"
+                />
+                <SortableTableHeader
+                  label="0DTE状态"
+                  :active="sortKey === 'zero_dte'"
+                  :direction="sortDirection"
+                  @sort="toggleSort('zero_dte')"
+                />
+                <th class="whitespace-nowrap px-4 py-3 text-right font-medium">
+                  操作
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="!visibleItems.length">
                 <td
-                  class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground"
+                  colspan="11"
+                  class="px-4 py-10 text-center text-muted-foreground"
                 >
-                  {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
-                </td>
-                <td
-                  class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
-                  :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)"
-                >
-                  {{
-                    formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount)
-                  }}
-                </td>
-                <td
-                  class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
-                  :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)"
-                >
-                  {{
-                    formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%')
-                  }}
-                </td>
-                <td class="px-4 py-3">
-                  <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
-                </td>
-                <td class="px-4 py-3">
-                  <PatternStatus
-                    :pattern="getQuote(item.code, item.market_type)?.pattern_1m"
-                    :now="currentTime"
-                  />
-                </td>
-                <td class="px-4 py-3">
-                  <ZeroDteStatus
-                    :quote="getQuote(item.code, item.market_type)"
-                    :market-type="item.market_type"
-                    :now="currentTime"
-                  />
-                </td>
-                <td class="px-4 py-3 text-right">
-                  <div class="flex justify-end gap-1">
-                    <button
-                      class="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      aria-label="编辑"
-                      @click.stop="openEdit(item)"
-                    >
-                      <Pencil class="h-4 w-4" />
-                    </button>
-                    <button
-                      class="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      aria-label="删除"
-                      @click.stop="openDelete(item)"
-                    >
-                      <Trash2 class="h-4 w-4" />
-                    </button>
-                  </div>
+                  当前筛选下暂无自选股
                 </td>
               </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
+              <template v-else>
+                <tr
+                  v-for="item in visibleItems"
+                  :key="item.id"
+                  class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                  tabindex="0"
+                  :aria-label="`查看 ${item.name || item.code} 详情`"
+                  @click="detailItem = item"
+                  @keydown.enter.self="detailItem = item"
+                  @keydown.space.self.prevent="detailItem = item"
+                >
+                  <td class="px-4 py-3">
+                    <button
+                      type="button"
+                      class="rounded-lg p-1.5 transition-colors disabled:opacity-50"
+                      :class="
+                        item.is_favorite
+                          ? 'text-red-500 hover:text-red-600'
+                          : 'text-muted-foreground hover:text-red-500'
+                      "
+                      :disabled="togglingFavoriteId === item.id"
+                      :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
+                      :aria-pressed="item.is_favorite"
+                      @click.stop="toggleFavorite(item)"
+                    >
+                      <Heart
+                        class="h-4 w-4"
+                        :class="{ 'fill-current': item.is_favorite }"
+                      />
+                    </button>
+                  </td>
+                  <td class="px-4 py-3">
+                    <button
+                      class="font-mono text-sm font-semibold text-primary hover:underline"
+                      @click.stop="detailItem = item"
+                    >
+                      {{ item.code }}
+                    </button>
+                  </td>
+                  <td class="truncate px-4 py-3 font-medium text-foreground">
+                    <button
+                      class="max-w-full truncate text-left hover:text-primary hover:underline"
+                      @click.stop="detailItem = item"
+                    >
+                      {{ item.name || '—' }}
+                    </button>
+                  </td>
+                  <td class="px-4 py-3">
+                    <span
+                      class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                    >
+                      {{ marketLabel(item.market_type) }}
+                    </span>
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground"
+                  >
+                    {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
+                    :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)"
+                  >
+                    {{
+                      formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount)
+                    }}
+                  </td>
+                  <td
+                    class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
+                    :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)"
+                  >
+                    {{
+                      formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%')
+                    }}
+                  </td>
+                  <td class="px-4 py-3">
+                    <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
+                  </td>
+                  <td class="px-4 py-3">
+                    <PatternStatus
+                      :pattern="getQuote(item.code, item.market_type)?.pattern_1m"
+                      :now="currentTime"
+                    />
+                  </td>
+                  <td class="px-4 py-3">
+                    <ZeroDteStatus
+                      :quote="getQuote(item.code, item.market_type)"
+                      :market-type="item.market_type"
+                      :now="currentTime"
+                    />
+                  </td>
+                  <td class="px-4 py-3 text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="自选股操作"
+                          @click.stop
+                        >
+                          <MoreHorizontal />
+                        </Button>
+                      </DropdownMenuTrigger><DropdownMenuContent align="end">
+                        <DropdownMenuItem @select="openEdit(item)">
+                          <Pencil />编辑
+                        </DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem
+                          class="text-destructive"
+                          @select="openDelete(item)"
+                        >
+                          <Trash2 />删除
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
     </template>
 
     <StockDetailDialog
@@ -723,58 +747,66 @@ onMounted(loadList);
     />
 
     <!-- Add / Edit Dialog -->
-    <AppDialog
+    <Dialog
       :open="showDialog"
-      :title="editingId !== null ? '编辑自选股' : '添加自选股'"
-      class="max-w-md"
       @update:open="showDialog = $event"
     >
-      <div class="space-y-4">
-        <div>
-          <label class="mb-1 block text-sm font-medium text-foreground">股票 *</label>
-          <StockAutocomplete
-            v-model="formStockQuery"
-            placeholder="搜索股票代码、名称或拼音"
-            :disabled="editingId !== null"
-            @submit="handleStockAutocompleteSubmit"
+      <DialogContent class="max-w-md">
+        <DialogHeader><DialogTitle>{{ editingId !== null ? '编辑自选股' : '添加自选股' }}</DialogTitle><DialogDescription>选择股票、市场，并按需补充备注。</DialogDescription></DialogHeader>
+        <div class="space-y-4 py-2">
+          <div>
+            <Label
+              class="mb-2"
+              for="watchlist-stock"
+            >股票 *</Label>
+            <StockAutocomplete
+              v-model="formStockQuery"
+              placeholder="搜索股票代码、名称或拼音"
+              :disabled="editingId !== null"
+              @submit="handleStockAutocompleteSubmit"
+            />
+          </div>
+          <FieldSelect
+            v-model="formMarketType"
+            label="市场"
+            :options="marketOptions"
           />
+          <div>
+            <Label
+              class="mb-2"
+              for="watchlist-notes"
+            >备注（可选）</Label>
+            <FieldInput
+              id="watchlist-notes"
+              v-model="formNotes"
+              placeholder="备注信息"
+            />
+          </div>
+          <p
+            v-if="formError"
+            class="text-sm text-destructive"
+          >
+            {{ formError }}
+          </p>
         </div>
-        <AppSelect
-          v-model="formMarketType"
-          label="市场"
-          :options="marketOptions"
-        />
-        <div>
-          <label class="mb-1 block text-sm font-medium text-foreground">备注（可选）</label>
-          <Input
-            v-model="formNotes"
-            placeholder="备注信息"
-          />
-        </div>
-        <p
-          v-if="formError"
-          class="text-sm text-destructive"
-        >
-          {{ formError }}
-        </p>
-      </div>
 
-      <div class="mt-6 flex justify-end gap-3">
-        <Button
-          variant="ghost"
-          @click="closeDialog"
-        >
-          取消
-        </Button>
-        <Button
-          variant="default"
-          :disabled="saving"
-          @click="save"
-        >
-          {{ saving ? '保存中…' : '保存' }}
-        </Button>
-      </div>
-    </AppDialog>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            @click="closeDialog"
+          >
+            取消
+          </Button>
+          <Button
+            variant="default"
+            :disabled="saving"
+            @click="save"
+          >
+            {{ saving ? '保存中…' : '保存' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <AppConfirmDialog
       :open="showDeleteConfirm"

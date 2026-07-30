@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import Pagination from '@/components/app/AppPagination.vue';
-import ScrollArea from '@/components/app/AppScrollArea.vue';
-import DashboardPanelHeader from '@/components/dashboard/DashboardPanelHeader.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
 import HistoryListItem from '@/components/history/HistoryListItem.vue';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { HistoryItem } from '@/types/analysis';
-import { computed } from 'vue';
+import { History } from 'lucide-vue-next';
 
 const props = withDefaults(
   defineProps<{
@@ -30,102 +31,69 @@ const emit = defineEmits<{
   pageChange: [page: number];
 }>();
 
-const scrollAreaClass = computed(() => (props.fitHeight ? 'min-h-0 flex-none' : 'min-h-0 flex-1'));
-const viewportClassName = computed(() =>
-  props.fitHeight ? 'h-auto max-h-[calc(100vh-10rem)] p-4' : 'p-4',
-);
 </script>
 
 <template>
-  <aside
-    :class="`rounded-xl border bg-card text-card-foreground shadow-sm flex flex-col overflow-hidden ${props.class}`"
-  >
-    <ScrollArea
-      :viewport-class-name="viewportClassName"
-      test-id="analysis-history-list-scroll"
-      :class="scrollAreaClass"
-    >
-      <div class="mb-4">
-        <DashboardPanelHeader
-          class="mb-1"
-          title-class-name="text-sm font-medium"
-          heading-class-name="items-center"
-        >
-          <template #leading>
-            <svg
-              class="h-4 w-4 text-primary"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-          </template>
-          <template #title>
-            历史分析
-          </template>
-        </DashboardPanelHeader>
-      </div>
-
-      <DashboardStateBlock
-        v-if="isLoading"
-        compact
-        loading
-        title="加载历史记录中..."
-      />
-      <DashboardStateBlock
-        v-else-if="items.length === 0"
-        title="暂无历史分析记录"
-        description="完成首次分析后，这里会保留最近结果。"
+  <Card :class="['flex min-h-0 flex-col overflow-hidden', props.class]">
+    <CardHeader class="shrink-0">
+      <CardTitle class="flex items-center gap-2 text-base">
+        <History class="size-4 text-primary" />历史分析
+      </CardTitle>
+      <CardDescription>共 {{ totalCount }} 条最近报告</CardDescription>
+    </CardHeader>
+    <CardContent class="min-h-0 flex-1 p-0">
+      <ScrollArea
+        data-testid="analysis-history-list-scroll"
+        :class="fitHeight ? 'max-h-[calc(100vh-14rem)]' : 'h-full'"
       >
-        <template #icon>
-          <svg
-            class="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div class="space-y-2 px-4 pb-4">
+          <div
+            v-if="isLoading"
+            class="space-y-2"
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.5"
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            <Skeleton
+              v-for="index in 5"
+              :key="index"
+              class="h-16 w-full"
             />
-          </svg>
-        </template>
-      </DashboardStateBlock>
-      <div
-        v-else
-        class="space-y-2"
-      >
-        <HistoryListItem
-          v-for="item in items"
-          :key="item.id"
-          :item="item"
-          :is-viewing="selectedId === item.id"
-          @select="emit('itemClick', item.id)"
-        />
-
-        <div
-          v-if="totalPages > 1"
-          class="space-y-2 pt-3"
-        >
-          <Pagination
-            :current-page="currentPage"
-            :total-pages="totalPages"
-            class="!gap-1"
-            @page-change="emit('pageChange', $event)"
-          />
-          <p class="text-center text-[10px] text-muted-foreground">
-            共 {{ totalCount }} 条 · 第 {{ currentPage }} / {{ totalPages }} 页
-          </p>
+          </div>
+          <DashboardStateBlock
+            v-else-if="items.length === 0"
+            title="暂无历史分析记录"
+            description="完成首次分析后，这里会保留最近结果。"
+          >
+            <template #icon>
+              <History class="size-5" />
+            </template>
+          </DashboardStateBlock>
+          <div
+            v-else
+            class="space-y-2"
+          >
+            <HistoryListItem
+              v-for="item in items"
+              :key="item.id"
+              :item="item"
+              :is-viewing="selectedId === item.id"
+              @select="emit('itemClick', item.id)"
+            />
+          </div>
         </div>
-      </div>
-    </ScrollArea>
-  </aside>
+      </ScrollArea>
+    </CardContent>
+    <CardFooter
+      v-if="totalPages > 1"
+      class="shrink-0 flex-col gap-2 border-t pt-4"
+    >
+      <Pagination
+        :current-page="currentPage"
+        :total-pages="totalPages"
+        class="!gap-1"
+        @page-change="emit('pageChange', $event)"
+      />
+      <p class="text-center text-[10px] text-muted-foreground">
+        第 {{ currentPage }} / {{ totalPages }} 页
+      </p>
+    </CardFooter>
+  </Card>
 </template>

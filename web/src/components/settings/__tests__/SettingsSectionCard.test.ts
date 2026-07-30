@@ -9,12 +9,9 @@ describe('SettingsSectionCard', () => {
       slots: { default: '<p>内容</p>' },
     });
 
-    expect(wrapper.classes()).toEqual(
-      expect.arrayContaining(['rounded-2xl', 'border-border/70', 'bg-card/94', 'p-4', 'shadow-sm']),
-    );
-    expect(wrapper.get('h2').classes()).toEqual(
-      expect.arrayContaining(['text-base', 'font-semibold', 'text-foreground']),
-    );
-    expect(wrapper.get('h2').classes()).not.toContain('uppercase');
+    expect(wrapper.attributes('data-slot')).toBe('card');
+    const title = wrapper.get('[data-slot="card-title"]');
+    expect(title.classes()).toEqual(expect.arrayContaining(['font-medium']));
+    expect(title.classes()).not.toContain('uppercase');
   });
 });

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import Button from '@/components/app/AppButton.vue';
+import { Button } from '@/components/ui/button';
+import LoadingButton from '@/components/app/LoadingButton.vue';
 import Cropper from 'cropperjs';
 import 'cropperjs/dist/cropper.css';
 import { RotateCcw, ZoomIn, ZoomOut } from 'lucide-vue-next';
@@ -122,7 +123,7 @@ watch(() => props.sourceUrl, initCropper);
         >
           取消
         </Button>
-        <Button
+        <LoadingButton
           type="button"
           variant="default"
           size="sm"
@@ -130,7 +131,7 @@ watch(() => props.sourceUrl, initCropper);
           @click="emitCropped"
         >
           使用头像
-        </Button>
+        </LoadingButton>
       </div>
     </div>
   </div>

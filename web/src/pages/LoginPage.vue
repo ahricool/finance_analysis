@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { isParsedApiError, type ParsedApiError } from '@/api/error';
-import Button from '@/components/app/AppButton.vue';
-import Input from '@/components/app/AppInput.vue';
+import LoadingButton from '@/components/app/LoadingButton.vue';
+import FieldInput from '@/components/forms/FieldInput.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/composables/useAuth';
 import { APP_NAME } from '@/config/app';
 import { Lock } from 'lucide-vue-next';
@@ -139,128 +141,126 @@ onUnmounted(() => {
           </span>
         </div>
 
-        <div class="rounded-2xl border border-border/80 bg-card p-6 shadow-sm sm:p-7">
-          <div class="mb-6">
-            <h1
-              class="flex items-center gap-2 text-xl font-semibold tracking-tight text-foreground"
-            >
+        <Card class="shadow-xl">
+          <CardHeader>
+            <CardTitle class="flex items-center gap-2">
               <Lock class="h-5 w-5 text-primary" />
               <span>{{ stepTitle }}</span>
-            </h1>
-            <p
-              v-if="step !== 'email'"
-              class="mt-2 text-sm text-muted-foreground"
-            >
-              {{ email }}
-            </p>
-          </div>
+            </CardTitle>
+            <CardDescription>
+              {{ step === 'email' ? '输入邮箱以继续访问你的金融工作台。' : email }}
+            </CardDescription>
+          </CardHeader>
 
           <form
-            class="space-y-5"
             @submit="handleSubmit"
           >
-            <div class="space-y-4">
-              <Input
-                v-if="step === 'email'"
-                id="email"
-                v-model="email"
-                type="email"
-                label="邮箱"
-                placeholder="请输入邮箱"
+            <CardContent class="space-y-5">
+              <div class="space-y-4">
+                <FieldInput
+                  v-if="step === 'email'"
+                  id="email"
+                  v-model="email"
+                  type="email"
+                  label="邮箱"
+                  placeholder="请输入邮箱"
+                  :disabled="isSubmitting"
+                  autocomplete="email"
+                  data-testid="login-email"
+                />
+
+                <template v-if="step === 'password'">
+                  <FieldInput
+                    id="password"
+                    v-model="password"
+                    type="password"
+                    allow-toggle-password
+                    label="登录密码"
+                    placeholder="请输入密码"
+                    :disabled="isSubmitting"
+                    autofocus
+                    autocomplete="current-password"
+                    data-testid="login-password"
+                  />
+                </template>
+
+                <template v-if="step === 'setup'">
+                  <FieldInput
+                    id="password"
+                    v-model="password"
+                    type="password"
+                    allow-toggle-password
+                    label="设置密码"
+                    placeholder="至少 6 位"
+                    :disabled="isSubmitting"
+                    autofocus
+                    autocomplete="new-password"
+                    data-testid="login-password"
+                  />
+                  <FieldInput
+                    id="password-confirm"
+                    v-model="passwordConfirm"
+                    type="password"
+                    allow-toggle-password
+                    label="确认密码"
+                    placeholder="再次输入密码"
+                    :disabled="isSubmitting"
+                    autocomplete="new-password"
+                    data-testid="login-password-confirm"
+                  />
+                </template>
+              </div>
+
+              <div
+                v-if="setupSuccessMessage"
+                class="overflow-hidden"
+              >
+                <SettingsAlert
+                  title="设置成功"
+                  :message="setupSuccessMessage"
+                  variant="success"
+                />
+              </div>
+
+              <div
+                v-if="error"
+                class="animate-[loginErr_0.25s_ease-out] overflow-hidden"
+              >
+                <SettingsAlert
+                  title="验证未通过"
+                  :message="isParsedApiError(error) ? error.message : String(error)"
+                  variant="error"
+                />
+              </div>
+            </CardContent>
+            <CardFooter class="flex-col gap-2">
+              <LoadingButton
+                type="submit"
+                variant="default"
+                size="lg"
+                class="h-11 w-full"
                 :disabled="isSubmitting"
-                autocomplete="email"
-                data-testid="login-email"
-              />
+                :loading="isSubmitting"
+                :loading-text="loadingText"
+                data-testid="login-submit"
+              >
+                {{ submitLabel }}
+              </LoadingButton>
 
-              <template v-if="step === 'password'">
-                <Input
-                  id="password"
-                  v-model="password"
-                  type="password"
-                  allow-toggle-password
-                  label="登录密码"
-                  placeholder="请输入密码"
-                  :disabled="isSubmitting"
-                  autofocus
-                  autocomplete="current-password"
-                  data-testid="login-password"
-                />
-              </template>
-
-              <template v-if="step === 'setup'">
-                <Input
-                  id="password"
-                  v-model="password"
-                  type="password"
-                  allow-toggle-password
-                  label="设置密码"
-                  placeholder="至少 6 位"
-                  :disabled="isSubmitting"
-                  autofocus
-                  autocomplete="new-password"
-                  data-testid="login-password"
-                />
-                <Input
-                  id="password-confirm"
-                  v-model="passwordConfirm"
-                  type="password"
-                  allow-toggle-password
-                  label="确认密码"
-                  placeholder="再次输入密码"
-                  :disabled="isSubmitting"
-                  autocomplete="new-password"
-                  data-testid="login-password-confirm"
-                />
-              </template>
-            </div>
-
-            <div
-              v-if="setupSuccessMessage"
-              class="overflow-hidden"
-            >
-              <SettingsAlert
-                title="设置成功"
-                :message="setupSuccessMessage"
-                variant="success"
-              />
-            </div>
-
-            <div
-              v-if="error"
-              class="animate-[loginErr_0.25s_ease-out] overflow-hidden"
-            >
-              <SettingsAlert
-                title="验证未通过"
-                :message="isParsedApiError(error) ? error.message : String(error)"
-                variant="error"
-              />
-            </div>
-
-            <Button
-              type="submit"
-              variant="default"
-              size="lg"
-              class="h-11 w-full"
-              :disabled="isSubmitting"
-              :loading="isSubmitting"
-              :loading-text="loadingText"
-              data-testid="login-submit"
-            >
-              {{ submitLabel }}
-            </Button>
-
-            <button
-              v-if="step !== 'email'"
-              type="button"
-              class="w-full text-center text-sm text-muted-foreground hover:text-foreground"
-              :disabled="isSubmitting"
-              data-testid="login-back"
-              @click="resetToEmailStep"
-            >
-              使用其他邮箱
-            </button>
+              <Button
+                v-if="step !== 'email'"
+                type="button"
+                variant="ghost"
+                class="w-full"
+                :disabled="isSubmitting"
+                data-testid="login-back"
+                @click="resetToEmailStep"
+              >
+                使用其他邮箱
+              </Button>
+            </CardFooter>
           </form>
-        </div>
+        </Card>
       </div>
     </div>
   </div>

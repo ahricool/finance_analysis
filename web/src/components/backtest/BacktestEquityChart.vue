@@ -12,7 +12,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { computed } from 'vue';
 import VChart from 'vue-echarts';
 import { useMediaQuery } from '@vueuse/core';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTheme } from '@/composables/useTheme';
 
 use([
@@ -147,45 +147,45 @@ const positionOption = computed(() => ({
     v-else
     class="grid gap-4 xl:grid-cols-2"
   >
-    <Card class="min-w-0 p-3 xl:col-span-2">
-      <h3 class="px-2 text-sm font-semibold text-foreground">
-        策略净值、基准与买卖点
-      </h3>
-      <VChart
-        class="h-80"
-        :option="equityOption"
-        autoresize
-      />
+    <Card class="min-w-0 xl:col-span-2">
+      <CardHeader><CardTitle>策略净值、基准与买卖点</CardTitle><CardDescription>对比策略和基准表现，并标注交易事件。</CardDescription></CardHeader>
+      <CardContent>
+        <VChart
+          class="h-80"
+          :option="equityOption"
+          autoresize
+        />
+      </CardContent>
     </Card>
-    <Card class="min-w-0 p-3">
-      <h3 class="px-2 text-sm font-semibold text-foreground">
-        回撤曲线
-      </h3>
-      <VChart
-        class="h-64"
-        :option="drawdownOption"
-        autoresize
-      />
+    <Card class="min-w-0">
+      <CardHeader><CardTitle>回撤曲线</CardTitle></CardHeader>
+      <CardContent>
+        <VChart
+          class="h-64"
+          :option="drawdownOption"
+          autoresize
+        />
+      </CardContent>
     </Card>
-    <Card class="min-w-0 p-3">
-      <h3 class="px-2 text-sm font-semibold text-foreground">
-        每日收益
-      </h3>
-      <VChart
-        class="h-64"
-        :option="returnOption"
-        autoresize
-      />
+    <Card class="min-w-0">
+      <CardHeader><CardTitle>每日收益</CardTitle></CardHeader>
+      <CardContent>
+        <VChart
+          class="h-64"
+          :option="returnOption"
+          autoresize
+        />
+      </CardContent>
     </Card>
-    <Card class="min-w-0 p-3 xl:col-span-2">
-      <h3 class="px-2 text-sm font-semibold text-foreground">
-        持仓比例
-      </h3>
-      <VChart
-        class="h-64"
-        :option="positionOption"
-        autoresize
-      />
+    <Card class="min-w-0 xl:col-span-2">
+      <CardHeader><CardTitle>持仓比例</CardTitle></CardHeader>
+      <CardContent>
+        <VChart
+          class="h-64"
+          :option="positionOption"
+          autoresize
+        />
+      </CardContent>
     </Card>
   </div>
 </template>

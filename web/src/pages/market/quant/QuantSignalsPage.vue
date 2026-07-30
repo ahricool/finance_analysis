@@ -2,9 +2,13 @@
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import EmptyState from '@/components/app/AppEmptyState.vue';
-import AppInput from '@/components/app/AppInput.vue';
-import AppSelect from '@/components/app/AppSelect.vue';
+import FieldInput from '@/components/forms/FieldInput.vue';
+import FieldSelect from '@/components/forms/FieldSelect.vue';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { SignalRanking } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
@@ -63,76 +67,92 @@ watch(
     />
     <div
       v-if="loading"
-      class="py-12 text-center text-muted-foreground"
+      class="space-y-3"
     >
-      加载中...
+      <Skeleton
+        v-for="index in 5"
+        :key="index"
+        class="h-14 w-full"
+      />
     </div>
     <template v-else>
-      <div class="grid gap-2 sm:grid-cols-2">
-        <AppInput
-          v-model="filter"
-          placeholder="股票代码"
-        />
-        <AppSelect
-          v-model="vetoed"
-          :options="[
-            { value: 'all', label: '全部' },
-            { value: 'true', label: '已否决' },
-            { value: 'false', label: '未否决' },
-          ]"
-        />
-      </div>
-      <div
+      <Card>
+        <CardHeader><CardTitle>筛选排名</CardTitle><CardDescription>按股票代码和风控否决状态缩小结果范围。</CardDescription></CardHeader><CardContent class="grid gap-3 sm:grid-cols-2">
+          <FieldInput
+            v-model="filter"
+            placeholder="股票代码"
+          />
+          <FieldSelect
+            v-model="vetoed"
+            :options="[
+              { value: 'all', label: '全部' },
+              { value: 'true', label: '已否决' },
+              { value: 'false', label: '未否决' },
+            ]"
+          />
+        </CardContent>
+      </Card>
+      <Card
         v-if="items.length"
-        class="overflow-x-auto rounded-2xl border border-border bg-card"
       >
-        <table class="w-full text-sm">
-          <thead class="text-left text-xs text-muted-foreground">
-            <tr>
-              <th class="p-3">
-                排名
-              </th>
-              <th>股票</th>
-              <th>最终/原始</th>
-              <th>横截面</th>
-              <th>时间序列</th>
-              <th>预测收益</th>
-              <th>目标仓位</th>
-              <th>信号</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="item in items"
-              :key="item.id"
-              class="border-t border-border"
-            >
-              <td class="p-3">
-                {{ item.universeRank ?? '—' }}
-              </td>
-              <td>
+        <CardHeader><CardTitle>模型排名</CardTitle><CardDescription>共 {{ items.length }} 个标的。</CardDescription></CardHeader>
+        <CardContent class="hidden md:block">
+          <Table>
+            <TableHeader><TableRow><TableHead>排名</TableHead><TableHead>股票</TableHead><TableHead>最终/原始</TableHead><TableHead>横截面</TableHead><TableHead>时间序列</TableHead><TableHead>预测收益</TableHead><TableHead>目标仓位</TableHead><TableHead>信号</TableHead></TableRow></TableHeader><TableBody>
+              <TableRow
+                v-for="item in items"
+                :key="item.id"
+              >
+                <TableCell>{{ item.universeRank ?? '—' }}</TableCell>
+                <TableCell>
+                  <RouterLink
+                    :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
+                    class="text-primary"
+                  >
+                    {{ item.code }}
+                  </RouterLink>
+                </TableCell><TableCell>{{ formatScore(item.finalScore) }} / {{ formatScore(item.rawFinalScore) }}</TableCell><TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell><TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell><TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell><TableCell>{{ formatPercent(item.targetPosition) }}</TableCell><TableCell>
+                  <Badge :variant="item.vetoed ? 'destructive' : 'outline'">
+                    {{ item.vetoed ? '已否决' : item.signal }}
+                  </Badge>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </CardContent>
+        <CardContent class="space-y-3 md:hidden">
+          <Card
+            v-for="item in items"
+            :key="item.id"
+          >
+            <CardHeader>
+              <CardTitle class="text-base">
                 <RouterLink
                   :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
                   class="text-primary"
                 >
                   {{ item.code }}
                 </RouterLink>
-              </td>
-              <td>{{ formatScore(item.finalScore) }} / {{ formatScore(item.rawFinalScore) }}</td>
-              <td>{{ formatScore(item.crossSectionScore) }}</td>
-              <td>{{ formatScore(item.timeSeriesScore) }}</td>
-              <td>{{ formatPredictedReturn(item.predictedReturn) }}</td>
-              <td>{{ formatPercent(item.targetPosition) }}</td>
-              <td>{{ item.vetoed ? 'blocked' : item.signal }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <EmptyState
-        v-else
-        :title="market === 'CN' ? 'A股模型尚未就绪' : '暂无模型排名'"
-        description="当前市场没有可展示的生产模型信号。"
-      />
+              </CardTitle><CardDescription>排名 #{{ item.universeRank ?? '—' }}</CardDescription><Badge :variant="item.vetoed ? 'destructive' : 'outline'">
+                {{ item.vetoed ? '已否决' : item.signal }}
+              </Badge>
+            </CardHeader><CardContent class="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p class="text-xs text-muted-foreground">
+                  最终得分
+                </p>{{ formatScore(item.finalScore) }}
+              </div><div>
+                <p class="text-xs text-muted-foreground">
+                  目标仓位
+                </p>{{ formatPercent(item.targetPosition) }}
+              </div>
+            </CardContent>
+          </Card>
+        </CardContent>
+      </Card>
+      <Empty v-else>
+        <EmptyHeader><EmptyTitle>{{ market === 'CN' ? 'A股模型尚未就绪' : '暂无模型排名' }}</EmptyTitle><EmptyDescription>当前市场没有可展示的生产模型信号。</EmptyDescription></EmptyHeader>
+      </Empty>
     </template>
   </div>
 </template>

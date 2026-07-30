@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import AppCombobox from '../AppCombobox.vue';
 import AppDatePicker from '../AppDatePicker.vue';
 import AppDateTimePicker from '../AppDateTimePicker.vue';
-import AppSelect from '../AppSelect.vue';
+import FieldSelect from '../../forms/FieldSelect.vue';
 import AppTimePicker from '../AppTimePicker.vue';
 
 function expectAccessibleControl(
@@ -23,7 +23,7 @@ function expectAccessibleControl(
 
 describe('application form control accessibility', () => {
   it('associates Select labels and errors with the combobox trigger', () => {
-    const wrapper = mount(AppSelect, {
+    const wrapper = mount(FieldSelect, {
       props: {
         label: '市场',
         error: '请选择市场',
