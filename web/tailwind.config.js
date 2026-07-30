@@ -74,7 +74,8 @@ export default {
           dim: 'hsl(var(--destructive) / 0.8)',
           glow: 'hsl(var(--destructive) / 0.3)',
         },
-        base: 'hsl(var(--background))',
+        // Do not register a color named `base` — it collides with Tailwind's
+        // `text-base` font-size utility and paints copy in the background color.
         elevated: 'hsl(var(--elevated))',
         hover: 'hsl(var(--hover))',
         'secondary-bg': 'hsl(var(--secondary))',
