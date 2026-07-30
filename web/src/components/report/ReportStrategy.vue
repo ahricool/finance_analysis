@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import DashboardPanelHeader from '@/components/dashboard/DashboardPanelHeader.vue';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ReportLanguage, ReportStrategy as ReportStrategyType } from '@/types/analysis';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { computed } from 'vue';
@@ -42,19 +41,12 @@ const items = computed(() => {
 </script>
 
 <template>
-  <Card
-    v-if="strategy"
-    class="p-5"
-  >
-    <DashboardPanelHeader class="mb-3">
-      <template #eyebrow>
-        {{ text.strategyPoints }}
-      </template>
-      <template #title>
-        {{ text.sniperLevels }}
-      </template>
-    </DashboardPanelHeader>
-    <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+  <Card v-if="strategy">
+    <CardHeader>
+      <CardTitle>{{ text.sniperLevels }}</CardTitle>
+      <CardDescription>{{ text.strategyPoints }}</CardDescription>
+    </CardHeader>
+    <CardContent class="grid grid-cols-2 gap-3 md:grid-cols-4">
       <div
         v-for="item in items"
         :key="item.label"
@@ -71,6 +63,6 @@ const items = computed(() => {
         </div>
         <div :class="['absolute inset-x-0 bottom-0 h-0.5 opacity-70', item.barClass]" />
       </div>
-    </div>
+    </CardContent>
   </Card>
 </template>

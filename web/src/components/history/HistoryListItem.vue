@@ -46,8 +46,8 @@ const isTruncated = computed(() => isStockNameTruncated(stockName.value));
   <button
     type="button"
     data-testid="analysis-history-item"
-    class="transition-colors hover:border-primary/30 hover:bg-muted/40 group/item w-full p-2.5 text-left"
-    :class="isViewing ? 'border-primary/40 bg-primary/10' : ''"
+    class="group/item w-full rounded-md border border-transparent p-2.5 text-left transition-colors hover:bg-muted/60"
+    :class="isViewing ? 'border-border bg-muted' : ''"
     @click="emit('select')"
   >
     <div
@@ -56,10 +56,7 @@ const isTruncated = computed(() => isStockNameTruncated(stockName.value));
       <div
         v-if="barColor"
         class="h-8 w-1 flex-shrink-0 rounded-full"
-        :style="{
-          backgroundColor: barColor,
-          boxShadow: `0 0 10px ${barColor}40`,
-        }"
+        :style="{ backgroundColor: barColor }"
       />
       <div class="min-w-0 flex-1">
         <div class="flex items-start justify-between gap-2">
@@ -71,24 +68,23 @@ const isTruncated = computed(() => isStockNameTruncated(stockName.value));
           </div>
           <Badge
             v-if="barColor"
-            variant="default"
-            size="sm"
-            :class="`inline-flex items-center rounded-full border border-primary/25 bg-primary/10 text-primary shrink-0 shadow-none text-[11px] font-semibold leading-none transition-opacity duration-200${isTruncated ? ' group-hover/item:opacity-80' : ''}`"
-            :inline-style="{
+            variant="outline"
+            :class="`shrink-0${isTruncated ? ' transition-opacity group-hover/item:opacity-80' : ''}`"
+            :style="{
               color: barColor,
-              borderColor: `${barColor}30`,
-              backgroundColor: `${barColor}10`,
+              borderColor: `${barColor}40`,
+              backgroundColor: `${barColor}14`,
             }"
           >
             {{ getOperationBadgeLabel(item.operationAdvice) }} {{ item.sentimentScore }}
           </Badge>
         </div>
         <div class="mt-1 flex items-center gap-2">
-          <span class="font-mono text-[11px] text-muted-foreground">
+          <span class="font-mono text-xs text-muted-foreground">
             {{ item.stockCode }}
           </span>
           <span class="h-1 w-1 rounded-full bg-border" />
-          <span class="text-[11px] text-muted-foreground">
+          <span class="text-xs text-muted-foreground">
             {{ formatDateTime(item.createdAt) }}
           </span>
         </div>
