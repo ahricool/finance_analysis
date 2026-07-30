@@ -94,7 +94,7 @@ watch(
             side="left"
             class="w-72 gap-0 p-0"
           >
-            <SheetHeader class="border-b px-4 py-4 text-left">
+            <SheetHeader class="border-b py-4 pl-4 pr-12 text-left">
               <SheetTitle class="flex items-center gap-2">
                 <span
                   class="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-brand/15"
