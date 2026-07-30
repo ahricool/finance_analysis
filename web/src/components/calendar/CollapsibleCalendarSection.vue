@@ -17,7 +17,7 @@ defineEmits<{
 
 <template>
   <section
-    class="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm"
+    class="overflow-hidden rounded-xl border bg-card"
     :data-testid="testId"
   >
     <div class="flex items-stretch justify-between gap-2 px-4 py-3">
