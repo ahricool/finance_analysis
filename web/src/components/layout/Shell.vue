@@ -165,7 +165,7 @@ watch(
         <RouterLink
           to="/analysis"
           class="flex min-w-0 items-center gap-2 rounded-md p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="回到分析"
+          aria-label="回到首页"
         >
           <span
             class="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-brand/15"

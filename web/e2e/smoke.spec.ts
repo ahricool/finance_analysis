@@ -145,7 +145,7 @@ test.describe('web smoke', () => {
     await expect(stockInput).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('link', { name: '分析' })).toBeVisible();
     await expect(page.getByRole('link', { name: '问股' })).toBeVisible();
-    await expect(page.getByText('历史分析')).toBeVisible();
+    await expect(page.getByText('历史分析', { exact: true })).toBeVisible();
 
     await stockInput.fill('600519');
     const analyzeButton = page.getByRole('button', { name: '分析', exact: true });
