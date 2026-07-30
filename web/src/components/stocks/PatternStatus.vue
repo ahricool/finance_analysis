@@ -212,13 +212,13 @@ const tooltip = computed(() => {
           >正式 · {{ primaryLabel(signal) }}</span>
           <span
             v-if="signal && !previewSignal && detail"
-            class="whitespace-nowrap text-[11px] text-muted-foreground"
+            class="whitespace-nowrap text-xs text-muted-foreground"
           >
             {{ detail }}
           </span>
           <span
             v-if="signal && !previewSignal && invalidationText"
-            class="whitespace-nowrap text-[11px] text-muted-foreground"
+            class="whitespace-nowrap text-xs text-muted-foreground"
           >
             {{ invalidationText }}
           </span>
@@ -228,7 +228,7 @@ const tooltip = computed(() => {
           >实时预览 · {{ primaryLabel(previewSignal) }} · 未收盘</span>
           <span
             v-if="previewSignal && !signal"
-            class="whitespace-nowrap text-[11px] text-amber-500/90"
+            class="whitespace-nowrap text-xs text-warning"
           >{{ stageText[previewSignal.stage] }} · {{ previewSignal.quality_score }}分 · 可能变化</span>
           <span
             v-if="emptyTitle"
