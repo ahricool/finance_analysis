@@ -23,12 +23,11 @@ async function mountQuant(path: string) {
 }
 
 describe('QuantPage', () => {
-  it('renders market-style responsive secondary navigation with the switcher below the subtitle', async () => {
+  it('renders responsive secondary navigation with the market switcher alongside the tabs', async () => {
     const wrapper = await mountQuant('/market/quant');
 
-    expect(wrapper.get('h1').text()).toBe('量化研究');
     expect(wrapper.get('[data-testid="module-tabs"]').attributes('aria-label')).toBe('量化研究导航');
-    expect(wrapper.get('header').find('[data-testid="quant-market-switcher"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="quant-market-switcher"]').exists()).toBe(true);
     expect(wrapper.get('[data-testid="quant-scope-description"]').text()).toContain('当前范围');
     expect(wrapper.get('a[href="/market/quant?market=US"]').attributes('data-state')).toBe('active');
     expect(wrapper.get('a[href="/market/quant/datasets?market=US"]').text()).toBe('数据集');

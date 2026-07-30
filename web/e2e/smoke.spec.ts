@@ -196,54 +196,35 @@ test.describe('web smoke', () => {
     await expect(composer).not.toHaveAttribute('title', /.+/);
   });
 
-  test('mobile shell exposes primary destinations, More sheet, and market navigation', async ({
-    page,
-  }) => {
+  test('mobile shell exposes a navigation drawer and market navigation', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockAuthenticatedSession(page);
     await page.goto('/calendar');
 
+    const navTrigger = page.getByTestId('mobile-nav-trigger');
+    await expect(navTrigger).toBeVisible();
+    await navTrigger.click();
+
     const mobileNav = page.getByTestId('mobile-main-nav');
     await expect(mobileNav).toBeVisible();
-    for (const label of ['分析', '日历', '市场', '问股']) {
+    for (const label of ['分析', '市场', '研究', '日历', '问股', '任务', '个人中心']) {
       await expect(mobileNav.getByRole('link', { name: label })).toBeVisible();
     }
-    await expect(mobileNav.getByRole('button', { name: '更多' })).toBeVisible();
-
-    await mobileNav.getByRole('button', { name: '更多' }).click();
-    const moreSheet = page.getByRole('dialog', { name: '更多功能' });
-    await expect(moreSheet).toBeVisible();
-    for (const label of ['回测', '量化', '任务', '个人中心']) {
-      await expect(moreSheet.getByRole('link', { name: label })).toBeVisible();
-    }
-    await moreSheet.getByRole('link', { name: '回测' }).click();
-    await expect(page).toHaveURL(/\/market\/backtests$/);
-    await expect(moreSheet).toBeHidden();
-
-    await page.goto('/tasks/runs');
-    await expect(mobileNav.getByRole('button', { name: '更多' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    await mobileNav.getByRole('button', { name: '更多' }).click();
-    await expect(
-      page.getByRole('dialog', { name: '更多功能' }).getByRole('link', { name: '任务' }),
-    ).toHaveAttribute('aria-current', 'page');
-    await page.keyboard.press('Escape');
-
-    await page.goto('/calendar');
-
     await expect(mobileNav.getByRole('link', { name: '日历' })).toHaveAttribute(
       'aria-current',
       'page',
     );
 
-    await mobileNav.getByRole('link', { name: '市场' }).click();
+    await mobileNav.getByRole('link', { name: '研究' }).click();
+    await expect(page).toHaveURL(/\/market\/backtests$/);
+    await expect(mobileNav).toBeHidden();
+
+    await navTrigger.click();
+    await expect(
+      page.getByTestId('mobile-main-nav').getByRole('link', { name: '研究' }),
+    ).toHaveAttribute('aria-current', 'page');
+    await page.getByTestId('mobile-main-nav').getByRole('link', { name: '市场' }).click();
     await expect(page).toHaveURL(/\/market\/watch-list$/);
-    await expect(mobileNav.getByRole('link', { name: '市场' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
 
     const marketNav = page.getByTestId('module-tabs');
     await expect(marketNav).toBeVisible();
@@ -256,7 +237,7 @@ test.describe('web smoke', () => {
     }
 
     await page.setViewportSize({ width: 844, height: 390 });
-    await expect(mobileNav).toBeHidden();
+    await expect(navTrigger).toBeHidden();
     await expect(
       page.getByTestId('desktop-main-nav').getByRole('link', { name: '市场' }),
     ).toBeVisible();
@@ -280,7 +261,7 @@ test.describe('web smoke', () => {
       await page.goto('/calendar');
       await expect(page.getByRole('heading', { name: '日历记录' })).toBeVisible();
       if (viewport.width < 768) {
-        await expect(page.getByTestId('mobile-main-nav')).toBeVisible();
+        await expect(page.getByTestId('mobile-nav-trigger')).toBeVisible();
       } else {
         await expect(page.getByTestId('desktop-main-nav')).toBeVisible();
       }

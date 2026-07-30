@@ -492,7 +492,7 @@ function onTextareaInput(e: Event) {
   <!-- v-html values in this template come from DOMPurify-backed Markdown renderers. -->
   <div
     data-testid="conversation-workspace"
-    class="flex h-[calc(100dvh-9rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full min-w-0 gap-4 overflow-hidden md:h-[calc(100vh-5.5rem)] lg:h-[calc(100vh-6rem)]"
+    class="flex h-[calc(100dvh-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full min-w-0 gap-4 overflow-hidden py-4"
   >
     <div
       class="hidden w-[clamp(18rem,22vw,22rem)] flex-shrink-0 self-start flex-col overflow-hidden rounded-[1.25rem] border border-border bg-card/82 shadow-sm md:flex"

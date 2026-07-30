@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import ModuleTabs from '@/components/layout/ModuleTabs.vue';
-import PageHeader from '@/components/layout/PageHeader.vue';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { BarChart3, Bot, BriefcaseBusiness, Database, LayoutDashboard } from 'lucide-vue-next';
 import { computed } from 'vue';
@@ -46,13 +44,20 @@ const activeTab = computed<QuantTab>(() => {
 </script>
 
 <template>
-  <div class="space-y-6 py-4 sm:py-6">
-    <PageHeader
-      title="量化研究"
-      description="管理量化数据集、模型训练、选股信号与组合建议。"
-      section="市场"
-    >
-      <template #actions>
+  <div class="min-w-0 space-y-4">
+    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <ModuleTabs
+        :items="navItems"
+        :active-key="activeTab"
+        label="量化研究导航"
+      />
+      <div class="flex items-center gap-3">
+        <p
+          class="text-xs text-muted-foreground"
+          data-testid="quant-scope-description"
+        >
+          {{ scopeDescription }}
+        </p>
         <div
           class="flex items-center gap-1 rounded-lg bg-muted p-1"
           role="radiogroup"
@@ -71,23 +76,8 @@ const activeTab = computed<QuantTab>(() => {
             {{ option.label }}
           </Button>
         </div>
-      </template>
-    </PageHeader>
-
-    <div class="flex flex-col gap-2">
-      <ModuleTabs
-        :items="navItems"
-        :active-key="activeTab"
-        label="量化研究导航"
-      />
-      <p
-        class="text-xs text-muted-foreground"
-        data-testid="quant-scope-description"
-      >
-        {{ scopeDescription }}
-      </p>
+      </div>
     </div>
-    <Separator />
     <section class="min-w-0">
       <RouterView />
     </section>

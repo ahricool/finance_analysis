@@ -170,7 +170,7 @@ function handleHistoryPageChange(page: number) {
 <template>
   <div
     data-testid="analysis-workspace"
-    class="flex h-[calc(100dvh-9rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full flex-col gap-4 overflow-hidden py-4 md:h-[calc(100vh-5rem)] lg:h-[calc(100vh-5.5rem)]"
+    class="flex h-[calc(100dvh-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full flex-col gap-4 overflow-hidden py-4"
   >
     <PageHeader
       title="股票分析"
