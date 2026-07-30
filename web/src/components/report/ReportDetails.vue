@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card';
 import type { ReportDetails as ReportDetailsType, ReportLanguage } from '@/types/analysis';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { onUnmounted, ref } from 'vue';
+import { ChevronDown } from 'lucide-vue-next';
 
 const props = withDefaults(
   defineProps<{
@@ -95,19 +96,9 @@ function renderJsonPre(data: unknown, panel: JsonPanel) {
           @click="showRaw = !showRaw"
         >
           <span class="text-xs text-foreground">{{ text.rawResult }}</span>
-          <svg
+          <ChevronDown
             :class="`w-3.5 h-3.5 text-muted-foreground transition-transform ${showRaw ? 'rotate-180' : ''}`"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M19 9l-7 7-7-7"
-            />
-          </svg>
+          />
         </button>
         <div
           v-if="showRaw"
@@ -138,19 +129,9 @@ function renderJsonPre(data: unknown, panel: JsonPanel) {
           @click="showSnapshot = !showSnapshot"
         >
           <span class="text-xs text-foreground">{{ text.analysisSnapshot }}</span>
-          <svg
+          <ChevronDown
             :class="`w-3.5 h-3.5 text-muted-foreground transition-transform ${showSnapshot ? 'rotate-180' : ''}`"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M19 9l-7 7-7-7"
-            />
-          </svg>
+          />
         </button>
         <div
           v-if="showSnapshot"

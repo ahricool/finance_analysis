@@ -1,40 +1,28 @@
 <script setup lang="ts">
-import { computed, ref, useAttrs, useId } from 'vue';
-import { Eye, EyeOff } from 'lucide-vue-next';
-import AppButton from './AppButton.vue';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils/cn';
+import { Eye, EyeOff } from 'lucide-vue-next';
+import { computed, ref, useAttrs, useId } from 'vue';
 
 defineOptions({ inheritAttrs: false });
-const props = withDefaults(
-  defineProps<{
-    modelValue?: string | number | null;
-    label?: string;
-    hint?: string;
-    error?: string;
-    id?: string;
-    name?: string;
-    type?: string;
-    class?: string;
-    allowTogglePassword?: boolean;
-    passwordVisible?: boolean;
-    disabled?: boolean;
-  }>(),
-  {
-    type: 'text',
-    class: '',
-    modelValue: undefined,
-    label: '',
-    hint: '',
-    error: '',
-    id: undefined,
-    name: undefined,
-    allowTogglePassword: false,
-    passwordVisible: undefined,
-    disabled: false,
-  },
-);
+const props = withDefaults(defineProps<{
+  modelValue?: string | number | null;
+  label?: string;
+  hint?: string;
+  error?: string;
+  id?: string;
+  name?: string;
+  type?: string;
+  class?: string;
+  allowTogglePassword?: boolean;
+  passwordVisible?: boolean;
+  disabled?: boolean;
+}>(), {
+  type: 'text', class: '', modelValue: undefined, label: '', hint: '', error: '', id: undefined,
+  name: undefined, allowTogglePassword: false, passwordVisible: undefined, disabled: false,
+});
 const emit = defineEmits<{
   'update:modelValue': [value: string];
   'update:passwordVisible': [value: boolean];
@@ -43,17 +31,9 @@ const attrs = useAttrs();
 const generatedId = useId();
 const inputId = computed(() => props.id ?? props.name ?? generatedId);
 const internalPasswordVisible = ref(false);
-const actualPasswordVisible = computed(
-  () => props.passwordVisible ?? internalPasswordVisible.value,
-);
-const effectiveType = computed(() =>
-  props.type === 'password' && actualPasswordVisible.value ? 'text' : props.type,
-);
-const forwardedAttrs = computed(() =>
-  Object.fromEntries(
-    Object.entries(attrs).filter(([key]) => key !== 'icon-type' && key !== 'iconType'),
-  ),
-);
+const actualPasswordVisible = computed(() => props.passwordVisible ?? internalPasswordVisible.value);
+const effectiveType = computed(() => props.type === 'password' && actualPasswordVisible.value ? 'text' : props.type);
+const forwardedAttrs = computed(() => Object.fromEntries(Object.entries(attrs).filter(([key]) => key !== 'icon-type' && key !== 'iconType')));
 
 function togglePasswordVisibility() {
   if (props.disabled) return;
@@ -82,7 +62,7 @@ function togglePasswordVisibility() {
         :class="allowTogglePassword && type === 'password' ? 'pr-11' : ''"
         @update:model-value="emit('update:modelValue', String($event))"
       />
-      <AppButton
+      <Button
         v-if="allowTogglePassword && type === 'password'"
         variant="ghost"
         size="icon-sm"
@@ -93,7 +73,7 @@ function togglePasswordVisibility() {
       >
         <EyeOff v-if="actualPasswordVisible" />
         <Eye v-else />
-      </AppButton>
+      </Button>
       <div
         v-if="$slots.trailing"
         class="absolute inset-y-0 right-2 flex items-center"

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { isParsedApiError } from '@/api/error';
 import type { ParsedApiError } from '@/api/error';
-import Button from '@/components/app/AppButton.vue';
-import Input from '@/components/app/AppInput.vue';
+import LoadingButton from '@/components/app/LoadingButton.vue';
+import FieldInput from '@/components/forms/FieldInput.vue';
 import SettingsAlert from '@/components/settings/SettingsAlert.vue';
 import SettingsSectionCard from '@/components/settings/SettingsSectionCard.vue';
 import { useAuth } from '@/composables/useAuth';
@@ -69,7 +69,7 @@ async function handleSubmit(e: Event) {
       class="space-y-4"
       @submit="handleSubmit"
     >
-      <Input
+      <FieldInput
         id="change-pass-current"
         v-model="currentPassword"
         type="password"
@@ -81,7 +81,7 @@ async function handleSubmit(e: Event) {
         autocomplete="current-password"
       />
 
-      <Input
+      <FieldInput
         id="change-pass-new"
         v-model="newPassword"
         type="password"
@@ -94,7 +94,7 @@ async function handleSubmit(e: Event) {
       />
 
       <div>
-        <Input
+        <FieldInput
           id="change-pass-confirm"
           v-model="newPasswordConfirm"
           type="password"
@@ -128,13 +128,13 @@ async function handleSubmit(e: Event) {
         variant="success"
       />
 
-      <Button
+      <LoadingButton
         type="submit"
         variant="default"
         :loading="isSubmitting"
       >
         保存新密码
-      </Button>
+      </LoadingButton>
     </form>
   </SettingsSectionCard>
 </template>

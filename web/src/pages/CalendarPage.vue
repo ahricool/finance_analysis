@@ -8,9 +8,17 @@ import {
 } from '@/api/calendar';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Button from '@/components/app/AppButton.vue';
-import Dialog from '@/components/app/AppDialog.vue';
-import Input from '@/components/app/AppInput.vue';
+import { Button } from '@/components/ui/button';
+import LoadingButton from '@/components/app/LoadingButton.vue';
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogScrollContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import FieldInput from '@/components/forms/FieldInput.vue';
 import Pagination from '@/components/app/AppPagination.vue';
 import AppCombobox from '@/components/app/AppCombobox.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
@@ -721,292 +729,300 @@ watch(displayTimezone, () => {
 
     <Dialog
       :open="!!createMode"
-      :title="createTitle"
-      class="max-w-2xl"
       @update:open="closeCreate"
     >
-      <form
-        class="space-y-4"
-        data-testid="calendar-create-form"
-        @submit.prevent="submitCreate"
-      >
-        <ApiErrorAlert
-          v-if="createError"
-          :error="createError"
-        />
+      <DialogScrollContent class="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{{ createTitle }}</DialogTitle>
+          <DialogDescription>填写事件或日历记录信息，保存后会出现在当前日期。</DialogDescription>
+        </DialogHeader>
+        <form
+          class="space-y-4"
+          data-testid="calendar-create-form"
+          @submit.prevent="submitCreate"
+        >
+          <ApiErrorAlert
+            v-if="createError"
+            :error="createError"
+          />
 
-        <template v-if="createMode === 'event'">
-          <div class="grid gap-4 sm:grid-cols-2">
-            <AppDatePicker
-              v-model="eventForm.eventDate"
-              label="事件日期 *"
-              :clearable="false"
-            />
-            <AppDateTimePicker
-              v-model="eventForm.eventTime"
-              label="具体时间（可选）"
-            />
-            <AppCombobox
-              v-model="eventForm.calendarType"
-              label="事件类型 *"
-              placeholder="例如 macro"
-              :options="[
-                { value: 'macro', label: '宏观' },
-                { value: 'earnings', label: '财报' },
-                { value: 'dividend', label: '分红' },
-                { value: 'split', label: '拆股' },
-                { value: 'ipo', label: 'IPO' },
-              ]"
-            />
-            <Input
-              v-model="eventForm.market"
-              label="市场 *"
-              maxlength="16"
+          <template v-if="createMode === 'event'">
+            <div class="grid gap-4 sm:grid-cols-2">
+              <AppDatePicker
+                v-model="eventForm.eventDate"
+                label="事件日期 *"
+                :clearable="false"
+              />
+              <AppDateTimePicker
+                v-model="eventForm.eventTime"
+                label="具体时间（可选）"
+              />
+              <AppCombobox
+                v-model="eventForm.calendarType"
+                label="事件类型 *"
+                placeholder="例如 macro"
+                :options="[
+                  { value: 'macro', label: '宏观' },
+                  { value: 'earnings', label: '财报' },
+                  { value: 'dividend', label: '分红' },
+                  { value: 'split', label: '拆股' },
+                  { value: 'ipo', label: 'IPO' },
+                ]"
+              />
+              <FieldInput
+                v-model="eventForm.market"
+                label="市场 *"
+                maxlength="16"
+                required
+              />
+              <FieldInput
+                v-model="eventForm.symbol"
+                label="股票代码"
+                maxlength="32"
+                placeholder="例如 AAPL"
+              />
+              <FieldInput
+                v-model="eventForm.counterName"
+                label="标的名称"
+                maxlength="128"
+              />
+              <FieldInput
+                v-model="eventForm.currency"
+                label="币种"
+                maxlength="16"
+                placeholder="例如 USD"
+              />
+              <FieldInput
+                v-model="eventForm.star"
+                label="星级（0-5）"
+                type="number"
+                min="0"
+                max="5"
+              />
+            </div>
+            <FieldInput
+              v-model="eventForm.title"
+              label="标题 *"
+              maxlength="120"
               required
             />
-            <Input
-              v-model="eventForm.symbol"
-              label="股票代码"
+            <div>
+              <label
+                class="mb-2 block text-sm font-medium text-foreground"
+                for="event-content"
+              >详情内容</label>
+              <Textarea
+                id="event-content"
+                v-model="eventForm.content"
+                class="min-h-32"
+                placeholder="支持 Markdown"
+              />
+            </div>
+          </template>
+
+          <template v-else-if="createMode === 'entry'">
+            <AppDateTimePicker
+              v-model="entryForm.time"
+              label="记录时间 *"
+              :clearable="false"
+            />
+            <FieldInput
+              v-model="entryForm.title"
+              label="标题 *"
+              maxlength="120"
+              required
+            />
+            <FieldInput
+              v-model="entryForm.type"
+              label="记录类型"
               maxlength="32"
-              placeholder="例如 AAPL"
+              placeholder="例如 manual_note"
             />
-            <Input
-              v-model="eventForm.counterName"
-              label="标的名称"
-              maxlength="128"
-            />
-            <Input
-              v-model="eventForm.currency"
-              label="币种"
-              maxlength="16"
-              placeholder="例如 USD"
-            />
-            <Input
-              v-model="eventForm.star"
-              label="星级（0-5）"
-              type="number"
-              min="0"
-              max="5"
-            />
-          </div>
-          <Input
-            v-model="eventForm.title"
-            label="标题 *"
-            maxlength="120"
-            required
-          />
-          <div>
-            <label
-              class="mb-2 block text-sm font-medium text-foreground"
-              for="event-content"
-            >详情内容</label>
-            <Textarea
-              id="event-content"
-              v-model="eventForm.content"
-              class="min-h-32"
-              placeholder="支持 Markdown"
-            />
-          </div>
-        </template>
+            <div>
+              <label
+                class="mb-2 block text-sm font-medium text-foreground"
+                for="entry-content"
+              >详情内容</label>
+              <Textarea
+                id="entry-content"
+                v-model="entryForm.content"
+                class="min-h-32"
+                placeholder="支持 Markdown"
+              />
+            </div>
+          </template>
 
-        <template v-else-if="createMode === 'entry'">
-          <AppDateTimePicker
-            v-model="entryForm.time"
-            label="记录时间 *"
-            :clearable="false"
-          />
-          <Input
-            v-model="entryForm.title"
-            label="标题 *"
-            maxlength="120"
-            required
-          />
-          <Input
-            v-model="entryForm.type"
-            label="记录类型"
-            maxlength="32"
-            placeholder="例如 manual_note"
-          />
-          <div>
-            <label
-              class="mb-2 block text-sm font-medium text-foreground"
-              for="entry-content"
-            >详情内容</label>
-            <Textarea
-              id="entry-content"
-              v-model="entryForm.content"
-              class="min-h-32"
-              placeholder="支持 Markdown"
-            />
-          </div>
-        </template>
-
-        <div class="flex justify-end gap-2 pt-2">
-          <Button
-            variant="ghost"
-            :disabled="createSaving"
-            @click="closeCreate"
-          >
-            取消
-          </Button>
-          <Button
-            type="submit"
-            :loading="createSaving"
-            loading-text="保存中…"
-          >
-            保存
-          </Button>
-        </div>
-      </form>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              :disabled="createSaving"
+              @click="closeCreate"
+            >
+              取消
+            </Button>
+            <LoadingButton
+              type="submit"
+              :loading="createSaving"
+              loading-text="保存中…"
+            >
+              保存
+            </LoadingButton>
+          </DialogFooter>
+        </form>
+      </DialogScrollContent>
     </Dialog>
 
     <Dialog
       :open="!!detail"
-      :title="detailTitle"
-      class="max-w-4xl"
       @update:open="closeDetail"
     >
-      <div
-        v-if="detail?.kind === 'event'"
-        class="space-y-5"
-      >
-        <div class="grid gap-3 sm:grid-cols-2">
+      <DialogScrollContent class="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>{{ detailTitle }}</DialogTitle>
+          <DialogDescription>查看事件基础信息、发生时间与完整内容。</DialogDescription>
+        </DialogHeader>
+        <div
+          v-if="detail?.kind === 'event'"
+          class="space-y-5"
+        >
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+              <p class="text-xs text-muted-foreground">
+                类型
+              </p>
+              <p class="mt-1 text-sm font-medium text-foreground">
+                {{ eventTypeLabel(detail.item.calendar_type) }}
+              </p>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+              <p class="text-xs text-muted-foreground">
+                标的 / 名称
+              </p>
+              <p class="mt-1 text-sm text-foreground">
+                {{ eventName(detail.item) }}
+              </p>
+            </div>
+            <div
+              v-if="detail.item.star !== null"
+              class="rounded-xl border border-border/60 bg-background/60 p-3"
+            >
+              <p class="text-xs text-muted-foreground">
+                Provider star
+              </p>
+              <p class="mt-1 text-sm text-foreground">
+                {{ detail.item.star }}
+              </p>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+              <p class="text-xs text-muted-foreground">
+                重要性
+              </p>
+              <p class="mt-1 text-sm text-foreground">
+                {{ importanceLabel(detail.item) }}
+              </p>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+              <p class="text-xs text-muted-foreground">
+                时间
+              </p>
+              <p class="mt-1 text-sm text-foreground">
+                {{ eventTime(detail.item) }}
+              </p>
+            </div>
+            <div
+              v-if="detail.item.importance_reason"
+              class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2"
+            >
+              <p class="text-xs text-muted-foreground">
+                重要性原因
+              </p>
+              <p class="mt-1 text-sm text-foreground">
+                {{ detail.item.importance_reason }}
+              </p>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2">
+              <p class="text-xs text-muted-foreground">
+                标题
+              </p>
+              <p class="mt-1 text-sm font-medium text-foreground">
+                {{ detail.item.title }}
+              </p>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+              <p class="text-xs text-muted-foreground">
+                日期
+              </p>
+              <p class="mt-1 text-sm text-foreground">
+                {{ formatDateOnly(detail.item.event_date) }}
+              </p>
+            </div>
+          </div>
+
           <div class="rounded-xl border border-border/60 bg-background/60 p-3">
             <p class="text-xs text-muted-foreground">
-              类型
-            </p>
-            <p class="mt-1 text-sm font-medium text-foreground">
-              {{ eventTypeLabel(detail.item.calendar_type) }}
-            </p>
-          </div>
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-foreground">
-              标的 / 名称
-            </p>
-            <p class="mt-1 text-sm text-foreground">
-              {{ eventName(detail.item) }}
-            </p>
-          </div>
-          <div
-            v-if="detail.item.star !== null"
-            class="rounded-xl border border-border/60 bg-background/60 p-3"
-          >
-            <p class="text-xs text-muted-foreground">
-              Provider star
-            </p>
-            <p class="mt-1 text-sm text-foreground">
-              {{ detail.item.star }}
-            </p>
-          </div>
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-foreground">
-              重要性
-            </p>
-            <p class="mt-1 text-sm text-foreground">
-              {{ importanceLabel(detail.item) }}
-            </p>
-          </div>
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-foreground">
-              时间
-            </p>
-            <p class="mt-1 text-sm text-foreground">
-              {{ eventTime(detail.item) }}
-            </p>
-          </div>
-          <div
-            v-if="detail.item.importance_reason"
-            class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2"
-          >
-            <p class="text-xs text-muted-foreground">
-              重要性原因
-            </p>
-            <p class="mt-1 text-sm text-foreground">
-              {{ detail.item.importance_reason }}
-            </p>
-          </div>
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2">
-            <p class="text-xs text-muted-foreground">
-              标题
-            </p>
-            <p class="mt-1 text-sm font-medium text-foreground">
-              {{ detail.item.title }}
-            </p>
-          </div>
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-foreground">
-              日期
-            </p>
-            <p class="mt-1 text-sm text-foreground">
-              {{ formatDateOnly(detail.item.event_date) }}
+              详情内容
+            </p>          <div
+              v-if="detail.item.content"
+              class="prose prose-sm mt-3 max-w-none text-sm text-foreground dark:prose-invert"
+              v-html="renderMarkdown(detail.item.content)"
+            />
+            <p
+              v-else
+              class="mt-2 text-sm text-muted-foreground"
+            >
+              该事件暂无详情内容
             </p>
           </div>
         </div>
 
-        <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-          <p class="text-xs text-muted-foreground">
-            详情内容
-          </p>          <div
-            v-if="detail.item.content"
-            class="prose prose-sm mt-3 max-w-none text-sm text-foreground dark:prose-invert"
-            v-html="renderMarkdown(detail.item.content)"
-          />
-          <p
-            v-else
-            class="mt-2 text-sm text-muted-foreground"
-          >
-            该事件暂无详情内容
-          </p>
-        </div>
-      </div>
-
-      <div
-        v-else-if="detail?.kind === 'entry'"
-        class="space-y-5"
-      >
-        <div class="grid gap-3 sm:grid-cols-2">
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2">
-            <p class="text-xs text-muted-foreground">
-              标题
-            </p>
-            <p class="mt-1 text-sm font-medium text-foreground">
-              {{ detail.item.title }}
-            </p>
+        <div
+          v-else-if="detail?.kind === 'entry'"
+          class="space-y-5"
+        >
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div class="rounded-xl border border-border/60 bg-background/60 p-3 sm:col-span-2">
+              <p class="text-xs text-muted-foreground">
+                标题
+              </p>
+              <p class="mt-1 text-sm font-medium text-foreground">
+                {{ detail.item.title }}
+              </p>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+              <p class="text-xs text-muted-foreground">
+                类型
+              </p>
+              <p class="mt-1 text-sm text-foreground">
+                {{ entryTypeLabel(detail.item.type) }}
+              </p>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-background/60 p-3">
+              <p class="text-xs text-muted-foreground">
+                时间
+              </p>
+              <p class="mt-1 text-sm text-foreground">
+                {{ formatDateTimeInDisplayTimezone(detail.item.time) }}
+              </p>
+            </div>
           </div>
+
           <div class="rounded-xl border border-border/60 bg-background/60 p-3">
             <p class="text-xs text-muted-foreground">
-              类型
-            </p>
-            <p class="mt-1 text-sm text-foreground">
-              {{ entryTypeLabel(detail.item.type) }}
-            </p>
-          </div>
-          <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-            <p class="text-xs text-muted-foreground">
-              时间
-            </p>
-            <p class="mt-1 text-sm text-foreground">
-              {{ formatDateTimeInDisplayTimezone(detail.item.time) }}
+              详情内容
+            </p>          <div
+              v-if="detail.item.content"
+              class="prose prose-sm mt-3 max-w-none text-sm text-foreground dark:prose-invert"
+              v-html="renderMarkdown(detail.item.content)"
+            />
+            <p
+              v-else
+              class="mt-2 text-sm text-muted-foreground"
+            >
+              该记录暂无详情内容
             </p>
           </div>
         </div>
-
-        <div class="rounded-xl border border-border/60 bg-background/60 p-3">
-          <p class="text-xs text-muted-foreground">
-            详情内容
-          </p>          <div
-            v-if="detail.item.content"
-            class="prose prose-sm mt-3 max-w-none text-sm text-foreground dark:prose-invert"
-            v-html="renderMarkdown(detail.item.content)"
-          />
-          <p
-            v-else
-            class="mt-2 text-sm text-muted-foreground"
-          >
-            该记录暂无详情内容
-          </p>
-        </div>
-      </div>
+      </DialogScrollContent>
     </Dialog>
   </div>
 </template>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue';
 import { Check, ChevronsUpDown, X } from 'lucide-vue-next';
-import AppButton from './AppButton.vue';
+import { Button } from '@/components/ui/button';
 import {
   Command,
   CommandEmpty,
@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/command';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils/cn';
 
 export type AppComboboxOption = {
   value: string;
@@ -78,7 +78,7 @@ function choose(value: string) {
         modal
       >
         <PopoverTrigger as-child>
-          <AppButton
+          <Button
             :id="triggerId"
             variant="outline"
             class="h-10 min-w-0 flex-1 justify-between px-3 font-normal"
@@ -96,7 +96,7 @@ function choose(value: string) {
               {{ selected?.label ?? placeholder }}
             </span>
             <ChevronsUpDown class="ml-2 size-4 shrink-0 opacity-50" />
-          </AppButton>
+          </Button>
         </PopoverTrigger>
         <PopoverContent class="w-[var(--reka-popover-trigger-width)] max-w-[calc(100vw-2rem)] p-0">
           <Command>
@@ -121,7 +121,7 @@ function choose(value: string) {
           </Command>
         </PopoverContent>
       </Popover>
-      <AppButton
+      <Button
         v-if="clearable && modelValue"
         variant="ghost"
         size="icon"
@@ -129,7 +129,7 @@ function choose(value: string) {
         @click="emit('update:modelValue', '')"
       >
         <X />
-      </AppButton>
+      </Button>
     </div>
     <p
       v-if="error"

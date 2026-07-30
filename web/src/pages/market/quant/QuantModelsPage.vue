@@ -4,10 +4,14 @@ import { useRouter } from 'vue-router';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Button from '@/components/app/AppButton.vue';
-import EmptyState from '@/components/app/AppEmptyState.vue';
-import InlineAlert from '@/components/app/AppAlert.vue';
+import { Button } from '@/components/ui/button';
 import QuantTrainingDialog from '@/components/quant/QuantTrainingDialog.vue';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { useAuthStore } from '@/stores/authStore';
 import type { ModelRun, ModelRunCreateAccepted, QuantMarket } from '@/types/quant';
@@ -107,85 +111,110 @@ watch(
       v-if="error"
       :error="error"
     />
-    <InlineAlert
+    <Alert
       v-if="createdRun"
-      variant="success"
-      title="训练任务已创建"
+      class="border-success/30 text-success"
     >
-      ModelRun #{{ createdRun.modelRunId }} 已提交，训练将在后台执行。
-      <template #action>
-        <div class="flex flex-wrap gap-2">
+      <AlertTitle>训练任务已创建</AlertTitle>
+      <AlertDescription class="text-current/80">
+        ModelRun #{{ createdRun.modelRunId }} 已提交，训练将在后台执行。
+      </AlertDescription>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <Button
+          as-child
+          variant="outline"
+          size="sm"
+        >
           <RouterLink
             :to="{
               path: `/market/quant/models/${createdRun.modelRunId}`,
               query: { market: createdRun.market },
             }"
-            class="inline-flex h-9 items-center rounded-xl border border-success/30 px-3 text-sm font-medium hover:bg-success/10"
           >
             查看模型运行
           </RouterLink>
+        </Button>
+        <Button
+          as-child
+          variant="outline"
+          size="sm"
+        >
           <RouterLink
             to="/tasks/runs"
-            class="inline-flex h-9 items-center rounded-xl border border-success/30 px-3 text-sm font-medium hover:bg-success/10"
           >
             查看任务详情
           </RouterLink>
-        </div>
-      </template>
-    </InlineAlert>
+        </Button>
+      </div>
+    </Alert>
     <div
       v-if="loading"
-      class="py-12 text-center text-muted-foreground"
+      class="space-y-3"
     >
-      加载中...
+      <Skeleton
+        v-for="index in 5"
+        :key="index"
+        class="h-14 w-full"
+      />
     </div>
-    <div
-      v-else-if="rows.length"
-      class="overflow-x-auto rounded-2xl border border-border bg-card"
-    >
-      <table class="w-full text-sm">
-        <thead class="text-left text-xs text-muted-foreground">
-          <tr>
-            <th class="p-3">
-              模型
-            </th>
-            <th>版本</th>
-            <th>状态</th>
-            <th>训练/测试区间</th>
-            <th>Rank IC</th>
-            <th>Top10超额</th>
-            <th>进度</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="item in rows"
-            :key="item.id"
-            class="border-t border-border"
-          >
-            <td class="p-3">
+    <Card v-else-if="rows.length">
+      <CardHeader><CardTitle>模型运行列表</CardTitle><CardDescription>查看训练区间、核心指标和发布状态。</CardDescription></CardHeader>
+      <CardContent class="hidden md:block">
+        <Table>
+          <TableHeader><TableRow><TableHead>模型</TableHead><TableHead>版本</TableHead><TableHead>状态</TableHead><TableHead>训练/测试区间</TableHead><TableHead>Rank IC</TableHead><TableHead>Top10超额</TableHead><TableHead>进度</TableHead></TableRow></TableHeader><TableBody>
+            <TableRow
+              v-for="item in rows"
+              :key="item.id"
+            >
+              <TableCell>
+                <RouterLink
+                  :to="{ path: `/market/quant/models/${item.id}`, query: marketQuery() }"
+                  class="text-primary"
+                >
+                  {{ item.modelKey }}
+                </RouterLink>
+              </TableCell><TableCell>{{ item.modelVersion }}</TableCell><TableCell>
+                <Badge variant="outline">
+                  {{ item.status }}
+                </Badge>
+              </TableCell><TableCell>{{ item.trainStart ?? '—' }} → {{ item.testEnd ?? '—' }}</TableCell><TableCell>{{ formatScore(item.metrics.rankIc) }}</TableCell><TableCell>{{ formatScore(item.metrics.top10ExcessReturnPct) }}%</TableCell><TableCell>{{ item.progress }}%</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </CardContent>
+      <CardContent class="space-y-3 md:hidden">
+        <Card
+          v-for="item in rows"
+          :key="item.id"
+        >
+          <CardHeader>
+            <CardTitle class="text-base">
               <RouterLink
                 :to="{ path: `/market/quant/models/${item.id}`, query: marketQuery() }"
                 class="text-primary"
               >
                 {{ item.modelKey }}
               </RouterLink>
-            </td>
-            <td>{{ item.modelVersion }}</td>
-            <td>{{ item.status }}</td>
-            <td>{{ item.trainStart ?? '—' }} → {{ item.testEnd ?? '—' }}</td>
-            <td>{{ formatScore(item.metrics.rankIc) }}</td>
-            <td>{{ formatScore(item.metrics.top10ExcessReturnPct) }}%</td>
-            <td>{{ item.progress }}%</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <EmptyState
-      v-else
-      :title="market === 'CN' ? 'A股模型尚未训练' : '暂无模型运行'"
-      description="当前市场还没有模型运行记录。管理员可以选择已就绪数据集创建训练任务。"
-    />
+            </CardTitle><CardDescription>{{ item.modelVersion }}</CardDescription><Badge variant="outline">
+              {{ item.status }}
+            </Badge>
+          </CardHeader><CardContent class="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p class="text-xs text-muted-foreground">
+                Rank IC
+              </p>{{ formatScore(item.metrics.rankIc) }}
+            </div><div>
+              <p class="text-xs text-muted-foreground">
+                进度
+              </p>{{ item.progress }}%
+            </div>
+          </CardContent>
+        </Card>
+      </CardContent>
+    </Card>
+    <Empty v-else>
+      <EmptyHeader><EmptyTitle>{{ market === 'CN' ? 'A股模型尚未训练' : '暂无模型运行' }}</EmptyTitle><EmptyDescription>当前市场还没有模型运行记录。管理员可以选择已就绪数据集创建训练任务。</EmptyDescription></EmptyHeader>
+    </Empty>
 
     <QuantTrainingDialog
       v-if="isAdmin"

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next';
-import AppButton from './AppButton.vue';
+import { Button } from '@/components/ui/button';
 
 const props = withDefaults(
   defineProps<{
@@ -31,7 +31,7 @@ const pages = computed(() => {
     :class="['flex items-center justify-center gap-1', props.class]"
     aria-label="分页"
   >
-    <AppButton
+    <Button
       variant="outline"
       size="icon"
       :disabled="currentPage <= 1"
@@ -39,7 +39,7 @@ const pages = computed(() => {
       @click="emit('pageChange', currentPage - 1)"
     >
       <ChevronLeft />
-    </AppButton>
+    </Button>
     <template
       v-for="(page, index) in pages"
       :key="`${page}-${index}`"
@@ -48,7 +48,7 @@ const pages = computed(() => {
         v-if="page === 'ellipsis'"
         class="px-1 text-muted-foreground"
       >…</span>
-      <AppButton
+      <Button
         v-else
         :variant="page === currentPage ? 'default' : 'outline'"
         size="icon"
@@ -56,9 +56,9 @@ const pages = computed(() => {
         @click="emit('pageChange', page)"
       >
         {{ page }}
-      </AppButton>
+      </Button>
     </template>
-    <AppButton
+    <Button
       variant="outline"
       size="icon"
       :disabled="currentPage >= totalPages"
@@ -66,6 +66,6 @@ const pages = computed(() => {
       @click="emit('pageChange', currentPage + 1)"
     >
       <ChevronRight />
-    </AppButton>
+    </Button>
   </nav>
 </template>

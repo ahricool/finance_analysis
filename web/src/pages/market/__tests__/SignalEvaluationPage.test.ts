@@ -11,7 +11,7 @@ vi.mock('@/api/signals', () => ({
   signalsApi: apiMocks,
 }));
 
-vi.mock('@/components/app/AppSelect.vue', () => ({
+vi.mock('@/components/forms/FieldSelect.vue', () => ({
   default: {
     inheritAttrs: false,
     props: ['modelValue', 'options', 'label'],

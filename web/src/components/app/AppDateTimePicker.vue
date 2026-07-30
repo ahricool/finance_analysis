@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { CalendarClock, X } from 'lucide-vue-next';
 import { computed, ref, useId, watch } from 'vue';
-import AppButton from './AppButton.vue';
+import { Button } from '@/components/ui/button';
 import AppDatePicker from './AppDatePicker.vue';
 import AppTimePicker from './AppTimePicker.vue';
 import {
@@ -77,7 +77,7 @@ function confirm() {
       :for="triggerId"
     >{{ label }}</Label>
     <div class="flex min-w-0 gap-1">
-      <AppButton
+      <Button
         :id="triggerId"
         variant="outline"
         class="h-10 min-w-0 flex-1 justify-start px-3 font-normal"
@@ -93,8 +93,8 @@ function confirm() {
         >
           {{ display || placeholder }}
         </span>
-      </AppButton>
-      <AppButton
+      </Button>
+      <Button
         v-if="clearable && modelValue"
         variant="ghost"
         size="icon"
@@ -103,7 +103,7 @@ function confirm() {
         @click="emit('update:modelValue', '')"
       >
         <X />
-      </AppButton>
+      </Button>
     </div>
     <p
       v-if="error"
@@ -143,18 +143,18 @@ function confirm() {
           />
         </div>
         <DialogFooter class="sticky bottom-0 bg-popover pt-2">
-          <AppButton
+          <Button
             variant="outline"
             @click="open = false"
           >
             取消
-          </AppButton>
-          <AppButton
+          </Button>
+          <Button
             :disabled="!date"
             @click="confirm"
           >
             确认
-          </AppButton>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

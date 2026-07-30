@@ -5,7 +5,7 @@ import type {
   RealtimePatternSignal,
   RealtimePatternState,
 } from '@/api/realtimeMarket';
-import Tooltip from '@/components/app/AppTooltip.vue';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatDateTimeInDisplayTimezone, getDisplayTimezone } from '@/utils/format';
 import { computed } from 'vue';
 
@@ -198,43 +198,49 @@ const tooltip = computed(() => {
 </script>
 
 <template>
-  <Tooltip
-    :content="tooltip"
-    content-class="whitespace-pre-line"
-    focusable
-  >
-    <span class="flex min-w-0 flex-col gap-0.5 text-xs leading-tight">
-      <span
-        v-if="signal"
-        class="whitespace-nowrap font-semibold"
-        :class="formalColorClass"
-      >正式 · {{ primaryLabel(signal) }}</span>
-      <span
-        v-if="signal && !previewSignal && detail"
-        class="whitespace-nowrap text-[11px] text-muted-foreground"
-      >
-        {{ detail }}
-      </span>
-      <span
-        v-if="signal && !previewSignal && invalidationText"
-        class="whitespace-nowrap text-[11px] text-muted-foreground"
-      >
-        {{ invalidationText }}
-      </span>
-      <span
-        v-if="previewSignal"
-        class="whitespace-nowrap font-semibold text-amber-500"
-      >实时预览 · {{ primaryLabel(previewSignal) }} · 未收盘</span>
-      <span
-        v-if="previewSignal && !signal"
-        class="whitespace-nowrap text-[11px] text-amber-500/90"
-      >{{ stageText[previewSignal.stage] }} · {{ previewSignal.quality_score }}分 · 可能变化</span>
-      <span
-        v-if="emptyTitle"
-        class="whitespace-nowrap font-semibold text-muted-foreground"
-      >{{
-        emptyTitle
-      }}</span>
-    </span>
-  </Tooltip>
+  <TooltipProvider :delay-duration="0">
+    <Tooltip>
+      <TooltipTrigger as-child>
+        <span
+          tabindex="0"
+          class="flex min-w-0 flex-col gap-0.5 text-xs leading-tight"
+        >
+          <span
+            v-if="signal"
+            class="whitespace-nowrap font-semibold"
+            :class="formalColorClass"
+          >正式 · {{ primaryLabel(signal) }}</span>
+          <span
+            v-if="signal && !previewSignal && detail"
+            class="whitespace-nowrap text-[11px] text-muted-foreground"
+          >
+            {{ detail }}
+          </span>
+          <span
+            v-if="signal && !previewSignal && invalidationText"
+            class="whitespace-nowrap text-[11px] text-muted-foreground"
+          >
+            {{ invalidationText }}
+          </span>
+          <span
+            v-if="previewSignal"
+            class="whitespace-nowrap font-semibold text-amber-500"
+          >实时预览 · {{ primaryLabel(previewSignal) }} · 未收盘</span>
+          <span
+            v-if="previewSignal && !signal"
+            class="whitespace-nowrap text-[11px] text-amber-500/90"
+          >{{ stageText[previewSignal.stage] }} · {{ previewSignal.quality_score }}分 · 可能变化</span>
+          <span
+            v-if="emptyTitle"
+            class="whitespace-nowrap font-semibold text-muted-foreground"
+          >{{
+            emptyTitle
+          }}</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent class="max-h-80 max-w-sm whitespace-pre-line overflow-y-auto">
+        {{ tooltip }}
+      </TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
 </template>

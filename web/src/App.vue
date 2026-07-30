@@ -3,7 +3,7 @@ import { storeToRefs } from 'pinia';
 import { onMounted, watch } from 'vue';
 import { RouterView, useRoute, useRouter } from 'vue-router';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Button from '@/components/app/AppButton.vue';
+import { Button } from '@/components/ui/button';
 import ThemeProvider from '@/components/theme/ThemeProvider.vue';
 import { Toaster } from '@/components/ui/sonner';
 import { useAuthStore } from '@/stores/authStore';

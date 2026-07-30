@@ -16,12 +16,18 @@ vi.mock('@/api/calendar', () => ({
   },
 }));
 
-vi.mock('@/components/app/AppDialog.vue', () => ({
-  default: {
-    props: ['open', 'title', 'description'],
+vi.mock('@/components/ui/dialog', () => ({
+  Dialog: {
+    props: ['open'],
     emits: ['update:open'],
-    template: '<teleport to="body"><div v-if="open" role="dialog"><h2>{{ title }}</h2><p v-if="description">{{ description }}</p><button type="button" aria-label="关闭弹窗" @click="$emit(\'update:open\', false)">关闭</button><slot /></div></teleport>',
+    template: '<teleport to="body"><div v-if="open" role="dialog"><button type="button" aria-label="关闭弹窗" @click="$emit(\'update:open\', false)">关闭</button><slot /></div></teleport>',
   },
+  DialogContent: { template: '<div><slot /></div>' },
+  DialogScrollContent: { template: '<div><slot /></div>' },
+  DialogHeader: { template: '<header><slot /></header>' },
+  DialogTitle: { template: '<h2><slot /></h2>' },
+  DialogDescription: { template: '<p><slot /></p>' },
+  DialogFooter: { template: '<footer><slot /></footer>' },
 }));
 
 vi.mock('@/components/app/AppDatePicker.vue', () => ({

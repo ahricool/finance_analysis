@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
-import AppSheet from '@/components/app/AppSheet.vue';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import {
   formatDecimalText,
@@ -10,7 +13,6 @@ import {
   getMarketCurrencyCode,
   getMarketCurrencySymbol,
 } from '@/utils/marketCurrency';
-import { X } from 'lucide-vue-next';
 import { computed } from 'vue';
 
 export interface StockDetailRecord {
@@ -101,279 +103,251 @@ function movementClass(value: number | null | undefined): string {
 </script>
 
 <template>
-  <AppSheet
+  <Sheet
     :open="Boolean(stock)"
-    :title="stock?.name || stock?.code || '股票详情'"
-    description="股票完整信息与实时行情快照"
     @update:open="emit('update:open', $event)"
   >
-    <div
-      v-if="stock"
-      class="w-full overflow-y-auto"
-    >
-      <header
-        class="sticky top-0 z-10 flex items-start justify-between border-b border-border/70 bg-card px-6 py-5"
+    <SheetContent class="flex w-full flex-col p-0 sm:max-w-3xl">
+      <SheetHeader class="p-6 text-left">
+        <SheetTitle class="flex flex-wrap items-center gap-2">
+          {{ stock?.name || stock?.code || '股票详情' }}
+          <span class="font-mono text-sm font-semibold text-primary">{{ stock?.code }}</span>
+          <span
+            class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs text-muted-foreground"
+          >{{ marketName }}</span>
+        </SheetTitle>
+        <SheetDescription>股票完整信息与每 5 秒更新的行情快照</SheetDescription>
+      </SheetHeader>
+      <Separator />
+      <ScrollArea
+        v-if="stock"
+        class="min-h-0 flex-1"
       >
-        <div>
-          <div class="flex flex-wrap items-center gap-2">
-            <h2
-              id="stock-detail-title"
-              class="text-lg font-semibold text-foreground"
+        <div class="space-y-6 p-6">
+          <section>
+            <h3 class="mb-3 text-sm font-semibold text-foreground">
+              实时行情
+            </h3>
+            <div
+              v-if="quote?.available"
+              class="grid grid-cols-2 gap-3 sm:grid-cols-4"
             >
-              {{ stock.name || stock.code }}
-            </h2>
-            <span class="font-mono text-sm font-semibold text-primary">{{ stock.code }}</span>
-            <span
-              class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs text-muted-foreground"
-            >{{ marketName }}</span>
-          </div>
-          <p class="mt-1 text-xs text-muted-foreground">
-            股票完整信息与每 5 秒更新的行情快照
-          </p>
+              <Card
+                class="col-span-2 rounded-xl border border-border/60 bg-background p-4 sm:col-span-1"
+              >
+                <CardHeader><CardDescription>最新价</CardDescription><CardTitle>{{ formatNumber(quote.last_price, 4) }}</CardTitle></CardHeader>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardDescription>今日涨跌额</CardDescription><CardTitle
+                    :class="movementClass(quote.change_amount)"
+                  >
+                    {{ formatSigned(quote.change_amount) }}
+                  </CardTitle>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardDescription>今日涨跌幅</CardDescription><CardTitle
+                    :class="movementClass(quote.change_pct)"
+                  >
+                    {{ formatSigned(quote.change_pct, '%') }}
+                  </CardTitle>
+                </CardHeader>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardDescription>交易时段</CardDescription><CardTitle class="text-base">
+                    {{ quote.trade_session || '—' }}
+                  </CardTitle>
+                </CardHeader>
+              </Card>
+            </div>
+            <p
+              v-else
+              class="rounded-xl border border-dashed border-border/70 bg-background px-4 py-6 text-center text-sm text-muted-foreground"
+            >
+              暂无该股票的实时行情
+            </p>
+
+            <dl
+              class="mt-3 grid grid-cols-2 overflow-hidden rounded-xl border border-border/60 sm:grid-cols-4"
+            >
+              <div
+                v-for="entry in [
+                  ['行情标识', quote?.symbol || '—'],
+                  ['开盘', formatNumber(quote?.open, 4)],
+                  ['最高', formatNumber(quote?.high, 4)],
+                  ['最低', formatNumber(quote?.low, 4)],
+                  ['昨收', formatNumber(quote?.pre_close, 4)],
+                  ['成交量 (Volume)', formatNumber(quote?.volume, 0)],
+                  ['成交额', formatNumber(quote?.turnover, 2)],
+                  ['行情时间', formatDateTimeInDisplayTimezone(quote?.event_time)],
+                  ['接收时间', formatDateTimeInDisplayTimezone(quote?.received_at)],
+                ]"
+                :key="entry[0]"
+                class="min-w-0 border-b border-r border-border/50 p-3 last:border-r-0"
+              >
+                <dt class="whitespace-nowrap text-xs text-muted-foreground">
+                  {{ entry[0] }}
+                </dt>
+                <dd
+                  class="mt-1 truncate text-sm tabular-nums text-foreground"
+                  :title="entry[1]"
+                >
+                  {{ entry[1] }}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section>
+            <h3 class="mb-3 text-sm font-semibold text-foreground">
+              {{ kind === 'holding' ? '持仓信息' : '自选信息' }}
+            </h3>
+            <dl
+              class="grid grid-cols-1 gap-x-8 gap-y-4 rounded-xl border border-border/60 bg-background p-4 sm:grid-cols-2"
+            >
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  股票代码
+                </dt>
+                <dd class="mt-1 font-mono text-sm text-foreground">
+                  {{ stock.code }}
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  股票名称
+                </dt>
+                <dd class="mt-1 text-sm text-foreground">
+                  {{ stock.name || '—' }}
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  所属市场
+                </dt>
+                <dd class="mt-1 text-sm text-foreground">
+                  {{ marketName }}
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  计价币种
+                </dt>
+                <dd class="mt-1 text-sm text-foreground">
+                  {{ currencyCode }}
+                </dd>
+              </div>
+              <template v-if="kind === 'holding'">
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    持仓数量
+                  </dt>
+                  <dd class="mt-1 text-sm text-foreground">
+                    {{ formatDecimalText(stock.quantity) }} 股
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    平均成本
+                  </dt>
+                  <dd class="mt-1 text-sm text-foreground">
+                    {{ formatMarketCurrencyAmount(stock.avg_cost, stock.market_type) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    持仓成本金额
+                  </dt>
+                  <dd class="mt-1 text-sm text-foreground">
+                    {{ formatHoldingCostAmount(stock.quantity, stock.avg_cost, stock.market_type) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    最新市值
+                  </dt>
+                  <dd class="mt-1 text-sm text-foreground">
+                    {{ formatMarketCurrencyAmount(holdingMarketValue, stock.market_type) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    浮动盈亏
+                  </dt>
+                  <dd
+                    class="mt-1 text-sm font-medium"
+                    :class="movementClass(holdingProfitAmount)"
+                  >
+                    {{ formatSignedMarketAmount(holdingProfitAmount) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    持仓收益率
+                  </dt>
+                  <dd
+                    class="mt-1 text-sm font-medium"
+                    :class="movementClass(holdingProfitPct)"
+                  >
+                    {{ formatSigned(holdingProfitPct, '%') }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    首次建仓时间
+                  </dt>
+                  <dd class="mt-1 text-sm text-foreground">
+                    {{ formatDateTimeInDisplayTimezone(stock.opened_at) }}
+                  </dd>
+                </div>
+              </template>
+              <div v-else>
+                <dt class="text-xs text-muted-foreground">
+                  特别关注
+                </dt>
+                <dd class="mt-1 text-sm text-foreground">
+                  {{ stock.is_favorite ? '是' : '否' }}
+                </dd>
+              </div>
+              <div class="sm:col-span-2">
+                <dt class="text-xs text-muted-foreground">
+                  备注
+                </dt>
+                <dd class="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
+                  {{ stock.notes || '—' }}
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  记录 ID
+                </dt>
+                <dd class="mt-1 font-mono text-sm text-foreground">
+                  {{ stock.id }}
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  添加时间
+                </dt>
+                <dd class="mt-1 text-sm text-foreground">
+                  {{ formatDateTimeInDisplayTimezone(stock.created_at) }}
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs text-muted-foreground">
+                  更新时间
+                </dt>
+                <dd class="mt-1 text-sm text-foreground">
+                  {{ formatDateTimeInDisplayTimezone(stock.updated_at) }}
+                </dd>
+              </div>
+            </dl>
+          </section>
         </div>
-        <button
-          class="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-          aria-label="关闭详情"
-          @click="emit('update:open', false)"
-        >
-          <X class="h-5 w-5" />
-        </button>
-      </header>
-
-      <div class="space-y-6 p-6">
-        <section>
-          <h3 class="mb-3 text-sm font-semibold text-foreground">
-            实时行情
-          </h3>
-          <div
-            v-if="quote?.available"
-            class="grid grid-cols-2 gap-3 sm:grid-cols-4"
-          >
-            <div
-              class="col-span-2 rounded-xl border border-border/60 bg-background p-4 sm:col-span-1"
-            >
-              <p class="text-xs text-muted-foreground">
-                最新价
-              </p>
-              <p class="mt-1 text-xl font-semibold tabular-nums text-foreground">
-                {{ formatNumber(quote.last_price, 4) }}
-              </p>
-            </div>
-            <div class="rounded-xl border border-border/60 bg-background p-4">
-              <p class="text-xs text-muted-foreground">
-                今日涨跌额
-              </p>
-              <p
-                class="mt-1 text-base font-semibold tabular-nums"
-                :class="movementClass(quote.change_amount)"
-              >
-                {{ formatSigned(quote.change_amount) }}
-              </p>
-            </div>
-            <div class="rounded-xl border border-border/60 bg-background p-4">
-              <p class="text-xs text-muted-foreground">
-                今日涨跌幅
-              </p>
-              <p
-                class="mt-1 text-base font-semibold tabular-nums"
-                :class="movementClass(quote.change_pct)"
-              >
-                {{ formatSigned(quote.change_pct, '%') }}
-              </p>
-            </div>
-            <div class="rounded-xl border border-border/60 bg-background p-4">
-              <p class="text-xs text-muted-foreground">
-                交易时段
-              </p>
-              <p class="mt-1 text-sm font-medium text-foreground">
-                {{ quote.trade_session || '—' }}
-              </p>
-            </div>
-          </div>
-          <p
-            v-else
-            class="rounded-xl border border-dashed border-border/70 bg-background px-4 py-6 text-center text-sm text-muted-foreground"
-          >
-            暂无该股票的实时行情
-          </p>
-
-          <dl
-            class="mt-3 grid grid-cols-2 overflow-hidden rounded-xl border border-border/60 sm:grid-cols-4"
-          >
-            <div
-              v-for="entry in [
-                ['行情标识', quote?.symbol || '—'],
-                ['开盘', formatNumber(quote?.open, 4)],
-                ['最高', formatNumber(quote?.high, 4)],
-                ['最低', formatNumber(quote?.low, 4)],
-                ['昨收', formatNumber(quote?.pre_close, 4)],
-                ['成交量 (Volume)', formatNumber(quote?.volume, 0)],
-                ['成交额', formatNumber(quote?.turnover, 2)],
-                ['行情时间', formatDateTimeInDisplayTimezone(quote?.event_time)],
-                ['接收时间', formatDateTimeInDisplayTimezone(quote?.received_at)],
-              ]"
-              :key="entry[0]"
-              class="min-w-0 border-b border-r border-border/50 p-3 last:border-r-0"
-            >
-              <dt class="whitespace-nowrap text-xs text-muted-foreground">
-                {{ entry[0] }}
-              </dt>
-              <dd
-                class="mt-1 truncate text-sm tabular-nums text-foreground"
-                :title="entry[1]"
-              >
-                {{ entry[1] }}
-              </dd>
-            </div>
-          </dl>
-        </section>
-
-        <section>
-          <h3 class="mb-3 text-sm font-semibold text-foreground">
-            {{ kind === 'holding' ? '持仓信息' : '自选信息' }}
-          </h3>
-          <dl
-            class="grid grid-cols-1 gap-x-8 gap-y-4 rounded-xl border border-border/60 bg-background p-4 sm:grid-cols-2"
-          >
-            <div>
-              <dt class="text-xs text-muted-foreground">
-                股票代码
-              </dt>
-              <dd class="mt-1 font-mono text-sm text-foreground">
-                {{ stock.code }}
-              </dd>
-            </div>
-            <div>
-              <dt class="text-xs text-muted-foreground">
-                股票名称
-              </dt>
-              <dd class="mt-1 text-sm text-foreground">
-                {{ stock.name || '—' }}
-              </dd>
-            </div>
-            <div>
-              <dt class="text-xs text-muted-foreground">
-                所属市场
-              </dt>
-              <dd class="mt-1 text-sm text-foreground">
-                {{ marketName }}
-              </dd>
-            </div>
-            <div>
-              <dt class="text-xs text-muted-foreground">
-                计价币种
-              </dt>
-              <dd class="mt-1 text-sm text-foreground">
-                {{ currencyCode }}
-              </dd>
-            </div>
-            <template v-if="kind === 'holding'">
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  持仓数量
-                </dt>
-                <dd class="mt-1 text-sm text-foreground">
-                  {{ formatDecimalText(stock.quantity) }} 股
-                </dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  平均成本
-                </dt>
-                <dd class="mt-1 text-sm text-foreground">
-                  {{ formatMarketCurrencyAmount(stock.avg_cost, stock.market_type) }}
-                </dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  持仓成本金额
-                </dt>
-                <dd class="mt-1 text-sm text-foreground">
-                  {{ formatHoldingCostAmount(stock.quantity, stock.avg_cost, stock.market_type) }}
-                </dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  最新市值
-                </dt>
-                <dd class="mt-1 text-sm text-foreground">
-                  {{ formatMarketCurrencyAmount(holdingMarketValue, stock.market_type) }}
-                </dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  浮动盈亏
-                </dt>
-                <dd
-                  class="mt-1 text-sm font-medium"
-                  :class="movementClass(holdingProfitAmount)"
-                >
-                  {{ formatSignedMarketAmount(holdingProfitAmount) }}
-                </dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  持仓收益率
-                </dt>
-                <dd
-                  class="mt-1 text-sm font-medium"
-                  :class="movementClass(holdingProfitPct)"
-                >
-                  {{ formatSigned(holdingProfitPct, '%') }}
-                </dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  首次建仓时间
-                </dt>
-                <dd class="mt-1 text-sm text-foreground">
-                  {{ formatDateTimeInDisplayTimezone(stock.opened_at) }}
-                </dd>
-              </div>
-            </template>
-            <div v-else>
-              <dt class="text-xs text-muted-foreground">
-                特别关注
-              </dt>
-              <dd class="mt-1 text-sm text-foreground">
-                {{ stock.is_favorite ? '是' : '否' }}
-              </dd>
-            </div>
-            <div class="sm:col-span-2">
-              <dt class="text-xs text-muted-foreground">
-                备注
-              </dt>
-              <dd class="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
-                {{ stock.notes || '—' }}
-              </dd>
-            </div>
-            <div>
-              <dt class="text-xs text-muted-foreground">
-                记录 ID
-              </dt>
-              <dd class="mt-1 font-mono text-sm text-foreground">
-                {{ stock.id }}
-              </dd>
-            </div>
-            <div>
-              <dt class="text-xs text-muted-foreground">
-                添加时间
-              </dt>
-              <dd class="mt-1 text-sm text-foreground">
-                {{ formatDateTimeInDisplayTimezone(stock.created_at) }}
-              </dd>
-            </div>
-            <div>
-              <dt class="text-xs text-muted-foreground">
-                更新时间
-              </dt>
-              <dd class="mt-1 text-sm text-foreground">
-                {{ formatDateTimeInDisplayTimezone(stock.updated_at) }}
-              </dd>
-            </div>
-          </dl>
-        </section>
-      </div>
-    </div>
-  </AppSheet>
+      </ScrollArea>
+    </SheetContent>
+  </Sheet>
 </template>

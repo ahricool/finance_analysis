@@ -9,15 +9,20 @@ import {
   type PositionStatus,
 } from '@/api/portfolio';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Button from '@/components/app/AppButton.vue';
+import { Button } from '@/components/ui/button';
+import LoadingButton from '@/components/app/LoadingButton.vue';
 import ConfirmDialog from '@/components/app/AppConfirmDialog.vue';
-import Dialog from '@/components/app/AppDialog.vue';
-import Input from '@/components/app/AppInput.vue';
+import FieldInput from '@/components/forms/FieldInput.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import AppDateTimePicker from '@/components/app/AppDateTimePicker.vue';
-import AppSelect from '@/components/app/AppSelect.vue';
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
 import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { AssetType, Market } from '@/types/stockIndex';
 import { formatDecimalText, formatMarketCurrencyAmount } from '@/utils/marketCurrency';
@@ -490,118 +495,87 @@ onMounted(async () => {
       @dismiss="error = null"
     />
 
-    <div
-      class="grid grid-cols-3 gap-1 rounded-2xl border border-border/70 bg-card p-1"
-      role="tablist"
+    <Tabs
+      :model-value="selectedAccountCode"
     >
-      <button
-        v-for="account in accounts"
-        :key="account.account_code"
-        type="button"
-        role="tab"
-        :aria-selected="selectedAccountCode === account.account_code"
-        :data-account-code="account.account_code"
-        class="rounded-xl px-3 py-2 text-sm font-medium transition-colors"
-        :class="
-          selectedAccountCode === account.account_code
-            ? 'bg-primary/15 text-primary'
-            : 'text-muted-foreground hover:bg-muted'
-        "
-        @click="selectAccount(account.account_code)"
-      >
-        {{ account.name }}
-      </button>
-    </div>
+      <TabsList class="grid h-auto w-full grid-cols-3">
+        <TabsTrigger
+          v-for="account in accounts"
+          :key="account.account_code"
+          :value="account.account_code"
+          :data-account-code="account.account_code"
+          @click="selectAccount(account.account_code)"
+        >
+          {{ account.name }}
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
 
     <section
       v-if="selectedAccount"
       class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
       aria-label="账户汇总"
     >
-      <div class="rounded-2xl border border-border/70 bg-card p-4">
-        <p class="text-xs text-muted-foreground">
-          现金余额 · {{ selectedAccount.currency }}
-        </p>
-        <div class="mt-2 flex items-center gap-2">
-          <input
-            v-model="cashInput"
-            class="border-input bg-background shadow-xs min-w-0 flex-1 rounded-lg px-2 py-1.5 text-sm"
-            aria-label="现金余额"
-          />
-          <Button
-            size="xs"
-            :loading="cashSaving"
-            @click="saveCash"
-          >
-            保存
-          </Button>
-        </div>
-      </div>
-      <div class="rounded-2xl border border-border/70 bg-card p-4">
-        <p class="text-xs text-muted-foreground">
-          股票/ETF 持仓成本
-        </p>
-        <p class="mt-2 text-lg font-semibold">
-          {{ amount(equityCost) }}
-        </p>
-      </div>
-      <div class="rounded-2xl border border-border/70 bg-card p-4">
-        <p class="text-xs text-muted-foreground">
-          股票/ETF 实时市值
-        </p>
-        <p class="mt-2 text-lg font-semibold">
-          {{ amount(equityMarketValue) }}
-        </p>
-        <p
+      <Card>
+        <CardHeader class="pb-2">
+          <CardDescription>现金余额 · {{ selectedAccount.currency }}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div class="flex items-center gap-2">
+            <input
+              v-model="cashInput"
+              class="border-input bg-background shadow-xs min-w-0 flex-1 rounded-lg px-2 py-1.5 text-sm"
+              aria-label="现金余额"
+            />
+            <LoadingButton
+              size="xs"
+              :loading="cashSaving"
+              @click="saveCash"
+            >
+              保存
+            </LoadingButton>
+          </div>
+        </CardContent>
+      </Card>
+      <Card><CardHeader><CardDescription>股票/ETF 持仓成本</CardDescription><CardTitle>{{ amount(equityCost) }}</CardTitle></CardHeader></Card>
+      <Card>
+        <CardHeader><CardDescription>股票/ETF 实时市值</CardDescription><CardTitle>{{ amount(equityMarketValue) }}</CardTitle></CardHeader><CardContent
           v-if="hasUnpricedEquity"
-          class="mt-1 text-xs text-amber-500"
+          class="text-xs text-warning"
         >
           存在未定价股票/ETF
-        </p>
-      </div>
-      <div class="rounded-2xl border border-border/70 bg-card p-4">
-        <p class="text-xs text-muted-foreground">
-          股票/ETF 未实现盈亏
-        </p>
-        <p
-          class="mt-2 text-lg font-semibold"
-          :class="unrealizedPnl !== null && unrealizedPnl < 0 ? 'text-emerald-500' : 'text-red-500'"
-        >
-          {{ amount(unrealizedPnl) }}
-        </p>
-      </div>
-      <div class="rounded-2xl border border-border/70 bg-card p-4">
-        <p class="text-xs text-muted-foreground">
-          可定价资产 · 不含期权
-        </p>
-        <p class="mt-2 text-lg font-semibold">
-          {{ amount(pricedAssets) }}
-        </p>
-        <p
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardDescription>股票/ETF 未实现盈亏</CardDescription><CardTitle
+            :class="unrealizedPnl !== null && unrealizedPnl < 0 ? 'text-emerald-500' : 'text-red-500'"
+          >
+            {{ amount(unrealizedPnl) }}
+          </CardTitle>
+        </CardHeader>
+      </Card>
+      <Card>
+        <CardHeader><CardDescription>可定价资产 · 不含期权</CardDescription><CardTitle>{{ amount(pricedAssets) }}</CardTitle></CardHeader><CardContent
           v-if="selectedAccountCode === 'US'"
-          class="mt-1 text-xs text-muted-foreground"
+          class="text-xs text-muted-foreground"
         >
           期权 {{ openOptions.length }} 笔 · 成本 {{ amount(optionCost) }}
-        </p>
-      </div>
+        </CardContent>
+      </Card>
     </section>
 
     <div class="flex flex-wrap items-center gap-2">
-      <button
+      <Button
         v-for="option in availableAssetFilters"
         :key="option.value"
-        type="button"
-        class="rounded-full border px-3 py-1.5 text-xs font-medium"
-        :class="
-          assetFilter === option.value
-            ? 'border-primary/40 bg-primary/10 text-primary'
-            : 'border-border text-muted-foreground'
-        "
+        size="sm"
+        :variant="assetFilter === option.value ? 'secondary' : 'ghost'"
         @click="assetFilter = option.value"
       >
         {{ option.label }}
-      </button>
-      <AppSelect
+      </Button>
+      <FieldSelect
         :model-value="statusFilter"
         class="ml-auto min-w-32"
         :options="[
@@ -616,9 +590,13 @@ onMounted(async () => {
 
     <div
       v-if="loading"
-      class="rounded-2xl border border-border/70 bg-card p-10 text-center text-muted-foreground"
+      class="space-y-3"
     >
-      加载中...
+      <Skeleton
+        v-for="index in 5"
+        :key="index"
+        class="h-16 w-full"
+      />
     </div>
     <template v-else>
       <section
@@ -919,198 +897,198 @@ onMounted(async () => {
           </article>
         </div>
       </section>
-      <div
+      <Empty
         v-if="!filteredPositions.length"
-        class="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground"
       >
-        当前筛选下暂无持仓记录。
-      </div>
+        <EmptyHeader><EmptyTitle>暂无持仓记录</EmptyTitle><EmptyDescription>当前账户和筛选条件下没有可展示的持仓。</EmptyDescription></EmptyHeader>
+      </Empty>
     </template>
 
     <Dialog
       :open="dialogMode !== null"
-      :title="dialogMode === 'edit' ? '编辑持仓' : '添加持仓'"
-      class="max-w-xl"
       @update:open="closeDialog"
     >
-      <form
-        class="space-y-4"
-        @submit.prevent="savePosition"
-      >
-        <template v-if="dialogMode !== 'edit'">
-          <fieldset>
-            <legend class="text-sm font-medium">
-              持仓类型
-            </legend>
-            <div class="mt-2 flex flex-wrap gap-4">
-              <label
-                v-for="assetType in availableCreateAssetTypes"
-                :key="assetType.value"
-                class="flex items-center gap-2 text-sm"
-              >
-                <input
-                  :checked="createAssetType === assetType.value"
-                  :data-create-asset-type="assetType.value"
-                  type="radio"
-                  name="create-asset-type"
-                  :value="assetType.value"
-                  @change="changeCreateAssetType(assetType.value)"
-                />
-                {{ assetType.label }}
-              </label>
-            </div>
-          </fieldset>
-          <fieldset v-if="createAssetType === 'OPTION'">
-            <legend class="text-sm font-medium">
-              标的类型
-            </legend>
-            <div class="mt-2 flex gap-4">
-              <label class="flex items-center gap-2 text-sm">
-                <input
-                  v-model="optionUnderlyingType"
-                  type="radio"
-                  name="option-underlying-type"
-                  value="STOCK"
-                />股票
-              </label>
-              <label class="flex items-center gap-2 text-sm">
-                <input
-                  v-model="optionUnderlyingType"
-                  type="radio"
-                  name="option-underlying-type"
-                  value="ETF"
-                />ETF
-              </label>
-            </div>
-          </fieldset>
-          <label class="block text-sm font-medium">{{
-            createAssetType === 'OPTION' ? '期权标的' : '标的'
-          }}</label>
-          <StockAutocomplete
-            :model-value="stockQuery"
-            :placeholder="`搜索${selectedAccount?.name ?? ''}标的`"
-            @update:model-value="handleAutocompleteInput"
-            @submit="handleAutocomplete"
-          />
-          <p
-            v-if="selectedSecurity"
-            class="text-xs text-primary"
-          >
-            已选择 {{ selectedSecurity.canonicalCode }} ·
-            {{ createAssetType === 'OPTION' ? optionUnderlyingType : createAssetType }}
-          </p>
-        </template>
-        <template v-if="dialogMode === 'create' && createAssetType === 'OPTION'">
-          <div class="grid gap-3 sm:grid-cols-2">
-            <AppSelect
-              v-model="optionType"
-              label="Call / Put"
-              :options="[
-                { value: 'CALL', label: 'Call' },
-                { value: 'PUT', label: 'Put' },
-              ]"
-            /><AppDatePicker
-              v-model="expirationDate"
-              label="到期日"
-            />
-          </div>
-          <div class="grid grid-cols-2 items-end gap-3">
-            <Input
-              v-model="strikePrice"
-              label="行权价"
-              inputmode="decimal"
+      <DialogContent class="max-h-[calc(100dvh-1rem)] max-w-xl overflow-y-auto">
+        <DialogHeader><DialogTitle>{{ dialogMode === 'edit' ? '编辑持仓' : '添加持仓' }}</DialogTitle><DialogDescription>维护标的、数量、成本、建仓时间和持仓状态。</DialogDescription></DialogHeader>
+        <form
+          class="space-y-4"
+          @submit.prevent="savePosition"
+        >
+          <template v-if="dialogMode !== 'edit'">
+            <fieldset>
+              <legend class="text-sm font-medium">
+                持仓类型
+              </legend>
+              <div class="mt-2 flex flex-wrap gap-4">
+                <label
+                  v-for="assetType in availableCreateAssetTypes"
+                  :key="assetType.value"
+                  class="flex items-center gap-2 text-sm"
+                >
+                  <input
+                    :checked="createAssetType === assetType.value"
+                    :data-create-asset-type="assetType.value"
+                    type="radio"
+                    name="create-asset-type"
+                    :value="assetType.value"
+                    @change="changeCreateAssetType(assetType.value)"
+                  />
+                  {{ assetType.label }}
+                </label>
+              </div>
+            </fieldset>
+            <fieldset v-if="createAssetType === 'OPTION'">
+              <legend class="text-sm font-medium">
+                标的类型
+              </legend>
+              <div class="mt-2 flex gap-4">
+                <label class="flex items-center gap-2 text-sm">
+                  <input
+                    v-model="optionUnderlyingType"
+                    type="radio"
+                    name="option-underlying-type"
+                    value="STOCK"
+                  />股票
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                  <input
+                    v-model="optionUnderlyingType"
+                    type="radio"
+                    name="option-underlying-type"
+                    value="ETF"
+                  />ETF
+                </label>
+              </div>
+            </fieldset>
+            <label class="block text-sm font-medium">{{
+              createAssetType === 'OPTION' ? '期权标的' : '标的'
+            }}</label>
+            <StockAutocomplete
+              :model-value="stockQuery"
+              :placeholder="`搜索${selectedAccount?.name ?? ''}标的`"
+              @update:model-value="handleAutocompleteInput"
+              @submit="handleAutocomplete"
             />
             <p
-              class="rounded-xl border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+              v-if="selectedSecurity"
+              class="text-xs text-primary"
             >
-              合约乘数：100
+              已选择 {{ selectedSecurity.canonicalCode }} ·
+              {{ createAssetType === 'OPTION' ? optionUnderlyingType : createAssetType }}
             </p>
-          </div>
-          <div class="grid gap-3 sm:grid-cols-2">
-            <Input
-              v-model="optionContracts"
-              label="张数"
-              inputmode="numeric"
-            /><AppSelect
-              :model-value="optionDirection"
-              label="持仓方向"
-              :options="[
-                { value: 'LONG', label: '多头' },
-                { value: 'SHORT', label: '空头' },
-              ]"
-              @update:model-value="optionDirection = $event as PositionDirection"
-            />
-          </div>
-        </template>
-        <template v-else-if="dialogMode === 'edit' && editingPosition?.asset_type === 'OPTION'">
-          <div class="grid gap-3 sm:grid-cols-2">
-            <Input
-              v-model="optionContracts"
-              label="张数"
-              inputmode="numeric"
-            /><AppSelect
-              :model-value="optionDirection"
-              label="持仓方向"
-              :options="[
-                { value: 'LONG', label: '多头' },
-                { value: 'SHORT', label: '空头' },
-              ]"
-              @update:model-value="optionDirection = $event as PositionDirection"
-            />
-          </div>
-        </template>
-        <Input
-          v-else
-          v-model="quantity"
-          label="数量"
-          inputmode="decimal"
-        />
-        <Input
-          v-model="avgCost"
-          label="平均成本"
-          inputmode="decimal"
-        />
-        <AppDateTimePicker
-          v-model="openedAt"
-          label="建仓时间"
-        />
-        <AppSelect
-          v-if="dialogMode === 'edit'"
-          :model-value="editStatus"
-          label="状态"
-          :options="[
-            { value: 'OPEN', label: 'OPEN' },
-            { value: 'CLOSED', label: 'CLOSED' },
-            ...(editingPosition?.asset_type === 'OPTION'
-              ? [{ value: 'EXPIRED', label: 'EXPIRED' }]
-              : []),
-          ]"
-          @update:model-value="editStatus = $event as PositionStatus"
-        />
-        <label class="grid gap-2 text-sm">备注<Textarea
-          v-model="notes"
-          class="min-h-20"
-        /></label>
-        <p
-          v-if="formError"
-          class="text-sm text-red-500"
-        >
-          {{ formError }}
-        </p>
-        <div class="flex justify-end gap-2">
-          <Button
-            variant="secondary"
-            @click="closeDialog"
+          </template>
+          <template v-if="dialogMode === 'create' && createAssetType === 'OPTION'">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <FieldSelect
+                v-model="optionType"
+                label="Call / Put"
+                :options="[
+                  { value: 'CALL', label: 'Call' },
+                  { value: 'PUT', label: 'Put' },
+                ]"
+              /><AppDatePicker
+                v-model="expirationDate"
+                label="到期日"
+              />
+            </div>
+            <div class="grid grid-cols-2 items-end gap-3">
+              <FieldInput
+                v-model="strikePrice"
+                label="行权价"
+                inputmode="decimal"
+              />
+              <p
+                class="rounded-xl border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+              >
+                合约乘数：100
+              </p>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <FieldInput
+                v-model="optionContracts"
+                label="张数"
+                inputmode="numeric"
+              /><FieldSelect
+                :model-value="optionDirection"
+                label="持仓方向"
+                :options="[
+                  { value: 'LONG', label: '多头' },
+                  { value: 'SHORT', label: '空头' },
+                ]"
+                @update:model-value="optionDirection = $event as PositionDirection"
+              />
+            </div>
+          </template>
+          <template v-else-if="dialogMode === 'edit' && editingPosition?.asset_type === 'OPTION'">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <FieldInput
+                v-model="optionContracts"
+                label="张数"
+                inputmode="numeric"
+              /><FieldSelect
+                :model-value="optionDirection"
+                label="持仓方向"
+                :options="[
+                  { value: 'LONG', label: '多头' },
+                  { value: 'SHORT', label: '空头' },
+                ]"
+                @update:model-value="optionDirection = $event as PositionDirection"
+              />
+            </div>
+          </template>
+          <FieldInput
+            v-else
+            v-model="quantity"
+            label="数量"
+            inputmode="decimal"
+          />
+          <FieldInput
+            v-model="avgCost"
+            label="平均成本"
+            inputmode="decimal"
+          />
+          <AppDateTimePicker
+            v-model="openedAt"
+            label="建仓时间"
+          />
+          <FieldSelect
+            v-if="dialogMode === 'edit'"
+            :model-value="editStatus"
+            label="状态"
+            :options="[
+              { value: 'OPEN', label: 'OPEN' },
+              { value: 'CLOSED', label: 'CLOSED' },
+              ...(editingPosition?.asset_type === 'OPTION'
+                ? [{ value: 'EXPIRED', label: 'EXPIRED' }]
+                : []),
+            ]"
+            @update:model-value="editStatus = $event as PositionStatus"
+          />
+          <label class="grid gap-2 text-sm">备注<Textarea
+            v-model="notes"
+            class="min-h-20"
+          /></label>
+          <p
+            v-if="formError"
+            class="text-sm text-red-500"
           >
-            取消
-          </Button><Button
-            type="submit"
-            :loading="saving"
-          >
-            保存
-          </Button>
-        </div>
-      </form>
+            {{ formError }}
+          </p>
+          <DialogFooter>
+            <Button
+              variant="secondary"
+              @click="closeDialog"
+            >
+              取消
+            </Button><LoadingButton
+              type="submit"
+              :loading="saving"
+            >
+              保存
+            </LoadingButton>
+          </DialogFooter>
+        </form>
+      </DialogContent>
     </Dialog>
     <ConfirmDialog
       :open="deletingPosition !== null"

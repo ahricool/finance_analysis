@@ -8,6 +8,7 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import type { NewsIntelItem, ReportLanguage } from '@/types/analysis';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { ref, watch } from 'vue';
+import { ArrowUp, ExternalLink } from 'lucide-vue-next';
 
 const props = withDefaults(
   defineProps<{
@@ -110,19 +111,7 @@ watch(
       :description="text.noNewsDescription"
     >
       <template #icon>
-        <svg
-          class="h-4 w-4"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="1.5"
-            d="M19 14l-7-7m0 0l-7 7m7-7v18"
-          />
-        </svg>
+        <ArrowUp class="size-4" />
       </template>
     </DashboardStateBlock>
 
@@ -156,19 +145,7 @@ watch(
             :aria-label="text.openLink"
           >
             {{ text.openLink }}
-            <svg
-              class="h-3.5 w-3.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M14 3h7m0 0v7m0-7L10 14"
-              />
-            </svg>
+            <ExternalLink class="size-3.5" />
           </a>
         </div>
       </div>

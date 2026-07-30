@@ -2,10 +2,19 @@
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { quantApi } from '@/api/quant';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Button from '@/components/app/AppButton.vue';
-import AppInput from '@/components/app/AppInput.vue';
-import AppSelect from '@/components/app/AppSelect.vue';
-import Dialog from '@/components/app/AppDialog.vue';
+import { Button } from '@/components/ui/button';
+import LoadingButton from '@/components/app/LoadingButton.vue';
+import FieldInput from '@/components/forms/FieldInput.vue';
+import FieldSelect from '@/components/forms/FieldSelect.vue';
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogScrollContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Separator } from '@/components/ui/separator';
 import type {
   ModelRunCreateAccepted,
   QuantDatasetSnapshot,
@@ -179,271 +188,275 @@ watch(modelKey, () => {
 <template>
   <Dialog
     :open="open"
-    title="创建训练任务"
-    description="选择一个已就绪的数据集快照，使用后端默认 Walk-forward 配置启动训练。"
-    class="max-w-3xl"
     @update:open="requestClose"
   >
-    <form
-      class="space-y-5"
-      data-testid="training-run-form"
-      @submit.prevent="createRun"
-    >
-      <ApiErrorAlert
-        v-if="error"
-        :error="error"
-        @dismiss="error = null"
-      />
+    <DialogScrollContent class="max-w-3xl">
+      <DialogHeader>
+        <DialogTitle>创建训练任务</DialogTitle>
+        <DialogDescription>
+          选择一个已就绪的数据集快照，使用后端默认 Walk-forward 配置启动训练。
+        </DialogDescription>
+      </DialogHeader>
+      <form
+        class="space-y-5"
+        data-testid="training-run-form"
+        @submit.prevent="createRun"
+      >
+        <ApiErrorAlert
+          v-if="error"
+          :error="error"
+          @dismiss="error = null"
+        />
 
-      <fieldset>
-        <legend class="mb-2 text-xs font-medium text-muted-foreground">
-          市场
-        </legend>
-        <div
-          v-if="marketLocked"
-          class="rounded-xl border border-border bg-card px-3 py-2.5 text-sm text-foreground"
-        >
-          {{ selectedMarket === 'US' ? '美股 · US' : 'A股 · CN' }}
-          <span class="ml-2 text-xs text-muted-foreground">由所选数据集确定</span>
-        </div>
-        <div
-          v-else
-          class="grid grid-cols-2 gap-2"
-          role="radiogroup"
-          aria-label="训练市场"
-        >
-          <label
-            v-for="option in [
-              { value: 'US', label: '美股 · US' },
-              { value: 'CN', label: 'A股 · CN' },
-            ]"
-            :key="option.value"
-            class="cursor-pointer rounded-xl border p-3 text-sm transition-colors"
-            :class="
-              selectedMarket === option.value
-                ? 'border-primary/50 bg-primary/10 text-primary'
-                : 'border-border bg-background text-muted-foreground hover:bg-muted'
-            "
+        <fieldset>
+          <legend class="mb-2 text-xs font-medium text-muted-foreground">
+            市场
+          </legend>
+          <div
+            v-if="marketLocked"
+            class="rounded-xl border border-border bg-card px-3 py-2.5 text-sm text-foreground"
           >
-            <input
-              v-model="selectedMarket"
-              class="sr-only"
-              type="radio"
-              :value="option.value"
+            {{ selectedMarket === 'US' ? '美股 · US' : 'A股 · CN' }}
+            <span class="ml-2 text-xs text-muted-foreground">由所选数据集确定</span>
+          </div>
+          <div
+            v-else
+            class="grid grid-cols-2 gap-2"
+            role="radiogroup"
+            aria-label="训练市场"
+          >
+            <label
+              v-for="option in [
+                { value: 'US', label: '美股 · US' },
+                { value: 'CN', label: 'A股 · CN' },
+              ]"
+              :key="option.value"
+              class="cursor-pointer rounded-xl border p-3 text-sm transition-colors"
+              :class="
+                selectedMarket === option.value
+                  ? 'border-primary/50 bg-primary/10 text-primary'
+                  : 'border-border bg-background text-muted-foreground hover:bg-muted'
+              "
+            >
+              <input
+                v-model="selectedMarket"
+                class="sr-only"
+                type="radio"
+                :value="option.value"
+              />
+              <span class="font-medium">{{ option.label }}</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <section>
+          <div class="mb-2 flex items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold text-foreground">
+              数据集快照
+            </h3>
+            <LoadingButton
+              variant="ghost"
+              size="sm"
+              :loading="loadingOptions"
+              loading-text="刷新中"
+              @click="loadOptions"
+            >
+              刷新
+            </LoadingButton>
+          </div>
+
+          <div
+            v-if="loadingOptions"
+            class="rounded-xl border border-border bg-background px-4 py-8 text-center text-sm text-muted-foreground"
+          >
+            正在加载可训练数据集...
+          </div>
+          <div
+            v-else-if="readyDatasets.length"
+            class="max-h-64 space-y-2 overflow-y-auto pr-1"
+            data-testid="training-dataset-options"
+          >
+            <label
+              v-for="item in readyDatasets"
+              :key="item.id"
+              class="block cursor-pointer rounded-xl border p-3 transition-colors"
+              :class="
+                selectedDatasetId === item.id
+                  ? 'border-primary/50 bg-primary/10'
+                  : 'border-border bg-background hover:bg-muted'
+              "
+            >
+              <div class="flex items-start gap-3">
+                <input
+                  v-model.number="selectedDatasetId"
+                  class="mt-1 h-4 w-4 accent-primary"
+                  type="radio"
+                  :value="item.id"
+                />
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span class="font-mono text-sm font-semibold text-foreground">#{{ item.id }}</span>
+                    <span class="text-sm text-foreground">{{ item.dateFrom }} → {{ item.dateTo }}</span>
+                  </div>
+                  <p class="mt-1 text-xs leading-5 text-muted-foreground">
+                    {{ formatCount(item.symbolCount) }} /
+                    {{ formatCount(item.universeMemberCount) }} 只股票 · 覆盖率
+                    {{ (item.universeCoverageRatio * 100).toFixed(1) }}% ·
+                    {{ formatCount(item.rowCount) }} 行 · {{ priceModeLabel(item.priceMode) }} ·
+                    {{ item.featureVersion }}
+                  </p>
+                  <p class="mt-0.5 text-xs text-muted-foreground">
+                    创建于 {{ formatDateTimeInDisplayTimezone(item.createdAt) }}
+                  </p>
+                </div>
+              </div>
+            </label>
+          </div>
+          <div
+            v-else
+            class="rounded-xl border border-dashed border-border bg-background px-4 py-6 text-center"
+            data-testid="training-dataset-empty"
+          >
+            <p class="text-sm font-medium text-foreground">
+              当前市场没有已就绪的数据集。
+            </p>
+            <p class="mt-1 text-xs text-muted-foreground">
+              请先前往数据集页面构建数据集。
+            </p>
+            <Button
+              class="mt-4"
+              variant="secondary"
+              size="sm"
+              @click="openDatasetBuilder"
+            >
+              前往构建数据集
+            </Button>
+          </div>
+        </section>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <FieldSelect
+            v-model="modelKey"
+            label="模型类型"
+            data-testid="training-model-select"
+            :options="
+              trainableDefinitions.map((item) => ({
+                value: item.key,
+                label: `${item.name} · ${item.key}`,
+              }))
+            "
+            :disabled="loadingOptions || trainableDefinitions.length === 0"
+          />
+          <label class="text-sm">
+            <FieldInput
+              v-model="modelVersion"
+              label="模型版本"
+              data-testid="training-model-version"
+              required
+              maxlength="96"
+              class="font-mono"
             />
-            <span class="font-medium">{{ option.label }}</span>
+            <span
+              v-if="modelVersion && !modelVersionValid"
+              class="mt-1 block text-xs text-destructive"
+            >
+              只能包含字母、数字、点、下划线和连字符，且必须以字母或数字开头。
+            </span>
           </label>
         </div>
-      </fieldset>
 
-      <section>
-        <div class="mb-2 flex items-center justify-between gap-3">
-          <h3 class="text-sm font-semibold text-foreground">
-            数据集快照
-          </h3>
+        <section
+          class="rounded-xl border border-border bg-background p-4"
+          data-testid="training-config-summary"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold text-foreground">
+              训练配置摘要
+            </h3>
+            <span class="text-xs text-muted-foreground">后端默认配置</span>
+          </div>
+          <dl class="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            <div class="flex justify-between gap-3">
+              <dt class="text-muted-foreground">
+                训练方式
+              </dt>
+              <dd>Walk-forward</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-muted-foreground">
+                训练窗口
+              </dt>
+              <dd>3 年</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-muted-foreground">
+                验证窗口
+              </dt>
+              <dd>3 个月</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-muted-foreground">
+                测试窗口
+              </dt>
+              <dd>3 个月</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-muted-foreground">
+                重训频率
+              </dt>
+              <dd>3 个月</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-muted-foreground">
+                预测周期
+              </dt>
+              <dd>5 个交易日</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-muted-foreground">
+                Embargo
+              </dt>
+              <dd>2 个交易日</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-muted-foreground">
+                特征
+              </dt>
+              <dd class="text-right">
+                Alpha158 + 自定义扩展特征
+              </dd>
+            </div>
+            <div class="flex justify-between gap-3 sm:col-span-2">
+              <dt class="text-muted-foreground">
+                标签
+              </dt>
+              <dd class="text-right">
+                T+1 开盘 → T+5 收盘的超额收益
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <Separator />
+        <DialogFooter>
           <Button
             variant="ghost"
-            size="sm"
-            :loading="loadingOptions"
-            loading-text="刷新中"
-            @click="loadOptions"
+            :disabled="creatingRun"
+            @click="requestClose"
           >
-            刷新
+            取消
           </Button>
-        </div>
-
-        <div
-          v-if="loadingOptions"
-          class="rounded-xl border border-border bg-background px-4 py-8 text-center text-sm text-muted-foreground"
-        >
-          正在加载可训练数据集...
-        </div>
-        <div
-          v-else-if="readyDatasets.length"
-          class="max-h-64 space-y-2 overflow-y-auto pr-1"
-          data-testid="training-dataset-options"
-        >
-          <label
-            v-for="item in readyDatasets"
-            :key="item.id"
-            class="block cursor-pointer rounded-xl border p-3 transition-colors"
-            :class="
-              selectedDatasetId === item.id
-                ? 'border-primary/50 bg-primary/10'
-                : 'border-border bg-background hover:bg-muted'
-            "
+          <LoadingButton
+            type="submit"
+            data-testid="create-training-run"
+            :disabled="!canCreateRun"
+            :loading="creatingRun"
+            loading-text="创建中"
           >
-            <div class="flex items-start gap-3">
-              <input
-                v-model.number="selectedDatasetId"
-                class="mt-1 h-4 w-4 accent-primary"
-                type="radio"
-                :value="item.id"
-              />
-              <div class="min-w-0 flex-1">
-                <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span class="font-mono text-sm font-semibold text-foreground">#{{ item.id }}</span>
-                  <span class="text-sm text-foreground">{{ item.dateFrom }} → {{ item.dateTo }}</span>
-                </div>
-                <p class="mt-1 text-xs leading-5 text-muted-foreground">
-                  {{ formatCount(item.symbolCount) }} /
-                  {{ formatCount(item.universeMemberCount) }} 只股票 · 覆盖率
-                  {{ (item.universeCoverageRatio * 100).toFixed(1) }}% ·
-                  {{ formatCount(item.rowCount) }} 行 · {{ priceModeLabel(item.priceMode) }} ·
-                  {{ item.featureVersion }}
-                </p>
-                <p class="mt-0.5 text-xs text-muted-foreground">
-                  创建于 {{ formatDateTimeInDisplayTimezone(item.createdAt) }}
-                </p>
-              </div>
-            </div>
-          </label>
-        </div>
-        <div
-          v-else
-          class="rounded-xl border border-dashed border-border bg-background px-4 py-6 text-center"
-          data-testid="training-dataset-empty"
-        >
-          <p class="text-sm font-medium text-foreground">
-            当前市场没有已就绪的数据集。
-          </p>
-          <p class="mt-1 text-xs text-muted-foreground">
-            请先前往数据集页面构建数据集。
-          </p>
-          <Button
-            class="mt-4"
-            variant="secondary"
-            size="sm"
-            @click="openDatasetBuilder"
-          >
-            前往构建数据集
-          </Button>
-        </div>
-      </section>
-
-      <div class="grid gap-4 sm:grid-cols-2">
-        <AppSelect
-          v-model="modelKey"
-          label="模型类型"
-          data-testid="training-model-select"
-          :options="
-            trainableDefinitions.map((item) => ({
-              value: item.key,
-              label: `${item.name} · ${item.key}`,
-            }))
-          "
-          :disabled="loadingOptions || trainableDefinitions.length === 0"
-        />
-        <label class="text-sm">
-          <AppInput
-            v-model="modelVersion"
-            label="模型版本"
-            data-testid="training-model-version"
-            required
-            maxlength="96"
-            class="font-mono"
-          />
-          <span
-            v-if="modelVersion && !modelVersionValid"
-            class="mt-1 block text-xs text-destructive"
-          >
-            只能包含字母、数字、点、下划线和连字符，且必须以字母或数字开头。
-          </span>
-        </label>
-      </div>
-
-      <section
-        class="rounded-xl border border-border bg-background p-4"
-        data-testid="training-config-summary"
-      >
-        <div class="flex items-center justify-between gap-3">
-          <h3 class="text-sm font-semibold text-foreground">
-            训练配置摘要
-          </h3>
-          <span class="text-xs text-muted-foreground">后端默认配置</span>
-        </div>
-        <dl class="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-          <div class="flex justify-between gap-3">
-            <dt class="text-muted-foreground">
-              训练方式
-            </dt>
-            <dd>Walk-forward</dd>
-          </div>
-          <div class="flex justify-between gap-3">
-            <dt class="text-muted-foreground">
-              训练窗口
-            </dt>
-            <dd>3 年</dd>
-          </div>
-          <div class="flex justify-between gap-3">
-            <dt class="text-muted-foreground">
-              验证窗口
-            </dt>
-            <dd>3 个月</dd>
-          </div>
-          <div class="flex justify-between gap-3">
-            <dt class="text-muted-foreground">
-              测试窗口
-            </dt>
-            <dd>3 个月</dd>
-          </div>
-          <div class="flex justify-between gap-3">
-            <dt class="text-muted-foreground">
-              重训频率
-            </dt>
-            <dd>3 个月</dd>
-          </div>
-          <div class="flex justify-between gap-3">
-            <dt class="text-muted-foreground">
-              预测周期
-            </dt>
-            <dd>5 个交易日</dd>
-          </div>
-          <div class="flex justify-between gap-3">
-            <dt class="text-muted-foreground">
-              Embargo
-            </dt>
-            <dd>2 个交易日</dd>
-          </div>
-          <div class="flex justify-between gap-3">
-            <dt class="text-muted-foreground">
-              特征
-            </dt>
-            <dd class="text-right">
-              Alpha158 + 自定义扩展特征
-            </dd>
-          </div>
-          <div class="flex justify-between gap-3 sm:col-span-2">
-            <dt class="text-muted-foreground">
-              标签
-            </dt>
-            <dd class="text-right">
-              T+1 开盘 → T+5 收盘的超额收益
-            </dd>
-          </div>
-        </dl>
-      </section>
-
-      <div
-        class="flex flex-col-reverse gap-2 border-t border-border/60 pt-4 sm:flex-row sm:justify-end"
-      >
-        <Button
-          variant="ghost"
-          :disabled="creatingRun"
-          @click="requestClose"
-        >
-          取消
-        </Button>
-        <Button
-          type="submit"
-          data-testid="create-training-run"
-          :disabled="!canCreateRun"
-          :loading="creatingRun"
-          loading-text="创建中"
-        >
-          创建并启动训练
-        </Button>
-      </div>
-    </form>
+            创建并启动训练
+          </LoadingButton>
+        </DialogFooter>
+      </form>
+    </DialogScrollContent>
   </Dialog>
 </template>

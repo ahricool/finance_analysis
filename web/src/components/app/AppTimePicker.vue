@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { Clock, X } from 'lucide-vue-next';
 import { computed, ref, useId, watch } from 'vue';
-import AppButton from './AppButton.vue';
-import AppSelect from './AppSelect.vue';
+import { Button } from '@/components/ui/button';
+import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
@@ -84,7 +84,7 @@ function confirm() {
     <div class="flex min-w-0 gap-1">
       <Popover v-model:open="open">
         <PopoverTrigger as-child>
-          <AppButton
+          <Button
             :id="triggerId"
             variant="outline"
             class="h-10 min-w-0 flex-1 justify-start px-3 font-normal"
@@ -96,7 +96,7 @@ function confirm() {
             <span :class="!modelValue && 'text-muted-foreground'">
               {{ modelValue || placeholder }}
             </span>
-          </AppButton>
+          </Button>
         </PopoverTrigger>
         <PopoverContent
           align="start"
@@ -106,17 +106,17 @@ function confirm() {
             class="grid grid-cols-2 gap-3"
             :class="withSeconds && 'sm:grid-cols-3'"
           >
-            <AppSelect
+            <FieldSelect
               v-model="hour"
               label="小时"
               :options="hours"
             />
-            <AppSelect
+            <FieldSelect
               v-model="minute"
               label="分钟"
               :options="minutes"
             />
-            <AppSelect
+            <FieldSelect
               v-if="withSeconds"
               v-model="second"
               label="秒"
@@ -124,19 +124,19 @@ function confirm() {
             />
           </div>
           <div class="mt-4 flex justify-end gap-2">
-            <AppButton
+            <Button
               variant="ghost"
               @click="open = false"
             >
               取消
-            </AppButton>
-            <AppButton @click="confirm">
+            </Button>
+            <Button @click="confirm">
               确认
-            </AppButton>
+            </Button>
           </div>
         </PopoverContent>
       </Popover>
-      <AppButton
+      <Button
         v-if="clearable && modelValue"
         variant="ghost"
         size="icon"
@@ -145,7 +145,7 @@ function confirm() {
         @click="emit('update:modelValue', '')"
       >
         <X />
-      </AppButton>
+      </Button>
     </div>
     <p
       v-if="error"

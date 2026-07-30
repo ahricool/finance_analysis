@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { RealtimeQuote } from '@/api/realtimeMarket';
 import type { MarketType } from '@/api/watchList';
-import Tooltip from '@/components/app/AppTooltip.vue';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { calculateZeroDteStatus } from '@/utils/zeroDteStatus';
 import { ArrowDownRight, ArrowUpRight, Clock3, Minus, ShieldX } from 'lucide-vue-next';
 import { computed } from 'vue';
@@ -72,36 +72,41 @@ const tooltip = computed(() => {
 </script>
 
 <template>
-  <Tooltip
-    :content="tooltip"
-    content-class="whitespace-pre-line"
-    focusable
-  >
-    <span
-      v-if="result"
-      class="inline-flex min-w-0 flex-col items-start gap-0.5"
-    >
-      <span
-        class="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-1 text-[11px] font-semibold leading-none"
-        :class="appearance.className"
-      >
-        <component
-          :is="appearance.icon"
-          class="h-3.5 w-3.5 shrink-0"
-          aria-hidden="true"
-        />
-        {{ result.status }}
-      </span>
-      <span
-        v-if="helper"
-        class="whitespace-nowrap text-[10px] text-muted-foreground"
-      >{{
-        helper
-      }}</span>
-    </span>
-    <span
-      v-else
-      class="text-xs text-muted-foreground"
-    >—</span>
-  </Tooltip>
+  <TooltipProvider :delay-duration="0">
+    <Tooltip>
+      <TooltipTrigger as-child>
+        <span
+          v-if="result"
+          tabindex="0"
+          class="inline-flex min-w-0 flex-col items-start gap-0.5"
+        >
+          <span
+            class="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-1 text-[11px] font-semibold leading-none"
+            :class="appearance.className"
+          >
+            <component
+              :is="appearance.icon"
+              class="h-3.5 w-3.5 shrink-0"
+              aria-hidden="true"
+            />
+            {{ result.status }}
+          </span>
+          <span
+            v-if="helper"
+            class="whitespace-nowrap text-[10px] text-muted-foreground"
+          >{{
+            helper
+          }}</span>
+        </span>
+        <span
+          v-else
+          tabindex="0"
+          class="text-xs text-muted-foreground"
+        >—</span>
+      </TooltipTrigger>
+      <TooltipContent class="whitespace-pre-line">
+        {{ tooltip }}
+      </TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
 </template>

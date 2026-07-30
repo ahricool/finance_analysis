@@ -2,7 +2,7 @@
 import type { ParsedApiError } from '@/api/error';
 import { computed } from 'vue';
 import { X } from 'lucide-vue-next';
-import AppButton from './AppButton.vue';
+import { Button } from '@/components/ui/button';
 
 const props = withDefaults(
   defineProps<{
@@ -41,14 +41,14 @@ const showDetails = computed(
           {{ error.message }}
         </p>
       </div>
-      <AppButton
+      <Button
         variant="ghost"
         size="icon-sm"
         :aria-label="dismissLabel"
         @click="emit('dismiss')"
       >
         <X />
-      </AppButton>
+      </Button>
     </div>
     <details
       v-if="showDetails"
@@ -59,7 +59,7 @@ const showDetails = computed(
       </summary>
       <pre class="mt-2 whitespace-pre-wrap text-xs">{{ error.rawMessage }}</pre>
     </details>
-    <AppButton
+    <Button
       v-if="actionLabel"
       variant="outline"
       size="sm"
@@ -67,6 +67,6 @@ const showDetails = computed(
       @click="emit('action')"
     >
       {{ actionLabel }}
-    </AppButton>
+    </Button>
   </div>
 </template>

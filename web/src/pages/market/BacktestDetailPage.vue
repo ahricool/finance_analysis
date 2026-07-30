@@ -5,7 +5,7 @@ import BacktestEquityChart from '@/components/backtest/BacktestEquityChart.vue';
 import BacktestSummaryCards from '@/components/backtest/BacktestSummaryCards.vue';
 import BacktestTradeTable from '@/components/backtest/BacktestTradeTable.vue';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Badge from '@/components/app/AppBadge.vue';
+import { Badge } from '@/components/ui/badge';
 import type { BacktestEquity, BacktestRun, BacktestTrade } from '@/types/backtests';
 import { engineLabels, formatMoney, marketLabels, statusLabels } from '@/utils/backtests';
 import { ArrowLeft, TriangleAlert } from 'lucide-vue-next';

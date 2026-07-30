@@ -2,13 +2,19 @@
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { signalsApi, type SignalListQuery } from '@/api/signals';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Badge from '@/components/app/AppBadge.vue';
-import Button from '@/components/app/AppButton.vue';
-import Drawer from '@/components/app/AppSheet.vue';
-import Input from '@/components/app/AppInput.vue';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import LoadingButton from '@/components/app/LoadingButton.vue';
+import FieldInput from '@/components/forms/FieldInput.vue';
 import Pagination from '@/components/app/AppPagination.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
-import AppSelect from '@/components/app/AppSelect.vue';
+import FieldSelect from '@/components/forms/FieldSelect.vue';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Skeleton } from '@/components/ui/skeleton';
 import type {
   SignalDirection,
   SignalEvaluationItem,
@@ -202,68 +208,72 @@ onMounted(() => {
       </div>
     </header>
 
-    <form
-      class="rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm"
-      data-testid="signal-filters"
-      @submit.prevent="submitFilters"
-    >
-      <div class="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-        <SlidersHorizontal class="h-4 w-4 text-primary" />
-        筛选条件
-      </div>
-      <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <AppSelect
-          :model-value="filters.market"
-          label="市场"
-          :options="marketOptions"
-          @update:model-value="filters.market = $event as SignalMarket | ''"
-        />
-        <AppSelect
-          :model-value="filters.direction"
-          label="方向"
-          :options="directionOptions"
-          @update:model-value="filters.direction = $event as SignalDirection | ''"
-        />
-        <Input
-          v-model="filters.signalType"
-          label="信号类型"
-          placeholder="输入原始信号类型"
-        />
-        <Input
-          v-model="filters.keyword"
-          label="股票代码"
-          placeholder="例如 NVDA"
-        />
-        <div class="grid grid-cols-2 gap-2 sm:col-span-2 xl:col-span-1">
-          <AppDatePicker
-            v-model="filters.dateFrom"
-            label="开始日期"
-          />
-          <AppDatePicker
-            v-model="filters.dateTo"
-            label="结束日期"
-          />
-        </div>
-      </div>
-      <div class="mt-4 flex flex-wrap justify-end gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          @click="resetFilters"
+    <Card>
+      <CardHeader>
+        <CardTitle class="flex items-center gap-2">
+          <SlidersHorizontal class="size-4 text-primary" />筛选条件
+        </CardTitle><CardDescription>按市场、方向、信号类型、股票和日期范围筛选。</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form
+          data-testid="signal-filters"
+          @submit.prevent="submitFilters"
         >
-          重置
-        </Button>
-        <Button
-          type="submit"
-          variant="default"
-          size="sm"
-          :loading="loading"
-        >
-          <Search class="h-4 w-4" />
-          查询
-        </Button>
-      </div>
-    </form>
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <FieldSelect
+              :model-value="filters.market"
+              label="市场"
+              :options="marketOptions"
+              @update:model-value="filters.market = $event as SignalMarket | ''"
+            />
+            <FieldSelect
+              :model-value="filters.direction"
+              label="方向"
+              :options="directionOptions"
+              @update:model-value="filters.direction = $event as SignalDirection | ''"
+            />
+            <FieldInput
+              v-model="filters.signalType"
+              label="信号类型"
+              placeholder="输入原始信号类型"
+            />
+            <FieldInput
+              v-model="filters.keyword"
+              label="股票代码"
+              placeholder="例如 NVDA"
+            />
+            <div class="grid grid-cols-2 gap-2 sm:col-span-2 xl:col-span-1">
+              <AppDatePicker
+                v-model="filters.dateFrom"
+                label="开始日期"
+              />
+              <AppDatePicker
+                v-model="filters.dateTo"
+                label="结束日期"
+              />
+            </div>
+          </div>
+          <div class="mt-4 flex flex-wrap justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              @click="resetFilters"
+            >
+              重置
+            </Button>
+            <LoadingButton
+              type="submit"
+              variant="default"
+              size="sm"
+              :loading="loading"
+            >
+              <Search class="h-4 w-4" />
+              查询
+            </LoadingButton>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
 
     <ApiErrorAlert
       v-if="error"
@@ -278,92 +288,97 @@ onMounted(() => {
       class="space-y-2"
       aria-label="正在加载信号记录"
     >
-      <div
+      <Skeleton
         v-for="index in 5"
         :key="index"
-        class="h-20 animate-pulse rounded-xl bg-card"
+        class="h-20 w-full"
       />
     </div>
 
-    <div
+    <Empty
       v-else-if="!items.length && !error"
-      class="rounded-2xl border border-dashed border-border/70 px-6 py-16 text-center"
       data-testid="signal-empty-state"
     >
-      <Activity class="mx-auto h-10 w-10 text-muted-foreground/40" />
-      <p class="mt-3 text-sm text-muted-foreground">
-        {{ hasFilters ? '没有符合当前筛选条件的信号' : '暂无信号记录' }}
-      </p>
-    </div>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Activity />
+        </EmptyMedia><EmptyTitle>{{ hasFilters ? '没有符合当前筛选条件的信号' : '暂无信号记录' }}</EmptyTitle><EmptyDescription>调整筛选条件或稍后等待新信号完成评价。</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
 
     <template v-else>
       <div
         class="space-y-3 md:hidden"
         data-testid="signal-mobile-list"
       >
-        <article
+        <Card
           v-for="item in items"
           :key="item.id"
-          class="rounded-xl border bg-card p-4 shadow-sm"
         >
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <p class="font-semibold text-foreground">
-                {{ item.code }}
-                <span class="text-xs font-normal text-muted-foreground">{{
-                  marketLabel(item.market)
-                }}</span>
-              </p>
-              <p class="mt-1 truncate text-sm text-muted-foreground">
-                {{ signalTypeLabel(item.signalType) }} · {{ item.signalVersion }}
+          <CardHeader>
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="font-semibold text-foreground">
+                  {{ item.code }}
+                  <span class="text-xs font-normal text-muted-foreground">{{
+                    marketLabel(item.market)
+                  }}</span>
+                </p>
+                <p class="mt-1 truncate text-sm text-muted-foreground">
+                  {{ signalTypeLabel(item.signalType) }} · {{ item.signalVersion }}
+                </p>
+              </div>
+              <Badge :variant="directionVariant(item.direction)">
+                {{ directionLabel(item.direction) }}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div class="flex items-end justify-between gap-3">
+              <div>
+                <p class="text-xs text-muted-foreground">
+                  信号价格
+                </p>
+                <p class="font-mono text-sm font-medium">
+                  {{ formatSignalPrice(item.signalPrice) }}
+                </p>
+              </div>
+              <p class="text-right text-xs text-muted-foreground">
+                {{ formatDateTimeInDisplayTimezone(item.signalAt) }}
               </p>
             </div>
-            <Badge :variant="directionVariant(item.direction)">
-              {{ directionLabel(item.direction) }}
-            </Badge>
-          </div>
-          <div class="mt-3 flex items-end justify-between gap-3 border-t pt-3">
-            <div>
-              <p class="text-xs text-muted-foreground">
-                信号价格
-              </p>
-              <p class="font-mono text-sm font-medium">
-                {{ formatSignalPrice(item.signalPrice) }}
-              </p>
-            </div>
-            <p class="text-right text-xs text-muted-foreground">
-              {{ formatDateTimeInDisplayTimezone(item.signalAt) }}
-            </p>
-          </div>
-          <div
-            class="mt-3 grid grid-cols-2 gap-2"
-            data-testid="signal-returns-grid"
-          >
             <div
-              v-for="period in SIGNAL_PERIODS"
-              :key="period"
-              class="rounded-lg bg-muted/50 px-2.5 py-2 text-xs"
+              class="mt-3 grid grid-cols-2 gap-2"
+              data-testid="signal-returns-grid"
             >
-              <span class="text-muted-foreground">{{ period }}</span>
-              <span
-                class="ml-2 font-mono"
-                :class="
-                  evaluationState(item.evaluation, period) === 'evaluated'
-                    ? returnClass(item.evaluation[period]?.returnPct)
-                    : 'text-muted-foreground'
-                "
-              >{{ evaluationStatusLabel(item.evaluation, period) }}</span>
+              <div
+                v-for="period in SIGNAL_PERIODS"
+                :key="period"
+                class="rounded-lg bg-muted/50 px-2.5 py-2 text-xs"
+              >
+                <span class="text-muted-foreground">{{ period }}</span>
+                <span
+                  class="ml-2 font-mono"
+                  :class="
+                    evaluationState(item.evaluation, period) === 'evaluated'
+                      ? returnClass(item.evaluation[period]?.returnPct)
+                      : 'text-muted-foreground'
+                  "
+                >{{ evaluationStatusLabel(item.evaluation, period) }}</span>
+              </div>
             </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            class="mt-3 w-full"
-            @click="openDetail(item)"
-          >
-            查看详情
-          </Button>
-        </article>
+          </CardContent>
+          <CardContent class="pt-0">
+            <Button
+              variant="outline"
+              size="sm"
+              class="mt-3 w-full"
+              @click="openDetail(item)"
+            >
+              查看详情
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
       <div
@@ -483,219 +498,229 @@ onMounted(() => {
       </div>
     </template>
 
-    <Drawer
+    <Sheet
       :open="selectedSignal !== null"
-      title="信号评估详情"
-      class="sm:max-w-3xl"
       @update:open="closeDetail"
     >
-      <div
-        v-if="detailLoading"
-        class="space-y-3"
-        aria-label="正在加载信号详情"
-      >
-        <div
-          v-for="index in 5"
-          :key="index"
-          class="h-12 animate-pulse rounded-xl bg-card"
-        />
-      </div>
-      <ApiErrorAlert
-        v-else-if="detailError"
-        :error="detailError"
-        @dismiss="closeDetail"
-      />
-      <div
-        v-else-if="selectedSignal"
-        class="space-y-6"
-      >
-        <dl class="grid gap-3 rounded-2xl border border-border/70 bg-card/45 p-4 sm:grid-cols-2">
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              Signal ID
-            </dt>
-            <dd class="mt-1 text-sm">
-              {{ selectedSignal.id }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              市场
-            </dt>
-            <dd class="mt-1 text-sm">
-              {{ marketLabel(selectedSignal.market) }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              股票代码
-            </dt>
-            <dd class="mt-1 text-sm font-semibold">
-              {{ selectedSignal.code }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              信号类型
-            </dt>
-            <dd class="mt-1 text-sm">
-              {{ signalTypeLabel(selectedSignal.signalType) }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              原始 signal_type
-            </dt>
-            <dd class="mt-1 break-all text-sm">
-              {{ selectedSignal.signalType || '—' }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              信号版本
-            </dt>
-            <dd class="mt-1 text-sm">
-              {{ selectedSignal.signalVersion }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              方向
-            </dt>
-            <dd class="mt-1 text-sm">
-              {{ directionLabel(selectedSignal.direction) }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              信号价格
-            </dt>
-            <dd class="mt-1 font-mono text-sm">
-              {{ formatSignalPrice(selectedSignal.signalPrice) }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              信号时间
-            </dt>
-            <dd class="mt-1 text-sm">
-              {{ formatDateTimeInDisplayTimezone(selectedSignal.signalAt) }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              创建时间
-            </dt>
-            <dd class="mt-1 text-sm">
-              {{ formatDateTimeInDisplayTimezone(selectedSignal.createdAt) }}
-            </dd>
-          </div>
-          <div>
-            <dt class="text-xs text-muted-foreground">
-              更新时间
-            </dt>
-            <dd class="mt-1 text-sm">
-              {{ formatDateTimeInDisplayTimezone(selectedSignal.updatedAt) }}
-            </dd>
-          </div>
-        </dl>
-
-        <div>
-          <h3 class="mb-3 text-sm font-semibold text-foreground">
-            各周期表现
-          </h3>
-          <div class="grid gap-3 sm:grid-cols-2">
-            <section
-              v-for="period in SIGNAL_PERIODS"
-              :key="period"
-              class="rounded-2xl border border-border/70 bg-card p-4"
+      <SheetContent class="flex w-full flex-col p-0 sm:max-w-3xl">
+        <SheetHeader class="p-6 text-left">
+          <SheetTitle>信号评估详情</SheetTitle><SheetDescription>查看信号元数据与各评价周期的客观表现。</SheetDescription>
+        </SheetHeader>
+        <Separator />
+        <ScrollArea class="min-h-0 flex-1">
+          <div class="p-6">
+            <div
+              v-if="detailLoading"
+              class="space-y-3"
+              aria-label="正在加载信号详情"
             >
-              <div class="mb-3 flex items-center justify-between gap-3">
-                <h4 class="font-semibold text-foreground">
-                  {{ period }}
-                </h4>
-                <Badge :variant="periodStatus(period) === '已评价' ? 'info' : 'default'">
-                  {{ periodStatus(period) }}
-                </Badge>
+              <Skeleton
+                v-for="index in 5"
+                :key="index"
+                class="h-12 w-full"
+              />
+            </div>
+            <ApiErrorAlert
+              v-else-if="detailError"
+              :error="detailError"
+              @dismiss="closeDetail"
+            />
+            <div
+              v-else-if="selectedSignal"
+              class="space-y-6"
+            >
+              <dl class="grid gap-3 rounded-2xl border border-border/70 bg-card/45 p-4 sm:grid-cols-2">
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    Signal ID
+                  </dt>
+                  <dd class="mt-1 text-sm">
+                    {{ selectedSignal.id }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    市场
+                  </dt>
+                  <dd class="mt-1 text-sm">
+                    {{ marketLabel(selectedSignal.market) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    股票代码
+                  </dt>
+                  <dd class="mt-1 text-sm font-semibold">
+                    {{ selectedSignal.code }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    信号类型
+                  </dt>
+                  <dd class="mt-1 text-sm">
+                    {{ signalTypeLabel(selectedSignal.signalType) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    原始 signal_type
+                  </dt>
+                  <dd class="mt-1 break-all text-sm">
+                    {{ selectedSignal.signalType || '—' }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    信号版本
+                  </dt>
+                  <dd class="mt-1 text-sm">
+                    {{ selectedSignal.signalVersion }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    方向
+                  </dt>
+                  <dd class="mt-1 text-sm">
+                    {{ directionLabel(selectedSignal.direction) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    信号价格
+                  </dt>
+                  <dd class="mt-1 font-mono text-sm">
+                    {{ formatSignalPrice(selectedSignal.signalPrice) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    信号时间
+                  </dt>
+                  <dd class="mt-1 text-sm">
+                    {{ formatDateTimeInDisplayTimezone(selectedSignal.signalAt) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    创建时间
+                  </dt>
+                  <dd class="mt-1 text-sm">
+                    {{ formatDateTimeInDisplayTimezone(selectedSignal.createdAt) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-xs text-muted-foreground">
+                    更新时间
+                  </dt>
+                  <dd class="mt-1 text-sm">
+                    {{ formatDateTimeInDisplayTimezone(selectedSignal.updatedAt) }}
+                  </dd>
+                </div>
+              </dl>
+
+              <div>
+                <h3 class="mb-3 text-sm font-semibold text-foreground">
+                  各周期表现
+                </h3>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <Card
+                    v-for="period in SIGNAL_PERIODS"
+                    :key="period"
+                  >
+                    <CardHeader>
+                      <div class="flex items-center justify-between gap-3">
+                        <CardTitle class="text-base">
+                          {{ period }}
+                        </CardTitle>
+                        <Badge :variant="periodStatus(period) === '已评价' ? 'info' : 'default'">
+                          {{ periodStatus(period) }}
+                        </Badge>
+                      </div>
+                    </CardHeader><CardContent>
+                      <dl
+                        v-if="evaluationState(selectedSignal.evaluation, period) === 'evaluated'"
+                        class="space-y-2 text-sm"
+                      >
+                        <div class="flex justify-between gap-3">
+                          <dt class="text-muted-foreground">
+                            目标价格
+                          </dt>
+                          <dd class="font-mono">
+                            {{ formatSignalPrice(periodItem(period)?.price) }}
+                          </dd>
+                        </div>
+                        <div class="flex justify-between gap-3">
+                          <dt class="text-muted-foreground">
+                            收益率
+                          </dt>
+                          <dd :class="returnClass(periodItem(period)?.returnPct)">
+                            {{ formatReturnPct(periodItem(period)?.returnPct) }}
+                          </dd>
+                        </div>
+                        <div class="flex justify-between gap-3">
+                          <dt class="text-muted-foreground">
+                            期间最大涨幅
+                          </dt>
+                          <dd :class="returnClass(periodItem(period)?.maxReturnPct)">
+                            {{ formatReturnPct(periodItem(period)?.maxReturnPct) }}
+                          </dd>
+                        </div>
+                        <div class="flex justify-between gap-3">
+                          <dt class="text-muted-foreground">
+                            期间最小涨幅
+                          </dt>
+                          <dd :class="returnClass(periodItem(period)?.minReturnPct)">
+                            {{ formatReturnPct(periodItem(period)?.minReturnPct) }}
+                          </dd>
+                        </div>
+                        <div class="flex justify-between gap-3">
+                          <dt class="text-muted-foreground">
+                            评价时间
+                          </dt>
+                          <dd class="text-right">
+                            {{ formatDateTimeInDisplayTimezone(periodItem(period)?.evaluatedAt) }}
+                          </dd>
+                        </div>
+                      </dl>
+                      <dl
+                        v-else-if="evaluationState(selectedSignal.evaluation, period) === 'not_applicable'"
+                        class="space-y-2 text-sm"
+                      >
+                        <div class="flex justify-between gap-3">
+                          <dt class="text-muted-foreground">
+                            状态
+                          </dt>
+                          <dd>不适用</dd>
+                        </div>
+                        <div class="flex justify-between gap-3">
+                          <dt class="text-muted-foreground">
+                            原因
+                          </dt>
+                          <dd>{{ notApplicableReason(periodItem(period)) }}</dd>
+                        </div>
+                      </dl>
+                      <p
+                        v-else-if="evaluationState(selectedSignal.evaluation, period) === 'pending'"
+                        class="text-sm text-muted-foreground"
+                      >
+                        状态：待评估
+                      </p>
+                      <p
+                        v-else
+                        class="text-sm text-muted-foreground"
+                      >
+                        状态：数据异常
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
               </div>
-              <dl
-                v-if="evaluationState(selectedSignal.evaluation, period) === 'evaluated'"
-                class="space-y-2 text-sm"
-              >
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">
-                    目标价格
-                  </dt>
-                  <dd class="font-mono">
-                    {{ formatSignalPrice(periodItem(period)?.price) }}
-                  </dd>
-                </div>
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">
-                    收益率
-                  </dt>
-                  <dd :class="returnClass(periodItem(period)?.returnPct)">
-                    {{ formatReturnPct(periodItem(period)?.returnPct) }}
-                  </dd>
-                </div>
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">
-                    期间最大涨幅
-                  </dt>
-                  <dd :class="returnClass(periodItem(period)?.maxReturnPct)">
-                    {{ formatReturnPct(periodItem(period)?.maxReturnPct) }}
-                  </dd>
-                </div>
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">
-                    期间最小涨幅
-                  </dt>
-                  <dd :class="returnClass(periodItem(period)?.minReturnPct)">
-                    {{ formatReturnPct(periodItem(period)?.minReturnPct) }}
-                  </dd>
-                </div>
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">
-                    评价时间
-                  </dt>
-                  <dd class="text-right">
-                    {{ formatDateTimeInDisplayTimezone(periodItem(period)?.evaluatedAt) }}
-                  </dd>
-                </div>
-              </dl>
-              <dl
-                v-else-if="evaluationState(selectedSignal.evaluation, period) === 'not_applicable'"
-                class="space-y-2 text-sm"
-              >
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">
-                    状态
-                  </dt>
-                  <dd>不适用</dd>
-                </div>
-                <div class="flex justify-between gap-3">
-                  <dt class="text-muted-foreground">
-                    原因
-                  </dt>
-                  <dd>{{ notApplicableReason(periodItem(period)) }}</dd>
-                </div>
-              </dl>
-              <p
-                v-else-if="evaluationState(selectedSignal.evaluation, period) === 'pending'"
-                class="text-sm text-muted-foreground"
-              >
-                状态：待评估
-              </p>
-              <p
-                v-else
-                class="text-sm text-muted-foreground"
-              >
-                状态：数据异常
-              </p>
-            </section>
+            </div>
           </div>
-        </div>
-      </div>
-    </Drawer>
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
   </div>
 </template>

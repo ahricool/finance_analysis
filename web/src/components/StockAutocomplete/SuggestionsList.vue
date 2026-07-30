@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Badge from '@/components/app/AppBadge.vue';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/utils/cn';
 import type { StockSuggestion } from '@/types/stockIndex';
 

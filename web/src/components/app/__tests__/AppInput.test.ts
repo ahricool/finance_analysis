@@ -1,10 +1,10 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
-import AppInput from '../AppInput.vue';
+import FieldInput from '../../forms/FieldInput.vue';
 
-describe('AppInput password visibility', () => {
+describe('FieldInput password visibility', () => {
   it('toggles an uncontrolled password input and restores it after a second click', async () => {
-    const wrapper = mount(AppInput, {
+    const wrapper = mount(FieldInput, {
       props: { type: 'password', allowTogglePassword: true, label: '登录密码' },
     });
     const input = wrapper.get('input');
@@ -20,7 +20,7 @@ describe('AppInput password visibility', () => {
   });
 
   it('emits updates in controlled mode and follows the controlled value', async () => {
-    const wrapper = mount(AppInput, {
+    const wrapper = mount(FieldInput, {
       props: {
         type: 'password',
         allowTogglePassword: true,
@@ -37,7 +37,7 @@ describe('AppInput password visibility', () => {
   });
 
   it('does not toggle while disabled', async () => {
-    const wrapper = mount(AppInput, {
+    const wrapper = mount(FieldInput, {
       props: {
         type: 'password',
         allowTogglePassword: true,
@@ -53,7 +53,7 @@ describe('AppInput password visibility', () => {
   });
 
   it('does not forward the removed icon-type attribute to the native input', () => {
-    const wrapper = mount(AppInput, {
+    const wrapper = mount(FieldInput, {
       attrs: { 'icon-type': 'password' },
       props: { type: 'password' },
     });

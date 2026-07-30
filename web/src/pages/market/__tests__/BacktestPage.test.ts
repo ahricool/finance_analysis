@@ -25,7 +25,7 @@ afterEach(() => vi.useRealTimers());
 
 describe('BacktestPage', () => {
   it('sorts and defaults to Backtrader, then refreshes strategies when RQAlpha is selected', async () => {
-    const wrapper = mount(BacktestPage);
+    const wrapper = mount(BacktestPage, { global: { stubs: { RouterLink: true } } });
     await flushPromises();
     const cards = wrapper.find('[data-testid="backtest-engine-selector"]').findAll('button');
     expect(cards[0].text()).toContain('Backtrader');
@@ -39,7 +39,7 @@ describe('BacktestPage', () => {
   it('clears its five-second polling timer when unmounted', async () => {
     vi.useFakeTimers();
     api.runs.mockResolvedValue({ items: [{ id: 1, status: 'processing' }], total: 1, page: 1, pageSize: 20 });
-    const wrapper = mount(BacktestPage, { global: { stubs: { BacktestRunTable: true } } });
+    const wrapper = mount(BacktestPage, { global: { stubs: { BacktestRunTable: true, RouterLink: true } } });
     await flushPromises();
     expect(vi.getTimerCount()).toBe(1);
     wrapper.unmount();

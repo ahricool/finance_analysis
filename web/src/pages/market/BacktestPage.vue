@@ -5,11 +5,18 @@ import BacktestEngineSelector from '@/components/backtest/BacktestEngineSelector
 import BacktestPreflightPanel from '@/components/backtest/BacktestPreflightPanel.vue';
 import BacktestRunTable from '@/components/backtest/BacktestRunTable.vue';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import Button from '@/components/app/AppButton.vue';
+import { Button } from '@/components/ui/button';
+import LoadingButton from '@/components/app/LoadingButton.vue';
 import AppCombobox from '@/components/app/AppCombobox.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
-import AppInput from '@/components/app/AppInput.vue';
-import AppSelect from '@/components/app/AppSelect.vue';
+import FieldInput from '@/components/forms/FieldInput.vue';
+import FieldSelect from '@/components/forms/FieldSelect.vue';
+import PageHeader from '@/components/layout/PageHeader.vue';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
 import type {
   BacktestConfig,
   BacktestEngine,
@@ -22,6 +29,7 @@ import type {
 import { marketLabels } from '@/utils/backtests';
 import { FlaskConical, Search } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { RouterLink } from 'vue-router';
 
 const engines = ref<BacktestEngine[]>([]);
 const strategies = ref<BacktestStrategy[]>([]);
@@ -242,152 +250,184 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="min-w-0 space-y-5">
-    <header class="flex items-start gap-3">
-      <div
-        class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground"
-      >
-        <FlaskConical class="h-5 w-5" />
-      </div>
-      <div>
-        <h2 class="text-lg font-semibold text-foreground">
-          策略回测
-        </h2>
-        <p class="mt-1 text-xs text-muted-foreground">
-          选择回测引擎、策略、标的和时间范围，使用数据库历史行情执行日线策略回测。
-        </p>
-      </div>
-    </header>
+  <div class="min-w-0 space-y-6 py-4 sm:py-6">
+    <PageHeader
+      title="策略回测"
+      description="配置回测、检查数据完备性，并跟踪历史运行结果。"
+      section="市场"
+    >
+      <template #actions>
+        <Button
+          variant="outline"
+          as-child
+        >
+          <RouterLink to="/tasks/runs">
+            查看任务
+          </RouterLink>
+        </Button>
+      </template>
+    </PageHeader>
 
     <ApiErrorAlert
       v-if="error"
       :error="error"
     />
-    <section
-      class="space-y-5 rounded-2xl border border-border/70 bg-card/94 p-4 shadow-sm"
-      :aria-busy="loading"
-    >
-      <div>
-        <h3 class="mb-3 text-sm font-semibold text-foreground">
-          1. 回测引擎
-        </h3>
-        <BacktestEngineSelector
-          v-model="form.engine"
-          :engines="engines"
-        />
-      </div>
-      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <AppSelect
-          v-model="form.strategyKey"
-          label="策略"
-          :options="strategies.map((item) => ({ value: item.key, label: item.name }))"
-        />
-        <AppSelect
-          :model-value="form.market"
-          label="市场"
-          :options="
-            marketOptions.map((item) => ({
-              value: item,
-              label: `${marketLabels[item]}${marketSupported(item) ? '' : '（不支持）'}`,
-              disabled: !marketSupported(item),
-            }))
-          "
-          @update:model-value="form.market = $event as BacktestMarket"
-        />
-        <label class="text-xs text-muted-foreground md:col-span-2"><span class="mb-1.5 block">标的搜索</span>
-          <div class="flex gap-2">
-            <AppInput
-              v-model="symbolKeyword"
-              class="min-w-0 flex-1"
-              placeholder="代码或名称"
-              @keyup.enter="loadSymbols()"
-            /><Button
-              variant="secondary"
-              @click="loadSymbols()"
-            ><Search class="h-4 w-4" />搜索</Button>
-          </div></label>
-        <AppCombobox
-          v-model="form.code"
-          label="回测标的"
-          :options="
-            symbols.map((item) => ({ value: item.code, label: `${item.code} · ${item.name}` }))
-          "
-        />
-        <AppDatePicker
-          v-model="form.startDate"
-          label="开始日期"
-        />
-        <AppDatePicker
-          v-model="form.endDate"
-          label="结束日期"
-        />
-        <label class="text-xs text-muted-foreground"><span class="mb-1.5 block">初始资金</span><input
-          v-model.number="form.initialCash"
-          type="number"
-          min="1"
-          class="border-input bg-background shadow-xs h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
-        /></label>
-        <AppSelect
-          :model-value="form.benchmarkCode ?? ''"
-          label="基准标的"
-          :options="[
-            { value: '', label: '不设置' },
-            ...symbols.map((item) => ({ value: item.code, label: item.code })),
-          ]"
-          @update:model-value="form.benchmarkCode = $event || null"
-        />
-      </div>
-      <div
-        v-if="selectedStrategy"
-        class="grid gap-4 sm:grid-cols-2"
+    <Card :aria-busy="loading">
+      <CardHeader>
+        <CardTitle class="flex items-center gap-2">
+          <FlaskConical class="size-5 text-primary" />回测配置
+        </CardTitle>
+        <CardDescription>先完成配置和数据预检，再提交后台回测任务。</CardDescription>
+      </CardHeader>
+      <CardContent
+        v-if="loading"
+        class="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
       >
-        <label
-          v-for="parameter in selectedStrategy.parameters"
-          :key="parameter.key"
-          class="text-xs text-muted-foreground"
-        ><span class="mb-1.5 block">{{ parameter.name }}</span><input
-          v-model.number="form.parameters[parameter.key]"
-          type="number"
-          :min="parameter.minimum"
-          :max="parameter.maximum"
-          class="border-input bg-background shadow-xs h-11 w-full rounded-xl border bg-transparent px-3 text-sm text-foreground"
-        /><span class="mt-1 block">范围 {{ parameter.minimum }}–{{ parameter.maximum }}，默认
-          {{ parameter.default }}</span></label>
-      </div>
-      <details class="rounded-xl border border-border/70 p-3 text-xs text-muted-foreground">
-        <summary class="cursor-pointer font-medium text-foreground">
-          高级设置（只读）
-        </summary>
-        <dl class="mt-3 grid gap-2 sm:grid-cols-2">
-          <div>价格口径：未复权原始价格</div>
-          <div>目标仓位：100% / 0%</div>
-          <div>信号：收盘后计算</div>
-          <div>成交：下一交易日开盘</div>
-          <div>手续费：按市场默认模型</div>
-          <div>市场规则版本：1.0.0</div>
-        </dl>
-      </details>
-      <BacktestPreflightPanel
-        v-if="preflightResult"
-        :result="preflightResult"
-      />
-      <div class="flex justify-end gap-3">
-        <Button
+        <Skeleton
+          v-for="index in 8"
+          :key="index"
+          class="h-16 w-full"
+        />
+      </CardContent>
+      <CardContent
+        v-else
+        class="space-y-6"
+      >
+        <div class="space-y-3">
+          <h3 class="text-sm font-medium">
+            回测引擎
+          </h3>
+          <BacktestEngineSelector
+            v-model="form.engine"
+            :engines="engines"
+          />
+        </div>
+        <Separator />
+        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <FieldSelect
+            v-model="form.strategyKey"
+            label="策略"
+            :options="strategies.map((item) => ({ value: item.key, label: item.name }))"
+          />
+          <FieldSelect
+            :model-value="form.market"
+            label="市场"
+            :options="
+              marketOptions.map((item) => ({
+                value: item,
+                label: `${marketLabels[item]}${marketSupported(item) ? '' : '（不支持）'}`,
+                disabled: !marketSupported(item),
+              }))
+            "
+            @update:model-value="form.market = $event as BacktestMarket"
+          />
+          <div class="grid gap-2 md:col-span-2">
+            <Label>标的搜索</Label>
+            <div class="flex gap-2">
+              <FieldInput
+                v-model="symbolKeyword"
+                class="min-w-0 flex-1"
+                placeholder="代码或名称"
+                @keyup.enter="loadSymbols()"
+              /><Button
+                variant="secondary"
+                @click="loadSymbols()"
+              >
+                <Search class="h-4 w-4" />搜索
+              </Button>
+            </div>
+          </div>
+          <AppCombobox
+            v-model="form.code"
+            label="回测标的"
+            :options="
+              symbols.map((item) => ({ value: item.code, label: `${item.code} · ${item.name}` }))
+            "
+          />
+          <AppDatePicker
+            v-model="form.startDate"
+            label="开始日期"
+          />
+          <AppDatePicker
+            v-model="form.endDate"
+            label="结束日期"
+          />
+          <div class="grid gap-2">
+            <Label for="backtest-cash">初始资金</Label><Input
+              id="backtest-cash"
+              v-model="form.initialCash"
+              type="number"
+              min="1"
+            />
+          </div>
+          <FieldSelect
+            :model-value="form.benchmarkCode ?? ''"
+            label="基准标的"
+            :options="[
+              { value: '', label: '不设置' },
+              ...symbols.map((item) => ({ value: item.code, label: item.code })),
+            ]"
+            @update:model-value="form.benchmarkCode = $event || null"
+          />
+        </div>
+        <div
+          v-if="selectedStrategy"
+          class="grid gap-4 sm:grid-cols-2"
+        >
+          <div
+            v-for="parameter in selectedStrategy.parameters"
+            :key="parameter.key"
+            class="grid gap-2"
+          >
+            <Label :for="`backtest-param-${parameter.key}`">{{ parameter.name }}</Label><Input
+              :id="`backtest-param-${parameter.key}`"
+              v-model.number="form.parameters[parameter.key]"
+              type="number"
+              :min="parameter.minimum"
+              :max="parameter.maximum"
+            /><p class="text-xs text-muted-foreground">
+              范围 {{ parameter.minimum }}–{{ parameter.maximum }}，默认 {{ parameter.default }}
+            </p>
+          </div>
+        </div>
+        <details class="rounded-xl border border-border/70 p-3 text-xs text-muted-foreground">
+          <summary class="cursor-pointer font-medium text-foreground">
+            高级设置（只读）
+          </summary>
+          <dl class="mt-3 grid gap-2 sm:grid-cols-2">
+            <div>价格口径：未复权原始价格</div>
+            <div>目标仓位：100% / 0%</div>
+            <div>信号：收盘后计算</div>
+            <div>成交：下一交易日开盘</div>
+            <div>手续费：按市场默认模型</div>
+            <div>市场规则版本：1.0.0</div>
+          </dl>
+        </details>
+        <BacktestPreflightPanel
+          v-if="preflightResult"
+          :result="preflightResult"
+        />
+      </CardContent>
+      <CardFooter
+        v-if="!loading"
+        class="justify-end gap-3 border-t pt-6"
+      >
+        <LoadingButton
           variant="secondary"
           :disabled="!canCheck"
           :loading="checking"
           @click="checkData"
         >
           检查数据
-        </Button><Button
+        </LoadingButton><LoadingButton
           :disabled="!canStart"
           :loading="submitting"
           @click="startBacktest"
         >
           开始回测
-        </Button>
-      </div>
-    </section>
+        </LoadingButton>
+      </CardFooter>
+    </Card>
     <BacktestRunTable
       :runs="runs"
       :loading="runsLoading"

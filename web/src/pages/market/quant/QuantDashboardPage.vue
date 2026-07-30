@@ -2,8 +2,12 @@
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import EmptyState from '@/components/app/AppEmptyState.vue';
 import MarketScoreChart from '@/components/quant/MarketScoreChart.vue';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { MarketRegime, QuantCapabilities, SectorRegime, SignalRanking } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatScore, regimeLabels } from '@/utils/quant';
@@ -64,185 +68,158 @@ watch(
       v-if="error"
       :error="error"
     />
-    <div
+    <Alert
       v-if="capability?.warnings.length"
-      class="rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning"
+      class="border-warning/30 text-warning"
       data-testid="raw-price-warning"
     >
-      {{ capability.warnings.join('；') }}
-    </div>
+      <AlertTitle>数据口径提示</AlertTitle><AlertDescription class="text-current/80">
+        {{ capability.warnings.join('；') }}
+      </AlertDescription>
+    </Alert>
     <div
       v-if="loading"
-      class="py-12 text-center text-muted-foreground"
+      class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
     >
-      加载中...
+      <Skeleton
+        v-for="index in 8"
+        :key="index"
+        class="h-28 w-full"
+      />
     </div>
     <template v-else>
       <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div class="rounded-2xl border border-border bg-card p-4">
-          <p class="text-xs text-muted-foreground">
-            市场状态
-          </p>
-          <p class="mt-2 text-xl font-semibold">
-            {{ regime ? regimeLabels[regime.regime] : '数据不可用' }}
-          </p>
-        </div>
-        <div class="rounded-2xl border border-border bg-card p-4">
-          <p class="text-xs text-muted-foreground">
-            市场得分
-          </p>
-          <p class="mt-2 text-xl font-semibold">
-            {{ formatScore(regime?.marketScore) }}
-          </p>
-        </div>
-        <div class="rounded-2xl border border-border bg-card p-4">
-          <p class="text-xs text-muted-foreground">
-            建议最大仓位
-          </p>
-          <p class="mt-2 text-xl font-semibold">
-            {{ formatPercent(regime?.maxEquityExposure) }}
-          </p>
-        </div>
-        <div class="rounded-2xl border border-border bg-card p-4">
-          <p class="text-xs text-muted-foreground">
-            模型 / 行情日期
-          </p>
-          <p class="mt-2 text-sm font-medium">
-            {{ ranking?.modelVersion ?? '—' }}
-          </p>
-          <p class="text-xs text-muted-foreground">
-            {{ ranking?.tradeDate ?? '—' }}
-          </p>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardDescription>市场状态</CardDescription><CardTitle class="text-2xl">
+              {{ regime ? regimeLabels[regime.regime] : '数据不可用' }}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>市场得分</CardDescription><CardTitle class="text-2xl">
+              {{ formatScore(regime?.marketScore) }}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>建议最大仓位</CardDescription><CardTitle class="text-2xl">
+              {{ formatPercent(regime?.maxEquityExposure) }}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>模型 / 行情日期</CardDescription><CardTitle class="text-base">
+              {{ ranking?.modelVersion ?? '—' }}
+            </CardTitle><p class="text-xs text-muted-foreground">
+              {{ ranking?.tradeDate ?? '—' }}
+            </p>
+          </CardHeader>
+        </Card>
       </section>
-      <section class="rounded-2xl border border-border bg-card p-4">
-        <h3 class="text-sm font-semibold">
-          市场得分历史
-        </h3>
-        <MarketScoreChart
-          v-if="history.length"
-          :items="history"
-        /><EmptyState
-          v-else
-          title="暂无市场状态历史"
-        />
-      </section>
-      <section class="rounded-2xl border border-border bg-card p-4">
-        <h3 class="mb-3 text-sm font-semibold">
-          行业强弱
-        </h3>
-        <div
-          v-if="sectors.length"
-          class="overflow-x-auto"
-        >
-          <table class="w-full text-sm">
-            <thead class="text-left text-xs text-muted-foreground">
-              <tr>
-                <th class="p-2">
-                  排名
-                </th>
-                <th>行业</th>
-                <th>基准</th>
-                <th>得分</th>
-                <th>状态</th>
-                <th>5日相对收益</th>
-                <th>20日相对收益</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="item in sectors"
-                :key="item.sectorKey"
-                class="border-t border-border"
-              >
-                <td class="p-2">
-                  {{ item.rank }}
-                </td>
-                <td>{{ item.sectorKey }}</td>
-                <td>{{ item.benchmarkCode }}</td>
-                <td>{{ formatScore(item.sectorScore) }}</td>
-                <td>{{ item.state }}</td>
-                <td>{{ formatPercent(item.features.sectorRelativeMarket5d) }}</td>
-                <td>{{ formatPercent(item.features.sectorRelativeMarket20d) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <EmptyState
-          v-else
-          :title="market === 'CN' ? '暂无A股行业强弱数据' : '暂无行业强弱数据'"
-          description="行业映射或当日行业计算尚未达到可用覆盖率。"
-        />
-      </section>
-      <section class="rounded-2xl border border-border bg-card p-4">
-        <div class="mb-3 flex items-center justify-between">
-          <h3 class="text-sm font-semibold">
-            个股排名
-          </h3>
-          <RouterLink
-            :to="{ path: '/market/quant/signals', query: marketQuery() }"
-            class="text-xs text-primary"
+      <Card>
+        <CardHeader><CardTitle>市场得分历史</CardTitle><CardDescription>观察市场状态的时间序列变化。</CardDescription></CardHeader>
+        <CardContent>
+          <MarketScoreChart
+            v-if="history.length"
+            :items="history"
+          /><Empty v-else>
+            <EmptyHeader><EmptyTitle>暂无市场状态历史</EmptyTitle></EmptyHeader>
+          </Empty>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>行业强弱</CardTitle><CardDescription>按相对收益与市场特征排序。</CardDescription></CardHeader>
+        <CardContent>
+          <div
+            v-if="sectors.length"
           >
-            查看全部
-          </RouterLink>
-        </div>
-        <div
-          v-if="ranking?.items.length"
-          class="overflow-x-auto"
-        >
-          <table class="w-full text-sm">
-            <thead class="text-left text-xs text-muted-foreground">
-              <tr>
-                <th class="p-2">
-                  排名
-                </th>
-                <th>股票</th>
-                <th>最终得分</th>
-                <th>横截面</th>
-                <th>时间序列</th>
-                <th>预测收益</th>
-                <th>信号</th>
-                <th>目标仓位</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="item in ranking.items.slice(0, 10)"
-                :key="item.id"
-                class="border-t border-border"
-              >
-                <td class="p-2">
-                  {{ item.universeRank ?? '—' }}
-                </td>
-                <td>
-                  <RouterLink
-                    :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
-                    class="font-medium text-primary"
-                  >
-                    {{ item.code }}
-                  </RouterLink>
-                </td>
-                <td>{{ formatScore(item.finalScore) }}</td>
-                <td>{{ formatScore(item.crossSectionScore) }}</td>
-                <td>{{ formatScore(item.timeSeriesScore) }}</td>
-                <td>{{ formatPredictedReturn(item.predictedReturn) }}</td>
-                <td>{{ item.vetoed ? '否决' : item.signal }}</td>
-                <td>{{ formatPercent(item.targetPosition) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <EmptyState
-          v-else
-          :title="market === 'CN' ? 'A股模型尚未就绪' : '暂无模型排名'"
-          :description="
-            market === 'CN'
-              ? '请先完成A股数据集构建、模型训练、人工发布和日频流水线。'
-              : '生产模型、数据集或当日预测尚不可用。'
-          "
-          data-testid="quant-empty-state"
-        />
-      </section>
+            <Table>
+              <TableHeader><TableRow><TableHead>排名</TableHead><TableHead>行业</TableHead><TableHead>基准</TableHead><TableHead>得分</TableHead><TableHead>状态</TableHead><TableHead>5日相对收益</TableHead><TableHead>20日相对收益</TableHead></TableRow></TableHeader>
+              <TableBody>
+                <TableRow
+                  v-for="item in sectors"
+                  :key="item.sectorKey"
+                >
+                  <TableCell>{{ item.rank }}</TableCell><TableCell>{{ item.sectorKey }}</TableCell><TableCell>{{ item.benchmarkCode }}</TableCell><TableCell>{{ formatScore(item.sectorScore) }}</TableCell><TableCell>{{ item.state }}</TableCell><TableCell>{{ formatPercent(item.features.sectorRelativeMarket5d) }}</TableCell><TableCell>{{ formatPercent(item.features.sectorRelativeMarket20d) }}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+          <Empty v-else>
+            <EmptyHeader><EmptyTitle>{{ market === 'CN' ? '暂无A股行业强弱数据' : '暂无行业强弱数据' }}</EmptyTitle><EmptyDescription>行业映射或当日行业计算尚未达到可用覆盖率。</EmptyDescription></EmptyHeader>
+          </Empty>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>个股排名</CardTitle><CardDescription>生产模型生成的最新股票评分。</CardDescription><CardAction>
+            <RouterLink
+              :to="{ path: '/market/quant/signals', query: marketQuery() }"
+              class="text-xs text-primary"
+            >
+              查看全部
+            </RouterLink>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <div
+            v-if="ranking?.items.length"
+            class="overflow-x-auto"
+          >
+            <table class="w-full text-sm">
+              <thead class="text-left text-xs text-muted-foreground">
+                <tr>
+                  <th class="p-2">
+                    排名
+                  </th>
+                  <th>股票</th>
+                  <th>最终得分</th>
+                  <th>横截面</th>
+                  <th>时间序列</th>
+                  <th>预测收益</th>
+                  <th>信号</th>
+                  <th>目标仓位</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="item in ranking.items.slice(0, 10)"
+                  :key="item.id"
+                  class="border-t border-border"
+                >
+                  <td class="p-2">
+                    {{ item.universeRank ?? '—' }}
+                  </td>
+                  <td>
+                    <RouterLink
+                      :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
+                      class="font-medium text-primary"
+                    >
+                      {{ item.code }}
+                    </RouterLink>
+                  </td>
+                  <td>{{ formatScore(item.finalScore) }}</td>
+                  <td>{{ formatScore(item.crossSectionScore) }}</td>
+                  <td>{{ formatScore(item.timeSeriesScore) }}</td>
+                  <td>{{ formatPredictedReturn(item.predictedReturn) }}</td>
+                  <td>{{ item.vetoed ? '否决' : item.signal }}</td>
+                  <td>{{ formatPercent(item.targetPosition) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <Empty
+            v-else
+            data-testid="quant-empty-state"
+          >
+            <EmptyHeader><EmptyTitle>{{ market === 'CN' ? 'A股模型尚未就绪' : '暂无模型排名' }}</EmptyTitle><EmptyDescription>{{ market === 'CN' ? '请先完成A股数据集构建、模型训练、人工发布和日频流水线。' : '生产模型、数据集或当日预测尚不可用。' }}</EmptyDescription></EmptyHeader>
+          </Empty>
+        </CardContent>
+      </Card>
     </template>
   </div>
 </template>
