@@ -139,7 +139,7 @@ const positionOption = computed(() => ({
 <template>
   <div
     v-if="!equity.length"
-    class="rounded-2xl border border-border/70 bg-card/94 p-10 text-center text-sm text-muted-foreground"
+    class="rounded-xl border bg-card p-10 text-center text-sm text-muted-foreground"
   >
     暂无净值数据
   </div>

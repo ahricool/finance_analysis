@@ -7,7 +7,7 @@ defineProps<{ trades: BacktestTrade[] }>();
 </script>
 
 <template>
-  <section class="overflow-hidden rounded-2xl border border-border/70 bg-card/94">
+  <section class="overflow-hidden rounded-xl border bg-card">
     <div class="border-b border-border/70 px-4 py-3">
       <h3 class="text-sm font-semibold text-foreground">
         交易明细

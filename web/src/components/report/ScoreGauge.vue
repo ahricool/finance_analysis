@@ -214,7 +214,7 @@ const gaugeTheme = computed(() =>
           :cy="layout.width / 2"
           :r="radius"
           fill="none"
-          stroke="rgba(255, 255, 255, 0.05)"
+          :stroke="isDark ? 'rgba(255, 255, 255, 0.08)' : 'hsl(0 0% 0% / 0.06)'"
           :stroke-width="layout.stroke"
           stroke-linecap="round"
           :stroke-dasharray="`${arcLength} ${circumference}`"

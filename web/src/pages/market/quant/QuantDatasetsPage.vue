@@ -166,7 +166,7 @@ watch(
     />
     <Alert
       v-if="submittedBuild"
-      class="border-success/30 text-success"
+      variant="success"
     >
       <AlertTitle>数据集构建任务已提交</AlertTitle>
       <AlertDescription class="text-current/80">

@@ -77,7 +77,7 @@ onBeforeUnmount(() => {
       加载中...
     </div>
     <template v-else-if="run">
-      <section class="rounded-2xl border border-primary/30 bg-card/94 p-5 shadow-sm">
+      <section class="rounded-xl border bg-card p-5">
         <div class="flex flex-wrap items-center gap-3">
           <h2 class="text-xl font-semibold text-foreground">
             回测 #{{ run.id }}
@@ -153,7 +153,7 @@ onBeforeUnmount(() => {
       </section>
       <div
         v-if="run.priceMode === 'raw'"
-        class="flex gap-2 rounded-2xl border border-warning/30 bg-warning/8 p-4 text-sm text-warning"
+        class="flex gap-2 rounded-xl border border-warning/25 bg-warning/10 p-4 text-sm text-warning"
       >
         <TriangleAlert class="h-5 w-5 shrink-0" /><span>当前结果使用未复权价格，拆股、分红或除权可能影响策略信号和收益。</span>
       </div>
@@ -163,7 +163,7 @@ onBeforeUnmount(() => {
         :trades="trades"
       />
       <BacktestTradeTable :trades="trades" />
-      <details class="rounded-2xl border border-border/70 bg-card/94 p-4 text-xs">
+      <details class="rounded-xl border bg-card p-4 text-xs">
         <summary class="cursor-pointer font-semibold text-foreground">
           运行配置
         </summary>

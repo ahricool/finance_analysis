@@ -7,10 +7,10 @@ const router = useRouter();
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col items-center justify-center px-4 text-center">
-    <div class="relative mb-8">
-      <span class="gradient-text font-display text-8xl"> 404 </span>
-    </div>
+  <div class="flex min-h-[70vh] flex-col items-center justify-center px-4 text-center">
+    <p class="mb-8 text-8xl font-semibold tracking-tight text-muted-foreground/40">
+      404
+    </p>
 
     <h1 class="mb-2 text-2xl font-bold text-foreground">
       页面未找到

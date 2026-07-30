@@ -2,7 +2,7 @@
 import { isParsedApiError, type ParsedApiError } from '@/api/error';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
-import SettingsAlert from '@/components/settings/SettingsAlert.vue';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/composables/useAuth';
@@ -135,7 +135,7 @@ onUnmounted(() => {
             />
           </span>
           <span
-            class="font-display text-3xl font-semibold leading-none text-white [text-shadow:0_3px_12px_rgba(0,0,0,0.65)] sm:text-4xl"
+            class="text-3xl font-semibold leading-none tracking-tight text-white [text-shadow:0_3px_12px_rgba(0,0,0,0.65)] sm:text-4xl"
           >
             {{ APP_NAME }}
           </span>
@@ -144,7 +144,7 @@ onUnmounted(() => {
         <Card class="shadow-xl">
           <CardHeader>
             <CardTitle class="flex items-center gap-2">
-              <Lock class="h-5 w-5 text-primary" />
+              <Lock class="h-4 w-4 text-muted-foreground" />
               <span>{{ stepTitle }}</span>
             </CardTitle>
             <CardDescription>
@@ -211,34 +211,30 @@ onUnmounted(() => {
                 </template>
               </div>
 
-              <div
+              <Alert
                 v-if="setupSuccessMessage"
-                class="overflow-hidden"
+                variant="success"
               >
-                <SettingsAlert
-                  title="设置成功"
-                  :message="setupSuccessMessage"
-                  variant="success"
-                />
-              </div>
+                <AlertTitle>设置成功</AlertTitle>
+                <AlertDescription>{{ setupSuccessMessage }}</AlertDescription>
+              </Alert>
 
-              <div
+              <Alert
                 v-if="error"
-                class="animate-[loginErr_0.25s_ease-out] overflow-hidden"
+                variant="destructive"
               >
-                <SettingsAlert
-                  title="验证未通过"
-                  :message="isParsedApiError(error) ? error.message : String(error)"
-                  variant="error"
-                />
-              </div>
+                <AlertTitle>验证未通过</AlertTitle>
+                <AlertDescription>
+                  {{ isParsedApiError(error) ? error.message : String(error) }}
+                </AlertDescription>
+              </Alert>
             </CardContent>
             <CardFooter class="flex-col gap-2">
               <LoadingButton
                 type="submit"
-                variant="default"
+                variant="brand"
                 size="lg"
-                class="h-11 w-full"
+                class="w-full"
                 :disabled="isSubmitting"
                 :loading="isSubmitting"
                 :loading-text="loadingText"
@@ -274,16 +270,5 @@ onUnmounted(() => {
 
 :global(html.login-page-active body) {
   overflow: hidden;
-}
-
-@keyframes loginErr {
-  from {
-    opacity: 0;
-    max-height: 0;
-  }
-  to {
-    opacity: 1;
-    max-height: 200px;
-  }
 }
 </style>

@@ -30,7 +30,7 @@ import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import { looksLikeStockCode } from '@/utils/validation';
 import { calculateZeroDteStatus, zeroDteStatusSortValue } from '@/utils/zeroDteStatus';
-import { Eye, Heart, MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-vue-next';
+import { Eye, Heart, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 
 type MarketFilter = MarketType | 'ALL';
@@ -363,28 +363,21 @@ onMounted(loadList);
 <template>
   <div class="w-full">
     <!-- Header -->
-    <div class="mb-6 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <div
-          class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-[hsl(var(--primary-foreground))] shadow-sm"
-        >
-          <Star class="h-5 w-5" />
-        </div>
-        <div>
-          <h1 class="text-lg font-semibold text-foreground">
-            自选股
-          </h1>
-          <p class="text-xs text-muted-foreground">
-            共 {{ total }} 只
-          </p>
-        </div>
+    <div class="mb-6 flex items-center justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold tracking-tight text-foreground">
+          自选股
+        </h2>
+        <p class="text-xs text-muted-foreground">
+          共 {{ total }} 只
+        </p>
       </div>
       <Button
         variant="default"
         size="sm"
         @click="openCreate"
       >
-        <Plus class="mr-1.5 h-4 w-4" />
+        <Plus />
         添加
       </Button>
     </div>
@@ -423,23 +416,20 @@ onMounted(loadList);
     </Empty>
 
     <template v-else>
-      <Card class="mb-4">
-        <CardHeader><CardTitle>筛选与行情</CardTitle><CardDescription>按市场筛选自选股，并查看实时连接状态。</CardDescription></CardHeader>
-        <CardContent class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <FieldSelect
-            v-model="selectedMarket"
-            label="市场"
-            class="min-w-[180px]"
-            :options="marketFilterOptions"
-          />
-          <div class="flex items-center gap-3">
-            <RealtimeStatus :status="realtimeStatus" />
-            <p class="whitespace-nowrap text-xs text-muted-foreground">
-              显示 {{ visibleItems.length }} / {{ total }} 只
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <FieldSelect
+          v-model="selectedMarket"
+          label="市场"
+          class="min-w-[180px]"
+          :options="marketFilterOptions"
+        />
+        <div class="flex items-center gap-3">
+          <RealtimeStatus :status="realtimeStatus" />
+          <p class="whitespace-nowrap text-xs text-muted-foreground">
+            显示 {{ visibleItems.length }} / {{ total }} 只
+          </p>
+        </div>
+      </div>
 
       <div class="grid gap-3 md:hidden">
         <Card
@@ -450,7 +440,7 @@ onMounted(loadList);
           <CardHeader>
             <CardTitle class="truncate text-base">
               {{ item.name || item.code }}
-            </CardTitle><CardDescription class="font-mono text-primary">
+            </CardTitle><CardDescription class="font-mono">
               {{ item.code }} · {{ marketLabel(item.market_type) }}
             </CardDescription><CardAction>
               <Button
@@ -621,7 +611,7 @@ onMounted(loadList);
                 <tr
                   v-for="item in visibleItems"
                   :key="item.id"
-                  class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                  class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   tabindex="0"
                   :aria-label="`查看 ${item.name || item.code} 详情`"
                   @click="detailItem = item"

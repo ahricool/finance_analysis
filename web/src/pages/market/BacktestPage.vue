@@ -11,8 +11,7 @@ import AppCombobox from '@/components/app/AppCombobox.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
-import PageHeader from '@/components/layout/PageHeader.vue';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -27,7 +26,7 @@ import type {
   BacktestSymbol,
 } from '@/types/backtests';
 import { marketLabels } from '@/utils/backtests';
-import { FlaskConical, Search } from 'lucide-vue-next';
+import { Search } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 
@@ -250,34 +249,26 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="min-w-0 space-y-6 py-4 sm:py-6">
-    <PageHeader
-      title="策略回测"
-      description="配置回测、检查数据完备性，并跟踪历史运行结果。"
-      section="市场"
-    >
-      <template #actions>
-        <Button
-          variant="outline"
-          as-child
-        >
-          <RouterLink to="/tasks/runs">
-            查看任务
-          </RouterLink>
-        </Button>
-      </template>
-    </PageHeader>
-
+  <div class="min-w-0 space-y-6">
     <ApiErrorAlert
       v-if="error"
       :error="error"
     />
     <Card :aria-busy="loading">
       <CardHeader>
-        <CardTitle class="flex items-center gap-2">
-          <FlaskConical class="size-5 text-primary" />回测配置
-        </CardTitle>
+        <CardTitle>回测配置</CardTitle>
         <CardDescription>先完成配置和数据预检，再提交后台回测任务。</CardDescription>
+        <CardAction>
+          <Button
+            variant="outline"
+            size="sm"
+            as-child
+          >
+            <RouterLink to="/tasks/runs">
+              查看任务
+            </RouterLink>
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent
         v-if="loading"
@@ -390,7 +381,7 @@ onBeforeUnmount(() => {
             </p>
           </div>
         </div>
-        <details class="rounded-xl border border-border/70 p-3 text-xs text-muted-foreground">
+        <details class="rounded-lg border p-3 text-xs text-muted-foreground">
           <summary class="cursor-pointer font-medium text-foreground">
             高级设置（只读）
           </summary>

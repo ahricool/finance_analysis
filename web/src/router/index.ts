@@ -13,6 +13,7 @@ declare module 'vue-router' {
 const HomePage = () => import('@/pages/HomePage.vue');
 const ChatPage = () => import('@/pages/ChatPage.vue');
 const MarketPage = () => import('@/pages/MarketPage.vue');
+const ResearchPage = () => import('@/pages/ResearchPage.vue');
 const MarketWatchListPage = () => import('@/pages/WatchListPage.vue');
 const MarketHoldingsPage = () => import('@/pages/StockListPage.vue');
 const SignalEvaluationPage = () => import('@/pages/market/SignalEvaluationPage.vue');
@@ -47,6 +48,7 @@ const router = createRouter({
           component: MarketPage,
           meta: { title: '市场' },
           children: [
+            { path: '', redirect: { name: 'market-watch-list' } },
             {
               path: 'watch-list',
               name: 'market-watch-list',
@@ -68,30 +70,37 @@ const router = createRouter({
           ],
         },
         {
-          path: 'market/backtests',
-          name: 'market-backtests',
-          component: BacktestPage,
-          meta: { title: '策略回测' },
+          path: 'market',
+          component: ResearchPage,
+          meta: { title: '研究' },
+          children: [
+            {
+              path: 'backtests',
+              name: 'market-backtests',
+              component: BacktestPage,
+              meta: { title: '策略回测' },
+            },
+            {
+              path: 'quant',
+              component: QuantPage,
+              meta: { title: '量化研究' },
+              children: [
+                { path: '', name: 'market-quant', component: QuantDashboardPage },
+                { path: 'signals', name: 'market-quant-signals', component: QuantSignalsPage, meta: { title: '模型选股' } },
+                { path: 'signals/:code', name: 'market-quant-signal-detail', component: QuantSignalDetailPage, meta: { title: '选股详情' } },
+                { path: 'datasets', name: 'market-quant-datasets', component: QuantDatasetsPage, meta: { title: '量化数据集' } },
+                { path: 'models', name: 'market-quant-models', component: QuantModelsPage, meta: { title: '量化模型' } },
+                { path: 'models/:runId', name: 'market-quant-model-run', component: QuantModelRunPage, meta: { title: '模型运行详情' } },
+                { path: 'portfolios', name: 'market-quant-portfolios', component: QuantPortfoliosPage, meta: { title: '组合建议' } },
+              ],
+            },
+          ],
         },
         {
           path: 'market/backtests/:runId',
           name: 'market-backtest-detail',
           component: BacktestDetailPage,
           meta: { title: '回测详情' },
-        },
-        {
-          path: 'market/quant',
-          component: QuantPage,
-          meta: { title: '量化研究' },
-          children: [
-            { path: '', name: 'market-quant', component: QuantDashboardPage },
-            { path: 'signals', name: 'market-quant-signals', component: QuantSignalsPage, meta: { title: '模型选股' } },
-            { path: 'signals/:code', name: 'market-quant-signal-detail', component: QuantSignalDetailPage, meta: { title: '选股详情' } },
-            { path: 'datasets', name: 'market-quant-datasets', component: QuantDatasetsPage, meta: { title: '量化数据集' } },
-            { path: 'models', name: 'market-quant-models', component: QuantModelsPage, meta: { title: '量化模型' } },
-            { path: 'models/:runId', name: 'market-quant-model-run', component: QuantModelRunPage, meta: { title: '模型运行详情' } },
-            { path: 'portfolios', name: 'market-quant-portfolios', component: QuantPortfoliosPage, meta: { title: '组合建议' } },
-          ],
         },
         { path: 'calendar', name: 'calendar', component: CalendarPage, meta: { title: '日历记录' } },
         { path: 'profile', redirect: { name: 'profile-info' }, meta: { title: '个人中心' } },

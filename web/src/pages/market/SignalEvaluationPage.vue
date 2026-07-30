@@ -35,7 +35,7 @@ import {
   returnClass,
   signalTypeLabel,
 } from '@/utils/signals';
-import { Activity, Search, SlidersHorizontal } from 'lucide-vue-next';
+import { Activity, Search } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref } from 'vue';
 
 type BadgeVariant = 'default' | 'success' | 'warning' | 'destructive' | 'info';
@@ -192,27 +192,18 @@ onMounted(() => {
 
 <template>
   <div class="min-w-0 space-y-4">
-    <header class="flex items-start gap-3">
-      <div
-        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm"
-      >
-        <Activity class="h-5 w-5" />
-      </div>
-      <div>
-        <h2 class="text-lg font-semibold text-foreground">
-          信号效果评估
-        </h2>
-        <p class="mt-1 text-xs leading-5 text-muted-foreground">
-          展示信号产生后30分钟、1小时及后续交易日的客观价格表现，不代表完整交易策略收益。
-        </p>
-      </div>
+    <header>
+      <h2 class="text-lg font-semibold tracking-tight text-foreground">
+        信号效果评估
+      </h2>
+      <p class="mt-1 text-xs leading-5 text-muted-foreground">
+        展示信号产生后30分钟、1小时及后续交易日的客观价格表现，不代表完整交易策略收益。
+      </p>
     </header>
 
     <Card>
       <CardHeader>
-        <CardTitle class="flex items-center gap-2">
-          <SlidersHorizontal class="size-4 text-primary" />筛选条件
-        </CardTitle><CardDescription>按市场、方向、信号类型、股票和日期范围筛选。</CardDescription>
+        <CardTitle>筛选条件</CardTitle><CardDescription>按市场、方向、信号类型、股票和日期范围筛选。</CardDescription>
       </CardHeader>
       <CardContent>
         <form
@@ -382,7 +373,7 @@ onMounted(() => {
       </div>
 
       <div
-        class="hidden overflow-x-auto rounded-2xl border border-border/70 bg-card/94 shadow-sm md:block"
+        class="hidden overflow-x-auto rounded-xl border bg-card md:block"
       >
         <table class="w-full min-w-[1020px] table-fixed text-left text-sm">
           <colgroup>
@@ -529,7 +520,7 @@ onMounted(() => {
               v-else-if="selectedSignal"
               class="space-y-6"
             >
-              <dl class="grid gap-3 rounded-2xl border border-border/70 bg-card/45 p-4 sm:grid-cols-2">
+              <dl class="grid gap-3 rounded-lg border bg-muted/40 p-4 sm:grid-cols-2">
                 <div>
                   <dt class="text-xs text-muted-foreground">
                     Signal ID

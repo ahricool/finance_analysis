@@ -492,16 +492,14 @@ function onTextareaInput(e: Event) {
   <!-- v-html values in this template come from DOMPurify-backed Markdown renderers. -->
   <div
     data-testid="conversation-workspace"
-    class="flex h-[calc(100dvh-9rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full min-w-0 gap-4 overflow-hidden md:h-[calc(100vh-5.5rem)] lg:h-[calc(100vh-6rem)]"
+    class="flex h-[calc(100dvh-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full min-w-0 gap-4 overflow-hidden py-4"
   >
     <div
-      class="hidden w-[clamp(18rem,22vw,22rem)] flex-shrink-0 self-start flex-col overflow-hidden rounded-[1.25rem] border border-border bg-card/82 shadow-sm md:flex"
+      class="hidden w-[clamp(18rem,22vw,22rem)] min-h-0 flex-shrink-0 flex-col overflow-hidden rounded-xl border bg-card md:flex"
     >
-      <div class="flex items-center justify-between border-b border-border bg-muted/20 p-3.5">
-        <h2
-          class="text-sm font-semibold text-primary uppercase tracking-[0.2em] flex items-center gap-2"
-        >
-          <History class="size-5" />
+      <div class="flex items-center justify-between border-b p-3">
+        <h2 class="flex items-center gap-2 text-sm font-semibold">
+          <History class="size-4 text-muted-foreground" />
           历史对话
         </h2>
         <Button
@@ -514,7 +512,7 @@ function onTextareaInput(e: Event) {
         </Button>
       </div>
       <ScrollArea
-        class="max-h-[calc(100vh-10rem)] flex-none"
+        class="min-h-0 flex-1"
         data-testid="conversation-list-scroll"
       >
         <div class="p-3">
@@ -523,14 +521,14 @@ function onTextareaInput(e: Event) {
             loading
             compact
             title="加载对话中..."
-            class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
+            class="rounded-lg border border-dashed bg-muted/30"
           />
           <DashboardStateBlock
             v-else-if="sessions.length === 0"
             compact
             title="暂无历史对话"
             description="开始提问后，这里会保留会话记录。"
-            class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
+            class="rounded-lg border border-dashed bg-muted/30"
           />
           <div
             v-else
@@ -546,7 +544,7 @@ function onTextareaInput(e: Event) {
                 :class="
                   cn(
                     'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-lg border border-transparent p-2 text-left transition-colors hover:bg-muted',
-                    s.session_id === sessionId && 'border-primary/25 bg-primary/10',
+                    s.session_id === sessionId && 'border-border bg-muted',
                   )
                 "
                 :aria-label="`切换到对话 ${s.title}`"
@@ -557,7 +555,7 @@ function onTextareaInput(e: Event) {
                   :class="
                     cn(
                       'h-10 w-1 shrink-0 rounded-full bg-border',
-                      s.session_id === sessionId && 'bg-primary',
+                      s.session_id === sessionId && 'bg-foreground',
                     )
                   "
                 />
@@ -599,7 +597,7 @@ function onTextareaInput(e: Event) {
       >
         <SheetHeader class="text-left">
           <SheetTitle class="flex items-center gap-2">
-            <History class="size-5 text-primary" />历史对话
+            <History class="size-4 text-muted-foreground" />历史对话
           </SheetTitle>
           <SheetDescription>切换历史会话，或开启一段新的问股对话。</SheetDescription>
         </SheetHeader>
@@ -621,7 +619,7 @@ function onTextareaInput(e: Event) {
               loading
               compact
               title="加载对话中..."
-              class="rounded-2xl border border-dashed border-border/50 bg-muted/30"
+              class="rounded-lg border border-dashed bg-muted/30"
             />
             <div
               v-else
@@ -637,7 +635,7 @@ function onTextareaInput(e: Event) {
                   :class="
                     cn(
                       'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-lg border border-transparent p-2 text-left transition-colors hover:bg-muted',
-                      s.session_id === sessionId && 'border-primary/25 bg-primary/10',
+                      s.session_id === sessionId && 'border-border bg-muted',
                     )
                   "
                   @click="handleSwitchSession(s.session_id)"
@@ -646,7 +644,7 @@ function onTextareaInput(e: Event) {
                     :class="
                       cn(
                         'h-10 w-1 shrink-0 rounded-full bg-border',
-                        s.session_id === sessionId && 'bg-primary',
+                        s.session_id === sessionId && 'bg-foreground',
                       )
                     "
                   />
@@ -675,7 +673,7 @@ function onTextareaInput(e: Event) {
     <div class="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       <header class="mb-4 flex-shrink-0 space-y-3">
         <div class="flex items-start justify-between gap-4">
-          <h1 class="text-2xl font-bold text-foreground flex items-center gap-2">
+          <h1 class="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
             <Button
               variant="ghost"
               size="icon-sm"
@@ -685,7 +683,6 @@ function onTextareaInput(e: Event) {
             >
               <Menu class="size-5" />
             </Button>
-            <Lightbulb class="size-6 text-primary" />
             问股
           </h1>
           <div
@@ -696,7 +693,7 @@ function onTextareaInput(e: Event) {
               <Tooltip>
                 <TooltipTrigger as-child>
                   <Button
-                    variant="default"
+                    variant="outline"
                     size="sm"
                     aria-label="导出会话为 Markdown 文件"
                     @click="downloadSession(messages)"
@@ -710,7 +707,7 @@ function onTextareaInput(e: Event) {
               <Tooltip>
                 <TooltipTrigger as-child>
                   <LoadingButton
-                    variant="default"
+                    variant="outline"
                     size="sm"
                     :loading="sending"
                     loading-text="发送中"
@@ -732,7 +729,7 @@ function onTextareaInput(e: Event) {
         <Alert
           v-if="sendToast"
           :variant="sendToast.type === 'error' ? 'destructive' : 'default'"
-          class="max-w-md rounded-xl px-3 py-2 text-xs shadow-none"
+          class="max-w-md"
         >
           <AlertTitle>{{ sendToast.type === 'success' ? '发送成功' : '发送失败' }}</AlertTitle>
           <AlertDescription>{{ sendToast.message }}</AlertDescription>
@@ -740,7 +737,7 @@ function onTextareaInput(e: Event) {
       </header>
 
       <div
-        class="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden border border-border bg-card/78 rounded-xl border bg-card text-card-foreground shadow-sm"
+        class="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card text-card-foreground"
       >
         <ChatScrollArea
           ref="scrollAreaRef"
@@ -753,7 +750,7 @@ function onTextareaInput(e: Event) {
             v-if="messages.length === 0 && !loading"
             class="flex h-full items-center justify-center"
           >
-            <Empty class="max-w-2xl border-dashed bg-card/55">
+            <Empty class="max-w-2xl border-dashed">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
                   <Lightbulb class="size-6" />
@@ -788,10 +785,10 @@ function onTextareaInput(e: Event) {
               <div
                 :class="
                   cn(
-                    'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold shadow-sm transition-all',
+                    'flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
                     msg.role === 'user'
-                      ? 'flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground'
-                      : 'flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary',
+                      ? 'bg-secondary text-secondary-foreground'
+                      : 'border bg-muted text-muted-foreground',
                   )
                 "
               >
@@ -802,7 +799,7 @@ function onTextareaInput(e: Event) {
                   cn(
                     'group/message min-w-0 w-fit max-w-[min(100%,48rem)] overflow-hidden px-5 py-3.5 transition-colors',
                     msg.role === 'user'
-                      ? 'rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm'
+                      ? 'rounded-2xl bg-muted px-4 py-3 text-sm'
                       : 'rounded-2xl border bg-card px-4 py-3 text-sm',
                   )
                 "
@@ -813,8 +810,7 @@ function onTextareaInput(e: Event) {
                     class="mb-2"
                   >
                     <Badge
-                      variant="info"
-                      class="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary shadow-none"
+                      variant="secondary"
                       :aria-label="`技能 ${getMessageSkillLabel(msg)}`"
                     >
                       <Zap class="size-3" />
@@ -843,7 +839,7 @@ function onTextareaInput(e: Event) {
 
                   <div
                     v-if="expandedThinking.has(msg.id) && msg.thinkingSteps"
-                    class="mb-3 pl-5 border-l border-border/40 space-y-1.5 animate-fade-in"
+                    class="mb-3 space-y-1.5 border-l border-border/40 pl-5"
                   >
                     <div
                       v-for="(step, idx) in msg.thinkingSteps"
@@ -910,12 +906,12 @@ function onTextareaInput(e: Event) {
             class="flex gap-4"
           >
             <div
-              class="w-8 h-8 rounded-full bg-card text-foreground flex items-center justify-center flex-shrink-0 text-xs font-bold"
+              class="flex size-8 flex-shrink-0 items-center justify-center rounded-full border bg-muted text-xs font-semibold text-muted-foreground"
             >
               AI
             </div>
             <div
-              class="min-w-[200px] max-w-[min(100%,48rem)] overflow-hidden rounded-2xl rounded-tl-sm border border-border bg-card/72 px-5 py-4"
+              class="min-w-[200px] max-w-[min(100%,48rem)] overflow-hidden rounded-2xl border bg-card px-5 py-4"
             >
               <div class="flex items-center gap-2.5 text-sm text-muted-foreground">
                 <div class="relative w-4 h-4 flex-shrink-0">
@@ -950,7 +946,7 @@ function onTextareaInput(e: Event) {
           </button>
         </div>
 
-        <div class="border-t border-border bg-card/88 p-4 md:p-6 relative z-20">
+        <div class="relative z-20 border-t p-4 md:p-6">
           <div class="space-y-3">
             <ApiErrorAlert
               v-if="chatError"
@@ -958,7 +954,6 @@ function onTextareaInput(e: Event) {
             />
             <Alert
               v-if="isFollowUpContextLoading"
-              class="rounded-xl px-3 py-2 text-xs shadow-none"
             >
               <AlertTitle>追问上下文加载中</AlertTitle>
               <AlertDescription>正在加载历史分析上下文；现在可直接发送追问。</AlertDescription>
@@ -1040,7 +1035,7 @@ function onTextareaInput(e: Event) {
                 :disabled="loading"
                 rows="1"
                 placeholder="例如：分析 600519 / 茅台现在适合买入吗？ (Enter 发送, Shift+Enter 换行)"
-                class="border-input bg-background shadow-xs focus:border-ring focus:ring-2 focus:ring-ring/30 flex-1 min-h-[44px] max-h-[200px] rounded-xl border bg-transparent px-4 py-2.5 text-sm transition-all focus:outline-none resize-none disabled:cursor-not-allowed disabled:opacity-60"
+                class="border-input bg-background shadow-xs focus:border-ring focus:ring-2 focus:ring-ring/30 flex-1 min-h-[44px] max-h-[200px] rounded-lg border bg-transparent px-4 py-2.5 text-sm transition-all focus:outline-none resize-none disabled:cursor-not-allowed disabled:opacity-60"
                 style="height: auto"
                 @keydown="handleKeyDown"
                 @input="onTextareaInput"

@@ -164,7 +164,7 @@ describe('CalendarPage', () => {
     expect(buttons).toHaveLength(7);
     expect(buttons[0].text()).toContain('06/25');
     expect(buttons[1].text()).toContain('06/26');
-    expect(buttons[1].classes()).toContain('text-primary');
+    expect(buttons[1].classes()).toContain('border-brand');
     expect(calendarApi.listEventsByDate).toHaveBeenCalledWith('2026-06-26', 1, 20);
     expect(calendarApi.listByDate).toHaveBeenCalledWith('2026-06-26', {
       category: 'us',
@@ -188,7 +188,7 @@ describe('CalendarPage', () => {
     const buttons = dayButtons(wrapper);
     expect(buttons[0].text()).toContain('06/25');
     expect(buttons[1].text()).toContain('06/26');
-    expect(buttons[1].classes()).toContain('text-primary');
+    expect(buttons[1].classes()).toContain('border-brand');
     expect(calendarApi.listEventsByDate).toHaveBeenLastCalledWith('2026-06-26', 1, 20);
     expect(calendarApi.getSummary).toHaveBeenLastCalledWith('2026-06-25', '2026-07-01');
   });
@@ -234,7 +234,7 @@ describe('CalendarPage', () => {
     expect(buttons[0].text()).toContain('财经 3');
     expect(buttons[0].text()).toContain('记录 1');
     expect(buttons[0].find('[data-count-tone="warning"]').text()).toBe('3');
-    expect(buttons[0].find('[data-count-tone="primary"]').text()).toBe('1');
+    expect(buttons[0].find('[data-count-tone="default"]').text()).toBe('1');
     expect(buttons[1].find('[data-count-tone="danger"]').text()).toBe('6');
     expect(buttons[1].find('[data-count-tone="muted"]').text()).toBe('0');
   });

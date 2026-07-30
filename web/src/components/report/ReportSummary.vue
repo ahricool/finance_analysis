@@ -35,7 +35,7 @@ const shouldShowModel = computed(() =>
 </script>
 
 <template>
-  <div class="animate-fade-in space-y-5 pb-8">
+  <div class="space-y-5 pb-8">
     <ReportOverview
       :meta="report.meta"
       :summary="report.summary"

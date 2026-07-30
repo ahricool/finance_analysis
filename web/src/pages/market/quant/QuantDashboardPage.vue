@@ -70,7 +70,7 @@ watch(
     />
     <Alert
       v-if="capability?.warnings.length"
-      class="border-warning/30 text-warning"
+      variant="warning"
       data-testid="raw-price-warning"
     >
       <AlertTitle>数据口径提示</AlertTitle><AlertDescription class="text-current/80">
@@ -159,7 +159,7 @@ watch(
           <CardTitle>个股排名</CardTitle><CardDescription>生产模型生成的最新股票评分。</CardDescription><CardAction>
             <RouterLink
               :to="{ path: '/market/quant/signals', query: marketQuery() }"
-              class="text-xs text-primary"
+              class="text-xs font-medium underline-offset-4 hover:underline"
             >
               查看全部
             </RouterLink>
@@ -197,7 +197,7 @@ watch(
                   <td>
                     <RouterLink
                       :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
-                      class="font-medium text-primary"
+                      class="font-medium underline-offset-4 hover:underline"
                     >
                       {{ item.code }}
                     </RouterLink>

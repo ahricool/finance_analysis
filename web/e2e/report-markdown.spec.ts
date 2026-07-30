@@ -50,7 +50,7 @@ test.describe('ReportMarkdown component', () => {
     await page.getByRole('link', { name: '分析' }).click();
     await page.waitForLoadState('domcontentloaded');
     // Wait for history panel to load
-    await expect(page.getByText('历史分析')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('历史分析', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Click on the first history item to select it
     const firstHistoryItem = page.getByTestId('analysis-history-item').first();
@@ -95,7 +95,7 @@ test.describe('ReportMarkdown component', () => {
     await page.getByRole('link', { name: '分析' }).click();
     await page.waitForLoadState('domcontentloaded');
     // Wait for history panel to load
-    await expect(page.getByText('历史分析')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('历史分析', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Click on the first history item to select it
     const firstHistoryItem = page.getByTestId('analysis-history-item').first();
@@ -181,7 +181,7 @@ test.describe('ReportMarkdown component', () => {
     await page.getByRole('link', { name: '分析' }).click();
     await page.waitForLoadState('domcontentloaded');
     // Wait for history panel to load
-    await expect(page.getByText('历史分析')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('历史分析', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Click on the first history item to select it
     const firstHistoryItem = page.getByTestId('analysis-history-item').first();

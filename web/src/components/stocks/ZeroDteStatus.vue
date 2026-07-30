@@ -81,7 +81,7 @@ const tooltip = computed(() => {
           class="inline-flex min-w-0 flex-col items-start gap-0.5"
         >
           <span
-            class="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-1 text-[11px] font-semibold leading-none"
+            class="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-1 text-xs font-semibold leading-none"
             :class="appearance.className"
           >
             <component
@@ -93,7 +93,7 @@ const tooltip = computed(() => {
           </span>
           <span
             v-if="helper"
-            class="whitespace-nowrap text-[10px] text-muted-foreground"
+            class="whitespace-nowrap text-xs text-muted-foreground"
           >{{
             helper
           }}</span>

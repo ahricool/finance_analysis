@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import DashboardPanelHeader from '@/components/dashboard/DashboardPanelHeader.vue';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ReportDetails as ReportDetailsType, ReportLanguage } from '@/types/analysis';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { onUnmounted, ref } from 'vue';
@@ -67,28 +66,22 @@ function renderJsonPre(data: unknown, panel: JsonPanel) {
 <template>
   <Card
     v-if="details?.rawResult || details?.contextSnapshot || recordId"
-    class="p-5 text-left"
+    class="text-left"
   >
-    <DashboardPanelHeader class="mb-3">
-      <template #eyebrow>
-        {{ text.transparency }}
-      </template>
-      <template #title>
-        {{ text.traceability }}
-      </template>
-    </DashboardPanelHeader>
+    <CardHeader>
+      <CardTitle>{{ text.traceability }}</CardTitle>
+    </CardHeader>
+    <CardContent class="space-y-3">
+      <div
+        v-if="recordId"
+        class="flex items-center gap-2 border-b pb-3 text-xs text-muted-foreground"
+      >
+        <span>{{ text.recordId }}:</span>
+        <code
+          class="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground"
+        >{{ recordId }}</code>
+      </div>
 
-    <div
-      v-if="recordId"
-      class="border-border mb-3 flex items-center gap-2 border-b pb-3 text-xs text-muted-foreground"
-    >
-      <span>{{ text.recordId }}:</span>
-      <code
-        class="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 text-primary px-1.5 py-0.5 font-mono text-xs"
-      >{{ recordId }}</code>
-    </div>
-
-    <div class="space-y-2">
       <div v-if="details?.rawResult">
         <button
           type="button"
@@ -102,13 +95,13 @@ function renderJsonPre(data: unknown, panel: JsonPanel) {
         </button>
         <div
           v-if="showRaw"
-          class="animate-fade-in mt-2 min-w-0 overflow-hidden"
+          class="mt-2 min-w-0 overflow-hidden"
         >
           <div class="relative overflow-hidden">
             <span class="absolute right-2 top-2 z-10 inline-flex">
               <button
                 type="button"
-                class="text-primary underline-offset-4 hover:underline text-xs text-muted-foreground"
+                class="text-xs text-muted-foreground underline-offset-4 hover:underline"
                 :aria-label="copiedPanels.raw ? text.copied : text.copy"
                 @click="copyToClipboard(renderJsonPre(details.rawResult, 'raw').jsonStr, 'raw')"
               >
@@ -135,13 +128,13 @@ function renderJsonPre(data: unknown, panel: JsonPanel) {
         </button>
         <div
           v-if="showSnapshot"
-          class="animate-fade-in mt-2 min-w-0 overflow-hidden"
+          class="mt-2 min-w-0 overflow-hidden"
         >
           <div class="relative overflow-hidden">
             <span class="absolute right-2 top-2 z-10 inline-flex">
               <button
                 type="button"
-                class="text-primary underline-offset-4 hover:underline text-xs text-muted-foreground"
+                class="text-xs text-muted-foreground underline-offset-4 hover:underline"
                 :aria-label="copiedPanels.snapshot ? text.copied : text.copy"
                 @click="
                   copyToClipboard(
@@ -159,6 +152,6 @@ function renderJsonPre(data: unknown, panel: JsonPanel) {
           </div>
         </div>
       </div>
-    </div>
+    </CardContent>
   </Card>
 </template>

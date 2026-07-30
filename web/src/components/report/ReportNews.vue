@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
-import DashboardPanelHeader from '@/components/dashboard/DashboardPanelHeader.vue';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
-import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { historyApi } from '@/api/history';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import type { NewsIntelItem, ReportLanguage } from '@/types/analysis';
@@ -59,96 +59,86 @@ watch(
 </script>
 
 <template>
-  <Card
-    v-if="recordId"
-    class="p-5"
-  >
-    <DashboardPanelHeader>
-      <template #eyebrow>
-        {{ text.newsFeed }}
-      </template>
-      <template #title>
-        {{ text.relatedNews }}
-      </template>
-      <template #actions>
+  <Card v-if="recordId">
+    <CardHeader>
+      <CardTitle>{{ text.relatedNews }}</CardTitle>
+      <CardAction>
         <div class="flex items-center gap-2">
           <div
             v-if="isLoading"
-            class="size-3.5 animate-spin rounded-full border-2 border-primary/25 border-t-primary"
+            class="size-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground"
             aria-hidden="true"
           />
-          <button
-            type="button"
-            class="text-primary underline-offset-4 hover:underline text-xs"
+          <Button
+            variant="ghost"
+            size="xs"
             :aria-label="text.refresh"
             @click="fetchNews"
           >
             {{ text.refresh }}
-          </button>
+          </Button>
         </div>
-      </template>
-    </DashboardPanelHeader>
+      </CardAction>
+    </CardHeader>
+    <CardContent class="space-y-3">
+      <ApiErrorAlert
+        v-if="error && !isLoading"
+        :error="error"
+        :action-label="text.retry"
+        :dismiss-label="text.dismiss"
+        @action="fetchNews"
+      />
 
-    <ApiErrorAlert
-      v-if="error && !isLoading"
-      :error="error"
-      :action-label="text.retry"
-      :dismiss-label="text.dismiss"
-      @action="fetchNews"
-    />
+      <DashboardStateBlock
+        v-if="isLoading && !error"
+        compact
+        loading
+        :title="text.loadingNews"
+      />
 
-    <DashboardStateBlock
-      v-if="isLoading && !error"
-      compact
-      loading
-      :title="text.loadingNews"
-    />
-
-    <DashboardStateBlock
-      v-else-if="!isLoading && !error && items.length === 0"
-      compact
-      :title="text.noNews"
-      :description="text.noNewsDescription"
-    >
-      <template #icon>
-        <ArrowUp class="size-4" />
-      </template>
-    </DashboardStateBlock>
-
-    <div
-      v-else-if="!isLoading && !error && items.length > 0"
-      class="space-y-3 text-left"
-    >
-      <div
-        v-for="(item, index) in items"
-        :key="`${item.title}-${index}`"
-        class="rounded-xl border bg-muted/40 group p-4"
+      <DashboardStateBlock
+        v-else-if="!isLoading && !error && items.length === 0"
+        compact
+        :title="text.noNews"
+        :description="text.noNewsDescription"
       >
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0 flex-1 text-left">
-            <p class="text-left text-sm font-medium leading-6 text-foreground">
-              {{ item.title }}
-            </p>
-            <p
-              v-if="item.snippet"
-              class="mt-2 overflow-hidden text-left text-sm leading-6 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
+        <template #icon>
+          <ArrowUp class="size-4" />
+        </template>
+      </DashboardStateBlock>
+
+      <template v-else-if="!isLoading && !error && items.length > 0">
+        <div
+          v-for="(item, index) in items"
+          :key="`${item.title}-${index}`"
+          class="rounded-lg border bg-muted/40 p-4"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0 flex-1 text-left">
+              <p class="text-left text-sm font-medium leading-6 text-foreground">
+                {{ item.title }}
+              </p>
+              <p
+                v-if="item.snippet"
+                class="mt-2 line-clamp-3 text-left text-sm leading-6 text-muted-foreground"
+              >
+                {{ item.snippet }}
+              </p>
+            </div>
+            <a
+              v-if="item.url"
+              :href="item.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              :aria-label="text.openLink"
             >
-              {{ item.snippet }}
-            </p>
+              {{ text.openLink }}
+              <ExternalLink class="size-3.5" />
+            </a>
           </div>
-          <a
-            v-if="item.url"
-            :href="item.url"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-primary underline-offset-4 hover:underline shrink-0 whitespace-nowrap px-2.5 py-1 text-xs"
-            :aria-label="text.openLink"
-          >
-            {{ text.openLink }}
-            <ExternalLink class="size-3.5" />
-          </a>
         </div>
-      </div>
-    </div>
+      </template>
+    </CardContent>
   </Card>
 </template>

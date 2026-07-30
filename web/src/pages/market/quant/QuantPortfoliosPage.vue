@@ -87,7 +87,7 @@ watch(
       </section>
       <Alert
         v-if="item.warnings.length"
-        class="border-warning/30 text-warning"
+        variant="warning"
       >
         <AlertTitle>组合约束提示</AlertTitle><AlertDescription class="text-current/80">
           {{ item.warnings.join('；') }}

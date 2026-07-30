@@ -51,43 +51,30 @@ describe('Shell navigation', () => {
     'marks market navigation active on %s',
     async (path) => {
       const { wrapper } = await mountShell(path);
-      const marketLinks = wrapper.findAll('a[aria-label="市场"]');
-      expect(marketLinks).toHaveLength(2);
-      expect(marketLinks.every((link) => link.attributes('aria-current') === 'page')).toBe(true);
-      expect(marketLinks.every((link) => link.classes().includes('text-primary'))).toBe(true);
+      const marketLink = wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="市场"]');
+      expect(marketLink.attributes('aria-current')).toBe('page');
+      expect(marketLink.classes()).toContain('bg-muted');
     },
   );
 
   it.each([
-    ['/market/backtests', '回测'],
-    ['/market/backtests/123', '回测'],
-    ['/market/quant/models', '量化'],
-    ['/market/quant/signals/NVDA.US', '量化'],
-  ])('marks only the %s module as %s', async (path, label) => {
+    '/market/backtests',
+    '/market/backtests/123',
+    '/market/quant/models',
+    '/market/quant/signals/NVDA.US',
+  ])('marks only the research module active on %s', async (path) => {
     const { wrapper } = await mountShell(path);
     const activeLinks = wrapper.findAll('[data-testid="desktop-main-nav"] a[aria-current="page"]');
     expect(activeLinks).toHaveLength(1);
-    expect(activeLinks[0].attributes('aria-label')).toBe(label);
-    expect(wrapper.get('button[aria-label="更多"]').attributes('aria-current')).toBe('page');
+    expect(activeLinks[0].attributes('aria-label')).toBe('研究');
   });
 
-  it.each(['/tasks', '/tasks/runs'])(
-    'marks More and the task sheet entry active on %s',
-    async (path) => {
-      const { wrapper } = await mountShell(path);
-      const moreButton = wrapper.get('button[aria-label="更多"]');
-
-      expect(moreButton.attributes('aria-current')).toBe('page');
-      await moreButton.trigger('click');
-
-      await vi.waitFor(() => {
-        const taskLink = document.body.querySelector<HTMLAnchorElement>('a[href="/tasks"]');
-        expect(taskLink?.getAttribute('aria-current')).toBe('page');
-        expect(taskLink?.classList.contains('text-primary')).toBe(true);
-      });
-      wrapper.unmount();
-    },
-  );
+  it.each(['/tasks', '/tasks/runs'])('marks the tasks entry active on %s', async (path) => {
+    const { wrapper } = await mountShell(path);
+    const activeLinks = wrapper.findAll('[data-testid="desktop-main-nav"] a[aria-current="page"]');
+    expect(activeLinks).toHaveLength(1);
+    expect(activeLinks[0].attributes('aria-label')).toBe('任务');
+  });
 
   it('toggles dark mode from the keyboard-accessible checkbox menu item', async () => {
     useAuthStore().currentUser = {
@@ -116,22 +103,32 @@ describe('Shell navigation', () => {
     wrapper.unmount();
   });
 
-  it('uses four primary mobile destinations plus a More entry and supports route changes', async () => {
+  it('opens the mobile navigation sheet with all destinations and closes it on navigation', async () => {
     const { router, wrapper } = await mountShell('/calendar');
-    const mobileNav = wrapper.get('[data-testid="mobile-main-nav"]');
 
-    expect(mobileNav.find('.grid-cols-5').exists()).toBe(true);
-    expect(mobileNav.findAll('a').map((link) => link.attributes('aria-label'))).toEqual([
-      '分析',
-      '日历',
-      '市场',
-      '问股',
-    ]);
-    expect(mobileNav.get('button[aria-label="更多"]').text()).toContain('更多');
-    expect(mobileNav.get('a[aria-label="日历"]').attributes('aria-current')).toBe('page');
+    await wrapper.get('[data-testid="mobile-nav-trigger"]').trigger('click');
 
-    await mobileNav.get('a[aria-label="市场"]').trigger('click');
+    await vi.waitFor(() => {
+      expect(document.body.querySelector('[data-testid="mobile-main-nav"]')).not.toBeNull();
+    });
+
+    const mobileNav = document.body.querySelector<HTMLElement>('[data-testid="mobile-main-nav"]')!;
+    const labels = Array.from(mobileNav.querySelectorAll('a')).map((link) =>
+      link.getAttribute('aria-label'),
+    );
+    expect(labels.slice(0, 6)).toEqual(['分析', '市场', '研究', '日历', '问股', '任务']);
+    expect(mobileNav.textContent).toContain('个人中心');
+    expect(
+      mobileNav.querySelector('a[aria-label="日历"]')?.getAttribute('aria-current'),
+    ).toBe('page');
+
+    mobileNav
+      .querySelector<HTMLAnchorElement>('a[aria-label="市场"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/market/watch-list'));
-    expect(mobileNav.get('a[aria-label="市场"]').attributes('aria-current')).toBe('page');
+    await vi.waitFor(() => {
+      expect(document.body.querySelector('[data-testid="mobile-main-nav"]')).toBeNull();
+    });
+    wrapper.unmount();
   });
 });

@@ -24,6 +24,7 @@ import AppCombobox from '@/components/app/AppCombobox.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import AppDateTimePicker from '@/components/app/AppDateTimePicker.vue';
 import CollapsibleCalendarSection from '@/components/calendar/CollapsibleCalendarSection.vue';
+import PageHeader from '@/components/layout/PageHeader.vue';
 import { Textarea } from '@/components/ui/textarea';
 import { useTimezoneStore } from '@/stores/timezoneStore';
 import {
@@ -33,7 +34,7 @@ import {
   localDateTimeToUtcIso,
 } from '@/utils/format';
 import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
-import { CalendarDays, ChevronLeft, ChevronRight, FileSearch, Plus } from 'lucide-vue-next';
+import { ChevronLeft, ChevronRight, FileSearch, Plus } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 
@@ -275,14 +276,14 @@ function dateSummary(d: Date): CalendarSummaryItem {
 
 function countToneClass(count: number): string {
   if (count <= 0) return 'text-muted-foreground';
-  if (count <= 2) return 'text-primary';
+  if (count <= 2) return 'text-foreground';
   if (count <= 5) return 'text-warning';
   return 'text-destructive';
 }
 
 function countTone(count: number): string {
   if (count <= 0) return 'muted';
-  if (count <= 2) return 'primary';
+  if (count <= 2) return 'default';
   if (count <= 5) return 'warning';
   return 'danger';
 }
@@ -291,9 +292,8 @@ function dateButtonClass(d: Date) {
   const date = formatDate(d);
   const selected = selectedDate.value === date;
   const today = todayInDisplayTimezone.value === date;
-  if (selected)
-    return 'border-primary bg-primary/10 text-primary shadow-[0_0_0_1px_hsl(var(--primary)/0.18)]';
-  if (today) return 'border-primary/35 bg-primary/5 hover:bg-primary/10';
+  if (selected) return 'border-brand bg-brand/10';
+  if (today) return 'border-brand/40 hover:bg-muted';
   return 'border-border/60 hover:bg-muted';
 }
 
@@ -451,66 +451,58 @@ watch(displayTimezone, () => {
 <template>
   <!-- eslint-disable vue/no-v-html -->
   <!-- v-html values in this template come from DOMPurify-backed Markdown renderers. -->
-  <div class="mx-auto w-full px-4 py-6 sm:px-6">
-    <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-      <div class="flex items-center gap-3">
-        <div
-          class="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-[hsl(var(--primary-foreground))] shadow-sm"
-        >
-          <CalendarDays class="h-5 w-5" />
-        </div>
-        <div>
-          <h1 class="text-lg font-semibold text-foreground">
-            日历记录
-          </h1>
-          <p class="text-xs text-muted-foreground">
-            按 7 日视图查看财经事件与自动化任务记录
-          </p>
-        </div>
-      </div>
-      <AppDatePicker
-        :model-value="selectedDate"
-        label="展示日期"
-        class="w-full sm:w-auto"
-        :clearable="false"
-        @update:model-value="goToDate"
-      />
-    </div>
+  <div class="w-full space-y-6 py-4 sm:py-6">
+    <PageHeader
+      title="日历记录"
+      description="按 7 日视图查看财经事件与自动化任务记录。"
+    >
+      <template #actions>
+        <AppDatePicker
+          :model-value="selectedDate"
+          label="展示日期"
+          class="w-full sm:w-auto"
+          :clearable="false"
+          @update:model-value="goToDate"
+        />
+      </template>
+    </PageHeader>
 
-    <div class="mb-4 rounded-2xl border border-border/60 bg-card p-4">
+    <div class="rounded-xl border bg-card p-4">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <button
-          type="button"
-          class="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="text-muted-foreground"
           aria-label="上一周期"
           :disabled="summaryLoading"
           @click="shiftRange(-1)"
         >
-          <ChevronLeft class="h-4 w-4" />
-        </button>
+          <ChevronLeft />
+        </Button>
         <p class="text-center text-sm font-medium">
           <span>7 日视图</span>
           <span class="mx-2 text-muted-foreground">/</span>
           <span class="font-mono text-muted-foreground">{{ rangeDisplay }}</span>
         </p>
         <div class="flex items-center gap-2">
-          <button
-            type="button"
-            class="rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          <Button
+            variant="outline"
+            size="sm"
             :disabled="isDefaultTodayView"
             @click="goToday"
           >
             今天
-          </button>
-          <button
-            type="button"
-            class="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="text-muted-foreground"
             aria-label="下一周期"
             :disabled="summaryLoading"
             @click="shiftRange(1)"
           >
-            <ChevronRight class="h-4 w-4" />
-          </button>
+            <ChevronRight />
+          </Button>
         </div>
       </div>
       <div class="grid grid-cols-2 gap-1.5 min-[430px]:grid-cols-4 sm:grid-cols-7 sm:gap-2">
@@ -526,14 +518,11 @@ watch(displayTimezone, () => {
           @click="selectDate(d)"
         >
           <span class="block whitespace-nowrap text-sm font-semibold">{{ formatMonthDay(d) }}</span>
-          <span
-            class="block whitespace-nowrap text-[11px] text-muted-foreground"
-            :class="selectedDate === formatDate(d) ? 'text-primary' : ''"
-          >
+          <span class="block whitespace-nowrap text-xs text-muted-foreground">
             {{ weekdayCn(d) }}
           </span>
           <span
-            class="mt-1 flex w-full flex-col items-center gap-0.5 text-[11px] text-muted-foreground min-[520px]:flex-row min-[520px]:justify-center min-[520px]:gap-2"
+            class="mt-1 flex w-full flex-col items-center gap-0.5 text-xs text-muted-foreground min-[520px]:flex-row min-[520px]:justify-center min-[520px]:gap-2"
           >
             <span class="whitespace-nowrap">
               财经
@@ -558,7 +547,7 @@ watch(displayTimezone, () => {
           </span>
           <span
             v-if="todayInDisplayTimezone === formatDate(d) && selectedDate !== formatDate(d)"
-            class="absolute bottom-1.5 h-1.5 w-1.5 rounded-full bg-primary/70"
+            class="absolute bottom-1.5 h-1.5 w-1.5 rounded-full bg-brand"
             aria-hidden="true"
           />
         </button>
@@ -568,7 +557,6 @@ watch(displayTimezone, () => {
     <ApiErrorAlert
       v-if="error"
       :error="error"
-      class="mb-4"
     />
 
     <div class="space-y-3">
@@ -615,7 +603,7 @@ watch(displayTimezone, () => {
               v-for="item in events"
               :key="item.id"
               type="button"
-              class="rounded-xl border bg-card text-card-foreground shadow-sm transition-colors hover:border-primary/30 hover:bg-muted/40 flex h-full w-full cursor-pointer items-start justify-between gap-3 p-3 text-left"
+              class="flex h-full w-full cursor-pointer items-start justify-between gap-3 rounded-lg border bg-card p-3 text-left text-card-foreground transition-colors hover:bg-muted/50"
               :class="isHighImportance(item) ? 'border-warning/30' : ''"
               @click="openEventDetail(item)"
             >
@@ -701,7 +689,7 @@ watch(displayTimezone, () => {
               v-for="item in entrySections[definition.category].items"
               :key="item.id"
               type="button"
-              class="rounded-xl border bg-card text-card-foreground shadow-sm transition-colors hover:border-primary/30 hover:bg-muted/40 flex w-full cursor-pointer items-start justify-between gap-3 p-3 text-left"
+              class="flex w-full cursor-pointer items-start justify-between gap-3 rounded-lg border bg-card p-3 text-left text-card-foreground transition-colors hover:bg-muted/50"
               @click="openEntryDetail(item)"
             >
               <span class="min-w-0 flex-1">

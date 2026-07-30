@@ -21,7 +21,7 @@ const toneClass = computed(
       success: 'bg-success',
       warning: 'bg-warning',
       destructive: 'bg-destructive',
-      info: 'bg-primary',
+      info: 'bg-info',
       neutral: 'bg-muted-foreground',
     })[props.tone],
 );

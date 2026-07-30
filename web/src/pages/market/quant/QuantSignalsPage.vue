@@ -107,7 +107,7 @@ watch(
                 <TableCell>
                   <RouterLink
                     :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
-                    class="text-primary"
+                    class="font-medium underline-offset-4 hover:underline"
                   >
                     {{ item.code }}
                   </RouterLink>
@@ -129,7 +129,7 @@ watch(
               <CardTitle class="text-base">
                 <RouterLink
                   :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
-                  class="text-primary"
+                  class="font-medium underline-offset-4 hover:underline"
                 >
                   {{ item.code }}
                 </RouterLink>

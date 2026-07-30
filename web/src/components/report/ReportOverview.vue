@@ -110,7 +110,7 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
           <div class="mb-5 flex items-start justify-between">
             <div class="flex-1">
               <div class="flex items-center gap-3">
-                <h2 class="text-[28px] font-bold leading-tight text-foreground">
+                <h2 class="text-2xl font-bold leading-tight tracking-tight text-foreground sm:text-3xl">
                   {{ meta.stockName || meta.stockCode }}
                 </h2>
                 <div
@@ -132,11 +132,12 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
                 </div>
               </div>
               <div class="mt-1.5 flex items-center gap-2">
-                <span
-                  class="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 text-primary px-2 py-0.5 font-mono text-xs"
+                <Badge
+                  variant="secondary"
+                  class="font-mono"
                 >
                   {{ meta.stockCode }}
-                </span>
+                </Badge>
                 <span class="flex items-center gap-1 text-xs text-muted-foreground">
                   <CalendarDays class="size-3.5" />
                   {{ formatDateTime(meta.createdAt) }}
@@ -150,7 +151,7 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
               text.keyInsights
             }}</span>
             <p
-              class="mt-2 max-w-[62ch] whitespace-pre-wrap text-left text-[15px] leading-7 text-foreground"
+              class="mt-2 max-w-prose whitespace-pre-wrap text-left text-sm leading-7 text-foreground sm:text-base"
             >
               {{ summary.analysisSummary || text.noAnalysisSummary }}
             </p>
@@ -158,7 +159,7 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
         </Card>
 
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Card class="p-4 transition-colors hover:border-primary/30">
+          <Card class="p-4">
             <div class="flex items-start gap-3">
               <div
                 class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-success/10"
@@ -166,7 +167,7 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
                 <ClipboardCheck class="size-4 text-success" />
               </div>
               <div class="space-y-1.5">
-                <h4 class="text-[11px] font-medium uppercase tracking-[0.16em]">
+                <h4 class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   {{ text.actionAdvice }}
                 </h4>
                 <p class="text-sm leading-6">
@@ -176,7 +177,7 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
             </div>
           </Card>
 
-          <Card class="p-4 transition-colors hover:border-primary/30">
+          <Card class="p-4">
             <div class="flex items-start gap-3">
               <div
                 class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-warning/10"
@@ -184,7 +185,7 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
                 <TrendingUp class="size-4 text-warning" />
               </div>
               <div class="space-y-1.5">
-                <h4 class="text-[11px] font-medium uppercase tracking-[0.16em]">
+                <h4 class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   {{ text.trendPrediction }}
                 </h4>
                 <p class="text-sm leading-6">
@@ -214,17 +215,15 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
               :key="`${normalizeBoardName(board.name)}-${board.code || index}`"
               class="flex flex-wrap items-center gap-2 text-sm"
             >
-              <span
-                class="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 text-primary px-2 py-0.5 text-xs font-medium"
-              >
+              <Badge variant="secondary">
                 {{ normalizeBoardName(board.name) }}
-              </span>
-              <span
+              </Badge>
+              <Badge
                 v-if="board.type"
-                class="inline-flex items-center rounded-full border border-primary/25 bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs"
+                variant="outline"
               >
                 {{ board.type }}
-              </span>
+              </Badge>
               <template v-if="boardSignals.get(normalizeBoardName(board.name))">
                 <Badge
                   :variant="

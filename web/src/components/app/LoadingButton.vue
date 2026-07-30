@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 
 withDefaults(
   defineProps<{
-    variant?: 'default' | 'secondary' | 'outline' | 'ghost' | 'destructive' | 'link';
+    variant?: 'default' | 'brand' | 'secondary' | 'outline' | 'ghost' | 'destructive' | 'link';
     size?: 'default' | 'xs' | 'sm' | 'lg' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg';
     loading?: boolean;
     loadingText?: string;
