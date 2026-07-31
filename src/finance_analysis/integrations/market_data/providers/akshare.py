@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-AkshareFetcher - 主数据源 (Priority 1)
+AkShareProvider - AkShare 市场数据能力
 ===================================
 
 数据来源：
@@ -28,8 +28,8 @@ import os
 import random
 import re
 import time
-from dataclasses import dataclass, field
 from datetime import date, datetime
+from types import SimpleNamespace
 from typing import Optional, Dict, Any, List, Tuple
 
 import pandas as pd
@@ -44,18 +44,51 @@ from tenacity import (
 
 from finance_analysis.patches.eastmoney_patch import eastmoney_patch
 from finance_analysis.integrations.market_data.config import get_data_provider_config
-from finance_analysis.integrations.market_data.base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS, is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code
-from finance_analysis.integrations.market_data.codes import _is_etf_code, _is_hk_code, _is_us_code, _to_sina_tx_symbol, is_hk_stock_code
+from finance_analysis.integrations.market_data.errors import DataFetchError, RateLimitError
+from finance_analysis.integrations.market_data.codes import (
+    is_etf_code,
+    is_hk_code,
+    is_us_code,
+    to_sina_tx_symbol,
+    is_bse_code,
+    is_hk_stock_code,
+    is_kc_cy_stock,
+    is_st_stock,
+    normalize_stock_code,
+)
+from finance_analysis.integrations.market_data.models import (
+    Adjustment,
+    AdjustmentFactor,
+    AdjustmentRequest,
+    AdjustmentResult,
+    BatchBarResult,
+    BatchInstrumentResult,
+    BatchQuoteResult,
+    CorporateAction,
+    DailyBarsRequest,
+    InstrumentInfo,
+    InstrumentRequest,
+    Market,
+    MarketIndex,
+    MarketStats,
+    MinuteBarsRequest,
+    QuoteRequest,
+    SectorRankings,
+)
+from finance_analysis.integrations.market_data.normalizer import (
+    STANDARD_COLUMNS,
+    bars_from_frame,
+    canonical_symbol,
+    currency_for_market,
+    infer_market,
+    quote_from_value,
+)
 from finance_analysis.integrations.market_data.realtime_types import (
     UnifiedRealtimeQuote, ChipDistribution, RealtimeSource,
     get_realtime_circuit_breaker, get_chip_circuit_breaker,
     safe_float, safe_int  # 使用统一的类型转换函数
 )
 from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_index_code
-
-
-# 保留旧的 RealtimeQuote 别名，用于向后兼容
-RealtimeQuote = UnifiedRealtimeQuote
 
 
 logger = logging.getLogger(__name__)
@@ -156,7 +189,7 @@ def _build_realtime_failure_message(
     )
 
 
-class AkshareFetcher(BaseFetcher):
+class AkShareProvider:
     """
     Akshare 数据源实现
     
@@ -169,15 +202,11 @@ class AkshareFetcher(BaseFetcher):
     - 失败后指数退避重试（最多3次）
     """
     
-    name = "AkshareFetcher"
-    priority = int(os.getenv("AKSHARE_PRIORITY", "1"))
-    from finance_analysis.integrations.market_data.history import SOURCE_PRIORITY as _SOURCE_PRIORITY
-
-    source_priority = _SOURCE_PRIORITY[name]
+    name = "akshare"
     
     def __init__(self, sleep_min: float = 2.0, sleep_max: float = 5.0):
         """
-        初始化 AkshareFetcher
+        初始化 AkShareProvider
         
         Args:
             sleep_min: 最小休眠时间（秒）
@@ -191,17 +220,177 @@ class AkshareFetcher(BaseFetcher):
             eastmoney_patch()
 
     @staticmethod
+    def random_sleep(min_seconds: float, max_seconds: float) -> None:
+        time.sleep(random.uniform(min_seconds, max_seconds))
+
+    @staticmethod
     def _canonical_base(code: str) -> str:
         canonical = str(code or "").strip().upper()
         if canonical.endswith((".SH", ".SZ", ".HK")):
             return canonical[:-3]
         raise ValueError(f"AKShare daily history requires a canonical CN/HK symbol: {code}")
 
-    def fetch_daily_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
-        """Fetch unadjusted CN/HK daily bars using AKShare's empty adjust mode."""
+    def fetch_daily_bars(self, request: DailyBarsRequest) -> BatchBarResult:
+        if request.adjustment is not Adjustment.RAW:
+            raise ValueError("AKShare storage reads must use adjustment='raw'")
+        result = BatchBarResult()
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            market = infer_market(symbol)
+            try:
+                frame = self._fetch_daily_frame(
+                    SimpleNamespace(code=symbol, market=market.value),
+                    request.start_date,
+                    request.end_date,
+                )
+                bars = bars_from_frame(
+                    frame,
+                    symbol=symbol,
+                    provider=self.name,
+                    interval="1d",
+                    adjustment=Adjustment.RAW,
+                )
+                if bars:
+                    result.data[symbol] = bars
+                    result.providers_used[symbol] = self.name
+                else:
+                    result.missing_symbols.append(symbol)
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def fetch_minute_bars(self, request: MinuteBarsRequest) -> BatchBarResult:
         import akshare as ak
 
-        from finance_analysis.integrations.market_data.history import HistoricalProviderError
+        result = BatchBarResult()
+        period = request.interval.removesuffix("m")
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            if infer_market(symbol) is not Market.CN:
+                result.failed_symbols[symbol] = "AKShare minute bars currently support CN only"
+                continue
+            try:
+                raw = ak.stock_zh_a_hist_min_em(
+                    symbol=normalize_stock_code(symbol),
+                    start_date=request.start_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    end_date=request.end_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    period=period,
+                    adjust="",
+                )
+                bars = bars_from_frame(
+                    raw.rename(columns={"时间": "bar_time", "成交量": "volume", "成交额": "amount"}),
+                    symbol=symbol,
+                    provider=self.name,
+                    interval=request.interval,
+                    volume_multiplier=100,
+                )
+                if bars:
+                    result.data[symbol] = bars
+                    result.providers_used[symbol] = self.name
+                else:
+                    result.missing_symbols.append(symbol)
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def fetch_quotes(self, request: QuoteRequest) -> BatchQuoteResult:
+        result = BatchQuoteResult()
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            try:
+                raw = self.get_realtime_quote(symbol)
+                payload = raw.to_dict() if raw is not None else None
+                if payload is not None and infer_market(symbol) is Market.CN and payload.get("volume") is not None:
+                    payload["volume"] = int(payload["volume"] * 100)
+                quote = quote_from_value(payload, symbol=symbol, provider=self.name)
+                if quote is None:
+                    result.missing_symbols.append(symbol)
+                else:
+                    result.data[symbol] = quote
+                    result.providers_used[symbol] = self.name
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def get_adjustment_factors(self, request: AdjustmentRequest) -> AdjustmentResult:
+        result = AdjustmentResult()
+        days = list(pd.date_range(request.start_date, request.end_date, freq="D").date)
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            market = infer_market(symbol)
+            try:
+                actions, factors = self._fetch_adjustment_data(
+                    SimpleNamespace(code=symbol, market=market.value), days
+                )
+                normalized_factors = [
+                    AdjustmentFactor(
+                        symbol=symbol,
+                        trade_date=row["trade_date"],
+                        factor=float(row["forward_adjustment_factor"]),
+                        provider=self.name,
+                    )
+                    for row in factors
+                    if row.get("forward_adjustment_factor") is not None
+                ]
+                if not normalized_factors:
+                    result.missing_symbols.append(symbol)
+                    continue
+                result.factors[symbol] = normalized_factors
+                result.corporate_actions[symbol] = [
+                    CorporateAction(
+                        symbol=symbol,
+                        action_date=row["action_date"],
+                        action_type=str(row.get("action_type") or "unknown"),
+                        value=float(
+                            row.get("cash_dividend")
+                            or row.get("split_ratio")
+                            or row.get("bonus_ratio")
+                            or 0
+                        ),
+                        provider=self.name,
+                    )
+                    for row in actions
+                ]
+                result.providers_used[symbol] = self.name
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def get_instrument_info(self, request: InstrumentRequest) -> BatchInstrumentResult:
+        import akshare as ak
+
+        result = BatchInstrumentResult()
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            market = infer_market(symbol)
+            try:
+                if market is Market.CN:
+                    frame = ak.stock_individual_info_em(symbol=normalize_stock_code(symbol))
+                    names = frame.loc[frame["item"] == "股票简称", "value"] if not frame.empty else []
+                    name = str(names.iloc[0]).strip() if len(names) else ""
+                else:
+                    raw_quote = self.get_realtime_quote(symbol)
+                    name = str(raw_quote.name).strip() if raw_quote is not None else ""
+                if not name:
+                    result.missing_symbols.append(symbol)
+                    continue
+                result.data[symbol] = InstrumentInfo(
+                    symbol=symbol,
+                    market=market,
+                    name=name,
+                    provider=self.name,
+                    currency=currency_for_market(market),
+                    exchange=symbol.rsplit(".", 1)[1],
+                    instrument_type="stock",
+                )
+                result.providers_used[symbol] = self.name
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def _fetch_daily_frame(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
+        """Fetch unadjusted CN/HK daily bars using AKShare's empty adjust mode."""
+        import akshare as ak
 
         base = self._canonical_base(symbol.code)
         start = start_date.strftime("%Y%m%d")
@@ -229,14 +418,9 @@ class AkshareFetcher(BaseFetcher):
         except Exception as exc:
             reason = str(exc)
             retryable = any(token in reason.lower() for token in ("timeout", "connection", "429", "rate", "频率"))
-            raise HistoricalProviderError(
-                self.name,
-                symbol.market,
-                symbol.code,
-                "daily",
-                f"{start_date}..{end_date}",
-                reason,
-                retryable,
+            raise RuntimeError(
+                f"provider={self.name} market={symbol.market} code={symbol.code} "
+                f"data_type=daily requested_range={start_date}..{end_date} retryable={retryable} reason={reason}"
             ) from exc
         if frame is None or frame.empty:
             return pd.DataFrame()
@@ -248,16 +432,14 @@ class AkshareFetcher(BaseFetcher):
         columns = ["date", "open", "high", "low", "close", "volume", "amount"]
         return frame[columns].sort_values("date").reset_index(drop=True)
 
-    def fetch_adjustment_data(self, symbol, requested_days: list[date]):
+    def _fetch_adjustment_data(self, symbol, requested_days: list[date]):
         """Expand AKShare forward/hfq event factors to every requested trading day."""
         import akshare as ak
 
-        from finance_analysis.integrations.market_data.history import AdjustmentData, HistoricalProviderError
-
         if not requested_days:
-            return AdjustmentData([], [])
+            return [], []
         base = self._canonical_base(symbol.code)
-        provider_symbol = _to_sina_tx_symbol(base) if symbol.market == "CN" else base.zfill(5)
+        provider_symbol = to_sina_tx_symbol(base) if symbol.market == "CN" else base.zfill(5)
         factor_api = ak.stock_zh_a_daily if symbol.market == "CN" else ak.stock_hk_daily
         try:
             # AKShare calls this ``qfq-factor``. Internally the canonical name is
@@ -267,14 +449,9 @@ class AkshareFetcher(BaseFetcher):
         except Exception as exc:
             reason = str(exc)
             retryable = any(token in reason.lower() for token in ("timeout", "connection", "429", "rate", "频率"))
-            raise HistoricalProviderError(
-                self.name,
-                symbol.market,
-                symbol.code,
-                "adjustment",
-                f"{min(requested_days)}..{max(requested_days)}",
-                reason,
-                retryable,
+            raise RuntimeError(
+                f"provider={self.name} market={symbol.market} code={symbol.code} data_type=adjustment "
+                f"requested_range={min(requested_days)}..{max(requested_days)} retryable={retryable} reason={reason}"
             ) from exc
 
         # AKShare's response column uses the same external abbreviation as its
@@ -356,7 +533,7 @@ class AkshareFetcher(BaseFetcher):
                 symbol.code,
                 exc,
             )
-        return AdjustmentData(actions, rows, corporate_actions_complete=actions_complete)
+        return actions, rows
 
     @staticmethod
     def _fetch_corporate_actions(ak, market: str, base: str, start_date: date, end_date: date):
@@ -506,7 +683,7 @@ class AkshareFetcher(BaseFetcher):
         从 Akshare 获取原始数据
         
         根据代码类型自动选择 API：
-        - 美股：不支持，抛出异常由 YfinanceFetcher 处理（Issue #311）
+        - 美股：不支持，抛出异常由 YFinanceProvider 处理（Issue #311）
         - 港股：使用 ak.stock_hk_hist()
         - ETF 基金：使用 ak.fund_etf_hist_em()
         - 普通 A 股：使用 ak.stock_zh_a_hist()
@@ -519,15 +696,15 @@ class AkshareFetcher(BaseFetcher):
         5. 处理返回数据
         """
         # 根据代码类型选择不同的获取方法
-        if _is_us_code(stock_code):
+        if is_us_code(stock_code):
             # 美股：akshare 的 stock_us_daily 接口复权存在已知问题（参见 Issue #311）
-            # 交由 YfinanceFetcher 处理，确保复权价格一致
+            # 交由 YFinanceProvider 处理，确保复权价格一致
             raise DataFetchError(
-                f"AkshareFetcher 不支持美股 {stock_code}，请使用 YfinanceFetcher 获取正确的复权价格"
+                f"AkShareProvider 不支持美股 {stock_code}，请使用 YFinanceProvider 获取正确的复权价格"
             )
-        elif _is_hk_code(stock_code):
+        elif is_hk_code(stock_code):
             return self._fetch_hk_data(stock_code, start_date, end_date)
-        elif _is_etf_code(stock_code):
+        elif is_etf_code(stock_code):
             return self._fetch_etf_data(stock_code, start_date, end_date)
         else:
             return self._fetch_stock_data(stock_code, start_date, end_date)
@@ -616,7 +793,7 @@ class AkshareFetcher(BaseFetcher):
         import akshare as ak
 
         # 转换代码格式：sh600000, sz000001, bj920748
-        symbol = _to_sina_tx_symbol(stock_code)
+        symbol = to_sina_tx_symbol(stock_code)
 
         self._enforce_rate_limit()
 
@@ -662,7 +839,7 @@ class AkshareFetcher(BaseFetcher):
         import akshare as ak
 
         # 转换代码格式：sh600000, sz000001, bj920748
-        symbol = _to_sina_tx_symbol(stock_code)
+        symbol = to_sina_tx_symbol(stock_code)
 
         self._enforce_rate_limit()
 
@@ -986,13 +1163,13 @@ class AkshareFetcher(BaseFetcher):
         circuit_breaker = get_realtime_circuit_breaker()
 
         # 根据代码类型选择不同的获取方法
-        if _is_us_code(stock_code):
-            # 美股不使用 Akshare，由 YfinanceFetcher 处理
+        if is_us_code(stock_code):
+            # 美股不使用 Akshare，由 YFinanceProvider 处理
             logger.debug(f"[API跳过] {stock_code} 是美股，Akshare 不支持美股实时行情")
             return None
-        elif _is_hk_code(stock_code):
+        elif is_hk_code(stock_code):
             return self._get_hk_realtime_quote(stock_code)
-        elif _is_etf_code(stock_code):
+        elif is_etf_code(stock_code):
             source_key = "akshare_etf"
             if not circuit_breaker.is_available(source_key):
                 logger.info(f"[熔断] 数据源 {source_key} 处于熔断状态，跳过")
@@ -1124,7 +1301,7 @@ class AkshareFetcher(BaseFetcher):
         """
         circuit_breaker = get_realtime_circuit_breaker()
         source_key = "akshare_sina"
-        symbol = _to_sina_tx_symbol(stock_code)
+        symbol = to_sina_tx_symbol(stock_code)
         url = f"http://{SINA_REALTIME_ENDPOINT}={symbol}"
         api_start = time.time()
         
@@ -1275,7 +1452,7 @@ class AkshareFetcher(BaseFetcher):
         """
         circuit_breaker = get_realtime_circuit_breaker()
         source_key = "akshare_tencent"
-        symbol = _to_sina_tx_symbol(stock_code)
+        symbol = to_sina_tx_symbol(stock_code)
         url = f"http://{TENCENT_REALTIME_ENDPOINT}={symbol}"
         api_start = time.time()
         
@@ -1650,17 +1827,17 @@ class AkshareFetcher(BaseFetcher):
         import akshare as ak
 
         # 美股没有筹码分布数据（Akshare 不支持）
-        if _is_us_code(stock_code):
+        if is_us_code(stock_code):
             logger.debug(f"[API跳过] {stock_code} 是美股，无筹码分布数据")
             return None
 
         # 港股没有筹码分布数据（stock_cyq_em 是 A 股专属接口）
-        if _is_hk_code(stock_code):
+        if is_hk_code(stock_code):
             logger.debug(f"[API跳过] {stock_code} 是港股，无筹码分布数据")
             return None
 
         # ETF/指数没有筹码分布数据
-        if _is_etf_code(stock_code):
+        if is_etf_code(stock_code):
             logger.debug(f"[API跳过] {stock_code} 是 ETF/指数，无筹码分布数据")
             return None
         
@@ -1710,40 +1887,7 @@ class AkshareFetcher(BaseFetcher):
             logger.exception(f"[API错误] 获取 {stock_code} 筹码分布失败: {e}")
             return None
     
-    def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
-        """
-        获取增强数据（历史K线 + 实时行情 + 筹码分布）
-        
-        Args:
-            stock_code: 股票代码
-            days: 历史数据天数
-            
-        Returns:
-            包含所有数据的字典
-        """
-        result = {
-            'code': stock_code,
-            'daily_data': None,
-            'realtime_quote': None,
-            'chip_distribution': None,
-        }
-        
-        # 获取日线数据
-        try:
-            df = self.get_daily_data(stock_code, days=days)
-            result['daily_data'] = df
-        except Exception as e:
-            logger.exception(f"获取 {stock_code} 日线数据失败: {e}")
-        
-        # 获取实时行情
-        result['realtime_quote'] = self.get_realtime_quote(stock_code)
-        
-        # 获取筹码分布
-        result['chip_distribution'] = self.get_chip_distribution(stock_code)
-        
-        return result
-
-    def get_main_indices(self, region: str = "cn") -> Optional[List[Dict[str, Any]]]:
+    def _get_main_indices(self, region: str = "cn") -> Optional[List[Dict[str, Any]]]:
         """
         获取主要指数实时行情 (新浪接口)，仅支持 A 股
         """
@@ -1809,7 +1953,7 @@ class AkshareFetcher(BaseFetcher):
             logger.exception(f"[Akshare] 获取指数行情失败: {e}")
             return None
 
-    def get_market_stats(self) -> Optional[Dict[str, Any]]:
+    def _get_market_stats(self) -> Optional[Dict[str, Any]]:
         """
         获取市场涨跌统计
 
@@ -1855,7 +1999,7 @@ class AkshareFetcher(BaseFetcher):
         df = df.copy()
         
         # 1. 提取基础比对数据：最新价、昨收
-        # 兼容不同接口返回的列名 sina/em efinance tushare xtdata
+        # 兼容不同接口返回的列名 sina/em efinance xtdata
         code_col = next((c for c in ['代码', '股票代码', 'ts_code','stock_code'] if c in df.columns), None)
         name_col = next((c for c in ['名称', '股票名称','name','name'] if c in df.columns), None)
         close_col = next((c for c in ['最新价', '最新价', 'close','lastPrice'] if c in df.columns), None)
@@ -1946,7 +2090,7 @@ class AkshareFetcher(BaseFetcher):
             
         return stats
 
-    def get_sector_rankings(self, n: int = 5) -> Optional[Tuple[List[Dict], List[Dict]]]:
+    def _get_sector_rankings(self, n: int = 20) -> Optional[Tuple[List[Dict], List[Dict]]]:
         """
         获取行业板块涨跌榜
 
@@ -2006,113 +2150,85 @@ class AkshareFetcher(BaseFetcher):
             logger.exception(f"[Akshare] 新浪接口获取板块排行也失败: {e}")
             return None
 
+    def get_indices(self, market: Market) -> list[MarketIndex]:
+        rows = self._get_main_indices(market.value.lower()) or []
+        result: list[MarketIndex] = []
+        for row in rows:
+            raw_code = str(row.get("code") or "")
+            code = raw_code.removeprefix("sh").removeprefix("sz")
+            symbol = canonical_symbol(code, market)
+            result.append(
+                MarketIndex(
+                    symbol=symbol,
+                    name=str(row.get("name") or symbol),
+                    market=market,
+                    provider=self.name,
+                    price=float(row.get("current") or 0),
+                    change=float(row.get("change") or 0),
+                    change_pct=float(row.get("change_pct") or 0),
+                    volume=int(row["volume"] * 100) if row.get("volume") is not None else None,
+                    amount=float(row["amount"]) if row.get("amount") is not None else None,
+                )
+            )
+        return result
 
-if __name__ == "__main__":
-    # 测试代码
-    logging.basicConfig(level=logging.DEBUG)
-    
-    fetcher = AkshareFetcher()
-    
-    # 测试普通股票
-    print("=" * 50)
-    print("测试普通股票数据获取")
-    print("=" * 50)
-    try:
-        df = fetcher.get_daily_data('600519')  # 茅台
-        print(f"[股票] 获取成功，共 {len(df)} 条数据")
-        print(df.tail())
-    except Exception as e:
-        print(f"[股票] 获取失败: {e}")
-    
-    # 测试 ETF 基金
-    print("\n" + "=" * 50)
-    print("测试 ETF 基金数据获取")
-    print("=" * 50)
-    try:
-        df = fetcher.get_daily_data('512400')  # 有色龙头ETF
-        print(f"[ETF] 获取成功，共 {len(df)} 条数据")
-        print(df.tail())
-    except Exception as e:
-        print(f"[ETF] 获取失败: {e}")
-    
-    # 测试 ETF 实时行情
-    print("\n" + "=" * 50)
-    print("测试 ETF 实时行情获取")
-    print("=" * 50)
-    try:
-        quote = fetcher.get_realtime_quote('512880')  # 证券ETF
-        if quote:
-            print(f"[ETF实时] {quote.name}: 价格={quote.price}, 涨跌幅={quote.change_pct}%")
-        else:
-            print("[ETF实时] 未获取到数据")
-    except Exception as e:
-        print(f"[ETF实时] 获取失败: {e}")
-    
-    # 测试港股历史数据
-    print("\n" + "=" * 50)
-    print("测试港股历史数据获取")
-    print("=" * 50)
-    try:
-        df = fetcher.get_daily_data('00700')  # 腾讯控股
-        print(f"[港股] 获取成功，共 {len(df)} 条数据")
-        print(df.tail())
-    except Exception as e:
-        print(f"[港股] 获取失败: {e}")
-    
-    # 测试港股实时行情
-    print("\n" + "=" * 50)
-    print("测试港股实时行情获取")
-    print("=" * 50)
-    try:
-        quote = fetcher.get_realtime_quote('00700')  # 腾讯控股
-        if quote:
-            print(f"[港股实时] {quote.name}: 价格={quote.price}, 涨跌幅={quote.change_pct}%")
-        else:
-            print("[港股实时] 未获取到数据")
-    except Exception as e:
-        print(f"[港股实时] 获取失败: {e}")
+    def get_market_stats(self, market: Market) -> MarketStats:
+        if market is not Market.CN:
+            raise ValueError("AKShare market breadth supports CN only")
+        row = self._get_market_stats()
+        if not row:
+            raise RuntimeError("AKShare returned no market breadth")
+        return MarketStats(
+            market=market,
+            provider=self.name,
+            up_count=int(row.get("up_count") or 0),
+            down_count=int(row.get("down_count") or 0),
+            flat_count=int(row.get("flat_count") or 0),
+            limit_up_count=int(row.get("limit_up_count") or 0),
+            limit_down_count=int(row.get("limit_down_count") or 0),
+            total_amount=(float(row["total_amount"]) * 1e8 if row.get("total_amount") is not None else None),
+        )
 
-    # 测试市场统计
-    print("\n" + "=" * 50)
-    print("Testing get_market_stats (akshare)")
-    print("=" * 50)
-    try:
-        stats = fetcher.get_market_stats()
-        if stats:
-            print(f"Market Stats successfully computed:")
-            print(f"Up: {stats['up_count']} (Limit Up: {stats['limit_up_count']})")
-            print(f"Down: {stats['down_count']} (Limit Down: {stats['limit_down_count']})")
-            print(f"Flat: {stats['flat_count']}")
-            print(f"Total Amount: {stats['total_amount']:.2f} 亿 (Yi)")
-        else:
-            print("Failed to compute market stats.")
-    except Exception as e:
-        print(f"Failed to compute market stats: {e}")
+    def get_sector_rankings(self, market: Market) -> SectorRankings:
+        if market is not Market.CN:
+            raise ValueError("AKShare sector rankings support CN only")
+        rankings = self._get_sector_rankings() or ([], [])
+        return SectorRankings(market=market, provider=self.name, top=rankings[0], bottom=rankings[1])
 
-    # 测试筹码分布数据
-    print("\n" + "=" * 50)
-    print("测试筹码分布数据获取")
-    print("=" * 50)
-    try:
-        chip = fetcher.get_chip_distribution('600519')  # 茅台
-    except Exception as e:
-        print(f"[筹码分布] 获取失败: {e}")
+    def fetch_market_snapshot(self, market: Market) -> BatchQuoteResult:
+        if market is not Market.CN:
+            raise ValueError("AKShare full-market snapshot supports CN only")
+        import akshare as ak
 
-    # 测试行业板块排名
-    print("\n" + "=" * 50)
-    print("测试行业板块排名获取")
-    print("=" * 50)
-    try:
-        rankings = fetcher.get_sector_rankings(n=5)
-        if rankings:
-            top, bottom = rankings
-            print("涨幅榜 Top 5:")
-            for sector in top:
-                print(f"{sector['name']}: {sector['change_pct']}%")
-            print("\n跌幅榜 Top 5:")
-            for sector in bottom:
-                print(f"{sector['name']}: {sector['change_pct']}%")
-        else:
-            print("未获取到行业板块排名数据")
-    except Exception as e:
-        print(f"[行业板块排名] 获取失败: {e}")
+        frame = ak.stock_zh_a_spot_em()
+        result = BatchQuoteResult()
+        if frame is None or frame.empty:
+            return result
+        for row in frame.to_dict(orient="records"):
+            try:
+                symbol = canonical_symbol(str(row.get("代码") or ""), Market.CN)
+                quote = quote_from_value(
+                    {
+                        "name": row.get("名称"),
+                        "price": row.get("最新价"),
+                        "change_pct": row.get("涨跌幅"),
+                        "change_amount": row.get("涨跌额"),
+                        "volume": (safe_int(row.get("成交量"), 0) or 0) * 100,
+                        "amount": row.get("成交额"),
+                        "open": row.get("今开"),
+                        "high": row.get("最高"),
+                        "low": row.get("最低"),
+                        "pre_close": row.get("昨收"),
+                    },
+                    symbol=symbol,
+                    provider=self.name,
+                )
+                if quote is not None:
+                    result.data[symbol] = quote
+                    result.providers_used[symbol] = self.name
+            except (TypeError, ValueError):
+                continue
+        return result
+
+
+__all__ = ["AkShareProvider", "is_hk_stock_code"]

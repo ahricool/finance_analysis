@@ -328,7 +328,7 @@ class TestAgentResultConversion(unittest.TestCase):
         # We need to import and mock carefully to avoid touching real services
         with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
              patch('finance_analysis.analysis.pipeline.get_db'), \
-             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.MarketDataService'), \
              patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
              patch('finance_analysis.analysis.pipeline.NotificationService'), \
              patch('finance_analysis.analysis.pipeline.SearchService'):
@@ -348,12 +348,11 @@ class TestAgentResultConversion(unittest.TestCase):
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
-            mock_cfg.realtime_source_priority = []
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
             from finance_analysis.analysis.pipeline import StockAnalysisPipeline
-            pipeline = StockAnalysisPipeline(config=mock_cfg)
+            pipeline = StockAnalysisPipeline(config=mock_cfg, owner_uid=1)
             pipeline._ensure_agent_history = MagicMock()
             return pipeline
 
@@ -1119,7 +1118,7 @@ class TestPipelineRouting(unittest.TestCase):
         """When agent_mode=True, analyze_stock should call _analyze_with_agent."""
         with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
              patch('finance_analysis.analysis.pipeline.get_db'), \
-             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.MarketDataService'), \
              patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
              patch('finance_analysis.analysis.pipeline.NotificationService'), \
              patch('finance_analysis.analysis.pipeline.SearchService'):
@@ -1138,13 +1137,12 @@ class TestPipelineRouting(unittest.TestCase):
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
-            mock_cfg.realtime_source_priority = []
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
             from finance_analysis.analysis.pipeline import StockAnalysisPipeline
             from finance_analysis.reporting.types import ReportType
-            pipeline = StockAnalysisPipeline(config=mock_cfg)
+            pipeline = StockAnalysisPipeline(config=mock_cfg, owner_uid=1)
             pipeline._ensure_agent_history = MagicMock()
 
             # Mock _analyze_with_agent to verify it gets called
@@ -1165,7 +1163,7 @@ class TestPipelineRouting(unittest.TestCase):
         """When agent_mode=False, analyze_stock should NOT call _analyze_with_agent."""
         with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
              patch('finance_analysis.analysis.pipeline.get_db') as mock_db, \
-             patch('finance_analysis.analysis.pipeline.DataFetcherManager') as mock_fm, \
+             patch('finance_analysis.analysis.pipeline.MarketDataService') as mock_fm, \
              patch('finance_analysis.analysis.pipeline.StockReportAnalyzer') as mock_analyzer, \
              patch('finance_analysis.analysis.pipeline.NotificationService'), \
              patch('finance_analysis.analysis.pipeline.SearchService') as mock_search:
@@ -1185,16 +1183,16 @@ class TestPipelineRouting(unittest.TestCase):
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
-            mock_cfg.realtime_source_priority = []
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
             from finance_analysis.analysis.pipeline import StockAnalysisPipeline
             from finance_analysis.reporting.types import ReportType
-            pipeline = StockAnalysisPipeline(config=mock_cfg)
+            pipeline = StockAnalysisPipeline(config=mock_cfg, owner_uid=1)
 
             # Mock the fetcher_manager to return None for realtime
-            pipeline.fetcher_manager.get_realtime_quote.return_value = None
+            pipeline.fetcher_manager.get_realtime_quotes.return_value = SimpleNamespace(data={})
+            pipeline.fetcher_manager.get_instrument_info.return_value = SimpleNamespace(data={})
             pipeline.fetcher_manager.get_chip_distribution.return_value = None
             # Mock search service
             pipeline.search_service.is_available = False
@@ -1217,7 +1215,7 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
         """Should use resolved stock name from dashboard for search and DB persistence."""
         with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
              patch('finance_analysis.analysis.pipeline.get_db'), \
-             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.MarketDataService'), \
              patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
              patch('finance_analysis.analysis.pipeline.NotificationService'), \
              patch('finance_analysis.analysis.pipeline.SearchService'), \
@@ -1238,14 +1236,13 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
-            mock_cfg.realtime_source_priority = []
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
             from finance_analysis.analysis.pipeline import StockAnalysisPipeline
             from finance_analysis.agent.executor import AgentResult
             from finance_analysis.reporting.types import ReportType
-            pipeline = StockAnalysisPipeline(config=mock_cfg)
+            pipeline = StockAnalysisPipeline(config=mock_cfg, owner_uid=1)
             pipeline._ensure_agent_history = MagicMock()
 
             agent_result = AgentResult(
@@ -1296,7 +1293,7 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
         """Decision stability downgrade in agent flow should sync dashboard and top-level decision fields."""
         with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
              patch('finance_analysis.analysis.pipeline.get_db'), \
-             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.MarketDataService'), \
              patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
              patch('finance_analysis.analysis.pipeline.NotificationService'), \
              patch('finance_analysis.analysis.pipeline.SearchService'), \
@@ -1316,7 +1313,6 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
-            mock_cfg.realtime_source_priority = []
             mock_cfg.save_context_snapshot = False
             mock_cfg.report_language = "zh"
             mock_cfg.agent_orchestrator_timeout_s = 600
@@ -1326,7 +1322,7 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             from finance_analysis.agent.executor import AgentResult
             from finance_analysis.reporting.types import ReportType
             from finance_analysis.analysis.technical.analyzer import TrendAnalysisResult, TrendStatus, BuySignal
-            pipeline = StockAnalysisPipeline(config=mock_cfg)
+            pipeline = StockAnalysisPipeline(config=mock_cfg, owner_uid=1)
             pipeline._ensure_agent_history = MagicMock()
 
             agent_result = AgentResult(
@@ -1916,7 +1912,7 @@ class TestSafeInt(unittest.TestCase):
         """Get reference to StockAnalysisPipeline._safe_int static method."""
         with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
              patch('finance_analysis.analysis.pipeline.get_db'), \
-             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.MarketDataService'), \
              patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
              patch('finance_analysis.analysis.pipeline.NotificationService'), \
              patch('finance_analysis.analysis.pipeline.SearchService'):
@@ -1935,7 +1931,6 @@ class TestSafeInt(unittest.TestCase):
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
-            mock_cfg.realtime_source_priority = []
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
@@ -2059,7 +2054,7 @@ class TestSkillActivation(unittest.TestCase):
         """Verify _agent_result_to_analysis_result handles non-numeric sentiment_score."""
         with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
              patch('finance_analysis.analysis.pipeline.get_db'), \
-             patch('finance_analysis.analysis.pipeline.DataFetcherManager'), \
+             patch('finance_analysis.analysis.pipeline.MarketDataService'), \
              patch('finance_analysis.analysis.pipeline.StockReportAnalyzer'), \
              patch('finance_analysis.analysis.pipeline.NotificationService'), \
              patch('finance_analysis.analysis.pipeline.SearchService'):
@@ -2078,14 +2073,13 @@ class TestSkillActivation(unittest.TestCase):
             mock_cfg.news_max_age_days = 7
             mock_cfg.enable_realtime_quote = True
             mock_cfg.enable_chip_distribution = True
-            mock_cfg.realtime_source_priority = []
             mock_cfg.save_context_snapshot = False
             mock_config.return_value = mock_cfg
 
             from finance_analysis.analysis.pipeline import StockAnalysisPipeline
             from finance_analysis.agent.executor import AgentResult
             from finance_analysis.reporting.types import ReportType
-            pipeline = StockAnalysisPipeline(config=mock_cfg)
+            pipeline = StockAnalysisPipeline(config=mock_cfg, owner_uid=1)
 
             # Dashboard with "80分" instead of 80
             agent_result = AgentResult(

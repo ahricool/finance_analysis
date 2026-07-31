@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-LongbridgeFetcher - 长桥兜底数据源 (Priority 5)
+LongbridgeProvider - 长桥市场数据能力
 ===================================
 
 数据来源：长桥 OpenAPI (https://open.longbridge.com)
@@ -25,13 +25,34 @@ import time
 import threading
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional, Dict, Any, List
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from finance_analysis.integrations.market_data.base import BaseFetcher, STANDARD_COLUMNS
 from finance_analysis.integrations.market_data.codes import is_bse_code, normalize_stock_code
+from finance_analysis.integrations.market_data.models import (
+    Adjustment,
+    BatchBarResult,
+    BatchInstrumentResult,
+    BatchQuoteResult,
+    DailyBarsRequest,
+    InstrumentInfo,
+    InstrumentRequest,
+    Market,
+    MarketIndex,
+    MinuteBarsRequest,
+    QuoteRequest,
+)
+from finance_analysis.integrations.market_data.normalizer import (
+    STANDARD_COLUMNS,
+    bars_from_frame,
+    canonical_symbol,
+    currency_for_market,
+    infer_market,
+    quote_from_value,
+)
 from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote, RealtimeSource, safe_float
 from finance_analysis.integrations.market_data.providers.longbridge.normalizer import (
     longbridge_datetime_to_utc,
@@ -354,7 +375,7 @@ def to_longbridge_symbol(code: str) -> str:
     return validate_market_data_code(market, canonical)
 
 
-class LongbridgeFetcher(BaseFetcher):
+class LongbridgeProvider:
     """
     长桥 OpenAPI 数据源实现
 
@@ -367,10 +388,7 @@ class LongbridgeFetcher(BaseFetcher):
     - pe_ratio = price / eps_ttm
     """
 
-    name = "LongbridgeFetcher"
-    priority = int(os.getenv("LONGBRIDGE_PRIORITY", "5"))
-    from finance_analysis.integrations.market_data.history import SOURCE_PRIORITY as _SOURCE_PRIORITY
-    source_priority = _SOURCE_PRIORITY[name]
+    name = "longbridge"
     _HISTORY_PAGE_SIZE = 1000
 
     _CONNECTION_ERRORS = ("client is closed", "context closed", "connection closed")
@@ -389,7 +407,133 @@ class LongbridgeFetcher(BaseFetcher):
     def to_longbridge_symbol(code: str) -> str:
         return to_longbridge_symbol(code)
 
-    def fetch_daily_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
+    def fetch_daily_bars(self, request: DailyBarsRequest) -> BatchBarResult:
+        if request.adjustment is not Adjustment.RAW:
+            raise ValueError("Longbridge storage reads must use adjustment='raw'")
+        result = BatchBarResult()
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            market = infer_market(symbol)
+            try:
+                frame = self._fetch_daily_frame(
+                    SimpleNamespace(code=symbol, market=market.value, lot_size=None),
+                    request.start_date,
+                    request.end_date,
+                )
+                bars = bars_from_frame(
+                    frame,
+                    symbol=symbol,
+                    provider=self.name,
+                    interval="1d",
+                    adjustment=Adjustment.RAW,
+                )
+                if bars:
+                    result.data[symbol] = bars
+                    result.providers_used[symbol] = self.name
+                else:
+                    result.missing_symbols.append(symbol)
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def fetch_minute_bars(self, request: MinuteBarsRequest) -> BatchBarResult:
+        if request.interval != "1m":
+            raise ValueError("Longbridge history router currently supports interval=1m")
+        result = BatchBarResult()
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            market = infer_market(symbol)
+            try:
+                frame = self._fetch_minute_frame(
+                    SimpleNamespace(code=symbol, market=market.value, lot_size=None),
+                    request.start_time,
+                    request.end_time,
+                )
+                bars = bars_from_frame(frame, symbol=symbol, provider=self.name, interval=request.interval)
+                if bars:
+                    result.data[symbol] = bars
+                    result.providers_used[symbol] = self.name
+                else:
+                    result.missing_symbols.append(symbol)
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def fetch_quotes(self, request: QuoteRequest) -> BatchQuoteResult:
+        result = BatchQuoteResult()
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            try:
+                raw = self.get_realtime_quote(symbol)
+                quote = quote_from_value(raw.to_dict() if raw is not None else None, symbol=symbol, provider=self.name)
+                if quote is None:
+                    result.missing_symbols.append(symbol)
+                else:
+                    result.data[symbol] = quote
+                    result.providers_used[symbol] = self.name
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def get_instrument_info(self, request: InstrumentRequest) -> BatchInstrumentResult:
+        result = BatchInstrumentResult()
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            market = infer_market(symbol)
+            try:
+                info = self._get_static_info(self.to_longbridge_symbol(symbol))
+                name = (
+                    str(getattr(info, "name_cn", "") or getattr(info, "name_zh", "") or getattr(info, "name_en", ""))
+                    .strip()
+                    if info is not None
+                    else ""
+                )
+                if not name:
+                    result.missing_symbols.append(symbol)
+                    continue
+                currency = str(getattr(info, "currency", "") or currency_for_market(market))
+                result.data[symbol] = InstrumentInfo(
+                    symbol=symbol,
+                    market=market,
+                    name=name,
+                    provider=self.name,
+                    currency=currency,
+                    exchange=str(getattr(info, "exchange", "") or "") or None,
+                    instrument_type="stock",
+                    lot_size=int(getattr(info, "lot_size", 0) or 0) or None,
+                )
+                result.providers_used[symbol] = self.name
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def get_indices(self, market: Market) -> list[MarketIndex]:
+        symbols = {
+            Market.US: (("SPX.US", "标普500指数"), ("DJI.US", "道琼斯工业指数"), ("IXIC.US", "纳斯达克综合指数")),
+            Market.HK: (("HSI.HK", "恒生指数"), ("HSCEI.HK", "恒生中国企业指数"), ("HSTECH.HK", "恒生科技指数")),
+        }.get(market, ())
+        quotes = self.fetch_quotes(QuoteRequest(tuple(symbol for symbol, _ in symbols))) if symbols else BatchQuoteResult()
+        result: list[MarketIndex] = []
+        for symbol, name in symbols:
+            quote = quotes.data.get(symbol)
+            if quote is None or quote.price is None:
+                continue
+            result.append(
+                MarketIndex(
+                    symbol=symbol,
+                    name=name,
+                    market=market,
+                    provider=self.name,
+                    price=quote.price,
+                    change=quote.change_amount or 0,
+                    change_pct=quote.change_pct or 0,
+                    volume=quote.volume,
+                    amount=quote.amount,
+                )
+            )
+        return result
+
+    def _fetch_daily_frame(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
         """Page the SDK history endpoint; never use recent ``candlesticks``."""
         candles = self._fetch_history_pages(
             symbol=symbol,
@@ -413,7 +557,7 @@ class LongbridgeFetcher(BaseFetcher):
             frame = frame.drop_duplicates("date", keep="last").sort_values("date").reset_index(drop=True)
         return frame
 
-    def fetch_minute_bars(
+    def _fetch_minute_frame(
         self,
         symbol,
         start_time: datetime,
@@ -450,14 +594,12 @@ class LongbridgeFetcher(BaseFetcher):
     def _fetch_history_pages(self, *, symbol, period_name: str, start_time: datetime, end_time: datetime, data_type: str):
         from longbridge.openapi import AdjustType, Period, TradeSessions
 
-        from finance_analysis.integrations.market_data.history import HistoricalProviderError
-
         ctx = self._get_ctx()
         if ctx is None:
-            raise HistoricalProviderError(
-                self.name, symbol.market, symbol.code, data_type,
-                f"{start_time.isoformat()}..{end_time.isoformat()}",
-                "Longbridge credentials or QuoteContext unavailable", False,
+            raise RuntimeError(
+                f"provider={self.name} market={symbol.market} code={symbol.code} data_type={data_type} "
+                f"requested_range={start_time.isoformat()}..{end_time.isoformat()} "
+                "reason=Longbridge credentials or QuoteContext unavailable"
             )
         provider_symbol = self.to_longbridge_symbol(symbol.code)
         period = getattr(Period, period_name)
@@ -504,9 +646,10 @@ class LongbridgeFetcher(BaseFetcher):
                 retryable = False
             if self._is_connection_error(exc):
                 self._mark_connection_cooldown(exc)
-            raise HistoricalProviderError(
-                self.name, symbol.market, symbol.code, data_type,
-                f"{start_time.isoformat()}..{end_time.isoformat()}", reason, retryable,
+            raise RuntimeError(
+                f"provider={self.name} market={symbol.market} code={symbol.code} data_type={data_type} "
+                f"requested_range={start_time.isoformat()}..{end_time.isoformat()} "
+                f"retryable={retryable} reason={reason}"
             ) from exc
         return collected
 
@@ -1048,110 +1191,11 @@ class LongbridgeFetcher(BaseFetcher):
         )
         return quote
 
-    # ------------------------------------------------------------------
-    # BaseFetcher abstract methods (historical daily data)
-    # ------------------------------------------------------------------
-
-    def _fetch_raw_data(
-        self, stock_code: str, start_date: str, end_date: str
-    ) -> pd.DataFrame:
-        """Fetch historical candlesticks from Longbridge."""
-        if not self.is_available_for_request("daily_data"):
-            raise RuntimeError("Longbridge temporarily unavailable for daily_data")
-
-        symbol = _to_longbridge_symbol(stock_code)
-        if symbol is None:
-            raise ValueError(f"Cannot convert {stock_code} to Longbridge symbol")
-
-        ctx = self._get_ctx()
-        if ctx is None:
-            raise RuntimeError("Longbridge QuoteContext not available")
-
-        from longbridge.openapi import Period, AdjustType
-
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-
-        api_start = time.time()
-        try:
-            candles = ctx.history_candlesticks_by_date(
-                symbol,
-                Period.Day,
-                AdjustType.ForwardAdjust,
-                start_dt,
-                end_dt,
-            )
-        except Exception as e:
-            log_external_call_exception(
-                logger,
-                provider="longbridge",
-                operation="history_candlesticks_by_date",
-                exc=e,
-                symbol=symbol,
-                params={
-                    "period": "Day",
-                    "adjust_type": "ForwardAdjust",
-                    "start_date": start_date,
-                    "end_date": end_date,
-                },
-                elapsed=time.time() - api_start,
-            )
-            if self._is_connection_error(e):
-                self._mark_connection_cooldown(e)
-            raise
-
-        if not candles:
-            return pd.DataFrame()
-
-        rows = []
-        for c in candles:
-            ts = getattr(c, "timestamp", None)
-            if ts is None:
-                continue
-            if hasattr(ts, "date"):
-                dt = ts.date()
-            else:
-                dt = datetime.fromtimestamp(int(ts)).date()
-
-            rows.append(
-                {
-                    "date": dt.strftime("%Y-%m-%d"),
-                    "open": safe_float(getattr(c, "open", None)),
-                    "high": safe_float(getattr(c, "high", None)),
-                    "low": safe_float(getattr(c, "low", None)),
-                    "close": safe_float(getattr(c, "close", None)),
-                    "volume": normalize_longbridge_volume(
-                        getattr(c, "volume", 0),
-                        market=longbridge_market_from_symbol(symbol),
-                    )
-                    or 0,
-                    "turnover": safe_float(getattr(c, "turnover", None)),
-                }
-            )
-
-        return pd.DataFrame(rows)
-
-    def _normalize_data(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
-        """Normalize column names to standard format."""
-        if df.empty:
-            return pd.DataFrame(columns=STANDARD_COLUMNS)
-
-        rename_map = {"turnover": "amount"}
-        df = df.rename(columns=rename_map)
-
-        if "pct_chg" not in df.columns and "close" in df.columns:
-            df["pct_chg"] = df["close"].pct_change() * 100
-
-        for col in STANDARD_COLUMNS:
-            if col not in df.columns:
-                df[col] = None
-
-        return df[STANDARD_COLUMNS]
-
-
-if __name__ == "__main__":
-    import logging
-    logging.basicConfig(level=logging.DEBUG)
-    fetcher = LongbridgeFetcher()
-    bars = fetcher.get_minute_candlesticks("QQQ", interval=1)
-    print(bars)
+__all__ = [
+    "LongbridgeProvider",
+    "build_longbridge_config",
+    "to_longbridge_symbol",
+    "_to_longbridge_symbol",
+    "_longbridge_config_kwargs",
+    "_sanitize_longbridge_env",
+]

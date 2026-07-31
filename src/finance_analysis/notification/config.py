@@ -30,7 +30,7 @@ def has_ntfy_topic_endpoint(value: Optional[str]) -> bool:
 
 def _parse_stock_email_groups() -> List[Tuple[List[str], List[str]]]:
     import os
-    from finance_analysis.integrations.market_data.base import normalize_stock_code
+    from finance_analysis.integrations.market_data.codes import normalize_stock_code
 
     groups: dict[int, dict[str, list[str]]] = {}
     stock_re = re.compile(r"^STOCK_GROUP_(\d+)$", re.IGNORECASE)

@@ -73,11 +73,13 @@ class _FakeQuoteFetcher:
         self.exc = exc
         self.calls = []
 
-    def get_realtime_quote(self, symbol):
+    def get_realtime_quotes(self, symbols):
+        symbol = symbols[0]
         self.calls.append(symbol)
         if self.exc is not None:
             raise self.exc
-        return self.quotes.get(symbol)
+        value = self.quotes.get(symbol) or self.quotes.get(symbol.removesuffix(".US"))
+        return SimpleNamespace(data={symbol: value} if value else {})
 
 
 class _FakeLightweightContextFetcher:
@@ -85,13 +87,11 @@ class _FakeLightweightContextFetcher:
         self.context_calls = []
         self.realtime_calls = []
 
-    def get_company_quote_context(self, symbol):
+    def get_realtime_quotes(self, symbols):
+        symbol = symbols[0]
         self.context_calls.append(symbol)
-        return {"name": "NVIDIA", "total_mv": 1000.0, "price": 10.0}
-
-    def get_realtime_quote(self, symbol):
-        self.realtime_calls.append(symbol)
-        raise AssertionError("get_realtime_quote should not be used for importance scoring")
+        quote = SimpleNamespace(name="NVIDIA", total_mv=1000.0, price=10.0)
+        return SimpleNamespace(data={symbol: quote})
 
 
 class _FakeLLMClient:
@@ -205,11 +205,11 @@ def test_market_cap_query_is_cached_by_symbol():
 
     MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids([1, 2])
 
-    assert quote_fetcher.calls == ["NVDA"]
+    assert quote_fetcher.calls == ["NVDA.US"]
     assert len(repo.updated) == 2
 
 
-def test_service_prefers_lightweight_company_context_over_realtime_quote():
+def test_service_uses_unified_quote_context():
     event = _event()
     repo = _FakeRepo([event])
     quote_fetcher = _FakeLightweightContextFetcher()
@@ -217,7 +217,7 @@ def test_service_prefers_lightweight_company_context_over_realtime_quote():
 
     MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids([1])
 
-    assert quote_fetcher.context_calls == ["NVDA"]
+    assert quote_fetcher.context_calls == ["NVDA.US"]
     assert quote_fetcher.realtime_calls == []
     assert '"market_cap": 1000.0' in llm.requests[0].messages[1]["content"]
 

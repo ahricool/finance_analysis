@@ -27,7 +27,7 @@ def _get_search_service():
 
 
 def _canonical_search_code(stock_code: str) -> str:
-    from finance_analysis.integrations.market_data.base import canonical_stock_code, normalize_stock_code
+    from finance_analysis.integrations.market_data.codes import canonical_stock_code, normalize_stock_code
 
     return canonical_stock_code(normalize_stock_code(str(stock_code or "").strip()))
 

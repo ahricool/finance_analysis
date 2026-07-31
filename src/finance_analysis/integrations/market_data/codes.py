@@ -81,10 +81,6 @@ def is_etf_code(code: str) -> bool:
     )
 
 
-# Backward-compatible alias used across fetchers.
-_is_etf_code = is_etf_code
-
-
 def _market_tag(code: str) -> str:
     """Return market tag: cn / us / hk."""
     if _is_us_market(code):
@@ -135,10 +131,6 @@ def is_hk_code(stock_code: str) -> bool:
     return code.isdigit() and len(code) == 5
 
 
-# Backward-compatible aliases.
-_is_hk_code = is_hk_code
-
-
 def is_hk_stock_code(stock_code: str) -> bool:
     """Public API: determine if a stock code is a Hong Kong stock."""
     return is_hk_code(stock_code)
@@ -149,10 +141,6 @@ def is_us_code(stock_code: str) -> bool:
     return is_us_stock_code(stock_code)
 
 
-# Backward-compatible alias.
-_is_us_code = is_us_code
-
-
 def to_sina_tx_symbol(stock_code: str) -> str:
     """Convert a 6-digit A-share code to sh/sz/bj prefixed symbol for Sina/Tencent APIs."""
     base = (stock_code.strip().split(".")[0] if "." in stock_code else stock_code).strip()
@@ -161,7 +149,3 @@ def to_sina_tx_symbol(stock_code: str) -> str:
     if base.startswith(("6", "5", "90")):
         return f"sh{base}"
     return f"sz{base}"
-
-
-# Backward-compatible alias used by akshare_fetcher.
-_to_sina_tx_symbol = to_sina_tx_symbol

@@ -15,9 +15,9 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
-from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
+from finance_analysis.integrations.market_data import MarketDataService
+from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
 from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsFetcher
-from finance_analysis.integrations.market_data.providers.yfinance import YfinanceFetcher
 from finance_analysis.tasks.celery.jobs.intraday_signal_state import (
     IntradaySignalStateStore,
     build_notification_signature,
@@ -61,8 +61,8 @@ class USIntradayAnalysisService:
         self,
         *,
         config: Any,
-        longbridge_fetcher: Optional[LongbridgeFetcher] = None,
-        yfinance_fetcher: Optional[YfinanceFetcher] = None,
+        longbridge_fetcher: Optional[LongbridgeProvider] = None,
+        market_data_service: Optional[MarketDataService] = None,
         news_fetcher: Optional[LongbridgeNewsFetcher] = None,
         rules: Optional[Sequence[RulePredicate]] = None,
         use_lock: bool = True,
@@ -70,8 +70,9 @@ class USIntradayAnalysisService:
         signal_state_store: Optional[IntradaySignalStateStore] = None,
     ) -> None:
         self.config = config
-        self.longbridge_fetcher = longbridge_fetcher or LongbridgeFetcher()
-        self.data_source = IntradayDataSource(self.longbridge_fetcher, yfinance_fetcher)
+        self.longbridge_fetcher = longbridge_fetcher or LongbridgeProvider()
+        self.market_data = market_data_service or MarketDataService()
+        self.data_source = IntradayDataSource(self.market_data)
         self.news_fetcher = news_fetcher or LongbridgeNewsFetcher(self.longbridge_fetcher)
         self.llm_judge = IntradayLLMJudge(config)
         self.reporter = SignalReporter()
@@ -272,7 +273,9 @@ class USIntradayAnalysisService:
             self._news_cache[symbol] = []
             return []
 
-        stock_name = self.longbridge_fetcher.get_stock_name(symbol) or ""
+        canonical = f"{symbol}.US" if not symbol.endswith(".US") else symbol
+        info = self.market_data.get_instrument_info([canonical]).data.get(canonical)
+        stock_name = info.name if info else ""
         records = self.news_fetcher.fetch_and_save_news(
             symbol,
             name=stock_name,

@@ -40,16 +40,14 @@ class TestPipelinePrefetchBehavior(unittest.TestCase):
 
         pipeline.run(stock_codes=["000001.SZ"], dry_run=True, send_notification=False)
 
-        pipeline.fetcher_manager.prefetch_stock_names.assert_not_called()
+        pipeline.fetcher_manager.get_instrument_info.assert_not_called()
 
     def test_run_non_dry_run_prefetches_stock_names(self):
         pipeline = self._build_pipeline(process_result=SimpleNamespace(code="000001.SZ"))
 
         pipeline.run(stock_codes=["000001.SZ"], dry_run=False, send_notification=False)
 
-        pipeline.fetcher_manager.prefetch_stock_names.assert_called_once_with(
-            ["000001.SZ"], use_bulk=False
-        )
+        pipeline.fetcher_manager.get_instrument_info.assert_called_once_with(["000001.SZ"])
 
     def test_run_dry_run_counts_existing_data_by_effective_trading_date(self):
         pipeline = self._build_pipeline(process_result=None)

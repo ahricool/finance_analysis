@@ -23,7 +23,6 @@ from finance_analysis.database.models.stock import (
 class UpsertStats:
     inserted_rows: int = 0
     updated_rows: int = 0
-    skipped_lower_priority_rows: int = 0
 
     @property
     def affected_rows(self) -> int:
@@ -178,7 +177,7 @@ class MarketDataSymbolRepository:
 
 
 class StockRepository:
-    """Raw-bar queries and priority-aware PostgreSQL batch UPSERTs."""
+    """Raw-bar queries and deterministic PostgreSQL batch UPSERTs."""
 
     def __init__(self, db_manager=None):
         if db_manager is None:
@@ -375,8 +374,8 @@ class StockRepository:
                 ).scalars().all()
             )
 
-    def upsert_daily(self, symbol_id: int, bars: Sequence[dict[str, Any]], source: str, priority: int) -> UpsertStats:
-        records = self._daily_records(symbol_id, bars, source, priority)
+    def upsert_daily(self, symbol_id: int, bars: Sequence[dict[str, Any]], source: str) -> UpsertStats:
+        records = self._daily_records(symbol_id, bars, source)
         return self._upsert(
             StockDaily,
             records,
@@ -384,25 +383,25 @@ class StockRepository:
             (
                 "open", "high", "low", "close", "volume", "amount", "vwap", "vwap_source", "vwap_quality",
                 "limit_up", "limit_down", "suspended",
-                "data_source", "source_priority", "updated_at",
+                "data_source", "updated_at",
             ),
         )
 
-    def upsert_minute(self, symbol_id: int, bars: Sequence[dict[str, Any]], source: str, priority: int) -> UpsertStats:
-        records = self._minute_records(symbol_id, bars, source, priority)
+    def upsert_minute(self, symbol_id: int, bars: Sequence[dict[str, Any]], source: str) -> UpsertStats:
+        records = self._minute_records(symbol_id, bars, source)
         return self._upsert(
             StockMinute,
             records,
             "uix_stock_minute_symbol_time",
             (
                 "open", "high", "low", "close", "volume", "amount", "session_type",
-                "data_source", "source_priority", "updated_at",
+                "data_source", "updated_at",
             ),
         )
 
     @staticmethod
     def _daily_records(
-        symbol_id: int, bars: Sequence[dict[str, Any]], source: str, priority: int
+        symbol_id: int, bars: Sequence[dict[str, Any]], source: str
     ) -> list[dict[str, Any]]:
         now = utc_now()
         return [
@@ -415,7 +414,7 @@ class StockRepository:
                 "vwap_quality": row.get("vwap_quality"),
                 "limit_up": row.get("limit_up"), "limit_down": row.get("limit_down"),
                 "suspended": bool(row.get("suspended", False)),
-                "data_source": source, "source_priority": priority,
+                "data_source": source,
                 "created_at": now, "updated_at": now,
             }
             for row in bars
@@ -452,7 +451,7 @@ class StockRepository:
 
     @staticmethod
     def _minute_records(
-        symbol_id: int, bars: Sequence[dict[str, Any]], source: str, priority: int
+        symbol_id: int, bars: Sequence[dict[str, Any]], source: str
     ) -> list[dict[str, Any]]:
         now = utc_now()
         return [
@@ -461,7 +460,7 @@ class StockRepository:
                 "bar_time": row["bar_time"].astimezone(timezone.utc),
                 "open": row["open"], "high": row["high"], "low": row["low"], "close": row["close"],
                 "volume": row["volume"], "amount": row.get("amount"), "session_type": "regular",
-                "data_source": source, "source_priority": priority,
+                "data_source": source,
                 "created_at": now, "updated_at": now,
             }
             for row in bars
@@ -472,22 +471,18 @@ class StockRepository:
     ) -> UpsertStats:
         if not records:
             return UpsertStats()
-        # PostgreSQL performs the priority comparison atomically in the conflict
-        # UPDATE predicate. Lower-priority fallback bars may fill gaps but cannot
-        # overwrite better data under concurrent workers.
         with self.db.session_scope() as session:
             stmt = pg_insert(model).values(records)
             result = session.execute(
                 stmt.on_conflict_do_update(
                     constraint=constraint,
                     set_={column: getattr(stmt.excluded, column) for column in update_columns},
-                    where=stmt.excluded.source_priority >= model.source_priority,
                 ).returning(literal_column("(xmax = 0)").label("inserted"))
             )
             flags = [bool(row.inserted) for row in result]
         inserted = sum(flags)
         updated = len(flags) - inserted
-        return UpsertStats(inserted, updated, len(records) - len(flags))
+        return UpsertStats(inserted, updated)
 
 
 __all__ = ["MarketDataSymbolRepository", "StockRepository", "UpsertStats"]

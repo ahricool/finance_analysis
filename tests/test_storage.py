@@ -127,7 +127,7 @@ class TestStorage(unittest.TestCase):
             stats = repository.upsert_daily(symbol.id, [{
                 'date': date(2026, 4, 1), 'open': 10, 'high': 11, 'low': 9,
                 'close': 10.5, 'volume': 100, 'amount': 1050,
-            }], 'test', 10)
+            }], 'test')
             with results_lock:
                 results.append(stats.inserted_rows)
 

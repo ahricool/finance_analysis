@@ -41,10 +41,10 @@ class StockService:
         """
         try:
             # 调用数据获取器获取实时行情
-            from finance_analysis.integrations.market_data.base import DataFetcherManager
-            
-            manager = DataFetcherManager()
-            quote = manager.get_realtime_quote(stock_code)
+            from finance_analysis.integrations.market_data import MarketDataService
+
+            result = MarketDataService().get_realtime_quotes([stock_code])
+            quote = next(iter(result.data.values()), None)
             
             if quote is None:
                 logger.warning(f"获取 {stock_code} 实时行情失败")
@@ -79,7 +79,7 @@ class StockService:
             }
             
         except ImportError:
-            logger.warning("DataFetcherManager 未找到，使用占位数据")
+            logger.warning("MarketDataService 未找到，使用占位数据")
             return self._get_placeholder_quote(stock_code)
         except Exception as e:
             logger.exception(f"获取实时行情失败: {e}", exc_info=True)

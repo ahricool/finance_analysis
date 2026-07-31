@@ -16,7 +16,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from finance_analysis.integrations.market_data.base import canonical_stock_code, normalize_stock_code
+from finance_analysis.integrations.market_data.codes import canonical_stock_code, normalize_stock_code
 
 from finance_analysis.database.repositories.task_record import TaskRecordRepository
 from finance_analysis.tasks.lifecycle import (

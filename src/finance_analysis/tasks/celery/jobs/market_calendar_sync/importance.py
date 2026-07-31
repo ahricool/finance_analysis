@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models import FinanceEvent
 from finance_analysis.database.repositories.market_calendar_event import MarketCalendarEventRepo
-from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
+from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.llm import LLMClient, LLMRequest
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.llm import parse_llm_batch_results
 
@@ -194,7 +194,7 @@ class MarketCalendarImportanceService:
         batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
         self.repo = repo or MarketCalendarEventRepo()
-        self.quote_fetcher = quote_fetcher or LongbridgeFetcher()
+        self.quote_fetcher = quote_fetcher or MarketDataService()
         self.llm_client = llm_client or LLMClient(config=config)
         self.batch_size = max(1, min(int(batch_size or DEFAULT_BATCH_SIZE), 20))
         self._quote_cache: Dict[str, EventCompanyContext] = {}
@@ -252,25 +252,15 @@ class MarketCalendarImportanceService:
             symbol=symbol, company_name=getattr(event, "counter_name", None), market_cap=None, current_price=None
         )
         try:
-            context_method = getattr(self.quote_fetcher, "get_company_quote_context", None)
-            if callable(context_method):
-                quote_context = context_method(symbol)
-                if quote_context is not None:
-                    context = EventCompanyContext(
-                        symbol=symbol,
-                        company_name=self._context_value(quote_context, "name") or getattr(event, "counter_name", None),
-                        market_cap=self._context_value(quote_context, "total_mv"),
-                        current_price=self._context_value(quote_context, "price"),
-                    )
-            else:
-                quote = self.quote_fetcher.get_realtime_quote(symbol)
-                if quote is not None:
-                    context = EventCompanyContext(
-                        symbol=symbol,
-                        company_name=(getattr(quote, "name", None) or getattr(event, "counter_name", None)),
-                        market_cap=getattr(quote, "total_mv", None),
-                        current_price=getattr(quote, "price", None),
-                    )
+            canonical = symbol if "." in symbol else f"{symbol}.US"
+            quote = self.quote_fetcher.get_realtime_quotes([canonical]).data.get(canonical)
+            if quote is not None:
+                context = EventCompanyContext(
+                    symbol=symbol,
+                    company_name=(getattr(quote, "name", None) or getattr(event, "counter_name", None)),
+                    market_cap=quote.total_mv,
+                    current_price=quote.price,
+                )
         except Exception as exc:
             logger.warning("获取财经日历评分市值上下文失败: symbol=%s error=%s", symbol, exc, exc_info=True)
         self._quote_cache[symbol] = context

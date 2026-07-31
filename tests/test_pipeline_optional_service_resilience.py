@@ -22,7 +22,6 @@ def _make_config() -> SimpleNamespace:
         news_max_age_days=7,
         news_strategy_profile="short",
         enable_realtime_quote=False,
-        realtime_source_priority=[],
         enable_chip_distribution=False,
         social_sentiment_api_key="",
         social_sentiment_api_url="https://example.invalid/social",
@@ -31,11 +30,11 @@ def _make_config() -> SimpleNamespace:
 
 def _build_pipeline(config: SimpleNamespace) -> StockAnalysisPipeline:
     with patch("finance_analysis.analysis.pipeline.get_db", return_value=MagicMock()), \
-         patch("finance_analysis.analysis.pipeline.DataFetcherManager", return_value=MagicMock()), \
+         patch("finance_analysis.analysis.pipeline.MarketDataService", return_value=MagicMock()), \
          patch("finance_analysis.analysis.pipeline.StockTrendAnalyzer", return_value=MagicMock()), \
          patch("finance_analysis.analysis.pipeline.StockReportAnalyzer", return_value=MagicMock()), \
          patch("finance_analysis.analysis.pipeline.NotificationService", return_value=MagicMock()):
-        return StockAnalysisPipeline(config=config)
+        return StockAnalysisPipeline(config=config, owner_uid=1)
 
 
 def test_search_service_init_failure_logs_traceback_and_failure_state(caplog):

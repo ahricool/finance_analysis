@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-EfinanceFetcher - 优先数据源 (Priority 0)
+EfinanceProvider - efinance 市场数据能力
 ===================================
 
 数据来源：东方财富爬虫（通过 efinance 库）
 特点：免费、无需 Token、数据全面、API 简洁
 仓库：https://github.com/Micro-sheep/efinance
 
-与 AkshareFetcher 类似，但 efinance 库：
+与 AkShareProvider 类似，但 efinance 库：
 1. API 更简洁易用
 2. 支持批量获取数据
 3. 更稳定的接口封装
@@ -26,7 +26,6 @@ import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Optional, Dict, Any, List, Tuple
 
@@ -54,56 +53,42 @@ except (ValueError, TypeError):
 from finance_analysis.patches.eastmoney_patch import eastmoney_patch
 from finance_analysis.integrations.market_data.config import get_data_provider_config
 from finance_analysis.core.logging import log_external_call_exception
-from finance_analysis.integrations.market_data.base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS,is_bse_code, is_st_stock, is_kc_cy_stock, normalize_stock_code, _is_hk_market
-from finance_analysis.integrations.market_data.codes import _is_etf_code, _is_us_code
+from finance_analysis.integrations.market_data.errors import DataFetchError, RateLimitError
+from finance_analysis.integrations.market_data.codes import (
+    is_etf_code,
+    _is_hk_market,
+    is_us_code,
+    is_bse_code,
+    is_kc_cy_stock,
+    is_st_stock,
+    normalize_stock_code,
+)
+from finance_analysis.integrations.market_data.models import (
+    BatchBarResult,
+    BatchInstrumentResult,
+    BatchQuoteResult,
+    InstrumentInfo,
+    InstrumentRequest,
+    Market,
+    MarketIndex,
+    MarketStats,
+    MinuteBarsRequest,
+    QuoteRequest,
+    SectorRankings,
+)
+from finance_analysis.integrations.market_data.normalizer import (
+    STANDARD_COLUMNS,
+    bars_from_frame,
+    canonical_symbol,
+    currency_for_market,
+    infer_market,
+    quote_from_value,
+)
 from finance_analysis.integrations.market_data.realtime_types import (
     UnifiedRealtimeQuote, RealtimeSource,
     get_realtime_circuit_breaker,
     safe_float, safe_int  # 使用统一的类型转换函数
 )
-
-
-# 保留旧的类型别名，用于向后兼容
-@dataclass
-class EfinanceRealtimeQuote:
-    """
-    实时行情数据（来自 efinance）- 向后兼容别名
-    
-    新代码建议使用 UnifiedRealtimeQuote
-    """
-    code: str
-    name: str = ""
-    price: float = 0.0           # 最新价
-    change_pct: float = 0.0      # 涨跌幅(%)
-    change_amount: float = 0.0   # 涨跌额
-    
-    # 量价指标
-    volume: int = 0              # 成交量
-    amount: float = 0.0          # 成交额
-    turnover_rate: float = 0.0   # 换手率(%)
-    amplitude: float = 0.0       # 振幅(%)
-    
-    # 价格区间
-    high: float = 0.0            # 最高价
-    low: float = 0.0             # 最低价
-    open_price: float = 0.0      # 开盘价
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
-        return {
-            'code': self.code,
-            'name': self.name,
-            'price': self.price,
-            'change_pct': self.change_pct,
-            'change_amount': self.change_amount,
-            'volume': self.volume,
-            'amount': self.amount,
-            'turnover_rate': self.turnover_rate,
-            'amplitude': self.amplitude,
-            'high': self.high,
-            'low': self.low,
-            'open': self.open_price,
-        }
 
 
 logger = logging.getLogger(__name__)
@@ -229,11 +214,11 @@ def _classify_eastmoney_error(exc: Exception) -> Tuple[str, str]:
     return "unknown_request_error", message
 
 
-class EfinanceFetcher(BaseFetcher):
+class EfinanceProvider:
     """
     Efinance 数据源实现
     
-    优先级：0（最高，优先于 AkshareFetcher）
+    优先级：0（最高，优先于 AkShareProvider）
     数据来源：东方财富网（通过 efinance 库封装）
     仓库：https://github.com/Micro-sheep/efinance
     
@@ -248,15 +233,11 @@ class EfinanceFetcher(BaseFetcher):
     - 失败后指数退避重试（最多3次）
     """
     
-    name = "EfinanceFetcher"
-    priority = int(os.getenv("EFINANCE_PRIORITY", "0"))  # 最高优先级，排在 AkshareFetcher 之前
-    from finance_analysis.integrations.market_data.history import SOURCE_PRIORITY as _SOURCE_PRIORITY
-
-    source_priority = _SOURCE_PRIORITY[name]
+    name = "efinance"
     
     def __init__(self, sleep_min: float = 1.5, sleep_max: float = 3.0):
         """
-        初始化 EfinanceFetcher
+        初始化 EfinanceProvider
         
         Args:
             sleep_min: 最小休眠时间（秒）
@@ -270,6 +251,10 @@ class EfinanceFetcher(BaseFetcher):
             eastmoney_patch()
 
     @staticmethod
+    def random_sleep(min_seconds: float, max_seconds: float) -> None:
+        time.sleep(random.uniform(min_seconds, max_seconds))
+
+    @staticmethod
     def _historical_symbol(code: str) -> str:
         canonical = str(code or "").strip().upper()
         if canonical.endswith((".SH", ".SZ")):
@@ -278,7 +263,85 @@ class EfinanceFetcher(BaseFetcher):
             return f"HK{int(canonical[:-3]):05d}"
         raise ValueError(f"Efinance daily history supports canonical CN/HK symbols only: {code}")
 
-    def fetch_daily_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
+    def fetch_minute_bars(self, request: MinuteBarsRequest) -> BatchBarResult:
+        result = BatchBarResult()
+        interval = int(request.interval.removesuffix("m"))
+        count = max(1, int((request.end_time - request.start_time).total_seconds() // (interval * 60)) + 5)
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            if infer_market(symbol) is not Market.CN:
+                result.failed_symbols[symbol] = "Efinance minute bars currently support CN only"
+                continue
+            try:
+                rows = self.get_minute_candlesticks(normalize_stock_code(symbol), interval=interval, count=count)
+                bars = bars_from_frame(
+                    pd.DataFrame(rows).rename(columns={"timestamp": "bar_time", "turnover": "amount"}),
+                    symbol=symbol,
+                    provider=self.name,
+                    interval=request.interval,
+                    volume_multiplier=100,
+                )
+                bars = [
+                    bar
+                    for bar in bars
+                    if bar.bar_time is not None and request.start_time <= bar.bar_time < request.end_time
+                ]
+                if bars:
+                    result.data[symbol] = bars
+                    result.providers_used[symbol] = self.name
+                else:
+                    result.missing_symbols.append(symbol)
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def fetch_quotes(self, request: QuoteRequest) -> BatchQuoteResult:
+        result = BatchQuoteResult()
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            try:
+                raw = self.get_realtime_quote(symbol)
+                payload = raw.to_dict() if raw is not None else None
+                if payload is not None and infer_market(symbol) is Market.CN and payload.get("volume") is not None:
+                    payload["volume"] = int(payload["volume"] * 100)
+                quote = quote_from_value(payload, symbol=symbol, provider=self.name)
+                if quote is None:
+                    result.missing_symbols.append(symbol)
+                else:
+                    result.data[symbol] = quote
+                    result.providers_used[symbol] = self.name
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def get_instrument_info(self, request: InstrumentRequest) -> BatchInstrumentResult:
+        result = BatchInstrumentResult()
+        for value in request.symbols:
+            symbol = canonical_symbol(value)
+            market = infer_market(symbol)
+            try:
+                info = self.get_base_info(normalize_stock_code(symbol)) or {}
+                name = str(
+                    info.get("股票名称") or info.get("名称") or info.get("name") or info.get("股票简称") or ""
+                ).strip()
+                if not name:
+                    result.missing_symbols.append(symbol)
+                    continue
+                result.data[symbol] = InstrumentInfo(
+                    symbol=symbol,
+                    market=market,
+                    name=name,
+                    provider=self.name,
+                    currency=currency_for_market(market),
+                    exchange=symbol.rsplit(".", 1)[1],
+                    instrument_type="stock",
+                )
+                result.providers_used[symbol] = self.name
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def _fetch_daily_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
         """Fetch unadjusted Eastmoney daily bars (``fqt=0``)."""
         return self._fetch_canonical_daily(symbol, start_date, end_date, fqt=0)
 
@@ -288,8 +351,6 @@ class EfinanceFetcher(BaseFetcher):
 
     def _fetch_canonical_daily(self, symbol, start_date: date, end_date: date, *, fqt: int) -> pd.DataFrame:
         import efinance as ef
-
-        from finance_analysis.integrations.market_data.history import HistoricalProviderError
 
         provider_symbol = self._historical_symbol(symbol.code)
         start = start_date.strftime("%Y%m%d")
@@ -308,14 +369,10 @@ class EfinanceFetcher(BaseFetcher):
         except Exception as exc:
             reason = str(exc)
             retryable = any(token in reason.lower() for token in ("timeout", "connection", "429", "rate"))
-            raise HistoricalProviderError(
-                self.name,
-                symbol.market,
-                symbol.code,
-                "daily_forward_adjusted_validation" if fqt else "daily",
-                f"{start_date}..{end_date}",
-                reason,
-                retryable,
+            raise RuntimeError(
+                f"provider={self.name} market={symbol.market} code={symbol.code} "
+                f"data_type={'daily_forward_adjusted_validation' if fqt else 'daily'} "
+                f"requested_range={start_date}..{end_date} retryable={retryable} reason={reason}"
             ) from exc
         if frame is None or frame.empty:
             return pd.DataFrame()
@@ -397,7 +454,7 @@ class EfinanceFetcher(BaseFetcher):
         从 efinance 获取原始数据
         
         根据代码类型自动选择 API：
-        - 美股：不支持，抛出异常让 DataFetcherManager 切换到其他数据源
+        - 美股：不支持，由 Router 切换到其他数据源
         - 普通股票：使用 ef.stock.get_quote_history()
         - ETF 基金：使用 ef.stock.get_quote_history()（ETF 是交易所证券，使用股票 K 线接口）
         
@@ -408,17 +465,17 @@ class EfinanceFetcher(BaseFetcher):
         4. 调用对应的 efinance API
         5. 处理返回数据
         """
-        # 美股不支持，抛出异常让 DataFetcherManager 切换到 AkshareFetcher/YfinanceFetcher
-        if _is_us_code(stock_code):
-            raise DataFetchError(f"EfinanceFetcher 不支持美股 {stock_code}，请使用 AkshareFetcher 或 YfinanceFetcher")
+        # 美股不支持，由 Router 切换到 AkShare/YFinance
+        if is_us_code(stock_code):
+            raise DataFetchError(f"EfinanceProvider 不支持美股 {stock_code}，请使用 AkShareProvider 或 YFinanceProvider")
 
         # efinance 的历史 K 线接口在港股代码上可能返回非预期市场数据，
-        # 明确跳过并交给 AkShare/Tushare/YFinance/Longbridge 等港股路径兜底。
+        # 明确跳过并交给 AkShare/YFinance/Longbridge 等港股路径兜底。
         if _is_hk_market(stock_code):
-            raise DataFetchError(f"EfinanceFetcher 不支持港股日线 {stock_code}，请使用 AkshareFetcher 或其他港股数据源")
+            raise DataFetchError(f"EfinanceProvider 不支持港股日线 {stock_code}，请使用 AkShareProvider 或其他港股数据源")
         
         # 根据代码类型选择不同的获取方法
-        if _is_etf_code(stock_code):
+        if is_etf_code(stock_code):
             return self._fetch_etf_data(stock_code, start_date, end_date)
         else:
             return self._fetch_stock_data(stock_code, start_date, end_date)
@@ -685,7 +742,7 @@ class EfinanceFetcher(BaseFetcher):
             UnifiedRealtimeQuote 对象，获取失败返回 None
         """
         # ETF 需要单独请求 ETF 实时行情接口
-        if _is_etf_code(stock_code):
+        if is_etf_code(stock_code):
             return self._get_etf_realtime_quote(stock_code)
 
         import efinance as ef
@@ -902,7 +959,7 @@ class EfinanceFetcher(BaseFetcher):
             circuit_breaker.record_failure(source_key, str(e))
             return None
 
-    def get_main_indices(self, region: str = "cn") -> Optional[List[Dict[str, Any]]]:
+    def _get_main_indices(self, region: str = "cn") -> Optional[List[Dict[str, Any]]]:
         """
         获取主要指数实时行情 (efinance)，仅支持 A 股
         """
@@ -995,7 +1052,7 @@ class EfinanceFetcher(BaseFetcher):
             )
             return None
 
-    def get_market_stats(self) -> Optional[Dict[str, Any]]:
+    def _get_market_stats(self) -> Optional[Dict[str, Any]]:
         """
         获取市场涨跌统计 (efinance)
         """
@@ -1044,7 +1101,7 @@ class EfinanceFetcher(BaseFetcher):
         df = df.copy()
         
         # 1. 提取基础比对数据：最新价、昨收
-        # 兼容不同接口返回的列名 sina/em efinance tushare xtdata
+        # 兼容不同接口返回的列名 sina/em efinance xtdata
         code_col = next((c for c in ['代码', '股票代码', 'ts_code','stock_code'] if c in df.columns), None)
         name_col = next((c for c in ['名称', '股票名称','name','name'] if c in df.columns), None)
         close_col = next((c for c in ['最新价', '最新价', 'close','lastPrice'] if c in df.columns), None)
@@ -1123,7 +1180,7 @@ class EfinanceFetcher(BaseFetcher):
             
         return stats
 
-    def get_sector_rankings(self, n: int = 5) -> Optional[Tuple[List[Dict], List[Dict]]]:
+    def _get_sector_rankings(self, n: int = 20) -> Optional[Tuple[List[Dict], List[Dict]]]:
         """
         获取板块涨跌榜 (efinance)
         """
@@ -1179,6 +1236,69 @@ class EfinanceFetcher(BaseFetcher):
                 elapsed=time.time() - api_start,
             )
             return None
+
+    def get_indices(self, market: Market) -> list[MarketIndex]:
+        rows = self._get_main_indices(market.value.lower()) or []
+        result: list[MarketIndex] = []
+        for row in rows:
+            raw_code = str(row.get("code") or "")
+            code = raw_code.removeprefix("sh").removeprefix("sz")
+            symbol = canonical_symbol(code, market)
+            result.append(
+                MarketIndex(
+                    symbol=symbol,
+                    name=str(row.get("name") or symbol),
+                    market=market,
+                    provider=self.name,
+                    price=float(row.get("current") or 0),
+                    change=float(row.get("change") or 0),
+                    change_pct=float(row.get("change_pct") or 0),
+                    volume=int(row["volume"] * 100) if row.get("volume") is not None else None,
+                    amount=float(row["amount"]) if row.get("amount") is not None else None,
+                )
+            )
+        return result
+
+    def get_market_stats(self, market: Market) -> MarketStats:
+        if market is not Market.CN:
+            raise ValueError("Efinance market breadth supports CN only")
+        row = self._get_market_stats()
+        if not row:
+            raise RuntimeError("Efinance returned no market breadth")
+        return MarketStats(
+            market=market,
+            provider=self.name,
+            up_count=int(row.get("up_count") or 0),
+            down_count=int(row.get("down_count") or 0),
+            flat_count=int(row.get("flat_count") or 0),
+            limit_up_count=int(row.get("limit_up_count") or 0),
+            limit_down_count=int(row.get("limit_down_count") or 0),
+            total_amount=(float(row["total_amount"]) * 1e8 if row.get("total_amount") is not None else None),
+        )
+
+    def get_sector_rankings(self, market: Market) -> SectorRankings:
+        if market is not Market.CN:
+            raise ValueError("Efinance sector rankings support CN only")
+        rankings = self._get_sector_rankings() or ([], [])
+        return SectorRankings(market=market, provider=self.name, top=rankings[0], bottom=rankings[1])
+
+    def fetch_market_snapshot(self, market: Market) -> BatchQuoteResult:
+        if market is not Market.CN:
+            raise ValueError("Efinance full-market snapshot supports CN only")
+        result = BatchQuoteResult()
+        for row in self.get_all_realtime_quotes(force_refresh=False):
+            try:
+                symbol = canonical_symbol(str(row.get("code") or ""), Market.CN)
+                payload = dict(row)
+                if payload.get("volume") is not None:
+                    payload["volume"] = int(payload["volume"] * 100)
+                quote = quote_from_value(payload, symbol=symbol, provider=self.name)
+                if quote is not None:
+                    result.data[symbol] = quote
+                    result.providers_used[symbol] = self.name
+            except (TypeError, ValueError):
+                continue
+        return result
 
     def get_all_realtime_quotes(self, *, force_refresh: bool = False) -> List[Dict[str, Any]]:
         """Return a normalized full-market A-share realtime snapshot.
@@ -1461,7 +1581,7 @@ class EfinanceFetcher(BaseFetcher):
                 ef.stock.get_quote_history,
                 stock_codes=stock_code,
                 klt=interval,
-                fqt=1,
+                fqt=0,
                 timeout=_EF_CALL_TIMEOUT,
             )
             if isinstance(df, dict):
@@ -1613,111 +1733,4 @@ class EfinanceFetcher(BaseFetcher):
             )
             return None
     
-    def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
-        """
-        获取增强数据（历史K线 + 实时行情 + 基本信息）
-        
-        Args:
-            stock_code: 股票代码
-            days: 历史数据天数
-            
-        Returns:
-            包含所有数据的字典
-        """
-        result = {
-            'code': stock_code,
-            'daily_data': None,
-            'realtime_quote': None,
-            'base_info': None,
-            'belong_board': None,
-        }
-        
-        # 获取日线数据
-        try:
-            df = self.get_daily_data(stock_code, days=days)
-            result['daily_data'] = df
-        except Exception as e:
-            logger.exception("获取 %s 日线数据失败: %s", stock_code, e)
-        
-        # 获取实时行情
-        result['realtime_quote'] = self.get_realtime_quote(stock_code)
-        
-        # 获取基本信息
-        result['base_info'] = self.get_base_info(stock_code)
-        
-        # 获取所属板块
-        result['belong_board'] = self.get_belong_board(stock_code)
-        
-        return result
-
-
-if __name__ == "__main__":
-    # 测试代码
-    logging.basicConfig(level=logging.DEBUG)
-    
-    fetcher = EfinanceFetcher()
-    
-    # 测试普通股票
-    print("=" * 50)
-    print("测试普通股票数据获取 (efinance)")
-    print("=" * 50)
-    try:
-        df = fetcher.get_daily_data('600519')  # 茅台
-        print(f"[股票] 获取成功，共 {len(df)} 条数据")
-        print(df.tail())
-    except Exception as e:
-        print(f"[股票] 获取失败: {e}")
-    
-    # 测试 ETF 基金
-    print("\n" + "=" * 50)
-    print("测试 ETF 基金数据获取 (efinance)")
-    print("=" * 50)
-    try:
-        df = fetcher.get_daily_data('512400')  # 有色龙头ETF
-        print(f"[ETF] 获取成功，共 {len(df)} 条数据")
-        print(df.tail())
-    except Exception as e:
-        print(f"[ETF] 获取失败: {e}")
-    
-    # 测试实时行情
-    print("\n" + "=" * 50)
-    print("测试实时行情获取 (efinance)")
-    print("=" * 50)
-    try:
-        quote = fetcher.get_realtime_quote('600519')
-        if quote:
-            print(f"[实时行情] {quote.name}: 价格={quote.price}, 涨跌幅={quote.change_pct}%")
-        else:
-            print("[实时行情] 未获取到数据")
-    except Exception as e:
-        print(f"[实时行情] 获取失败: {e}")
-    
-    # 测试基本信息
-    print("\n" + "=" * 50)
-    print("测试基本信息获取 (efinance)")
-    print("=" * 50)
-    try:
-        info = fetcher.get_base_info('600519')
-        if info:
-            print(f"[基本信息] 市盈率={info.get('市盈率(动)', 'N/A')}, 市净率={info.get('市净率', 'N/A')}")
-        else:
-            print("[基本信息] 未获取到数据")
-    except Exception as e:
-        print(f"[基本信息] 获取失败: {e}")
-
-    # 测试市场统计 
-    print("\n" + "=" * 50)
-    print("Testing get_market_stats (efinance)")
-    print("=" * 50)
-    try:
-        stats = fetcher.get_market_stats()
-        if stats:
-            print(f"Market Stats successfully computed:")
-            print(f"Up: {stats['up_count']} (Limit Up: {stats['limit_up_count']})")
-            print(f"Down: {stats['down_count']} (Limit Down: {stats['limit_down_count']})")
-            print(f"Flat: {stats['flat_count']}")
-            print(f"Total Amount: {stats['total_amount']:.2f} 亿 (Yi)")
-        else:
-            print("Failed to compute market stats.")
-    except Exception as e:
-        print(f"Failed to compute market stats: {e}")
+__all__ = ["EfinanceProvider"]

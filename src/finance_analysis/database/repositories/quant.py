@@ -108,7 +108,6 @@ class QuantRepository:
                         StockDaily.vwap_source,
                         StockDaily.vwap_quality,
                         StockDaily.data_source.label("daily_data_source"),
-                        StockDaily.source_priority.label("daily_source_priority"),
                         StockAdjustmentFactor.forward_adjustment_factor,
                         StockAdjustmentFactor.data_source.label("adjustment_source"),
                         StockAdjustmentFactor.source_hash.label("adjustment_source_hash"),

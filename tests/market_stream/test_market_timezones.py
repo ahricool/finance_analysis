@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from finance_analysis.integrations.market_data.models import Adjustment, BatchBarResult, Market, MarketBar
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 from finance_analysis.integrations.market_data.realtime_state.repository import RealtimeStateRepository
 from finance_analysis.market_stream.config import (
@@ -147,29 +148,19 @@ def test_market_local_cross_day_clears_old_in_memory_bars() -> None:
 @pytest.mark.asyncio
 async def test_history_loader_preserves_multiple_market_trading_dates() -> None:
     class Fetcher:
-        def get_minute_candlesticks(self, symbol, interval, count, include_extended):
-            return [
-                {
-                    "timestamp": "2026-06-25T01:30:00+00:00",
-                    "open": 10,
-                    "high": 11,
-                    "low": 9,
-                    "close": 10,
-                    "volume": 1,
-                    "turnover": 10,
-                    "trade_session": "Intraday",
-                },
-                {
-                    "timestamp": "2026-06-26T01:30:00+00:00",
-                    "open": 10,
-                    "high": 11,
-                    "low": 9,
-                    "close": 10,
-                    "volume": 1,
-                    "turnover": 10,
-                    "trade_session": "Intraday",
-                },
+        def get_minute_bars(self, symbols, start_time, end_time, interval):
+            bars = [
+                MarketBar(
+                    symbol="600519.SH", market=Market.CN, interval="1m", trade_date=timestamp.date(),
+                    bar_time=timestamp, open=10, high=11, low=9, close=10, volume=1, amount=10,
+                    currency="CNY", adjustment=Adjustment.RAW, provider="test",
+                )
+                for timestamp in (
+                    datetime(2026, 6, 25, 1, 30, tzinfo=timezone.utc),
+                    datetime(2026, 6, 26, 1, 30, tzinfo=timezone.utc),
+                )
             ]
+            return BatchBarResult(data={"600519.SH": bars})
 
     bars = await LongbridgeHistoryLoader(Fetcher()).fetch("600519.SH", "CN", 420)
     assert len(bars) == 2

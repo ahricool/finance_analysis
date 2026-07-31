@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
 from finance_analysis.integrations.market_data.providers.longbridge.market import (
-    LongbridgeFetcher,
+    LongbridgeProvider,
     _longbridge_config_kwargs,
     _sanitize_longbridge_env,
     _to_longbridge_symbol,
@@ -128,8 +128,8 @@ class LongbridgeNewsFetcher:
 
     _CONNECTION_ERRORS = ("client is closed", "context closed", "connection closed")
 
-    def __init__(self, quote_fetcher: Optional[LongbridgeFetcher] = None) -> None:
-        self._quote_fetcher = quote_fetcher or LongbridgeFetcher()
+    def __init__(self, quote_fetcher: Optional[LongbridgeProvider] = None) -> None:
+        self._quote_fetcher = quote_fetcher or LongbridgeProvider()
         self._ctx = None
         self._config = None
         self._ctx_lock = threading.Lock()

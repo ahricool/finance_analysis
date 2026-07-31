@@ -24,8 +24,9 @@ import pandas as pd
 
 from finance_analysis.analysis.pipeline_config import PipelineConfig, get_pipeline_config
 from finance_analysis.database import get_db
-from finance_analysis.integrations.market_data import DataFetcherManager
-from finance_analysis.integrations.market_data.base import normalize_stock_code
+from finance_analysis.integrations.market_data import MarketDataService
+from finance_analysis.integrations.market_data.codes import normalize_stock_code
+from finance_analysis.integrations.market_data.normalizer import canonical_symbol
 from finance_analysis.integrations.market_data.realtime_state.data_source import get_default_sync_realtime_source
 from finance_analysis.integrations.market_data.realtime_types import ChipDistribution
 from finance_analysis.analysis.stock_report_analyzer import (
@@ -111,7 +112,7 @@ class StockAnalysisPipeline(AgentResultMixin):
         
         # 初始化各模块
         self.db = get_db()
-        self.fetcher_manager = DataFetcherManager()
+        self.fetcher_manager = MarketDataService(streaming_source=realtime_source)
         self.realtime_source = realtime_source or get_default_sync_realtime_source()
         # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
         self.trend_analyzer = StockTrendAnalyzer()  # 技术分析器
@@ -141,7 +142,7 @@ class StockAnalysisPipeline(AgentResultMixin):
         logger.info("已启用技术分析引擎（均线/趋势/量价指标）")
         # 打印实时行情/筹码配置状态
         if self.config.enable_realtime_quote:
-            logger.info(f"实时行情已启用 (优先级: {self.config.realtime_source_priority})")
+            logger.info("实时行情已启用（按市场默认 Provider 顺序回退）")
         else:
             logger.info("实时行情已禁用，将使用历史收盘价")
         if self.config.enable_chip_distribution:
@@ -237,15 +238,16 @@ class StockAnalysisPipeline(AgentResultMixin):
                     return quote
             except Exception as exc:
                 logger.warning("symbol=%s source=market_streamer fallback_reason=redis_error error=%s", code, exc)
-        return self.fetcher_manager.get_realtime_quote(code, log_final_failure=False)
+        symbol = canonical_symbol(code)
+        return self.fetcher_manager.get_realtime_quotes([symbol]).data.get(symbol)
 
     def analyze_stock(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
         """
         分析单只股票（增强版：含量比、换手率、筹码分析、多维度情报）
         
         流程：
-        1. 获取实时行情（量比、换手率）- 通过 DataFetcherManager 自动故障切换
-        2. 获取筹码分布 - 通过 DataFetcherManager 带熔断保护
+        1. 获取实时行情（量比、换手率）- 通过 MarketDataService 回退
+        2. 获取筹码分布 - 通过 MarketDataService
         3. 进行趋势分析（基于交易理念）
         4. 多维度情报搜索（最新消息+风险排查+业绩预期）
         5. 从数据库获取分析上下文
@@ -263,7 +265,9 @@ class StockAnalysisPipeline(AgentResultMixin):
         try:
             self._emit_progress(18, f"{code}：正在获取行情与筹码数据")
             # 获取股票名称（先走轻量名称路径，后续若 realtime_quote 有 name 再覆盖）
-            stock_name = self.fetcher_manager.get_stock_name(code, allow_realtime=False)
+            symbol = canonical_symbol(code)
+            instrument = self.fetcher_manager.get_instrument_info([symbol]).data.get(symbol)
+            stock_name = instrument.name if instrument else code
 
             # Step 1: 获取实时行情（量比、换手率等）- 使用统一入口，自动故障切换
             realtime_quote = None
@@ -279,7 +283,7 @@ class StockAnalysisPipeline(AgentResultMixin):
                         turnover_rate = getattr(realtime_quote, 'turnover_rate', None)
                         logger.info(f"{stock_name}({code}) 实时行情: 价格={realtime_quote.price}, "
                                   f"量比={volume_ratio}, 换手率={turnover_rate}% "
-                                  f"(来源: {realtime_quote.source.value if hasattr(realtime_quote, 'source') else 'unknown'})")
+                                  f"(来源: {realtime_quote.provider})")
                     else:
                         logger.warning(f"{stock_name}({code}) 所有实时行情数据源均不可用，已降级为历史收盘价继续分析")
                 else:
@@ -1261,14 +1265,14 @@ class StockAnalysisPipeline(AgentResultMixin):
         # === 批量预取实时行情（优化：避免每只股票都触发全量拉取）===
         # 只有股票数量 >= 5 时才进行预取，少量股票直接逐个查询更高效
         if len(stock_codes) >= 5:
-            prefetch_count = self.fetcher_manager.prefetch_realtime_quotes(stock_codes)
+            prefetch_count = len(self.fetcher_manager.get_realtime_quotes(stock_codes).data)
             if prefetch_count > 0:
                 logger.info(f"已启用批量预取架构：一次拉取全市场数据，{len(stock_codes)} 只股票共享缓存")
 
         # Issue #455: 预取股票名称，避免并发分析时显示「股票xxxxx」
         # dry_run 仅做数据拉取，不需要名称预取，避免额外网络开销
         if not dry_run:
-            self.fetcher_manager.prefetch_stock_names(stock_codes, use_bulk=False)
+            self.fetcher_manager.get_instrument_info(stock_codes)
 
         # 单股推送模式（#55）：从配置读取
         single_stock_notify = getattr(self.config, 'single_stock_notify', False)

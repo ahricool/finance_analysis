@@ -120,7 +120,7 @@ def _normalize_tool_stock_code(value: Any) -> Any:
         return f"HK{text}"
 
     try:
-        from finance_analysis.integrations.market_data.base import canonical_stock_code, normalize_stock_code
+        from finance_analysis.integrations.market_data.codes import canonical_stock_code, normalize_stock_code
 
         return canonical_stock_code(normalize_stock_code(text))
     except Exception:

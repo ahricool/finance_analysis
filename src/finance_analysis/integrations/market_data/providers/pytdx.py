@@ -1,502 +1,347 @@
-# -*- coding: utf-8 -*-
-"""
-===================================
-PytdxFetcher - 通达信数据源 (Priority 2)
-===================================
+"""PyTDX provider with SDK host discovery and a reused connection."""
 
-数据来源：通达信行情服务器（pytdx 库）
-特点：免费、无需 Token、直连行情服务器
-优点：实时数据、稳定、无配额限制
-
-关键策略：
-1. 多服务器自动切换
-2. 连接超时自动重连
-3. 失败后指数退避重试
-"""
+from __future__ import annotations
 
 import logging
-import re
-import time
-from contextlib import contextmanager
-from typing import Optional, Generator, List, Tuple
+import os
+from datetime import datetime
+from threading import RLock
+from typing import Any, Iterable
 
 import pandas as pd
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
-)
 
-from finance_analysis.integrations.market_data.base import (
-    BaseFetcher,
-    DataFetchError,
-    DataSourceUnavailableError,
-    STANDARD_COLUMNS,
-    is_bse_code,
-    _is_hk_market,
+from finance_analysis.integrations.market_data.models import (
+    Adjustment,
+    BatchBarResult,
+    BatchInstrumentResult,
+    BatchQuoteResult,
+    DailyBarsRequest,
+    InstrumentInfo,
+    InstrumentRequest,
+    Market,
+    MarketIndex,
+    MinuteBarsRequest,
+    QuoteRequest,
 )
-import os
+from finance_analysis.integrations.market_data.normalizer import (
+    bars_from_frame,
+    canonical_symbol,
+    currency_for_market,
+    infer_market,
+    quote_from_value,
+)
 
 logger = logging.getLogger(__name__)
 
-_PYTDX_CONNECTION_COOLDOWN_SECONDS = 15.0
+_BAR_CATEGORIES = {"1m": 8, "5m": 0, "15m": 1, "30m": 2, "60m": 3, "1d": 9}
+_CN_INDICES = (
+    ("000001.SH", "上证指数"),
+    ("399001.SZ", "深证成指"),
+    ("399006.SZ", "创业板指"),
+    ("000688.SH", "科创50"),
+    ("000016.SH", "上证50"),
+    ("000300.SH", "沪深300"),
+)
 
 
-def _parse_hosts_from_env() -> Optional[List[Tuple[str, int]]]:
-    """
-    从环境变量构建通达信服务器列表。
-
-    优先级：
-    1. PYTDX_SERVERS：逗号分隔 "ip:port,ip:port"（如 "192.168.1.1:7709,10.0.0.1:7709"）
-    2. PYTDX_HOST + PYTDX_PORT：单个服务器
-    3. 均未配置时返回 None（调用方使用 DEFAULT_HOSTS）
-    """
-    servers = os.getenv("PYTDX_SERVERS", "").strip()
-    if servers:
-        result = []
-        for part in servers.split(","):
-            part = part.strip()
-            if ":" in part:
-                host, port_str = part.rsplit(":", 1)
-                host, port_str = host.strip(), port_str.strip()
-                if host and port_str:
-                    try:
-                        result.append((host, int(port_str)))
-                    except ValueError:
-                        logger.warning(f"Invalid PYTDX_SERVERS entry: {part}")
-            else:
-                logger.warning(f"Invalid PYTDX_SERVERS entry (missing port): {part}")
-        if result:
-            return result
-
+def _configured_hosts() -> list[tuple[str, int]]:
+    entries = os.getenv("PYTDX_SERVERS", "").strip()
+    if entries:
+        hosts: list[tuple[str, int]] = []
+        for entry in entries.split(","):
+            host, separator, port = entry.strip().rpartition(":")
+            if separator and host and port.isdigit():
+                hosts.append((host, int(port)))
+        if hosts:
+            return hosts
     host = os.getenv("PYTDX_HOST", "").strip()
-    port_str = os.getenv("PYTDX_PORT", "").strip()
-    if host and port_str:
-        try:
-            return [(host, int(port_str))]
-        except ValueError:
-            logger.warning(f"Invalid PYTDX_HOST/PYTDX_PORT: {host}:{port_str}")
-
-    return None
+    port = os.getenv("PYTDX_PORT", "").strip()
+    return [(host, int(port))] if host and port.isdigit() else []
 
 
-def _is_us_code(stock_code: str) -> bool:
-    """
-    判断代码是否为美股
-    
-    美股代码规则：
-    - 1-5个大写字母，如 'AAPL', 'TSLA'
-    - 可能包含 '.'，如 'BRK.B'
-    """
-    code = stock_code.strip().upper()
-    return bool(re.match(r'^[A-Z]{1,5}(\.[A-Z])?$', code))
+def _sdk_hosts() -> list[tuple[str, int]]:
+    try:
+        from pytdx.config.hosts import hq_hosts
+    except ImportError:
+        return []
+    discovered: list[tuple[str, int]] = []
+    for item in hq_hosts:
+        if isinstance(item, (tuple, list)) and len(item) >= 3:
+            discovered.append((str(item[1]), int(item[2])))
+        elif isinstance(item, dict) and item.get("ip") and item.get("port"):
+            discovered.append((str(item["ip"]), int(item["port"])))
+    return list(dict.fromkeys(discovered))
 
 
-class PytdxFetcher(BaseFetcher):
-    """
-    通达信数据源实现
-    
-    优先级：2（与 Tushare 同级）
-    数据来源：通达信行情服务器
-    
-    关键策略：
-    - 自动选择最优服务器
-    - 连接失败自动切换服务器
-    - 失败后指数退避重试
-    
-    Pytdx 特点：
-    - 免费、无需注册
-    - 直连行情服务器
-    - 支持实时行情和历史数据
-    - 支持股票名称查询
-    """
-    
-    name = "PytdxFetcher"
-    priority = int(os.getenv("PYTDX_PRIORITY", "2"))
-    
-    # 默认通达信行情服务器列表
-    DEFAULT_HOSTS = [
-        ("119.147.212.81", 7709),  # 深圳
-        ("112.74.214.43", 7727),   # 深圳
-        ("221.231.141.60", 7709),  # 上海
-        ("101.227.73.20", 7709),   # 上海
-        ("101.227.77.254", 7709),  # 上海
-        ("14.215.128.18", 7709),   # 广州
-        ("59.173.18.140", 7709),   # 武汉
-        ("180.153.39.51", 7709),   # 杭州
-    ]
-    # Pytdx get_security_list returns at most 1000 items per page
+class PyTDXProvider:
+    name = "pytdx"
     SECURITY_LIST_PAGE_SIZE = 1000
-    
-    def __init__(self, hosts: Optional[List[Tuple[str, int]]] = None):
-        """
-        初始化 PytdxFetcher
 
-        Args:
-            hosts: 服务器列表 [(host, port), ...]。若未传入，优先使用环境变量
-                   PYTDX_SERVERS（ip:port,ip:port）或 PYTDX_HOST+PYTDX_PORT，
-                   否则使用内置 DEFAULT_HOSTS。
-        """
-        if hosts is not None:
-            self._hosts = hosts
-        else:
-            env_hosts = _parse_hosts_from_env()
-            self._hosts = env_hosts if env_hosts else self.DEFAULT_HOSTS
-        self._api = None
-        self._connected = False
-        self._current_host_idx = 0
-        self._stock_list_cache = None  # 股票列表缓存
-        self._stock_name_cache = {}    # 股票名称缓存 {code: name}
-        self._unavailable_until = 0.0
-        self._last_unavailable_reason = ""
+    def __init__(self, hosts: Iterable[tuple[str, int]] | None = None, *, api: Any = None) -> None:
+        self._hosts = list(hosts or _configured_hosts() or _sdk_hosts())
+        self._api = api
+        self._connected_host: tuple[str, int] | None = ("injected", 0) if api is not None else None
+        self._lock = RLock()
+        self._stock_names: dict[str, str] | None = None
 
-    def _is_in_connection_cooldown(self) -> bool:
-        return time.time() < self._unavailable_until
+    @staticmethod
+    def _provider_identity(symbol: str) -> tuple[int, str]:
+        canonical = canonical_symbol(symbol, Market.CN)
+        code, exchange = canonical.split(".")
+        if exchange == "BJ":
+            raise ValueError(f"PyTDX does not support Beijing Exchange symbol {symbol}")
+        return (1 if exchange == "SH" else 0), code
 
-    def _mark_connection_cooldown(self, reason: str) -> None:
-        self._unavailable_until = time.time() + _PYTDX_CONNECTION_COOLDOWN_SECONDS
-        self._last_unavailable_reason = str(reason or "").strip()
-        logger.info(
-            "Pytdx 连接失败，进入冷却 %.0fs: %s",
-            _PYTDX_CONNECTION_COOLDOWN_SECONDS,
-            self._last_unavailable_reason or "unknown",
-        )
+    def _new_api(self):
+        from pytdx.hq import TdxHq_API
 
-    def is_available_for_request(self, capability: str = "") -> bool:
-        return not self._is_in_connection_cooldown()
-    
-    def _get_pytdx(self):
-        """
-        延迟加载 pytdx 模块
-        
-        只在首次使用时导入，避免未安装时报错
-        """
-        try:
-            from pytdx.hq import TdxHq_API
-            return TdxHq_API
-        except ImportError:
-            logger.warning("pytdx 未安装，请运行: pip install pytdx")
-            return None
-    
-    @contextmanager
-    def _pytdx_session(self) -> Generator:
-        """
-        Pytdx 连接上下文管理器
-        
-        确保：
-        1. 进入上下文时自动连接
-        2. 退出上下文时自动断开
-        3. 异常时也能正确断开
-        
-        使用示例：
-            with self._pytdx_session() as api:
-                # 在这里执行数据查询
-        """
-        if self._is_in_connection_cooldown():
-            raise DataSourceUnavailableError(
-                f"Pytdx temporarily unavailable: {self._last_unavailable_reason or 'connection cooldown'}"
-            )
+        return TdxHq_API(heartbeat=True, auto_retry=True, raise_exception=True)
 
-        TdxHq_API = self._get_pytdx()
-        if TdxHq_API is None:
-            raise DataFetchError("pytdx 库未安装")
-        
-        api = TdxHq_API()
-        connected = False
-        
-        try:
-            # 尝试连接服务器（自动选择最优）
-            for i in range(len(self._hosts)):
-                host_idx = (self._current_host_idx + i) % len(self._hosts)
-                host, port = self._hosts[host_idx]
-                
-                try:
-                    if api.connect(host, port, time_out=5):
-                        connected = True
-                        self._current_host_idx = host_idx
-                        logger.debug(f"Pytdx 连接成功: {host}:{port}")
-                        break
-                except Exception as e:
-                    logger.debug(f"Pytdx 连接 {host}:{port} 失败: {e}")
-                    continue
-            
-            if not connected:
-                self._mark_connection_cooldown("Pytdx 无法连接任何服务器")
-                raise DataFetchError("Pytdx 无法连接任何服务器")
-            
-            yield api
-            
-        finally:
-            # 确保断开连接
+    def _connect_locked(self):
+        if self._api is not None and self._connected_host is not None:
+            return self._api
+        if not self._hosts:
+            raise ConnectionError("PyTDX SDK did not provide any quote servers")
+        last_error: Exception | None = None
+        for host, port in self._hosts:
+            api = self._api or self._new_api()
+            try:
+                if api.connect(host, port, time_out=5):
+                    self._api = api
+                    self._connected_host = (host, port)
+                    return api
+            except Exception as exc:
+                last_error = exc
             try:
                 api.disconnect()
-                logger.debug("Pytdx 连接已断开")
-            except Exception as e:
-                logger.warning(f"Pytdx 断开连接时出错: {e}")
-    
-    def _get_market_code(self, stock_code: str) -> Tuple[int, str]:
-        """
-        根据股票代码判断市场
-        
-        Pytdx 市场代码：
-        - 0: 深圳
-        - 1: 上海
-        
-        Args:
-            stock_code: 股票代码
-            
-        Returns:
-            (market, code) 元组
-        """
-        code = stock_code.strip()
-        
-        # 去除可能的前缀后缀
-        code = code.replace('.SH', '').replace('.SZ', '')
-        code = code.replace('.sh', '').replace('.sz', '')
-        code = code.replace('sh', '').replace('sz', '')
-        
-        # 根据代码前缀判断市场
-        # 上海：60xxxx, 68xxxx（科创板）
-        # 深圳：00xxxx, 30xxxx（创业板）, 002xxx（中小板）
-        if code.startswith(('60', '68')):
-            return 1, code  # 上海
-        else:
-            return 0, code  # 深圳
+            except Exception:
+                pass
+            self._api = None
+        raise ConnectionError(f"PyTDX could not connect to any discovered server: {last_error or 'unknown'}")
 
-    def _build_stock_list_cache(self, api) -> None:
-        """
-        Build a full stock code -> name cache from paginated security lists.
-        """
-        self._stock_list_cache = {}
-
-        for market in (0, 1):
-            start = 0
-            while True:
-                stocks = api.get_security_list(market, start) or []
-                for stock in stocks:
-                    code = stock.get('code')
-                    name = stock.get('name')
-                    if code and name:
-                        self._stock_list_cache[code] = name
-
-                if len(stocks) < self.SECURITY_LIST_PAGE_SIZE:
-                    break
-
-                start += self.SECURITY_LIST_PAGE_SIZE
-    
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
-        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
-        before_sleep=before_sleep_log(logger, logging.WARNING),
-    )
-    def _fetch_raw_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
-        """
-        从通达信获取原始数据
-        
-        使用 get_security_bars() 获取日线数据
-        
-        流程：
-        1. 检查是否为美股（不支持）
-        2. 使用上下文管理器管理连接
-        3. 判断市场代码
-        4. 调用 API 获取 K 线数据
-        """
-        # 美股不支持，抛出异常让 DataFetcherManager 切换到其他数据源
-        if _is_us_code(stock_code):
-            raise DataFetchError(f"PytdxFetcher 不支持美股 {stock_code}，请使用 AkshareFetcher 或 YfinanceFetcher")
-
-        # 港股不支持，抛出异常让 DataFetcherManager 切换到其他数据源
-        if _is_hk_market(stock_code):
-            raise DataFetchError(f"PytdxFetcher 不支持港股 {stock_code}，请使用 AkshareFetcher")
-
-        # 北交所不支持，抛出异常让 DataFetcherManager 切换到其他数据源
-        if is_bse_code(stock_code):
-            raise DataFetchError(
-                f"PytdxFetcher 不支持北交所 {stock_code}，将自动切换其他数据源"
-            )
-        
-        market, code = self._get_market_code(stock_code)
-        
-        # 计算需要获取的交易日数量（估算）
-        from datetime import datetime as dt
-        start_dt = dt.strptime(start_date, '%Y-%m-%d')
-        end_dt = dt.strptime(end_date, '%Y-%m-%d')
-        days = (end_dt - start_dt).days
-        count = min(max(days * 5 // 7 + 10, 30), 800)  # 估算交易日，最大 800 条
-        
-        logger.debug(f"调用 Pytdx get_security_bars(market={market}, code={code}, count={count})")
-        
-        with self._pytdx_session() as api:
+    def _call(self, callback):
+        with self._lock:
+            api = self._connect_locked()
             try:
-                # 获取日 K 线数据
-                # category: 9-日线, 0-5分钟, 1-15分钟, 2-30分钟, 3-1小时
-                data = api.get_security_bars(
-                    category=9,  # 日线
-                    market=market,
-                    code=code,
-                    start=0,  # 从最新开始
-                    count=count
+                return callback(api)
+            except Exception:
+                try:
+                    api.disconnect()
+                except Exception:
+                    pass
+                self._api = None
+                self._connected_host = None
+                api = self._connect_locked()
+                return callback(api)
+
+    def close(self) -> None:
+        with self._lock:
+            api, self._api = self._api, None
+            self._connected_host = None
+        if api is not None:
+            try:
+                api.disconnect()
+            except Exception:
+                logger.debug("PyTDX disconnect failed", exc_info=True)
+
+    def _bars(self, symbol: str, category: int, start: datetime, end: datetime) -> pd.DataFrame:
+        market, code = self._provider_identity(symbol)
+
+        def fetch(api):
+            chunks: list[pd.DataFrame] = []
+            offset = 0
+            while offset < 8000:
+                raw = api.get_security_bars(category, market, code, offset, 800) or []
+                if not raw:
+                    break
+                frame = api.to_df(raw)
+                chunks.append(frame)
+                timestamps = pd.to_datetime(frame["datetime"], errors="coerce")
+                if timestamps.min().to_pydatetime().replace(tzinfo=None) <= start.replace(tzinfo=None):
+                    break
+                if len(raw) < 800:
+                    break
+                offset += len(raw)
+            if not chunks:
+                return pd.DataFrame()
+            frame = pd.concat(chunks, ignore_index=True)
+            frame["datetime"] = pd.to_datetime(frame["datetime"], errors="coerce")
+            naive_start, naive_end = start.replace(tzinfo=None), end.replace(tzinfo=None)
+            return frame[(frame["datetime"] >= naive_start) & (frame["datetime"] <= naive_end)]
+
+        return self._call(fetch)
+
+    def fetch_daily_bars(self, request: DailyBarsRequest) -> BatchBarResult:
+        if request.adjustment is not Adjustment.RAW:
+            raise ValueError("PyTDX only returns raw bars")
+        result = BatchBarResult()
+        start = datetime.combine(request.start_date, datetime.min.time())
+        end = datetime.combine(request.end_date, datetime.max.time())
+        for requested_symbol in request.symbols:
+            symbol = canonical_symbol(requested_symbol, Market.CN)
+            try:
+                frame = self._bars(symbol, _BAR_CATEGORIES["1d"], start, end)
+                bars = bars_from_frame(
+                    frame.rename(columns={"datetime": "date", "vol": "volume"}),
+                    symbol=symbol,
+                    provider=self.name,
+                    interval="1d",
+                    adjustment=Adjustment.RAW,
+                    volume_multiplier=100,
                 )
-                
-                if data is None or len(data) == 0:
-                    raise DataFetchError(f"Pytdx 未查询到 {stock_code} 的数据")
-                
-                # 转换为 DataFrame
-                df = api.to_df(data)
-                
-                # 过滤日期范围
-                df['datetime'] = pd.to_datetime(df['datetime'])
-                df = df[(df['datetime'] >= start_date) & (df['datetime'] <= end_date)]
-                
-                return df
-                
-            except Exception as e:
-                if isinstance(e, DataFetchError):
-                    raise
-                raise DataFetchError(f"Pytdx 获取数据失败: {e}") from e
-    
-    def _normalize_data(self, df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
-        """
-        标准化 Pytdx 数据
-        
-        Pytdx 返回的列名：
-        datetime, open, high, low, close, vol, amount
-        
-        需要映射到标准列名：
-        date, open, high, low, close, volume, amount, pct_chg
-        """
-        df = df.copy()
-        
-        # 列名映射
-        column_mapping = {
-            'datetime': 'date',
-            'vol': 'volume',
-        }
-        
-        df = df.rename(columns=column_mapping)
-        
-        # 计算涨跌幅（pytdx 不返回涨跌幅，需要自己计算）
-        if 'pct_chg' not in df.columns and 'close' in df.columns:
-            df['pct_chg'] = df['close'].pct_change() * 100
-            df['pct_chg'] = df['pct_chg'].fillna(0).round(2)
-        
-        # 添加股票代码列
-        df['code'] = stock_code
-        
-        # 只保留需要的列
-        keep_cols = ['code'] + STANDARD_COLUMNS
-        existing_cols = [col for col in keep_cols if col in df.columns]
-        df = df[existing_cols]
-        
-        return df
-    
-    def get_stock_name(self, stock_code: str) -> Optional[str]:
-        """
-        获取股票名称
-        
-        Args:
-            stock_code: 股票代码
-            
-        Returns:
-            股票名称，失败返回 None
-        """
-        # 港股不支持（pytdx 不含港股数据）
-        if _is_hk_market(stock_code):
-            return None
+                if bars:
+                    result.data[symbol] = bars
+                    result.providers_used[symbol] = self.name
+                else:
+                    result.missing_symbols.append(symbol)
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
 
-        # 先检查缓存
-        if stock_code in self._stock_name_cache:
-            return self._stock_name_cache[stock_code]
-        
+    def fetch_minute_bars(self, request: MinuteBarsRequest) -> BatchBarResult:
+        category = _BAR_CATEGORIES.get(request.interval)
+        if category is None:
+            raise ValueError(f"PyTDX does not support interval={request.interval}")
+        result = BatchBarResult()
+        for requested_symbol in request.symbols:
+            symbol = canonical_symbol(requested_symbol, Market.CN)
+            try:
+                frame = self._bars(symbol, category, request.start_time, request.end_time)
+                bars = bars_from_frame(
+                    frame.rename(columns={"datetime": "bar_time", "vol": "volume"}),
+                    symbol=symbol,
+                    provider=self.name,
+                    interval=request.interval,
+                    volume_multiplier=100,
+                )
+                if bars:
+                    result.data[symbol] = bars
+                    result.providers_used[symbol] = self.name
+                else:
+                    result.missing_symbols.append(symbol)
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def fetch_quotes(self, request: QuoteRequest) -> BatchQuoteResult:
+        result = BatchQuoteResult()
+        identities: list[tuple[int, str]] = []
+        canonical: list[str] = []
+        for value in request.symbols:
+            symbol = canonical_symbol(value, Market.CN)
+            canonical.append(symbol)
+            identities.append(self._provider_identity(symbol))
         try:
-            market, code = self._get_market_code(stock_code)
-            
-            with self._pytdx_session() as api:
-                # 获取股票列表（缓存）
-                if self._stock_list_cache is None:
-                    self._build_stock_list_cache(api)
-                
-                # 查找股票名称
-                name = self._stock_list_cache.get(code)
-                if name:
-                    self._stock_name_cache[stock_code] = name
-                    return name
-                
-                # 尝试使用 get_finance_info
-                finance_info = api.get_finance_info(market, code)
-                if finance_info and 'name' in finance_info:
-                    name = finance_info['name']
-                    self._stock_name_cache[stock_code] = name
-                    return name
-                
-        except Exception as e:
-            logger.debug(f"Pytdx 获取股票名称失败 {stock_code}: {e}")
-        
-        return None
-    
-    def get_realtime_quote(self, stock_code: str) -> Optional[dict]:
-        """
-        获取实时行情
-        
-        Args:
-            stock_code: 股票代码
-            
-        Returns:
-            实时行情数据字典，失败返回 None
-        """
-        if is_bse_code(stock_code):
-            raise DataFetchError(
-                f"PytdxFetcher 不支持北交所 {stock_code}，将自动切换其他数据源"
+            rows = self._call(lambda api: api.get_security_quotes(identities) or [])
+        except Exception as exc:
+            return BatchQuoteResult(failed_symbols={symbol: str(exc) for symbol in canonical})
+        by_identity = {(int(row.get("market", -1)), str(row.get("code", ""))): row for row in rows}
+        for symbol, identity in zip(canonical, identities):
+            row = by_identity.get(identity)
+            if row is None:
+                result.missing_symbols.append(symbol)
+                continue
+            value = {
+                "price": row.get("price"),
+                "pre_close": row.get("last_close"),
+                "open": row.get("open"),
+                "high": row.get("high"),
+                "low": row.get("low"),
+                "volume": (row.get("vol") or 0) * 100,
+                "amount": row.get("amount"),
+                "name": (self._stock_names or {}).get(identity[1], ""),
+            }
+            quote = quote_from_value(value, symbol=symbol, provider=self.name)
+            if quote is None:
+                result.missing_symbols.append(symbol)
+            else:
+                result.data[symbol] = quote
+                result.providers_used[symbol] = self.name
+        return result
+
+    def _load_stock_names(self) -> dict[str, str]:
+        if self._stock_names is not None:
+            return self._stock_names
+
+        def fetch(api):
+            names: dict[str, str] = {}
+            for market in (0, 1):
+                offset = 0
+                while True:
+                    rows = api.get_security_list(market, offset) or []
+                    for row in rows:
+                        if row.get("code") and row.get("name"):
+                            names[str(row["code"])] = str(row["name"]).strip()
+                    if len(rows) < self.SECURITY_LIST_PAGE_SIZE:
+                        break
+                    offset += len(rows)
+            return names
+
+        self._stock_names = self._call(fetch)
+        return self._stock_names
+
+    def get_instrument_info(self, request: InstrumentRequest) -> BatchInstrumentResult:
+        result = BatchInstrumentResult()
+        try:
+            names = self._load_stock_names()
+        except Exception as exc:
+            return BatchInstrumentResult(failed_symbols={symbol: str(exc) for symbol in request.symbols})
+        for value in request.symbols:
+            symbol = canonical_symbol(value, Market.CN)
+            _, code = self._provider_identity(symbol)
+            name = names.get(code, "")
+            if not name:
+                result.missing_symbols.append(symbol)
+                continue
+            result.data[symbol] = InstrumentInfo(
+                symbol=symbol,
+                market=Market.CN,
+                name=name,
+                provider=self.name,
+                currency=currency_for_market(Market.CN),
+                exchange=symbol.rsplit(".", 1)[1],
+                instrument_type="stock",
             )
-        try:
-            market, code = self._get_market_code(stock_code)
-            
-            with self._pytdx_session() as api:
-                data = api.get_security_quotes([(market, code)])
-                
-                if data and len(data) > 0:
-                    quote = data[0]
-                    return {
-                        'code': stock_code,
-                        'name': quote.get('name', ''),
-                        'price': quote.get('price', 0),
-                        'open': quote.get('open', 0),
-                        'high': quote.get('high', 0),
-                        'low': quote.get('low', 0),
-                        'pre_close': quote.get('last_close', 0),
-                        'volume': quote.get('vol', 0),
-                        'amount': quote.get('amount', 0),
-                        'bid_prices': [quote.get(f'bid{i}', 0) for i in range(1, 6)],
-                        'ask_prices': [quote.get(f'ask{i}', 0) for i in range(1, 6)],
-                    }
-        except Exception as e:
-            logger.warning(f"Pytdx 获取实时行情失败 {stock_code}: {e}")
-        
-        return None
+            result.providers_used[symbol] = self.name
+        return result
+
+    def fetch_market_snapshot(self, market: Market) -> BatchQuoteResult:
+        if market is not Market.CN:
+            raise ValueError("PyTDX full-market snapshot supports CN only")
+        names = self._load_stock_names()
+        symbols = [canonical_symbol(code, Market.CN) for code in names if len(code) == 6 and code[0] in "036"]
+        combined = BatchQuoteResult()
+        for offset in range(0, len(symbols), 80):
+            batch = self.fetch_quotes(QuoteRequest(tuple(symbols[offset : offset + 80])))
+            combined.data.update(batch.data)
+            combined.failed_symbols.update(batch.failed_symbols)
+            combined.missing_symbols.extend(batch.missing_symbols)
+            combined.providers_used.update(batch.providers_used)
+        return combined
+
+    def get_indices(self, market: Market) -> list[MarketIndex]:
+        if market is not Market.CN:
+            return []
+        quotes = self.fetch_quotes(QuoteRequest(tuple(symbol for symbol, _ in _CN_INDICES)))
+        indices: list[MarketIndex] = []
+        for symbol, name in _CN_INDICES:
+            quote = quotes.data.get(symbol)
+            if quote is None or quote.price is None:
+                continue
+            indices.append(
+                MarketIndex(
+                    symbol=symbol,
+                    name=name,
+                    market=Market.CN,
+                    provider=self.name,
+                    price=quote.price,
+                    change=quote.change_amount or 0.0,
+                    change_pct=quote.change_pct or 0.0,
+                    volume=quote.volume,
+                    amount=quote.amount,
+                )
+            )
+        return indices
 
 
-if __name__ == "__main__":
-    # 测试代码
-    logging.basicConfig(level=logging.DEBUG)
-    
-    fetcher = PytdxFetcher()
-    
-    try:
-        # 测试历史数据
-        df = fetcher.get_daily_data('600519')  # 茅台
-        print(f"获取成功，共 {len(df)} 条数据")
-        print(df.tail())
-        
-        # 测试股票名称
-        name = fetcher.get_stock_name('600519')
-        print(f"股票名称: {name}")
-        
-        # 测试实时行情
-        quote = fetcher.get_realtime_quote('600519')
-        print(f"实时行情: {quote}")
-        
-    except Exception as e:
-        print(f"获取失败: {e}")
+__all__ = ["PyTDXProvider"]

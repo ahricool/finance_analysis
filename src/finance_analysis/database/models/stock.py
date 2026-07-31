@@ -119,7 +119,6 @@ class StockDaily(Base):
     limit_down = Column(Float, nullable=True)
     suspended = Column(Boolean, nullable=False, default=False)
     data_source = Column(String(50), nullable=False)
-    source_priority = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
@@ -163,7 +162,6 @@ class StockDaily(Base):
             "limit_down": self.limit_down,
             "suspended": self.suspended,
             "data_source": self.data_source,
-            "source_priority": self.source_priority,
         }
 
 
@@ -183,7 +181,6 @@ class StockMinute(Base):
     amount = Column(Float, nullable=True)
     session_type = Column(String(16), nullable=False, default="regular")
     data_source = Column(String(50), nullable=False)
-    source_priority = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
@@ -218,7 +215,6 @@ class StockMinute(Base):
             "amount": self.amount,
             "session_type": self.session_type,
             "data_source": self.data_source,
-            "source_priority": self.source_priority,
         }
 
 
