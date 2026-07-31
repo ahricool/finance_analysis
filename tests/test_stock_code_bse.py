@@ -5,40 +5,21 @@ Unit tests for BSE (Beijing Stock Exchange) code recognition (Issue #491).
 Covers:
 - is_bse_code()
 - normalize_stock_code() BJ prefix/suffix
-- TushareFetcher._convert_stock_code() BSE branch
-- AkshareFetcher _to_sina_tx_symbol() BSE and Shanghai B-share handling
+- AkShare provider to_sina_tx_symbol() BSE and Shanghai B-share handling
 """
-import sys
 import unittest
-from unittest.mock import MagicMock
-
-# Provide lightweight stubs so importing data_provider.base does not require
-# full LLM runtime dependencies in minimal CI.
-if "litellm" not in sys.modules:
-    sys.modules["litellm"] = MagicMock()
-if "json_repair" not in sys.modules:
-    sys.modules["json_repair"] = MagicMock()
 
 # Core imports (should stay runnable even when optional data-source deps are absent)
 try:
-    from finance_analysis.integrations.market_data.base import is_bse_code, normalize_stock_code
+    from finance_analysis.integrations.market_data.codes import is_bse_code, normalize_stock_code
     _BASE_IMPORTS_OK = True
     _BASE_IMPORT_ERROR = ""
 except ImportError as e:
     _BASE_IMPORTS_OK = False
     _BASE_IMPORT_ERROR = str(e)
 
-# Optional fetcher-specific imports
 try:
-    from finance_analysis.integrations.market_data.providers.tushare import TushareFetcher
-    _TUSHARE_IMPORTS_OK = True
-    _TUSHARE_IMPORT_ERROR = ""
-except ImportError as e:
-    _TUSHARE_IMPORTS_OK = False
-    _TUSHARE_IMPORT_ERROR = str(e)
-
-try:
-    from finance_analysis.integrations.market_data.providers.akshare import _to_sina_tx_symbol
+    from finance_analysis.integrations.market_data.providers.akshare import to_sina_tx_symbol
     _AKSHARE_IMPORTS_OK = True
     _AKSHARE_IMPORT_ERROR = ""
 except ImportError as e:
@@ -109,47 +90,29 @@ class TestNormalizeStockCode(unittest.TestCase):
         self.assertEqual(normalize_stock_code("HK700"), "HK00700")
 
 
-@unittest.skipIf(not _TUSHARE_IMPORTS_OK, f"tushare fetcher imports failed: {_TUSHARE_IMPORT_ERROR}")
-class TestTushareConvertStockCode(unittest.TestCase):
-    """Tests for TushareFetcher._convert_stock_code() BSE branch."""
-
-    def test_bse_returns_bj_suffix(self):
-        """BSE codes should convert to xxx.BJ."""
-        fetcher = TushareFetcher()
-        self.assertEqual(fetcher._convert_stock_code("920748"), "920748.BJ")
-        self.assertEqual(fetcher._convert_stock_code("838163"), "838163.BJ")
-        self.assertEqual(fetcher._convert_stock_code("430047"), "430047.BJ")
-
-    def test_bse_explicit_exchange_hint_is_preserved(self):
-        """BSE prefix/suffix forms should keep the BJ Tushare ts_code."""
-        fetcher = TushareFetcher()
-        self.assertEqual(fetcher._convert_stock_code("920493.BJ"), "920493.BJ")
-        self.assertEqual(fetcher._convert_stock_code("BJ920493"), "920493.BJ")
-
-
 @unittest.skipIf(not _AKSHARE_IMPORTS_OK, f"akshare fetcher imports failed: {_AKSHARE_IMPORT_ERROR}")
 class TestAkshareToSinaTxSymbol(unittest.TestCase):
-    """Tests for _to_sina_tx_symbol() BSE and Shanghai B-share handling."""
+    """Tests for to_sina_tx_symbol() BSE and Shanghai B-share handling."""
 
     def test_bse_returns_bj_prefix(self):
         """BSE codes should get bj prefix."""
-        self.assertEqual(_to_sina_tx_symbol("920748"), "bj920748")
-        self.assertEqual(_to_sina_tx_symbol("838163"), "bj838163")
+        self.assertEqual(to_sina_tx_symbol("920748"), "bj920748")
+        self.assertEqual(to_sina_tx_symbol("838163"), "bj838163")
 
     def test_shanghai_b_share_not_regression(self):
         """900xxx (Shanghai B-shares) must map to sh - critical regression case."""
-        self.assertEqual(_to_sina_tx_symbol("900901"), "sh900901")
-        self.assertEqual(_to_sina_tx_symbol("900906"), "sh900906")
+        self.assertEqual(to_sina_tx_symbol("900901"), "sh900901")
+        self.assertEqual(to_sina_tx_symbol("900906"), "sh900906")
 
     def test_shanghai_shenzhen(self):
         """Shanghai/Shenzhen should map correctly."""
-        self.assertEqual(_to_sina_tx_symbol("600519"), "sh600519")
-        self.assertEqual(_to_sina_tx_symbol("000001"), "sz000001")
-        self.assertEqual(_to_sina_tx_symbol("512400"), "sh512400")
+        self.assertEqual(to_sina_tx_symbol("600519"), "sh600519")
+        self.assertEqual(to_sina_tx_symbol("000001"), "sz000001")
+        self.assertEqual(to_sina_tx_symbol("512400"), "sh512400")
 
     def test_with_suffix_strips_correctly(self):
         """Code with .BJ suffix should produce bj + base, not bj + full."""
-        self.assertEqual(_to_sina_tx_symbol("920748.BJ"), "bj920748")
+        self.assertEqual(to_sina_tx_symbol("920748.BJ"), "bj920748")
 
 
 if __name__ == "__main__":

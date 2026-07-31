@@ -261,9 +261,11 @@ class EventMonitor:
         return None
 
     def _fetch_realtime_quote(self, stock_code: str) -> Any:
-        from finance_analysis.integrations.market_data import DataFetcherManager
+        from finance_analysis.integrations.market_data import MarketDataService
+        from finance_analysis.integrations.market_data.normalizer import canonical_symbol
 
-        return DataFetcherManager().get_realtime_quote(stock_code)
+        symbol = canonical_symbol(stock_code)
+        return MarketDataService().get_realtime_quotes([symbol]).data.get(symbol)
 
     async def _get_realtime_quote(self, stock_code: str) -> Any:
         return await asyncio.to_thread(self._fetch_realtime_quote, stock_code)

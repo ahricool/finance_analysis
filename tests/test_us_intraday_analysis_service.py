@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -99,106 +100,6 @@ def test_filter_current_trading_day_bars_converts_timezone_without_local_timezon
 
     assert len(result) == 1
     assert result[0]["timestamp"].endswith("10:14:00-04:00")
-
-
-def test_yfinance_fallback_bars_are_filtered(monkeypatch):
-    now = datetime(2026, 6, 10, 10, 15, 20, tzinfo=US_EASTERN)
-
-    class _FakeLongbridge:
-        def get_minute_candlesticks(self, *_args, **_kwargs):
-            return []
-
-    class _FakeYfinanceFetcher:
-        pass
-
-    class _NoRealtime:
-        fallback_reason = "redis_missing"
-
-        def get_recent_bars(self, *_args, **_kwargs):
-            return None
-
-    def fake_yfinance(symbol: str, *, now=None, include_incomplete=False):
-        assert symbol == "NVDA"
-        return filter_current_trading_day_bars(
-            [
-                _bar(datetime(2026, 6, 9, 15, 59, tzinfo=US_EASTERN), 90, 91),
-                _bar(datetime(2026, 6, 10, 10, 14, tzinfo=US_EASTERN), 100, 101),
-                _bar(datetime(2026, 6, 10, 10, 15, tzinfo=US_EASTERN), 101, 102),
-            ],
-            now=now,
-            include_incomplete=include_incomplete,
-        )
-
-    monkeypatch.setattr(IntradayDataSource, "_fetch_yfinance_1m_bars", staticmethod(fake_yfinance))
-    source = IntradayDataSource(
-        _FakeLongbridge(),
-        _FakeYfinanceFetcher(),
-        realtime_source=_NoRealtime(),
-    )
-
-    result = source.fetch_1m_bars("NVDA", now=now)
-
-    assert len(result) == 1
-    assert result[0]["timestamp"].endswith("10:14:00-04:00")
-
-
-def test_us_data_source_prefers_market_streamer_for_quote_and_bars():
-    realtime_quote = UnifiedRealtimeQuote(
-        code="NVDA",
-        source=RealtimeSource.MARKET_STREAMER,
-        price=150.0,
-    )
-    realtime_bars = [_bar(datetime(2026, 6, 10, 10, 14, tzinfo=US_EASTERN), 149, 150)]
-
-    class _Realtime:
-        fallback_reason = None
-
-        def get_quote(self, *_args, **_kwargs):
-            return realtime_quote
-
-        def get_recent_bars(self, *_args, **_kwargs):
-            return realtime_bars
-
-    class _Longbridge:
-        def get_realtime_quote(self, *_args, **_kwargs):
-            raise AssertionError("Longbridge quote should not be called")
-
-        def get_minute_candlesticks(self, *_args, **_kwargs):
-            raise AssertionError("Longbridge bars should not be called")
-
-    source = IntradayDataSource(
-        _Longbridge(),
-        object(),  # type: ignore[arg-type]
-        realtime_source=_Realtime(),
-    )
-
-    assert source.fetch_quote("NVDA") is realtime_quote
-    assert source.fetch_1m_bars("NVDA") == realtime_bars
-
-
-def test_us_data_source_redis_failure_falls_back_to_longbridge():
-    now = datetime(2026, 6, 10, 10, 0, tzinfo=US_EASTERN)
-    longbridge = _FakeLongbridge(
-        {"NVDA": [_bar(datetime(2026, 6, 10, 9, 59, tzinfo=US_EASTERN), 149, 150)]}
-    )
-
-    class _BrokenRealtime:
-        fallback_reason = "redis_error"
-
-        def get_quote(self, *_args, **_kwargs):
-            raise RuntimeError("redis unavailable")
-
-        def get_recent_bars(self, *_args, **_kwargs):
-            raise RuntimeError("redis unavailable")
-
-    source = IntradayDataSource(
-        longbridge,
-        object(),  # type: ignore[arg-type]
-        realtime_source=_BrokenRealtime(),
-    )
-
-    assert source.fetch_quote("NVDA") is not None
-    assert source.fetch_1m_bars("NVDA", now=now)[0]["close"] == 150
 
 
 def test_no_rule_candidates_do_not_fetch_market_news():
@@ -766,6 +667,11 @@ def _service(now: datetime, bars_by_symbol: dict[str, list[dict]], missing_quote
         news_fetcher=_FakeNewsFetcher(),
         use_lock=False,
         signal_state_store=IntradaySignalStateStore(redis_client=False),
+    )
+    service.data_source = SimpleNamespace(
+        normalize_us_symbol=lambda symbol: symbol.removesuffix(".US"),
+        fetch_1m_bars=lambda symbol, **_kwargs: bars_by_symbol.get(symbol, []),
+        fetch_quote=lambda symbol: longbridge.get_realtime_quote(symbol),
     )
     judge = _FakeJudge()
     service.llm_judge = judge

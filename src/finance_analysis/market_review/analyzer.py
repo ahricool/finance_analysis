@@ -22,7 +22,7 @@ from finance_analysis.reporting.localization import normalize_report_language
 from finance_analysis.search import SearchService
 from finance_analysis.market_review.profile import get_profile, MarketProfile
 from finance_analysis.market_review.strategy import get_market_strategy_blueprint
-from finance_analysis.integrations.market_data.base import DataFetcherManager
+from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.market_review.models import (
     _CHINESE_SECTION_PATTERNS,
     _ENGLISH_SECTION_PATTERNS,
@@ -62,7 +62,7 @@ class MarketAnalyzer:
         self.config = get_pipeline_config()
         self.search_service = search_service
         self.analyzer = analyzer
-        self.data_manager = DataFetcherManager()
+        self.data_manager = MarketDataService()
         self.region = region if region in ("cn", "us", "hk") else "cn"
         self.profile: MarketProfile = get_profile(self.region)
         self.strategy = get_market_strategy_blueprint(self.region)
@@ -251,24 +251,25 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         try:
             logger.info("[大盘] 获取主要指数实时行情...")
 
-            # 使用 DataFetcherManager 获取指数行情（按 region 切换）
-            data_list = self.data_manager.get_main_indices(region=self.region)
+            # 使用 MarketDataService 获取指数行情（按 region 切换）
+            data_list = self.data_manager.get_market_indices(self.region)
 
             if data_list:
-                for item in data_list:
+                for value in data_list:
+                    item = value.to_dict()
                     index = MarketIndex(
                         code=item['code'],
                         name=item['name'],
                         current=item['current'],
                         change=item['change'],
                         change_pct=item['change_pct'],
-                        open=item['open'],
-                        high=item['high'],
-                        low=item['low'],
-                        prev_close=item['prev_close'],
-                        volume=item['volume'],
-                        amount=item['amount'],
-                        amplitude=item['amplitude']
+                        open=item.get('open') or 0,
+                        high=item.get('high') or 0,
+                        low=item.get('low') or 0,
+                        prev_close=item.get('pre_close') or 0,
+                        volume=item.get('volume') or 0,
+                        amount=item.get('amount') or 0,
+                        amplitude=item.get('amplitude') or 0,
                     )
                     indices.append(index)
 
@@ -287,15 +288,15 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         try:
             logger.info("[大盘] 获取市场涨跌统计...")
 
-            stats = self.data_manager.get_market_stats()
+            stats = self.data_manager.get_market_stats(self.region)
 
             if stats:
-                overview.up_count = stats.get('up_count', 0)
-                overview.down_count = stats.get('down_count', 0)
-                overview.flat_count = stats.get('flat_count', 0)
-                overview.limit_up_count = stats.get('limit_up_count', 0)
-                overview.limit_down_count = stats.get('limit_down_count', 0)
-                overview.total_amount = stats.get('total_amount', 0.0)
+                overview.up_count = stats.up_count
+                overview.down_count = stats.down_count
+                overview.flat_count = stats.flat_count
+                overview.limit_up_count = stats.limit_up_count
+                overview.limit_down_count = stats.limit_down_count
+                overview.total_amount = stats.total_amount or 0.0
 
                 logger.info(f"[大盘] 涨:{overview.up_count} 跌:{overview.down_count} 平:{overview.flat_count} "
                           f"涨停:{overview.limit_up_count} 跌停:{overview.limit_down_count} "
@@ -309,7 +310,9 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         try:
             logger.info("[大盘] 获取板块涨跌榜...")
 
-            top_sectors, bottom_sectors = self.data_manager.get_sector_rankings(5)
+            rankings = self.data_manager.get_sector_rankings(self.region, limit=5)
+            top_sectors = rankings.top if rankings else []
+            bottom_sectors = rankings.bottom if rankings else []
 
             if top_sectors or bottom_sectors:
                 overview.top_sectors = top_sectors

@@ -45,7 +45,7 @@ from finance_analysis.interfaces.api.v1.schemas.history import (
     ReportStrategy,
     ReportDetails,
 )
-from finance_analysis.integrations.market_data.base import canonical_stock_code, normalize_stock_code
+from finance_analysis.integrations.market_data.codes import canonical_stock_code, normalize_stock_code
 from finance_analysis.analysis.pipeline_config import PipelineConfig
 from finance_analysis.market_review.lock import (
     market_review_lock_path,

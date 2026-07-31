@@ -44,7 +44,6 @@ def _row(
         "vwap_source": "provider",
         "vwap_quality": "provider",
         "daily_data_source": "fixture",
-        "daily_source_priority": 1,
         "forward_adjustment_factor": factor,
         "adjustment_source": "fixture-adjustment" if factor is not None else None,
         "adjustment_source_hash": f"factor-{factor}" if factor is not None else None,

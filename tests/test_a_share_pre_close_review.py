@@ -346,12 +346,11 @@ def test_non_trading_day_skips(monkeypatch):
         _service().run(now=NOW)
 
 
-def test_data_source_is_explicitly_a_share_only_without_longbridge():
+def test_data_source_is_explicitly_a_share_only_through_service():
     source = inspect.getsource(ASharePreCloseDataSource)
 
     assert ALLOWED_DATA_SOURCES == ("efinance", "akshare")
-    assert "LongbridgeFetcher" not in source
-    assert "DataFetcherManager" not in source
+    assert "MarketDataService" in source
 
 
 def test_stale_quotes_force_low_confidence_and_only_safe_actions():

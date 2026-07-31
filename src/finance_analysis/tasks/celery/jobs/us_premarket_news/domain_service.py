@@ -10,7 +10,8 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, desc, func, or_, select
 
-from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeFetcher
+from finance_analysis.integrations.market_data import MarketDataService
+from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
 from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsFetcher, LongbridgeNewsRecord
 from finance_analysis.stocks.reference_data.stock_index import NASDAQ100_STOCK_INDEX
 from finance_analysis.database.models import NewsIntel
@@ -67,14 +68,16 @@ class USPremarketNewsService:
         self,
         *,
         config: Any,
-        longbridge_fetcher: Optional[LongbridgeFetcher] = None,
+        longbridge_fetcher: Optional[LongbridgeProvider] = None,
+        market_data_service: Optional[MarketDataService] = None,
         news_fetcher: Optional[LongbridgeNewsFetcher] = None,
         llm_analyzer: Optional[PremarketNewsLLMAnalyzer] = None,
         reporter: Optional[PremarketNewsReporter] = None,
         db: Optional[DatabaseManager] = None,
     ) -> None:
         self.config = config
-        self.longbridge_fetcher = longbridge_fetcher or LongbridgeFetcher()
+        self.longbridge_fetcher = longbridge_fetcher or LongbridgeProvider()
+        self.market_data = market_data_service or MarketDataService()
         self.news_fetcher = news_fetcher or LongbridgeNewsFetcher(self.longbridge_fetcher)
         self.llm_analyzer = llm_analyzer or PremarketNewsLLMAnalyzer(config)
         self.reporter = reporter or PremarketNewsReporter()
@@ -149,7 +152,9 @@ class USPremarketNewsService:
         if symbol in NASDAQ100_STOCK_INDEX:
             return NASDAQ100_STOCK_INDEX[symbol]
         try:
-            return self.longbridge_fetcher.get_stock_name(symbol) or ""
+            canonical = f"{symbol}.US" if not symbol.endswith(".US") else symbol
+            info = self.market_data.get_instrument_info([canonical]).data.get(canonical)
+            return info.name if info else ""
         except Exception:
             return ""
 

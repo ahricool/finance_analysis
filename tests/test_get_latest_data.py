@@ -27,7 +27,7 @@ def _bar(day, close):
 def test_get_latest_returns_count_and_descending_dates(repository):
     repo, symbol = repository
     today = date.today()
-    repo.upsert_daily(symbol.id, [_bar(today - timedelta(days=i), 100 + i) for i in range(5)], "test", 10)
+    repo.upsert_daily(symbol.id, [_bar(today - timedelta(days=i), 100 + i) for i in range(5)], "test")
     rows = repo.get_latest("AAPL.US", days=2)
     assert len(rows) == 2
     assert rows[0].date > rows[1].date
@@ -36,15 +36,15 @@ def test_get_latest_returns_count_and_descending_dates(repository):
 
 def test_get_latest_is_scoped_by_canonical_symbol(repository):
     repo, symbol = repository
-    repo.upsert_daily(symbol.id, [_bar(date.today(), 100)], "test", 10)
+    repo.upsert_daily(symbol.id, [_bar(date.today(), 100)], "test")
     assert len(repo.get_latest("AAPL.US")) == 1
     assert repo.get_latest("MSFT.US") == []
 
 
-def test_priority_upsert_updates_equal_priority_and_rejects_lower(repository):
+def test_upsert_always_refreshes_existing_raw_bar(repository):
     repo, symbol = repository
     day = date.today()
-    assert repo.upsert_daily(symbol.id, [_bar(day, 100)], "first", 50).inserted_rows == 1
-    assert repo.upsert_daily(symbol.id, [_bar(day, 101)], "refresh", 50).updated_rows == 1
-    assert repo.upsert_daily(symbol.id, [_bar(day, 99)], "lower", 10).skipped_lower_priority_rows == 1
-    assert repo.get_latest("AAPL.US", 1)[0].close == 101
+    assert repo.upsert_daily(symbol.id, [_bar(day, 100)], "first").inserted_rows == 1
+    assert repo.upsert_daily(symbol.id, [_bar(day, 101)], "refresh").updated_rows == 1
+    assert repo.upsert_daily(symbol.id, [_bar(day, 99)], "latest").updated_rows == 1
+    assert repo.get_latest("AAPL.US", 1)[0].close == 99

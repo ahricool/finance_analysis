@@ -16,7 +16,7 @@ def _bar(day: date, close: float = 10.0):
     payload = {
         "code": "AAPL.US", "market": "US", "date": day,
         "open": close, "high": close + 1, "low": close - 1, "close": close,
-        "volume": 100.0, "amount": None, "data_source": "test", "source_priority": 100,
+        "volume": 100.0, "amount": None, "data_source": "test",
     }
     return SimpleNamespace(date=day, to_dict=lambda: payload)
 
@@ -25,7 +25,8 @@ def test_loader_reads_complete_database_window_and_derives_indicators():
     days = [date(2026, 4, 13) + timedelta(days=i) for i in range(5)]
     repo = MagicMock()
     repo.get_range.return_value = [_bar(day, 10 + i) for i, day in enumerate(days)]
-    with patch("finance_analysis.analysis.history.loader.get_completed_trading_days", return_value=days), \
+    with patch("finance_analysis.database.get_db"), \
+         patch("finance_analysis.analysis.history.loader.get_completed_trading_days", return_value=days), \
          patch("finance_analysis.database.repositories.stock.StockRepository", return_value=repo):
         frame, source = load_history_df("AAPL.US", days=5, target_date=days[-1])
     assert source == "database"
@@ -39,7 +40,8 @@ def test_loader_raises_explicit_missing_error_without_network_fallback():
     days = [date(2026, 4, 13), date(2026, 4, 14)]
     repo = MagicMock()
     repo.get_range.return_value = [_bar(days[0])]
-    with patch("finance_analysis.analysis.history.loader.get_completed_trading_days", return_value=days), \
+    with patch("finance_analysis.database.get_db"), \
+         patch("finance_analysis.analysis.history.loader.get_completed_trading_days", return_value=days), \
          patch("finance_analysis.database.repositories.stock.StockRepository", return_value=repo):
         with pytest.raises(HistoricalMarketDataMissingError) as error:
             load_history_df("AAPL.US", days=2, target_date=days[-1])
@@ -61,7 +63,8 @@ def test_loader_uses_frozen_target_date():
     repo.get_range.return_value = [_bar(target)]
     token = set_frozen_target_date(target)
     try:
-        with patch("finance_analysis.analysis.history.loader.get_completed_trading_days", return_value=[target]) as calendar, \
+        with patch("finance_analysis.database.get_db"), \
+             patch("finance_analysis.analysis.history.loader.get_completed_trading_days", return_value=[target]) as calendar, \
              patch("finance_analysis.database.repositories.stock.StockRepository", return_value=repo):
             load_history_df("AAPL.US", days=1)
         assert calendar.call_args.args[:2] == ("us", 1)

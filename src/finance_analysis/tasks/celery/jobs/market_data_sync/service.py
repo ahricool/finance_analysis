@@ -9,13 +9,13 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from finance_analysis.database.repositories.adjustment import StockAdjustmentRepository
-from finance_analysis.database.repositories.stock import MarketDataSymbolRepository, StockRepository, UpsertStats
+from finance_analysis.database.repositories.stock import MarketDataSymbolRepository, StockRepository
 from finance_analysis.integrations.market_data.config import DataProviderConfig, get_data_provider_config
+from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, get_trading_days_between
 from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 
 from .models import AdjustmentResult, DailyResult, SymbolResult, normalize_sync_mode
-from .provider_router import MarketDataProviderRouter
 
 logger = logging.getLogger(__name__)
 MAX_RESULT_ITEMS = 20
@@ -35,7 +35,7 @@ class MarketDataSyncService:
         adjustment_repository: StockAdjustmentRepository | None = None,
         watchlist_repository: Any = None,
         scope_resolver: MarketDataScopeResolver | None = None,
-        router: MarketDataProviderRouter | None = None,
+        market_data_service: MarketDataService | None = None,
         config: DataProviderConfig | None = None,
         now: datetime | None = None,
         sync_mode: str = "incremental",
@@ -48,7 +48,7 @@ class MarketDataSyncService:
         self.stock_repository = stock_repository or StockRepository()
         self.adjustment_repository = adjustment_repository or StockAdjustmentRepository()
         self.scope_resolver = scope_resolver or MarketDataScopeResolver(watchlist_repository)
-        self.router = router or MarketDataProviderRouter(self.market, config=self.config)
+        self.market_data = market_data_service or MarketDataService(config=self.config)
         self.now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         self.sync_mode = normalize_sync_mode(sync_mode)
         self.unsupported_symbols: list[dict[str, str]] = []
@@ -89,7 +89,6 @@ class MarketDataSyncService:
                 else list(daily_days_by_code[symbol.code])
             )
             force_full_factor_window_by_code[symbol.code] = force_full_factor_window
-        self.router.prepare_batches(symbols, daily_days_by_code, adjustment_days_by_code)
         logger.info(
             "market=%s job=market_data_sync sync_mode=%s symbol_count=%s initial_days=%s refresh_days=%s "
             "retention_days=%s factor_repair_symbols=%s deleted_daily_rows=%s deleted_adjustment_rows=%s",
@@ -261,40 +260,48 @@ class MarketDataSyncService:
 
     def _sync_daily(self, symbol: Any, requested_days: list[date]) -> DailyResult:
         try:
-            routed = self.router.fetch_daily(symbol, requested_days)
-            if not routed.batches:
+            routed = self.market_data.get_daily_bars(
+                [symbol.code],
+                min(requested_days),
+                max(requested_days),
+                adjustment="raw",
+            )
+            bars = routed.data.get(symbol.code, [])
+            if not bars:
                 return DailyResult(
                     "failed",
                     reason="all daily providers failed",
-                    fallback_reasons=routed.fallback_reasons,
+                    fallback_reasons=list(routed.failed_symbols.values()),
                 )
-            stats = UpsertStats()
-            missing_amount = False
-            vwap_qualities: set[str] = set()
-            for batch in routed.batches:
-                missing_amount = missing_amount or any(row.get("amount") is None for row in batch.rows)
-                vwap_qualities.update(str(row.get("vwap_quality") or "missing") for row in batch.rows)
-                current = self.stock_repository.upsert_daily(
-                    symbol.id,
-                    batch.rows,
-                    batch.provider,
-                    batch.priority,
+            provider = routed.providers_used[symbol.code]
+            rows = []
+            for bar in bars:
+                vwap = bar.amount / bar.volume if bar.amount is not None and bar.volume > 0 else None
+                rows.append(
+                    {
+                        "date": bar.trade_date,
+                        "open": bar.open,
+                        "high": bar.high,
+                        "low": bar.low,
+                        "close": bar.close,
+                        "volume": bar.volume,
+                        "amount": bar.amount,
+                        "vwap": vwap,
+                        "vwap_source": provider if vwap is not None else None,
+                        "vwap_quality": "calculated" if vwap is not None else "missing",
+                    }
                 )
-                stats = UpsertStats(
-                    stats.inserted_rows + current.inserted_rows,
-                    stats.updated_rows + current.updated_rows,
-                    stats.skipped_lower_priority_rows + current.skipped_lower_priority_rows,
-                )
+            stats = self.stock_repository.upsert_daily(symbol.id, rows, provider)
+            missing = sorted(set(requested_days).difference(bar.trade_date for bar in bars))
             return DailyResult(
-                status="partial" if routed.missing else "success",
+                status="partial" if missing else "success",
                 inserted_rows=stats.inserted_rows,
                 updated_rows=stats.updated_rows,
-                skipped_lower_priority_rows=stats.skipped_lower_priority_rows,
-                providers=routed.providers_used,
-                missing_amount=missing_amount,
-                vwap_qualities=vwap_qualities,
-                reason=f"missing_trading_days={len(routed.missing)}" if routed.missing else "",
-                fallback_reasons=routed.fallback_reasons,
+                providers=[provider],
+                missing_amount=any(bar.amount is None for bar in bars),
+                vwap_qualities={"calculated" if bar.amount is not None and bar.volume > 0 else "missing" for bar in bars},
+                reason=f"missing_trading_days={len(missing)}" if missing else "",
+                fallback_reasons=list(routed.failed_symbols.values()),
             )
         except Exception as exc:
             logger.exception("market=%s code=%s daily sync failed", self.market, symbol.code)
@@ -308,33 +315,36 @@ class MarketDataSyncService:
         *,
         force_full_factor_window: bool = False,
     ) -> AdjustmentResult:
-        routed = self.router.fetch_adjustment(symbol, requested_days)
-        if routed.provider is None or routed.data is None:
+        routed = self.market_data.get_adjustment_factors(
+            [symbol.code], min(requested_days), max(requested_days)
+        )
+        provider = routed.providers_used.get(symbol.code)
+        factors = routed.factors.get(symbol.code, [])
+        if provider is None or not factors:
             return AdjustmentResult(
                 "failed",
                 reason="no adjustment provider succeeded",
-                fallback_reasons=routed.fallback_reasons,
-            )
-        if not routed.data.adjustment_factors:
-            return AdjustmentResult(
-                "failed",
-                provider=routed.provider,
-                reason="provider returned no daily adjustment factors",
-                fallback_reasons=routed.fallback_reasons,
+                fallback_reasons=list(routed.failed_symbols.values()),
             )
         start_date, end_date = min(requested_days), max(requested_days)
         factors_by_date = {
-            row["trade_date"]: row
-            for row in routed.data.adjustment_factors
-            if start_date <= row["trade_date"] <= end_date
+            item.trade_date: {
+                "trade_date": item.trade_date,
+                "forward_adjustment_factor": item.factor,
+                "hfq_factor": None,
+                "hfq_cash": None,
+                "adj_close": None,
+            }
+            for item in factors
+            if start_date <= item.trade_date <= end_date
         }
         factor_rows = list(factors_by_date.values())
         if not factor_rows:
             return AdjustmentResult(
                 "failed",
-                provider=routed.provider,
+                provider=provider,
                 reason="provider returned no in-window daily adjustment factors",
-                fallback_reasons=routed.fallback_reasons,
+                fallback_reasons=list(routed.failed_symbols.values()),
             )
         replace_full_factor_window = force_full_factor_window
         is_recent_probe = bool(full_adjustment_days and requested_days != full_adjustment_days)
@@ -349,66 +359,61 @@ class MarketDataSyncService:
                 self.market,
                 symbol.code,
             )
-            full_routed = self.router.fetch_adjustment(
-                symbol,
-                full_adjustment_days,
-                use_prepared_batch=False,
+            full_routed = self.market_data.get_adjustment_factors(
+                [symbol.code], min(full_adjustment_days), max(full_adjustment_days)
             )
-            fallback_reasons = [*routed.fallback_reasons, *full_routed.fallback_reasons]
-            if full_routed.provider is None or full_routed.data is None:
+            fallback_reasons = [*routed.failed_symbols.values(), *full_routed.failed_symbols.values()]
+            full_provider = full_routed.providers_used.get(symbol.code)
+            full_factors = full_routed.factors.get(symbol.code, [])
+            if full_provider is None or not full_factors:
                 return AdjustmentResult(
                     "failed",
                     reason="adjustment factor changed but five-year refresh failed",
                     fallback_reasons=fallback_reasons,
                 )
-            if not full_routed.data.adjustment_factors:
-                return AdjustmentResult(
-                    "failed",
-                    provider=full_routed.provider,
-                    reason="five-year refresh returned no daily adjustment factors",
-                    fallback_reasons=fallback_reasons,
-                )
             routed = full_routed
-            routed.fallback_reasons[:] = fallback_reasons
+            provider = full_provider
+            factors = full_factors
             requested_days = full_adjustment_days
             start_date, end_date = min(requested_days), max(requested_days)
             factors_by_date = {
-                row["trade_date"]: row
-                for row in routed.data.adjustment_factors
-                if start_date <= row["trade_date"] <= end_date
+                item.trade_date: {
+                    "trade_date": item.trade_date,
+                    "forward_adjustment_factor": item.factor,
+                    "hfq_factor": None,
+                    "hfq_cash": None,
+                    "adj_close": None,
+                }
+                for item in factors
+                if start_date <= item.trade_date <= end_date
             }
             factor_rows = list(factors_by_date.values())
             if not factor_rows:
                 return AdjustmentResult(
                     "failed",
-                    provider=routed.provider,
+                    provider=provider,
                     reason="five-year refresh returned no in-window daily adjustment factors",
-                    fallback_reasons=routed.fallback_reasons,
+                    fallback_reasons=fallback_reasons,
                 )
             replace_full_factor_window = True
-        action_rows = list(
-            {
-                (row["action_date"], row["action_type"]): row
-                for row in routed.data.corporate_actions
-                if start_date <= row["action_date"] <= end_date
-            }.values()
+        action_rows = []
+        for item in routed.corporate_actions.get(symbol.code, []):
+            row = {
+                "action_date": item.action_date,
+                "action_type": item.action_type,
+                "cash_dividend": item.value if item.action_type == "dividend" else None,
+                "split_ratio": item.value if item.action_type == "split" else None,
+                "bonus_ratio": item.value if item.action_type == "bonus" else None,
+                "rights_ratio": item.value if item.action_type == "rights" else None,
+                "rights_price": None,
+                "currency": None,
+                "raw_payload": {"value": item.value},
+            }
+            if start_date <= item.action_date <= end_date:
+                action_rows.append(row)
+        action_stats = self.adjustment_repository.replace_corporate_actions(
+            symbol.id, start_date, end_date, action_rows, provider
         )
-        if routed.data.corporate_actions_complete:
-            action_stats = self.adjustment_repository.replace_corporate_actions(
-                symbol.id,
-                start_date,
-                end_date,
-                action_rows,
-                routed.provider,
-            )
-        else:
-            action_stats = self.adjustment_repository.upsert_corporate_actions(
-                symbol.id,
-                start_date,
-                end_date,
-                action_rows,
-                routed.provider,
-            )
 
         factor_dates = {row["trade_date"] for row in factor_rows}
         expected_factor_dates = (
@@ -417,8 +422,7 @@ class MarketDataSyncService:
             else set()
         )
         complete_factor_window = (
-            routed.data.adjustment_factors_complete
-            and expected_factor_dates.issubset(factor_dates)
+            expected_factor_dates.issubset(factor_dates)
         )
         adjustment_status = "success"
         adjustment_reason = ""
@@ -428,7 +432,7 @@ class MarketDataSyncService:
                 start_date,
                 end_date,
                 factor_rows,
-                routed.provider,
+                provider,
             )
         else:
             if replace_full_factor_window:
@@ -440,25 +444,24 @@ class MarketDataSyncService:
                     "market=%s code=%s provider=%s data_type=adjustment reason=%s",
                     self.market,
                     symbol.code,
-                    routed.provider,
+                    provider,
                     adjustment_reason,
                 )
-                routed.fallback_reasons.append(f"{routed.provider}: {adjustment_reason}")
             factor_stats = self.adjustment_repository.upsert_adjustment_factors(
                 symbol.id,
                 start_date,
                 end_date,
                 factor_rows,
-                routed.provider,
+                provider,
             )
         return AdjustmentResult(
             adjustment_status,
             changed=factor_stats.changed or action_stats.changed,
             corporate_action_rows=len(action_rows),
             adjustment_factor_rows=len(factor_rows),
-            provider=routed.provider,
+            provider=provider,
             reason=adjustment_reason,
-            fallback_reasons=routed.fallback_reasons,
+            fallback_reasons=list(routed.failed_symbols.values()),
         )
 
     def _summarize(

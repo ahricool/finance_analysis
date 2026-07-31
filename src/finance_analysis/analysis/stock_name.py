@@ -20,13 +20,13 @@ def get_stock_name_multi_source(
     获取策略（按优先级）：
     1. 从传入的 context 中获取（realtime 数据）
     2. 从静态映射表 STOCK_NAME_MAP 获取
-    3. 从 DataFetcherManager 获取（各数据源）
+    3. 从 MarketDataService 获取（各数据源）
     4. 返回默认名称（股票+代码）
 
     Args:
         stock_code: 股票代码
         context: 分析上下文（可选）
-        data_manager: DataFetcherManager 实例（可选）
+        data_manager: MarketDataService 实例（可选）
 
     Returns:
         股票中文名称
@@ -50,14 +50,16 @@ def get_stock_name_multi_source(
     # 3. 从数据源获取
     if data_manager is None:
         try:
-            from finance_analysis.integrations.market_data.base import DataFetcherManager
-            data_manager = DataFetcherManager()
+            from finance_analysis.integrations.market_data import MarketDataService
+            data_manager = MarketDataService()
         except Exception as e:
-            logger.debug(f"无法初始化 DataFetcherManager: {e}")
+            logger.debug(f"无法初始化 MarketDataService: {e}")
 
     if data_manager:
         try:
-            name = data_manager.get_stock_name(stock_code)
+            result = data_manager.get_instrument_info([stock_code])
+            info = next(iter(result.data.values()), None)
+            name = info.name if info is not None else None
             if name:
                 # 更新缓存
                 STOCK_NAME_MAP[stock_code] = name

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Market tools — wraps DataFetcherManager market-level methods as agent tools.
+Market tools — wraps MarketDataService market-level methods as agent tools.
 
 Tools:
 - get_market_indices: major market index data
@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 def _get_fetcher_manager():
     """Lazy import to avoid circular deps."""
-    from finance_analysis.integrations.market_data import DataFetcherManager
-    return DataFetcherManager()
+    from finance_analysis.integrations.market_data import MarketDataService
+    return MarketDataService()
 
 
 # ============================================================
@@ -27,7 +27,7 @@ def _get_fetcher_manager():
 def _handle_get_market_indices(region: str = "cn") -> dict:
     """Get major market indices."""
     manager = _get_fetcher_manager()
-    indices = manager.get_main_indices(region=region)
+    indices = [item.to_dict() for item in manager.get_market_indices(region)]
 
     if not indices:
         return {"error": f"No market index data available for region '{region}'"}
@@ -65,23 +65,12 @@ get_market_indices_tool = ToolDefinition(
 def _handle_get_sector_rankings(top_n: int = 10) -> dict:
     """Get sector performance rankings."""
     manager = _get_fetcher_manager()
-    result = manager.get_sector_rankings(n=top_n)
+    result = manager.get_sector_rankings("CN", limit=top_n)
 
     if result is None:
         return {"error": "No sector ranking data available"}
 
-    # get_sector_rankings returns Tuple[List[Dict], List[Dict]]
-    # (top_sectors, bottom_sectors)
-    if isinstance(result, tuple) and len(result) == 2:
-        top_sectors, bottom_sectors = result
-        return {
-            "top_sectors": top_sectors,
-            "bottom_sectors": bottom_sectors,
-        }
-    elif isinstance(result, list):
-        return {"sectors": result}
-    else:
-        return {"data": str(result)}
+    return {"top_sectors": result.top, "bottom_sectors": result.bottom, "provider": result.provider}
 
 
 get_sector_rankings_tool = ToolDefinition(

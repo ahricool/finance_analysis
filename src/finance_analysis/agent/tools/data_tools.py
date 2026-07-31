@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Data tools — wraps DataFetcherManager methods as agent-callable tools.
+Data tools — wraps MarketDataService methods as agent-callable tools.
 
 Tools:
 - get_realtime_quote: real-time stock quote
@@ -24,23 +24,18 @@ _DAILY_HISTORY_MAX_DAYS = 365
 
 
 def _get_fetcher_manager():
-    """Return a module-level singleton DataFetcherManager.
-
-    Re-creating the manager on every tool call causes Tushare re-init overhead
-    (~2 s each) and prevents circuit-breaker cooldown from taking effect across
-    consecutive tool calls within the same agent run.
-    """
-    from finance_analysis.integrations.market_data import DataFetcherManager
+    """Return the process-local market-data service."""
+    from finance_analysis.integrations.market_data import MarketDataService
     global _fetcher_manager_singleton
     if _fetcher_manager_singleton is None:
         with _fetcher_manager_lock:
             if _fetcher_manager_singleton is None:
-                _fetcher_manager_singleton = DataFetcherManager()
+                _fetcher_manager_singleton = MarketDataService()
     return _fetcher_manager_singleton
 
 
 def reset_fetcher_manager() -> None:
-    """Clear the cached DataFetcherManager so runtime config reloads take effect."""
+    """Clear the cached service so runtime config reloads take effect."""
     global _fetcher_manager_singleton
     with _fetcher_manager_lock:
         _fetcher_manager_singleton = None
@@ -129,7 +124,10 @@ def _compact_fundamental_context(fundamental_context: dict) -> dict:
 def _handle_get_realtime_quote(stock_code: str) -> dict:
     """Get real-time stock quote."""
     manager = _get_fetcher_manager()
-    quote = manager.get_realtime_quote(stock_code)
+    from finance_analysis.integrations.market_data.normalizer import canonical_symbol
+
+    symbol = canonical_symbol(stock_code)
+    quote = manager.get_realtime_quotes([symbol]).data.get(symbol)
     if quote is None:
         return {
             "error": f"No realtime quote available for {stock_code}",

@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from finance_analysis.integrations.market_data.base import is_bse_code
+from finance_analysis.integrations.market_data.codes import is_bse_code
 
 
 # Known exchange prefixes (case-insensitive) and the digit lengths they accept.

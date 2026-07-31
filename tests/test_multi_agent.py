@@ -1151,7 +1151,7 @@ class TestEventMonitorAsync(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(triggered)
         self.assertEqual(triggered.current_value, 2.35)
 
-    async def test_realtime_rules_create_fetcher_manager_per_quote_check(self):
+    async def test_realtime_rules_create_market_data_service_per_quote_check(self):
         from finance_analysis.agent.events import EventMonitor, PriceAlert, PriceChangeAlert
 
         monitor = EventMonitor()
@@ -1159,19 +1159,20 @@ class TestEventMonitorAsync(unittest.IsolatedAsyncioTestCase):
         monitor.add_alert(PriceChangeAlert(stock_code="600519", direction="up", change_pct=3.0))
         managers = [MagicMock(), MagicMock()]
         for manager in managers:
-            manager.get_realtime_quote.return_value = SimpleNamespace(price=1810.0, change_pct=3.25)
+            quote = SimpleNamespace(price=1810.0, change_pct=3.25)
+            manager.get_realtime_quotes.return_value = SimpleNamespace(data={"600519.SH": quote})
 
         async def _run_inline(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        with patch("finance_analysis.integrations.market_data.DataFetcherManager", side_effect=managers) as manager_factory, patch(
+        with patch("finance_analysis.integrations.market_data.MarketDataService", side_effect=managers) as manager_factory, patch(
             "finance_analysis.agent.events.asyncio.to_thread", new=_run_inline
         ):
             triggered = await monitor.check_all()
 
         self.assertEqual(manager_factory.call_count, 2)
         for manager in managers:
-            manager.get_realtime_quote.assert_called_once_with("600519")
+            manager.get_realtime_quotes.assert_called_once_with(["600519.SH"])
         self.assertEqual(len(triggered), 2)
 
     async def test_check_volume_safe_when_fetch_returns_none(self):
