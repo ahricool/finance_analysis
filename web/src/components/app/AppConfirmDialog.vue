@@ -38,7 +38,7 @@ const emit = defineEmits<{ 'update:open': [value: boolean]; confirm: [] }>();
           :class="
             destructive ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''
           "
-          @click="emit('confirm')"
+          @click.capture="emit('confirm')"
         >
           {{ confirmText }}
         </AlertDialogAction>
