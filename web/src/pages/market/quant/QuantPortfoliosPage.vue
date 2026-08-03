@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { IntradayConfirmation, Portfolio } from '@/types/quant';
 import { actionLabels, formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
+import { formatSecurityLabel } from '@/utils/security';
 import { ref, watch } from 'vue';
 
 const { market } = useQuantMarket();
@@ -100,7 +101,7 @@ watch(
           <Table class="w-full min-w-[900px] text-sm">
             <TableHeader class="text-left text-xs text-muted-foreground">
               <TableRow>
-                <TableHead class="p-3">
+                <TableHead class="min-w-[220px] p-3">
                   股票
                 </TableHead>
                 <TableHead>行业</TableHead>
@@ -120,7 +121,7 @@ watch(
                 class="border-t border-border"
               >
                 <TableCell class="p-3">
-                  {{ row.code }}
+                  {{ formatSecurityLabel(row.code, row.name) }}
                 </TableCell>
                 <TableCell>{{ row.sectorKey ?? '—' }}</TableCell>
                 <TableCell>{{ actionLabels[row.action] ?? row.action }}</TableCell>
@@ -156,7 +157,7 @@ watch(
           >
             <CardHeader>
               <CardTitle class="text-base">
-                {{ row.code }}
+                {{ formatSecurityLabel(row.code, row.name) }}
               </CardTitle><CardDescription>{{ row.sectorKey ?? '未分类' }}</CardDescription><Badge variant="outline">
                 {{ actionLabels[row.action] ?? row.action }}
               </Badge>

@@ -19,8 +19,11 @@ from finance_analysis.interfaces.api.v1.schemas.stocks import (
     ExtractItem,
     KLineData,
     StockHistoryResponse,
+    StockInstrumentInfo,
     StockQuote,
 )
+from finance_analysis.integrations.market_data import MarketDataService
+from finance_analysis.integrations.market_data.normalizer import canonical_symbol
 from finance_analysis.interfaces.api.v1.schemas.common import ErrorResponse
 from finance_analysis.stock_lists.importer import (
     MAX_FILE_BYTES,
@@ -32,6 +35,35 @@ from finance_analysis.stocks.service import StockService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get(
+    "/{stock_code}/info",
+    response_model=StockInstrumentInfo,
+    responses={404: {"description": "股票不存在", "model": ErrorResponse}},
+    summary="获取证券静态信息",
+    description="优先读取证券主数据；数据库缺失时自动回退市场数据 Provider。",
+)
+def get_stock_info(stock_code: str) -> StockInstrumentInfo:
+    try:
+        code = canonical_symbol(stock_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    result = MarketDataService().get_instrument_info([code])
+    info = result.data.get(code)
+    if info is None:
+        detail = result.failed_symbols.get(code) or f"未找到股票 {code} 的静态信息"
+        raise HTTPException(status_code=404, detail=detail)
+    return StockInstrumentInfo(
+        code=info.symbol,
+        name=info.name,
+        market=info.market.value,
+        provider=info.provider,
+        currency=info.currency,
+        exchange=info.exchange,
+        instrument_type=info.instrument_type,
+        lot_size=info.lot_size,
+    )
 
 
 @router.post(

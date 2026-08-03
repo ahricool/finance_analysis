@@ -10,7 +10,12 @@ from typing import Any
 
 from finance_analysis.database.repositories.adjustment import StockAdjustmentRepository
 from finance_analysis.database.repositories.stock import MarketDataSymbolRepository, StockRepository
-from finance_analysis.integrations.market_data.config import DataProviderConfig, get_data_provider_config
+from finance_analysis.integrations.market_data.config import (
+    DataProviderConfig,
+    get_data_provider_config,
+    provider_order,
+)
+from finance_analysis.integrations.market_data.registry import INSTRUMENT_INFO
 from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, get_trading_days_between
 from finance_analysis.stocks.market_scope import MarketDataScopeResolver
@@ -19,6 +24,7 @@ from .models import AdjustmentResult, DailyResult, SymbolResult, normalize_sync_
 
 logger = logging.getLogger(__name__)
 MAX_RESULT_ITEMS = 20
+REMOTE_INSTRUMENT_PROVIDERS = frozenset({"tickflow", "longbridge", "akshare"})
 
 
 class MarketDataSyncError(RuntimeError):
@@ -52,6 +58,8 @@ class MarketDataSyncService:
         self.now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         self.sync_mode = normalize_sync_mode(sync_mode)
         self.unsupported_symbols: list[dict[str, str]] = []
+        self.instrument_names_refreshed = 0
+        self.instrument_name_failures: dict[str, str] = {}
 
     def run(self) -> dict[str, Any]:
         symbols = self.load_scope()
@@ -151,6 +159,8 @@ class MarketDataSyncService:
                     :MAX_RESULT_ITEMS
                 ],
                 "unresolved_factor_gaps_truncated": len(factor_gaps_after) > MAX_RESULT_ITEMS,
+                "instrument_names_refreshed": self.instrument_names_refreshed,
+                "instrument_name_failure_count": len(self.instrument_name_failures),
             }
         )
         if summary["success_symbols"] + summary["partial_symbols"] == 0:
@@ -171,10 +181,68 @@ class MarketDataSyncService:
         records = [records_by_code[code] for code in sorted(records_by_code)]
         if records:
             self.symbol_repository.upsert_symbols(records, overwrite_runtime_flags=False)
+        symbols = self.symbol_repository.list_enabled_daily_by_codes(
+            self.market,
+            scope.synchronization_codes,
+        )
+        self._refresh_instrument_names(symbols)
         return self.symbol_repository.list_enabled_daily_by_codes(
             self.market,
             scope.synchronization_codes,
         )
+
+    def _refresh_instrument_names(self, symbols: list[Any]) -> None:
+        """Refresh persisted names from remote instrument metadata in one routed batch."""
+        fetch = getattr(self.market_data, "get_instrument_info", None)
+        registry = getattr(self.market_data, "registry", None)
+        if not symbols or not callable(fetch) or registry is None:
+            return
+        available = set(registry.names())
+        providers = tuple(
+            name
+            for name in provider_order(self.market, INSTRUMENT_INFO)
+            if name in REMOTE_INSTRUMENT_PROVIDERS and name in available
+        )
+        if not providers:
+            return
+        try:
+            result = fetch([symbol.code for symbol in symbols], providers=providers)
+        except Exception as exc:
+            logger.warning("market=%s instrument name refresh failed: %s", self.market, exc)
+            self.instrument_name_failures = {symbol.code: str(exc) for symbol in symbols}
+            return
+        by_code = {symbol.code: symbol for symbol in symbols}
+        records = []
+        for code, info in result.data.items():
+            current = by_code.get(code)
+            if current is None or not str(info.name or "").strip():
+                continue
+            records.append(
+                {
+                    "market": self.market,
+                    "code": code,
+                    "name": info.name,
+                    "enabled": current.enabled,
+                    "sync_daily": current.sync_daily,
+                    "sync_minute": current.sync_minute,
+                    "lot_size": info.lot_size,
+                }
+            )
+        if records:
+            self.symbol_repository.upsert_symbols(records, overwrite_runtime_flags=False)
+        self.instrument_names_refreshed = len(records)
+        self.instrument_name_failures = {
+            **{code: "instrument name not found" for code in result.missing_symbols},
+            **result.failed_symbols,
+        }
+        if result.missing_symbols or result.failed_symbols:
+            logger.warning(
+                "market=%s instrument name refresh partial refreshed=%s missing=%s failed=%s",
+                self.market,
+                len(records),
+                len(result.missing_symbols),
+                len(result.failed_symbols),
+            )
 
     def _refresh_days(self, natural_days: int) -> list[date]:
         end = get_completed_trading_days(self.market.lower(), 1, self.now)[-1]

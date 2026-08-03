@@ -2,6 +2,7 @@
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/utils/cn';
 import type { StockSuggestion } from '@/types/stockIndex';
+import { formatSecurityLabel } from '@/utils/security';
 
 const MARKET_BADGE_CONFIG = {
   CN: { label: 'A股', className: 'border-destructive/25 bg-destructive/10 text-destructive' },
@@ -98,14 +99,9 @@ const emit = defineEmits<{
         >
           {{ marketLabel(suggestion.market) }}
         </Badge>
-        <div class="flex flex-col">
-          <span class="text-sm font-medium text-foreground">
-            {{ suggestion.nameZh }}
-          </span>
-          <span class="text-sm text-muted-foreground">
-            {{ suggestion.displayCode }}
-          </span>
-        </div>
+        <span class="min-w-[220px] text-sm font-medium text-foreground">
+          {{ formatSecurityLabel(suggestion.displayCode, suggestion.nameZh) }}
+        </span>
       </div>
       <Badge
         variant="default"

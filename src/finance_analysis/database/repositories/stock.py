@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any, Iterable, Optional, Sequence
@@ -17,6 +18,16 @@ from finance_analysis.database.models.stock import (
     StockMinute,
     validate_market_data_code,
 )
+
+_CJK_CHARACTER = r"\u3400-\u9fff"
+
+
+def _normalize_security_name(value: str | None) -> str:
+    """Normalize provider names without damaging meaningful English spaces."""
+    name = " ".join(str(value or "").strip().split())
+    if not name:
+        return ""
+    return re.sub(rf"(?<=[{_CJK_CHARACTER}])\s+(?=[{_CJK_CHARACTER}])", "", name)
 
 
 @dataclass(frozen=True)
@@ -46,6 +57,25 @@ class MarketDataSymbolRepository:
             if row is not None:
                 session.expunge(row)
             return row
+
+    def names_by_codes(self, codes: Iterable[str]) -> dict[str, str]:
+        """Return persisted names for canonical codes in one bounded query."""
+        canonical_codes = sorted(
+            {str(code or "").strip().upper() for code in codes if str(code or "").strip()}
+        )
+        if not canonical_codes:
+            return {}
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(MarketDataSymbol.code, MarketDataSymbol.name).where(
+                    MarketDataSymbol.code.in_(canonical_codes)
+                )
+            ).all()
+        return {
+            str(code): normalized
+            for code, name in rows
+            if (normalized := _normalize_security_name(name))
+        }
 
     def list_enabled_daily_symbols(self, market: str) -> list[MarketDataSymbol]:
         return self._list_enabled(market, MarketDataSymbol.sync_daily)
@@ -165,7 +195,7 @@ class MarketDataSymbolRepository:
             records_by_code[code] = {
                 "market": market,
                 "code": code,
-                "name": str(item["name"]),
+                "name": _normalize_security_name(item["name"]),
                 "enabled": bool(item.get("enabled", True)),
                 "sync_daily": bool(item.get("sync_daily", True)),
                 "sync_minute": bool(item.get("sync_minute", True)),

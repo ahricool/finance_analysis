@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { MarketRegime, QuantCapabilities, SectorRegime, SignalRanking } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatScore, regimeLabels } from '@/utils/quant';
+import { formatSecurityLabel } from '@/utils/security';
 import { ref, watch } from 'vue';
 
 const { market, marketQuery } = useQuantMarket();
@@ -138,13 +139,19 @@ watch(
             v-if="sectors.length"
           >
             <Table>
-              <TableHeader><TableRow><TableHead>排名</TableHead><TableHead>行业</TableHead><TableHead>基准</TableHead><TableHead>得分</TableHead><TableHead>状态</TableHead><TableHead>5日相对收益</TableHead><TableHead>20日相对收益</TableHead></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>排名</TableHead><TableHead>行业</TableHead><TableHead class="min-w-[220px]">
+                    基准
+                  </TableHead><TableHead>得分</TableHead><TableHead>状态</TableHead><TableHead>5日相对收益</TableHead><TableHead>20日相对收益</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
                 <TableRow
                   v-for="item in sectors"
                   :key="item.sectorKey"
                 >
-                  <TableCell>{{ item.rank }}</TableCell><TableCell>{{ item.sectorKey }}</TableCell><TableCell>{{ item.benchmarkCode }}</TableCell><TableCell>{{ formatScore(item.sectorScore) }}</TableCell><TableCell>{{ item.state }}</TableCell><TableCell>{{ formatPercent(item.features.sectorRelativeMarket5d) }}</TableCell><TableCell>{{ formatPercent(item.features.sectorRelativeMarket20d) }}</TableCell>
+                  <TableCell>{{ item.rank }}</TableCell><TableCell>{{ item.sectorKey }}</TableCell><TableCell>{{ formatSecurityLabel(item.benchmarkCode, item.benchmarkName) }}</TableCell><TableCell>{{ formatScore(item.sectorScore) }}</TableCell><TableCell>{{ item.state }}</TableCell><TableCell>{{ formatPercent(item.features.sectorRelativeMarket5d) }}</TableCell><TableCell>{{ formatPercent(item.features.sectorRelativeMarket20d) }}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
@@ -176,7 +183,9 @@ watch(
                   <TableHead class="p-2">
                     排名
                   </TableHead>
-                  <TableHead>股票</TableHead>
+                  <TableHead class="min-w-[220px]">
+                    股票
+                  </TableHead>
                   <TableHead>最终得分</TableHead>
                   <TableHead>横截面</TableHead>
                   <TableHead>时间序列</TableHead>
@@ -199,7 +208,7 @@ watch(
                       :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
                       class="font-medium underline-offset-4 hover:underline"
                     >
-                      {{ item.code }}
+                      {{ formatSecurityLabel(item.code, item.name) }}
                     </RouterLink>
                   </TableCell>
                   <TableCell>{{ formatScore(item.finalScore) }}</TableCell>

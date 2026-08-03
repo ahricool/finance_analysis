@@ -82,6 +82,7 @@ class PreflightResponse(BaseModel):
     strategy_key: str
     market: str
     code: str
+    name: str | None = None
     available_date_from: date | None
     available_date_to: date | None
     requested_trading_days: int
@@ -107,10 +108,12 @@ class BacktestRunResponse(BaseModel):
     market: str
     symbol_id: int
     code: str
+    name: str | None = None
     start_date: date
     end_date: date
     initial_cash: float
     benchmark_code: str | None
+    benchmark_name: str | None = None
     parameters: dict[str, Any]
     price_mode: str
     market_rule_version: str

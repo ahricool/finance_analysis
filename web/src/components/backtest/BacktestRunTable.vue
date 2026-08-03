@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import type { BacktestRun } from '@/types/backtests';
 import { engineLabels, formatPct, marketLabels, statusLabels } from '@/utils/backtests';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
+import { formatSecurityLabel } from '@/utils/security';
 import { RouterLink } from 'vue-router';
 import { ExternalLink, MoreHorizontal, RefreshCw } from 'lucide-vue-next';
 
@@ -58,7 +59,7 @@ function statusVariant(status: string): 'default' | 'success' | 'warning' | 'des
             <CardTitle class="truncate text-base">
               {{ run.strategyName }}
             </CardTitle>
-            <CardDescription>{{ marketLabels[run.market] }} · {{ run.code }}</CardDescription>
+            <CardDescription>{{ marketLabels[run.market] }} · {{ formatSecurityLabel(run.code, run.name) }}</CardDescription>
             <Badge
               :variant="statusVariant(run.status)"
               class="justify-self-end"
@@ -145,7 +146,9 @@ function statusVariant(status: string): 'default' | 'success' | 'warning' | 'des
                 </Badge>
               </TableCell>
               <TableCell>{{ run.strategyName }}</TableCell>
-              <TableCell>{{ marketLabels[run.market] }} · {{ run.code }}</TableCell>
+              <TableCell class="min-w-[240px]">
+                {{ marketLabels[run.market] }} · {{ formatSecurityLabel(run.code, run.name) }}
+              </TableCell>
               <TableCell>{{ run.startDate }} — {{ run.endDate }}</TableCell>
               <TableCell>
                 <Badge :variant="statusVariant(run.status)">

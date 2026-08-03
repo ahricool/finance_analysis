@@ -26,6 +26,7 @@ import type {
   BacktestSymbol,
 } from '@/types/backtests';
 import { marketLabels } from '@/utils/backtests';
+import { formatSecurityLabel } from '@/utils/security';
 import { Search } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
@@ -332,7 +333,7 @@ onBeforeUnmount(() => {
             v-model="form.code"
             label="回测标的"
             :options="
-              symbols.map((item) => ({ value: item.code, label: `${item.code} · ${item.name}` }))
+              symbols.map((item) => ({ value: item.code, label: formatSecurityLabel(item.code, item.name) }))
             "
           />
           <AppDatePicker
@@ -356,7 +357,7 @@ onBeforeUnmount(() => {
             label="基准标的"
             :options="[
               { value: '', label: '不设置' },
-              ...symbols.map((item) => ({ value: item.code, label: item.code })),
+              ...symbols.map((item) => ({ value: item.code, label: formatSecurityLabel(item.code, item.name) })),
             ]"
             @update:model-value="form.benchmarkCode = $event || null"
           />

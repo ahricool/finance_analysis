@@ -6,6 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
+import { formatSecurityLabel } from '@/utils/security';
 import {
   formatDecimalText,
   formatHoldingCostAmount,
@@ -110,8 +111,7 @@ function movementClass(value: number | null | undefined): string {
     <SheetContent class="flex w-full flex-col p-0 sm:max-w-3xl">
       <SheetHeader class="p-6 text-left">
         <SheetTitle class="flex flex-wrap items-center gap-2">
-          {{ stock?.name || stock?.code || '股票详情' }}
-          <span class="font-mono text-sm font-semibold text-primary">{{ stock?.code }}</span>
+          {{ formatSecurityLabel(stock?.code, stock?.name, '股票详情') }}
           <span
             class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs text-muted-foreground"
           >{{ marketName }}</span>
@@ -175,7 +175,7 @@ function movementClass(value: number | null | undefined): string {
             >
               <div
                 v-for="entry in [
-                  ['行情标识', quote?.symbol || '—'],
+                  ['行情标识', formatSecurityLabel(quote?.symbol, stock.name)],
                   ['开盘', formatNumber(quote?.open, 4)],
                   ['最高', formatNumber(quote?.high, 4)],
                   ['最低', formatNumber(quote?.low, 4)],
@@ -210,18 +210,10 @@ function movementClass(value: number | null | undefined): string {
             >
               <div>
                 <dt class="text-xs text-muted-foreground">
-                  股票代码
-                </dt>
-                <dd class="mt-1 font-mono text-sm text-foreground">
-                  {{ stock.code }}
-                </dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  股票名称
+                  股票
                 </dt>
                 <dd class="mt-1 text-sm text-foreground">
-                  {{ stock.name || '—' }}
+                  {{ formatSecurityLabel(stock.code, stock.name) }}
                 </dd>
               </div>
               <div>

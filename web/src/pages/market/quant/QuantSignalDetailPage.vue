@@ -4,6 +4,7 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import type { QuantSignal } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
+import { formatSecurityLabel } from '@/utils/security';
 import { ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useQuantMarket } from '@/composables/useQuantMarket';
@@ -46,7 +47,7 @@ watch(
     /><template v-if="item">
       <header>
         <h2 class="text-lg font-semibold">
-          {{ item.code }}
+          {{ formatSecurityLabel(item.code, item.name) }}
         </h2>
         <p class="text-xs text-muted-foreground">
           排名 {{ item.universeRank ?? '—' }} · {{ item.signal }} · 预测

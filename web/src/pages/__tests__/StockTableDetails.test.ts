@@ -94,4 +94,11 @@ describe('watch-list table details', () => {
     await flushPromises();
     expect(mocks.updateWatchItem).toHaveBeenCalledWith(11, { is_favorite: false });
   });
+
+  it('combines code and name without a separate name column', async () => {
+    const page = await mountPage();
+    expect(page.get('thead').text()).toContain('股票');
+    expect(page.get('thead').text()).not.toContain('名称');
+    expect(page.get('tbody').text()).toContain('AAPL - Apple');
+  });
 });

@@ -24,6 +24,7 @@ import type {
   SignalMarket,
 } from '@/types/signals';
 import { formatDateTimeInDisplayTimezone, toUtcIsoString } from '@/utils/format';
+import { formatSecurityLabel } from '@/utils/security';
 import {
   SIGNAL_PERIODS,
   directionLabel,
@@ -311,7 +312,7 @@ onMounted(() => {
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <p class="font-semibold text-foreground">
-                  {{ item.code }}
+                  {{ formatSecurityLabel(item.code, item.name) }}
                   <span class="text-xs font-normal text-muted-foreground">{{
                     marketLabel(item.market)
                   }}</span>
@@ -422,7 +423,7 @@ onMounted(() => {
               </TableCell>
               <TableCell class="px-4 py-4">
                 <span class="text-xs text-muted-foreground">{{ marketLabel(item.market) }} ·</span>
-                <span class="ml-1 font-semibold text-foreground">{{ item.code }}</span>
+                <span class="ml-1 font-semibold text-foreground">{{ formatSecurityLabel(item.code, item.name) }}</span>
               </TableCell>
               <TableCell class="px-4 py-4">
                 <p class="font-medium text-foreground">
@@ -543,7 +544,7 @@ onMounted(() => {
                     股票代码
                   </dt>
                   <dd class="mt-1 text-sm font-semibold">
-                    {{ selectedSignal.code }}
+                    {{ formatSecurityLabel(selectedSignal.code, selectedSignal.name) }}
                   </dd>
                 </div>
                 <div>

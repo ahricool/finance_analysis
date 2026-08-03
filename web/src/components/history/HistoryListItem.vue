@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { getSentimentColor, type HistoryItem } from '@/types/analysis';
 import { formatDateTime } from '@/utils/format';
 import { truncateStockName, isStockNameTruncated } from '@/utils/stockName';
+import { formatSecurityLabel } from '@/utils/security';
 import { computed } from 'vue';
 
 const props = defineProps<{
@@ -38,7 +39,7 @@ const barColor = computed(() =>
   props.item.sentimentScore !== undefined ? getSentimentColor(props.item.sentimentScore) : null,
 );
 
-const stockName = computed(() => props.item.stockName || props.item.stockCode);
+const stockName = computed(() => formatSecurityLabel(props.item.stockCode, props.item.stockName));
 const isTruncated = computed(() => isStockNameTruncated(stockName.value));
 </script>
 
@@ -81,10 +82,6 @@ const isTruncated = computed(() => isStockNameTruncated(stockName.value));
           </Badge>
         </div>
         <div class="mt-1 flex items-center gap-2">
-          <span class="font-mono text-xs text-muted-foreground">
-            {{ item.stockCode }}
-          </span>
-          <span class="h-1 w-1 rounded-full bg-border" />
           <span class="text-xs text-muted-foreground">
             {{ formatDateTime(item.createdAt) }}
           </span>

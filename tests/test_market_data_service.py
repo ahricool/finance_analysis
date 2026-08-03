@@ -12,8 +12,10 @@ from finance_analysis.integrations.market_data.models import (
     AdjustmentRequest,
     AdjustmentResult,
     BatchBarResult,
+    BatchInstrumentResult,
     BatchQuoteResult,
     DailyBarsRequest,
+    InstrumentInfo,
     Market,
     MarketBar,
     MarketQuote,
@@ -249,6 +251,78 @@ def test_sync_persists_raw_bars_without_priority_or_estimated_amount():
     assert result.status == "success"
     assert result.missing_amount is True
     assert result.providers == ["tickflow"]
+
+
+def test_sync_refreshes_instrument_names_in_one_remote_batch():
+    calls = []
+    upserts = []
+    symbols = [
+        SimpleNamespace(
+            code="600000.SH",
+            enabled=True,
+            sync_daily=True,
+            sync_minute=False,
+        ),
+        SimpleNamespace(
+            code="000001.SZ",
+            enabled=True,
+            sync_daily=True,
+            sync_minute=True,
+        ),
+    ]
+
+    def get_instrument_info(codes, *, providers):
+        calls.append((list(codes), tuple(providers)))
+        return BatchInstrumentResult(
+            data={
+                "600000.SH": InstrumentInfo(
+                    symbol="600000.SH",
+                    market=Market.CN,
+                    name="浦发银行",
+                    provider="tickflow",
+                    currency="CNY",
+                    exchange="SH",
+                    instrument_type="stock",
+                    lot_size=100,
+                ),
+                "000001.SZ": InstrumentInfo(
+                    symbol="000001.SZ",
+                    market=Market.CN,
+                    name="平安银行",
+                    provider="longbridge",
+                    currency="CNY",
+                    exchange="SZ",
+                    instrument_type="stock",
+                    lot_size=100,
+                ),
+            }
+        )
+
+    service = MarketDataSyncService.__new__(MarketDataSyncService)
+    service.market = "CN"
+    service.market_data = SimpleNamespace(
+        registry=SimpleNamespace(names=lambda: ("database", "tickflow", "longbridge", "akshare")),
+        get_instrument_info=get_instrument_info,
+    )
+    service.symbol_repository = SimpleNamespace(
+        upsert_symbols=lambda records, overwrite_runtime_flags: upserts.append(
+            (records, overwrite_runtime_flags)
+        )
+    )
+    service.instrument_names_refreshed = 0
+    service.instrument_name_failures = {}
+
+    service._refresh_instrument_names(symbols)
+
+    assert calls == [
+        (
+            ["600000.SH", "000001.SZ"],
+            ("tickflow", "longbridge", "akshare"),
+        )
+    ]
+    assert [record["name"] for record in upserts[0][0]] == ["浦发银行", "平安银行"]
+    assert upserts[0][1] is False
+    assert service.instrument_names_refreshed == 2
 
 
 def test_cn_daily_default_chain_uses_efinance_snapshot_for_latest_day():
