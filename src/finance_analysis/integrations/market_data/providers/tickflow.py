@@ -1,7 +1,9 @@
-"""TickFlow free-tier provider: raw daily bars and instrument metadata only."""
+"""TickFlow free-tier provider for raw bars, derived adjustment factors, and metadata."""
 
 from __future__ import annotations
 
+import math
+from datetime import datetime, timedelta
 from threading import RLock
 from typing import Any, Mapping
 
@@ -9,6 +11,9 @@ import pandas as pd
 
 from finance_analysis.integrations.market_data.models import (
     Adjustment,
+    AdjustmentFactor,
+    AdjustmentRequest,
+    AdjustmentResult,
     BatchBarResult,
     BatchInstrumentResult,
     DailyBarsRequest,
@@ -16,6 +21,7 @@ from finance_analysis.integrations.market_data.models import (
     InstrumentRequest,
 )
 from finance_analysis.integrations.market_data.normalizer import (
+    MARKET_TIMEZONES,
     bars_from_frame,
     canonical_symbol,
     currency_for_market,
@@ -24,6 +30,9 @@ from finance_analysis.integrations.market_data.normalizer import (
 )
 
 TICKFLOW_MAX_KLINE_COUNT = 10_000
+TICKFLOW_FACTOR_REL_TOLERANCE = 1e-9
+TICKFLOW_LATEST_FACTOR_LOOKBACK_DAYS = 14
+PRICE_FIELDS = ("open", "high", "low", "close")
 
 
 class TickFlowFreeProvider:
@@ -57,16 +66,7 @@ class TickFlowFreeProvider:
         symbols = tuple(canonical_symbol(symbol) for symbol in request.symbols)
         result = BatchBarResult()
         try:
-            frames = self._get_client().klines.batch(
-                list(symbols),
-                period="1d",
-                count=TICKFLOW_MAX_KLINE_COUNT,
-                start_time=min(local_midnight_timestamp_ms(request.start_date, infer_market(s)) for s in symbols),
-                end_time=max(local_midnight_timestamp_ms(request.end_date, infer_market(s)) for s in symbols),
-                adjust="none",
-                as_dataframe=True,
-                show_progress=False,
-            )
+            frames = self._fetch_frames(symbols, request.start_date, request.end_date, adjust="none")
         except Exception as exc:
             return BatchBarResult(failed_symbols={symbol: str(exc) for symbol in symbols})
         if not isinstance(frames, Mapping):
@@ -89,6 +89,114 @@ class TickFlowFreeProvider:
             else:
                 result.missing_symbols.append(symbol)
         return result
+
+    def get_adjustment_factors(self, request: AdjustmentRequest) -> AdjustmentResult:
+        """Derive canonical daily factors from TickFlow raw and forward-adjusted bars."""
+        symbols = tuple(canonical_symbol(symbol) for symbol in request.symbols)
+        result = AdjustmentResult()
+        try:
+            raw_frames = self._fetch_frames(symbols, request.start_date, request.end_date, adjust="none")
+            forward_frames = self._fetch_frames(symbols, request.start_date, request.end_date, adjust="forward")
+        except Exception as exc:
+            return AdjustmentResult(failed_symbols={symbol: str(exc) for symbol in symbols})
+        if not isinstance(raw_frames, Mapping) or not isinstance(forward_frames, Mapping):
+            reason = "unexpected TickFlow batch response"
+            return AdjustmentResult(failed_symbols={symbol: reason for symbol in symbols})
+
+        for symbol in symbols:
+            try:
+                raw = self._bars_by_date(raw_frames.get(symbol, pd.DataFrame()), symbol, Adjustment.RAW, request)
+                forward = self._bars_by_date(
+                    forward_frames.get(symbol, pd.DataFrame()), symbol, Adjustment.FORWARD, request
+                )
+                if not raw and not forward:
+                    result.missing_symbols.append(symbol)
+                    continue
+                if raw.keys() != forward.keys():
+                    missing_forward = sorted(raw.keys() - forward.keys())
+                    missing_raw = sorted(forward.keys() - raw.keys())
+                    raise ValueError(
+                        "raw/forward date coverage mismatch: "
+                        f"missing_forward={missing_forward} missing_raw={missing_raw}"
+                    )
+
+                factors = []
+                for trade_date in sorted(raw):
+                    raw_bar = raw[trade_date]
+                    forward_bar = forward[trade_date]
+                    ratios = []
+                    for field in PRICE_FIELDS:
+                        raw_value = float(getattr(raw_bar, field))
+                        adjusted_value = float(getattr(forward_bar, field))
+                        if not math.isfinite(raw_value) or raw_value <= 0:
+                            raise ValueError(f"invalid raw {field} on {trade_date}: {raw_value}")
+                        ratio = adjusted_value / raw_value
+                        if not math.isfinite(ratio) or ratio <= 0:
+                            raise ValueError(f"invalid {field} adjustment ratio on {trade_date}: {ratio}")
+                        ratios.append(ratio)
+                    close_ratio = ratios[-1]
+                    if not all(
+                        math.isclose(
+                            ratio,
+                            close_ratio,
+                            rel_tol=TICKFLOW_FACTOR_REL_TOLERANCE,
+                            abs_tol=TICKFLOW_FACTOR_REL_TOLERANCE,
+                        )
+                        for ratio in ratios[:-1]
+                    ):
+                        raise ValueError(
+                            f"inconsistent OHLC adjustment ratios on {trade_date}: "
+                            + ", ".join(f"{field}={ratio:.12g}" for field, ratio in zip(PRICE_FIELDS, ratios))
+                        )
+                    factors.append(AdjustmentFactor(symbol, trade_date, close_ratio, self.name))
+
+                self._require_current_anchor(symbol, request, factors)
+                result.factors[symbol] = factors
+                result.providers_used[symbol] = self.name
+            except Exception as exc:
+                result.failed_symbols[symbol] = str(exc)
+        return result
+
+    def _fetch_frames(self, symbols, start_date, end_date, *, adjust: str):
+        return self._get_client().klines.batch(
+            list(symbols),
+            period="1d",
+            count=TICKFLOW_MAX_KLINE_COUNT,
+            start_time=min(local_midnight_timestamp_ms(start_date, infer_market(symbol)) for symbol in symbols),
+            end_time=max(local_midnight_timestamp_ms(end_date, infer_market(symbol)) for symbol in symbols),
+            adjust=adjust,
+            as_dataframe=True,
+            show_progress=False,
+        )
+
+    def _bars_by_date(self, frame, symbol, adjustment, request):
+        multiplier = 100 if infer_market(symbol).value == "CN" else 1
+        bars = bars_from_frame(
+            frame,
+            symbol=symbol,
+            provider=self.name,
+            interval="1d",
+            adjustment=adjustment,
+            volume_multiplier=multiplier,
+        )
+        return {bar.trade_date: bar for bar in bars if request.start_date <= bar.trade_date <= request.end_date}
+
+    @staticmethod
+    def _require_current_anchor(symbol, request, factors) -> None:
+        if not factors:
+            raise ValueError("TickFlow returned no in-window daily adjustment factors")
+        market = infer_market(symbol)
+        market_today = datetime.now(MARKET_TIMEZONES[market]).date()
+        if request.end_date < market_today - timedelta(days=TICKFLOW_LATEST_FACTOR_LOOKBACK_DAYS):
+            return
+        latest = factors[-1]
+        if latest.trade_date < request.end_date - timedelta(days=TICKFLOW_LATEST_FACTOR_LOOKBACK_DAYS):
+            return
+        if not math.isclose(latest.factor, 1.0, rel_tol=1e-6, abs_tol=1e-8):
+            raise ValueError(
+                f"latest forward adjustment factor is not anchored at 1.0: "
+                f"date={latest.trade_date} factor={latest.factor}"
+            )
 
     def get_instrument_info(self, request: InstrumentRequest) -> BatchInstrumentResult:
         symbols = tuple(canonical_symbol(symbol) for symbol in request.symbols)

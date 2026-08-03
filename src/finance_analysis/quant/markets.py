@@ -23,16 +23,24 @@ class QuantMarketConfig:
     market_close_time: time
     market_open_time: time
     default_universe: str
-    primary_benchmark: str
-    broad_benchmark: str
+    label_benchmark: str
+    regime_benchmarks: tuple[str, str]
 
     @property
     def calendar_market(self) -> str:
         return self.market.lower()
 
     @property
+    def primary_benchmark(self) -> str:
+        return self.regime_benchmarks[0]
+
+    @property
+    def broad_benchmark(self) -> str:
+        return self.regime_benchmarks[1]
+
+    @property
     def benchmark_dependencies(self) -> frozenset[str]:
-        return frozenset((self.primary_benchmark, self.broad_benchmark))
+        return frozenset((*self.regime_benchmarks, self.label_benchmark))
 
 
 QUANT_MARKETS = {
@@ -42,8 +50,8 @@ QUANT_MARKETS = {
         market_close_time=time(16, 0),
         market_open_time=time(9, 30),
         default_universe=DEFAULT_QUANT_UNIVERSES["US"],
-        primary_benchmark="QQQ.US",
-        broad_benchmark="SPY.US"
+        label_benchmark="SPY.US",
+        regime_benchmarks=("QQQ.US", "SPY.US"),
     ),
     "CN": QuantMarketConfig(
         market="CN",
@@ -51,8 +59,8 @@ QUANT_MARKETS = {
         market_close_time=time(15, 0),
         market_open_time=time(9, 30),
         default_universe=DEFAULT_QUANT_UNIVERSES["CN"],
-        primary_benchmark="159915.SZ",
-        broad_benchmark="510300.SH"
+        label_benchmark="510300.SH",
+        regime_benchmarks=("159915.SZ", "510300.SH"),
     ),
 }
 

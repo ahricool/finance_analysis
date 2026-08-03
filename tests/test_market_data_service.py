@@ -8,6 +8,9 @@ import pytest
 from finance_analysis.integrations.market_data.config import provider_order
 from finance_analysis.integrations.market_data.models import (
     Adjustment,
+    AdjustmentFactor,
+    AdjustmentRequest,
+    AdjustmentResult,
     BatchBarResult,
     BatchQuoteResult,
     DailyBarsRequest,
@@ -114,12 +117,13 @@ def test_amount_is_not_estimated_when_provider_omits_it():
 def test_default_orders_are_explicit_and_not_integer_priorities():
     assert provider_order(Market.CN, DAILY_BARS) == ("tickflow", "akshare", "pytdx", "baostock", "yfinance")
     assert provider_order(Market.CN, MINUTE_BARS) == ("streaming", "longbridge", "efinance", "pytdx", "akshare")
+    assert provider_order(Market.CN, ADJUSTMENT_FACTORS) == ("akshare", "tickflow", "yfinance")
 
 
-def test_default_registry_excludes_unsupported_efinance_daily_and_tickflow_factors():
+def test_default_registry_excludes_unsupported_efinance_daily_and_includes_tickflow_factors():
     registry = build_default_registry()
     assert DAILY_BARS not in registry.capabilities("efinance")
-    assert ADJUSTMENT_FACTORS not in registry.capabilities("tickflow")
+    assert ADJUSTMENT_FACTORS in registry.capabilities("tickflow")
 
 
 def test_tickflow_free_uses_maximum_history_count_native_batch_raw_and_cn_lots_become_shares():
@@ -146,6 +150,86 @@ def test_tickflow_free_uses_maximum_history_count_native_batch_raw_and_cn_lots_b
     assert result.data["600519.SH"][0].volume == 12300
     assert result.data["600519.SH"][0].amount == 129150
     assert result.data["600519.SH"][0].adjustment is Adjustment.RAW
+
+
+def test_tickflow_derives_daily_factors_from_consistent_raw_and_forward_ohlc():
+    calls = []
+
+    class _Klines:
+        def batch(self, symbols, **kwargs):
+            calls.append(kwargs)
+            multiplier = 0.8 if kwargs["adjust"] == "forward" else 1.0
+            return {
+                "510300.SH": pd.DataFrame(
+                    [
+                        {
+                            "date": "2025-01-02",
+                            "open": 10 * multiplier,
+                            "high": 11 * multiplier,
+                            "low": 9 * multiplier,
+                            "close": 10.5 * multiplier,
+                            "volume": 123,
+                            "amount": 129150,
+                        }
+                    ]
+                )
+            }
+
+    provider = TickFlowFreeProvider(client=SimpleNamespace(klines=_Klines()))
+    result = provider.get_adjustment_factors(AdjustmentRequest(("510300.SH",), date(2025, 1, 1), date(2025, 1, 3)))
+
+    assert [call["adjust"] for call in calls] == ["none", "forward"]
+    assert result.providers_used == {"510300.SH": "tickflow"}
+    assert result.factors["510300.SH"][0].trade_date == date(2025, 1, 2)
+    assert result.factors["510300.SH"][0].factor == pytest.approx(0.8)
+
+
+def test_tickflow_rejects_inconsistent_ohlc_adjustment_ratios():
+    class _Klines:
+        def batch(self, symbols, **kwargs):
+            values = {"open": 10, "high": 11, "low": 9, "close": 10.5}
+            if kwargs["adjust"] == "forward":
+                values = {"open": 8, "high": 9.9, "low": 7.2, "close": 8.4}
+            return {"510300.SH": pd.DataFrame([{"date": "2025-01-02", **values, "volume": 123, "amount": 129150}])}
+
+    provider = TickFlowFreeProvider(client=SimpleNamespace(klines=_Klines()))
+    result = provider.get_adjustment_factors(AdjustmentRequest(("510300.SH",), date(2025, 1, 1), date(2025, 1, 3)))
+
+    assert "inconsistent OHLC adjustment ratios" in result.failed_symbols["510300.SH"]
+
+
+def test_adjustment_router_falls_back_to_tickflow_after_akshare_failure():
+    trade_date = date(2025, 1, 2)
+
+    class _AdjustmentProvider:
+        def __init__(self, result):
+            self.result = result
+            self.requests = []
+
+        def get_adjustment_factors(self, request):
+            self.requests.append(request)
+            return self.result
+
+    akshare = _AdjustmentProvider(
+        AdjustmentResult(failed_symbols={"510300.SH": "ETF factor response has four columns"})
+    )
+    tickflow = _AdjustmentProvider(
+        AdjustmentResult(
+            factors={"510300.SH": [AdjustmentFactor("510300.SH", trade_date, 0.8, "tickflow")]},
+            providers_used={"510300.SH": "tickflow"},
+        )
+    )
+    registry = ProviderRegistry()
+    registry.register("akshare", akshare, capabilities={ADJUSTMENT_FACTORS})
+    registry.register("tickflow", tickflow, capabilities={ADJUSTMENT_FACTORS})
+
+    result = MarketDataService(registry).get_adjustment_factors(
+        ["510300.SH"], date(2025, 1, 1), date(2025, 1, 3), providers=["akshare", "tickflow"]
+    )
+
+    assert result.providers_used == {"510300.SH": "tickflow"}
+    assert result.factors["510300.SH"][0].factor == pytest.approx(0.8)
+    assert tickflow.requests[0].symbols == ("510300.SH",)
 
 
 def test_sync_persists_raw_bars_without_priority_or_estimated_amount():

@@ -39,7 +39,7 @@ def load_features(
     # retaining a provider/cache configured for a previous dataset.
     qlib.init(provider_uri=str(dataset), region=REG_US, kernels=1)
     handler = Alpha158(
-        instruments="all",
+        instruments=manifest["symbols"],
         start_time=manifest["date_from"],
         end_time=manifest["date_to"],
         fit_start_time=manifest["date_from"],

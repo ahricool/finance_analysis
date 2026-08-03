@@ -81,6 +81,12 @@ are not part of the MVP data path.
 
 Exports contain `calendars/day.txt`, `instruments/all.txt`, Qlib float32 binary
 feature files, `source/daily.csv`, `manifest.json`, and `validation.json`.
+Benchmark ETFs remain in the exported source so labels and regime features can
+use them, but Qlib `Alpha158` loads only `manifest.symbols`, the fixed stock
+universe. They never participate in model training, prediction, or
+cross-sectional ranking. The label benchmark is `SPY.US` for the US universe
+and `510300.SH` for the CSI 300 universe; `QQQ.US` and `159915.SZ` remain
+style/regime benchmarks.
 Both trainable models build their training and prediction matrices exclusively
 with Qlib `Alpha158`. Dataset exports do not contain custom feature panels, and
 news or structured events are not uploaded, scored, joined into model inputs,

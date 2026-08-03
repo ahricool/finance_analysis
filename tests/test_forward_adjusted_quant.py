@@ -221,6 +221,7 @@ def test_dataset_export_with_empty_member_table_tracks_factor_revisions(tmp_path
     assert first.dataset_key != second.dataset_key
     assert first_manifest["price_mode"] == "forward_adjusted"
     assert first_manifest["adjustment_mode"] == "forward"
+    assert first_manifest["market_benchmark"] == "SPY.US"
     assert first_manifest["adjustment_coverage"]["coverage_ratio"] == 1.0
     assert set(daily["close"]) == {50.0}
     assert set(daily["volume"]) == {100.0}

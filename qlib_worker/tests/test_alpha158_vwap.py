@@ -75,6 +75,7 @@ def test_alpha158_reads_exported_vwap(tmp_path: Path) -> None:
     features = load_features(tmp_path, load_manifest(tmp_path), {"base": "Alpha158"})
     assert features.shape[1] >= 150
     assert features.notna().any(axis=1).sum() > 0
+    assert set(features.index.get_level_values("instrument")) == {"A.US"}
     assert "event_score" not in features.columns
     assert "negative_event_veto" not in features.columns
 
