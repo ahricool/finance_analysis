@@ -15,6 +15,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type {
   SignalDirection,
   SignalEvaluationItem,
@@ -375,7 +376,7 @@ onMounted(() => {
       <div
         class="hidden overflow-x-auto rounded-xl border bg-card md:block"
       >
-        <table class="w-full min-w-[1020px] table-fixed text-left text-sm">
+        <Table class="w-full min-w-[1020px] table-fixed text-left text-sm">
           <colgroup>
             <col class="w-[160px]" />
             <col class="w-[130px]" />
@@ -385,61 +386,61 @@ onMounted(() => {
             <col class="w-[260px]" />
             <col class="w-[80px]" />
           </colgroup>
-          <thead class="border-b border-border/70 text-xs text-muted-foreground">
-            <tr>
-              <th class="px-4 py-3 font-medium">
+          <TableHeader class="border-b border-border/70 text-xs text-muted-foreground">
+            <TableRow>
+              <TableHead class="px-4 py-3 font-medium">
                 信号时间
-              </th>
-              <th class="px-4 py-3 font-medium">
+              </TableHead>
+              <TableHead class="px-4 py-3 font-medium">
                 市场 / 标的
-              </th>
-              <th class="px-4 py-3 font-medium">
+              </TableHead>
+              <TableHead class="px-4 py-3 font-medium">
                 信号类型
-              </th>
-              <th class="px-4 py-3 font-medium">
+              </TableHead>
+              <TableHead class="px-4 py-3 font-medium">
                 方向
-              </th>
-              <th class="px-4 py-3 text-right font-medium">
+              </TableHead>
+              <TableHead class="px-4 py-3 text-right font-medium">
                 信号价格
-              </th>
-              <th class="px-4 py-3 font-medium">
+              </TableHead>
+              <TableHead class="px-4 py-3 font-medium">
                 未来涨幅
-              </th>
-              <th class="px-4 py-3 text-right font-medium">
+              </TableHead>
+              <TableHead class="px-4 py-3 text-right font-medium">
                 操作
-              </th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-border/60">
-            <tr
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody class="divide-y divide-border/60">
+            <TableRow
               v-for="item in items"
               :key="item.id"
               class="align-top hover:bg-muted/50"
             >
-              <td class="px-4 py-4 text-muted-foreground">
+              <TableCell class="px-4 py-4 text-muted-foreground">
                 {{ formatDateTimeInDisplayTimezone(item.signalAt) }}
-              </td>
-              <td class="px-4 py-4">
+              </TableCell>
+              <TableCell class="px-4 py-4">
                 <span class="text-xs text-muted-foreground">{{ marketLabel(item.market) }} ·</span>
                 <span class="ml-1 font-semibold text-foreground">{{ item.code }}</span>
-              </td>
-              <td class="px-4 py-4">
+              </TableCell>
+              <TableCell class="px-4 py-4">
                 <p class="font-medium text-foreground">
                   {{ signalTypeLabel(item.signalType) }}
                 </p>
                 <p class="mt-0.5 text-xs text-muted-foreground">
                   {{ item.signalVersion }}
                 </p>
-              </td>
-              <td class="px-4 py-4">
+              </TableCell>
+              <TableCell class="px-4 py-4">
                 <Badge :variant="directionVariant(item.direction)">
                   {{ directionLabel(item.direction) }}
                 </Badge>
-              </td>
-              <td class="px-4 py-4 text-right font-mono text-foreground">
+              </TableCell>
+              <TableCell class="px-4 py-4 text-right font-mono text-foreground">
                 {{ formatSignalPrice(item.signalPrice) }}
-              </td>
-              <td class="px-4 py-4">
+              </TableCell>
+              <TableCell class="px-4 py-4">
                 <div
                   class="grid grid-cols-2 gap-x-4 gap-y-2"
                   data-testid="signal-returns-grid"
@@ -462,8 +463,8 @@ onMounted(() => {
                     </span>
                   </div>
                 </div>
-              </td>
-              <td class="px-4 py-4 text-right">
+              </TableCell>
+              <TableCell class="px-4 py-4 text-right">
                 <button
                   type="button"
                   class="whitespace-nowrap text-xs font-medium text-primary hover:underline"
@@ -471,10 +472,10 @@ onMounted(() => {
                 >
                   查看详情
                 </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
       </div>
 
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

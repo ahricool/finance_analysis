@@ -170,47 +170,47 @@ watch(
             v-if="ranking?.items.length"
             class="overflow-x-auto"
           >
-            <table class="w-full text-sm">
-              <thead class="text-left text-xs text-muted-foreground">
-                <tr>
-                  <th class="p-2">
+            <Table class="w-full min-w-[800px] text-sm">
+              <TableHeader class="text-left text-xs text-muted-foreground">
+                <TableRow>
+                  <TableHead class="p-2">
                     排名
-                  </th>
-                  <th>股票</th>
-                  <th>最终得分</th>
-                  <th>横截面</th>
-                  <th>时间序列</th>
-                  <th>预测收益</th>
-                  <th>信号</th>
-                  <th>目标仓位</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
+                  </TableHead>
+                  <TableHead>股票</TableHead>
+                  <TableHead>最终得分</TableHead>
+                  <TableHead>横截面</TableHead>
+                  <TableHead>时间序列</TableHead>
+                  <TableHead>预测收益</TableHead>
+                  <TableHead>信号</TableHead>
+                  <TableHead>目标仓位</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow
                   v-for="item in ranking.items.slice(0, 10)"
                   :key="item.id"
                   class="border-t border-border"
                 >
-                  <td class="p-2">
+                  <TableCell class="p-2">
                     {{ item.universeRank ?? '—' }}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <RouterLink
                       :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
                       class="font-medium underline-offset-4 hover:underline"
                     >
                       {{ item.code }}
                     </RouterLink>
-                  </td>
-                  <td>{{ formatScore(item.finalScore) }}</td>
-                  <td>{{ formatScore(item.crossSectionScore) }}</td>
-                  <td>{{ formatScore(item.timeSeriesScore) }}</td>
-                  <td>{{ formatPredictedReturn(item.predictedReturn) }}</td>
-                  <td>{{ item.vetoed ? '否决' : item.signal }}</td>
-                  <td>{{ formatPercent(item.targetPosition) }}</td>
-                </tr>
-              </tbody>
-            </table>
+                  </TableCell>
+                  <TableCell>{{ formatScore(item.finalScore) }}</TableCell>
+                  <TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell>
+                  <TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell>
+                  <TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell>
+                  <TableCell>{{ item.vetoed ? '否决' : item.signal }}</TableCell>
+                  <TableCell>{{ formatPercent(item.targetPosition) }}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
           </div>
           <Empty
             v-else

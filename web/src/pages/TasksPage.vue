@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAuthStore } from '@/stores/authStore';
 import type {
   ScheduledSyncMode,
@@ -475,53 +476,53 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="hidden overflow-x-auto rounded-lg border md:block">
-          <table class="w-full min-w-[1080px] text-left text-sm">
-            <thead class="border-b border-border/70 text-xs text-muted-foreground">
-              <tr>
-                <th class="min-w-[260px] px-4 py-3 font-medium">
+          <Table class="w-full min-w-[1080px] text-left text-sm">
+            <TableHeader class="border-b border-border/70 text-xs text-muted-foreground">
+              <TableRow>
+                <TableHead class="min-w-[260px] px-4 py-3 font-medium">
                   任务
-                </th>
-                <th class="min-w-[180px] whitespace-nowrap px-4 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[180px] whitespace-nowrap px-4 py-3 font-medium">
                   调度规则
-                </th>
-                <th class="min-w-[110px] whitespace-nowrap px-4 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[110px] whitespace-nowrap px-4 py-3 font-medium">
                   调度状态
-                </th>
-                <th class="min-w-[180px] whitespace-nowrap px-4 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[180px] whitespace-nowrap px-4 py-3 font-medium">
                   最近执行
-                </th>
-                <th class="min-w-[160px] whitespace-nowrap px-4 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[160px] whitespace-nowrap px-4 py-3 font-medium">
                   下次执行
-                </th>
-                <th class="min-w-[120px] whitespace-nowrap px-4 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[120px] whitespace-nowrap px-4 py-3 font-medium">
                   操作
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="scheduledLoading">
-                <td
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-if="scheduledLoading">
+                <TableCell
                   colspan="6"
                   class="px-4 py-10 text-center text-muted-foreground"
                 >
                   加载中...
-                </td>
-              </tr>
-              <tr v-else-if="!scheduledItems.length">
-                <td
+                </TableCell>
+              </TableRow>
+              <TableRow v-else-if="!scheduledItems.length">
+                <TableCell
                   colspan="6"
                   class="px-4 py-10 text-center text-muted-foreground"
                 >
                   暂无定时任务
-                </td>
-              </tr>
-              <tr
+                </TableCell>
+              </TableRow>
+              <TableRow
                 v-for="item in scheduledItems"
                 v-else
                 :key="item.jobId"
                 class="border-b border-border/50 last:border-0"
               >
-                <td class="min-w-[260px] px-4 py-4">
+                <TableCell class="min-w-[260px] px-4 py-4">
                   <p class="font-medium text-foreground">
                     {{ item.name }}
                   </p>
@@ -531,24 +532,24 @@ onBeforeUnmount(() => {
                   <p class="mt-1 font-mono text-xs text-muted-foreground">
                     {{ item.jobId }}
                   </p>
-                </td>
-                <td class="min-w-[180px] px-4 py-4">
+                </TableCell>
+                <TableCell class="min-w-[180px] px-4 py-4">
                   <p class="whitespace-nowrap text-foreground">
                     {{ item.schedule }}
                   </p>
                   <p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">
                     {{ item.timezone }}
                   </p>
-                </td>
-                <td class="min-w-[110px] whitespace-nowrap px-4 py-4">
+                </TableCell>
+                <TableCell class="min-w-[110px] whitespace-nowrap px-4 py-4">
                   <Badge
                     class="whitespace-nowrap"
                     :variant="item.schedulerStatus === 'active' ? 'success' : 'default'"
                   >
                     {{ schedulerStatusLabel(item.schedulerStatus) }}
                   </Badge>
-                </td>
-                <td class="min-w-[180px] px-4 py-4">
+                </TableCell>
+                <TableCell class="min-w-[180px] px-4 py-4">
                   <template v-if="item.latestRun">
                     <Badge
                       class="whitespace-nowrap"
@@ -571,11 +572,11 @@ onBeforeUnmount(() => {
                     v-else
                     class="text-xs text-muted-foreground"
                   >从未执行</span>
-                </td>
-                <td class="min-w-[160px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
+                </TableCell>
+                <TableCell class="min-w-[160px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
                   {{ formatDateTimeInDisplayTimezone(item.nextRunTime) }}
-                </td>
-                <td class="min-w-[120px] px-4 py-4">
+                </TableCell>
+                <TableCell class="min-w-[120px] px-4 py-4">
                   <div
                     v-if="item.allowManualRun"
                     class="flex items-center gap-2 whitespace-nowrap"
@@ -626,10 +627,10 @@ onBeforeUnmount(() => {
                     v-else
                     class="whitespace-nowrap text-xs text-muted-foreground"
                   >不可手动执行</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
         </div>
       </template>
 
@@ -823,62 +824,62 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="hidden overflow-x-auto rounded-lg border md:block">
-          <table class="w-full min-w-[1320px] text-left text-sm">
-            <thead class="border-b border-border/70 text-xs text-muted-foreground">
-              <tr>
-                <th class="min-w-[220px] px-4 py-3 font-medium">
+          <Table class="w-full min-w-[1320px] text-left text-sm">
+            <TableHeader class="border-b border-border/70 text-xs text-muted-foreground">
+              <TableRow>
+                <TableHead class="min-w-[220px] px-4 py-3 font-medium">
                   任务
-                </th>
-                <th class="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[96px] whitespace-nowrap px-4 py-3 font-medium">
                   状态
-                </th>
-                <th
+                </TableHead>
+                <TableHead
                   v-if="isAdmin"
                   class="min-w-[112px] whitespace-nowrap px-4 py-3 font-medium"
                 >
                   所属用户
-                </th>
-                <th class="min-w-[220px] whitespace-nowrap px-4 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[220px] whitespace-nowrap px-4 py-3 font-medium">
                   来源
-                </th>
-                <th class="min-w-[140px] whitespace-nowrap px-4 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[140px] whitespace-nowrap px-4 py-3 font-medium">
                   提交时间
-                </th>
-                <th class="min-w-[80px] whitespace-nowrap px-4 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[80px] whitespace-nowrap px-4 py-3 font-medium">
                   耗时
-                </th>
-                <th class="min-w-[280px] px-4 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[280px] px-4 py-3 font-medium">
                   消息
-                </th>
-                <th class="min-w-[112px] whitespace-nowrap px-4 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[112px] whitespace-nowrap px-4 py-3 font-medium">
                   操作
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="runsLoading">
-                <td
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-if="runsLoading">
+                <TableCell
                   :colspan="isAdmin ? 8 : 7"
                   class="px-4 py-10 text-center text-muted-foreground"
                 >
                   加载中...
-                </td>
-              </tr>
-              <tr v-else-if="!runs.length">
-                <td
+                </TableCell>
+              </TableRow>
+              <TableRow v-else-if="!runs.length">
+                <TableCell
                   :colspan="isAdmin ? 8 : 7"
                   class="px-4 py-10 text-center text-muted-foreground"
                 >
                   暂无执行记录
-                </td>
-              </tr>
-              <tr
+                </TableCell>
+              </TableRow>
+              <TableRow
                 v-for="item in runs"
                 v-else
                 :key="item.taskId"
                 class="border-b border-border/50 last:border-0"
               >
-                <td class="min-w-[220px] px-4 py-4">
+                <TableCell class="min-w-[220px] px-4 py-4">
                   <p class="font-medium text-foreground">
                     {{ item.taskName || item.taskType }}
                   </p>
@@ -898,16 +899,16 @@ onBeforeUnmount(() => {
                       <Copy class="inline h-3.5 w-3.5" />
                     </button>
                   </p>
-                </td>
-                <td class="min-w-[96px] whitespace-nowrap px-4 py-4">
+                </TableCell>
+                <TableCell class="min-w-[96px] whitespace-nowrap px-4 py-4">
                   <Badge
                     class="whitespace-nowrap"
                     :variant="statusVariant(item.status)"
                   >
                     {{ statusLabel(item.status) }}
                   </Badge>
-                </td>
-                <td
+                </TableCell>
+                <TableCell
                   v-if="isAdmin"
                   class="min-w-[112px] whitespace-nowrap px-4 py-4 text-xs text-muted-foreground"
                 >
@@ -915,8 +916,8 @@ onBeforeUnmount(() => {
                     {{ item.user.username }}<br />{{ item.user.email }}
                   </template>
                   <span v-else>系统任务</span>
-                </td>
-                <td class="min-w-[220px] px-4 py-4 text-xs text-muted-foreground">
+                </TableCell>
+                <TableCell class="min-w-[220px] px-4 py-4 text-xs text-muted-foreground">
                   <p>{{ item.source }}</p>
                   <p>{{ triggerLabel(item.triggerSource) }}</p>
                   <p
@@ -925,17 +926,17 @@ onBeforeUnmount(() => {
                   >
                     {{ item.schedulerJobId }}
                   </p>
-                </td>
-                <td class="min-w-[140px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
+                </TableCell>
+                <TableCell class="min-w-[140px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
                   {{ formatDateTimeInDisplayTimezone(item.createdAt) }}
-                </td>
-                <td class="min-w-[80px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
+                </TableCell>
+                <TableCell class="min-w-[80px] whitespace-nowrap px-4 py-4 text-sm text-foreground">
                   {{ formatDuration(item.durationSeconds) }}
-                </td>
-                <td class="min-w-[280px] max-w-xs px-4 py-4 text-xs text-muted-foreground">
+                </TableCell>
+                <TableCell class="min-w-[280px] max-w-xs px-4 py-4 text-xs text-muted-foreground">
                   <span class="line-clamp-2">{{ item.message || '—' }}</span>
-                </td>
-                <td class="min-w-[112px] whitespace-nowrap px-4 py-4">
+                </TableCell>
+                <TableCell class="min-w-[112px] whitespace-nowrap px-4 py-4">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -943,10 +944,10 @@ onBeforeUnmount(() => {
                   >
                     查看详情
                   </Button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
         </div>
 
         <Pagination
