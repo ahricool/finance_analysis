@@ -30,6 +30,25 @@ from finance_analysis.interfaces.api.v1.schemas.backtests import (
 router = APIRouter()
 
 
+def _run_payloads(repository: BacktestRepository, rows) -> list[dict]:
+    codes = [row.code for row in rows]
+    codes.extend(row.benchmark_code for row in rows if row.benchmark_code)
+    names = (
+        MarketDataSymbolRepository(repository.db).names_by_codes(codes)
+        if getattr(repository, "db", None) is not None
+        else {}
+    )
+    return [
+        BacktestRunResponse.model_validate(row).model_copy(
+            update={
+                "name": names.get(row.code),
+                "benchmark_name": names.get(row.benchmark_code) if row.benchmark_code else None,
+            }
+        ).model_dump()
+        for row in rows
+    ]
+
+
 @router.get("/engines", response_model=list[EngineResponse])
 async def engines(_: User = Depends(require_current_user)):
     return [asdict(item) for item in get_engine_definitions()]
@@ -94,7 +113,8 @@ async def runs(
     page_size: int = Query(20, ge=1, le=100),
     user: User = Depends(require_current_user),
 ):
-    items, total = BacktestRepository().list_runs(
+    repository = BacktestRepository()
+    items, total = repository.list_runs(
         uid=user.id,
         is_admin=user.role == "admin",
         page=page,
@@ -110,15 +130,21 @@ async def runs(
             "uid": uid,
         },
     )
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+    return {
+        "items": _run_payloads(repository, items),
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/runs/{run_id}", response_model=BacktestRunResponse)
 async def run_detail(run_id: int, user: User = Depends(require_current_user)):
-    run = BacktestRepository().get_run(run_id, uid=user.id, is_admin=user.role == "admin")
+    repository = BacktestRepository()
+    run = repository.get_run(run_id, uid=user.id, is_admin=user.role == "admin")
     if run is None:
         raise HTTPException(status_code=404, detail="Backtest run not found")
-    return run
+    return _run_payloads(repository, [run])[0]
 
 
 @router.get("/runs/{run_id}/trades", response_model=BacktestTradeListResponse)

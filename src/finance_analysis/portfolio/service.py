@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from typing import Callable
 
 from sqlalchemy.exc import IntegrityError
@@ -292,9 +292,11 @@ class PortfolioService:
         instrument = position.instrument
         multiplier = Decimal(instrument.contract_multiplier)
         quantity = Decimal(position.quantity)
-        cost_amount = (abs(quantity) * Decimal(position.avg_cost) * multiplier).quantize(
-            Decimal("0.00000001")
-        )
+        with localcontext() as context:
+            context.prec = max(context.prec, 38)
+            cost_amount = (
+                abs(quantity) * Decimal(position.avg_cost) * multiplier
+            ).quantize(Decimal("0.00000001"))
         option_payload = None
         if instrument.asset_type == "OPTION":
             contract = instrument.option_contract
@@ -302,10 +304,15 @@ class PortfolioService:
                 raise RuntimeError("option instrument is missing OptionContract")
             dte = option_days_to_expiration(contract.expiration_date, self.now_provider())
             underlying = contract.underlying
+            underlying_name = (
+                underlying.market_data_symbol.name
+                if underlying.market_data_symbol is not None
+                else underlying.name
+            )
             option_payload = {
                 "underlying_canonical_symbol": underlying.canonical_symbol,
                 "underlying_display_symbol": underlying.display_symbol,
-                "underlying_name": underlying.name,
+                "underlying_name": underlying_name,
                 "option_type": contract.option_type,
                 "expiration_date": contract.expiration_date,
                 "strike_price": decimal_to_string(Decimal(contract.strike_price)),
@@ -321,7 +328,11 @@ class PortfolioService:
             "currency": instrument.currency,
             "canonical_symbol": instrument.canonical_symbol,
             "display_symbol": instrument.display_symbol,
-            "name": instrument.name,
+            "name": (
+                instrument.market_data_symbol.name
+                if instrument.market_data_symbol is not None
+                else instrument.name
+            ),
             "quantity": decimal_to_string(quantity),
             "position_side": "SHORT" if quantity < 0 else "LONG",
             "avg_cost": decimal_to_string(Decimal(position.avg_cost)),

@@ -49,6 +49,19 @@ class StockQuote(BaseModel):
         }
 
 
+class StockInstrumentInfo(BaseModel):
+    """Provider-independent static security metadata."""
+
+    code: str = Field(..., description="统一证券代码（ticker.region）")
+    name: str = Field(..., description="证券名称")
+    market: str = Field(..., description="市场")
+    provider: str = Field(..., description="本次名称来源")
+    currency: str = Field(..., description="交易币种")
+    exchange: Optional[str] = Field(None, description="交易所")
+    instrument_type: Optional[str] = Field(None, description="证券类型")
+    lot_size: Optional[int] = Field(None, description="每手股数")
+
+
 class KLineData(BaseModel):
     """K 线数据点"""
     

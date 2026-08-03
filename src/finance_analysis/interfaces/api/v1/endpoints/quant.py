@@ -35,6 +35,33 @@ def encoded(value):
     return jsonable_encoder(value)
 
 
+def _encoded_with_names(
+    repo: QuantRepository,
+    rows,
+    *,
+    code_field: str = "code",
+    name_field: str = "name",
+) -> list[dict]:
+    """Attach persisted security names to a batch without provider or N+1 calls."""
+    payloads = encoded(rows)
+    codes = [str(item.get(code_field) or "").upper() for item in payloads]
+    names_by_codes = getattr(repo, "names_by_codes", None)
+    names = names_by_codes(codes) if callable(names_by_codes) else {}
+    for item, code in zip(payloads, codes):
+        item[name_field] = names.get(code) or item.get(name_field)
+    return payloads
+
+
+def _encoded_with_name(
+    repo: QuantRepository,
+    row,
+    *,
+    code_field: str = "code",
+    name_field: str = "name",
+) -> dict:
+    return _encoded_with_names(repo, [row], code_field=code_field, name_field=name_field)[0]
+
+
 def _universe(repo: QuantRepository, market: str, key: str | None):
     try:
         return repo.supported_universe(market, key)
@@ -84,6 +111,8 @@ async def universes(market: QuantMarket = "US", _: User = Depends(require_curren
     repo = QuantRepository()
     item = _universe(repo, market, None)
     codes = sorted(get_quant_universe_codes(market))
+    names_by_codes = getattr(repo, "names_by_codes", None)
+    names = names_by_codes(codes) if callable(names_by_codes) else {}
     return [
         {
             **encoded(item),
@@ -91,6 +120,7 @@ async def universes(market: QuantMarket = "US", _: User = Depends(require_curren
             "members": [
                 {
                     "code": code,
+                    "name": names.get(code),
                     "sector_key": None,
                     "sector_benchmark_code": None,
                     "effective_from": None,
@@ -216,12 +246,16 @@ async def sector_ranking(
     model_version: str | None = None,
     _: User = Depends(require_current_user),
 ):
-    return encoded(
-        QuantRepository().sector_regimes(
+    repo = QuantRepository()
+    return _encoded_with_names(
+        repo,
+        repo.sector_regimes(
             market,
             trade_date,
             model_version=model_version,
-        )
+        ),
+        code_field="benchmark_code",
+        name_field="benchmark_name",
     )
 
 
@@ -232,12 +266,16 @@ async def sector_detail(
     model_version: str | None = None,
     _: User = Depends(require_current_user),
 ):
-    return encoded(
-        QuantRepository().sector_regimes(
+    repo = QuantRepository()
+    return _encoded_with_names(
+        repo,
+        repo.sector_regimes(
             market,
             sector_key=sector_key,
             model_version=model_version,
-        )
+        ),
+        code_field="benchmark_code",
+        name_field="benchmark_name",
     )
 
 
@@ -386,7 +424,7 @@ async def signals(
         "model_version": rows[0].model_version if rows else model_version,
         "market_regime": regimes[0].regime if regimes else None,
         "max_equity_exposure": regimes[0].max_equity_exposure if regimes else None,
-        "items": encoded(rows),
+        "items": _encoded_with_names(repo, rows),
     }
 
 
@@ -407,7 +445,7 @@ async def signal(
     )
     if not rows:
         raise HTTPException(404, f"{market} signal not found")
-    return encoded(rows[0])
+    return _encoded_with_name(repo, rows[0])
 
 
 @router.get("/signals/{code}/history")
@@ -419,7 +457,8 @@ async def signal_history(
 ):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
-    return encoded(
+    return _encoded_with_names(
+        repo,
         repo.signal_history(
             market,
             code,
@@ -450,7 +489,7 @@ async def latest_portfolio(
     if not result:
         raise HTTPException(404, "Portfolio recommendation not found")
     row, items = result
-    return {**encoded(row), "universe": definition.key, "items": encoded(items)}
+    return {**encoded(row), "universe": definition.key, "items": _encoded_with_names(repo, items)}
 
 
 @router.get("/portfolios")
@@ -482,7 +521,7 @@ async def portfolio(
     if not result:
         raise HTTPException(404, "Portfolio recommendation not found")
     row, items = result
-    return {**encoded(row), "universe": universe.key, "items": encoded(items)}
+    return {**encoded(row), "universe": universe.key, "items": _encoded_with_names(repo, items)}
 
 
 @router.get("/intraday-confirmations")
@@ -500,7 +539,8 @@ async def confirmations(
         universe.id,
     ):
         raise HTTPException(404, "Portfolio recommendation not found")
-    return encoded(
+    return _encoded_with_names(
+        repo,
         repo.confirmations(
             market,
             trade_date,
@@ -518,7 +558,10 @@ async def confirmation(
 ):
     repo = QuantRepository()
     universe = _universe(repo, market, None)
-    return encoded(repo.confirmations(market, code=code, universe_id=universe.id))
+    return _encoded_with_names(
+        repo,
+        repo.confirmations(market, code=code, universe_id=universe.id),
+    )
 
 
 @router.post("/intraday-confirmations/run")

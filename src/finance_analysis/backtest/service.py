@@ -31,6 +31,7 @@ class BacktestPreflightResult:
     strategy_key: str
     market: str
     code: str
+    name: str | None
     available_date_from: date | None
     available_date_to: date | None
     requested_trading_days: int
@@ -135,6 +136,7 @@ class BacktestService:
             strategy_key=strategy_key,
             market=market,
             code=code,
+            name=getattr(symbol, "name", None) if symbol is not None else None,
             available_date_from=coverage["available_date_from"],
             available_date_to=coverage["available_date_to"],
             requested_trading_days=requested_days,

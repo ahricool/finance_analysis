@@ -22,6 +22,9 @@ from finance_analysis.interfaces.api.v1.schemas.watch_list import (
     WatchListResponse,
 )
 from finance_analysis.database.repositories.watch_list import WatchListRepo
+from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
+from finance_analysis.integrations.market_data import MarketDataService
+from finance_analysis.integrations.market_data.normalizer import canonical_symbol
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -31,12 +34,28 @@ def _repo() -> WatchListRepo:
     return WatchListRepo()
 
 
+def _responses(repository: WatchListRepo, items) -> list[WatchListItemResponse]:
+    canonical_codes = [canonical_symbol(item.code, item.market_type) for item in items]
+    names = (
+        MarketDataSymbolRepository(repository.db).names_by_codes(canonical_codes)
+        if getattr(repository, "db", None) is not None
+        else {}
+    )
+    return [
+        WatchListItemResponse.model_validate(item).model_copy(
+            update={"name": names.get(code) or item.name}
+        )
+        for item, code in zip(items, canonical_codes)
+    ]
+
+
 @router.get("", response_model=WatchListResponse, summary="获取自选股列表")
 def list_watch_list(http_request: Request):
     uid = get_effective_uid(http_request)
-    items = _repo().list_all(uid=uid)
+    repository = _repo()
+    items = repository.list_all(uid=uid)
     return WatchListResponse(
-        items=[WatchListItemResponse.model_validate(i) for i in items],
+        items=_responses(repository, items),
         total=len(items),
     )
 
@@ -47,11 +66,19 @@ def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
     repo = _repo()
     if repo.get_by_code(body.code, uid=uid, market_type=body.market_type):
         raise HTTPException(status_code=409, detail=f"股票 {body.code} 已在自选股中")
+    name = body.name
+    if not str(name or "").strip():
+        try:
+            code = canonical_symbol(body.code, body.market_type)
+            info = MarketDataService().get_instrument_info([code]).data.get(code)
+            name = info.name if info is not None else None
+        except Exception as exc:
+            logger.warning("获取自选股名称失败 code=%s: %s", body.code, exc)
     try:
         item = repo.create(
             uid=uid,
             code=body.code,
-            name=body.name,
+            name=name,
             notes=body.notes,
             market_type=body.market_type,
             is_favorite=body.is_favorite,
@@ -59,7 +86,7 @@ def create_watch_list_item(http_request: Request, body: WatchListItemCreate):
     except Exception as e:
         logger.exception("创建自选股失败: %s", e)
         raise HTTPException(status_code=500, detail="创建失败，请重试") from e
-    return WatchListItemResponse.model_validate(item)
+    return _responses(repo, [item])[0]
 
 
 @router.put("/{item_id}", response_model=WatchListItemResponse, summary="更新自选股")
@@ -70,14 +97,15 @@ def update_watch_list_item(http_request: Request, item_id: int, body: WatchListI
         update_data["notes"] = ""
     if update_data.get("name") is None and "name" in update_data:
         update_data["name"] = ""
-    item = _repo().update(
+    repo = _repo()
+    item = repo.update(
         item_id=item_id,
         uid=uid,
         **update_data,
     )
     if item is None:
         raise HTTPException(status_code=404, detail="未找到该自选股")
-    return WatchListItemResponse.model_validate(item)
+    return _responses(repo, [item])[0]
 
 
 @router.delete("/{item_id}", status_code=204, summary="删除自选股")

@@ -63,6 +63,7 @@ export type BacktestPreflight = {
   strategyKey: string;
   market: BacktestMarket;
   code: string;
+  name: string | null;
   availableDateFrom: string | null;
   availableDateTo: string | null;
   requestedTradingDays: number;
@@ -100,10 +101,12 @@ export type BacktestRun = {
   market: BacktestMarket;
   symbolId: number;
   code: string;
+  name: string | null;
   startDate: string;
   endDate: string;
   initialCash: number;
   benchmarkCode: string | null;
+  benchmarkName: string | null;
   parameters: Record<string, number>;
   priceMode: string;
   marketRuleVersion: string;

@@ -33,6 +33,7 @@ import {
   getTodayInDisplayTimezone,
   localDateTimeToUtcIso,
 } from '@/utils/format';
+import { formatSecurityLabel } from '@/utils/security';
 import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 import { ChevronLeft, ChevronRight, FileSearch, Plus } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
@@ -413,7 +414,7 @@ function eventTypeLabel(type: string): string {
 }
 
 function eventName(item: FinanceEventItem): string {
-  return [item.symbol, item.counter_name].filter(Boolean).join(' / ') || item.market;
+  return formatSecurityLabel(item.symbol, item.counter_name, item.market);
 }
 
 function eventTime(item: FinanceEventItem): string {

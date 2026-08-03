@@ -80,4 +80,16 @@ describe('quant market context', () => {
     expect(wrapper.text()).not.toContain('AAPL.US');
     expect(quantApi.signals).toHaveBeenCalledWith('CN');
   });
+
+  it('renders ranking codes with persisted instrument names', async () => {
+    vi.mocked(quantApi.signals).mockResolvedValue({
+      tradeDate: '2026-07-17', market: 'US', universe: 'us_sp500', modelVersion: 'model-v1', marketRegime: 'risk_on', maxEquityExposure: 0.8,
+      items: [{ id: 1, market: 'US', tradeDate: '2026-07-17', code: 'AAPL.US', name: 'Apple' } as never],
+    });
+
+    const { wrapper } = await mountMarket('/market/quant');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('AAPL.US - Apple');
+  });
 });

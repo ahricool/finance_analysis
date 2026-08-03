@@ -22,6 +22,11 @@ class FakeQuantRepository:
         self.model_run_updates = []
         self.signal_rows = []
         self.artifact_deletions = []
+        self.instrument_names = {"AAPL.US": "Apple"}
+
+    def names_by_codes(self, codes):
+        self.calls.append(("names_by_codes", tuple(codes)))
+        return {code: self.instrument_names[code] for code in codes if code in self.instrument_names}
 
     def get_universe(self, key):
         self.calls.append(("get_universe", key))
@@ -323,6 +328,7 @@ def test_signal_ranking_exposes_and_filters_model_version(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["model_version"] == "model-v2"
+    assert response.json()["items"][0]["name"] == "Apple"
     assert ("latest_signals", "US", 1, None, "model-v2") in repository.calls
 
 

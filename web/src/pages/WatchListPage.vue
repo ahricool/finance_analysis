@@ -30,6 +30,7 @@ import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
 import { looksLikeStockCode } from '@/utils/validation';
+import { formatSecurityLabel } from '@/utils/security';
 import { calculateZeroDteStatus, zeroDteStatusSortValue } from '@/utils/zeroDteStatus';
 import { Eye, Heart, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -213,7 +214,7 @@ function marketToMarketType(market?: Market): MarketType | null {
 }
 
 function formatStockQuery(code: string, name?: string | null): string {
-  return name ? `${name}（${code}）` : code;
+  return formatSecurityLabel(code, name);
 }
 
 watch(formStockQuery, (value) => {
@@ -440,9 +441,9 @@ onMounted(loadList);
         >
           <CardHeader>
             <CardTitle class="truncate text-base">
-              {{ item.name || item.code }}
-            </CardTitle><CardDescription class="font-mono">
-              {{ item.code }} · {{ marketLabel(item.market_type) }}
+              {{ formatSecurityLabel(item.code, item.name) }}
+            </CardTitle><CardDescription>
+              {{ marketLabel(item.market_type) }}
             </CardDescription><CardAction>
               <Button
                 variant="ghost"
@@ -515,11 +516,10 @@ onMounted(loadList);
       <!-- Desktop table -->
       <Card class="hidden md:block">
         <CardHeader><CardTitle>自选股列表</CardTitle><CardDescription>点击任一行打开行情详情；次要操作收纳在行菜单中。</CardDescription></CardHeader><CardContent>
-          <Table class="w-full min-w-[1420px] table-fixed text-left text-sm">
+          <Table class="w-full min-w-[1360px] table-fixed text-left text-sm">
             <colgroup>
               <col class="w-[78px]" />
-              <col class="w-[120px]" />
-              <col class="w-[170px]" />
+              <col class="w-[260px]" />
               <col class="w-[90px]" />
               <col class="w-[120px]" />
               <col class="w-[120px]" />
@@ -538,16 +538,10 @@ onMounted(loadList);
                   @sort="toggleSort('is_favorite')"
                 />
                 <SortableTableHeader
-                  label="代码"
+                  label="股票"
                   :active="sortKey === 'code'"
                   :direction="sortDirection"
                   @sort="toggleSort('code')"
-                />
-                <SortableTableHeader
-                  label="名称"
-                  :active="sortKey === 'name'"
-                  :direction="sortDirection"
-                  @sort="toggleSort('name')"
                 />
                 <SortableTableHeader
                   label="市场"
@@ -602,7 +596,7 @@ onMounted(loadList);
             <TableBody>
               <TableRow v-if="!visibleItems.length">
                 <TableCell
-                  colspan="11"
+                  colspan="10"
                   class="px-4 py-10 text-center text-muted-foreground"
                 >
                   当前筛选下暂无自选股
@@ -614,7 +608,7 @@ onMounted(loadList);
                   :key="item.id"
                   class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   tabindex="0"
-                  :aria-label="`查看 ${item.name || item.code} 详情`"
+                  :aria-label="`查看 ${formatSecurityLabel(item.code, item.name)} 详情`"
                   @click="detailItem = item"
                   @keydown.enter.self="detailItem = item"
                   @keydown.space.self.prevent="detailItem = item"
@@ -641,18 +635,10 @@ onMounted(loadList);
                   </TableCell>
                   <TableCell class="px-4 py-3">
                     <button
-                      class="font-mono text-sm font-semibold text-primary hover:underline"
+                      class="max-w-full truncate text-left text-sm font-semibold text-primary hover:underline"
                       @click.stop="detailItem = item"
                     >
-                      {{ item.code }}
-                    </button>
-                  </TableCell>
-                  <TableCell class="truncate px-4 py-3 font-medium text-foreground">
-                    <button
-                      class="max-w-full truncate text-left hover:text-primary hover:underline"
-                      @click.stop="detailItem = item"
-                    >
-                      {{ item.name || '—' }}
+                      {{ formatSecurityLabel(item.code, item.name) }}
                     </button>
                   </TableCell>
                   <TableCell class="px-4 py-3">

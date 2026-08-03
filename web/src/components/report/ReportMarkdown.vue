@@ -11,6 +11,7 @@ import type { ReportLanguage } from '@/types/analysis';
 import { markdownToPlainText } from '@/utils/markdown';
 import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
+import { formatSecurityLabel } from '@/utils/security';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { Check, Code2, Copy, FileText } from 'lucide-vue-next';
 
@@ -114,7 +115,7 @@ onUnmounted(() => {
       <SheetHeader class="text-left">
         <SheetTitle class="flex items-center gap-2">
           <FileText class="size-5 text-primary" />
-          {{ stockName || stockCode || text.fullReport }}
+          {{ formatSecurityLabel(stockCode, stockName, text.fullReport) }}
         </SheetTitle>
         <SheetDescription>{{ text.fullReport }}</SheetDescription>
       </SheetHeader>

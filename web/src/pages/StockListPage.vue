@@ -28,6 +28,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { AssetType, Market } from '@/types/stockIndex';
 import { formatDecimalText, formatMarketCurrencyAmount } from '@/utils/marketCurrency';
+import { formatSecurityLabel } from '@/utils/security';
 import { Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -606,7 +607,7 @@ onMounted(async () => {
           <Table class="w-full min-w-[960px] text-sm">
             <TableHeader class="bg-muted/40 text-left text-xs text-muted-foreground">
               <TableRow>
-                <TableHead class="p-3">
+                <TableHead class="min-w-[220px] p-3">
                   标的
                 </TableHead>
                 <TableHead>类型</TableHead>
@@ -626,10 +627,7 @@ onMounted(async () => {
               >
                 <TableCell class="p-3">
                   <p class="font-medium">
-                    {{ position.display_symbol }}
-                  </p>
-                  <p class="text-xs text-muted-foreground">
-                    {{ position.name || '—' }}
+                    {{ formatSecurityLabel(position.display_symbol, position.name) }}
                   </p>
                 </TableCell>
                 <TableCell>{{ position.asset_type === 'ETF' ? 'ETF' : '股票' }}</TableCell>
@@ -671,7 +669,7 @@ onMounted(async () => {
             <div class="flex justify-between">
               <div>
                 <p class="font-semibold">
-                  {{ position.display_symbol }} · {{ position.name }}
+                  {{ formatSecurityLabel(position.display_symbol, position.name) }}
                 </p>
                 <p class="text-xs text-muted-foreground">
                   {{ position.asset_type }}
@@ -733,7 +731,7 @@ onMounted(async () => {
           <Table class="w-full min-w-[1120px] text-sm">
             <TableHeader class="bg-muted/40 text-left text-xs text-muted-foreground">
               <TableRow>
-                <TableHead class="p-3">
+                <TableHead class="min-w-[220px] p-3">
                   标的
                 </TableHead>
                 <TableHead>方向</TableHead>
@@ -754,7 +752,10 @@ onMounted(async () => {
                 :key="position.id"
               >
                 <TableCell class="p-3">
-                  {{ position.option?.underlying_display_symbol }}
+                  {{ formatSecurityLabel(
+                    position.option?.underlying_display_symbol,
+                    position.option?.underlying_name,
+                  ) }}
                 </TableCell>
                 <TableCell>{{ position.position_side === 'LONG' ? '多头' : '空头' }}</TableCell>
                 <TableCell>{{ position.option?.option_type === 'CALL' ? 'Call' : 'Put' }}</TableCell>
@@ -819,7 +820,10 @@ onMounted(async () => {
             <div class="flex justify-between">
               <div>
                 <p class="font-semibold">
-                  {{ position.option?.underlying_display_symbol }}
+                  {{ formatSecurityLabel(
+                    position.option?.underlying_display_symbol,
+                    position.option?.underlying_name,
+                  ) }}
                 </p>
                 <p class="text-xs text-warning">
                   {{ position.position_side === 'LONG' ? '多头' : '空头' }} ·
@@ -972,7 +976,7 @@ onMounted(async () => {
               v-if="selectedSecurity"
               class="text-xs text-muted-foreground"
             >
-              已选择 {{ selectedSecurity.canonicalCode }} ·
+              已选择 {{ formatSecurityLabel(selectedSecurity.canonicalCode, selectedSecurity.name) }} ·
               {{ createAssetType === 'OPTION' ? optionUnderlyingType : createAssetType }}
             </p>
           </template>
@@ -1092,7 +1096,7 @@ onMounted(async () => {
     <ConfirmDialog
       :open="deletingPosition !== null"
       title="删除持仓记录"
-      :description="`确认删除 ${deletingPosition?.display_symbol ?? ''}？此操作不可撤销。`"
+      :description="`确认删除 ${formatSecurityLabel(deletingPosition?.display_symbol, deletingPosition?.name, '')}？此操作不可撤销。`"
       confirm-text="删除"
       destructive
       @update:open="deletingPosition = null"

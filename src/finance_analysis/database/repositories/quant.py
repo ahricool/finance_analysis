@@ -31,6 +31,21 @@ class QuantRepository:
             session.expunge(row)
         return rows
 
+    def names_by_codes(self, codes: Iterable[str]) -> dict[str, str]:
+        """Read persisted instrument names in one query for API payload enrichment."""
+        canonical_codes = sorted(
+            {str(code or "").strip().upper() for code in codes if str(code or "").strip()}
+        )
+        if not canonical_codes:
+            return {}
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(MarketDataSymbol.code, MarketDataSymbol.name).where(
+                    MarketDataSymbol.code.in_(canonical_codes)
+                )
+            ).all()
+        return {str(code): str(name).strip() for code, name in rows if str(name or "").strip()}
+
     def list_universes(self, market: str | None = None, enabled: bool | None = True) -> list[QuantUniverse]:
         clauses = [QuantUniverse.key.in_(tuple(DEFAULT_QUANT_UNIVERSES.values()))]
         if market:

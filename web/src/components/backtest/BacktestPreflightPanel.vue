@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BacktestPreflight } from '@/types/backtests';
 import { engineLabels, marketLabels } from '@/utils/backtests';
+import { formatSecurityLabel } from '@/utils/security';
 
 defineProps<{ result: BacktestPreflight }>();
 </script>
@@ -35,7 +36,7 @@ defineProps<{ result: BacktestPreflight }>();
         <dt class="text-muted-foreground">
           市场 / 标的
         </dt>
-        <dd>{{ marketLabels[result.market] }} · {{ result.code }}</dd>
+        <dd>{{ marketLabels[result.market] }} · {{ formatSecurityLabel(result.code, result.name) }}</dd>
       </div>
       <div>
         <dt class="text-muted-foreground">

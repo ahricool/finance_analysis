@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { SignalRanking } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
+import { formatSecurityLabel } from '@/utils/security';
 import { computed, ref, watch } from 'vue';
 
 const { market, marketQuery } = useQuantMarket();
@@ -24,7 +25,9 @@ const items = computed(
   () =>
     ranking.value?.items.filter(
       (item) =>
-        (!filter.value || item.code.includes(filter.value.toUpperCase())) &&
+        (!filter.value ||
+          item.code.includes(filter.value.toUpperCase()) ||
+          item.name?.toLowerCase().includes(filter.value.toLowerCase())) &&
         (vetoed.value === 'all' || String(item.vetoed) === vetoed.value),
     ) ?? [],
 );
@@ -77,10 +80,10 @@ watch(
     </div>
     <template v-else>
       <Card>
-        <CardHeader><CardTitle>筛选排名</CardTitle><CardDescription>按股票代码和风控否决状态缩小结果范围。</CardDescription></CardHeader><CardContent class="grid gap-3 sm:grid-cols-2">
+        <CardHeader><CardTitle>筛选排名</CardTitle><CardDescription>按股票代码、名称和风控否决状态缩小结果范围。</CardDescription></CardHeader><CardContent class="grid gap-3 sm:grid-cols-2">
           <FieldInput
             v-model="filter"
-            placeholder="股票代码"
+            placeholder="股票代码或名称"
           />
           <FieldSelect
             v-model="vetoed"
@@ -98,7 +101,13 @@ watch(
         <CardHeader><CardTitle>模型排名</CardTitle><CardDescription>共 {{ items.length }} 个标的。</CardDescription></CardHeader>
         <CardContent class="hidden md:block">
           <Table>
-            <TableHeader><TableRow><TableHead>排名</TableHead><TableHead>股票</TableHead><TableHead>最终/原始</TableHead><TableHead>横截面</TableHead><TableHead>时间序列</TableHead><TableHead>预测收益</TableHead><TableHead>目标仓位</TableHead><TableHead>信号</TableHead></TableRow></TableHeader><TableBody>
+            <TableHeader>
+              <TableRow>
+                <TableHead>排名</TableHead><TableHead class="min-w-[220px]">
+                  股票
+                </TableHead><TableHead>最终/原始</TableHead><TableHead>横截面</TableHead><TableHead>时间序列</TableHead><TableHead>预测收益</TableHead><TableHead>目标仓位</TableHead><TableHead>信号</TableHead>
+              </TableRow>
+            </TableHeader><TableBody>
               <TableRow
                 v-for="item in items"
                 :key="item.id"
@@ -109,7 +118,7 @@ watch(
                     :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
                     class="font-medium underline-offset-4 hover:underline"
                   >
-                    {{ item.code }}
+                    {{ formatSecurityLabel(item.code, item.name) }}
                   </RouterLink>
                 </TableCell><TableCell>{{ formatScore(item.finalScore) }} / {{ formatScore(item.rawFinalScore) }}</TableCell><TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell><TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell><TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell><TableCell>{{ formatPercent(item.targetPosition) }}</TableCell><TableCell>
                   <Badge :variant="item.vetoed ? 'destructive' : 'outline'">
@@ -131,7 +140,7 @@ watch(
                   :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
                   class="font-medium underline-offset-4 hover:underline"
                 >
-                  {{ item.code }}
+                  {{ formatSecurityLabel(item.code, item.name) }}
                 </RouterLink>
               </CardTitle><CardDescription>排名 #{{ item.universeRank ?? '—' }}</CardDescription><Badge :variant="item.vetoed ? 'destructive' : 'outline'">
                 {{ item.vetoed ? '已否决' : item.signal }}

@@ -8,6 +8,7 @@ import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Badge } from '@/components/ui/badge';
 import type { BacktestEquity, BacktestRun, BacktestTrade } from '@/types/backtests';
 import { engineLabels, formatMoney, marketLabels, statusLabels } from '@/utils/backtests';
+import { formatSecurityLabel } from '@/utils/security';
 import { ArrowLeft, TriangleAlert } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
@@ -103,7 +104,7 @@ onBeforeUnmount(() => {
             <dt class="text-muted-foreground">
               市场 / 标的
             </dt>
-            <dd>{{ marketLabels[run.market] }} · {{ run.code }}</dd>
+            <dd>{{ marketLabels[run.market] }} · {{ formatSecurityLabel(run.code, run.name) }}</dd>
           </div>
           <div>
             <dt class="text-muted-foreground">
@@ -135,7 +136,7 @@ onBeforeUnmount(() => {
             <dt class="text-muted-foreground">
               基准
             </dt>
-            <dd>{{ run.benchmarkCode || '未设置' }}</dd>
+            <dd>{{ run.benchmarkCode ? formatSecurityLabel(run.benchmarkCode, run.benchmarkName) : '未设置' }}</dd>
           </div>
           <div>
             <dt class="text-muted-foreground">

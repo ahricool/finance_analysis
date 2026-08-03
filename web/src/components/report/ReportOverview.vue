@@ -4,6 +4,7 @@ import ScoreGauge from '@/components/report/ScoreGauge.vue';
 import { Card } from '@/components/ui/card';
 import { formatDateTime } from '@/utils/format';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
+import { formatSecurityLabel } from '@/utils/security';
 import type {
   ReportDetails as ReportDetailsType,
   ReportMeta,
@@ -111,7 +112,7 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
             <div class="flex-1">
               <div class="flex items-center gap-3">
                 <h2 class="text-2xl font-bold leading-tight tracking-tight text-foreground sm:text-3xl">
-                  {{ meta.stockName || meta.stockCode }}
+                  {{ formatSecurityLabel(meta.stockCode, meta.stockName) }}
                 </h2>
                 <div
                   v-if="meta.currentPrice != null"
@@ -132,12 +133,6 @@ function getBoardStatusVariant(status: BoardStatus): 'success' | 'destructive' {
                 </div>
               </div>
               <div class="mt-1.5 flex items-center gap-2">
-                <Badge
-                  variant="secondary"
-                  class="font-mono"
-                >
-                  {{ meta.stockCode }}
-                </Badge>
                 <span class="flex items-center gap-1 text-xs text-muted-foreground">
                   <CalendarDays class="size-3.5" />
                   {{ formatDateTime(meta.createdAt) }}
