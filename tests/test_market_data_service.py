@@ -122,7 +122,7 @@ def test_default_registry_excludes_unsupported_efinance_daily_and_tickflow_facto
     assert ADJUSTMENT_FACTORS not in registry.capabilities("tickflow")
 
 
-def test_tickflow_free_uses_native_batch_raw_and_cn_lots_become_shares():
+def test_tickflow_free_uses_maximum_history_count_native_batch_raw_and_cn_lots_become_shares():
     calls = []
 
     class _Klines:
@@ -142,6 +142,7 @@ def test_tickflow_free_uses_native_batch_raw_and_cn_lots_become_shares():
 
     assert calls[0][0] == ["600519.SH"]
     assert calls[0][1]["adjust"] == "none"
+    assert calls[0][1]["count"] == 10_000
     assert result.data["600519.SH"][0].volume == 12300
     assert result.data["600519.SH"][0].amount == 129150
     assert result.data["600519.SH"][0].adjustment is Adjustment.RAW

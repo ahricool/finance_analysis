@@ -23,6 +23,8 @@ from finance_analysis.integrations.market_data.normalizer import (
     local_midnight_timestamp_ms,
 )
 
+TICKFLOW_MAX_KLINE_COUNT = 10_000
+
 
 class TickFlowFreeProvider:
     """Anonymous free API client; paid realtime/minute endpoints are intentionally absent."""
@@ -58,6 +60,7 @@ class TickFlowFreeProvider:
             frames = self._get_client().klines.batch(
                 list(symbols),
                 period="1d",
+                count=TICKFLOW_MAX_KLINE_COUNT,
                 start_time=min(local_midnight_timestamp_ms(request.start_date, infer_market(s)) for s in symbols),
                 end_time=max(local_midnight_timestamp_ms(request.end_date, infer_market(s)) for s in symbols),
                 adjust="none",
