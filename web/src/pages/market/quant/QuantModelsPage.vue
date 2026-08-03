@@ -4,11 +4,12 @@ import { useRouter } from 'vue-router';
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import { Button } from '@/components/ui/button';
 import QuantTrainingDialog from '@/components/quant/QuantTrainingDialog.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -25,6 +26,9 @@ const error = ref<ParsedApiError | null>(null);
 const loading = ref(false);
 const trainingOpen = ref(false);
 const createdRun = ref<ModelRunCreateAccepted | null>(null);
+const deleteTarget = ref<ModelRun | null>(null);
+const deletingId = ref<number | null>(null);
+const deleteSuccess = ref<string | null>(null);
 const isAdmin = computed(() => auth.currentUser?.role === 'admin');
 let requestVersion = 0;
 
@@ -45,6 +49,33 @@ async function load(current = market.value): Promise<void> {
 
 function openTraining(): void {
   trainingOpen.value = true;
+}
+
+function canDelete(item: ModelRun): boolean {
+  return item.status !== 'draft' && item.status !== 'training' && item.status !== 'production';
+}
+
+function requestDelete(item: ModelRun): void {
+  if (!canDelete(item)) return;
+  deleteTarget.value = item;
+}
+
+async function confirmDelete(): Promise<void> {
+  const item = deleteTarget.value;
+  if (!item || deletingId.value !== null) return;
+  deleteTarget.value = null;
+  deletingId.value = item.id;
+  error.value = null;
+  deleteSuccess.value = null;
+  try {
+    await quantApi.deleteModelRun(item.id, market.value);
+    rows.value = rows.value.filter((row) => row.id !== item.id);
+    deleteSuccess.value = `模型运行 #${item.id} 及其制品已删除。`;
+  } catch (err) {
+    error.value = getParsedApiError(err);
+  } finally {
+    deletingId.value = null;
+  }
 }
 
 async function handleCreated(result: ModelRunCreateAccepted): Promise<void> {
@@ -112,6 +143,15 @@ watch(
       :error="error"
     />
     <Alert
+      v-if="deleteSuccess"
+      variant="success"
+    >
+      <AlertTitle>删除成功</AlertTitle>
+      <AlertDescription class="text-current/80">
+        {{ deleteSuccess }}
+      </AlertDescription>
+    </Alert>
+    <Alert
       v-if="createdRun"
       variant="success"
     >
@@ -161,7 +201,9 @@ watch(
       <CardHeader><CardTitle>模型运行列表</CardTitle><CardDescription>查看训练区间、核心指标和发布状态。</CardDescription></CardHeader>
       <CardContent class="hidden md:block">
         <Table>
-          <TableHeader><TableRow><TableHead>模型</TableHead><TableHead>版本</TableHead><TableHead>状态</TableHead><TableHead>训练/测试区间</TableHead><TableHead>Rank IC</TableHead><TableHead>Top10超额</TableHead><TableHead>进度</TableHead></TableRow></TableHeader><TableBody>
+          <TableHeader><TableRow><TableHead>模型</TableHead><TableHead>版本</TableHead><TableHead>状态</TableHead><TableHead>训练/测试区间</TableHead><TableHead>Rank IC</TableHead><TableHead>Top10超额</TableHead><TableHead>进度</TableHead><TableHead v-if="isAdmin">
+            操作
+          </TableHead></TableRow></TableHeader><TableBody>
             <TableRow
               v-for="item in rows"
               :key="item.id"
@@ -177,7 +219,18 @@ watch(
                 <Badge variant="outline">
                   {{ item.status }}
                 </Badge>
-              </TableCell><TableCell>{{ item.trainStart ?? '—' }} → {{ item.testEnd ?? '—' }}</TableCell><TableCell>{{ formatScore(item.metrics.rankIc) }}</TableCell><TableCell>{{ formatScore(item.metrics.top10ExcessReturnPct) }}%</TableCell><TableCell>{{ item.progress }}%</TableCell>
+              </TableCell><TableCell>{{ item.trainStart ?? '—' }} → {{ item.testEnd ?? '—' }}</TableCell><TableCell>{{ formatScore(item.metrics.rankIc) }}</TableCell><TableCell>{{ formatScore(item.metrics.top10ExcessReturnPct) }}%</TableCell><TableCell>{{ item.progress }}%</TableCell><TableCell v-if="isAdmin">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  :disabled="!canDelete(item) || deletingId === item.id"
+                  :title="canDelete(item) ? '删除模型运行' : '排队中、训练中或生产模型不能删除'"
+                  :data-testid="`delete-model-run-${item.id}`"
+                  @click="requestDelete(item)"
+                >
+                  {{ deletingId === item.id ? '删除中…' : '删除' }}
+                </Button>
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -208,7 +261,19 @@ watch(
                 进度
               </p>{{ item.progress }}%
             </div>
-          </CardContent>
+          </CardContent><CardFooter v-if="isAdmin">
+            <Button
+              variant="destructive"
+              size="sm"
+              class="w-full"
+              :disabled="!canDelete(item) || deletingId === item.id"
+              :title="canDelete(item) ? '删除模型运行' : '排队中、训练中或生产模型不能删除'"
+              :data-testid="`delete-model-run-mobile-${item.id}`"
+              @click="requestDelete(item)"
+            >
+              {{ deletingId === item.id ? '删除中…' : '删除' }}
+            </Button>
+          </CardFooter>
         </Card>
       </CardContent>
     </Card>
@@ -223,6 +288,15 @@ watch(
       @update:open="trainingOpen = false"
       @created="handleCreated"
       @open-dataset-builder="openDatasetBuilder"
+    />
+    <AppConfirmDialog
+      :open="deleteTarget !== null"
+      title="删除模型运行"
+      :description="`确认删除模型运行 #${deleteTarget?.id ?? ''}？数据库中的运行、预测和发布关联记录，以及 /data 下对应模型制品会一并删除。`"
+      confirm-text="确认删除"
+      destructive
+      @update:open="deleteTarget = $event ? deleteTarget : null"
+      @confirm="confirmDelete"
     />
   </div>
 </template>

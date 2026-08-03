@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -36,3 +37,29 @@ class ArtifactStore:
         target = self.path(uri.removeprefix("quant://"))
         if not target.exists(): raise ModelArtifactMissingError(f"Artifact does not exist: {uri}")
         return target
+
+    def delete_uri(self, uri: str) -> bool:
+        """Delete exactly one artifact URI without ever allowing the artifact root itself."""
+        if not uri.startswith("quant://"):
+            raise ValueError("Unsupported artifact URI")
+        relative = uri.removeprefix("quant://")
+        unresolved = self.root / relative
+        parent = unresolved.parent.resolve()
+        if parent != self.root and self.root not in parent.parents:
+            raise ValueError("Artifact path escapes QUANT_ARTIFACT_ROOT")
+        target = parent / unresolved.name
+        if not relative or target == self.root:
+            raise ValueError("Refusing to delete QUANT_ARTIFACT_ROOT")
+        if target.is_symlink():
+            target.unlink()
+            return True
+        resolved = target.resolve()
+        if resolved != self.root and self.root not in resolved.parents:
+            raise ValueError("Artifact path escapes QUANT_ARTIFACT_ROOT")
+        if not resolved.exists():
+            return False
+        if resolved.is_dir():
+            shutil.rmtree(resolved)
+        else:
+            resolved.unlink()
+        return True

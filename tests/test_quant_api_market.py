@@ -21,6 +21,7 @@ class FakeQuantRepository:
         self.created_model_run = None
         self.model_run_updates = []
         self.signal_rows = []
+        self.artifact_deletions = []
 
     def get_universe(self, key):
         self.calls.append(("get_universe", key))
@@ -75,6 +76,14 @@ class FakeQuantRepository:
     def update_model_run(self, run_id, **values):
         self.model_run_updates.append((run_id, values))
 
+    def delete_dataset(self, snapshot_id, market, universe_id):
+        self.calls.append(("delete_dataset", snapshot_id, market, universe_id))
+        return {"id": snapshot_id, "artifact_uri": f"quant://datasets/{snapshot_id}"}
+
+    def delete_model_run(self, run_id, market, universe_id):
+        self.calls.append(("delete_model_run", run_id, market, universe_id))
+        return {"id": run_id, "artifact_uri": f"quant://models/{run_id}"}
+
     def latest_signals(self, market, universe_id=None, code=None, model_version=None):
         self.calls.append(("latest_signals", market, universe_id, code, model_version))
         return self.signal_rows
@@ -123,6 +132,13 @@ class FakeQuantRepository:
 def _client(monkeypatch):
     repository = FakeQuantRepository()
     monkeypatch.setattr(quant_endpoint, "QuantRepository", lambda: repository)
+    monkeypatch.setattr(
+        quant_endpoint,
+        "ArtifactStore",
+        lambda: SimpleNamespace(
+            delete_uri=lambda uri: repository.artifact_deletions.append(uri) or True
+        ),
+    )
     app = FastAPI()
     app.include_router(quant_endpoint.router, prefix="/quant")
     app.dependency_overrides[require_current_user] = lambda: SimpleNamespace(id=1)
@@ -212,6 +228,32 @@ def test_dataset_contract_exposes_coverage_and_trainability(monkeypatch):
     assert payload["universe_coverage_ratio"] == 1
     assert payload["minimum_universe_coverage"] == pytest.approx(0.9)
     assert payload["trainable"] is True
+
+
+def test_dataset_and_model_run_delete_are_market_scoped_and_remove_artifacts(monkeypatch):
+    client, repository = _client(monkeypatch)
+
+    dataset = client.delete("/quant/datasets/5?market=CN")
+    model_run = client.delete("/quant/model-runs/9?market=US")
+
+    assert dataset.status_code == 200
+    assert dataset.json() == {"id": 5, "deleted": True, "artifact_deleted": True}
+    assert model_run.status_code == 200
+    assert model_run.json() == {"id": 9, "deleted": True, "artifact_deleted": True}
+    assert ("delete_dataset", 5, "CN", 2) in repository.calls
+    assert ("delete_model_run", 9, "US", 1) in repository.calls
+    assert repository.artifact_deletions == ["quant://datasets/5", "quant://models/9"]
+
+
+def test_quant_delete_conflict_keeps_artifact(monkeypatch):
+    client, repository = _client(monkeypatch)
+    repository.delete_dataset = MagicMock(side_effect=ValueError("Dataset is referenced"))
+
+    response = client.delete("/quant/datasets/5?market=US")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Dataset is referenced"
+    assert repository.artifact_deletions == []
 
 
 def test_confirmation_list_is_scoped_to_the_displayed_recommendation(monkeypatch):

@@ -20,6 +20,7 @@ from finance_analysis.interfaces.api.v1.schemas.quant import (
 )
 from finance_analysis.quant.capabilities import get_quant_capabilities
 from finance_analysis.quant.config import get_quant_config
+from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.markets import get_quant_universe_codes
 from finance_analysis.quant.models import QLIB_TRAINABLE_MODEL_KEYS
 from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
@@ -58,6 +59,19 @@ def _dataset_payload(row) -> dict:
             and coverage_ratio >= minimum_coverage
         ),
     }
+
+
+def _remove_artifact(artifact_uri: str | None) -> bool:
+    if not artifact_uri:
+        return False
+    try:
+        return ArtifactStore().delete_uri(artifact_uri)
+    except (OSError, ValueError) as exc:
+        logger.exception("Quant database record was deleted but artifact cleanup failed: uri=%s", artifact_uri)
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Database record was deleted, but artifact cleanup failed",
+        ) from exc
 
 
 @router.get("/capabilities")
@@ -123,6 +137,24 @@ async def dataset(snapshot_id: int, market: QuantMarket = "US", _: User = Depend
     if not row or row.market != market or row.universe_id != universe.id:
         raise HTTPException(404, "Dataset snapshot not found")
     return _dataset_payload(row)
+
+
+@router.delete("/datasets/{snapshot_id}")
+async def delete_dataset(
+    snapshot_id: int,
+    market: QuantMarket = "US",
+    _: User = Depends(require_admin),
+):
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    try:
+        deleted = repo.delete_dataset(snapshot_id, market, universe.id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset snapshot not found")
+    artifact_deleted = _remove_artifact(deleted["artifact_uri"])
+    return {"id": deleted["id"], "deleted": True, "artifact_deleted": artifact_deleted}
 
 
 @router.post("/datasets/build", status_code=status.HTTP_202_ACCEPTED)
@@ -285,6 +317,24 @@ async def model_run(run_id: int, market: QuantMarket = "US", _: User = Depends(r
     if not row or row.market != market or row.universe_id != universe.id:
         raise HTTPException(404, "Model run not found")
     return encoded(row)
+
+
+@router.delete("/model-runs/{run_id}")
+async def delete_model_run(
+    run_id: int,
+    market: QuantMarket = "US",
+    _: User = Depends(require_admin),
+):
+    repo = QuantRepository()
+    universe = _universe(repo, market, None)
+    try:
+        deleted = repo.delete_model_run(run_id, market, universe.id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Model run not found")
+    artifact_deleted = _remove_artifact(deleted["artifact_uri"])
+    return {"id": deleted["id"], "deleted": True, "artifact_deleted": artifact_deleted}
 
 
 @router.post("/model-runs/{run_id}/publish")
