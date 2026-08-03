@@ -46,8 +46,8 @@ const isTruncated = computed(() => isStockNameTruncated(stockName.value));
   <button
     type="button"
     data-testid="analysis-history-item"
-    class="group/item w-full rounded-md border border-transparent p-2.5 text-left transition-colors hover:bg-muted/60"
-    :class="isViewing ? 'border-border bg-muted' : ''"
+    class="group/item w-full rounded-md p-3 text-left transition-colors hover:bg-muted"
+    :class="isViewing ? 'bg-muted' : ''"
     @click="emit('select')"
   >
     <div
@@ -69,8 +69,9 @@ const isTruncated = computed(() => isStockNameTruncated(stockName.value));
           <Badge
             v-if="barColor"
             variant="outline"
-            :class="`shrink-0${isTruncated ? ' transition-opacity group-hover/item:opacity-80' : ''}`"
-            :style="{
+            size="sm"
+            :class="isTruncated ? 'shrink-0 group-hover/item:opacity-80' : 'shrink-0'"
+            :inline-style="{
               color: barColor,
               borderColor: `${barColor}40`,
               backgroundColor: `${barColor}14`,

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import Pagination from '@/components/app/AppPagination.vue';
-import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
 import HistoryListItem from '@/components/history/HistoryListItem.vue';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { HistoryItem } from '@/types/analysis';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { History } from 'lucide-vue-next';
 
 const props = withDefaults(
@@ -55,15 +55,16 @@ const emit = defineEmits<{
               class="h-16 w-full"
             />
           </div>
-          <DashboardStateBlock
+          <Empty
             v-else-if="items.length === 0"
-            title="暂无历史分析记录"
-            description="完成首次分析后，这里会保留最近结果。"
+            class="border-0 py-10"
           >
-            <template #icon>
-              <History class="size-5" />
-            </template>
-          </DashboardStateBlock>
+            <EmptyHeader>
+              <EmptyMedia variant="icon"><History /></EmptyMedia>
+              <EmptyTitle>暂无历史分析记录</EmptyTitle>
+              <EmptyDescription>完成首次分析后，这里会保留最近结果。</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
           <div
             v-else
             class="space-y-2"

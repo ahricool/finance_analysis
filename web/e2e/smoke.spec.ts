@@ -94,6 +94,13 @@ async function mockAuthenticatedSession(page: Page) {
 }
 
 test.describe('web smoke', () => {
+  test('root keeps a stable vertical scrollbar gutter during route changes', async ({ page }) => {
+    await mockAuthenticatedSession(page);
+    await page.goto('/calendar');
+
+    await expect(page.locator('html')).toHaveCSS('scrollbar-gutter', 'stable');
+  });
+
   test('login page renders the email step', async ({ page }) => {
     await page.route('**/api/v1/auth/status', (route) =>
       route.fulfill({
@@ -196,34 +203,38 @@ test.describe('web smoke', () => {
     await expect(composer).not.toHaveAttribute('title', /.+/);
   });
 
-  test('mobile shell exposes a navigation drawer and market navigation', async ({ page }) => {
+  test('mobile shell exposes the navigation sheet and market navigation', async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockAuthenticatedSession(page);
     await page.goto('/calendar');
 
-    const navTrigger = page.getByTestId('mobile-nav-trigger');
-    await expect(navTrigger).toBeVisible();
-    await navTrigger.click();
-
-    const mobileNav = page.getByTestId('mobile-main-nav');
-    await expect(mobileNav).toBeVisible();
-    for (const label of ['分析', '市场', '研究', '日历', '问股', '任务', '个人中心']) {
-      await expect(mobileNav.getByRole('link', { name: label })).toBeVisible();
+    const navigationTrigger = page.getByRole('button', { name: '打开主导航' });
+    await expect(navigationTrigger).toBeVisible();
+    await navigationTrigger.click();
+    const navigationSheet = page.getByTestId('mobile-menu');
+    await expect(navigationSheet).toBeVisible();
+    for (const label of ['分析', '自选股', '投资组合', '策略回测', '量化研究', '日历', '问股', '任务']) {
+      await expect(navigationSheet.getByRole('link', { name: label })).toBeVisible();
     }
-    await expect(mobileNav.getByRole('link', { name: '日历' })).toHaveAttribute(
+    await navigationSheet.getByRole('link', { name: '策略回测' }).click();
+    await expect(page).toHaveURL(/\/market\/backtests$/);
+    await expect(navigationSheet).toBeHidden();
+
+    await page.goto('/tasks/runs');
+    await navigationTrigger.click();
+    await expect(navigationSheet.getByRole('link', { name: '任务' })).toHaveAttribute('aria-current', 'page');
+    await page.keyboard.press('Escape');
+
+    await page.goto('/calendar');
+
+    await navigationTrigger.click();
+    await expect(navigationSheet.getByRole('link', { name: '日历' })).toHaveAttribute(
       'aria-current',
       'page',
     );
-
-    await mobileNav.getByRole('link', { name: '研究' }).click();
-    await expect(page).toHaveURL(/\/market\/backtests$/);
-    await expect(mobileNav).toBeHidden();
-
-    await navTrigger.click();
-    await expect(
-      page.getByTestId('mobile-main-nav').getByRole('link', { name: '研究' }),
-    ).toHaveAttribute('aria-current', 'page');
-    await page.getByTestId('mobile-main-nav').getByRole('link', { name: '市场' }).click();
+    await navigationSheet.getByRole('link', { name: '自选股' }).click();
     await expect(page).toHaveURL(/\/market\/watch-list$/);
 
     const marketNav = page.getByTestId('module-tabs');
@@ -236,10 +247,10 @@ test.describe('web smoke', () => {
       await expect(link).toBeVisible();
     }
 
-    await page.setViewportSize({ width: 844, height: 390 });
-    await expect(navTrigger).toBeHidden();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(navigationTrigger).toBeHidden();
     await expect(
-      page.getByTestId('desktop-main-nav').getByRole('link', { name: '市场' }),
+      page.getByTestId('desktop-main-nav').getByRole('button', { name: '市场' }),
     ).toBeVisible();
   });
 
@@ -260,8 +271,8 @@ test.describe('web smoke', () => {
       await page.setViewportSize(viewport);
       await page.goto('/calendar');
       await expect(page.getByRole('heading', { name: '日历记录' })).toBeVisible();
-      if (viewport.width < 768) {
-        await expect(page.getByTestId('mobile-nav-trigger')).toBeVisible();
+      if (viewport.width < 1024) {
+        await expect(page.getByRole('button', { name: '打开主导航' })).toBeVisible();
       } else {
         await expect(page.getByTestId('desktop-main-nav')).toBeVisible();
       }
