@@ -10,7 +10,7 @@ const props = defineProps<{ class?: HTMLAttributes['class'] }>();
   >
     <table
       data-slot="table"
-      :class="cn('w-full caption-bottom text-sm', props.class)"
+      :class="cn('w-full min-w-max caption-bottom text-sm', props.class)"
     >
       <slot />
     </table>

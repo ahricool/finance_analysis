@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { BacktestTrade } from '@/types/backtests';
 import { formatMoney, formatPct } from '@/utils/backtests';
 
@@ -77,93 +78,93 @@ defineProps<{ trades: BacktestTrade[] }>();
         </article>
       </div>
       <div class="hidden overflow-x-auto md:block">
-        <table class="min-w-[1100px] w-full text-left text-xs">
-          <thead class="bg-card/60 text-muted-foreground">
-            <tr>
-              <th class="p-3">
+        <Table class="min-w-[1100px] w-full text-left text-xs">
+          <TableHeader class="bg-card/60 text-muted-foreground">
+            <TableRow>
+              <TableHead class="p-3">
                 信号日期
-              </th>
-              <th class="p-3">
+              </TableHead>
+              <TableHead class="p-3">
                 成交日期
-              </th>
-              <th class="p-3">
+              </TableHead>
+              <TableHead class="p-3">
                 方向
-              </th>
-              <th class="p-3">
+              </TableHead>
+              <TableHead class="p-3">
                 数量
-              </th>
-              <th class="p-3">
+              </TableHead>
+              <TableHead class="p-3">
                 价格
-              </th>
-              <th class="p-3">
+              </TableHead>
+              <TableHead class="p-3">
                 金额
-              </th>
-              <th class="p-3">
+              </TableHead>
+              <TableHead class="p-3">
                 佣金
-              </th>
-              <th class="p-3">
+              </TableHead>
+              <TableHead class="p-3">
                 税费
-              </th>
-              <th class="p-3">
+              </TableHead>
+              <TableHead class="p-3">
                 总费用
-              </th>
-              <th class="p-3">
+              </TableHead>
+              <TableHead class="p-3">
                 交易后现金
-              </th>
-              <th class="p-3">
+              </TableHead>
+              <TableHead class="p-3">
                 交易后持仓
-              </th>
-              <th class="p-3">
+              </TableHead>
+              <TableHead class="p-3">
                 收益
-              </th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-border/60">
-            <tr
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody class="divide-y divide-border/60">
+            <TableRow
               v-for="trade in trades"
               :key="trade.id"
             >
-              <td class="p-3">
+              <TableCell class="p-3">
                 {{ trade.signalDate }}
-              </td>
-              <td class="p-3">
+              </TableCell>
+              <TableCell class="p-3">
                 {{ trade.tradeDate }}
-              </td>
-              <td class="p-3">
+              </TableCell>
+              <TableCell class="p-3">
                 <Badge :variant="trade.side === 'buy' ? 'destructive' : 'success'">
                   {{ trade.side === 'buy' ? '买入' : '卖出' }}
                 </Badge>
-              </td>
-              <td class="p-3">
+              </TableCell>
+              <TableCell class="p-3">
                 {{ trade.quantity }}
-              </td>
-              <td class="p-3">
+              </TableCell>
+              <TableCell class="p-3">
                 {{ formatMoney(trade.price) }}
-              </td>
-              <td class="p-3">
+              </TableCell>
+              <TableCell class="p-3">
                 {{ formatMoney(trade.grossAmount) }}
-              </td>
-              <td class="p-3">
+              </TableCell>
+              <TableCell class="p-3">
                 {{ formatMoney(trade.commission) }}
-              </td>
-              <td class="p-3">
+              </TableCell>
+              <TableCell class="p-3">
                 {{ formatMoney(trade.tax + trade.otherFee) }}
-              </td>
-              <td class="p-3">
+              </TableCell>
+              <TableCell class="p-3">
                 {{ formatMoney(trade.totalFee) }}
-              </td>
-              <td class="p-3">
+              </TableCell>
+              <TableCell class="p-3">
                 {{ formatMoney(trade.cashAfter) }}
-              </td>
-              <td class="p-3">
+              </TableCell>
+              <TableCell class="p-3">
                 {{ trade.positionAfter }}
-              </td>
-              <td class="p-3">
+              </TableCell>
+              <TableCell class="p-3">
                 {{ formatPct(trade.returnPct) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
       </div>
     </div>
   </section>

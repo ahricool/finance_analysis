@@ -10,6 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { useAuthStore } from '@/stores/authStore';
 import type {
@@ -270,112 +271,112 @@ watch(
       </div>
       <Card class="hidden md:block">
         <CardHeader><CardTitle>数据集快照</CardTitle><CardDescription>构建状态、覆盖率、数据口径与训练可用性。</CardDescription></CardHeader><CardContent>
-          <table
+          <Table
             class="min-w-[1680px] w-full text-left text-sm"
             data-testid="quant-dataset-table"
           >
-            <thead class="border-b border-border text-xs text-muted-foreground">
-              <tr>
-                <th class="px-3 py-3 font-medium">
+            <TableHeader class="border-b border-border text-xs text-muted-foreground">
+              <TableRow>
+                <TableHead class="px-3 py-3 font-medium">
                   数据集 ID
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   市场
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   Universe
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   开始日期
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   结束日期
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   状态
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   股票数量
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   数据行数
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   价格模式
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   特征版本
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   创建时间
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   完成时间
-                </th>
-                <th class="min-w-[240px] px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="min-w-[240px] px-3 py-3 font-medium">
                   验证结果 / 失败原因
-                </th>
-                <th class="px-3 py-3 font-medium">
+                </TableHead>
+                <TableHead class="px-3 py-3 font-medium">
                   操作
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow
                 v-for="item in rows"
                 :key="item.id"
                 class="border-b border-border/60 last:border-0"
               >
-                <td class="whitespace-nowrap px-3 py-4 font-mono">
+                <TableCell class="whitespace-nowrap px-3 py-4 font-mono">
                   #{{ item.id }}
-                </td>
-                <td class="whitespace-nowrap px-3 py-4">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4">
                   {{ item.market }}
-                </td>
-                <td class="whitespace-nowrap px-3 py-4">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4">
                   <p class="font-medium text-foreground">
                     {{ universeByMarket[item.market].name }}
                   </p>
                   <p class="font-mono text-xs text-muted-foreground">
                     {{ universeByMarket[item.market].key }}
                   </p>
-                </td>
-                <td class="whitespace-nowrap px-3 py-4">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4">
                   {{ item.dateFrom }}
-                </td>
-                <td class="whitespace-nowrap px-3 py-4">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4">
                   {{ item.dateTo }}
-                </td>
-                <td class="whitespace-nowrap px-3 py-4">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4">
                   <Badge :variant="statusVariant(item.status)">
                     {{ statusLabel(item.status) }}
                   </Badge>
-                </td>
-                <td class="whitespace-nowrap px-3 py-4 tabular-nums">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4 tabular-nums">
                   {{ formatCount(item.symbolCount) }} / {{ formatCount(item.universeMemberCount) }}
                   <p class="text-xs text-muted-foreground">
                     {{ (item.universeCoverageRatio * 100).toFixed(1) }}%
                   </p>
-                </td>
-                <td class="whitespace-nowrap px-3 py-4 tabular-nums">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4 tabular-nums">
                   {{ formatCount(item.rowCount) }}
-                </td>
-                <td class="whitespace-nowrap px-3 py-4">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4">
                   {{ priceModeLabel(item.priceMode) }}
-                </td>
-                <td class="whitespace-nowrap px-3 py-4 font-mono text-xs">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4 font-mono text-xs">
                   {{ item.featureVersion }}
-                </td>
-                <td class="whitespace-nowrap px-3 py-4 text-xs">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4 text-xs">
                   {{ formatDateTimeInDisplayTimezone(item.createdAt) }}
-                </td>
-                <td class="whitespace-nowrap px-3 py-4 text-xs">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4 text-xs">
                   {{ formatDateTimeInDisplayTimezone(item.finishedAt) }}
-                </td>
-                <td class="max-w-[320px] px-3 py-4 text-xs text-muted-foreground">
+                </TableCell>
+                <TableCell class="max-w-[320px] px-3 py-4 text-xs text-muted-foreground">
                   <span class="line-clamp-3 break-all">{{ validationText(item) }}</span>
-                </td>
-                <td class="whitespace-nowrap px-3 py-4">
+                </TableCell>
+                <TableCell class="whitespace-nowrap px-3 py-4">
                   <Button
                     v-if="canTrain(item) && isAdmin"
                     variant="secondary"
@@ -402,10 +403,10 @@ watch(
                     v-else
                     class="text-xs text-muted-foreground"
                   >不可训练</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </template>

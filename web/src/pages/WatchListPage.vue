@@ -25,6 +25,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCurrentTime } from '@/composables/useCurrentTime';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
 import type { Market } from '@/types/stockIndex';
@@ -514,7 +515,7 @@ onMounted(loadList);
       <!-- Desktop table -->
       <Card class="hidden md:block">
         <CardHeader><CardTitle>自选股列表</CardTitle><CardDescription>点击任一行打开行情详情；次要操作收纳在行菜单中。</CardDescription></CardHeader><CardContent>
-          <table class="w-full min-w-[1420px] table-fixed text-left text-sm">
+          <Table class="w-full min-w-[1420px] table-fixed text-left text-sm">
             <colgroup>
               <col class="w-[78px]" />
               <col class="w-[120px]" />
@@ -528,8 +529,8 @@ onMounted(loadList);
               <col class="w-[140px]" />
               <col class="w-[152px]" />
             </colgroup>
-            <thead class="border-b border-border/70 text-xs text-muted-foreground">
-              <tr>
+            <TableHeader class="border-b border-border/70 text-xs text-muted-foreground">
+              <TableRow>
                 <SortableTableHeader
                   label="关注"
                   :active="sortKey === 'is_favorite'"
@@ -593,22 +594,22 @@ onMounted(loadList);
                   :direction="sortDirection"
                   @sort="toggleSort('zero_dte')"
                 />
-                <th class="whitespace-nowrap px-4 py-3 text-right font-medium">
+                <TableHead class="whitespace-nowrap px-4 py-3 text-right font-medium">
                   操作
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="!visibleItems.length">
-                <td
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-if="!visibleItems.length">
+                <TableCell
                   colspan="11"
                   class="px-4 py-10 text-center text-muted-foreground"
                 >
                   当前筛选下暂无自选股
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
               <template v-else>
-                <tr
+                <TableRow
                   v-for="item in visibleItems"
                   :key="item.id"
                   class="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
@@ -618,7 +619,7 @@ onMounted(loadList);
                   @keydown.enter.self="detailItem = item"
                   @keydown.space.self.prevent="detailItem = item"
                 >
-                  <td class="px-4 py-3">
+                  <TableCell class="px-4 py-3">
                     <button
                       type="button"
                       class="rounded-lg p-1.5 transition-colors disabled:opacity-50"
@@ -637,68 +638,68 @@ onMounted(loadList);
                         :class="{ 'fill-current': item.is_favorite }"
                       />
                     </button>
-                  </td>
-                  <td class="px-4 py-3">
+                  </TableCell>
+                  <TableCell class="px-4 py-3">
                     <button
                       class="font-mono text-sm font-semibold text-primary hover:underline"
                       @click.stop="detailItem = item"
                     >
                       {{ item.code }}
                     </button>
-                  </td>
-                  <td class="truncate px-4 py-3 font-medium text-foreground">
+                  </TableCell>
+                  <TableCell class="truncate px-4 py-3 font-medium text-foreground">
                     <button
                       class="max-w-full truncate text-left hover:text-primary hover:underline"
                       @click.stop="detailItem = item"
                     >
                       {{ item.name || '—' }}
                     </button>
-                  </td>
-                  <td class="px-4 py-3">
+                  </TableCell>
+                  <TableCell class="px-4 py-3">
                     <span
                       class="rounded-lg border border-border/60 bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground"
                     >
                       {{ marketLabel(item.market_type) }}
                     </span>
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-foreground"
                   >
                     {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
                     :class="movementClass(getQuote(item.code, item.market_type)?.change_amount)"
                   >
                     {{
                       formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_amount)
                     }}
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
                     :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)"
                   >
                     {{
                       formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%')
                     }}
-                  </td>
-                  <td class="px-4 py-3">
+                  </TableCell>
+                  <TableCell class="px-4 py-3">
                     <TrendStatus :trend="getQuote(item.code, item.market_type)?.trend_1m" />
-                  </td>
-                  <td class="px-4 py-3">
+                  </TableCell>
+                  <TableCell class="px-4 py-3">
                     <PatternStatus
                       :pattern="getQuote(item.code, item.market_type)?.pattern_1m"
                       :now="currentTime"
                     />
-                  </td>
-                  <td class="px-4 py-3">
+                  </TableCell>
+                  <TableCell class="px-4 py-3">
                     <ZeroDteStatus
                       :quote="getQuote(item.code, item.market_type)"
                       :market-type="item.market_type"
                       :now="currentTime"
                     />
-                  </td>
-                  <td class="px-4 py-3 text-right">
+                  </TableCell>
+                  <TableCell class="px-4 py-3 text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger as-child>
                         <Button
@@ -720,11 +721,11 @@ onMounted(loadList);
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               </template>
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </template>

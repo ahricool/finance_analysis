@@ -22,6 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useRealtimeQuotes } from '@/composables/useRealtimeQuotes';
@@ -602,43 +603,43 @@ onMounted(async () => {
         data-testid="equity-section"
       >
         <div class="hidden overflow-hidden rounded-xl border bg-card md:block">
-          <table class="w-full text-sm">
-            <thead class="bg-muted/40 text-left text-xs text-muted-foreground">
-              <tr>
-                <th class="p-3">
+          <Table class="w-full min-w-[960px] text-sm">
+            <TableHeader class="bg-muted/40 text-left text-xs text-muted-foreground">
+              <TableRow>
+                <TableHead class="p-3">
                   标的
-                </th>
-                <th>类型</th>
-                <th>数量</th>
-                <th>最新价格</th>
-                <th>平均成本</th>
-                <th>成本金额</th>
-                <th>持仓市值</th>
-                <th>未实现盈亏</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-border/60">
-              <tr
+                </TableHead>
+                <TableHead>类型</TableHead>
+                <TableHead>数量</TableHead>
+                <TableHead>最新价格</TableHead>
+                <TableHead>平均成本</TableHead>
+                <TableHead>成本金额</TableHead>
+                <TableHead>持仓市值</TableHead>
+                <TableHead>未实现盈亏</TableHead>
+                <TableHead>操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody class="divide-y divide-border/60">
+              <TableRow
                 v-for="position in equityPositions"
                 :key="position.id"
               >
-                <td class="p-3">
+                <TableCell class="p-3">
                   <p class="font-medium">
                     {{ position.display_symbol }}
                   </p>
                   <p class="text-xs text-muted-foreground">
                     {{ position.name || '—' }}
                   </p>
-                </td>
-                <td>{{ position.asset_type === 'ETF' ? 'ETF' : '股票' }}</td>
-                <td>{{ formatDecimalText(position.quantity) }} 股</td>
-                <td>{{ quotePrice(position) === null ? '—' : amount(quotePrice(position)) }}</td>
-                <td>{{ amount(position.avg_cost) }}</td>
-                <td>{{ amount(position.cost_amount) }}</td>
-                <td>{{ amount(positionMarketValue(position)) }}</td>
-                <td>{{ amount(positionPnl(position)) }}</td>
-                <td>
+                </TableCell>
+                <TableCell>{{ position.asset_type === 'ETF' ? 'ETF' : '股票' }}</TableCell>
+                <TableCell>{{ formatDecimalText(position.quantity) }} 股</TableCell>
+                <TableCell>{{ quotePrice(position) === null ? '—' : amount(quotePrice(position)) }}</TableCell>
+                <TableCell>{{ amount(position.avg_cost) }}</TableCell>
+                <TableCell>{{ amount(position.cost_amount) }}</TableCell>
+                <TableCell>{{ amount(positionMarketValue(position)) }}</TableCell>
+                <TableCell>{{ amount(positionPnl(position)) }}</TableCell>
+                <TableCell>
                   <div class="flex gap-1">
                     <Button
                       variant="ghost"
@@ -656,10 +657,10 @@ onMounted(async () => {
                       <Trash2 class="h-3.5 w-3.5" />
                     </Button>
                   </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
         </div>
         <div class="grid gap-3 md:hidden">
           <article
@@ -729,36 +730,36 @@ onMounted(async () => {
           期权仅作手工持仓记录，不提供实时价格、市值或盈亏。
         </p>
         <div class="hidden overflow-hidden rounded-xl border bg-card md:block">
-          <table class="w-full text-sm">
-            <thead class="bg-muted/40 text-left text-xs text-muted-foreground">
-              <tr>
-                <th class="p-3">
+          <Table class="w-full min-w-[1120px] text-sm">
+            <TableHeader class="bg-muted/40 text-left text-xs text-muted-foreground">
+              <TableRow>
+                <TableHead class="p-3">
                   标的
-                </th>
-                <th>方向</th>
-                <th>Call/Put</th>
-                <th>行权价</th>
-                <th>到期日 / DTE</th>
-                <th>张数</th>
-                <th>平均成本</th>
-                <th>乘数</th>
-                <th>成本金额</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-border/60">
-              <tr
+                </TableHead>
+                <TableHead>方向</TableHead>
+                <TableHead>Call/Put</TableHead>
+                <TableHead>行权价</TableHead>
+                <TableHead>到期日 / DTE</TableHead>
+                <TableHead>张数</TableHead>
+                <TableHead>平均成本</TableHead>
+                <TableHead>乘数</TableHead>
+                <TableHead>成本金额</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody class="divide-y divide-border/60">
+              <TableRow
                 v-for="position in optionPositions"
                 :key="position.id"
               >
-                <td class="p-3">
+                <TableCell class="p-3">
                   {{ position.option?.underlying_display_symbol }}
-                </td>
-                <td>{{ position.position_side === 'LONG' ? '多头' : '空头' }}</td>
-                <td>{{ position.option?.option_type === 'CALL' ? 'Call' : 'Put' }}</td>
-                <td>{{ amount(position.option?.strike_price ?? null) }}</td>
-                <td>
+                </TableCell>
+                <TableCell>{{ position.position_side === 'LONG' ? '多头' : '空头' }}</TableCell>
+                <TableCell>{{ position.option?.option_type === 'CALL' ? 'Call' : 'Put' }}</TableCell>
+                <TableCell>{{ amount(position.option?.strike_price ?? null) }}</TableCell>
+                <TableCell>
                   {{ position.option?.expiration_date }}
                   <p
                     :class="dteClass(position)"
@@ -766,13 +767,13 @@ onMounted(async () => {
                   >
                     {{ dteLabel(position) }}
                   </p>
-                </td>
-                <td>{{ formatDecimalText(position.quantity.replace('-', '')) }} 张</td>
-                <td>{{ amount(position.avg_cost) }}</td>
-                <td>{{ formatDecimalText(position.contract_multiplier) }}</td>
-                <td>{{ amount(position.cost_amount) }}</td>
-                <td>{{ position.status }}</td>
-                <td>
+                </TableCell>
+                <TableCell>{{ formatDecimalText(position.quantity.replace('-', '')) }} 张</TableCell>
+                <TableCell>{{ amount(position.avg_cost) }}</TableCell>
+                <TableCell>{{ formatDecimalText(position.contract_multiplier) }}</TableCell>
+                <TableCell>{{ amount(position.cost_amount) }}</TableCell>
+                <TableCell>{{ position.status }}</TableCell>
+                <TableCell>
                   <div class="flex gap-1">
                     <Button
                       v-if="position.option?.expiration_action_required"
@@ -804,10 +805,10 @@ onMounted(async () => {
                       <Trash2 class="h-3.5 w-3.5" />
                     </Button>
                   </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
         </div>
         <div class="grid gap-3 md:hidden">
           <article

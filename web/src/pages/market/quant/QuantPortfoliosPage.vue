@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { IntradayConfirmation, Portfolio } from '@/types/quant';
 import { actionLabels, formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
@@ -96,39 +97,39 @@ watch(
       <Card>
         <CardHeader><CardTitle>调仓建议</CardTitle><CardDescription>展示目标权重、信号得分和分钟级确认结果。</CardDescription></CardHeader>
         <CardContent class="hidden md:block">
-          <table class="w-full text-sm">
-            <thead class="text-left text-xs text-muted-foreground">
-              <tr>
-                <th class="p-3">
+          <Table class="w-full min-w-[900px] text-sm">
+            <TableHeader class="text-left text-xs text-muted-foreground">
+              <TableRow>
+                <TableHead class="p-3">
                   股票
-                </th>
-                <th>行业</th>
-                <th>动作</th>
-                <th>当前权重</th>
-                <th>目标权重</th>
-                <th>变化</th>
-                <th>得分</th>
-                <th>预测收益</th>
-                <th>分钟确认</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
+                </TableHead>
+                <TableHead>行业</TableHead>
+                <TableHead>动作</TableHead>
+                <TableHead>当前权重</TableHead>
+                <TableHead>目标权重</TableHead>
+                <TableHead>变化</TableHead>
+                <TableHead>得分</TableHead>
+                <TableHead>预测收益</TableHead>
+                <TableHead>分钟确认</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow
                 v-for="row in item.items"
                 :key="row.id"
                 class="border-t border-border"
               >
-                <td class="p-3">
+                <TableCell class="p-3">
                   {{ row.code }}
-                </td>
-                <td>{{ row.sectorKey ?? '—' }}</td>
-                <td>{{ actionLabels[row.action] ?? row.action }}</td>
-                <td>{{ formatPercent(row.currentWeight) }}</td>
-                <td>{{ formatPercent(row.targetWeight) }}</td>
-                <td>{{ formatPercent(row.weightChange) }}</td>
-                <td>{{ formatScore(row.finalScore) }}</td>
-                <td>{{ formatPredictedReturn(row.predictedReturn) }}</td>
-                <td>
+                </TableCell>
+                <TableCell>{{ row.sectorKey ?? '—' }}</TableCell>
+                <TableCell>{{ actionLabels[row.action] ?? row.action }}</TableCell>
+                <TableCell>{{ formatPercent(row.currentWeight) }}</TableCell>
+                <TableCell>{{ formatPercent(row.targetWeight) }}</TableCell>
+                <TableCell>{{ formatPercent(row.weightChange) }}</TableCell>
+                <TableCell>{{ formatScore(row.finalScore) }}</TableCell>
+                <TableCell>{{ formatPredictedReturn(row.predictedReturn) }}</TableCell>
+                <TableCell>
                   <span>{{
                     confirmationLabels[confirmations[row.code]?.decision] ?? '等待确认'
                   }}</span>
@@ -143,10 +144,10 @@ watch(
                     </p>
                     <p>{{ confirmations[row.code].reasons.join('；') }}</p>
                   </details>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
         </CardContent>
         <CardContent class="space-y-3 md:hidden">
           <Card

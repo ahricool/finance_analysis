@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-vue-next';
+import { TableHead } from '@/components/ui/table';
 
 withDefaults(defineProps<{
   label: string;
@@ -18,7 +19,7 @@ defineEmits<{
 </script>
 
 <template>
-  <th
+  <TableHead
     class="whitespace-nowrap px-4 py-3 font-medium"
     :class="align === 'right' ? 'text-right' : 'text-left'"
     :aria-sort="active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'"
@@ -43,5 +44,5 @@ defineEmits<{
         class="h-3.5 w-3.5 opacity-50"
       />
     </button>
-  </th>
+  </TableHead>
 </template>
