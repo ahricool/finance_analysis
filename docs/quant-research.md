@@ -65,6 +65,19 @@ and PostgreSQL persistence. Main workers never wait synchronously for Qlib.
 
 Model training is intentionally on demand rather than a periodic task: every run must name an immutable dataset,
 model type, and version. It therefore appears in the Quant model UI and task history, not in the scheduled-task list.
+The default research dataset covers the latest three years. Walk-forward training uses a two-year expanding training
+window followed by three-month validation and test windows, leaving enough out-of-sample history inside that dataset.
+
+For an isolated local Docker verification, override the published ports, data directory, and named volumes so the
+development stack cannot reuse production state:
+
+```bash
+DEV_WEB_PORT=18080 DEV_POSTGRES_PORT=15432 DEV_REDIS_PORT=16379 \
+DEV_DATA_DIR=./data/quant-dev \
+DEV_POSTGRES_VOLUME=finance-analysis-quant-dev-postgres \
+DEV_REDIS_VOLUME=finance-analysis-quant-dev-redis \
+docker compose -f docker-compose.dev.yml up --build
+```
 
 Each market has exactly one supported quant universe. Clients select only the
 market: `US` resolves to `us_sp500` and `CN` resolves to `cn_csi300`. These are

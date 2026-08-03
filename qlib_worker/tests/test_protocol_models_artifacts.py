@@ -71,6 +71,16 @@ def test_walk_forward_uses_session_purge_and_embargo() -> None:
         assert fold["train"][1] < fold["valid"][0] < fold["test"][0]
 
 
+def test_default_walk_forward_fits_inside_latest_three_year_dataset() -> None:
+    dates = pd.bdate_range("2023-08-03", "2026-08-03")
+
+    folds = walk_forward_splits(dates, WalkForwardConfig())
+
+    assert folds
+    assert folds[0]["train"][0] == dates[0]
+    assert folds[0]["train"][1] < folds[0]["valid"][0] < folds[0]["test"][0]
+
+
 def test_target_config_changes_horizon_benchmark_and_prices(tmp_path: Path) -> None:
     dataset = tmp_path / "dataset"
     (dataset / "source").mkdir(parents=True)

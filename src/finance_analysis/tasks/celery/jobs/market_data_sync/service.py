@@ -91,18 +91,28 @@ class MarketDataSyncService:
             force_full_factor_window_by_code[symbol.code] = force_full_factor_window
         logger.info(
             "market=%s job=market_data_sync sync_mode=%s symbol_count=%s initial_days=%s refresh_days=%s "
-            "retention_days=%s factor_repair_symbols=%s deleted_daily_rows=%s deleted_adjustment_rows=%s",
+            "retention_days=%s concurrency=%s factor_repair_symbols=%s deleted_daily_rows=%s "
+            "deleted_adjustment_rows=%s",
             self.market,
             self.sync_mode,
             len(symbols),
             self.config.market_data_initial_daily_days,
             self.config.market_data_refresh_daily_days,
             self.config.market_data_retention_daily_days,
+            (
+                self.config.market_data_longbridge_max_concurrency
+                if self.market == "US"
+                else self.config.market_data_cn_max_concurrency
+            ),
             len(repair_symbol_ids),
             deleted_daily_rows,
             deleted_adjustment_rows,
         )
-        workers = min(5, max(1, self.config.market_data_longbridge_max_concurrency)) if self.market == "US" else 1
+        workers = (
+            min(5, max(1, self.config.market_data_longbridge_max_concurrency))
+            if self.market == "US"
+            else min(5, max(1, self.config.market_data_cn_max_concurrency))
+        )
         results: list[SymbolResult] = []
         with ThreadPoolExecutor(
             max_workers=workers,

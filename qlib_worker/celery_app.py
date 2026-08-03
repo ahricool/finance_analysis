@@ -33,6 +33,7 @@ def create_celery_app() -> Celery:
         task_track_started=True,
         worker_prefetch_multiplier=1,
         worker_max_tasks_per_child=1,
+        timezone="Asia/Shanghai",
         enable_utc=True,
     )
     return app

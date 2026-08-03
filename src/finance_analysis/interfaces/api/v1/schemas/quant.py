@@ -18,7 +18,7 @@ class DatasetBuildRequest(BaseModel):
 class WalkForwardSplitConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    train_years: int = Field(3, ge=1)
+    train_years: int = Field(2, ge=1)
     valid_months: int = Field(3, ge=1)
     test_months: int = Field(3, ge=1)
     retrain_frequency_months: int = Field(3, ge=1)

@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.endpoints import quant as quant_endpoint
-from finance_analysis.interfaces.api.v1.schemas.quant import ModelRunCreateRequest
+from finance_analysis.interfaces.api.v1.schemas.quant import ModelRunCreateRequest, WalkForwardSplitConfig
 from finance_analysis.quant.markets import get_quant_universe_codes, validate_universe_for_market
 
 
@@ -144,6 +144,14 @@ def _client(monkeypatch):
     app.dependency_overrides[require_current_user] = lambda: SimpleNamespace(id=1)
     app.dependency_overrides[require_admin] = lambda: SimpleNamespace(id=1)
     return TestClient(app), repository
+
+
+def test_default_training_split_fits_the_three_year_dataset_contract() -> None:
+    split = WalkForwardSplitConfig()
+
+    assert split.train_years == 2
+    assert split.valid_months == 3
+    assert split.test_months == 3
 
 
 def test_signal_ranking_uses_cn_default_universe_and_market_filter(monkeypatch):

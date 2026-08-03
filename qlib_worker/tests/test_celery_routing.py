@@ -13,3 +13,4 @@ def test_qlib_worker_registers_only_qlib_queue() -> None:
     assert [queue.name for queue in celery_app.conf.task_queues] == ["qlib"]
     assert celery_app.conf.task_default_queue == "qlib"
     assert {route["queue"] for route in celery_app.conf.task_routes.values()} == {"qlib"}
+    assert celery_app.conf.timezone == "Asia/Shanghai"

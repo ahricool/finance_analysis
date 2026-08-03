@@ -14,7 +14,7 @@ services:
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${DEV_POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -30,7 +30,7 @@ services:
     volumes:
       - redis_data_dev:/data
     ports:
-      - "6379:6379"
+      - "${DEV_REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -55,11 +55,14 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       QUANT_ARTIFACT_ROOT: /workspace/data/quant
+      MARKET_DATA_INITIAL_DAILY_DAYS: ${MARKET_DATA_INITIAL_DAILY_DAYS:-1097}
+      MARKET_DATA_RETENTION_DAILY_DAYS: ${MARKET_DATA_RETENTION_DAILY_DAYS:-1097}
+      MARKET_DATA_CN_MAX_CONCURRENCY: ${MARKET_DATA_CN_MAX_CONCURRENCY:-3}
     expose:
       - "8000"
     volumes:
-      - ./data:/workspace/data
-      - ./.env:/workspace/.env
+      - ${DEV_DATA_DIR:-./data}:/workspace/data
+      - ${ENV_FILE:-./.env}:/workspace/.env:ro
       - ./strategies:/workspace/strategies:ro
       - ./src:/workspace/src
       - ./main.py:/workspace/main.py
@@ -74,7 +77,7 @@ services:
     depends_on:
       - server
     ports:
-      - "8000:80"
+      - "${DEV_WEB_PORT:-8000}:80"
 
   worker:
     image: ghcr.io/ahricool/finance_analysis:latest
@@ -103,9 +106,12 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       QUANT_ARTIFACT_ROOT: /workspace/data/quant
+      MARKET_DATA_INITIAL_DAILY_DAYS: ${MARKET_DATA_INITIAL_DAILY_DAYS:-1097}
+      MARKET_DATA_RETENTION_DAILY_DAYS: ${MARKET_DATA_RETENTION_DAILY_DAYS:-1097}
+      MARKET_DATA_CN_MAX_CONCURRENCY: ${MARKET_DATA_CN_MAX_CONCURRENCY:-3}
     volumes:
-      - ./data:/workspace/data
-      - ./.env:/workspace/.env
+      - ${DEV_DATA_DIR:-./data}:/workspace/data
+      - ${ENV_FILE:-./.env}:/workspace/.env:ro
       - ./strategies:/workspace/strategies:ro
       - ./src:/workspace/src
       - ./main.py:/workspace/main.py
@@ -134,9 +140,12 @@ services:
       TZ: Asia/Shanghai
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+      MARKET_DATA_INITIAL_DAILY_DAYS: ${MARKET_DATA_INITIAL_DAILY_DAYS:-1097}
+      MARKET_DATA_RETENTION_DAILY_DAYS: ${MARKET_DATA_RETENTION_DAILY_DAYS:-1097}
+      MARKET_DATA_CN_MAX_CONCURRENCY: ${MARKET_DATA_CN_MAX_CONCURRENCY:-3}
     volumes:
-      - ./data:/workspace/data
-      - ./.env:/workspace/.env
+      - ${DEV_DATA_DIR:-./data}:/workspace/data
+      - ${ENV_FILE:-./.env}:/workspace/.env:ro
       - ./strategies:/workspace/strategies:ro
       - ./src:/workspace/src
       - ./main.py:/workspace/main.py
@@ -152,10 +161,11 @@ services:
       redis:
         condition: service_healthy
     environment:
+      TZ: Asia/Shanghai
       REDIS_URL: redis://redis:6379/0
       QUANT_ARTIFACT_ROOT: /workspace/data/quant
     volumes:
-      - ./data/quant:/workspace/data/quant
+      - ${DEV_DATA_DIR:-./data}/quant:/workspace/data/quant
     healthcheck:
       test:
         [
@@ -184,13 +194,16 @@ services:
       TZ: Asia/Shanghai
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+      MARKET_DATA_INITIAL_DAILY_DAYS: ${MARKET_DATA_INITIAL_DAILY_DAYS:-1097}
+      MARKET_DATA_RETENTION_DAILY_DAYS: ${MARKET_DATA_RETENTION_DAILY_DAYS:-1097}
+      MARKET_DATA_CN_MAX_CONCURRENCY: ${MARKET_DATA_CN_MAX_CONCURRENCY:-3}
     volumes:
-      - ./data:/workspace/data
-      - ./.env:/workspace/.env:ro
+      - ${DEV_DATA_DIR:-./data}:/workspace/data
+      - ${ENV_FILE:-./.env}:/workspace/.env:ro
       - ./src:/workspace/src
 
 volumes:
   postgres_data_dev:
-    name: finance-analysis-dev-postgres-data
+    name: ${DEV_POSTGRES_VOLUME:-finance-analysis-dev-postgres-data}
   redis_data_dev:
-    name: finance-analysis-dev-redis-data
+    name: ${DEV_REDIS_VOLUME:-finance-analysis-dev-redis-data}

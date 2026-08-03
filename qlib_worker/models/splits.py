@@ -10,7 +10,7 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class WalkForwardConfig:
-    train_years: int = 3
+    train_years: int = 2
     valid_months: int = 3
     test_months: int = 3
     retrain_frequency_months: int = 3

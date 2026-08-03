@@ -52,7 +52,7 @@ function formatDateInput(value: Date): string {
 function resetForm(): void {
   const end = new Date();
   const start = new Date(end);
-  start.setFullYear(start.getFullYear() - 5);
+  start.setFullYear(start.getFullYear() - 3);
   selectedMarket.value = props.market;
   dateFrom.value = formatDateInput(start);
   dateTo.value = formatDateInput(end);
@@ -180,7 +180,7 @@ watch(
             数据范围说明
           </p>
           <p class="mt-1">
-            将按所选市场的固定 Universe 获取日频行情、基准和特征数据。默认范围为最近五年，构建过程由
+            将按所选市场的固定 Universe 获取日频行情、基准和特征数据。默认范围为最近三年，构建过程由
             Celery 异步执行。
           </p>
         </div>

@@ -135,6 +135,7 @@ services:
       redis:
         condition: service_healthy
     environment:
+      TZ: Asia/Shanghai
       REDIS_URL: redis://redis:6379/0
       QUANT_ARTIFACT_ROOT: /workspace/data/quant
     volumes:

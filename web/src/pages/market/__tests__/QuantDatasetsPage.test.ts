@@ -169,13 +169,13 @@ describe('QuantDatasetsPage', () => {
     vi.useRealTimers();
   });
 
-  it('opens the build dialog with the default five-year range', async () => {
+  it('opens the build dialog with the default three-year range', async () => {
     const { wrapper } = await mountPage();
 
     await wrapper.get('[data-testid="open-dataset-build"]').trigger('click');
 
     expect(wrapper.get('[role="dialog"]').text()).toContain('构建数据集');
-    expect(wrapper.get('[data-testid="dataset-date-from"]').element).toHaveProperty('value', '2021-07-22');
+    expect(wrapper.get('[data-testid="dataset-date-from"]').element).toHaveProperty('value', '2023-07-22');
     expect(wrapper.get('[data-testid="dataset-date-to"]').element).toHaveProperty('value', '2026-07-22');
     expect(wrapper.get('[data-testid="dataset-universe"]').element).toHaveProperty('value', '沪深300 / cn_csi300');
     expect(wrapper.find('[data-testid="quant-training-drawer"]').exists()).toBe(false);
