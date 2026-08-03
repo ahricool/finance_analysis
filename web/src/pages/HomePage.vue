@@ -14,7 +14,6 @@ import { useHomeDashboardState } from '@/composables/useHomeDashboardState';
 import { useTimezoneStore } from '@/stores/timezoneStore';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Card, CardContent } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -170,7 +169,7 @@ function handleHistoryPageChange(page: number) {
 <template>
   <div
     data-testid="analysis-workspace"
-    class="flex h-[calc(100dvh-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full flex-col gap-4 overflow-hidden py-4"
+    class="flex h-[calc(100dvh-3.5rem)] w-full flex-col gap-4 overflow-hidden py-4 sm:py-6"
   >
     <PageHeader
       title="股票分析"
@@ -188,46 +187,50 @@ function handleHistoryPageChange(page: number) {
       </template>
     </PageHeader>
 
-    <div class="flex min-w-0 shrink-0 flex-col gap-3 md:flex-row md:items-center">
-      <div class="relative min-w-0 flex-1">
-        <StockAutocomplete
-          :model-value="query"
-          :disabled="isAnalyzing"
-          placeholder="输入股票代码或名称，如 600519、贵州茅台、AAPL"
-          :class="inputError ? 'border-destructive/50' : undefined"
-          @update:model-value="(v: string) => unref(setQuery)(v)"
-          @submit="onStockAutocompleteSubmit"
-        />
-      </div>
-      <div class="flex min-w-0 flex-shrink-0 items-center gap-2.5">
-        <LoadingButton
-          type="button"
-          variant="outline"
-          size="lg"
-          :loading="isSubmittingMarketReview"
-          loading-text="提交中"
-          class="flex-1 whitespace-nowrap md:flex-none"
-          @click="handleTriggerMarketReview"
-        >
-          <BarChart3
-            class="h-4 w-4"
-            aria-hidden="true"
-          />
-          大盘复盘
-        </LoadingButton>
-        <LoadingButton
-          type="button"
-          size="lg"
-          :disabled="!query || isAnalyzing"
-          :loading="isAnalyzing"
-          loading-text="分析中"
-          class="flex-1 whitespace-nowrap md:flex-none"
-          @click="handleSubmitAnalysisWrapper()"
-        >
-          <Search />分析
-        </LoadingButton>
-      </div>
-    </div>
+    <section class="shrink-0 border-b pb-4">
+        <div class="flex min-w-0 flex-col gap-3 md:flex-row md:items-center">
+          <div class="flex min-w-0 flex-1 items-center gap-2.5">
+            <div class="relative min-w-0 flex-1">
+              <StockAutocomplete
+                :model-value="query"
+                :disabled="isAnalyzing"
+                placeholder="输入股票代码或名称，如 600519、贵州茅台、AAPL"
+                :class="inputError ? 'border-destructive/50' : undefined"
+                @update:model-value="(v: string) => unref(setQuery)(v)"
+                @submit="onStockAutocompleteSubmit"
+              />
+            </div>
+          </div>
+          <div class="flex min-w-0 flex-shrink-0 items-center gap-2.5">
+            <LoadingButton
+              type="button"
+              variant="secondary"
+              size="default"
+              :loading="isSubmittingMarketReview"
+              loading-text="提交中"
+              class="flex-1 whitespace-nowrap md:flex-none"
+              @click="handleTriggerMarketReview"
+            >
+              <BarChart3
+                class="h-4 w-4"
+                aria-hidden="true"
+              />
+              大盘复盘
+            </LoadingButton>
+            <LoadingButton
+              type="button"
+              :disabled="!query || isAnalyzing"
+              :loading="isAnalyzing"
+              loading-text="分析中"
+              variant="brand"
+              class="flex-1 whitespace-nowrap md:flex-none"
+              @click="handleSubmitAnalysisWrapper()"
+            >
+              <Search />分析
+            </LoadingButton>
+          </div>
+        </div>
+    </section>
 
     <div
       v-if="inputError || duplicateError"
@@ -248,19 +251,22 @@ function handleHistoryPageChange(page: number) {
       </Alert>
     </div>
 
-    <div class="flex min-h-0 flex-1 gap-4 overflow-hidden">
-      <div class="hidden w-[clamp(18rem,22vw,22rem)] min-h-0 shrink-0 md:flex">
-        <HistoryList
-          :items="historyItems"
-          :is-loading="isLoadingHistory"
-          :current-page="currentPage"
-          :total-pages="historyTotalPages"
-          :total-count="historyTotal"
-          :selected-id="selectedReport?.meta.id"
-          class="min-h-0 w-full"
-          @item-click="handleHistoryItemClick"
-          @page-change="handleHistoryPageChange"
-        />
+    <div class="flex min-h-0 flex-1 overflow-hidden">
+      <div class="hidden w-80 shrink-0 self-start pb-4 md:flex">
+        <div class="flex w-full flex-col gap-3">
+          <HistoryList
+            :items="historyItems"
+            :is-loading="isLoadingHistory"
+            :current-page="currentPage"
+            :total-pages="historyTotalPages"
+            :total-count="historyTotal"
+            :selected-id="selectedReport?.meta.id"
+            fit-height
+            class="w-full overflow-hidden"
+            @item-click="handleHistoryItemClick"
+            @page-change="handleHistoryPageChange"
+          />
+        </div>
       </div>
 
       <Sheet v-model:open="sidebarOpen">
@@ -290,7 +296,7 @@ function handleHistoryPageChange(page: number) {
       <section
         ref="dashboardScrollRef"
         data-testid="analysis-workspace-scroll"
-        class="min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto pb-4"
+        class="min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto pb-4 md:pl-6"
       >
         <div
           v-if="marketReviewNotice"
@@ -326,47 +332,46 @@ function handleHistoryPageChange(page: number) {
           v-if="isLoadingReport"
           class="grid gap-4 md:grid-cols-2"
         >
-          <Card
+          <div
             v-for="index in 4"
             :key="index"
+            class="space-y-3 rounded-lg border p-6"
           >
-            <CardContent class="space-y-3 p-6">
-              <Skeleton class="h-5 w-1/3" /><Skeleton class="h-4 w-full" /><Skeleton class="h-4 w-5/6" /><Skeleton class="h-32 w-full" />
-            </CardContent>
-          </Card>
+            <Skeleton class="h-5 w-1/3" /><Skeleton class="h-4 w-full" /><Skeleton class="h-4 w-5/6" /><Skeleton class="h-32 w-full" />
+          </div>
         </div>
         <div
           v-else-if="selectedReport"
           class="space-y-4 pb-8"
         >
-          <div class="flex flex-wrap items-center justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              :disabled="isAnalyzing || selectedReport.meta.id === undefined"
-              @click="handleReanalyze"
-            >
-              <RefreshCw />
-              {{ reportText.reanalyze }}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              :disabled="selectedReport.meta.id === undefined"
-              @click="handleAskFollowUp"
-            >
-              <MessageCircle />
-              追问 AI
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              :disabled="selectedReport.meta.id === undefined"
-              @click="unref(openMarkdownDrawer)()"
-            >
-              <FileText />
-              {{ reportText.fullReport }}
-            </Button>
+          <div class="flex flex-wrap items-center justify-end gap-2 border-b pb-4">
+              <Button
+                variant="default"
+                size="sm"
+                :disabled="isAnalyzing || selectedReport.meta.id === undefined"
+                @click="handleReanalyze"
+              >
+                <RefreshCw />
+                {{ reportText.reanalyze }}
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                :disabled="selectedReport.meta.id === undefined"
+                @click="handleAskFollowUp"
+              >
+                <MessageCircle />
+                追问 AI
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                :disabled="selectedReport.meta.id === undefined"
+                @click="unref(openMarkdownDrawer)()"
+              >
+                <FileText />
+                {{ reportText.fullReport }}
+              </Button>
           </div>
           <ReportSummary
             :data="selectedReport"

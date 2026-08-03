@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { isParsedApiError, type ParsedApiError } from '@/api/error';
 import LoadingButton from '@/components/app/LoadingButton.vue';
+import SettingsAlert from '@/components/settings/SettingsAlert.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/composables/useAuth';
 import { APP_NAME } from '@/config/app';
 import { Lock } from 'lucide-vue-next';
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 type LoginStep = 'email' | 'password' | 'setup';
@@ -106,45 +106,37 @@ async function handleSubmit(e: Event) {
   }
 }
 
-onMounted(() => {
-  document.documentElement.classList.add('login-page-active');
-});
-
-onUnmounted(() => {
-  document.documentElement.classList.remove('login-page-active');
-});
 </script>
 
 <template>
   <div
-    class="fixed inset-0 h-screen w-screen overflow-hidden bg-cover bg-center bg-no-repeat font-sans text-foreground"
+    class="fixed inset-0 min-h-screen overflow-y-auto bg-cover bg-center bg-no-repeat"
     style="background-image: url('/background.jpg')"
   >
-    <div
-      class="relative grid min-h-screen w-full grid-cols-1 place-items-center px-3 py-10 sm:px-4 lg:grid-cols-2 lg:px-6"
-    >
-      <div class="w-full max-w-[340px] shrink-0 -translate-y-4 sm:-translate-y-6 lg:col-start-2">
-        <div class="mb-6 flex items-center gap-2.5">
+    <div class="absolute inset-0 bg-black/30" />
+    <div class="relative grid min-h-screen place-items-center px-4 py-10 lg:grid-cols-2">
+      <div class="w-full max-w-sm lg:col-start-2">
+        <div class="mb-6 flex items-center gap-3">
           <span
-            class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm"
+            class="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white"
           >
             <img
               src="/flower.svg"
               alt=""
-              class="h-11 w-11"
+              class="size-10"
             />
           </span>
           <span
-            class="text-3xl font-semibold leading-none tracking-tight text-white [text-shadow:0_3px_12px_rgba(0,0,0,0.65)] sm:text-4xl"
+            class="text-2xl font-semibold tracking-tight text-white sm:text-3xl"
           >
             {{ APP_NAME }}
           </span>
         </div>
 
-        <Card class="shadow-xl">
+        <Card>
           <CardHeader>
             <CardTitle class="flex items-center gap-2">
-              <Lock class="h-4 w-4 text-muted-foreground" />
+              <Lock class="size-5 text-muted-foreground" />
               <span>{{ stepTitle }}</span>
             </CardTitle>
             <CardDescription>
@@ -211,23 +203,21 @@ onUnmounted(() => {
                 </template>
               </div>
 
-              <Alert
-                v-if="setupSuccessMessage"
-                variant="success"
-              >
-                <AlertTitle>设置成功</AlertTitle>
-                <AlertDescription>{{ setupSuccessMessage }}</AlertDescription>
-              </Alert>
+              <div v-if="setupSuccessMessage">
+                <SettingsAlert
+                  title="设置成功"
+                  :message="setupSuccessMessage"
+                  variant="success"
+                />
+              </div>
 
-              <Alert
-                v-if="error"
-                variant="destructive"
-              >
-                <AlertTitle>验证未通过</AlertTitle>
-                <AlertDescription>
-                  {{ isParsedApiError(error) ? error.message : String(error) }}
-                </AlertDescription>
-              </Alert>
+              <div v-if="error">
+                <SettingsAlert
+                  title="验证未通过"
+                  :message="isParsedApiError(error) ? error.message : String(error)"
+                  variant="error"
+                />
+              </div>
             </CardContent>
             <CardFooter class="flex-col gap-2">
               <LoadingButton
@@ -261,14 +251,3 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-:global(html.login-page-active) {
-  overflow: hidden;
-  scrollbar-gutter: auto;
-}
-
-:global(html.login-page-active body) {
-  overflow: hidden;
-}
-</style>

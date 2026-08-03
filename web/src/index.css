@@ -11,13 +11,16 @@
  */
 :root {
   color-scheme: light;
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'PingFang SC', 'Microsoft YaHei', sans-serif;
 
   --background: 0 0% 100%;
-  --foreground: 0 0% 9%;
+  --foreground: 0 0% 3.9%;
   --card: 0 0% 100%;
-  --card-foreground: 0 0% 9%;
+  --card-foreground: 0 0% 3.9%;
   --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 9%;
+  --popover-foreground: 0 0% 3.9%;
   --primary: 0 0% 9%;
   --primary-foreground: 0 0% 98%;
   --secondary: 0 0% 96.1%;
@@ -26,33 +29,29 @@
   --muted-foreground: 0 0% 45.1%;
   --accent: 0 0% 96.1%;
   --accent-foreground: 0 0% 9%;
-  --destructive: 0 72% 51%;
+  --destructive: 0 72.2% 50.6%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 89.8%;
   --input: 0 0% 89.8%;
-  --ring: 342 64% 68%;
+  --ring: 0 0% 3.9%;
   --radius: 0.625rem;
 
-  /* Brand: the project's light-pink identity color (flower logo, key CTAs). */
   --brand: 342 64% 68%;
   --brand-foreground: 0 0% 100%;
-
-  /* Financial direction and feedback colors carry stable domain meaning. */
-  --market-up: 0 72% 52%;
-  --market-down: 152 60% 38%;
   --success: 152 60% 38%;
   --warning: 36 92% 46%;
-  --info: 221 72% 48%;
+  --market-up: 0 72% 52%;
+  --market-down: 152 60% 38%;
 }
 
 .dark {
   color-scheme: dark;
 
-  --background: 0 0% 6.7%;
+  --background: 0 0% 3.9%;
   --foreground: 0 0% 98%;
-  --card: 0 0% 9.8%;
+  --card: 0 0% 6.5%;
   --card-foreground: 0 0% 98%;
-  --popover: 0 0% 9.8%;
+  --popover: 0 0% 6.5%;
   --popover-foreground: 0 0% 98%;
   --primary: 0 0% 98%;
   --primary-foreground: 0 0% 9%;
@@ -62,28 +61,23 @@
   --muted-foreground: 0 0% 63.9%;
   --accent: 0 0% 14.9%;
   --accent-foreground: 0 0% 98%;
-  --destructive: 0 68% 61%;
+  --destructive: 0 62.8% 50.6%;
   --destructive-foreground: 0 0% 98%;
-  --border: 0 0% 16.9%;
-  --input: 0 0% 20%;
-  --ring: 342 70% 72%;
+  --border: 0 0% 18%;
+  --input: 0 0% 18%;
+  --ring: 0 0% 83.1%;
 
   --brand: 342 70% 72%;
-  --brand-foreground: 0 0% 9%;
-
-  --market-up: 0 72% 64%;
-  --market-down: 152 55% 50%;
+  --brand-foreground: 230 25% 12%;
   --success: 152 55% 50%;
   --warning: 38 90% 58%;
-  --info: 217 80% 66%;
+  --market-up: 0 72% 64%;
+  --market-down: 152 55% 50%;
 }
 
 @theme inline {
-  --font-sans:
-    'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
-  --font-mono:
-    ui-monospace, 'SF Mono', 'Cascadia Mono', 'Segoe UI Mono', Menlo, Consolas, monospace;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -106,11 +100,10 @@
   --color-ring: hsl(var(--ring));
   --color-brand: hsl(var(--brand));
   --color-brand-foreground: hsl(var(--brand-foreground));
-  --color-market-up: hsl(var(--market-up));
-  --color-market-down: hsl(var(--market-down));
   --color-success: hsl(var(--success));
   --color-warning: hsl(var(--warning));
-  --color-info: hsl(var(--info));
+  --color-market-up: hsl(var(--market-up));
+  --color-market-down: hsl(var(--market-down));
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -126,7 +119,14 @@
   html {
     min-width: 320px;
     overflow-x: hidden;
+    scrollbar-gutter: stable;
     background: hsl(var(--background));
+  }
+
+  @supports not (scrollbar-gutter: stable) {
+    html {
+      overflow-y: scroll;
+    }
   }
 
   body {
@@ -149,16 +149,11 @@
   }
 
   ::selection {
-    background: hsl(var(--brand) / 0.25);
-  }
-
-  :focus-visible {
-    outline: 2px solid hsl(var(--ring));
-    outline-offset: 2px;
+    background: hsl(var(--brand) / 0.22);
   }
 }
 
-/* Rich API and chat output share this semantic document renderer. */
+/* Shared document rendering for report and chat Markdown. */
 .prose {
   color: hsl(var(--foreground));
   line-height: 1.75;
@@ -167,38 +162,23 @@
 
 .prose :where(h1, h2, h3) {
   margin: 1.25em 0 0.55em;
-  font-weight: 650;
-  line-height: 1.25;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
-.prose h1 {
-  font-size: 1.5rem;
-}
-.prose h2 {
-  font-size: 1.25rem;
-}
-.prose h3 {
-  font-size: 1.05rem;
-}
-.prose p {
-  margin: 0.65em 0;
-}
-.prose :where(ul, ol) {
-  margin: 0.65em 0;
-  padding-left: 1.4rem;
-}
-.prose ul {
-  list-style: disc;
-}
-.prose ol {
-  list-style: decimal;
-}
+.prose h1 { font-size: 1.5rem; }
+.prose h2 { font-size: 1.25rem; }
+.prose h3 { font-size: 1.125rem; }
+.prose p { margin: 0.65em 0; }
+.prose :where(ul, ol) { margin: 0.65em 0; padding-left: 1.4rem; }
+.prose ul { list-style: disc; }
+.prose ol { list-style: decimal; }
 .prose code {
-  border-radius: 0.35rem;
+  border-radius: calc(var(--radius) - 4px);
   background: hsl(var(--muted));
   padding: 0.1rem 0.3rem;
-  font-family: var(--font-mono);
-  font-size: 0.88em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875em;
 }
 .prose pre {
   margin: 0.8rem 0;
@@ -209,25 +189,10 @@
   background: hsl(var(--muted) / 0.55);
   padding: 0.9rem;
 }
-.prose pre code {
-  background: transparent;
-  padding: 0;
-}
-.prose table {
-  display: block;
-  max-width: 100%;
-  overflow-x: auto;
-  border-collapse: collapse;
-}
-.prose :where(th, td) {
-  border: 1px solid hsl(var(--border));
-  padding: 0.45rem 0.6rem;
-}
-.prose a {
-  color: hsl(var(--foreground));
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
+.prose pre code { background: transparent; padding: 0; }
+.prose table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.prose :where(th, td) { border: 1px solid hsl(var(--border)); padding: 0.45rem 0.6rem; }
+.prose a { font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
 
 @media (max-width: 639px) {
   [data-slot='dialog-content'] {

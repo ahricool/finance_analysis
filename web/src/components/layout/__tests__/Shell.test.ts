@@ -51,9 +51,9 @@ describe('Shell navigation', () => {
     'marks market navigation active on %s',
     async (path) => {
       const { wrapper } = await mountShell(path);
-      const marketLink = wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="市场"]');
-      expect(marketLink.attributes('aria-current')).toBe('page');
-      expect(marketLink.classes()).toContain('bg-muted');
+      const marketMenu = wrapper.get('button[aria-label="市场"]');
+      expect(marketMenu.attributes('aria-current')).toBe('page');
+      expect(marketMenu.classes()).toContain('bg-muted');
     },
   );
 
@@ -62,19 +62,22 @@ describe('Shell navigation', () => {
     '/market/backtests/123',
     '/market/quant/models',
     '/market/quant/signals/NVDA.US',
-  ])('marks only the research module active on %s', async (path) => {
+  ])('marks research navigation active on %s', async (path) => {
     const { wrapper } = await mountShell(path);
-    const activeLinks = wrapper.findAll('[data-testid="desktop-main-nav"] a[aria-current="page"]');
-    expect(activeLinks).toHaveLength(1);
-    expect(activeLinks[0].attributes('aria-label')).toBe('研究');
+    const researchMenu = wrapper.get('button[aria-label="研究"]');
+    expect(researchMenu.attributes('aria-current')).toBe('page');
+    expect(researchMenu.classes()).toContain('bg-muted');
   });
 
-  it.each(['/tasks', '/tasks/runs'])('marks the tasks entry active on %s', async (path) => {
-    const { wrapper } = await mountShell(path);
-    const activeLinks = wrapper.findAll('[data-testid="desktop-main-nav"] a[aria-current="page"]');
-    expect(activeLinks).toHaveLength(1);
-    expect(activeLinks[0].attributes('aria-label')).toBe('任务');
-  });
+  it.each(['/tasks', '/tasks/runs'])(
+    'marks the task navigation active on %s',
+    async (path) => {
+      const { wrapper } = await mountShell(path);
+      const taskLink = wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="任务"]');
+      expect(taskLink.attributes('aria-current')).toBe('page');
+      expect(taskLink.classes()).toContain('bg-muted');
+    },
+  );
 
   it('toggles dark mode from the keyboard-accessible checkbox menu item', async () => {
     useAuthStore().currentUser = {
@@ -103,31 +106,26 @@ describe('Shell navigation', () => {
     wrapper.unmount();
   });
 
-  it('opens the mobile navigation sheet with all destinations and closes it on navigation', async () => {
+  it('opens the mobile navigation sheet and supports route changes', async () => {
     const { router, wrapper } = await mountShell('/calendar');
-
-    await wrapper.get('[data-testid="mobile-nav-trigger"]').trigger('click');
+    await wrapper.get('button[aria-label="打开主导航"]').trigger('click');
 
     await vi.waitFor(() => {
-      expect(document.body.querySelector('[data-testid="mobile-main-nav"]')).not.toBeNull();
+      expect(document.body.querySelector('[data-testid="mobile-menu"]')).not.toBeNull();
     });
-
-    const mobileNav = document.body.querySelector<HTMLElement>('[data-testid="mobile-main-nav"]')!;
-    const labels = Array.from(mobileNav.querySelectorAll('a')).map((link) =>
-      link.getAttribute('aria-label'),
+    const calendarLink = document.body.querySelector<HTMLAnchorElement>(
+      '[data-testid="mobile-menu"] a[href="/calendar"]',
     );
-    expect(labels.slice(0, 6)).toEqual(['分析', '市场', '研究', '日历', '问股', '任务']);
-    expect(mobileNav.textContent).toContain('个人中心');
-    expect(
-      mobileNav.querySelector('a[aria-label="日历"]')?.getAttribute('aria-current'),
-    ).toBe('page');
+    const marketLink = document.body.querySelector<HTMLAnchorElement>(
+      '[data-testid="mobile-menu"] a[href="/market/watch-list"]',
+    );
+    expect(calendarLink?.getAttribute('aria-current')).toBe('page');
+    expect(marketLink).not.toBeNull();
 
-    mobileNav
-      .querySelector<HTMLAnchorElement>('a[aria-label="市场"]')!
-      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    marketLink!.click();
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/market/watch-list'));
     await vi.waitFor(() => {
-      expect(document.body.querySelector('[data-testid="mobile-main-nav"]')).toBeNull();
+      expect(document.body.querySelector('[data-testid="mobile-menu"]')).toBeNull();
     });
     wrapper.unmount();
   });
