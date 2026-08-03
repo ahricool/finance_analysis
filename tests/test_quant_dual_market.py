@@ -89,6 +89,9 @@ def test_quant_market_configuration_selects_cn_close_and_defaults():
     assert cn.market_close_time == time(15, 0)
     assert default_universe_for_market("CN") == "cn_csi300"
     assert cn.benchmark_dependencies == {"510300.SH", "159915.SZ"}
+    assert cn.label_benchmark == "510300.SH"
+    assert cn.regime_benchmarks == ("159915.SZ", "510300.SH")
+    assert us.label_benchmark == "SPY.US"
     assert not hasattr(cn, "risk_benchmark")
     assert DEFAULT_QUANT_UNIVERSES == {
         "US": "us_sp500",

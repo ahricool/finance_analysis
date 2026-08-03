@@ -170,7 +170,11 @@ def build_default_registry(
         _StreamingStateProvider(streaming_source),
         capabilities={MINUTE_BARS, REALTIME_QUOTES},
     )
-    registry.register("tickflow", TickFlowFreeProvider(), capabilities={DAILY_BARS, INSTRUMENT_INFO})
+    registry.register(
+        "tickflow",
+        TickFlowFreeProvider(),
+        capabilities={DAILY_BARS, INSTRUMENT_INFO, ADJUSTMENT_FACTORS},
+    )
     registry.register(
         "akshare",
         AkShareProvider(),

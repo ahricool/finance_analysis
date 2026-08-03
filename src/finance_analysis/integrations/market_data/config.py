@@ -42,7 +42,7 @@ DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
     (Market.CN, INSTRUMENT_INFO): ("database", "tickflow", "longbridge", "pytdx", "akshare", "yfinance"),
     (Market.US, INSTRUMENT_INFO): ("database", "tickflow", "longbridge", "yfinance", "akshare"),
     (Market.HK, INSTRUMENT_INFO): ("database", "tickflow", "longbridge", "akshare", "yfinance"),
-    (Market.CN, ADJUSTMENT_FACTORS): ("akshare",),
+    (Market.CN, ADJUSTMENT_FACTORS): ("akshare", "tickflow", "yfinance"),
     (Market.US, ADJUSTMENT_FACTORS): ("yfinance",),
     (Market.HK, ADJUSTMENT_FACTORS): ("akshare", "yfinance"),
 }

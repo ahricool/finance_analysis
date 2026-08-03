@@ -181,7 +181,7 @@ class QlibDatasetExporter:
                 "source_revision": source_revision,
                 "code_commit": _git_commit(),
                 "created_at": utc_isoformat(utc_now()),
-                "market_benchmark": market_config.primary_benchmark,
+                "market_benchmark": market_config.label_benchmark,
                 "vwap": vwap_report,
                 "warnings": report["warnings"],
             }
