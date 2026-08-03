@@ -25,7 +25,7 @@ function setTimezone(value: DisplayTimezone) {
 </script>
 
 <template>
-  <DropdownMenu>
+  <DropdownMenu :modal="false">
     <DropdownMenuTrigger as-child>
       <Button
         variant="ghost"

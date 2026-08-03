@@ -76,7 +76,10 @@ watch(
 <template>
   <div class="flex min-h-screen flex-col bg-background text-foreground">
     <header class="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div class="mx-auto flex h-14 w-full max-w-7xl items-center gap-2 px-4 sm:px-6">
+      <div
+        class="mx-auto flex h-14 w-full max-w-7xl items-center gap-2 px-4 sm:px-6"
+        data-testid="shell-header-content"
+      >
         <Button
           variant="ghost"
           size="icon"
@@ -104,7 +107,10 @@ watch(
           data-testid="desktop-main-nav"
         >
           <template v-for="item in mainNavItems" :key="item.key">
-            <DropdownMenu v-if="item.children">
+            <DropdownMenu
+              v-if="item.children"
+              :modal="false"
+            >
               <DropdownMenuTrigger as-child>
                 <Button
                   variant="ghost"
@@ -154,7 +160,10 @@ watch(
 
         <div class="ml-auto flex items-center gap-1">
           <TimezoneSwitcher />
-          <DropdownMenu v-if="currentUser">
+          <DropdownMenu
+            v-if="currentUser"
+            :modal="false"
+          >
             <DropdownMenuTrigger as-child>
               <Button variant="ghost" size="icon" aria-label="打开用户菜单" class="rounded-full">
                 <Avatar class="size-8 border">

@@ -101,6 +101,32 @@ test.describe('web smoke', () => {
     await expect(page.locator('html')).toHaveCSS('scrollbar-gutter', 'stable');
   });
 
+  test('header dropdown menus do not shift the page while opening', async ({ page }) => {
+    await mockAuthenticatedSession(page);
+    await page.setViewportSize({ width: 1440, height: 800 });
+    await page.goto('/calendar');
+
+    const headerContent = page.getByTestId('shell-header-content');
+    const initialBox = await headerContent.boundingBox();
+    expect(initialBox).not.toBeNull();
+
+    for (const label of ['市场', '研究', '切换展示时区', '打开用户菜单']) {
+      await page.getByRole('button', { name: label, exact: true }).click();
+      await expect(page.getByRole('menu')).toBeVisible();
+
+      expect(await headerContent.boundingBox()).toEqual(initialBox);
+      expect(
+        await page.evaluate(() => ({
+          overflow: document.body.style.overflow,
+          paddingRight: document.body.style.paddingRight,
+        })),
+      ).toEqual({ overflow: '', paddingRight: '' });
+
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('menu')).toBeHidden();
+    }
+  });
+
   test('login page renders the email step', async ({ page }) => {
     await page.route('**/api/v1/auth/status', (route) =>
       route.fulfill({
