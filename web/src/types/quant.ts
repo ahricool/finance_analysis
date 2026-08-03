@@ -62,6 +62,7 @@ export interface QuantDatasetSnapshot {
 }
 export interface DatasetBuildAccepted { taskId: string; status: string; market: QuantMarket; universe: string }
 export interface ModelRunCreateAccepted { modelRunId: number; taskId: string; status: 'pending'; market: QuantMarket }
+export interface QuantDeleteResult { id: number; deleted: boolean; artifactDeleted: boolean }
 export interface ModelRunCreatePayload {
   market: QuantMarket;
   modelKey: 'cross_section_lgbm' | 'time_series_lgbm';

@@ -10,9 +10,19 @@ import QuantDatasetsPage from '../quant/QuantDatasetsPage.vue';
 vi.mock('@/api/quant', () => ({
   quantApi: {
     datasets: vi.fn(),
+    deleteDataset: vi.fn(),
     buildDataset: vi.fn(),
     modelDefinitions: vi.fn(),
     createModelRun: vi.fn(),
+  },
+}));
+
+vi.mock('@/components/app/AppConfirmDialog.vue', () => ({
+  default: {
+    props: ['open', 'title', 'description'],
+    emits: ['update:open', 'confirm'],
+    template:
+      '<div v-if="open" role="alertdialog"><h2>{{ title }}</h2><p>{{ description }}</p><button data-testid="confirm-delete" @click="$emit(\'confirm\'); $emit(\'update:open\', false)">确认删除</button></div>',
   },
 }));
 
@@ -128,6 +138,7 @@ describe('QuantDatasetsPage', () => {
     vi.setSystemTime(new Date(2026, 6, 22, 15, 30));
     vi.clearAllMocks();
     vi.mocked(quantApi.datasets).mockResolvedValue(snapshots);
+    vi.mocked(quantApi.deleteDataset).mockResolvedValue({ id: 8, deleted: true, artifactDeleted: true });
     vi.mocked(quantApi.modelDefinitions).mockResolvedValue([
       {
         id: 1,
@@ -210,5 +221,20 @@ describe('QuantDatasetsPage', () => {
     expect((selected.element as HTMLInputElement).checked).toBe(true);
     expect(wrapper.get('[role="dialog"]').text()).toContain('由所选数据集确定');
     expect(wrapper.find('[data-testid="dataset-date-from"]').exists()).toBe(false);
+  });
+
+  it('confirms deletion, removes the row, and keeps active datasets protected', async () => {
+    const { wrapper } = await mountPage();
+
+    expect(wrapper.get('[data-testid="delete-dataset-9"]').attributes('disabled')).toBeDefined();
+    await wrapper.get('[data-testid="delete-dataset-desktop-8"]').trigger('click');
+    expect(wrapper.get('[role="alertdialog"]').text()).toContain('数据库记录和 /data 下对应制品');
+    await wrapper.get('[data-testid="confirm-delete"]').trigger('click');
+    await flushPromises();
+
+    expect(quantApi.deleteDataset).toHaveBeenCalledWith(8, 'CN');
+    expect(wrapper.text()).toContain('数据集 #8 及其制品已删除');
+    expect(wrapper.find('[data-testid="delete-dataset-desktop-8"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="delete-dataset-9"]').exists()).toBe(true);
   });
 });

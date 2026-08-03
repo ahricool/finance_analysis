@@ -4,15 +4,25 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { quantApi } from '@/api/quant';
 import { useAuthStore } from '@/stores/authStore';
-import type { QuantDatasetSnapshot } from '@/types/quant';
+import type { ModelRun, QuantDatasetSnapshot } from '@/types/quant';
 import QuantModelsPage from '../quant/QuantModelsPage.vue';
 
 vi.mock('@/api/quant', () => ({
   quantApi: {
     models: vi.fn(),
+    deleteModelRun: vi.fn(),
     modelDefinitions: vi.fn(),
     datasets: vi.fn(),
     createModelRun: vi.fn(),
+  },
+}));
+
+vi.mock('@/components/app/AppConfirmDialog.vue', () => ({
+  default: {
+    props: ['open', 'title', 'description'],
+    emits: ['update:open', 'confirm'],
+    template:
+      '<div v-if="open" role="alertdialog"><h2>{{ title }}</h2><p>{{ description }}</p><button data-testid="confirm-delete" @click="$emit(\'confirm\'); $emit(\'update:open\', false)">确认删除</button></div>',
   },
 }));
 
@@ -61,6 +71,49 @@ const readyDataset: QuantDatasetSnapshot = {
   finishedAt: '2026-07-22T06:31:00Z',
 };
 
+const modelRuns: ModelRun[] = [
+  {
+    id: 21,
+    modelKey: 'cross_section_lgbm',
+    modelVersion: 'candidate-v1',
+    runType: 'train',
+    market: 'CN',
+    status: 'candidate',
+    progress: 100,
+    trainStart: '2021-01-01',
+    trainEnd: '2025-01-01',
+    validStart: null,
+    validEnd: null,
+    testStart: null,
+    testEnd: '2026-01-01',
+    metrics: { rankIc: 0.08, top10ExcessReturnPct: 3.2 },
+    warnings: [],
+    error: null,
+    artifactUri: 'quant://models/21',
+    createdAt: '2026-07-22T06:30:00Z',
+  },
+  {
+    id: 22,
+    modelKey: 'time_series_lgbm',
+    modelVersion: 'production-v1',
+    runType: 'train',
+    market: 'CN',
+    status: 'production',
+    progress: 100,
+    trainStart: '2021-01-01',
+    trainEnd: '2025-01-01',
+    validStart: null,
+    validEnd: null,
+    testStart: null,
+    testEnd: '2026-01-01',
+    metrics: {},
+    warnings: [],
+    error: null,
+    artifactUri: 'quant://models/22',
+    createdAt: '2026-07-22T06:30:00Z',
+  },
+];
+
 async function mountPage(role: 'admin' | 'user') {
   const pinia = createPinia();
   const auth = useAuthStore(pinia);
@@ -96,6 +149,7 @@ describe('QuantModelsPage training entry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(quantApi.models).mockResolvedValue([]);
+    vi.mocked(quantApi.deleteModelRun).mockResolvedValue({ id: 21, deleted: true, artifactDeleted: true });
     vi.mocked(quantApi.modelDefinitions).mockResolvedValue([
       {
         id: 1,
@@ -196,5 +250,21 @@ describe('QuantModelsPage training entry', () => {
 
     expect(router.currentRoute.value.path).toBe('/market/quant/datasets');
     expect(router.currentRoute.value.query).toMatchObject({ market: 'CN', build: '1' });
+  });
+
+  it('deletes a candidate run with confirmation and protects production', async () => {
+    vi.mocked(quantApi.models).mockResolvedValue(modelRuns);
+    const { wrapper } = await mountPage('admin');
+
+    expect(wrapper.get('[data-testid="delete-model-run-22"]').attributes('disabled')).toBeDefined();
+    await wrapper.get('[data-testid="delete-model-run-21"]').trigger('click');
+    expect(wrapper.get('[role="alertdialog"]').text()).toContain('预测和发布关联记录');
+    await wrapper.get('[data-testid="confirm-delete"]').trigger('click');
+    await flushPromises();
+
+    expect(quantApi.deleteModelRun).toHaveBeenCalledWith(21, 'CN');
+    expect(wrapper.text()).toContain('模型运行 #21 及其制品已删除');
+    expect(wrapper.find('[data-testid="delete-model-run-21"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="delete-model-run-22"]').exists()).toBe(true);
   });
 });

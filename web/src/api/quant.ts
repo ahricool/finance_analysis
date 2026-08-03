@@ -10,6 +10,7 @@ import type {
   Portfolio,
   QuantCapabilities,
   QuantDatasetSnapshot,
+  QuantDeleteResult,
   QuantMarket,
   QuantModelDefinition,
   QuantSignal,
@@ -67,6 +68,12 @@ export const quantApi = {
     const { data } = await apiClient.get('/api/v1/quant/datasets', { params: withMarket(market) });
     return toCamelCase(data);
   },
+  async deleteDataset(id: number, market: QuantMarket = 'US'): Promise<QuantDeleteResult> {
+    const { data } = await apiClient.delete(`/api/v1/quant/datasets/${id}`, {
+      params: withMarket(market),
+    });
+    return toCamelCase(data);
+  },
   async buildDataset(
     market: QuantMarket,
     dateFrom: string,
@@ -90,6 +97,12 @@ export const quantApi = {
   },
   async model(id: number, market: QuantMarket = 'US'): Promise<ModelRun> {
     const { data } = await apiClient.get(`/api/v1/quant/model-runs/${id}`, { params: withMarket(market) });
+    return toCamelCase(data);
+  },
+  async deleteModelRun(id: number, market: QuantMarket = 'US'): Promise<QuantDeleteResult> {
+    const { data } = await apiClient.delete(`/api/v1/quant/model-runs/${id}`, {
+      params: withMarket(market),
+    });
     return toCamelCase(data);
   },
   async publish(id: number, reason: string, market: QuantMarket = 'US'): Promise<ModelRun> {

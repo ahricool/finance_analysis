@@ -165,6 +165,34 @@ class QuantRepository:
                 session.expunge(row)
             return row
 
+    def delete_dataset(self, snapshot_id: int, market: str, universe_id: int) -> dict[str, Any] | None:
+        """Delete an idle dataset that is not referenced by any model run."""
+        with self.db.session_scope() as session:
+            row = session.execute(
+                select(QuantDatasetSnapshot)
+                .where(
+                    QuantDatasetSnapshot.id == snapshot_id,
+                    QuantDatasetSnapshot.market == market.upper(),
+                    QuantDatasetSnapshot.universe_id == universe_id,
+                )
+                .with_for_update()
+            ).scalar_one_or_none()
+            if not row:
+                return None
+            if row.status in {"pending", "building"}:
+                raise ValueError("A pending or building dataset cannot be deleted")
+            referenced_run_id = session.execute(
+                select(ModelRun.id).where(ModelRun.dataset_snapshot_id == snapshot_id).limit(1)
+            ).scalar_one_or_none()
+            if referenced_run_id is not None:
+                raise ValueError(
+                    f"Dataset is referenced by model run {referenced_run_id}; delete its model runs first"
+                )
+            result = {"id": row.id, "artifact_uri": row.artifact_uri}
+            session.delete(row)
+            session.flush()
+            return result
+
     def upsert_daily_features(self, model, constraint: str, values: list[dict[str, Any]], key_fields: set[str]) -> None:
         with self.db.session_scope() as session:
             for value in values:
@@ -328,6 +356,30 @@ class QuantRepository:
         with self.db.get_session() as session:
             rows = list(session.execute(select(ModelRun).where(*clauses).order_by(desc(ModelRun.created_at)).limit(limit)).scalars())
             return self._detach(session, rows)
+
+    def delete_model_run(self, run_id: int, market: str, universe_id: int) -> dict[str, Any] | None:
+        """Delete a non-running, non-production model run and its dependent rows."""
+        with self.db.session_scope() as session:
+            row = session.execute(
+                select(ModelRun)
+                .where(
+                    ModelRun.id == run_id,
+                    ModelRun.market == market.upper(),
+                    ModelRun.universe_id == universe_id,
+                )
+                .with_for_update()
+            ).scalar_one_or_none()
+            if not row:
+                return None
+            if row.status in {"draft", "training"}:
+                raise ValueError("A draft or training model run cannot be deleted")
+            if row.status == "production":
+                raise ValueError("A production model run cannot be deleted")
+            result = {"id": row.id, "artifact_uri": row.artifact_uri}
+            session.execute(delete(ModelPublication).where(ModelPublication.model_run_id == run_id))
+            session.delete(row)
+            session.flush()
+            return result
 
     def publish_model(self, run_id: int, user_id: int, reason: str) -> ModelRun:
         with self.db.session_scope() as session:

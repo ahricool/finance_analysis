@@ -2,6 +2,7 @@
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import { quantApi } from '@/api/quant';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import QuantDatasetBuildDialog from '@/components/quant/QuantDatasetBuildDialog.vue';
@@ -34,6 +35,9 @@ const buildOpen = ref(false);
 const trainingOpen = ref(false);
 const trainingDatasetId = ref<number | null>(null);
 const submittedBuild = ref<DatasetBuildAccepted | null>(null);
+const deleteTarget = ref<QuantDatasetSnapshot | null>(null);
+const deletingId = ref<number | null>(null);
+const deleteSuccess = ref<string | null>(null);
 const isAdmin = computed(() => auth.currentUser?.role === 'admin');
 let requestVersion = 0;
 
@@ -75,6 +79,33 @@ function validationText(item: QuantDatasetSnapshot): string {
 
 function canTrain(item: QuantDatasetSnapshot): boolean {
   return item.trainable;
+}
+
+function canDelete(item: QuantDatasetSnapshot): boolean {
+  return item.status !== 'pending' && item.status !== 'building';
+}
+
+function requestDelete(item: QuantDatasetSnapshot): void {
+  if (!canDelete(item)) return;
+  deleteTarget.value = item;
+}
+
+async function confirmDelete(): Promise<void> {
+  const item = deleteTarget.value;
+  if (!item || deletingId.value !== null) return;
+  deleteTarget.value = null;
+  deletingId.value = item.id;
+  error.value = null;
+  deleteSuccess.value = null;
+  try {
+    await quantApi.deleteDataset(item.id, item.market);
+    rows.value = rows.value.filter((row) => row.id !== item.id);
+    deleteSuccess.value = `数据集 #${item.id} 及其制品已删除。`;
+  } catch (err) {
+    error.value = getParsedApiError(err);
+  } finally {
+    deletingId.value = null;
+  }
 }
 
 async function load(current = market.value): Promise<void> {
@@ -166,6 +197,15 @@ watch(
       @dismiss="error = null"
     />
     <Alert
+      v-if="deleteSuccess"
+      variant="success"
+    >
+      <AlertTitle>删除成功</AlertTitle>
+      <AlertDescription class="text-current/80">
+        {{ deleteSuccess }}
+      </AlertDescription>
+    </Alert>
+    <Alert
       v-if="submittedBuild"
       variant="success"
     >
@@ -250,22 +290,33 @@ watch(
               {{ validationText(item) }}
             </p>
           </CardContent>
-          <CardFooter>
+          <CardFooter class="gap-2">
             <Button
               v-if="canTrain(item) && isAdmin"
               variant="secondary"
               size="sm"
-              class="w-full"
+              class="flex-1"
               @click="openTraining(item)"
             >
               使用此数据集训练
             </Button>
             <p
               v-else
-              class="w-full text-center text-xs text-muted-foreground"
+              class="flex-1 text-center text-xs text-muted-foreground"
             >
               当前数据集不可训练
             </p>
+            <Button
+              v-if="isAdmin"
+              variant="destructive"
+              size="sm"
+              :disabled="!canDelete(item) || deletingId === item.id"
+              :title="canDelete(item) ? '删除数据集' : '等待中或构建中的数据集不能删除'"
+              :data-testid="`delete-dataset-${item.id}`"
+              @click="requestDelete(item)"
+            >
+              {{ deletingId === item.id ? '删除中…' : '删除' }}
+            </Button>
           </CardFooter>
         </Card>
       </div>
@@ -377,32 +428,45 @@ watch(
                   <span class="line-clamp-3 break-all">{{ validationText(item) }}</span>
                 </TableCell>
                 <TableCell class="whitespace-nowrap px-3 py-4">
-                  <Button
-                    v-if="canTrain(item) && isAdmin"
-                    variant="secondary"
-                    size="sm"
-                    :data-testid="`train-with-dataset-${item.id}`"
-                    @click="openTraining(item)"
-                  >
-                    使用此数据集训练
-                  </Button>
-                  <span
-                    v-else-if="item.status === 'ready' && !item.artifactUri"
-                    class="text-xs text-warning"
-                  >缺少数据制品</span>
-                  <span
-                    v-else-if="
-                      item.status === 'ready' &&
-                        item.universeCoverageRatio < item.minimumUniverseCoverage
-                    "
-                    class="text-xs text-warning"
-                  >
-                    Universe 覆盖率低于 {{ (item.minimumUniverseCoverage * 100).toFixed(0) }}%
-                  </span>
-                  <span
-                    v-else
-                    class="text-xs text-muted-foreground"
-                  >不可训练</span>
+                  <div class="flex items-center gap-2">
+                    <Button
+                      v-if="canTrain(item) && isAdmin"
+                      variant="secondary"
+                      size="sm"
+                      :data-testid="`train-with-dataset-${item.id}`"
+                      @click="openTraining(item)"
+                    >
+                      使用此数据集训练
+                    </Button>
+                    <span
+                      v-else-if="item.status === 'ready' && !item.artifactUri"
+                      class="text-xs text-warning"
+                    >缺少数据制品</span>
+                    <span
+                      v-else-if="
+                        item.status === 'ready' &&
+                          item.universeCoverageRatio < item.minimumUniverseCoverage
+                      "
+                      class="text-xs text-warning"
+                    >
+                      Universe 覆盖率低于 {{ (item.minimumUniverseCoverage * 100).toFixed(0) }}%
+                    </span>
+                    <span
+                      v-else
+                      class="text-xs text-muted-foreground"
+                    >不可训练</span>
+                    <Button
+                      v-if="isAdmin"
+                      variant="destructive"
+                      size="sm"
+                      :disabled="!canDelete(item) || deletingId === item.id"
+                      :title="canDelete(item) ? '删除数据集' : '等待中或构建中的数据集不能删除'"
+                      :data-testid="`delete-dataset-desktop-${item.id}`"
+                      @click="requestDelete(item)"
+                    >
+                      {{ deletingId === item.id ? '删除中…' : '删除' }}
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             </TableBody>
@@ -437,6 +501,15 @@ watch(
       @update:open="trainingOpen = false"
       @created="handleTrainingCreated"
       @open-dataset-builder="openDatasetBuilder"
+    />
+    <AppConfirmDialog
+      :open="deleteTarget !== null"
+      title="删除数据集"
+      :description="`确认删除数据集 #${deleteTarget?.id ?? ''}？数据库记录和 /data 下对应制品会一并删除；若模型运行仍在引用它，删除会被拒绝。`"
+      confirm-text="确认删除"
+      destructive
+      @update:open="deleteTarget = $event ? deleteTarget : null"
+      @confirm="confirmDelete"
     />
   </div>
 </template>
