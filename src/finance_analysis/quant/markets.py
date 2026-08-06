@@ -24,23 +24,24 @@ class QuantMarketConfig:
     market_open_time: time
     default_universe: str
     label_benchmark: str
-    regime_benchmarks: tuple[str, str]
+    primary_benchmark: str
+    broad_benchmark: str
+    style_benchmark: str
 
     @property
     def calendar_market(self) -> str:
         return self.market.lower()
 
     @property
-    def primary_benchmark(self) -> str:
-        return self.regime_benchmarks[0]
-
-    @property
-    def broad_benchmark(self) -> str:
-        return self.regime_benchmarks[1]
+    def regime_benchmarks(self) -> tuple[str, str]:
+        """Compatibility view for callers that still consume the benchmark pair."""
+        return self.primary_benchmark, self.broad_benchmark
 
     @property
     def benchmark_dependencies(self) -> frozenset[str]:
-        return frozenset((*self.regime_benchmarks, self.label_benchmark))
+        return frozenset(
+            (self.primary_benchmark, self.broad_benchmark, self.label_benchmark, self.style_benchmark)
+        )
 
 
 QUANT_MARKETS = {
@@ -51,7 +52,9 @@ QUANT_MARKETS = {
         market_open_time=time(9, 30),
         default_universe=DEFAULT_QUANT_UNIVERSES["US"],
         label_benchmark="SPY.US",
-        regime_benchmarks=("QQQ.US", "SPY.US"),
+        primary_benchmark="QQQ.US",
+        broad_benchmark="SPY.US",
+        style_benchmark="QQQ.US",
     ),
     "CN": QuantMarketConfig(
         market="CN",
@@ -60,7 +63,9 @@ QUANT_MARKETS = {
         market_open_time=time(9, 30),
         default_universe=DEFAULT_QUANT_UNIVERSES["CN"],
         label_benchmark="510300.SH",
-        regime_benchmarks=("159915.SZ", "510300.SH"),
+        primary_benchmark="510300.SH",
+        broad_benchmark="510300.SH",
+        style_benchmark="159915.SZ",
     ),
 }
 

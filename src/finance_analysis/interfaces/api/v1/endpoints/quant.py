@@ -88,6 +88,16 @@ def _dataset_payload(row) -> dict:
     }
 
 
+def _market_regime_payload(row) -> dict:
+    """Expose the persisted v2 score explanation while preserving legacy snapshots."""
+    payload = encoded(row)
+    features = payload.get("features") if isinstance(payload, dict) else None
+    payload["score_breakdown"] = (
+        features.get("score_breakdown") if isinstance(features, dict) else None
+    )
+    return payload
+
+
 def _remove_artifact(artifact_uri: str | None) -> bool:
     if not artifact_uri:
         return False
@@ -218,7 +228,7 @@ async def latest_market_regime(market: QuantMarket = "US", _: User = Depends(req
     rows = QuantRepository().market_regimes(market, limit=1)
     if not rows:
         raise HTTPException(404, f"{market} market regime not available")
-    return encoded(rows[0])
+    return _market_regime_payload(rows[0])
 
 
 @router.get("/market-regime/history")
@@ -229,14 +239,15 @@ async def market_regime_history(
     model_version: str | None = None,
     _: User = Depends(require_current_user),
 ):
-    return encoded(
-        QuantRepository().market_regimes(
+    return [
+        _market_regime_payload(row)
+        for row in QuantRepository().market_regimes(
             market,
             date_from,
             date_to,
             model_version=model_version,
         )
-    )
+    ]
 
 
 @router.get("/sectors/ranking")

@@ -99,6 +99,8 @@ class DailyResearchService:
                 market_config.primary_benchmark,
                 market_config.broad_benchmark,
             ),
+            style=frames[market_config.style_benchmark],
+            style_label=market_config.style_benchmark,
         )
         regime = self.repository.save_market_regime(
             {

@@ -32,7 +32,7 @@ def _member(code: str, symbol_id: int):
     )
 
 
-def test_daily_research_uses_primary_and_broad_benchmarks_without_removed_risk_config(
+def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
     monkeypatch,
 ) -> None:
     dates = pd.bdate_range(end=TRADE_DATE, periods=90)
@@ -74,16 +74,27 @@ def test_daily_research_uses_primary_and_broad_benchmarks_without_removed_risk_c
     ]
     captured = {}
 
-    class TwoBenchmarkRegimeService:
+    class MarketRegimeServiceStub:
         def __init__(self, _config):
             pass
 
-        def calculate(self, primary, broad, universe, *, benchmark_labels):
+        def calculate(
+            self,
+            primary,
+            broad,
+            universe,
+            *,
+            benchmark_labels,
+            style,
+            style_label,
+        ):
             captured.update(
                 primary=primary,
                 broad=broad,
                 universe=universe,
                 benchmark_labels=benchmark_labels,
+                style=style,
+                style_label=style_label,
             )
             return SimpleNamespace(
                 regime="neutral",
@@ -104,7 +115,7 @@ def test_daily_research_uses_primary_and_broad_benchmarks_without_removed_risk_c
     )
     monkeypatch.setattr(
         "finance_analysis.quant.features.service.MarketRegimeService",
-        TwoBenchmarkRegimeService,
+        MarketRegimeServiceStub,
     )
 
     service = DailyResearchService(repository, symbol_repository)
@@ -115,7 +126,10 @@ def test_daily_research_uses_primary_and_broad_benchmarks_without_removed_risk_c
     service.config = replace(service.config, minimum_universe_coverage=0.5)
     result = service.run("CN", "cn_csi300", TRADE_DATE)
 
-    assert captured["benchmark_labels"] == ("159915.SZ", "510300.SH")
+    assert captured["benchmark_labels"] == ("510300.SH", "510300.SH")
+    assert captured["style_label"] == "159915.SZ"
+    assert captured["primary"]["close"].iloc[-1] == captured["broad"]["close"].iloc[-1]
+    assert captured["style"]["close"].iloc[-1] != captured["primary"]["close"].iloc[-1]
     assert set(captured["universe"]) == {"600519.SH"}
     assert result["feature_count"] == 1
     assert result["coverage"]["coverage_ratio"] == pytest.approx(0.5)

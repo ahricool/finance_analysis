@@ -70,7 +70,43 @@ export interface ModelRunCreatePayload {
   modelVersion: string;
   datasetSnapshotId: number;
 }
-export interface MarketRegime { id: number; tradeDate: string; market: string; modelVersion: string; regime: 'risk_on'|'neutral'|'risk_off'; marketScore: number; maxEquityExposure: number; features: Record<string, number|null>; reasons: string[] }
+export interface MarketScoreComponent {
+  key: string;
+  label: string;
+  group: string;
+  groupLabel: string;
+  rawValue: number;
+  rawFormat: 'percent' | 'number';
+  score: number;
+  weight: number;
+  contribution: number;
+}
+export interface MarketScoreGroup {
+  key: string;
+  label: string;
+  weight: number;
+  score: number;
+  contribution: number;
+  components: MarketScoreComponent[];
+}
+export interface MarketScoreBreakdown {
+  version: string;
+  score: number;
+  weightTotal: number;
+  groups: MarketScoreGroup[];
+}
+export interface MarketRegime {
+  id: number;
+  tradeDate: string;
+  market: string;
+  modelVersion: string;
+  regime: 'risk_on'|'neutral'|'risk_off';
+  marketScore: number;
+  maxEquityExposure: number;
+  features: Record<string, unknown>;
+  reasons: string[];
+  scoreBreakdown: MarketScoreBreakdown | null;
+}
 export interface SectorRegime { market: QuantMarket; tradeDate: string; sectorKey: string; benchmarkCode: string; benchmarkName: string|null; sectorScore: number; rank: number; state: string; features: Record<string, number|null> }
 export interface QuantSignal { id: number; tradeDate: string; market: QuantMarket; code: string; name:string|null; modelVersion: string; finalScore: number; rawFinalScore: number; gatedFinalScore: number; marketScore: number|null; sectorScore: number|null; timeSeriesScore: number|null; crossSectionScore: number|null; riskPenalty: number; universeRank: number|null; sectorRank: number|null; predictedReturn: number|null; signal: string; targetPosition: number; vetoed: boolean; vetoReason: string|null; reasons: string[]; scoreComponents: Record<string, number|null> }
 export interface SignalRanking { tradeDate: string|null; market: QuantMarket; universe: string; modelVersion: string|null; marketRegime: string|null; maxEquityExposure: number|null; items: QuantSignal[] }
