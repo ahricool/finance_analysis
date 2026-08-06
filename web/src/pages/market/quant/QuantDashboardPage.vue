@@ -2,6 +2,7 @@
 import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import MarketScoreBreakdown from '@/components/quant/MarketScoreBreakdown.vue';
 import MarketScoreChart from '@/components/quant/MarketScoreChart.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -121,6 +122,29 @@ watch(
           </CardHeader>
         </Card>
       </section>
+      <Card>
+        <CardHeader>
+          <CardTitle>市场得分拆解</CardTitle>
+          <CardDescription>
+            原始指标先标准化到 0–1，再按权重汇总；贡献之和等于市场得分。
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <MarketScoreBreakdown
+            v-if="regime?.scoreBreakdown"
+            :breakdown="regime.scoreBreakdown"
+          />
+          <Empty
+            v-else
+            data-testid="market-score-breakdown-empty"
+          >
+            <EmptyHeader>
+              <EmptyTitle>暂无市场得分拆解</EmptyTitle>
+              <EmptyDescription>旧版历史快照仍可读取，但没有保存结构化评分分项。</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader><CardTitle>市场得分历史</CardTitle><CardDescription>观察市场状态的时间序列变化。</CardDescription></CardHeader>
         <CardContent>

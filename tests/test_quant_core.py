@@ -74,6 +74,79 @@ def test_market_regime_uses_primary_relative_to_broad_without_risk_benchmark():
     assert json.loads(json.dumps(result.features))["universe_20d_high_count"] == 1
 
 
+def test_cn_market_regime_score_uses_csi300_trend_and_growth_style() -> None:
+    csi300 = daily_frame(drift=0.5)
+    growth = daily_frame(drift=1.5)
+    members = {
+        "600519.SH": daily_frame(drift=0.8),
+        "000001.SZ": daily_frame(drift=-0.1),
+    }
+
+    result = MarketRegimeService().calculate(
+        csi300,
+        csi300,
+        members,
+        benchmark_labels=("510300.SH", "510300.SH"),
+        style=growth,
+        style_label="159915.SZ",
+    )
+
+    assert result.features["primary_benchmark"] == "510300.SH"
+    assert result.features["style_benchmark"] == "159915.SZ"
+    assert result.features["style_relative_broad_20d"] > 0
+    breakdown = result.features["score_breakdown"]
+    components = [component for group in breakdown["groups"] for component in group["components"]]
+    assert {component["key"] for component in components} == {
+        "trend_ma20",
+        "trend_ma60",
+        "momentum_20d",
+        "breadth_up",
+        "breadth_ma20",
+        "breadth_ma60",
+        "realized_volatility_20d",
+        "max_drawdown_60d",
+        "style_relative_20d",
+    }
+    assert sum(component["weight"] for component in components) == pytest.approx(1.0)
+    assert sum(component["contribution"] for component in components) == pytest.approx(
+        result.market_score
+    )
+    assert breakdown["score"] == pytest.approx(result.market_score)
+    assert 0 <= result.market_score <= 1
+
+
+def test_market_score_to_exposure_is_continuous_around_regime_thresholds() -> None:
+    service = MarketRegimeService()
+
+    assert service.max_equity_exposure(0) == pytest.approx(0.10)
+    assert service.max_equity_exposure(1) == pytest.approx(0.80)
+    assert service.max_equity_exposure(0.3499) < service.max_equity_exposure(0.3501)
+    assert service.max_equity_exposure(0.6499) < service.max_equity_exposure(0.6501)
+    assert service.max_equity_exposure(0.3501) - service.max_equity_exposure(0.3499) < 0.001
+    assert service.max_equity_exposure(0.6501) - service.max_equity_exposure(0.6499) < 0.001
+
+
+def test_us_market_regime_keeps_qqq_spy_contract_and_returns_valid_breakdown() -> None:
+    qqq = daily_frame(drift=2.0)
+    spy = daily_frame(drift=1.0)
+
+    result = MarketRegimeService().calculate(
+        qqq,
+        spy,
+        {"AAPL.US": qqq},
+        benchmark_labels=("QQQ.US", "SPY.US"),
+        style=qqq,
+        style_label="QQQ.US",
+    )
+
+    assert result.features["primary_benchmark"] == "QQQ.US"
+    assert result.features["broad_benchmark"] == "SPY.US"
+    assert result.features["style_relative_broad_20d"] > 0
+    assert result.regime in {"risk_on", "neutral", "risk_off"}
+    assert 0 <= result.market_score <= 1
+    assert 0.10 <= result.max_equity_exposure <= 0.80
+
+
 def test_walk_forward_has_purge_and_embargo_gaps():
     config = WalkForwardConfig(train_years=1, valid_months=2, test_months=2, prediction_horizon=5, embargo_days=3)
     splits = walk_forward_splits(pd.bdate_range("2020-01-01", "2023-01-01"), config)

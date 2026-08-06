@@ -21,6 +21,7 @@ class FakeQuantRepository:
         self.created_model_run = None
         self.model_run_updates = []
         self.signal_rows = []
+        self.market_regime_rows = []
         self.artifact_deletions = []
         self.instrument_names = {"AAPL.US": "Apple"}
 
@@ -94,7 +95,7 @@ class FakeQuantRepository:
         return self.signal_rows
 
     def market_regimes(self, *args, **kwargs):
-        return []
+        return self.market_regime_rows
 
     def list_model_runs(self, market=None, universe_id=None):
         self.calls.append(("list_model_runs", market, universe_id))
@@ -160,6 +161,44 @@ def test_signal_ranking_uses_cn_default_universe_and_market_filter(monkeypatch):
     assert response.json()["market"] == "CN"
     assert response.json()["universe"] == "cn_csi300"
     assert ("latest_signals", "CN", 2, None, None) in repository.calls
+
+
+def test_market_regime_api_exposes_breakdown_and_keeps_legacy_snapshots(monkeypatch):
+    client, repository = _client(monkeypatch)
+    repository.market_regime_rows = [
+        SimpleNamespace(
+            id=5,
+            market="CN",
+            trade_date=date(2026, 8, 5),
+            model_version="regime-rules-v2",
+            regime="neutral",
+            market_score=0.5,
+            max_equity_exposure=0.4,
+            sector_permissions={"ranking": True},
+            features={
+                "score_breakdown": {
+                    "version": "regime-rules-v2",
+                    "score": 0.5,
+                    "weight_total": 1.0,
+                    "groups": [],
+                }
+            },
+            reasons=[],
+        )
+    ]
+
+    latest = client.get("/quant/market-regime/latest?market=CN")
+    history = client.get("/quant/market-regime/history?market=CN")
+
+    assert latest.status_code == 200
+    assert latest.json()["score_breakdown"]["score"] == pytest.approx(0.5)
+    assert history.json()[0]["score_breakdown"]["version"] == "regime-rules-v2"
+
+    repository.market_regime_rows[0].features = {"primary_ret_20d": -0.03}
+    legacy = client.get("/quant/market-regime/latest?market=CN")
+    assert legacy.status_code == 200
+    assert legacy.json()["features"]["primary_ret_20d"] == pytest.approx(-0.03)
+    assert legacy.json()["score_breakdown"] is None
 
 
 def test_quant_api_rejects_unsupported_market_and_scopes_signal_history(monkeypatch):

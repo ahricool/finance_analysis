@@ -87,6 +87,16 @@ universe. They never participate in model training, prediction, or
 cross-sectional ranking. The label benchmark is `SPY.US` for the US universe
 and `510300.SH` for the CSI 300 universe; `QQQ.US` and `159915.SZ` remain
 style/regime benchmarks.
+
+Daily market regime scoring is an explicit weighted rules model. For China,
+`510300.SH` supplies CSI 300 trend, momentum, volatility, and drawdown inputs;
+`159915.SZ` contributes only its 20-day relative performance versus the CSI
+300 as a growth-style/risk-appetite input. The other inputs are CSI 300 member
+breadth. Each persisted `market_regime_snapshot.features.score_breakdown`
+contains raw values, normalized component scores, weights, and contributions.
+Legacy snapshots without that nested object remain readable. Maximum equity
+exposure is linearly interpolated from the configured score/exposure curve
+rather than selected from three regime buckets.
 Both trainable models build their training and prediction matrices exclusively
 with Qlib `Alpha158`. Dataset exports do not contain custom feature panels, and
 news or structured events are not uploaded, scored, joined into model inputs,

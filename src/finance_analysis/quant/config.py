@@ -22,11 +22,71 @@ def _ratio(name: str, default: float) -> float:
 
 @dataclass(frozen=True)
 class RegimeConfig:
-    risk_on_exposure: float = 0.80
-    neutral_exposure: float = 0.40
-    risk_off_exposure: float = 0.10
     risk_on_threshold: float = 0.65
     risk_off_threshold: float = 0.35
+    component_weights: dict[str, float] = field(
+        default_factory=lambda: {
+            "trend_ma20": 0.15,
+            "trend_ma60": 0.15,
+            "momentum_20d": 0.10,
+            "breadth_up": 0.10,
+            "breadth_ma20": 0.10,
+            "breadth_ma60": 0.10,
+            "realized_volatility_20d": 0.12,
+            "max_drawdown_60d": 0.08,
+            "style_relative_20d": 0.10,
+        }
+    )
+    normalization_ranges: dict[str, tuple[float, float]] = field(
+        default_factory=lambda: {
+            "trend_ma20": (-0.05, 0.05),
+            "trend_ma60": (-0.10, 0.10),
+            "momentum_20d": (-0.10, 0.10),
+            "realized_volatility_20d": (0.10, 0.45),
+            "max_drawdown_60d": (-0.25, 0.0),
+            "style_relative_20d": (-0.08, 0.08),
+        }
+    )
+    exposure_curve: tuple[tuple[float, float], ...] = (
+        (0.00, 0.10),
+        (0.20, 0.10),
+        (0.35, 0.20),
+        (0.50, 0.40),
+        (0.65, 0.60),
+        (0.80, 0.75),
+        (1.00, 0.80),
+    )
+
+    def validate(self) -> None:
+        if not 0 <= self.risk_off_threshold < self.risk_on_threshold <= 1:
+            raise ValueError("Regime thresholds must be ordered within [0, 1]")
+        if not self.component_weights or any(weight < 0 for weight in self.component_weights.values()):
+            raise ValueError("Regime component weights must be non-negative")
+        if abs(sum(self.component_weights.values()) - 1.0) > 1e-9:
+            raise ValueError("Regime component weights must sum to 1")
+        if set(self.normalization_ranges) != {
+            "trend_ma20",
+            "trend_ma60",
+            "momentum_20d",
+            "realized_volatility_20d",
+            "max_drawdown_60d",
+            "style_relative_20d",
+        }:
+            raise ValueError("Regime normalization ranges are incomplete")
+        if any(lower >= upper for lower, upper in self.normalization_ranges.values()):
+            raise ValueError("Regime normalization ranges must be increasing")
+        if len(self.exposure_curve) < 2:
+            raise ValueError("Regime exposure curve requires at least two points")
+        scores = [score for score, _ in self.exposure_curve]
+        exposures = [exposure for _, exposure in self.exposure_curve]
+        if scores[0] != 0 or scores[-1] != 1 or any(
+            left >= right for left, right in zip(scores, scores[1:])
+        ):
+            raise ValueError("Regime exposure score points must increase from 0 to 1")
+        if any(not 0 <= exposure <= 1 for exposure in exposures) or any(
+            left > right for left, right in zip(exposures, exposures[1:])
+        ):
+            raise ValueError("Regime exposure values must be non-decreasing within [0, 1]")
 
 
 @dataclass(frozen=True)
@@ -74,7 +134,7 @@ class IntradayConfig:
 @dataclass(frozen=True)
 class QuantConfig:
     feature_version: str = "daily-v1"
-    regime_model_version: str = "regime-rules-v1"
+    regime_model_version: str = "regime-rules-v2"
     sector_model_version: str = "sector-rules-v1"
     artifact_root: Path = field(
         default_factory=lambda: Path(os.getenv("QUANT_ARTIFACT_ROOT", get_data_dir() / "quant"))

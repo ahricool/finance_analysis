@@ -92,4 +92,52 @@ describe('quant market context', () => {
 
     expect(wrapper.text()).toContain('AAPL.US - Apple');
   });
+
+  it('renders the backend-provided market score breakdown', async () => {
+    vi.mocked(quantApi.marketRegime).mockResolvedValue({
+      id: 8,
+      tradeDate: '2026-08-05',
+      market: 'CN',
+      modelVersion: 'regime-rules-v2',
+      regime: 'risk_off',
+      marketScore: 0.32,
+      maxEquityExposure: 0.18,
+      features: {},
+      reasons: [],
+      scoreBreakdown: {
+        version: 'regime-rules-v2',
+        score: 0.32,
+        weightTotal: 1,
+        groups: [{
+          key: 'trend',
+          label: '趋势',
+          weight: 0.4,
+          score: 0.25,
+          contribution: 0.1,
+          components: [{
+            key: 'trend_ma20',
+            label: '510300.SH vs MA20',
+            group: 'trend',
+            groupLabel: '趋势',
+            rawValue: -0.032,
+            rawFormat: 'percent',
+            score: 0.18,
+            weight: 0.15,
+            contribution: 0.027,
+          }],
+        }],
+      },
+    });
+
+    const { wrapper } = await mountMarket('/market/quant?market=CN');
+    await flushPromises();
+
+    const breakdown = wrapper.get('[data-testid="market-score-breakdown"]');
+    expect(breakdown.text()).toContain('趋势');
+    expect(breakdown.text()).toContain('510300.SH vs MA20');
+    expect(breakdown.text()).toContain('-3.2%');
+    expect(breakdown.text()).toContain('0.18');
+    expect(breakdown.text()).toContain('15.0%');
+    expect(breakdown.text()).toContain('0.027');
+  });
 });
