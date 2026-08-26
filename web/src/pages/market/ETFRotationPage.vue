@@ -2,6 +2,7 @@
 import { etfRotationApi } from '@/api/etfRotation';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +34,8 @@ const summary = ref({
   tradeDate: '', universeSize: 0, dataReadyCount: 0, dataCoverage: 0,
   rankableSize: 0, rankableCoverage: 0, generatedAt: null as string | null, warnings: [] as string[],
 });
+const selectedDate = ref('');
+const availableDates = ref<string[]>([]);
 const loading = ref(true);
 const runLoading = ref(false);
 const error = ref<ParsedApiError | null>(null);
@@ -99,19 +102,35 @@ function stateVariant(state: ETFState): 'default' | 'success' | 'warning' | 'des
   return 'info';
 }
 
-async function load() {
+async function load(options: { refreshDates?: boolean } = {}) {
   loading.value = true;
   error.value = null;
   try {
-    const ranking = await etfRotationApi.ranking();
+    if (options.refreshDates || !availableDates.value.length) {
+      availableDates.value = (await etfRotationApi.dates()).items;
+    }
+    const ranking = await etfRotationApi.ranking(selectedDate.value || undefined);
     Object.assign(summary.value, ranking);
+    if (!selectedDate.value) selectedDate.value = ranking.tradeDate;
     items.value = ranking.items;
     candidates.value = (await etfRotationApi.candidates(ranking.tradeDate)).items;
   } catch (err) {
     error.value = getParsedApiError(err);
+    items.value = [];
+    candidates.value = [];
   } finally {
     loading.value = false;
   }
+}
+
+function selectDate(value: string) {
+  if (value === selectedDate.value) return;
+  selectedDate.value = value;
+  void load();
+}
+
+function refresh() {
+  void load({ refreshDates: true });
 }
 
 async function runRotation() {
@@ -139,7 +158,7 @@ async function openDetail(item: ETFMomentumSnapshot) {
   }
 }
 
-onMounted(() => { void load(); });
+onMounted(() => { void load({ refreshDates: true }); });
 </script>
 
 <template>
@@ -153,12 +172,23 @@ onMounted(() => { void load(); });
           收盘后基于固定 A 股 ETF Universe 生成可解释的横截面动量排名与候选。
         </p>
       </div>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap items-end gap-2">
+        <AppDatePicker
+          :model-value="selectedDate"
+          label="交易日"
+          placeholder="选择交易日"
+          :available-dates="availableDates"
+          :clearable="false"
+          :disabled="loading"
+          class="w-56"
+          data-testid="etf-rotation-date"
+          @update:model-value="selectDate"
+        />
         <Button
           variant="outline"
           size="sm"
           :disabled="loading"
-          @click="load"
+          @click="refresh"
         >
           <RefreshCcw class="size-4" />刷新
         </Button>
@@ -193,7 +223,10 @@ onMounted(() => { void load(); });
     >
       <Card>
         <CardHeader class="pb-2">
-          <CardDescription>Trade Date</CardDescription><CardTitle class="text-base">
+          <CardDescription>Trade Date</CardDescription><CardTitle
+            class="text-base"
+            data-testid="etf-rotation-trade-date"
+          >
             {{ summary.tradeDate || '—' }}
           </CardTitle>
         </CardHeader>

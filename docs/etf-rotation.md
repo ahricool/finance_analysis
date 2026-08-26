@@ -124,8 +124,9 @@ Content-Type: application/json
 
 - `GET /api/v1/etf-rotation/ranking?trade_date=&sort_by=&limit=`
 - `GET /api/v1/etf-rotation/candidates?trade_date=&limit=`
+- `GET /api/v1/etf-rotation/dates`
 - `GET /api/v1/etf-rotation/universe`
 - `GET /api/v1/etf-rotation/{code}?limit=60`
 - `POST /api/v1/etf-rotation/run`（admin）
 
-前端入口为“研究 → ETF动量轮动”，提供完整本地数字排序、Buy Candidates、评分拆解和最近 snapshot 历史。
+`dates` 返回已持久化 snapshot 的交易日，降序排列；`ranking` / `candidates` 不传 `trade_date` 时回落到最新交易日。前端入口为“研究 → ETF动量轮动”，可用日期选择器查看某一日的排名与候选，并提供完整本地数字排序、评分拆解和最近 snapshot 历史。

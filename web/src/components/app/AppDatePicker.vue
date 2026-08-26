@@ -17,6 +17,7 @@ const props = withDefaults(
     clearable?: boolean;
     min?: string;
     max?: string;
+    availableDates?: string[];
     error?: string;
     hint?: string;
     id?: string;
@@ -30,6 +31,7 @@ const props = withDefaults(
     label: '',
     min: undefined,
     max: undefined,
+    availableDates: undefined,
     error: '',
     hint: '',
     id: undefined,
@@ -54,6 +56,17 @@ function toDateValue(value?: string): DateValue | undefined {
 }
 
 const selected = computed(() => toDateValue(props.modelValue));
+const availableSet = computed(
+  () => new Set((props.availableDates ?? []).map((value) => value.slice(0, 10))),
+);
+const sortedAvailable = computed(() => [...availableSet.value].sort());
+const effectiveMin = computed(() => props.min ?? sortedAvailable.value[0]);
+const effectiveMax = computed(() => props.max ?? sortedAvailable.value.at(-1));
+
+function isDateUnavailable(date: DateValue) {
+  return availableSet.value.size > 0 && !availableSet.value.has(date.toString());
+}
+
 const display = computed(() =>
   props.modelValue
     ? new Intl.DateTimeFormat('zh-CN', {
@@ -104,8 +117,9 @@ function choose(value: DateValue | undefined) {
             :model-value="selected"
             locale="zh-CN"
             layout="month-and-year"
-            :min-value="toDateValue(min)"
-            :max-value="toDateValue(max)"
+            :min-value="toDateValue(effectiveMin)"
+            :max-value="toDateValue(effectiveMax)"
+            :is-date-unavailable="isDateUnavailable"
             @update:model-value="choose"
           />
         </PopoverContent>

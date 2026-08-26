@@ -64,6 +64,7 @@ export interface ETFRankingResponse {
 }
 
 export interface ETFCandidatesResponse { tradeDate: string; items: ETFMomentumSnapshot[] }
+export interface ETFDatesResponse { latest: string | null; items: string[] }
 export interface ETFDetailResponse {
   metadata: ETFUniverseMember;
   latest: ETFMomentumSnapshot;

@@ -98,6 +98,12 @@ async def universe(_: User = Depends(require_current_user)):
     return {"market": "CN", "size": len(ETF_UNIVERSE), "items": [member.to_dict() for member in ETF_UNIVERSE]}
 
 
+@router.get("/dates")
+async def dates(_: User = Depends(require_current_user)):
+    items = ETFRotationRepository().available_trade_dates()
+    return jsonable_encoder({"latest": items[0] if items else None, "items": items})
+
+
 @router.post("/run", status_code=status.HTTP_202_ACCEPTED)
 async def run_rotation(body: ETFRotationRunRequest, user: User = Depends(require_admin)):
     from finance_analysis.tasks.celery.jobs.etf_rotation.tasks import run_etf_rotation_cn
