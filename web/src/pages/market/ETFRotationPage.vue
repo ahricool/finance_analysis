@@ -22,9 +22,9 @@ import { toast } from 'vue-sonner';
 type SortDirection = 'asc' | 'desc';
 type SortKey = keyof Pick<
   ETFMomentumSnapshot,
-  | 'rank5d' | 'code' | 'name' | 'category' | 'theme' | 'state'
-  | 'ret1d' | 'ret5d' | 'ret10d' | 'ret20d' | 'ret30d' | 'ret60d'
-  | 'rankChange5d' | 'momentumScore' | 'entryScore' | 'overheated'
+  | 'rank5D' | 'code' | 'name' | 'category' | 'theme' | 'state'
+  | 'ret1D' | 'ret5D' | 'ret10D' | 'ret20D' | 'ret30D' | 'ret60D'
+  | 'rankChange5D' | 'momentumScore' | 'entryScore' | 'overheated'
 >;
 
 const items = ref<ETFMomentumSnapshot[]>([]);
@@ -46,9 +46,9 @@ const detailError = ref<ParsedApiError | null>(null);
 const sortOptions: Array<{ value: SortKey; label: string }> = [
   { value: 'entryScore', label: 'Entry Score' },
   { value: 'momentumScore', label: 'Momentum' },
-  { value: 'ret1d', label: '1D' }, { value: 'ret5d', label: '5D' },
-  { value: 'ret10d', label: '10D' }, { value: 'ret20d', label: '20D' },
-  { value: 'ret30d', label: '30D' }, { value: 'ret60d', label: '60D' },
+  { value: 'ret1D', label: '1D' }, { value: 'ret5D', label: '5D' },
+  { value: 'ret10D', label: '10D' }, { value: 'ret20D', label: '20D' },
+  { value: 'ret30D', label: '30D' }, { value: 'ret60D', label: '60D' },
 ];
 
 const sortedItems = computed(() => [...items.value].sort((left, right) => {
@@ -290,7 +290,7 @@ onMounted(() => { void load(); });
             <TableHeader>
               <TableRow>
                 <TableHead
-                  v-for="column in ([['rank5d','Rank'],['code','ETF Code'],['name','ETF Name'],['category','Category'],['theme','Theme'],['state','State'],['ret1d','1D'],['ret5d','5D'],['ret10d','10D'],['ret20d','20D'],['ret30d','30D'],['ret60d','60D'],['rankChange5d','5D Rank Δ'],['momentumScore','Momentum'],['entryScore','Entry'],['overheated','Overheated']] as Array<[SortKey,string]>)"
+                  v-for="column in ([['rank5D','Rank'],['code','ETF Code'],['name','ETF Name'],['category','Category'],['theme','Theme'],['state','State'],['ret1D','1D'],['ret5D','5D'],['ret10D','10D'],['ret20D','20D'],['ret30D','30D'],['ret60D','60D'],['rankChange5D','5D Rank Δ'],['momentumScore','Momentum'],['entryScore','Entry'],['overheated','Overheated']] as Array<[SortKey,string]>)"
                   :key="column[0]"
                 >
                   <button
@@ -311,7 +311,7 @@ onMounted(() => { void load(); });
                 class="cursor-pointer"
                 @click="openDetail(item)"
               >
-                <TableCell>#{{ item.rank5d }}</TableCell><TableCell class="font-mono text-xs">
+                <TableCell>#{{ item.rank5D }}</TableCell><TableCell class="font-mono text-xs">
                   {{ item.code }}
                 </TableCell><TableCell class="font-medium">
                   {{ item.name }}
@@ -321,14 +321,14 @@ onMounted(() => { void load(); });
                   </Badge>
                 </TableCell>
                 <TableCell
-                  v-for="key in (['ret1d','ret5d','ret10d','ret20d','ret30d','ret60d'] as const)"
+                  v-for="key in (['ret1D','ret5D','ret10D','ret20D','ret30D','ret60D'] as const)"
                   :key="key"
                   :class="returnClass(item[key])"
                 >
                   {{ pct(item[key]) }}
                 </TableCell>
-                <TableCell :class="changeClass(item.rankChange5d)">
-                  {{ rankChange(item.rankChange5d) }}
+                <TableCell :class="changeClass(item.rankChange5D)">
+                  {{ rankChange(item.rankChange5D) }}
                 </TableCell><TableCell class="font-semibold">
                   {{ score(item.momentumScore) }}
                 </TableCell><TableCell class="font-semibold text-primary">
@@ -381,7 +381,7 @@ onMounted(() => { void load(); });
                 </CardHeader>
               </Card><Card>
                 <CardHeader class="pb-2">
-                  <CardDescription>5D Rank</CardDescription><CardTitle>#{{ selected.latest.rank5d }} ({{ rankChange(selected.latest.rankChange5d) }})</CardTitle>
+                  <CardDescription>5D Rank</CardDescription><CardTitle>#{{ selected.latest.rank5D }} ({{ rankChange(selected.latest.rankChange5D) }})</CardTitle>
                 </CardHeader>
               </Card>
             </div>
@@ -406,7 +406,7 @@ onMounted(() => { void load(); });
                       v-for="row in selected.history"
                       :key="row.tradeDate"
                     >
-                      <TableCell>{{ row.tradeDate }}</TableCell><TableCell>#{{ row.rank5d }}</TableCell><TableCell>{{ score(row.momentumScore) }}</TableCell><TableCell>{{ score(row.entryScore) }}</TableCell><TableCell>
+                      <TableCell>{{ row.tradeDate }}</TableCell><TableCell>#{{ row.rank5D }}</TableCell><TableCell>{{ score(row.momentumScore) }}</TableCell><TableCell>{{ score(row.entryScore) }}</TableCell><TableCell>
                         <Badge :variant="stateVariant(row.state)">
                           {{ row.state }}
                         </Badge>
