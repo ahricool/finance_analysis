@@ -38,6 +38,10 @@ const rankingPayload = {
       rank_change_5d: 4,
       momentum_score: 80.1,
       entry_score: 88.2,
+      reference_price: 100,
+      realized_vol_20d: 0.3175,
+      stop_loss_pct: 0.05,
+      suggested_stop_price: 95,
       state: 'TRENDING',
       overheated: false,
       candidate_rank: 1,
@@ -70,6 +74,10 @@ describe('etfRotation API key conversion', () => {
       rankChange5D: 4,
       momentumScore: 80.1,
       entryScore: 88.2,
+      referencePrice: 100,
+      realizedVol20D: 0.3175,
+      stopLossPct: 0.05,
+      suggestedStopPrice: 95,
     });
     expect(item).not.toHaveProperty('ret5d');
     expect(item).not.toHaveProperty('rank5d');

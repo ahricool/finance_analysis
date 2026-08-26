@@ -10,6 +10,7 @@ from finance_analysis.etf_rotation.features import calculate_features
 from finance_analysis.etf_rotation.models import DailyBar
 from finance_analysis.etf_rotation.ranking import calculate_rank_changes, rank_cross_section
 from finance_analysis.etf_rotation.readiness import ETFRotationReadinessError, require_minimum_coverage
+from finance_analysis.etf_rotation.risk import calculate_stop_loss_pct, calculate_suggested_stop_price
 from finance_analysis.etf_rotation.scoring import (
     calculate_entry_score,
     calculate_momentum_score,
@@ -29,6 +30,7 @@ def test_return_previous_return_acceleration_and_secondary_features() -> None:
     closes = [100.0 + index for index in range(61)]
     features = calculate_features(_bars(closes))
     assert features is not None
+    assert features.reference_price == 160
     for window in (1, 5, 10, 20, 30, 60):
         assert getattr(features, f"ret_{window}d") == pytest.approx(160 / (160 - window) - 1)
     assert features.previous_5d_return == pytest.approx(155 / 150 - 1)
@@ -74,6 +76,58 @@ def test_rank_change_direction_and_missing_history() -> None:
 def test_momentum_score_uses_percentiles() -> None:
     row = {"pct_rank_5d": 100, "pct_rank_10d": 80, "pct_rank_30d": 60, "pct_rank_60d": 40}
     assert calculate_momentum_score(row) == pytest.approx(78)
+
+
+def test_volatility_stop_loss_normal_floor_cap_and_price() -> None:
+    assert DEFAULT_CONFIG.stop_vol_multiplier == 2.5
+    assert DEFAULT_CONFIG.minimum_stop_pct == 0.03
+    assert DEFAULT_CONFIG.maximum_stop_pct == 0.08
+    assert calculate_stop_loss_pct(0.3175) == pytest.approx(0.05, rel=0.01)
+    assert calculate_stop_loss_pct(0.01) == pytest.approx(0.03)
+    assert calculate_stop_loss_pct(1.0) == pytest.approx(0.08)
+    assert calculate_suggested_stop_price(100, 0.05) == pytest.approx(95)
+
+
+@pytest.mark.parametrize(
+    ("annualized_vol", "message"),
+    [(-0.01, "greater than or equal"), (float("nan"), "finite"), (float("inf"), "finite")],
+)
+def test_stop_loss_rejects_invalid_volatility(annualized_vol: float, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        calculate_stop_loss_pct(annualized_vol)
+
+
+@pytest.mark.parametrize("reference_price", [0, -1, float("nan"), float("inf")])
+def test_suggested_stop_rejects_invalid_reference_price(reference_price: float) -> None:
+    with pytest.raises(ValueError):
+        calculate_suggested_stop_price(reference_price, 0.05)
+
+
+def test_stop_metadata_does_not_change_scores_or_candidate_order() -> None:
+    score_row = {
+        "pct_rank_5d": 100,
+        "pct_rank_10d": 80,
+        "pct_rank_30d": 60,
+        "pct_rank_60d": 40,
+        "ret_1d": 0.02,
+        "momentum_acceleration": 0.02,
+        "rank_change_5d": 10,
+        "volume_ratio_5d": 1.2,
+        "ma20_ratio": 0.10,
+    }
+    momentum_before = calculate_momentum_score(score_row)
+    entry_before = calculate_entry_score(score_row, momentum_before)
+    score_row.update({"stop_loss_pct": 0.08, "suggested_stop_price": 92.0})
+    assert calculate_momentum_score(score_row) == momentum_before
+    assert calculate_entry_score(score_row, momentum_before) == entry_before
+
+    candidates = [
+        {"code": "A", "state": "STRONG", "entry_score": 90, "momentum_score": 80, "rank_5d": 1,
+         "risk_group": "A", "stop_loss_pct": 0.08},
+        {"code": "B", "state": "STRONG", "entry_score": 80, "momentum_score": 90, "rank_5d": 2,
+         "risk_group": "B", "stop_loss_pct": 0.03},
+    ]
+    assert select_candidates(candidates) == ["A", "B"]
 
 
 @pytest.mark.parametrize(

@@ -14,6 +14,7 @@ from finance_analysis.etf_rotation.features import calculate_features
 from finance_analysis.etf_rotation.models import DailyBar
 from finance_analysis.etf_rotation.ranking import calculate_rank_changes, rank_cross_section
 from finance_analysis.etf_rotation.readiness import require_minimum_coverage
+from finance_analysis.etf_rotation.risk import calculate_stop_loss_pct, calculate_suggested_stop_price
 from finance_analysis.etf_rotation.scoring import calculate_entry_score, calculate_momentum_score
 from finance_analysis.etf_rotation.selector import select_candidates
 from finance_analysis.etf_rotation.universe import enabled_etfs, normalize_etf_market
@@ -122,11 +123,16 @@ class ETFRotationService:
             row.update(calculate_rank_changes(int(row["rank_5d"]), historical.get(str(row["code"]), {})))
             momentum_score = calculate_momentum_score(row, self.config)
             entry_score, components = calculate_entry_score(row, momentum_score, self.config)
+            stop_loss_pct = calculate_stop_loss_pct(float(row["realized_vol_20d"]), self.config)
             row.update(
                 {
                     "momentum_score": momentum_score,
                     "entry_score": entry_score,
                     "score_components": components,
+                    "stop_loss_pct": stop_loss_pct,
+                    "suggested_stop_price": calculate_suggested_stop_price(
+                        float(row["reference_price"]), stop_loss_pct
+                    ),
                     "overheated": is_overheated(row, self.config),
                     "state": classify_state(row, momentum_score, self.config),
                     "is_candidate": False,

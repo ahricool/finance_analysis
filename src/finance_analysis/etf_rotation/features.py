@@ -37,6 +37,7 @@ def calculate_features(bars: Sequence[DailyBar]) -> FeatureSet | None:
     amounts = [float(item.amount) for item in ordered[-20:] if item.amount is not None]
     average_amount = statistics.fmean(amounts) if amounts else None
     return FeatureSet(
+        reference_price=current,
         **{f"ret_{window}d": returns[window] for window in RETURN_WINDOWS},
         previous_5d_return=previous_5d,
         momentum_acceleration=returns[5] - previous_5d,

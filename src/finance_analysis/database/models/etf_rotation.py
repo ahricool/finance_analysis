@@ -46,6 +46,9 @@ class ETFMomentumSnapshot(Base):
     volume_ratio_5d = Column(Float)
     avg_amount_20d = Column(Float)
     realized_vol_20d = Column(Float, nullable=False)
+    reference_price = Column(Float)
+    stop_loss_pct = Column(Float)
+    suggested_stop_price = Column(Float)
     distance_from_20d_high = Column(Float, nullable=False)
     momentum_score = Column(Float, nullable=False)
     entry_score = Column(Float, nullable=False)
@@ -63,6 +66,21 @@ class ETFMomentumSnapshot(Base):
         CheckConstraint("market IN ('CN', 'US')", name="ck_etf_momentum_snapshot_market"),
         CheckConstraint("momentum_score BETWEEN 0 AND 100", name="ck_etf_momentum_score_range"),
         CheckConstraint("entry_score BETWEEN 0 AND 100", name="ck_etf_entry_score_range"),
+        CheckConstraint("reference_price IS NULL OR reference_price > 0", name="ck_etf_reference_price_positive"),
+        CheckConstraint(
+            "stop_loss_pct IS NULL OR (stop_loss_pct >= 0 AND stop_loss_pct < 1)",
+            name="ck_etf_stop_loss_pct_range",
+        ),
+        CheckConstraint(
+            "suggested_stop_price IS NULL OR "
+            "(suggested_stop_price > 0 AND reference_price IS NOT NULL AND suggested_stop_price <= reference_price)",
+            name="ck_etf_suggested_stop_price_positive",
+        ),
+        CheckConstraint(
+            "(reference_price IS NULL AND stop_loss_pct IS NULL AND suggested_stop_price IS NULL) OR "
+            "(reference_price IS NOT NULL AND stop_loss_pct IS NOT NULL AND suggested_stop_price IS NOT NULL)",
+            name="ck_etf_stop_loss_metadata_complete",
+        ),
         CheckConstraint(
             "rank_1d > 0 AND rank_5d > 0 AND rank_10d > 0 AND rank_20d > 0 AND rank_30d > 0 AND rank_60d > 0",
             name="ck_etf_momentum_ranks_positive",

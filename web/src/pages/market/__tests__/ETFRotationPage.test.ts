@@ -68,6 +68,9 @@ function snapshot(overrides: Partial<ETFMomentumSnapshot> = {}): ETFMomentumSnap
     volumeRatio5D: 1.2,
     avgAmount20D: 1000,
     realizedVol20D: 0.2,
+    referencePrice: 100,
+    stopLossPct: 0.05,
+    suggestedStopPrice: 95,
     distanceFrom20dHigh: -0.01,
     momentumScore: 80.1,
     entryScore: 88.2,
@@ -170,6 +173,8 @@ describe('ETFRotationPage', () => {
     expect(wrapper.text()).toContain('+4.00%');
     expect(wrapper.text()).toContain('+5.00%');
     expect(wrapper.text()).toContain('+6.11%');
+    expect(wrapper.text()).toContain('-5.0%');
+    expect(wrapper.text()).toContain('¥95.00');
     expect(wrapper.text()).toContain('#3');
     expect(wrapper.text()).toContain('+4');
     expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined);
@@ -219,5 +224,6 @@ describe('ETFRotationPage', () => {
     expect(wrapper.get('[data-testid="etf-rotation-date"]').element).toHaveProperty('value', '2026-08-20');
     expect(wrapper.text()).toContain('SPDR S&P 500 ETF');
     expect(wrapper.text()).not.toContain('创业板ETF');
+    expect(wrapper.text()).toContain('$95.00');
   });
 });

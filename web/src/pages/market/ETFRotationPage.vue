@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { ETFDetailResponse, ETFMarket, ETFMomentumSnapshot, ETFState } from '@/types/etfRotation';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
+import { formatMarketCurrencyAmount } from '@/utils/marketCurrency';
 import { ArrowDown, ArrowUp, ArrowUpDown, RefreshCcw } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
@@ -26,6 +27,7 @@ type SortKey = keyof Pick<
   | 'rank5D' | 'code' | 'name' | 'category' | 'theme' | 'state'
   | 'ret1D' | 'ret5D' | 'ret10D' | 'ret20D' | 'ret30D' | 'ret60D'
   | 'rankChange5D' | 'momentumScore' | 'entryScore' | 'overheated'
+  | 'stopLossPct' | 'suggestedStopPrice'
 >;
 
 const items = ref<ETFMomentumSnapshot[]>([]);
@@ -99,6 +101,8 @@ function pct(value: number | null | undefined): string {
 }
 
 function score(value: number): string { return value.toFixed(1); }
+function stopPct(value: number | null): string { return value === null ? '—' : `-${(value * 100).toFixed(1)}%`; }
+function price(value: number | null): string { return formatMarketCurrencyAmount(value, market.value); }
 function rankChange(value: number | null): string { return value === null ? '—' : `${value > 0 ? '+' : ''}${value}`; }
 function returnClass(value: number): string { return value > 0 ? 'text-destructive' : value < 0 ? 'text-success' : ''; }
 function changeClass(value: number | null): string { return value && value > 0 ? 'text-destructive' : value && value < 0 ? 'text-success' : ''; }
@@ -323,6 +327,10 @@ onMounted(() => { void load({ refreshDates: true }); });
             <div class="mt-3 flex justify-between text-sm">
               <span>Entry <strong>{{ score(item.entryScore) }}</strong></span><span>Momentum <strong>{{ score(item.momentumScore) }}</strong></span>
             </div>
+            <div class="mt-2 flex justify-between text-xs text-muted-foreground">
+              <span>Stop <strong class="text-foreground">{{ stopPct(item.stopLossPct) }}</strong></span>
+              <span>Suggested Stop <strong class="text-foreground">{{ price(item.suggestedStopPrice) }}</strong></span>
+            </div>
           </button>
         </div>
         <Empty v-else>
@@ -349,11 +357,11 @@ onMounted(() => { void load({ refreshDates: true }); });
       </CardHeader>
       <CardContent class="px-0">
         <ScrollArea class="w-full">
-          <Table class="min-w-[1500px]">
+          <Table class="min-w-[1700px]">
             <TableHeader>
               <TableRow>
                 <TableHead
-                  v-for="column in ([['rank5D','Rank'],['code','ETF Code'],['name','ETF Name'],['category','Category'],['theme','Theme'],['state','State'],['ret1D','1D'],['ret5D','5D'],['ret10D','10D'],['ret20D','20D'],['ret30D','30D'],['ret60D','60D'],['rankChange5D','5D Rank Δ'],['momentumScore','Momentum'],['entryScore','Entry'],['overheated','Overheated']] as Array<[SortKey,string]>)"
+                  v-for="column in ([['rank5D','Rank'],['code','ETF Code'],['name','ETF Name'],['category','Category'],['theme','Theme'],['state','State'],['ret1D','1D'],['ret5D','5D'],['ret10D','10D'],['ret20D','20D'],['ret30D','30D'],['ret60D','60D'],['rankChange5D','5D Rank Δ'],['momentumScore','Momentum'],['entryScore','Entry'],['stopLossPct','Stop %'],['suggestedStopPrice','Suggested Stop'],['overheated','Overheated']] as Array<[SortKey,string]>)"
                   :key="column[0]"
                 >
                   <button
@@ -396,6 +404,10 @@ onMounted(() => { void load({ refreshDates: true }); });
                   {{ score(item.momentumScore) }}
                 </TableCell><TableCell class="font-semibold text-primary">
                   {{ score(item.entryScore) }}
+                </TableCell><TableCell class="font-medium">
+                  {{ stopPct(item.stopLossPct) }}
+                </TableCell><TableCell class="font-medium">
+                  {{ price(item.suggestedStopPrice) }}
                 </TableCell><TableCell>
                   <Badge :variant="item.overheated ? 'warning' : 'outline'">
                     {{ item.overheated ? '是' : '否' }}
@@ -445,6 +457,22 @@ onMounted(() => { void load({ refreshDates: true }); });
               </Card><Card>
                 <CardHeader class="pb-2">
                   <CardDescription>5D Rank</CardDescription><CardTitle>#{{ selected.latest.rank5D }} ({{ rankChange(selected.latest.rankChange5D) }})</CardTitle>
+                </CardHeader>
+              </Card><Card>
+                <CardHeader class="pb-2">
+                  <CardDescription>Current / Ref Price</CardDescription><CardTitle>{{ price(selected.latest.referencePrice) }}</CardTitle>
+                </CardHeader>
+              </Card><Card>
+                <CardHeader class="pb-2">
+                  <CardDescription>20D Realized Vol</CardDescription><CardTitle>{{ pct(selected.latest.realizedVol20D) }}</CardTitle>
+                </CardHeader>
+              </Card><Card>
+                <CardHeader class="pb-2">
+                  <CardDescription>Stop</CardDescription><CardTitle>{{ stopPct(selected.latest.stopLossPct) }}</CardTitle>
+                </CardHeader>
+              </Card><Card>
+                <CardHeader class="pb-2">
+                  <CardDescription>Suggested Stop</CardDescription><CardTitle>{{ price(selected.latest.suggestedStopPrice) }}</CardTitle>
                 </CardHeader>
               </Card>
             </div>

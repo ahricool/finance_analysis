@@ -26,6 +26,10 @@ def _snapshot(code="588000.SH"):
         "code": code,
         "entry_score": 88.0,
         "momentum_score": 80.0,
+        "reference_price": 100.0,
+        "realized_vol_20d": 0.3175,
+        "stop_loss_pct": 0.05,
+        "suggested_stop_price": 95.0,
         "generated_at": datetime(2026, 8, 25, 10, 40, tzinfo=timezone.utc),
     }
 
@@ -68,6 +72,11 @@ def test_ranking_candidates_and_detail_use_rotation_repository(monkeypatch) -> N
     assert candidates["items"][0]["code"] == "588000.SH"
     assert detail["metadata"]["theme"] == "STAR50"
     assert detail["latest"]["code"] == "588000.SH"
+    for payload in (ranking["items"][0], candidates["items"][0], detail["latest"]):
+        assert payload["reference_price"] == 100.0
+        assert payload["realized_vol_20d"] == 0.3175
+        assert payload["stop_loss_pct"] == 0.05
+        assert payload["suggested_stop_price"] == 95.0
 
 
 def test_ranking_uses_requested_trade_date(monkeypatch) -> None:
