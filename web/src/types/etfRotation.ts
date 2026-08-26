@@ -43,6 +43,9 @@ export interface ETFMomentumSnapshot extends ETFUniverseMember {
   volumeRatio5D: number | null;
   avgAmount20D: number | null;
   realizedVol20D: number;
+  referencePrice: number | null;
+  stopLossPct: number | null;
+  suggestedStopPrice: number | null;
   distanceFrom20dHigh: number;
   momentumScore: number;
   entryScore: number;

@@ -33,6 +33,9 @@ class ETFRotationConfig:
     )
     max_candidates: int = 5
     max_per_risk_group: int = 2
+    stop_vol_multiplier: float = 2.5
+    minimum_stop_pct: float = 0.03
+    maximum_stop_pct: float = 0.08
     excluded_candidate_states: frozenset[str] = frozenset({"WEAK", "EXHAUSTED"})
     history_limit_default: int = 60
     history_limit_max: int = 365

@@ -16,6 +16,7 @@ class DailyBar:
 
 @dataclass(frozen=True)
 class FeatureSet:
+    reference_price: float
     ret_1d: float
     ret_5d: float
     ret_10d: float

@@ -74,6 +74,26 @@ def test_service_generates_complete_snapshot_and_same_date_rerun_is_idempotent()
     assert len(repository.saved) == 40
     assert first["candidate_count"] == 5
     assert all("score_components" in snapshot for snapshot in repository.saved.values())
+    assert all(snapshot["reference_price"] > 0 for snapshot in repository.saved.values())
+    assert all(0.03 <= snapshot["stop_loss_pct"] <= 0.08 for snapshot in repository.saved.values())
+    assert all(
+        snapshot["suggested_stop_price"]
+        == pytest.approx(snapshot["reference_price"] * (1 - snapshot["stop_loss_pct"]))
+        for snapshot in repository.saved.values()
+    )
+
+
+def test_cn_and_us_services_use_identical_stop_loss_calculation() -> None:
+    cn_repository = FakeRepository(market="CN")
+    us_repository = FakeRepository(market="US")
+    ETFRotationService("CN", repository=cn_repository).run(TRADE_DATE)
+    ETFRotationService("US", repository=us_repository).run(TRADE_DATE)
+    cn_first = cn_repository.saved[sorted(cn_repository.saved)[0]]
+    us_first = us_repository.saved[sorted(us_repository.saved)[0]]
+    assert cn_first["reference_price"] == us_first["reference_price"]
+    assert cn_first["realized_vol_20d"] == us_first["realized_vol_20d"]
+    assert cn_first["stop_loss_pct"] == us_first["stop_loss_pct"]
+    assert cn_first["suggested_stop_price"] == us_first["suggested_stop_price"]
 
 
 def test_service_and_repository_reject_unsupported_markets_early() -> None:
