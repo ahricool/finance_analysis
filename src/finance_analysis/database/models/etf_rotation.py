@@ -15,6 +15,7 @@ class ETFMomentumSnapshot(Base):
     __tablename__ = "etf_momentum_snapshot"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
+    market = Column(String(8), nullable=False)
     trade_date = Column(Date, nullable=False)
     symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
     ret_1d = Column(Float, nullable=False)
@@ -59,6 +60,7 @@ class ETFMomentumSnapshot(Base):
 
     __table_args__ = (
         UniqueConstraint("trade_date", "symbol_id", name="uix_etf_momentum_snapshot_date_symbol"),
+        CheckConstraint("market IN ('CN', 'US')", name="ck_etf_momentum_snapshot_market"),
         CheckConstraint("momentum_score BETWEEN 0 AND 100", name="ck_etf_momentum_score_range"),
         CheckConstraint("entry_score BETWEEN 0 AND 100", name="ck_etf_entry_score_range"),
         CheckConstraint(
@@ -76,9 +78,15 @@ class ETFMomentumSnapshot(Base):
             name="ck_etf_momentum_state",
         ),
         CheckConstraint("candidate_rank IS NULL OR candidate_rank > 0", name="ck_etf_candidate_rank_positive"),
-        Index("ix_etf_momentum_snapshot_date_entry", "trade_date", "entry_score"),
+        Index("ix_etf_momentum_snapshot_market_date_entry", "market", "trade_date", "entry_score"),
         Index("ix_etf_momentum_snapshot_symbol_date", "symbol_id", "trade_date"),
-        Index("ix_etf_momentum_snapshot_date_candidate", "trade_date", "is_candidate", "candidate_rank"),
+        Index(
+            "ix_etf_momentum_snapshot_market_date_candidate",
+            "market",
+            "trade_date",
+            "is_candidate",
+            "candidate_rank",
+        ),
     )
 
 

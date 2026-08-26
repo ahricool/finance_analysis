@@ -16,7 +16,7 @@ from finance_analysis.etf_rotation.ranking import calculate_rank_changes, rank_c
 from finance_analysis.etf_rotation.readiness import require_minimum_coverage
 from finance_analysis.etf_rotation.scoring import calculate_entry_score, calculate_momentum_score
 from finance_analysis.etf_rotation.selector import select_candidates
-from finance_analysis.etf_rotation.universe import enabled_etfs
+from finance_analysis.etf_rotation.universe import enabled_etfs, normalize_etf_market
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days
 
 logger = logging.getLogger(__name__)
@@ -25,21 +25,28 @@ logger = logging.getLogger(__name__)
 class ETFRotationService:
     def __init__(
         self,
+        market: str = "CN",
         repository: ETFRotationRepository | None = None,
         *,
         config: ETFRotationConfig = DEFAULT_CONFIG,
         now: datetime | None = None,
     ) -> None:
-        self.repository = repository or ETFRotationRepository()
+        self.market = normalize_etf_market(market)
+        repository_market = getattr(repository, "market", self.market)
+        if normalize_etf_market(repository_market) != self.market:
+            raise ValueError(
+                f"ETF Rotation service market={self.market} does not match repository market={repository_market}"
+            )
+        self.repository = repository or ETFRotationRepository(self.market)
         self.config = config
         self.now = now or datetime.now(timezone.utc)
 
     def resolve_trade_date(self, requested: date | None = None) -> date:
-        return requested or get_completed_trading_days("cn", 1, self.now)[-1]
+        return requested or get_completed_trading_days(self.market.lower(), 1, self.now)[-1]
 
     def run(self, trade_date: date | None = None) -> dict[str, Any]:
         effective_date = self.resolve_trade_date(trade_date)
-        members = enabled_etfs()
+        members = enabled_etfs(self.market)
         member_by_code = {member.code: member for member in members}
         codes = set(member_by_code)
         universe_size = len(codes)
@@ -87,6 +94,7 @@ class ETFRotationService:
             feature_rows.append(
                 {
                     "trade_date": effective_date,
+                    "market": self.market,
                     "symbol_id": symbol_ids[code],
                     "code": code,
                     "name": member.name,
@@ -137,7 +145,7 @@ class ETFRotationService:
         snapshot_count = self.repository.upsert_snapshots(evaluated)
         summary = {
             "status": "completed",
-            "market": "CN",
+            "market": self.market,
             "trade_date": effective_date.isoformat(),
             "universe_size": universe_size,
             "data_ready_count": len(ready_codes),
@@ -150,8 +158,9 @@ class ETFRotationService:
             "warnings": warnings,
         }
         logger.info(
-            "market=CN job=etf_rotation trade_date=%s universe_size=%s data_coverage=%.2f "
+            "market=%s job=etf_rotation trade_date=%s universe_size=%s data_coverage=%.2f "
             "rankable_count=%s snapshot_count=%s candidate_count=%s warnings=%s",
+            self.market,
             effective_date,
             universe_size,
             data_coverage,

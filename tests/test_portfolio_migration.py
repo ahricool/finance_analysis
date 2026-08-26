@@ -31,6 +31,8 @@ def _create_dependencies(connection) -> None:
             "created_at DATETIME, updated_at DATETIME)"
         )
     )
+    connection.execute(text("CREATE TABLE stock_daily (id INTEGER PRIMARY KEY)"))
+    connection.execute(text("CREATE TABLE stock_minute (id INTEGER PRIMARY KEY)"))
     connection.execute(
         text(
             "CREATE TABLE market_data_symbol ("
@@ -47,9 +49,7 @@ def test_portfolio_migration_creates_accounts_discards_legacy_holdings_and_downg
     with engine.begin() as connection:
         _create_dependencies(connection)
         connection.execute(text("INSERT INTO users (id) VALUES (1), (2)"))
-        connection.execute(
-            text("CREATE TABLE stock_list (id INTEGER PRIMARY KEY, code VARCHAR(16))")
-        )
+        connection.execute(text("CREATE TABLE stock_list (id INTEGER PRIMARY KEY, code VARCHAR(16))"))
         connection.execute(text("INSERT INTO stock_list VALUES (1, 'AAPL')"))
         migration.op = Operations(MigrationContext.configure(connection))
 
@@ -65,10 +65,7 @@ def test_portfolio_migration_creates_accounts_discards_legacy_holdings_and_downg
         }.issubset(tables)
         assert "stock_list" not in tables
         accounts = connection.execute(
-            text(
-                "SELECT uid, account_code, market, currency FROM portfolio_account "
-                "ORDER BY uid, id"
-            )
+            text("SELECT uid, account_code, market, currency FROM portfolio_account " "ORDER BY uid, id")
         ).all()
         assert accounts == [
             (1, "CN", "CN", "CNY"),
@@ -79,9 +76,7 @@ def test_portfolio_migration_creates_accounts_discards_legacy_holdings_and_downg
             (2, "US", "US", "USD"),
         ]
         assert connection.execute(text("SELECT COUNT(*) FROM account_cash_balance")).scalar_one() == 6
-        assert connection.execute(
-            text("SELECT COUNT(*) FROM account_cash_balance WHERE balance = 0")
-        ).scalar_one() == 6
+        assert connection.execute(text("SELECT COUNT(*) FROM account_cash_balance WHERE balance = 0")).scalar_one() == 6
 
         migration.upgrade()
         assert connection.execute(text("SELECT COUNT(*) FROM portfolio_account")).scalar_one() == 6
@@ -106,9 +101,7 @@ def test_empty_database_upgrade_creates_current_schema_and_stamps_head() -> None
 
     with engine.connect() as connection:
         tables = set(inspect(connection).get_table_names())
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0025_portfolio_accounts"
-        )
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ("0028_etf_rotation_market")
         assert {
             "portfolio_account",
             "account_cash_balance",
@@ -123,9 +116,7 @@ def test_upgrade_from_previous_head_seeds_users_and_discards_legacy_rows() -> No
     engine = create_engine("sqlite://")
     with engine.begin() as connection:
         connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
-        connection.execute(
-            text("INSERT INTO alembic_version VALUES ('0024_quant_market_dependencies')")
-        )
+        connection.execute(text("INSERT INTO alembic_version VALUES ('0024_quant_market_dependencies')"))
         _create_dependencies(connection)
         connection.execute(text("INSERT INTO users (id) VALUES (1), (2)"))
         connection.execute(text("CREATE TABLE stock_list (id INTEGER PRIMARY KEY, code VARCHAR(16))"))
@@ -134,9 +125,7 @@ def test_upgrade_from_previous_head_seeds_users_and_discards_legacy_rows() -> No
     _upgrade_with_repository_alembic(engine)
 
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0025_portfolio_accounts"
-        )
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == ("0028_etf_rotation_market")
         assert connection.scalar(text("SELECT COUNT(*) FROM portfolio_account")) == 6
         assert connection.scalar(text("SELECT COUNT(*) FROM account_cash_balance")) == 6
         assert "stock_list" not in inspect(connection).get_table_names()
