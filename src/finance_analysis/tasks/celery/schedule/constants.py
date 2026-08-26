@@ -30,6 +30,7 @@ EXPIRES_DAILY = 6 * 60 * 60
 EXPIRES_SIGNAL_EVALUATION = 60 * 60
 EXPIRES_MARKET_DATA_SYNC = 6 * 60 * 60
 EXPIRES_QUANT = 6 * 60 * 60
+EXPIRES_ETF_ROTATION = 2 * 60 * 60
 
 JOB_DAILY_ANALYSIS = "analysis_daily"
 JOB_MARKET_CALENDAR = "market_calendar"
@@ -45,6 +46,7 @@ JOB_SIGNAL_EVALUATION_CN = "signal_evaluation_cn"
 JOB_SIGNAL_EVALUATION_US = "signal_evaluation_us"
 JOB_QUANT_DAILY_PIPELINE_US = "quant_daily_pipeline_us"
 JOB_QUANT_DAILY_PIPELINE_CN = "quant_daily_pipeline_cn"
+JOB_ETF_ROTATION_CN = "etf_rotation_cn"
 
 
 def celery_task_name(job_id: str) -> str:

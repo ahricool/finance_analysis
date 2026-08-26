@@ -5,6 +5,7 @@ from finance_analysis.database.models.analysis import AnalysisHistory
 from finance_analysis.database.models.backtest import BacktestEquity, BacktestRun, BacktestTrade
 from finance_analysis.database.models.calendar import CalendarEntry
 from finance_analysis.database.models.conversation import ConversationMessage, LLMUsage
+from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot
 from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.news import FundamentalSnapshot, NewsIntel
 from finance_analysis.database.models.portfolio import (
@@ -40,6 +41,7 @@ __all__ = [
     "BacktestTrade",
     "CalendarEntry",
     "ConversationMessage",
+    "ETFMomentumSnapshot",
     "FinanceEvent",
     "FundamentalSnapshot",
     "LLMUsage",

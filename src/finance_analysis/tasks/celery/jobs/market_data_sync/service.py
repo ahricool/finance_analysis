@@ -171,12 +171,18 @@ class MarketDataSyncService:
         """Return the public shared scope, including calculation dependencies."""
         scope = self.scope_resolver.resolve(self.market)
         self.unsupported_symbols = list(scope.unsupported_symbols)
+        strategy_records = self.scope_resolver.strategy_dependency_records(self.market)
+        if strategy_records:
+            # Strategy configuration owns daily readiness but must preserve a
+            # watched ETF's independent minute-sync preference.
+            self.symbol_repository.upsert_symbols(strategy_records, force_daily_sync=True)
         # A watched benchmark remains a watchlist symbol, so let the watchlist
         # record win while still inserting each canonical code only once.
         records_by_code = {
             record["code"]: record
             for record in self.scope_resolver.dependency_records(self.market)
         }
+        records_by_code.update({record["code"]: record for record in strategy_records})
         records_by_code.update({record["code"]: record for record in scope.watchlist_records})
         records = [records_by_code[code] for code in sorted(records_by_code)]
         if records:
