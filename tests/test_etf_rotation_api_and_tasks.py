@@ -4,11 +4,14 @@ import asyncio
 from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from finance_analysis.interfaces.api.v1.endpoints import etf_rotation
+from finance_analysis.interfaces.api.v1.schemas.etf_rotation import ETFRotationRunRequest
 from finance_analysis.tasks.celery.jobs import TASK_MODULES
 from finance_analysis.tasks.celery.schedule import (
     JOB_ETF_ROTATION_CN,
+    JOB_ETF_ROTATION_US,
     build_beat_schedule,
     require_scheduled_task_definition,
 )
@@ -17,6 +20,7 @@ from finance_analysis.tasks.celery.schedule import (
 def _snapshot(code="588000.SH"):
     return {
         "id": 1,
+        "market": "CN" if code.endswith((".SH", ".SZ")) else "US",
         "trade_date": date(2026, 8, 25),
         "symbol_id": 1,
         "code": code,
@@ -27,6 +31,9 @@ def _snapshot(code="588000.SH"):
 
 
 class FakeRepository:
+    def __init__(self, market="CN"):
+        self.market = market
+
     def latest_trade_date(self):
         return date(2026, 8, 25)
 
@@ -93,21 +100,40 @@ def test_ranking_uses_requested_trade_date(monkeypatch) -> None:
 def test_dates_lists_available_snapshot_trade_dates(monkeypatch) -> None:
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", FakeRepository)
     payload = asyncio.run(etf_rotation.dates(SimpleNamespace(id=1)))
+    assert payload["market"] == "CN"
     assert payload["latest"] == "2026-08-25"
     assert payload["items"] == ["2026-08-25", "2026-08-24"]
 
 
 def test_dates_returns_empty_payload_when_no_snapshots(monkeypatch) -> None:
     class EmptyRepository:
+        def __init__(self, market="CN"):
+            self.market = market
+
         def available_trade_dates(self):
             return []
 
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", EmptyRepository)
     payload = asyncio.run(etf_rotation.dates(SimpleNamespace(id=1)))
-    assert payload == {"latest": None, "items": []}
+    assert payload == {"market": "CN", "latest": None, "items": []}
 
 
-def test_api_is_authenticated_and_fixed_to_cn_market() -> None:
+def test_dates_are_scoped_to_requested_market(monkeypatch) -> None:
+    class MarketRepository(FakeRepository):
+        def available_trade_dates(self):
+            if self.market == "US":
+                return [date(2026, 8, 20)]
+            return [date(2026, 8, 25), date(2026, 8, 24)]
+
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", MarketRepository)
+    user = SimpleNamespace(id=1)
+    cn = asyncio.run(etf_rotation.dates(user))
+    us = asyncio.run(etf_rotation.dates(user, "US"))
+    assert cn["market"] == "CN" and cn["items"] == ["2026-08-25", "2026-08-24"]
+    assert us["market"] == "US" and us["latest"] == "2026-08-20" and us["items"] == ["2026-08-20"]
+
+
+def test_api_is_authenticated_and_market_aware_with_cn_default() -> None:
     route_by_path = {route.path: route for route in etf_rotation.router.routes}
     route_paths = [route.path for route in etf_rotation.router.routes]
     assert route_paths.index("/ranking") < route_paths.index("/{code}")
@@ -119,7 +145,23 @@ def test_api_is_authenticated_and_fixed_to_cn_market() -> None:
         assert etf_rotation.require_current_user in dependency_calls
     run_dependencies = {dependency.call for dependency in route_by_path["/run"].dependant.dependencies}
     assert etf_rotation.require_admin in run_dependencies
-    assert "market" not in {parameter.name for parameter in route_by_path["/ranking"].dependant.query_params}
+    market_parameter = next(
+        parameter for parameter in route_by_path["/ranking"].dependant.query_params if parameter.name == "market"
+    )
+    assert market_parameter.default == "CN"
+    dates_market = next(
+        parameter for parameter in route_by_path["/dates"].dependant.query_params if parameter.name == "market"
+    )
+    assert dates_market.default == "CN"
+
+
+def test_universe_api_separates_cn_and_us_with_cn_default() -> None:
+    user = SimpleNamespace(id=1)
+    cn = asyncio.run(etf_rotation.universe(user))
+    us = asyncio.run(etf_rotation.universe(user, "US"))
+    assert cn["market"] == "CN" and cn["size"] == 40
+    assert us["market"] == "US" and us["size"] == 49
+    assert {"SPY.US", "QQQ.US", "IWM.US"} <= {item["code"] for item in us["items"]}
 
 
 def test_scheduler_definition_and_task_registration() -> None:
@@ -128,7 +170,27 @@ def test_scheduler_definition_and_task_registration() -> None:
     assert definition.schedule_text == "周一至周五 18:40 Asia/Shanghai"
     assert definition.allow_manual_run is True
     assert build_beat_schedule()[JOB_ETF_ROTATION_CN]["options"]["queue"] == "analysis"
+    us_definition = require_scheduled_task_definition(JOB_ETF_ROTATION_US)
+    assert us_definition.celery_task_name == "scheduled.etf_rotation_us"
+    assert us_definition.schedule_text == "周一至周五 18:40 America/New_York"
+    assert build_beat_schedule()[JOB_ETF_ROTATION_US]["options"]["queue"] == "analysis"
     assert "finance_analysis.tasks.celery.jobs.etf_rotation.tasks" in TASK_MODULES
+
+
+def test_manual_us_run_submits_the_us_task(monkeypatch) -> None:
+    from finance_analysis.tasks.celery.jobs.etf_rotation import tasks
+
+    cn_submit = MagicMock()
+    us_submit = MagicMock(return_value=SimpleNamespace(id="us-task-id"))
+    monkeypatch.setattr(tasks.run_etf_rotation_cn, "apply_async", cn_submit)
+    monkeypatch.setattr(tasks.run_etf_rotation_us, "apply_async", us_submit)
+
+    response = asyncio.run(etf_rotation.run_rotation(ETFRotationRunRequest(market="US"), SimpleNamespace(id=7)))
+
+    assert response["market"] == "US"
+    assert response["task_id"] == "us-task-id"
+    cn_submit.assert_not_called()
+    assert us_submit.call_args.kwargs["queue"] == "analysis"
 
 
 def test_rotation_domain_has_no_redis_quant_feature_or_provider_dependency() -> None:
@@ -148,6 +210,6 @@ def test_migration_creates_only_snapshot_table_with_required_constraints() -> No
     assert "uix_etf_momentum_snapshot_date_symbol" in migration
     assert "ix_etf_momentum_snapshot_date_entry" in migration
     assert "ix_etf_momentum_snapshot_symbol_date" in migration
-    assert "create_table(\n        \"etf_" not in migration.replace(
+    assert 'create_table(\n        "etf_' not in migration.replace(
         'create_table(\n        "etf_momentum_snapshot"', "expected_snapshot_table"
     )

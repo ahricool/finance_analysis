@@ -47,6 +47,7 @@ JOB_SIGNAL_EVALUATION_US = "signal_evaluation_us"
 JOB_QUANT_DAILY_PIPELINE_US = "quant_daily_pipeline_us"
 JOB_QUANT_DAILY_PIPELINE_CN = "quant_daily_pipeline_cn"
 JOB_ETF_ROTATION_CN = "etf_rotation_cn"
+JOB_ETF_ROTATION_US = "etf_rotation_us"
 
 
 def celery_task_name(job_id: str) -> str:

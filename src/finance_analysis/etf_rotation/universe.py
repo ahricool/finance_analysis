@@ -15,12 +15,13 @@ class ETFUniverseMember:
     theme: str
     risk_group: str
     enabled: bool = True
+    market: str = "CN"
 
     def to_dict(self) -> dict[str, str | bool]:
         return asdict(self)
 
 
-ETF_UNIVERSE: tuple[ETFUniverseMember, ...] = (
+CN_ETF_UNIVERSE: tuple[ETFUniverseMember, ...] = (
     ETFUniverseMember("588000.SH", "科创50ETF", "BROAD_INDEX", "STAR50", "BROAD_GROWTH"),
     ETFUniverseMember("159915.SZ", "创业板ETF", "BROAD_INDEX", "CHINEXT", "BROAD_GROWTH"),
     ETFUniverseMember("512800.SH", "银行ETF", "FINANCE", "BANK", "FINANCE"),
@@ -69,25 +70,141 @@ ETF_UNIVERSE: tuple[ETFUniverseMember, ...] = (
     ETFUniverseMember("563320.SH", "通用航空ETF", "DEFENSE_SPACE", "LOW_ALTITUDE_ECONOMY", "DEFENSE_SPACE"),
 )
 
+# Backward-compatible name for the original A-share universe.
+ETF_UNIVERSE = CN_ETF_UNIVERSE
 
-def enabled_etfs() -> tuple[ETFUniverseMember, ...]:
-    return tuple(member for member in ETF_UNIVERSE if member.enabled)
+US_ETF_UNIVERSE: tuple[ETFUniverseMember, ...] = (
+    ETFUniverseMember("SPY.US", "S&P 500", "BROAD_MARKET", "LARGE_CAP", "BROAD_LARGE_CAP", market="US"),
+    ETFUniverseMember("QQQ.US", "Nasdaq-100", "BROAD_MARKET", "GROWTH", "BROAD_LARGE_CAP", market="US"),
+    ETFUniverseMember("IWM.US", "Russell 2000", "BROAD_MARKET", "SMALL_CAP", "BROAD_SMALL_CAP", market="US"),
+    ETFUniverseMember("XLK.US", "Technology", "GICS_SECTOR", "TECHNOLOGY", "GICS_CORE_TECH", market="US"),
+    ETFUniverseMember("XLF.US", "Financials", "GICS_SECTOR", "FINANCIALS", "GICS_CORE_FINANCE", market="US"),
+    ETFUniverseMember("XLV.US", "Health Care", "GICS_SECTOR", "HEALTHCARE", "GICS_CORE_HEALTHCARE", market="US"),
+    ETFUniverseMember("XLI.US", "Industrials", "GICS_SECTOR", "INDUSTRIALS", "GICS_CORE_INDUSTRIAL", market="US"),
+    ETFUniverseMember("XLE.US", "Energy", "GICS_SECTOR", "ENERGY", "GICS_CORE_ENERGY", market="US"),
+    ETFUniverseMember("XLB.US", "Materials", "GICS_SECTOR", "MATERIALS", "GICS_CORE_MATERIALS", market="US"),
+    ETFUniverseMember(
+        "XLY.US", "Consumer Discretionary", "GICS_SECTOR", "CONSUMER_DISCRETIONARY", "GICS_CORE_CONSUMER", market="US"
+    ),
+    ETFUniverseMember(
+        "XLP.US", "Consumer Staples", "GICS_SECTOR", "CONSUMER_STAPLES", "GICS_CORE_CONSUMER", market="US"
+    ),
+    ETFUniverseMember(
+        "XLC.US",
+        "Communication Services",
+        "GICS_SECTOR",
+        "COMMUNICATION_SERVICES",
+        "GICS_CORE_COMMUNICATION",
+        market="US",
+    ),
+    ETFUniverseMember("XLU.US", "Utilities", "GICS_SECTOR", "UTILITIES", "GICS_CORE_UTILITY", market="US"),
+    ETFUniverseMember("XLRE.US", "Real Estate", "GICS_SECTOR", "REAL_ESTATE", "GICS_CORE_REAL_ESTATE", market="US"),
+    ETFUniverseMember("SMH.US", "Semiconductor", "AI_TECHNOLOGY", "SEMICONDUCTOR", "SEMICONDUCTOR", market="US"),
+    ETFUniverseMember(
+        "XSD.US",
+        "Equal Weight Semiconductor",
+        "AI_TECHNOLOGY",
+        "EQUAL_WEIGHT_SEMICONDUCTOR",
+        "SEMICONDUCTOR",
+        market="US",
+    ),
+    ETFUniverseMember(
+        "AIQ.US", "Artificial Intelligence", "AI_TECHNOLOGY", "ARTIFICIAL_INTELLIGENCE", "AI_INFRA", market="US"
+    ),
+    ETFUniverseMember("IGV.US", "Software", "AI_TECHNOLOGY", "SOFTWARE", "SOFTWARE", market="US"),
+    ETFUniverseMember("CIBR.US", "Cybersecurity", "AI_TECHNOLOGY", "CYBERSECURITY", "SOFTWARE", market="US"),
+    ETFUniverseMember(
+        "DTCR.US", "Data Center / Digital Infrastructure", "AI_TECHNOLOGY", "DATA_CENTER", "AI_INFRA", market="US"
+    ),
+    ETFUniverseMember("BOTZ.US", "Robotics / Physical AI", "AI_TECHNOLOGY", "ROBOTICS", "AUTOMATION", market="US"),
+    ETFUniverseMember("QTUM.US", "Quantum Computing", "AI_TECHNOLOGY", "QUANTUM_COMPUTING", "AI_INFRA", market="US"),
+    ETFUniverseMember(
+        "XAR.US", "Aerospace & Defense", "DEFENSE_SPACE", "AEROSPACE_DEFENSE", "DEFENSE_SPACE", market="US"
+    ),
+    ETFUniverseMember(
+        "SHLD.US", "Defense Technology", "DEFENSE_SPACE", "DEFENSE_TECHNOLOGY", "DEFENSE_SPACE", market="US"
+    ),
+    ETFUniverseMember("UFO.US", "Commercial Space", "DEFENSE_SPACE", "COMMERCIAL_SPACE", "DEFENSE_SPACE", market="US"),
+    ETFUniverseMember("KBE.US", "Banks", "FINANCIAL_SUBSECTOR", "BANKS", "FINANCE", market="US"),
+    ETFUniverseMember("KRE.US", "Regional Banks", "FINANCIAL_SUBSECTOR", "REGIONAL_BANKS", "FINANCE", market="US"),
+    ETFUniverseMember("KIE.US", "Insurance", "FINANCIAL_SUBSECTOR", "INSURANCE", "FINANCE", market="US"),
+    ETFUniverseMember("KCE.US", "Capital Markets", "FINANCIAL_SUBSECTOR", "CAPITAL_MARKETS", "FINANCE", market="US"),
+    ETFUniverseMember("XBI.US", "Biotechnology", "HEALTHCARE", "BIOTECHNOLOGY", "HEALTHCARE", market="US"),
+    ETFUniverseMember("XPH.US", "Pharmaceuticals", "HEALTHCARE", "PHARMACEUTICALS", "HEALTHCARE", market="US"),
+    ETFUniverseMember(
+        "XHE.US", "Health Care Equipment", "HEALTHCARE", "HEALTHCARE_EQUIPMENT", "HEALTHCARE", market="US"
+    ),
+    ETFUniverseMember("XHS.US", "Health Care Services", "HEALTHCARE", "HEALTHCARE_SERVICES", "HEALTHCARE", market="US"),
+    ETFUniverseMember("IHI.US", "Medical Devices", "HEALTHCARE", "MEDICAL_DEVICES", "HEALTHCARE", market="US"),
+    ETFUniverseMember(
+        "PAVE.US", "US Infrastructure", "INDUSTRIAL_CONSUMER", "INFRASTRUCTURE", "INDUSTRIAL", market="US"
+    ),
+    ETFUniverseMember("XTN.US", "Transportation", "INDUSTRIAL_CONSUMER", "TRANSPORTATION", "INDUSTRIAL", market="US"),
+    ETFUniverseMember("XHB.US", "Homebuilders", "INDUSTRIAL_CONSUMER", "HOMEBUILDERS", "INDUSTRIAL", market="US"),
+    ETFUniverseMember("XRT.US", "Retail", "INDUSTRIAL_CONSUMER", "RETAIL", "CONSUMER", market="US"),
+    ETFUniverseMember(
+        "XOP.US", "Oil & Gas Exploration & Production", "ENERGY_POWER", "OIL_GAS_EXPLORATION", "ENERGY", market="US"
+    ),
+    ETFUniverseMember("XES.US", "Oil Services", "ENERGY_POWER", "OIL_SERVICES", "ENERGY", market="US"),
+    ETFUniverseMember(
+        "MLPX.US", "Energy Infrastructure", "ENERGY_POWER", "ENERGY_INFRASTRUCTURE", "ENERGY", market="US"
+    ),
+    ETFUniverseMember(
+        "URA.US", "Uranium / Nuclear Fuel", "ENERGY_POWER", "URANIUM_NUCLEAR", "POWER_NUCLEAR", market="US"
+    ),
+    ETFUniverseMember(
+        "ZAP.US", "US Electrification / Power Grid", "ENERGY_POWER", "POWER_GRID", "POWER_NUCLEAR", market="US"
+    ),
+    ETFUniverseMember("XME.US", "Metals & Mining", "METALS_RESOURCES", "METALS_MINING", "METALS", market="US"),
+    ETFUniverseMember("COPX.US", "Copper Miners", "METALS_RESOURCES", "COPPER_MINERS", "METALS", market="US"),
+    ETFUniverseMember("GDX.US", "Gold Miners", "METALS_RESOURCES", "GOLD_MINERS", "METALS", market="US"),
+    ETFUniverseMember("SIL.US", "Silver Miners", "METALS_RESOURCES", "SILVER_MINERS", "METALS", market="US"),
+    ETFUniverseMember("TAN.US", "Solar", "OTHER_THEME", "SOLAR", "CLEAN_ENERGY", market="US"),
+    ETFUniverseMember("FDN.US", "Internet", "OTHER_THEME", "INTERNET", "CONSUMER", market="US"),
+)
 
 
-def universe_by_code() -> dict[str, ETFUniverseMember]:
-    return {member.code: member for member in ETF_UNIVERSE}
+def normalize_etf_market(market: str = "CN") -> str:
+    normalized = str(market or "").strip().upper()
+    if normalized not in {"CN", "US"}:
+        raise ValueError(f"Unsupported ETF Rotation market={market!r}; expected CN or US")
+    return normalized
+
+
+def get_etf_universe(market: str = "CN") -> tuple[ETFUniverseMember, ...]:
+    normalized = normalize_etf_market(market)
+    return ETF_UNIVERSE if normalized == "CN" else US_ETF_UNIVERSE
+
+
+def enabled_etfs(market: str = "CN") -> tuple[ETFUniverseMember, ...]:
+    return tuple(member for member in get_etf_universe(market) if member.enabled)
+
+
+def universe_by_code(market: str = "CN") -> dict[str, ETFUniverseMember]:
+    return {member.code: member for member in get_etf_universe(market)}
 
 
 def _validate_universe() -> None:
-    codes = [member.code for member in ETF_UNIVERSE]
+    all_members = CN_ETF_UNIVERSE + US_ETF_UNIVERSE
+    codes = [member.code for member in all_members]
     if len(codes) != len(set(codes)):
         raise ValueError("ETF Rotation universe codes must be unique")
-    for member in ETF_UNIVERSE:
-        validate_market_data_code("CN", member.code)
+    for member in all_members:
+        normalized_market = normalize_etf_market(member.market)
+        validate_market_data_code(normalized_market, member.code)
         if member.enabled and not all((member.category, member.theme, member.risk_group)):
             raise ValueError(f"Enabled ETF {member.code} is missing classification metadata")
 
 
 _validate_universe()
 
-__all__ = ["ETF_UNIVERSE", "ETFUniverseMember", "enabled_etfs", "universe_by_code"]
+__all__ = [
+    "CN_ETF_UNIVERSE",
+    "ETF_UNIVERSE",
+    "ETFUniverseMember",
+    "US_ETF_UNIVERSE",
+    "enabled_etfs",
+    "get_etf_universe",
+    "normalize_etf_market",
+    "universe_by_code",
+]

@@ -122,11 +122,11 @@ Content-Type: application/json
 
 它只异步提交 Celery，不在 FastAPI request thread 计算。查询接口均需登录：
 
-- `GET /api/v1/etf-rotation/ranking?trade_date=&sort_by=&limit=`
-- `GET /api/v1/etf-rotation/candidates?trade_date=&limit=`
-- `GET /api/v1/etf-rotation/dates`
-- `GET /api/v1/etf-rotation/universe`
-- `GET /api/v1/etf-rotation/{code}?limit=60`
+- `GET /api/v1/etf-rotation/ranking?market=&trade_date=&sort_by=&limit=`
+- `GET /api/v1/etf-rotation/candidates?market=&trade_date=&limit=`
+- `GET /api/v1/etf-rotation/dates?market=`
+- `GET /api/v1/etf-rotation/universe?market=`
+- `GET /api/v1/etf-rotation/{code}?market=&limit=60`
 - `POST /api/v1/etf-rotation/run`（admin）
 
-`dates` 返回已持久化 snapshot 的交易日，降序排列；`ranking` / `candidates` 不传 `trade_date` 时回落到最新交易日。前端入口为“研究 → ETF动量轮动”，可用日期选择器查看某一日的排名与候选，并提供完整本地数字排序、评分拆解和最近 snapshot 历史。
+`dates` 按市场返回已持久化 snapshot 的交易日，降序排列；`ranking` / `candidates` 不传 `trade_date` 时回落到该市场最新交易日。前端入口为“研究 → ETF动量轮动”，可用 A股/美股切换和日期选择器查看某一市场某一日的排名与候选。

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy.dialects import postgresql
@@ -17,19 +18,24 @@ TRADE_DATE = date(2026, 8, 25)
 
 
 class FakeRepository:
-    def __init__(self, *, ready_count: int = 40, history_bars: int = 61):
-        self.codes = [member.code for member in enabled_etfs()]
+    def __init__(self, *, market: str = "CN", ready_count: int | None = None, history_bars: int = 61):
+        self.market = market
+        self.codes = [member.code for member in enabled_etfs(market)]
+        ready_count = len(self.codes) if ready_count is None else ready_count
         self.ready_count = ready_count
         self.history_bars = history_bars
         self.saved: dict[tuple[str, str], dict] = {}
+        self.coverage_codes: set[str] = set()
 
     def latest_daily_dates(self, _codes):
+        self.coverage_codes = set(_codes)
         return {
             code: TRADE_DATE if index < self.ready_count else TRADE_DATE - timedelta(days=1)
             for index, code in enumerate(self.codes)
         }
 
     def daily_codes_on_date(self, _codes, _trade_date):
+        self.coverage_codes = set(_codes)
         return set(self.codes[: self.ready_count])
 
     def load_daily_history(self, codes, trade_date):
@@ -70,6 +76,13 @@ def test_service_generates_complete_snapshot_and_same_date_rerun_is_idempotent()
     assert all("score_components" in snapshot for snapshot in repository.saved.values())
 
 
+def test_service_and_repository_reject_unsupported_markets_early() -> None:
+    with pytest.raises(ValueError, match="expected CN or US"):
+        ETFRotationService("HK")
+    with pytest.raises(ValueError, match="expected CN or US"):
+        ETFRotationRepository("HK", MagicMock())
+
+
 def test_service_refuses_insufficient_daily_coverage_without_writes() -> None:
     repository = FakeRepository(ready_count=35)
     with pytest.raises(ETFRotationReadinessError, match="daily data"):
@@ -82,6 +95,60 @@ def test_service_refuses_insufficient_rankable_coverage_without_writes() -> None
     with pytest.raises(ETFRotationReadinessError, match="rankable"):
         ETFRotationService(repository=repository).run(TRADE_DATE)
     assert repository.saved == {}
+
+
+def test_us_service_uses_us_calendar_and_shared_engine_functions() -> None:
+    repository = FakeRepository(market="US")
+    now = datetime(2026, 8, 26, 23, 0, tzinfo=timezone.utc)
+    with (
+        patch(
+            "finance_analysis.etf_rotation.service.get_completed_trading_days", return_value=[TRADE_DATE]
+        ) as calendar,
+        patch(
+            "finance_analysis.etf_rotation.service.calculate_features",
+            wraps=__import__(
+                "finance_analysis.etf_rotation.service", fromlist=["calculate_features"]
+            ).calculate_features,
+        ) as features,
+        patch(
+            "finance_analysis.etf_rotation.service.rank_cross_section",
+            wraps=__import__(
+                "finance_analysis.etf_rotation.service", fromlist=["rank_cross_section"]
+            ).rank_cross_section,
+        ) as ranking,
+        patch(
+            "finance_analysis.etf_rotation.service.calculate_momentum_score",
+            wraps=__import__(
+                "finance_analysis.etf_rotation.service", fromlist=["calculate_momentum_score"]
+            ).calculate_momentum_score,
+        ) as scoring,
+        patch(
+            "finance_analysis.etf_rotation.service.classify_state",
+            wraps=__import__("finance_analysis.etf_rotation.service", fromlist=["classify_state"]).classify_state,
+        ) as classifier,
+        patch(
+            "finance_analysis.etf_rotation.service.select_candidates",
+            wraps=__import__("finance_analysis.etf_rotation.service", fromlist=["select_candidates"]).select_candidates,
+        ) as selector,
+    ):
+        result = ETFRotationService("US", repository=repository, now=now).run()
+
+    calendar.assert_called_once_with("us", 1, now)
+    assert result["market"] == "US"
+    assert result["universe_size"] == result["snapshot_count"] == 49
+    assert features.call_count == 49
+    ranking.assert_called_once()
+    assert scoring.call_count == classifier.call_count == 49
+    selector.assert_called_once()
+    assert repository.coverage_codes == {member.code for member in enabled_etfs("US")}
+    assert all(code.endswith(".US") for code in repository.coverage_codes)
+
+
+def test_cn_service_coverage_scope_excludes_us_etfs() -> None:
+    repository = FakeRepository(market="CN")
+    ETFRotationService(repository=repository).run(TRADE_DATE)
+    assert repository.coverage_codes == {member.code for member in enabled_etfs("CN")}
+    assert not any(code.endswith(".US") for code in repository.coverage_codes)
 
 
 def test_repository_uses_postgresql_conflict_update_for_idempotent_reruns() -> None:
@@ -104,8 +171,10 @@ def test_repository_uses_postgresql_conflict_update_for_idempotent_reruns() -> N
         snapshots = list(fake.saved.values())
     assert ETFRotationRepository(FakeDatabase()).upsert_snapshots(snapshots) == 40
     upsert_sql = str(session.execute.call_args_list[1].args[0].compile(dialect=postgresql.dialect()))
+    upsert_params = session.execute.call_args_list[1].args[0].compile(dialect=postgresql.dialect()).params
     cleanup_sql = str(session.execute.call_args_list[2].args[0].compile(dialect=postgresql.dialect()))
     assert "ON CONFLICT ON CONSTRAINT uix_etf_momentum_snapshot_date_symbol DO UPDATE" in upsert_sql
+    assert {value for key, value in upsert_params.items() if key.startswith("market_")} == {"CN"}
     assert "DELETE FROM etf_momentum_snapshot" in cleanup_sql
 
 
@@ -124,5 +193,28 @@ def test_repository_lists_distinct_trade_dates_newest_first() -> None:
     ]
     compiled = str(session.execute.call_args.args[0].compile())
     assert "DISTINCT" in compiled
+    assert "etf_momentum_snapshot.market" in compiled
     assert "etf_momentum_snapshot.trade_date" in compiled
     assert "ORDER BY etf_momentum_snapshot.trade_date DESC" in compiled
+
+
+def test_us_repository_forces_snapshot_market_instead_of_trusting_rows() -> None:
+    session = MagicMock()
+    session.execute.side_effect = [
+        SimpleNamespace(all=lambda: [(member.code, index + 1) for index, member in enumerate(enabled_etfs("US"))]),
+        MagicMock(),
+        MagicMock(),
+    ]
+
+    class FakeDatabase:
+        @contextmanager
+        def session_scope(self):
+            yield session
+
+    fake = FakeRepository(market="US")
+    ETFRotationService("US", repository=fake).run(TRADE_DATE)
+    snapshots = list(fake.saved.values())
+    snapshots[0]["market"] = "CN"
+    assert ETFRotationRepository("US", FakeDatabase()).upsert_snapshots(snapshots) == 49
+    params = session.execute.call_args_list[1].args[0].compile(dialect=postgresql.dialect()).params
+    assert {value for key, value in params.items() if key.startswith("market_")} == {"US"}

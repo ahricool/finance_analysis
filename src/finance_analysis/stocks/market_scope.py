@@ -72,10 +72,7 @@ class MarketDataScopeResolver:
         if normalized_market not in {"US", "CN"}:
             raise ValueError(f"Unsupported market={market}; expected US or CN")
         reference = SP500_STOCK_INDEX if normalized_market == "US" else CSI300_STOCK_INDEX
-        universe_codes = {
-            f"{ticker}.US" if normalized_market == "US" else ticker
-            for ticker in reference
-        }
+        universe_codes = {f"{ticker}.US" if normalized_market == "US" else ticker for ticker in reference}
         watchlist_records: dict[str, dict[str, Any]] = {}
         unsupported: dict[tuple[str, str], dict[str, str]] = {}
         for item in self.watchlist_repository.list_all():
@@ -119,28 +116,30 @@ class MarketDataScopeResolver:
 
     @staticmethod
     def strategy_dependency_codes(market: str) -> set[str]:
-        if str(market).strip().upper() != "CN":
+        normalized_market = str(market).strip().upper()
+        if normalized_market not in {"CN", "US"}:
             return set()
         from finance_analysis.etf_rotation.universe import enabled_etfs
 
-        return {member.code for member in enabled_etfs()}
+        return {member.code for member in enabled_etfs(normalized_market)}
 
     @staticmethod
     def strategy_dependency_records(market: str) -> list[dict[str, Any]]:
-        if str(market).strip().upper() != "CN":
+        normalized_market = str(market).strip().upper()
+        if normalized_market not in {"CN", "US"}:
             return []
         from finance_analysis.etf_rotation.universe import enabled_etfs
 
         return [
             {
-                "market": "CN",
+                "market": normalized_market,
                 "code": member.code,
                 "name": member.name,
                 "enabled": True,
                 "sync_daily": True,
                 "sync_minute": False,
             }
-            for member in enabled_etfs()
+            for member in enabled_etfs(normalized_market)
         ]
 
     @staticmethod
