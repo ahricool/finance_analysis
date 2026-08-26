@@ -21,8 +21,7 @@ from finance_analysis.etf_rotation.selector import select_candidates
 def _bars(closes: list[float]) -> list[DailyBar]:
     start = date(2026, 1, 1)
     return [
-        DailyBar(start + timedelta(days=index), close, 100 + index, 1000 + index)
-        for index, close in enumerate(closes)
+        DailyBar(start + timedelta(days=index), close, 100 + index, 1000 + index) for index, close in enumerate(closes)
     ]
 
 
@@ -138,9 +137,7 @@ def test_state_classification_and_priority() -> None:
     assert classify_state(_state_row(), 55) == "NEUTRAL"
     # EXHAUSTED wins over STRONG and EMERGING; COOLING wins over EMERGING.
     assert classify_state(_state_row(ret_1d=0.07, rank_5d=1, rank_change_5d=20), 90) == "EXHAUSTED"
-    assert classify_state(
-        _state_row(momentum_acceleration=-0.01, rank_5d=1, rank_change_5d=-1), 75
-    ) == "COOLING"
+    assert classify_state(_state_row(momentum_acceleration=-0.01, rank_5d=1, rank_change_5d=-1), 75) == "COOLING"
 
 
 def test_candidate_risk_groups_and_deterministic_ordering() -> None:
@@ -153,6 +150,28 @@ def test_candidate_risk_groups_and_deterministic_ordering() -> None:
         {"code": "F", "state": "WEAK", "entry_score": 95, "momentum_score": 20, "rank_5d": 4, "risk_group": "Z"},
     ]
     assert select_candidates(rows) == ["A", "B", "E"]
+
+
+def test_us_broad_large_cap_uses_the_shared_max_two_risk_group_limit() -> None:
+    rows = [
+        {
+            "code": code,
+            "state": "STRONG",
+            "entry_score": 100 - index,
+            "momentum_score": 90 - index,
+            "rank_5d": index + 1,
+            "risk_group": risk_group,
+        }
+        for index, (code, risk_group) in enumerate(
+            [
+                ("SPY.US", "BROAD_LARGE_CAP"),
+                ("QQQ.US", "BROAD_LARGE_CAP"),
+                ("SYNTHETIC.US", "BROAD_LARGE_CAP"),
+                ("IWM.US", "BROAD_SMALL_CAP"),
+            ]
+        )
+    ]
+    assert select_candidates(rows) == ["SPY.US", "QQQ.US", "IWM.US"]
 
 
 def test_coverage_thresholds() -> None:

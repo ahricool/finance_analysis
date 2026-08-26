@@ -15,6 +15,7 @@ vi.mock('@/api/etfRotation', () => ({
 
 const snapshot: ETFMomentumSnapshot = {
   id: 1,
+  market: 'CN',
   tradeDate: '2026-08-25',
   code: '588000.SH',
   name: '科创50ETF',
@@ -65,6 +66,7 @@ describe('ETFRotationPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(etfRotationApi.ranking).mockResolvedValue({
+      market: 'CN',
       tradeDate: '2026-08-25',
       universeSize: 40,
       dataReadyCount: 40,
@@ -76,6 +78,7 @@ describe('ETFRotationPage', () => {
       items: [snapshot],
     });
     vi.mocked(etfRotationApi.candidates).mockResolvedValue({
+      market: 'CN',
       tradeDate: '2026-08-25',
       items: [snapshot],
     });
@@ -94,5 +97,15 @@ describe('ETFRotationPage', () => {
     expect(wrapper.text()).toContain('+6.11%');
     expect(wrapper.text()).toContain('#3');
     expect(wrapper.text()).toContain('+4');
+    expect(etfRotationApi.ranking).toHaveBeenCalledWith('CN');
+  });
+
+  it('reloads the shared view with US market parameters', async () => {
+    const wrapper = mount(ETFRotationPage);
+    await flushPromises();
+    await wrapper.get('[aria-label="市场"]').setValue('US');
+    await flushPromises();
+
+    expect(etfRotationApi.ranking).toHaveBeenLastCalledWith('US');
   });
 });

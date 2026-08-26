@@ -1,6 +1,8 @@
 export type ETFState = 'EMERGING' | 'TRENDING' | 'STRONG' | 'COOLING' | 'EXHAUSTED' | 'WEAK' | 'NEUTRAL';
+export type ETFMarket = 'CN' | 'US';
 
 export interface ETFUniverseMember {
+  market: ETFMarket;
   code: string;
   name: string;
   category: string;
@@ -53,6 +55,7 @@ export interface ETFMomentumSnapshot extends ETFUniverseMember {
 }
 
 export interface ETFRankingResponse {
+  market: ETFMarket;
   tradeDate: string;
   universeSize: number;
   dataReadyCount: number;
@@ -64,8 +67,9 @@ export interface ETFRankingResponse {
   items: ETFMomentumSnapshot[];
 }
 
-export interface ETFCandidatesResponse { tradeDate: string; items: ETFMomentumSnapshot[] }
+export interface ETFCandidatesResponse { market: ETFMarket; tradeDate: string; items: ETFMomentumSnapshot[] }
 export interface ETFDetailResponse {
+  market: ETFMarket;
   metadata: ETFUniverseMember;
   latest: ETFMomentumSnapshot;
   history: ETFMomentumSnapshot[];
@@ -73,6 +77,12 @@ export interface ETFDetailResponse {
 export interface ETFRotationRunAccepted {
   taskId: string;
   status: 'pending';
-  market: 'CN';
+  market: ETFMarket;
   tradeDate: string | null;
+}
+
+export interface ETFUniverseResponse {
+  market: ETFMarket;
+  size: number;
+  items: ETFUniverseMember[];
 }

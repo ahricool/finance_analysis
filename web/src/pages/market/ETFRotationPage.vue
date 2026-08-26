@@ -13,7 +13,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { ETFDetailResponse, ETFMomentumSnapshot, ETFState } from '@/types/etfRotation';
+import type { ETFDetailResponse, ETFMarket, ETFMomentumSnapshot, ETFState } from '@/types/etfRotation';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { ArrowDown, ArrowUp, ArrowUpDown, RefreshCcw } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -42,6 +42,7 @@ const selectedSort = ref<SortKey>('entryScore');
 const selected = ref<ETFDetailResponse | null>(null);
 const detailLoading = ref(false);
 const detailError = ref<ParsedApiError | null>(null);
+const market = ref<ETFMarket>('CN');
 
 const sortOptions: Array<{ value: SortKey; label: string }> = [
   { value: 'entryScore', label: 'Entry Score' },
@@ -76,6 +77,11 @@ watch(selectedSort, (value) => {
   sortDirection.value = 'desc';
 });
 
+watch(market, () => {
+  selected.value = null;
+  void load();
+});
+
 function sortIcon(key: SortKey) {
   if (sortKey.value !== key) return ArrowUpDown;
   return sortDirection.value === 'asc' ? ArrowUp : ArrowDown;
@@ -103,10 +109,10 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const ranking = await etfRotationApi.ranking();
+    const ranking = await etfRotationApi.ranking(market.value);
     Object.assign(summary.value, ranking);
     items.value = ranking.items;
-    candidates.value = (await etfRotationApi.candidates(ranking.tradeDate)).items;
+    candidates.value = (await etfRotationApi.candidates(market.value, ranking.tradeDate)).items;
   } catch (err) {
     error.value = getParsedApiError(err);
   } finally {
@@ -117,7 +123,7 @@ async function load() {
 async function runRotation() {
   runLoading.value = true;
   try {
-    const accepted = await etfRotationApi.run();
+    const accepted = await etfRotationApi.run(market.value);
     toast.success(`任务已提交：${accepted.taskId}`);
   } catch (err) {
     error.value = getParsedApiError(err);
@@ -129,9 +135,9 @@ async function runRotation() {
 async function openDetail(item: ETFMomentumSnapshot) {
   detailLoading.value = true;
   detailError.value = null;
-  selected.value = { metadata: item, latest: item, history: [] };
+  selected.value = { market: market.value, metadata: item, latest: item, history: [] };
   try {
-    selected.value = await etfRotationApi.detail(item.code);
+    selected.value = await etfRotationApi.detail(item.code, market.value);
   } catch (err) {
     detailError.value = getParsedApiError(err);
   } finally {
@@ -150,10 +156,22 @@ onMounted(() => { void load(); });
           ETF 动量轮动
         </h2>
         <p class="mt-1 text-xs leading-5 text-muted-foreground">
-          收盘后基于固定 A 股 ETF Universe 生成可解释的横截面动量排名与候选。
+          收盘后基于固定 {{ market === 'CN' ? 'A 股' : '美股' }} ETF Universe 生成可解释的横截面动量排名与候选。
         </p>
       </div>
       <div class="flex gap-2">
+        <NativeSelect
+          v-model="market"
+          size="sm"
+          aria-label="市场"
+        >
+          <NativeSelectOption value="CN">
+            A股
+          </NativeSelectOption>
+          <NativeSelectOption value="US">
+            美股
+          </NativeSelectOption>
+        </NativeSelect>
         <Button
           variant="outline"
           size="sm"

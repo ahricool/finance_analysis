@@ -45,7 +45,11 @@ def upgrade() -> None:
         sa.Column("overheated", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("candidate_rank", sa.Integer()),
         sa.Column("is_candidate", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("score_components", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column(
+            "score_components",
+            sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"),
+            nullable=False,
+        ),
         sa.Column("generated_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("momentum_score BETWEEN 0 AND 100", name="ck_etf_momentum_score_range"),
         sa.CheckConstraint("entry_score BETWEEN 0 AND 100", name="ck_etf_entry_score_range"),
