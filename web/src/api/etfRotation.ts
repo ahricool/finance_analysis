@@ -2,6 +2,7 @@ import apiClient from './index';
 import { toCamelCase } from './utils';
 import type {
   ETFCandidatesResponse,
+  ETFDatesResponse,
   ETFDetailResponse,
   ETFMarket,
   ETFRankingResponse,
@@ -20,6 +21,10 @@ export const etfRotationApi = {
     const { data } = await apiClient.get('/api/v1/etf-rotation/candidates', {
       params: { market, ...(tradeDate ? { trade_date: tradeDate } : {}) },
     });
+    return toCamelCase(data);
+  },
+  async dates(market: ETFMarket = 'CN'): Promise<ETFDatesResponse> {
+    const { data } = await apiClient.get('/api/v1/etf-rotation/dates', { params: { market } });
     return toCamelCase(data);
   },
   async universe(market: ETFMarket = 'CN'): Promise<ETFUniverseResponse> {

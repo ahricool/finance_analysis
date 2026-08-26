@@ -53,6 +53,9 @@ class FakeRepository:
         assert code == "588000.SH"
         return [_snapshot(code)][:limit]
 
+    def available_trade_dates(self):
+        return [date(2026, 8, 25), date(2026, 8, 24)]
+
 
 def test_ranking_candidates_and_detail_use_rotation_repository(monkeypatch) -> None:
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", FakeRepository)
@@ -67,13 +70,77 @@ def test_ranking_candidates_and_detail_use_rotation_repository(monkeypatch) -> N
     assert detail["latest"]["code"] == "588000.SH"
 
 
+def test_ranking_uses_requested_trade_date(monkeypatch) -> None:
+    requested = date(2026, 8, 21)
+
+    class DatedRepository(FakeRepository):
+        def latest_trade_date(self):
+            raise AssertionError("requested trade_date must not fall back to latest")
+
+        def snapshots_by_date(self, trade_date, *, sort_by="entry_score"):
+            assert trade_date == requested
+            return [{**_snapshot(), "trade_date": requested}]
+
+        def daily_codes_on_date(self, codes, trade_date):
+            assert trade_date == requested
+            return set(codes)
+
+        def candidates_by_date(self, trade_date, *, limit=5):
+            assert trade_date == requested
+            return [{**_snapshot(), "trade_date": requested}][:limit]
+
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", DatedRepository)
+    user = SimpleNamespace(id=1)
+    ranking = asyncio.run(etf_rotation.ranking(requested, "entry_score", None, user))
+    candidates = asyncio.run(etf_rotation.candidates(requested, 5, user))
+    assert ranking["trade_date"] == "2026-08-21"
+    assert candidates["trade_date"] == requested
+
+
+def test_dates_lists_available_snapshot_trade_dates(monkeypatch) -> None:
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", FakeRepository)
+    payload = asyncio.run(etf_rotation.dates(SimpleNamespace(id=1)))
+    assert payload["market"] == "CN"
+    assert payload["latest"] == "2026-08-25"
+    assert payload["items"] == ["2026-08-25", "2026-08-24"]
+
+
+def test_dates_returns_empty_payload_when_no_snapshots(monkeypatch) -> None:
+    class EmptyRepository:
+        def __init__(self, market="CN"):
+            self.market = market
+
+        def available_trade_dates(self):
+            return []
+
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", EmptyRepository)
+    payload = asyncio.run(etf_rotation.dates(SimpleNamespace(id=1)))
+    assert payload == {"market": "CN", "latest": None, "items": []}
+
+
+def test_dates_are_scoped_to_requested_market(monkeypatch) -> None:
+    class MarketRepository(FakeRepository):
+        def available_trade_dates(self):
+            if self.market == "US":
+                return [date(2026, 8, 20)]
+            return [date(2026, 8, 25), date(2026, 8, 24)]
+
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", MarketRepository)
+    user = SimpleNamespace(id=1)
+    cn = asyncio.run(etf_rotation.dates(user))
+    us = asyncio.run(etf_rotation.dates(user, "US"))
+    assert cn["market"] == "CN" and cn["items"] == ["2026-08-25", "2026-08-24"]
+    assert us["market"] == "US" and us["latest"] == "2026-08-20" and us["items"] == ["2026-08-20"]
+
+
 def test_api_is_authenticated_and_market_aware_with_cn_default() -> None:
     route_by_path = {route.path: route for route in etf_rotation.router.routes}
     route_paths = [route.path for route in etf_rotation.router.routes]
     assert route_paths.index("/ranking") < route_paths.index("/{code}")
     assert route_paths.index("/candidates") < route_paths.index("/{code}")
     assert route_paths.index("/universe") < route_paths.index("/{code}")
-    for path in ("/ranking", "/candidates", "/universe", "/{code}"):
+    assert route_paths.index("/dates") < route_paths.index("/{code}")
+    for path in ("/ranking", "/candidates", "/universe", "/dates", "/{code}"):
         dependency_calls = {dependency.call for dependency in route_by_path[path].dependant.dependencies}
         assert etf_rotation.require_current_user in dependency_calls
     run_dependencies = {dependency.call for dependency in route_by_path["/run"].dependant.dependencies}
@@ -82,6 +149,10 @@ def test_api_is_authenticated_and_market_aware_with_cn_default() -> None:
         parameter for parameter in route_by_path["/ranking"].dependant.query_params if parameter.name == "market"
     )
     assert market_parameter.default == "CN"
+    dates_market = next(
+        parameter for parameter in route_by_path["/dates"].dependant.query_params if parameter.name == "market"
+    )
+    assert dates_market.default == "CN"
 
 
 def test_universe_api_separates_cn_and_us_with_cn_default() -> None:

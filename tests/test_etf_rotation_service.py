@@ -178,6 +178,26 @@ def test_repository_uses_postgresql_conflict_update_for_idempotent_reruns() -> N
     assert "DELETE FROM etf_momentum_snapshot" in cleanup_sql
 
 
+def test_repository_lists_distinct_trade_dates_newest_first() -> None:
+    session = MagicMock()
+    session.execute.return_value.scalars.return_value = [date(2026, 8, 25), date(2026, 8, 24)]
+
+    class FakeDatabase:
+        @contextmanager
+        def get_session(self):
+            yield session
+
+    assert ETFRotationRepository(FakeDatabase()).available_trade_dates() == [
+        date(2026, 8, 25),
+        date(2026, 8, 24),
+    ]
+    compiled = str(session.execute.call_args.args[0].compile())
+    assert "DISTINCT" in compiled
+    assert "etf_momentum_snapshot.market" in compiled
+    assert "etf_momentum_snapshot.trade_date" in compiled
+    assert "ORDER BY etf_momentum_snapshot.trade_date DESC" in compiled
+
+
 def test_us_repository_forces_snapshot_market_instead_of_trusting_rows() -> None:
     session = MagicMock()
     session.execute.side_effect = [

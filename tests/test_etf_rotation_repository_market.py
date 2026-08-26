@@ -90,6 +90,8 @@ def test_snapshot_queries_and_historical_dates_are_isolated_by_market() -> None:
     us = ETFRotationRepository("US", database)
     assert cn.latest_trade_date() == date(2026, 8, 27)
     assert us.latest_trade_date() == date(2026, 8, 26)
+    assert cn.available_trade_dates() == [date(2026, 8, 27), date(2026, 8, 26), date(2026, 8, 25), date(2026, 8, 24)]
+    assert us.available_trade_dates() == [date(2026, 8, 26), date(2026, 8, 25), date(2026, 8, 24), date(2026, 8, 21)]
     assert {row["market"] for row in cn.snapshots_by_date(date(2026, 8, 24))} == {"CN"}
     assert {row["market"] for row in us.snapshots_by_date(date(2026, 8, 24))} == {"US"}
     assert {row["market"] for row in cn.candidates_by_date(date(2026, 8, 24))} == {"CN"}

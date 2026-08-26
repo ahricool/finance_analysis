@@ -196,6 +196,17 @@ class ETFRotationRepository:
                 select(func.max(ETFMomentumSnapshot.trade_date)).where(ETFMomentumSnapshot.market == self.market)
             ).scalar_one()
 
+    def available_trade_dates(self) -> list[date]:
+        with self.db.get_session() as session:
+            return list(
+                session.execute(
+                    select(ETFMomentumSnapshot.trade_date)
+                    .where(ETFMomentumSnapshot.market == self.market)
+                    .distinct()
+                    .order_by(desc(ETFMomentumSnapshot.trade_date))
+                ).scalars()
+            )
+
     @staticmethod
     def _payload(snapshot: ETFMomentumSnapshot, code: str) -> dict[str, Any]:
         return {

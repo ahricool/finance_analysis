@@ -74,4 +74,22 @@ describe('etfRotation API key conversion', () => {
     expect(item).not.toHaveProperty('ret5d');
     expect(item).not.toHaveProperty('rank5d');
   });
+
+  it('scopes dates, ranking and candidates to the requested market', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: { market: 'US', latest: '2026-08-20', items: ['2026-08-20'] },
+    });
+    await etfRotationApi.dates('US');
+    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/etf-rotation/dates', { params: { market: 'US' } });
+
+    vi.mocked(apiClient.get).mockResolvedValue({ data: rankingPayload });
+    await etfRotationApi.ranking('US', '2026-08-20');
+    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/etf-rotation/ranking', {
+      params: { market: 'US', trade_date: '2026-08-20' },
+    });
+    await etfRotationApi.candidates('US', '2026-08-20');
+    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/etf-rotation/candidates', {
+      params: { market: 'US', trade_date: '2026-08-20' },
+    });
+  });
 });
