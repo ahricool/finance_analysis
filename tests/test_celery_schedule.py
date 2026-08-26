@@ -32,6 +32,7 @@ EXPECTED_JOBS = {
     "signal_evaluation_us": ("scheduled_signal_evaluation_us", "America/New_York"),
     "quant_daily_pipeline_us": ("scheduled_quant_daily_us", "America/New_York"),
     "quant_daily_pipeline_cn": ("scheduled_quant_daily_cn", "Asia/Shanghai"),
+    "etf_rotation_cn": ("scheduled_etf_rotation_cn", "Asia/Shanghai"),
 }
 
 

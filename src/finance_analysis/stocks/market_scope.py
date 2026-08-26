@@ -20,12 +20,13 @@ class MarketScope:
     market: str
     universe_codes: frozenset[str]
     benchmark_dependency_codes: frozenset[str]
+    strategy_dependency_codes: frozenset[str]
     watchlist_records: tuple[dict[str, Any], ...]
     unsupported_symbols: tuple[dict[str, str], ...]
 
     @property
     def synchronization_codes(self) -> frozenset[str]:
-        return self.universe_codes | self.benchmark_dependency_codes
+        return self.universe_codes | self.benchmark_dependency_codes | self.strategy_dependency_codes
 
 
 MARKET_BENCHMARK_DEPENDENCIES: dict[str, dict[str, str]] = {
@@ -106,13 +107,41 @@ class MarketDataScopeResolver:
                 "code": code,
                 "name": item.name or code,
             }
+        strategy_codes = self.strategy_dependency_codes(normalized_market)
         return MarketScope(
             market=normalized_market,
             universe_codes=frozenset(universe_codes),
             benchmark_dependency_codes=frozenset(MARKET_BENCHMARK_DEPENDENCIES[normalized_market]),
+            strategy_dependency_codes=frozenset(strategy_codes),
             watchlist_records=tuple(watchlist_records[code] for code in sorted(watchlist_records)),
             unsupported_symbols=tuple(unsupported[key] for key in sorted(unsupported)),
         )
+
+    @staticmethod
+    def strategy_dependency_codes(market: str) -> set[str]:
+        if str(market).strip().upper() != "CN":
+            return set()
+        from finance_analysis.etf_rotation.universe import enabled_etfs
+
+        return {member.code for member in enabled_etfs()}
+
+    @staticmethod
+    def strategy_dependency_records(market: str) -> list[dict[str, Any]]:
+        if str(market).strip().upper() != "CN":
+            return []
+        from finance_analysis.etf_rotation.universe import enabled_etfs
+
+        return [
+            {
+                "market": "CN",
+                "code": member.code,
+                "name": member.name,
+                "enabled": True,
+                "sync_daily": True,
+                "sync_minute": False,
+            }
+            for member in enabled_etfs()
+        ]
 
     @staticmethod
     def dependency_records(market: str, codes: Iterable[str] | None = None) -> list[dict[str, Any]]:

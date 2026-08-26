@@ -34,6 +34,7 @@ EXPECTED_CUSTOM_TASKS = {
     "quant.model.train.failed",
     "scheduled.quant_daily_pipeline_us",
     "scheduled.quant_daily_pipeline_cn",
+    "scheduled.etf_rotation_cn",
     "quant.daily.finalize",
     "quant.daily.failed",
 }
@@ -54,8 +55,8 @@ def test_worker_registers_exactly_the_expected_custom_tasks():
 
 
 def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
-    assert len(TASK_PACKAGES) == 19
-    assert len(TASK_MODULES) == 19
+    assert len(TASK_PACKAGES) == 20
+    assert len(TASK_MODULES) == 20
     for package, module_name in zip(TASK_PACKAGES, TASK_MODULES):
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)
@@ -77,7 +78,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 21
+    assert len(celery_names) == len(set(celery_names)) == 22
     assert len(job_ids) == len(set(job_ids))
 
 

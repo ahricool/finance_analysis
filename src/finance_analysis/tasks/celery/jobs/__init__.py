@@ -21,6 +21,7 @@ TASK_PACKAGES = (
     "finance_analysis.tasks.celery.jobs.quant_dataset",
     "finance_analysis.tasks.celery.jobs.quant_training",
     "finance_analysis.tasks.celery.jobs.quant_daily",
+    "finance_analysis.tasks.celery.jobs.etf_rotation",
 )
 TASK_MODULES = tuple(f"{package}.tasks" for package in TASK_PACKAGES)
 

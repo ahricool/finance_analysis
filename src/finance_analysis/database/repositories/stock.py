@@ -155,6 +155,7 @@ class MarketDataSymbolRepository:
         symbols: Iterable[dict[str, Any]],
         *,
         overwrite_runtime_flags: bool = False,
+        force_daily_sync: bool = False,
     ) -> int:
         now = utc_now()
         records = self._normalize_upsert_records(symbols, now)
@@ -173,6 +174,15 @@ class MarketDataSymbolRepository:
                         "enabled": stmt.excluded.enabled,
                         "sync_daily": stmt.excluded.sync_daily,
                         "sync_minute": stmt.excluded.sync_minute,
+                    }
+                )
+            elif force_daily_sync:
+                # Strategy dependencies may require daily data without taking
+                # ownership of a watched symbol's minute-sync preference.
+                update_values.update(
+                    {
+                        "enabled": stmt.excluded.enabled,
+                        "sync_daily": stmt.excluded.sync_daily,
                     }
                 )
             session.execute(

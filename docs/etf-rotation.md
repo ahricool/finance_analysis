@@ -1,0 +1,131 @@
+# A股 ETF 动量轮动
+
+## 功能与边界
+
+ETF Rotation 是独立的、规则驱动且可解释的 A 股行业/主题 ETF 日频轮动模块。它在收盘后计算完整横截面排名、Momentum Score、Entry Score、状态与 Buy Candidates，并保存 point-in-time snapshot。V1 不交易、不接券商、不使用 Qlib/ML，也不使用 Redis 或任何 cache layer。
+
+生产信号代表 T 日收盘后才可获得的信息。回测和后续执行必须默认使用 **T+1 Open** 或更晚价格，不能假设以 T 日 Close 成交。
+
+## 数据来源与日线同步
+
+计算只读取 PostgreSQL 的 `market_data_symbol` 和 `stock_daily`，不会直接调用 AkShare、EFinance、YFinance 或其它公网 Provider。V1 使用同步后的未复权日线 close/volume/amount；这是一个明确且稳定的 point-in-time 口径，除权事件附近可能出现机械价格跳变，属于 V1 已知限制。
+
+静态 Universe 同时也是 `MarketDataScopeResolver` 的 strategy dependency 来源。执行 `MarketDataSyncService("CN")` 时，同步范围为现有 CSI300/自选股/benchmark dependencies，再加 enabled ETF members。ETF 不需要进入用户 watchlist，也不会加入 Quant fixed universe。
+
+## 固定 Universe
+
+唯一配置位于 `src/finance_analysis/etf_rotation/universe.py`。V1 共 40 只：
+
+| Code | Name | Category | Theme | Risk Group |
+| --- | --- | --- | --- | --- |
+| 588000.SH | 科创50ETF | BROAD_INDEX | STAR50 | BROAD_GROWTH |
+| 159915.SZ | 创业板ETF | BROAD_INDEX | CHINEXT | BROAD_GROWTH |
+| 512800.SH | 银行ETF | FINANCE | BANK | FINANCE |
+| 512880.SH | 证券ETF | FINANCE | BROKER | FINANCE |
+| 159851.SZ | 金融科技ETF | FINANCE | FINTECH | FINANCE |
+| 512200.SH | 房地产ETF | REAL_ESTATE_INFRA | REAL_ESTATE | REAL_ESTATE_INFRA |
+| 516970.SH | 基建ETF | REAL_ESTATE_INFRA | INFRASTRUCTURE | REAL_ESTATE_INFRA |
+| 159928.SZ | 消费ETF | CONSUMER | CONSUMER | CONSUMER |
+| 512690.SH | 酒ETF | CONSUMER | LIQUOR | CONSUMER |
+| 159996.SZ | 家电ETF | CONSUMER | HOME_APPLIANCE | CONSUMER |
+| 512170.SH | 医疗ETF | HEALTHCARE | MEDICAL | HEALTHCARE |
+| 159992.SZ | 创新药ETF | HEALTHCARE | INNOVATIVE_DRUG | HEALTHCARE |
+| 512400.SH | 有色金属ETF | RESOURCE | NONFERROUS | RESOURCE |
+| 517520.SH | 黄金股ETF | RESOURCE | GOLD_MINERS | RESOURCE |
+| 516150.SH | 稀土ETF | RESOURCE | RARE_EARTH | RESOURCE |
+| 515220.SH | 煤炭ETF | RESOURCE | COAL | RESOURCE |
+| 516020.SH | 化工ETF | RESOURCE | CHEMICAL | RESOURCE |
+| 159611.SZ | 电力ETF | UTILITY | POWER | UTILITY |
+| 159825.SZ | 农业ETF | AGRICULTURE | AGRICULTURE | AGRICULTURE |
+| 512480.SH | 半导体ETF | TECHNOLOGY | SEMICONDUCTOR | TECH_HARDWARE |
+| 159995.SZ | 芯片ETF | TECHNOLOGY | CHIP | TECH_HARDWARE |
+| 515880.SH | 通信ETF | TECHNOLOGY | COMMUNICATION | TECH_HARDWARE |
+| 159732.SZ | 消费电子ETF | TECHNOLOGY | CONSUMER_ELECTRONICS | TECH_HARDWARE |
+| 159819.SZ | 人工智能ETF | TECHNOLOGY | AI | TECH_SOFTWARE |
+| 516510.SH | 云计算ETF | TECHNOLOGY | CLOUD_COMPUTING | TECH_SOFTWARE |
+| 159852.SZ | 软件ETF | TECHNOLOGY | SOFTWARE | TECH_SOFTWARE |
+| 159869.SZ | 游戏ETF | TMT | GAME | TECH_SOFTWARE |
+| 512980.SH | 传媒ETF | TMT | MEDIA | TECH_SOFTWARE |
+| 562500.SH | 机器人ETF | ADVANCED_MANUFACTURING | ROBOT | ADVANCED_MANUFACTURING |
+| 515970.SH | 工程机械ETF | ADVANCED_MANUFACTURING | CONSTRUCTION_MACHINERY | ADVANCED_MANUFACTURING |
+| 515030.SH | 新能源车ETF | AUTO | NEW_ENERGY_VEHICLE | NEW_ENERGY_AUTO |
+| 516520.SH | 智能驾驶ETF | AUTO | AUTONOMOUS_DRIVING | NEW_ENERGY_AUTO |
+| 159565.SZ | 汽车零部件ETF | AUTO | AUTO_PARTS | NEW_ENERGY_AUTO |
+| 159566.SZ | 储能电池ETF | NEW_ENERGY | ENERGY_STORAGE | NEW_ENERGY |
+| 515790.SH | 光伏ETF | NEW_ENERGY | PHOTOVOLTAIC | NEW_ENERGY |
+| 159326.SZ | 电网设备ETF | NEW_ENERGY | POWER_GRID | NEW_ENERGY |
+| 512660.SH | 军工ETF | DEFENSE_SPACE | DEFENSE | DEFENSE_SPACE |
+| 563230.SH | 卫星ETF | DEFENSE_SPACE | SATELLITE | DEFENSE_SPACE |
+| 563380.SH | 航空航天ETF | DEFENSE_SPACE | AEROSPACE | DEFENSE_SPACE |
+| 563320.SH | 通用航空ETF | DEFENSE_SPACE | LOW_ALTITUDE_ECONOMY | DEFENSE_SPACE |
+
+新增 ETF 时在同一 tuple 中增加 `ETFUniverseMember`；临时停用时设置 `enabled=False`。启动导入时会验证 canonical CN symbol、code 唯一性，以及所有 enabled member 的 category/theme/risk_group 完整性。disabled member 不进入同步 strategy dependencies 或策略计算。
+
+## Features
+
+所有计算函数位于独立 `etf_rotation` 域，不依赖 Quant Feature Engine：
+
+- `ret_Nd = close[t] / close[t-N] - 1`，N 为 1/5/10/20/30/60。
+- `previous_5d_return = close[t-5] / close[t-10] - 1`。
+- `momentum_acceleration = ret_5d - previous_5d_return`。
+- `ma20_ratio`、`ma60_ratio` 为当前 close 相对最近 20/60 根均线的偏离。
+- `volume_ratio_5d` 为最近 5 根平均 volume / 最近 20 根平均 volume。
+- `avg_amount_20d` 为最近 20 根非空 amount 的平均值。
+- `realized_vol_20d` 为最近 20 个 close-to-close return 的样本标准差乘 `sqrt(252)`。
+- `distance_from_20d_high = close[t] / max(close[t-19:t]) - 1`。
+
+完整计算至少需要 61 根截至 T 日的日线。横截面 rank 中 1 为最强；percentile 中 100 为最强、0 为最弱。收益相同时使用 competition rank，percentile 使用 tie group 的平均位置，因此 ties 得到相同且可重复的值。
+
+`rank_change_Nd = N 个历史 snapshot 交易日之前的 rank_5d - 当前 rank_5d`，N 为 1/3/5；正值表示改善。历史不足时保存 NULL，不伪造为 0。
+
+## Momentum 与 Entry Score
+
+Momentum Score 使用横截面 percentile，不直接加权收益：
+
+```text
+0.40 * pct_rank_5d
++ 0.25 * pct_rank_10d
++ 0.20 * pct_rank_30d
++ 0.15 * pct_rank_60d
+```
+
+Entry Score 以 Momentum Score 为基础：1D 在 `(0, 4%]` 加 3；acceleration 在 `(0, 5%)` 加 5、`>=5%` 加 8；`rank_change_5d >= 10` 加 5；`volume_ratio_5d >= 1.2` 加 2。MA20 偏离在 `[5%,10%)`、`[10%,15%)`、`>=15%` 分别扣 2、5、10；1D return `>6%` 另扣 5。最终 clamp 到 `[0,100]`。每项贡献保存在 `score_components` JSONB。
+
+所有权重、阈值、coverage 和候选限制集中在 `etf_rotation/config.py`。
+
+## State 与 Candidates
+
+状态 priority 固定为：`EXHAUSTED > COOLING > EMERGING > STRONG > TRENDING > WEAK > NEUTRAL`。判断条件与 `classifier.py` 一致：EXHAUSTED/STRONG 使用 80 分，COOLING 使用 70 分与负 acceleration/rank change，EMERGING 使用 Top10、五日 rank 改善至少 10 且 acceleration 为正，TRENDING 使用 5D/10D/30D percentile 80/70/60，40 分以下为 WEAK。
+
+候选按 `entry_score DESC, momentum_score DESC, rank_5d ASC, code ASC`；排除 WEAK 和 EXHAUSTED；每个 risk group 最多 2 只，默认 Top5。缺失 risk group 时使用 `UNKNOWN:{code}` 并写 warning。
+
+## Data readiness 与持久化
+
+默认运行日期是最新已完成的 CN trading session。任务要求每只 enabled ETF 在该日有 bar，默认 daily coverage 至少 95%；覆盖达到阈值但不完整时继续并返回 warning。历史重跑检查目标日 bar 是否存在，而不是要求目标日仍为数据库最新日。
+
+有 T 日 bar 仍不代表可排名；完整 feature 可计算数量 / enabled universe 数量也必须至少 95%。任一 coverage 不足时抛出清晰错误，且不写入新 snapshot。
+
+`etf_momentum_snapshot` 每日保存所有 rankable ETF，唯一约束为 `(trade_date, symbol_id)`。同日重跑通过 PostgreSQL upsert 更新，并在同一事务删除不再 rankable 的同日陈旧行。主要索引覆盖 `(trade_date, entry_score)`、`(symbol_id, trade_date)` 和 `(trade_date, is_candidate, candidate_rank)`。Ranking、Candidates、Detail、History 全部直接查询此 PostgreSQL 表，不读写 Redis。
+
+## Scheduler、手动运行与 API
+
+Celery Beat 任务 `scheduled.etf_rotation_cn` 默认在工作日 18:40 Asia/Shanghai 进入 `analysis` queue。时间顺序不是数据正确性的保障，任务自身总会执行 readiness 检查。
+
+管理员可在前端点击“手动运行”，或调用：
+
+```http
+POST /api/v1/etf-rotation/run
+Content-Type: application/json
+
+{"trade_date": null}
+```
+
+它只异步提交 Celery，不在 FastAPI request thread 计算。查询接口均需登录：
+
+- `GET /api/v1/etf-rotation/ranking?trade_date=&sort_by=&limit=`
+- `GET /api/v1/etf-rotation/candidates?trade_date=&limit=`
+- `GET /api/v1/etf-rotation/universe`
+- `GET /api/v1/etf-rotation/{code}?limit=60`
+- `POST /api/v1/etf-rotation/run`（admin）
+
+前端入口为“研究 → ETF动量轮动”，提供完整本地数字排序、Buy Candidates、评分拆解和最近 snapshot 历史。

@@ -18,6 +18,7 @@ from finance_analysis.interfaces.api.v1.endpoints import (
     backtests,
     calendar,
     celery_demo,
+    etf_rotation,
     history,
     market_data,
     portfolio,
@@ -113,3 +114,5 @@ router.include_router(
 )
 
 router.include_router(quant.router, prefix="/quant", tags=["Quant"])
+
+router.include_router(etf_rotation.router, prefix="/etf-rotation", tags=["ETF Rotation"])

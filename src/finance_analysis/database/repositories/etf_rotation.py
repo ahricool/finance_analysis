@@ -1,0 +1,231 @@
+"""PostgreSQL repository boundary for ETF rotation bars and snapshots."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
+from datetime import date, timedelta
+from typing import Any
+
+from sqlalchemy import delete, desc, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from finance_analysis.core.time import utc_now
+from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot
+from finance_analysis.database.models.stock import MarketDataSymbol, StockDaily
+
+SORT_FIELDS = {
+    "entry_score": ETFMomentumSnapshot.entry_score,
+    "momentum_score": ETFMomentumSnapshot.momentum_score,
+    "ret_1d": ETFMomentumSnapshot.ret_1d,
+    "ret_5d": ETFMomentumSnapshot.ret_5d,
+    "ret_10d": ETFMomentumSnapshot.ret_10d,
+    "ret_20d": ETFMomentumSnapshot.ret_20d,
+    "ret_30d": ETFMomentumSnapshot.ret_30d,
+    "ret_60d": ETFMomentumSnapshot.ret_60d,
+}
+
+
+class ETFRotationRepository:
+    def __init__(self, db_manager=None):
+        if db_manager is None:
+            from finance_analysis.database.session import DatabaseManager
+
+            db_manager = DatabaseManager.get_instance()
+        self.db = db_manager
+
+    def latest_daily_dates(self, codes: Iterable[str]) -> dict[str, date]:
+        selected = sorted(set(codes))
+        if not selected:
+            return {}
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(MarketDataSymbol.code, func.max(StockDaily.date))
+                .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
+                .where(MarketDataSymbol.code.in_(selected))
+                .group_by(MarketDataSymbol.code)
+            ).all()
+        return {str(code): latest for code, latest in rows if latest is not None}
+
+    def daily_codes_on_date(self, codes: Iterable[str], trade_date: date) -> set[str]:
+        selected = sorted(set(codes))
+        if not selected:
+            return set()
+        with self.db.get_session() as session:
+            return set(
+                session.execute(
+                    select(MarketDataSymbol.code)
+                    .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
+                    .where(MarketDataSymbol.code.in_(selected), StockDaily.date == trade_date)
+                ).scalars()
+            )
+
+    def load_daily_history(
+        self,
+        codes: Iterable[str],
+        trade_date: date,
+        *,
+        calendar_lookback_days: int = 180,
+    ) -> list[Mapping[str, Any]]:
+        selected = sorted(set(codes))
+        if not selected:
+            return []
+        start = trade_date - timedelta(days=calendar_lookback_days)
+        with self.db.get_session() as session:
+            return list(
+                session.execute(
+                    select(
+                        MarketDataSymbol.id.label("symbol_id"),
+                        MarketDataSymbol.code,
+                        StockDaily.date.label("trade_date"),
+                        StockDaily.close,
+                        StockDaily.volume,
+                        StockDaily.amount,
+                    )
+                    .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
+                    .where(
+                        MarketDataSymbol.code.in_(selected),
+                        StockDaily.date.between(start, trade_date),
+                    )
+                    .order_by(MarketDataSymbol.code, StockDaily.date)
+                ).mappings()
+            )
+
+    def historical_rank_5d(self, trade_date: date, codes: Iterable[str]) -> dict[str, dict[int, int]]:
+        selected = sorted(set(codes))
+        if not selected:
+            return {}
+        with self.db.get_session() as session:
+            dates = list(
+                session.execute(
+                    select(ETFMomentumSnapshot.trade_date)
+                    .where(ETFMomentumSnapshot.trade_date < trade_date)
+                    .distinct()
+                    .order_by(desc(ETFMomentumSnapshot.trade_date))
+                    .limit(5)
+                ).scalars()
+            )
+            if not dates:
+                return {}
+            rows = session.execute(
+                select(MarketDataSymbol.code, ETFMomentumSnapshot.trade_date, ETFMomentumSnapshot.rank_5d)
+                .join(MarketDataSymbol, MarketDataSymbol.id == ETFMomentumSnapshot.symbol_id)
+                .where(MarketDataSymbol.code.in_(selected), ETFMomentumSnapshot.trade_date.in_(dates))
+            ).all()
+        offsets = {snapshot_date: index + 1 for index, snapshot_date in enumerate(dates)}
+        result: dict[str, dict[int, int]] = {}
+        for code, snapshot_date, rank in rows:
+            offset = offsets[snapshot_date]
+            if offset in {1, 3, 5}:
+                result.setdefault(str(code), {})[offset] = int(rank)
+        return result
+
+    def upsert_snapshots(self, snapshots: list[dict[str, Any]]) -> int:
+        if not snapshots:
+            return 0
+        codes = sorted({str(item["code"]) for item in snapshots})
+        with self.db.session_scope() as session:
+            symbol_ids = dict(
+                session.execute(
+                    select(MarketDataSymbol.code, MarketDataSymbol.id).where(MarketDataSymbol.code.in_(codes))
+                ).all()
+            )
+            missing = sorted(set(codes) - set(symbol_ids))
+            if missing:
+                raise ValueError(f"ETF Rotation symbols are not registered: {', '.join(missing)}")
+            generated_at = utc_now()
+            metadata_keys = {"code", "name", "category", "theme", "risk_group"}
+            records = [
+                {
+                    **{key: value for key, value in item.items() if key not in metadata_keys},
+                    "symbol_id": symbol_ids[str(item["code"])],
+                    "generated_at": generated_at,
+                }
+                for item in snapshots
+            ]
+            stmt = pg_insert(ETFMomentumSnapshot).values(records)
+            excluded = stmt.excluded
+            immutable = {"id", "trade_date", "symbol_id"}
+            updates = {
+                column.name: getattr(excluded, column.name)
+                for column in ETFMomentumSnapshot.__table__.columns
+                if column.name not in immutable
+            }
+            session.execute(
+                stmt.on_conflict_do_update(
+                    constraint="uix_etf_momentum_snapshot_date_symbol",
+                    set_=updates,
+                )
+            )
+            session.execute(
+                delete(ETFMomentumSnapshot).where(
+                    ETFMomentumSnapshot.trade_date == records[0]["trade_date"],
+                    ETFMomentumSnapshot.symbol_id.not_in(set(symbol_ids[code] for code in codes)),
+                )
+            )
+        return len(records)
+
+    def latest_trade_date(self) -> date | None:
+        with self.db.get_session() as session:
+            return session.execute(select(func.max(ETFMomentumSnapshot.trade_date))).scalar_one()
+
+    @staticmethod
+    def _payload(snapshot: ETFMomentumSnapshot, code: str) -> dict[str, Any]:
+        return {
+            **{column.name: getattr(snapshot, column.name) for column in ETFMomentumSnapshot.__table__.columns},
+            "code": code,
+        }
+
+    def snapshots_by_date(
+        self,
+        trade_date: date,
+        *,
+        sort_by: str = "entry_score",
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        sort_column = SORT_FIELDS.get(sort_by)
+        if sort_column is None:
+            raise ValueError(f"Unsupported ETF Rotation sort field: {sort_by}")
+        query = (
+            select(ETFMomentumSnapshot, MarketDataSymbol.code)
+            .join(MarketDataSymbol, MarketDataSymbol.id == ETFMomentumSnapshot.symbol_id)
+            .where(ETFMomentumSnapshot.trade_date == trade_date)
+            .order_by(desc(sort_column), desc(ETFMomentumSnapshot.momentum_score), MarketDataSymbol.code)
+        )
+        if limit is not None:
+            query = query.limit(limit)
+        with self.db.get_session() as session:
+            rows = session.execute(query).all()
+            return [self._payload(snapshot, str(code)) for snapshot, code in rows]
+
+    def latest_snapshots(self, *, sort_by: str = "entry_score", limit: int | None = None) -> list[dict[str, Any]]:
+        latest = self.latest_trade_date()
+        return [] if latest is None else self.snapshots_by_date(latest, sort_by=sort_by, limit=limit)
+
+    def candidates_by_date(self, trade_date: date, *, limit: int = 5) -> list[dict[str, Any]]:
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(ETFMomentumSnapshot, MarketDataSymbol.code)
+                .join(MarketDataSymbol, MarketDataSymbol.id == ETFMomentumSnapshot.symbol_id)
+                .where(
+                    ETFMomentumSnapshot.trade_date == trade_date,
+                    ETFMomentumSnapshot.is_candidate.is_(True),
+                )
+                .order_by(ETFMomentumSnapshot.candidate_rank, MarketDataSymbol.code)
+                .limit(limit)
+            ).all()
+            return [self._payload(snapshot, str(code)) for snapshot, code in rows]
+
+    def snapshot_history(self, code: str, *, limit: int = 60) -> list[dict[str, Any]]:
+        canonical = str(code).strip().upper()
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(ETFMomentumSnapshot, MarketDataSymbol.code)
+                .join(MarketDataSymbol, MarketDataSymbol.id == ETFMomentumSnapshot.symbol_id)
+                .where(MarketDataSymbol.code == canonical)
+                .order_by(desc(ETFMomentumSnapshot.trade_date))
+                .limit(limit)
+            ).all()
+            return [self._payload(snapshot, str(row_code)) for snapshot, row_code in rows]
+
+
+__all__ = ["ETFRotationRepository", "SORT_FIELDS"]
