@@ -40,8 +40,6 @@ function snapshot(overrides: Partial<ETFMomentumSnapshot> = {}): ETFMomentumSnap
     theme: 'STAR50',
     riskGroup: 'BROAD_GROWTH',
     enabled: true,
-    assetRegion: 'CN',
-    crossBorder: false,
     ret1D: 0.011,
     ret5D: 0.0234,
     ret10D: -0.012,
@@ -90,10 +88,10 @@ function rankingPayload(market: ETFMarket, tradeDate: string, item: ETFMomentumS
   return {
     market,
     tradeDate,
-    universeSize: market === 'US' ? 49 : 42,
-    dataReadyCount: market === 'US' ? 49 : 42,
+    universeSize: market === 'US' ? 49 : 40,
+    dataReadyCount: market === 'US' ? 49 : 40,
     dataCoverage: 1,
-    rankableSize: market === 'US' ? 49 : 42,
+    rankableSize: market === 'US' ? 49 : 40,
     rankableCoverage: 1,
     generatedAt: `${tradeDate}T10:40:00Z`,
     warnings: [],
@@ -180,28 +178,6 @@ describe('ETFRotationPage', () => {
     expect(wrapper.text()).toContain('#3');
     expect(wrapper.text()).toContain('+4');
     expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined);
-  });
-
-  it('renders a CN cross-border ETF with the shared metadata columns', async () => {
-    const item = snapshot({
-      code: '159941.SZ',
-      name: '广发纳指100ETF',
-      category: 'OVERSEAS_INDEX',
-      theme: 'NASDAQ100',
-      riskGroup: 'US_GROWTH',
-      assetRegion: 'US',
-      crossBorder: true,
-    });
-    apiMocks.ranking.mockResolvedValue(rankingPayload('CN', '2026-08-25', item));
-    apiMocks.candidates.mockResolvedValue({ market: 'CN', tradeDate: '2026-08-25', items: [item] });
-
-    const wrapper = mount(ETFRotationPage);
-    await flushPromises();
-
-    expect(wrapper.text()).toContain('广发纳指100ETF');
-    expect(wrapper.text()).toContain('OVERSEAS_INDEX');
-    expect(wrapper.text()).toContain('NASDAQ100');
-    expect(wrapper.text()).toContain('US_GROWTH');
   });
 
   it('loads the latest snapshot on mount and fills the date picker', async () => {

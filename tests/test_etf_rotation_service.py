@@ -70,16 +70,8 @@ def test_service_generates_complete_snapshot_and_same_date_rerun_is_idempotent()
     service = ETFRotationService(repository=repository)
     first = service.run(TRADE_DATE)
     second = service.run(TRADE_DATE)
-    assert first["snapshot_count"] == second["snapshot_count"] == 42
-    assert len(repository.saved) == 42
-    assert {"159941.SZ", "513650.SH"} <= {code for _, code in repository.saved}
-    for code in ("159941.SZ", "513650.SH"):
-        snapshot = repository.saved[(TRADE_DATE.isoformat(), code)]
-        assert snapshot["ret_60d"] > 0
-        assert snapshot["rank_5d"] > 0
-        assert 0 <= snapshot["momentum_score"] <= 100
-        assert 0 <= snapshot["entry_score"] <= 100
-        assert 0.03 <= snapshot["stop_loss_pct"] <= 0.08
+    assert first["snapshot_count"] == second["snapshot_count"] == 40
+    assert len(repository.saved) == 40
     assert first["candidate_count"] == 5
     assert all("score_components" in snapshot for snapshot in repository.saved.values())
     assert all(snapshot["reference_price"] > 0 for snapshot in repository.saved.values())
@@ -197,7 +189,7 @@ def test_repository_uses_postgresql_conflict_update_for_idempotent_reruns() -> N
         fake = FakeRepository()
         ETFRotationService(repository=fake).run(TRADE_DATE)
         snapshots = list(fake.saved.values())
-    assert ETFRotationRepository(FakeDatabase()).upsert_snapshots(snapshots) == 42
+    assert ETFRotationRepository(FakeDatabase()).upsert_snapshots(snapshots) == 40
     upsert_sql = str(session.execute.call_args_list[1].args[0].compile(dialect=postgresql.dialect()))
     upsert_params = session.execute.call_args_list[1].args[0].compile(dialect=postgresql.dialect()).params
     cleanup_sql = str(session.execute.call_args_list[2].args[0].compile(dialect=postgresql.dialect()))

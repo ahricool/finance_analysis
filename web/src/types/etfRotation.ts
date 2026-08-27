@@ -9,8 +9,6 @@ export interface ETFUniverseMember {
   theme: string;
   riskGroup: string;
   enabled: boolean;
-  assetRegion: ETFMarket;
-  crossBorder: boolean;
 }
 
 export interface ETFMomentumSnapshot extends ETFUniverseMember {

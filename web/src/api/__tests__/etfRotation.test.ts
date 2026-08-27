@@ -11,10 +11,10 @@ vi.mock('../index', () => ({
 
 const rankingPayload = {
   trade_date: '2026-08-25',
-  universe_size: 42,
-  data_ready_count: 42,
+  universe_size: 40,
+  data_ready_count: 40,
   data_coverage: 1,
-  rankable_size: 42,
+  rankable_size: 40,
   rankable_coverage: 1,
   generated_at: '2026-08-25T10:40:00+00:00',
   warnings: [],

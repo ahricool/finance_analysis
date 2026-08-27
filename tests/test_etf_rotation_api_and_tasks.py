@@ -54,6 +54,7 @@ class FakeRepository:
         return [_snapshot()][:limit]
 
     def snapshot_history(self, code, *, limit=60):
+        assert code == "588000.SH"
         return [_snapshot(code)][:limit]
 
     def available_trade_dates(self):
@@ -67,7 +68,7 @@ def test_ranking_candidates_and_detail_use_rotation_repository(monkeypatch) -> N
     candidates = asyncio.run(etf_rotation.candidates(None, 5, user))
     detail = asyncio.run(etf_rotation.detail("588000.SH", 60, user))
     assert ranking["items"][0]["name"] == "科创50ETF"
-    assert ranking["universe_size"] == 42
+    assert ranking["universe_size"] == 40
     assert candidates["items"][0]["code"] == "588000.SH"
     assert detail["metadata"]["theme"] == "STAR50"
     assert detail["latest"]["code"] == "588000.SH"
@@ -167,28 +168,9 @@ def test_universe_api_separates_cn_and_us_with_cn_default() -> None:
     user = SimpleNamespace(id=1)
     cn = asyncio.run(etf_rotation.universe(user))
     us = asyncio.run(etf_rotation.universe(user, "US"))
-    assert cn["market"] == "CN" and cn["size"] == 42
+    assert cn["market"] == "CN" and cn["size"] == 40
     assert us["market"] == "US" and us["size"] == 49
-    assert {"159941.SZ", "513650.SH"} <= {item["code"] for item in cn["items"]}
     assert {"SPY.US", "QQQ.US", "IWM.US"} <= {item["code"] for item in us["items"]}
-
-
-def test_detail_api_recognizes_cn_cross_border_etfs(monkeypatch) -> None:
-    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", FakeRepository)
-    user = SimpleNamespace(id=1)
-    nasdaq = asyncio.run(etf_rotation.detail("159941.SZ", 60, user))
-    sp500 = asyncio.run(etf_rotation.detail("513650.SH", 60, user))
-    assert nasdaq["market"] == sp500["market"] == "CN"
-    assert nasdaq["metadata"]["name"] == "广发纳指100ETF"
-    assert nasdaq["metadata"]["theme"] == "NASDAQ100"
-    assert nasdaq["metadata"]["asset_region"] == "US"
-    assert nasdaq["metadata"]["cross_border"] is True
-    assert nasdaq["latest"]["code"] == "159941.SZ"
-    assert sp500["metadata"]["name"] == "南方标普500ETF"
-    assert sp500["metadata"]["theme"] == "SP500"
-    assert sp500["metadata"]["asset_region"] == "US"
-    assert sp500["metadata"]["cross_border"] is True
-    assert sp500["latest"]["code"] == "513650.SH"
 
 
 def test_scheduler_definition_and_task_registration() -> None:

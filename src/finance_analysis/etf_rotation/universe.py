@@ -16,11 +16,6 @@ class ETFUniverseMember:
     risk_group: str
     enabled: bool = True
     market: str = "CN"
-    asset_region: str = ""
-    cross_border: bool = False
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "asset_region", str(self.asset_region or self.market).strip().upper())
 
     def to_dict(self) -> dict[str, str | bool]:
         return asdict(self)
@@ -73,24 +68,6 @@ CN_ETF_UNIVERSE: tuple[ETFUniverseMember, ...] = (
     ETFUniverseMember("563230.SH", "卫星ETF", "DEFENSE_SPACE", "SATELLITE", "DEFENSE_SPACE"),
     ETFUniverseMember("563380.SH", "航空航天ETF", "DEFENSE_SPACE", "AEROSPACE", "DEFENSE_SPACE"),
     ETFUniverseMember("563320.SH", "通用航空ETF", "DEFENSE_SPACE", "LOW_ALTITUDE_ECONOMY", "DEFENSE_SPACE"),
-    ETFUniverseMember(
-        "159941.SZ",
-        "广发纳指100ETF",
-        "OVERSEAS_INDEX",
-        "NASDAQ100",
-        "US_GROWTH",
-        asset_region="US",
-        cross_border=True,
-    ),
-    ETFUniverseMember(
-        "513650.SH",
-        "南方标普500ETF",
-        "OVERSEAS_INDEX",
-        "SP500",
-        "US_LARGE_CAP",
-        asset_region="US",
-        cross_border=True,
-    ),
 )
 
 # Backward-compatible name for the original A-share universe.
@@ -215,10 +192,6 @@ def _validate_universe() -> None:
     for member in all_members:
         normalized_market = normalize_etf_market(member.market)
         validate_market_data_code(normalized_market, member.code)
-        if member.asset_region not in {"CN", "US"}:
-            raise ValueError(f"ETF {member.code} has unsupported asset_region={member.asset_region!r}")
-        if member.cross_border != (member.asset_region != normalized_market):
-            raise ValueError(f"ETF {member.code} has inconsistent cross-border metadata")
         if member.enabled and not all((member.category, member.theme, member.risk_group)):
             raise ValueError(f"Enabled ETF {member.code} is missing classification metadata")
 
