@@ -68,6 +68,8 @@ CN_ETF_UNIVERSE: tuple[ETFUniverseMember, ...] = (
     ETFUniverseMember("563230.SH", "卫星ETF", "DEFENSE_SPACE", "SATELLITE", "DEFENSE_SPACE"),
     ETFUniverseMember("563380.SH", "航空航天ETF", "DEFENSE_SPACE", "AEROSPACE", "DEFENSE_SPACE"),
     ETFUniverseMember("563320.SH", "通用航空ETF", "DEFENSE_SPACE", "LOW_ALTITUDE_ECONOMY", "DEFENSE_SPACE"),
+    ETFUniverseMember("159941.SZ", "广发纳指100ETF", "OVERSEAS_INDEX", "NASDAQ100", "US_GROWTH"),
+    ETFUniverseMember("513650.SH", "南方标普500ETF", "OVERSEAS_INDEX", "SP500", "US_LARGE_CAP"),
 )
 
 # Backward-compatible name for the original A-share universe.
