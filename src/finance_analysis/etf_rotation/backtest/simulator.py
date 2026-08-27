@@ -1,4 +1,4 @@
-"""T+1 open ETF rotation: hold entry #1 until it leaves the top two."""
+"""T+1-open multi-name rotation simulator.  Signals are always previous close."""
 
 from __future__ import annotations
 
@@ -6,134 +6,215 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
 
-from finance_analysis.etf_rotation.backtest.types import EquityPoint, OhlcvBar, RotationTrade
+from finance_analysis.etf_rotation.backtest.strategies import (
+    buy_candidates,
+    exit_reason,
+    market_is_risk_off,
+    ranking_by_code,
+    update_hysteresis_streak,
+)
+from finance_analysis.etf_rotation.backtest.types import (
+    ClosedTrade,
+    EquityPoint,
+    Fill,
+    OhlcvBar,
+    OpenPosition,
+    StrategySpec,
+)
 
-HOLD_TOP_N = 2
+
+def index_bars(bars_by_code: Mapping[str, Sequence[OhlcvBar]]) -> dict[str, dict[date, OhlcvBar]]:
+    return {code: {bar.trade_date: bar for bar in bars} for code, bars in bars_by_code.items()}
 
 
-def _bar_on(bars: Sequence[OhlcvBar], trade_date: date) -> OhlcvBar | None:
-    for item in bars:
-        if item.trade_date == trade_date:
-            return item
-    return None
+def _tradeable(bar: OhlcvBar | None) -> bool:
+    return bar is not None and not bar.suspended and bar.open > 0
 
 
-def _tradeable_open(bar: OhlcvBar | None) -> float | None:
-    if bar is None or bar.suspended or bar.open <= 0:
-        return None
-    return float(bar.open)
-
-
-def _mark_price(bar: OhlcvBar | None) -> float | None:
+def _mark(bar: OhlcvBar | None, shares: float) -> float:
     if bar is None or bar.close <= 0:
-        return _tradeable_open(bar)
-    return float(bar.close)
+        return 0.0
+    return shares * float(bar.close)
 
 
-def _leader(ranking: Sequence[Mapping[str, Any]]) -> tuple[str, int] | None:
-    if not ranking:
-        return None
-    top = min(ranking, key=lambda row: int(row["entry_rank"]))
-    return str(top["code"]), int(top["entry_rank"])
-
-
-def _rank_of(ranking: Sequence[Mapping[str, Any]], code: str) -> int | None:
-    for row in ranking:
-        if str(row["code"]) == code:
-            return int(row["entry_rank"])
-    return None
-
-
-def simulate_rotation(
+def simulate_strategy(
+    spec: StrategySpec,
     rankings: Mapping[date, Sequence[Mapping[str, Any]]],
     bars_by_code: Mapping[str, Sequence[OhlcvBar]],
     start: date,
     end: date,
     *,
     initial_equity: float = 1.0,
-    hold_top_n: int = HOLD_TOP_N,
-) -> tuple[list[RotationTrade], list[EquityPoint], str | None]:
-    """Execute previous-session entry ranks at the next session open.
-
-    Rules:
-    - Buy yesterday's entry-rank #1 at today's open when flat.
-    - If the holding's yesterday rank is worse than ``hold_top_n``, sell at
-      today's open and buy the new #1 at the same open.
-    - Remaining inventory is marked at the last close.  No fees or slippage.
-    """
+) -> tuple[list[Fill], list[EquityPoint], list[ClosedTrade]]:
     if initial_equity <= 0:
         raise ValueError("initial_equity must be positive")
+    lookup = index_bars(bars_by_code)
     all_dates = sorted({bar.trade_date for bars in bars_by_code.values() for bar in bars})
-    calendar = [trade_date for trade_date in all_dates if start <= trade_date <= end]
-    date_index = {trade_date: index for index, trade_date in enumerate(all_dates)}
+    calendar = [day for day in all_dates if start <= day <= end]
+    date_index = {day: index for index, day in enumerate(all_dates)}
     cash = float(initial_equity)
-    position: str | None = None
-    shares = 0.0
-    trades: list[RotationTrade] = []
-    equity: list[EquityPoint] = []
+    holdings: dict[str, OpenPosition] = {}
+    fills: list[Fill] = []
+    equity_points: list[EquityPoint] = []
+    closed: list[ClosedTrade] = []
+    previous_equity = initial_equity
+    peak = initial_equity
 
-    for trade_date in calendar:
-        full_index = date_index[trade_date]
+    for day in calendar:
+        full_index = date_index[day]
         signal_date = all_dates[full_index - 1] if full_index else None
-        ranking = rankings.get(signal_date) if signal_date is not None else None
-        if ranking:
-            leader = _leader(ranking)
-            held_rank = _rank_of(ranking, position) if position else None
-            should_rotate = position is None or held_rank is None or held_rank > hold_top_n
-            if should_rotate and leader is not None:
-                target_code, target_rank = leader
-                if position and position != target_code:
-                    sell_open = _tradeable_open(_bar_on(bars_by_code.get(position, ()), trade_date))
-                    if sell_open is not None:
-                        cash = shares * sell_open
-                        trades.append(
-                            RotationTrade(
-                                trade_date=trade_date,
-                                side="sell",
-                                code=position,
-                                price=sell_open,
-                                shares=shares,
-                                cash_after=cash,
-                                signal_date=signal_date,
-                                entry_rank=held_rank,
-                            )
-                        )
-                        position = None
-                        shares = 0.0
-                if position is None and target_code:
-                    buy_open = _tradeable_open(_bar_on(bars_by_code.get(target_code, ()), trade_date))
-                    if buy_open is not None and cash > 0:
-                        shares = cash / buy_open
-                        cash = 0.0
-                        position = target_code
-                        trades.append(
-                            RotationTrade(
-                                trade_date=trade_date,
-                                side="buy",
-                                code=target_code,
-                                price=buy_open,
-                                shares=shares,
-                                cash_after=cash,
-                                signal_date=signal_date,
-                                entry_rank=target_rank,
-                            )
-                        )
+        signal_rows = list(rankings.get(signal_date, ())) if signal_date is not None else []
+        signal_map = ranking_by_code(signal_rows)
+        risk_off = spec.risk_off and market_is_risk_off(signal_rows)
 
-        position_value = 0.0
-        if position:
-            marked = _mark_price(_bar_on(bars_by_code.get(position, ()), trade_date))
-            if marked is not None:
-                position_value = shares * marked
-        equity.append(
+        for position in holdings.values():
+            update_hysteresis_streak(position, signal_map.get(position.code), spec)
+
+        exits = [
+            code
+            for code, position in holdings.items()
+            if exit_reason(position, signal_map.get(code), spec) is not None
+        ]
+        traded_notional = 0.0
+        for code in exits:
+            position = holdings[code]
+            bar = lookup.get(code, {}).get(day)
+            if not _tradeable(bar):
+                continue
+            proceeds = position.shares * bar.open
+            cash += proceeds
+            traded_notional += abs(proceeds)
+            reason = exit_reason(position, signal_map.get(code), spec) or "exit"
+            pnl_pct = bar.open / position.entry_price - 1.0
+            fills.append(
+                Fill(
+                    trade_date=day,
+                    signal_date=signal_date or day,
+                    side="sell",
+                    code=code,
+                    price=bar.open,
+                    shares=position.shares,
+                    notional=proceeds,
+                    reason=reason,
+                    entry_rank=None if signal_map.get(code) is None else int(signal_map[code]["entry_rank"]),
+                    momentum_rank=None if signal_map.get(code) is None else int(signal_map[code]["momentum_rank"]),
+                    pnl_pct=pnl_pct,
+                    holding_days=(day - position.entry_date).days,
+                    mae=position.mae,
+                    mfe=position.mfe,
+                )
+            )
+            closed.append(
+                ClosedTrade(
+                    code=code,
+                    entry_date=position.entry_date,
+                    exit_date=day,
+                    entry_price=position.entry_price,
+                    exit_price=bar.open,
+                    return_pct=pnl_pct,
+                    holding_days=(day - position.entry_date).days,
+                    mae=position.mae,
+                    mfe=position.mfe,
+                    reason=reason,
+                )
+            )
+            del holdings[code]
+
+        if signal_rows and not risk_off:
+            held = set(holdings)
+            candidates = [code for code in buy_candidates(signal_rows, spec) if code not in held]
+            slots = spec.max_positions - len(holdings)
+            to_buy = candidates[: max(0, slots)]
+            if to_buy and cash > 0:
+                allocation = cash / len(to_buy)
+                for code in to_buy:
+                    bar = lookup.get(code, {}).get(day)
+                    row = signal_map.get(code)
+                    if not _tradeable(bar) or row is None or allocation <= 0:
+                        continue
+                    shares = allocation / bar.open
+                    cash -= allocation
+                    traded_notional += allocation
+                    stop_pct = float(row["stop_loss_pct"]) if spec.stop_loss else None
+                    stop_price = bar.open * (1.0 - stop_pct) if stop_pct is not None else None
+                    holdings[code] = OpenPosition(
+                        code=code,
+                        shares=shares,
+                        entry_date=day,
+                        entry_price=bar.open,
+                        signal_date=signal_date or day,
+                        entry_rank=int(row["entry_rank"]),
+                        stop_pct=stop_pct,
+                        stop_price=stop_price,
+                        high_water=bar.open,
+                    )
+                    fills.append(
+                        Fill(
+                            trade_date=day,
+                            signal_date=signal_date or day,
+                            side="buy",
+                            code=code,
+                            price=bar.open,
+                            shares=shares,
+                            notional=allocation,
+                            reason="entry",
+                            entry_rank=int(row["entry_rank"]),
+                            momentum_rank=int(row["momentum_rank"]),
+                        )
+                    )
+
+        names: list[str] = []
+        marked_equity = cash
+        for code, position in holdings.items():
+            bar = lookup.get(code, {}).get(day)
+            value = _mark(bar, position.shares)
+            if value <= 0 and _tradeable(bar):
+                value = position.shares * bar.open
+            marked_equity += value
+            names.append(code)
+            if bar is not None:
+                _update_excursions_and_stops(position, bar, spec)
+
+        if marked_equity <= 0:
+            marked_equity = cash
+        turnover = (0.5 * traded_notional / previous_equity) if previous_equity else 0.0
+        daily_return = marked_equity / previous_equity - 1.0 if previous_equity else 0.0
+        peak = max(peak, marked_equity)
+        drawdown = marked_equity / peak - 1.0 if peak else 0.0
+        equity_points.append(
             EquityPoint(
-                trade_date=trade_date,
+                trade_date=day,
+                equity=marked_equity,
                 cash=cash,
-                position=position,
-                position_value=position_value,
-                total_equity=cash + position_value,
+                cash_ratio=cash / marked_equity if marked_equity else 1.0,
+                n_positions=len(holdings),
+                daily_return=daily_return,
+                drawdown=drawdown,
+                turnover=turnover,
+                positions=";".join(sorted(names)),
             )
         )
-    return trades, equity, position
+        previous_equity = marked_equity
+
+    return fills, equity_points, closed
 
 
-__all__ = ["HOLD_TOP_N", "simulate_rotation"]
+def _update_excursions_and_stops(position: OpenPosition, bar: OhlcvBar, spec: StrategySpec) -> None:
+    if position.entry_price <= 0:
+        return
+    low_exc = bar.low / position.entry_price - 1.0
+    high_exc = bar.high / position.entry_price - 1.0
+    position.mae = min(position.mae, low_exc)
+    position.mfe = max(position.mfe, high_exc)
+    if bar.close > 0:
+        position.high_water = max(position.high_water, bar.close)
+    if spec.stop_loss and position.stop_pct is not None:
+        if spec.trailing_stop and position.high_water > 0:
+            trailed = position.high_water * (1.0 - position.stop_pct)
+            if position.stop_price is None or trailed > position.stop_price:
+                position.stop_price = trailed
+        if position.stop_price is not None and bar.low <= position.stop_price:
+            position.stop_hit = True
+
+
+__all__ = ["index_bars", "simulate_strategy"]

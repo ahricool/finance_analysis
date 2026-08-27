@@ -1,20 +1,31 @@
-"""Windowing, metrics, and orchestration for the CN ETF rotation backtest."""
+"""Run the fixed A-I ETF rotation suite for one market and write reports."""
 
 from __future__ import annotations
 
 from calendar import monthrange
-from collections.abc import Mapping, Sequence
-from datetime import date
-from typing import Any
+from collections.abc import Sequence
+from datetime import date, timedelta
+from pathlib import Path
 
+from finance_analysis.etf_rotation.backtest.analysis import build_analysis, write_analysis
+from finance_analysis.etf_rotation.backtest.data import load_ohlcv_from_url
+from finance_analysis.etf_rotation.backtest.diagnostics import entry1_return_split, entry_rank_forward_returns
+from finance_analysis.etf_rotation.backtest.metrics import compute_metrics
 from finance_analysis.etf_rotation.backtest.rankings import compute_entry_rankings
-from finance_analysis.etf_rotation.backtest.simulator import simulate_rotation
-from finance_analysis.etf_rotation.backtest.types import OhlcvBar, RotationBacktestResult
-from finance_analysis.etf_rotation.universe import ETFUniverseMember
+from finance_analysis.etf_rotation.backtest.reports import (
+    DEFAULT_REPORT_DIR,
+    comparison_row,
+    write_comparison,
+    write_entry1_split,
+    write_rank_forward,
+    write_strategy_files,
+)
+from finance_analysis.etf_rotation.backtest.simulator import simulate_strategy
+from finance_analysis.etf_rotation.backtest.strategies import STRATEGIES
+from finance_analysis.etf_rotation.backtest.types import OhlcvBar, StrategyResult
+from finance_analysis.etf_rotation.universe import enabled_etfs, normalize_etf_market
 
 WARMUP_CALENDAR_DAYS = 180
-CALENDAR_DAYS_PER_YEAR = 365
-TRADING_DAYS_PER_YEAR = 252
 
 
 def subtract_months(value: date, months: int) -> date:
@@ -28,124 +39,87 @@ def subtract_months(value: date, months: int) -> date:
     return date(year, month, min(value.day, monthrange(year, month)[1]))
 
 
-def annualized_return(
-    initial_equity: float,
-    final_equity: float,
-    start: date,
-    end: date,
-    *,
-    trading_days: int | None = None,
-) -> tuple[float, float]:
-    if initial_equity <= 0:
-        raise ValueError("initial_equity must be positive")
-    total = final_equity / initial_equity
-    calendar_days = max((end - start).days, 1)
-    calendar = total ** (CALENDAR_DAYS_PER_YEAR / calendar_days) - 1.0
-    periods = trading_days if trading_days and trading_days > 0 else calendar_days
-    trading = total ** (TRADING_DAYS_PER_YEAR / periods) - 1.0
-    return calendar, trading
-
-
-def run_rotation_backtest(
-    bars_by_code: Mapping[str, Sequence[OhlcvBar]],
-    members: Sequence[ETFUniverseMember],
-    start: date,
-    end: date,
-    *,
-    initial_equity: float = 1.0,
-) -> RotationBacktestResult:
-    if start > end:
-        raise ValueError("start must be on or before end")
-    rankings = compute_entry_rankings(bars_by_code, members)
-    trades, equity, final_position = simulate_rotation(
-        rankings, bars_by_code, start, end, initial_equity=initial_equity
-    )
-    final_equity = equity[-1].total_equity if equity else initial_equity
-    first_mark = equity[0].trade_date if equity else start
-    last_mark = equity[-1].trade_date if equity else end
-    calendar_ann, trading_ann = annualized_return(
-        initial_equity,
-        final_equity,
-        first_mark,
-        last_mark,
-        trading_days=max(len(equity) - 1, 1) if equity else 1,
-    )
-    return RotationBacktestResult(
-        start=start,
-        end=end,
-        universe_size=len(members),
-        ranking_days=len(rankings),
-        execution_days=len(equity),
-        initial_equity=initial_equity,
-        final_equity=final_equity,
-        total_return=final_equity / initial_equity - 1.0,
-        annualized_return=calendar_ann,
-        annualized_return_252=trading_ann,
-        trade_count=len(trades),
-        trades=tuple(trades),
-        equity=tuple(equity),
-        final_position=final_position,
-    )
-
-
-def result_to_dict(result: RotationBacktestResult) -> dict[str, Any]:
-    return {
-        "start": result.start.isoformat(),
-        "end": result.end.isoformat(),
-        "universe_size": result.universe_size,
-        "ranking_days": result.ranking_days,
-        "execution_days": result.execution_days,
-        "initial_equity": result.initial_equity,
-        "final_equity": result.final_equity,
-        "total_return": result.total_return,
-        "annualized_return": result.annualized_return,
-        "annualized_return_252": result.annualized_return_252,
-        "trade_count": result.trade_count,
-        "final_position": result.final_position,
-        "trades": [
-            {
-                "trade_date": item.trade_date.isoformat(),
-                "side": item.side,
-                "code": item.code,
-                "price": item.price,
-                "shares": item.shares,
-                "cash_after": item.cash_after,
-                "signal_date": item.signal_date.isoformat(),
-                "entry_rank": item.entry_rank,
-            }
-            for item in result.trades
-        ],
-    }
-
-
-def format_result(result: RotationBacktestResult) -> str:
-    return "\n".join(
-        [
-            "CN ETF 轮动回测（entry 排名，T+1 开盘，跌出前二换仓）",
-            f"区间: {result.start.isoformat()} ~ {result.end.isoformat()}",
-            f"Universe: {result.universe_size} 只 CN ETF（含跨境 QDII）",
-            f"排名交易日: {result.ranking_days}",
-            f"执行交易日: {result.execution_days}",
-            f"成交笔数: {result.trade_count}",
-            f"期末持仓: {result.final_position or '空仓'}",
-            f"累计收益率: {result.total_return:.2%}",
-            f"年化收益率: {result.annualized_return:.2%}",
-            f"年化收益率(252): {result.annualized_return_252:.2%}",
-        ]
-    )
-
-
-def latest_bar_date(bars_by_code: Mapping[str, Sequence[OhlcvBar]]) -> date | None:
+def latest_bar_date(bars_by_code: dict[str, list[OhlcvBar]]) -> date | None:
     dates = [bar.trade_date for bars in bars_by_code.values() for bar in bars]
     return max(dates) if dates else None
 
 
-__all__ = [
-    "WARMUP_CALENDAR_DAYS",
-    "annualized_return",
-    "format_result",
-    "latest_bar_date",
-    "result_to_dict",
-    "run_rotation_backtest",
-    "subtract_months",
-]
+def _first_execution_date(ranking_dates: Sequence[date], calendar: Sequence[date]) -> date | None:
+    if not ranking_dates or not calendar:
+        return None
+    first_signal = min(ranking_dates)
+    for day in calendar:
+        if day > first_signal:
+            return day
+    return None
+
+
+def run_market(
+    market: str,
+    database_url: str,
+    *,
+    start: date | None = None,
+    end: date | None = None,
+    months: int | None = None,
+    report_dir: Path = DEFAULT_REPORT_DIR,
+    initial_equity: float = 1.0,
+) -> list[StrategyResult]:
+    market = normalize_etf_market(market)
+    members = enabled_etfs(market)
+    codes = [member.code for member in members]
+    probe_end = end or date.today()
+    if start is not None:
+        probe_start = start - timedelta(days=WARMUP_CALENDAR_DAYS)
+    elif months:
+        probe_start = subtract_months(probe_end, months) - timedelta(days=WARMUP_CALENDAR_DAYS)
+    else:
+        probe_start = date(2015, 1, 1)
+    bars = load_ohlcv_from_url(database_url, codes, probe_start, probe_end, market=market)
+    if not bars:
+        raise RuntimeError(f"no daily bars loaded for market={market}")
+    data_end = latest_bar_date(bars)
+    assert data_end is not None
+    window_end = min(end, data_end) if end else data_end
+    rankings = compute_entry_rankings(bars, members)
+    calendar = sorted({bar.trade_date for values in bars.values() for bar in values})
+    if start is not None:
+        window_start = start
+    elif months:
+        window_start = subtract_months(window_end, months)
+    else:
+        window_start = _first_execution_date(list(rankings), calendar) or min(calendar)
+    if window_start > window_end:
+        raise RuntimeError(f"empty window for market={market}: {window_start} > {window_end}")
+
+    market_dir = report_dir / market
+    results: list[StrategyResult] = []
+    for spec in STRATEGIES:
+        fills, equity, closed = simulate_strategy(
+            spec, rankings, bars, window_start, window_end, initial_equity=initial_equity
+        )
+        metrics = compute_metrics(equity, closed, fills, initial_equity=initial_equity)
+        result = StrategyResult(
+            market=market,
+            spec=spec,
+            start=window_start,
+            end=window_end,
+            universe_size=len(members),
+            fills=tuple(fills),
+            equity=tuple(equity),
+            closed_trades=tuple(closed),
+            metrics=metrics,
+        )
+        write_strategy_files(result, report_dir)
+        results.append(result)
+
+    write_comparison(market_dir / "strategy_comparison.csv", results)
+    forward = entry_rank_forward_returns(rankings, bars, window_start, window_end)
+    split = entry1_return_split(rankings, bars, window_start, window_end)
+    write_rank_forward(market_dir / "diagnostics_entry_rank_forward.csv", forward)
+    write_entry1_split(market_dir / "diagnostics_entry1_split.csv", split)
+    rows = [comparison_row(result) for result in results]
+    write_analysis(market_dir / "analysis.md", build_analysis(market, rows, split))
+    return results
+
+
+__all__ = ["WARMUP_CALENDAR_DAYS", "latest_bar_date", "run_market", "subtract_months"]

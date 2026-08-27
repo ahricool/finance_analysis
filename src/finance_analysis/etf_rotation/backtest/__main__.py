@@ -1,29 +1,26 @@
-"""CLI for the CN ETF rotation backtest.
+"""CLI for the fixed A-I ETF momentum rotation research backtest.
 
-Run against PostgreSQL daily bars (T+1 open, no fees):
+Signals are T-close rankings; fills are T+1 open.  No fees, no slippage.
 
-    uv run python -m finance_analysis.etf_rotation.backtest --months 6
+    ENV_FILE=~/svr/finance_analysis/.env \\
+      uv run python -m finance_analysis.etf_rotation.backtest --market CN US
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import sys
-from datetime import date, timedelta
+from datetime import date
+from pathlib import Path
 
 from finance_analysis.config import load_env
-from finance_analysis.etf_rotation.backtest.data import load_ohlcv_from_url
-from finance_analysis.etf_rotation.backtest.runner import (
-    WARMUP_CALENDAR_DAYS,
-    format_result,
-    latest_bar_date,
-    result_to_dict,
-    run_rotation_backtest,
-    subtract_months,
+from finance_analysis.etf_rotation.backtest.reports import (
+    DEFAULT_REPORT_DIR,
+    comparison_row,
+    write_comparison,
 )
-from finance_analysis.etf_rotation.universe import enabled_etfs
+from finance_analysis.etf_rotation.backtest.runner import run_market
+from finance_analysis.etf_rotation.universe import normalize_etf_market
 
 
 def _parse_iso_date(value: str) -> date:
@@ -34,12 +31,13 @@ def _parse_iso_date(value: str) -> date:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="CN ETF rotation backtest using T+1 open fills")
-    parser.add_argument("--months", type=int, default=6, help="Lookback window ending at the latest bar (default: 6)")
-    parser.add_argument("--start", type=_parse_iso_date, help="Inclusive start date (overrides --months)")
-    parser.add_argument("--end", type=_parse_iso_date, help="Inclusive end date (default: latest bar in DB)")
+    parser = argparse.ArgumentParser(description="ETF rotation research backtest (fixed strategies A-I)")
+    parser.add_argument("--market", nargs="+", default=["CN", "US"], help="Markets to run (default: CN US)")
+    parser.add_argument("--months", type=int, help="Lookback months ending at the latest bar; omit for full sample")
+    parser.add_argument("--start", type=_parse_iso_date, help="Inclusive start date")
+    parser.add_argument("--end", type=_parse_iso_date, help="Inclusive end date")
     parser.add_argument("--database-url", help="PostgreSQL URL; defaults to DATABASE_URL")
-    parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+    parser.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT_DIR, help="CSV/MD output directory")
     return parser
 
 
@@ -50,28 +48,59 @@ def _database_url(explicit: str | None) -> str:
     return url
 
 
+def _print_table(market: str, rows: list[dict]) -> None:
+    print(f"\n== {market} ==")
+    header = f"{'id':<18} {'CAGR':>8} {'Sharpe':>8} {'MaxDD':>8} {'Win%':>8} {'HoldD':>7} {'Trades':>7} {'TO':>8} {'Cash':>8}"
+    print(header)
+    for row in rows:
+        sharpe = row.get("sharpe")
+        print(
+            f"{row['strategy_id']:<18} "
+            f"{_fmt_pct(row.get('cagr')):>8} "
+            f"{_fmt_num(sharpe):>8} "
+            f"{_fmt_pct(row.get('max_drawdown')):>8} "
+            f"{_fmt_pct(row.get('win_rate')):>8} "
+            f"{_fmt_num(row.get('avg_holding_days')):>7} "
+            f"{int(row.get('trade_count') or 0):>7} "
+            f"{_fmt_pct(row.get('turnover')):>8} "
+            f"{_fmt_pct(row.get('cash_ratio')):>8}"
+        )
+
+
+def _fmt_pct(value) -> str:
+    return "" if value in (None, "") else f"{float(value):.1%}"
+
+
+def _fmt_num(value) -> str:
+    return "" if value in (None, "") else f"{float(value):.2f}"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.months <= 0:
+    if args.months is not None and args.months <= 0:
         raise SystemExit("--months must be positive")
     load_env()
-    members = enabled_etfs("CN")
-    codes = [member.code for member in members]
-    probe_end = args.end or date.today()
-    probe_start = (args.start or subtract_months(probe_end, args.months)) - timedelta(days=WARMUP_CALENDAR_DAYS)
-    bars = load_ohlcv_from_url(_database_url(args.database_url), codes, probe_start, probe_end)
-    if not bars:
-        raise SystemExit("no daily bars loaded for the CN ETF universe")
-    end = args.end or latest_bar_date(bars)
-    if end is None:
-        raise SystemExit("no daily bars loaded for the CN ETF universe")
-    start = args.start or subtract_months(end, args.months)
-    result = run_rotation_backtest(bars, members, start, end)
-    if args.json:
-        json.dump(result_to_dict(result), sys.stdout, ensure_ascii=False, indent=2)
-        sys.stdout.write("\n")
-    else:
-        print(format_result(result))
+    database_url = _database_url(args.database_url)
+    all_results = []
+    for raw_market in args.market:
+        market = normalize_etf_market(raw_market)
+        results = run_market(
+            market,
+            database_url,
+            start=args.start,
+            end=args.end,
+            months=args.months,
+            report_dir=args.report_dir,
+        )
+        all_results.extend(results)
+        rows = [comparison_row(result) for result in results]
+        _print_table(market, rows)
+        analysis_path = args.report_dir / market / "analysis.md"
+        if analysis_path.exists():
+            print(analysis_path.read_text(encoding="utf-8"))
+    if all_results:
+        write_comparison(args.report_dir / "strategy_comparison.csv", all_results)
+    print(f"Reports written to {args.report_dir}")
     return 0
 
 
