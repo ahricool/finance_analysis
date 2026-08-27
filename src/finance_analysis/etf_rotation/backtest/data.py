@@ -1,4 +1,4 @@
-"""Read-only OHLCV loading for the ETF rotation backtest."""
+"""Read-only OHLCV loading for the CN ETF rotation backtest."""
 
 from __future__ import annotations
 

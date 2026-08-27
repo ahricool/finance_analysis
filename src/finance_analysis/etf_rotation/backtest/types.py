@@ -1,4 +1,4 @@
-"""Transport types for the A-share ETF rotation backtest."""
+"""Transport types for the CN ETF rotation backtest."""
 
 from __future__ import annotations
 

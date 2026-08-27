@@ -1,4 +1,4 @@
-"""Windowing, metrics, and orchestration for the A-share ETF rotation backtest."""
+"""Windowing, metrics, and orchestration for the CN ETF rotation backtest."""
 
 from __future__ import annotations
 
@@ -121,9 +121,9 @@ def result_to_dict(result: RotationBacktestResult) -> dict[str, Any]:
 def format_result(result: RotationBacktestResult) -> str:
     return "\n".join(
         [
-            "A股 ETF 轮动回测（entry 排名，T+1 开盘，跌出前二换仓）",
+            "CN ETF 轮动回测（entry 排名，T+1 开盘，跌出前二换仓）",
             f"区间: {result.start.isoformat()} ~ {result.end.isoformat()}",
-            f"Universe: {result.universe_size} 只 A 股行业/主题 ETF",
+            f"Universe: {result.universe_size} 只 CN ETF（含跨境 QDII）",
             f"排名交易日: {result.ranking_days}",
             f"执行交易日: {result.execution_days}",
             f"成交笔数: {result.trade_count}",
