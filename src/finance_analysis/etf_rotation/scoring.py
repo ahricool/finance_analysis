@@ -16,6 +16,57 @@ def calculate_momentum_score(
     return max(0.0, min(100.0, score))
 
 
+def _weighted(values: list[tuple[float | None, float]]) -> float | None:
+    if any(value is None for value, _ in values):
+        return None
+    return max(0.0, min(100.0, sum(float(value) * weight for value, weight in values if value is not None)))
+
+
+def calculate_factor_scores(
+    row: Mapping[str, Any], config: ETFRotationConfig = DEFAULT_CONFIG
+) -> dict[str, float | None]:
+    momentum = calculate_momentum_score(row, config)
+    relative = _weighted([
+        (row.get(f"pct_rank_rs_{window}d"), weight)
+        for window, weight in config.relative_strength_weights.items()
+    ])
+    acceleration = _weighted([
+        (row.get(f"pct_rank_{field}"), weight)
+        for field, weight in config.acceleration_weights.items()
+    ])
+    risk_adjusted = _weighted([
+        (row.get(f"pct_rank_{field}"), weight)
+        for field, weight in config.risk_adjusted_weights.items()
+    ])
+    scores: dict[str, float | None] = {
+        "momentum_strength_score": momentum,
+        "trend_quality_score": row.get("pct_rank_trend_quality_25d"),
+        "relative_strength_score": relative,
+        "acceleration_score": acceleration,
+        "efficiency_score": row.get("pct_rank_efficiency_ratio_20d"),
+        "risk_adjusted_score": risk_adjusted,
+    }
+    factor_map = {
+        "momentum_strength": scores["momentum_strength_score"],
+        "trend_quality": scores["trend_quality_score"],
+        "relative_strength": scores["relative_strength_score"],
+        "acceleration": scores["acceleration_score"],
+        "efficiency": scores["efficiency_score"],
+        "risk_adjusted": scores["risk_adjusted_score"],
+    }
+    if factor_map["relative_strength"] is None and not config.allow_missing_relative_strength:
+        composite = None
+    else:
+        available = {key: value for key, value in factor_map.items() if value is not None}
+        total_weight = sum(config.factor_weights[key] for key in available)
+        composite = (
+            sum(float(value) * config.factor_weights[key] for key, value in available.items()) / total_weight
+            if total_weight else None
+        )
+    scores["composite_score"] = None if composite is None else max(0.0, min(100.0, composite))
+    return scores
+
+
 def ma20_overextension_penalty(value: float, config: ETFRotationConfig = DEFAULT_CONFIG) -> float:
     for threshold, penalty in config.ma20_penalty_thresholds:
         if value >= threshold:
@@ -29,22 +80,10 @@ def calculate_entry_score(
     config: ETFRotationConfig = DEFAULT_CONFIG,
 ) -> tuple[float, dict[str, float]]:
     ret_1d = float(row["ret_1d"])
-    acceleration = float(row["momentum_acceleration"])
-    rank_change = row.get("rank_change_5d")
     volume_ratio = row.get("volume_ratio_5d")
     components = {
-        "base_momentum": float(momentum_score),
+        "base_composite": float(momentum_score),
         "daily_confirmation": config.daily_confirmation_bonus if 0 < ret_1d <= config.daily_confirmation_max else 0.0,
-        "acceleration": (
-            config.strong_acceleration_bonus
-            if acceleration >= config.strong_acceleration_threshold
-            else config.acceleration_bonus if acceleration > 0 else 0.0
-        ),
-        "rank_improvement": (
-            config.rank_improvement_bonus
-            if rank_change is not None and int(rank_change) >= config.rank_improvement_threshold
-            else 0.0
-        ),
         "volume_confirmation": (
             config.volume_confirmation_bonus
             if volume_ratio is not None and float(volume_ratio) >= config.volume_confirmation_threshold
@@ -56,4 +95,6 @@ def calculate_entry_score(
     return max(0.0, min(100.0, sum(components.values()))), components
 
 
-__all__ = ["calculate_entry_score", "calculate_momentum_score", "ma20_overextension_penalty"]
+__all__ = [
+    "calculate_entry_score", "calculate_factor_scores", "calculate_momentum_score", "ma20_overextension_penalty"
+]

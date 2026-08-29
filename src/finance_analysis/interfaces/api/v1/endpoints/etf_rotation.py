@@ -24,7 +24,10 @@ from finance_analysis.tasks.celery.schedule import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-SortField = Literal["entry_score", "momentum_score", "ret_1d", "ret_5d", "ret_10d", "ret_20d", "ret_30d", "ret_60d"]
+SortField = Literal[
+    "composite_score", "entry_score", "momentum_score", "ret_1d", "ret_5d", "ret_10d",
+    "ret_20d", "ret_30d", "ret_60d",
+]
 Market = Literal["CN", "US"]
 
 
@@ -42,6 +45,11 @@ def _resolve_date(repository: ETFRotationRepository, requested: date | None) -> 
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ETF Rotation snapshot is not available")
     return resolved
+
+
+def _market_snapshot(repository: ETFRotationRepository, trade_date: date):
+    loader = getattr(repository, "market_snapshot_by_date", None)
+    return None if loader is None else loader(trade_date)
 
 
 def _summary(repository: ETFRotationRepository, market: Market, trade_date: date, rows: list[dict]) -> dict:
@@ -71,7 +79,7 @@ def _summary(repository: ETFRotationRepository, market: Market, trade_date: date
 @router.get("/ranking")
 async def ranking(
     trade_date: date | None = None,
-    sort_by: SortField = "entry_score",
+    sort_by: SortField = "composite_score",
     limit: int | None = Query(default=None, ge=1, le=100),
     _: User = Depends(require_current_user),
     market: Market = "CN",
@@ -84,6 +92,7 @@ async def ranking(
     payload_rows = all_rows if limit is None else all_rows[:limit]
     return {
         **jsonable_encoder(_summary(repository, market, resolved, all_rows)),
+        "market_snapshot": jsonable_encoder(_market_snapshot(repository, resolved)),
         "items": _enrich(payload_rows, market),
     }
 
@@ -91,14 +100,18 @@ async def ranking(
 @router.get("/candidates")
 async def candidates(
     trade_date: date | None = None,
-    limit: int = Query(default=DEFAULT_CONFIG.max_candidates, ge=1, le=40),
+    limit: int = Query(default=DEFAULT_CONFIG.hold_rank, ge=1, le=40),
     _: User = Depends(require_current_user),
     market: Market = "CN",
 ):
     repository = ETFRotationRepository(market)
     resolved = _resolve_date(repository, trade_date)
     rows = repository.candidates_by_date(resolved, limit=limit)
-    return {"market": market, "trade_date": resolved, "items": _enrich(rows, market)}
+    return {
+        "market": market, "trade_date": resolved,
+        "market_snapshot": jsonable_encoder(_market_snapshot(repository, resolved)),
+        "items": _enrich(rows, market),
+    }
 
 
 @router.get("/universe")
@@ -157,6 +170,7 @@ async def detail(
         "metadata": member.to_dict(),
         "latest": jsonable_encoder(history[0]),
         "history": jsonable_encoder(history),
+        "market_snapshot": jsonable_encoder(_market_snapshot(ETFRotationRepository(market), history[0]["trade_date"])),
     }
 
 

@@ -223,7 +223,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_ETF_ROTATION_CN,
         name="A股 ETF 动量轮动",
-        description="检查日线覆盖后计算固定 ETF Universe 的动量排名、状态和买入候选",
+        description="计算固定 ETF Universe 的多因子动量、市场环境与公共轮动信号",
         task_type="scheduled_etf_rotation_cn",
         celery_task_name=celery_task_name(JOB_ETF_ROTATION_CN),
         schedules=(CronSchedule(minute="40", hour="18", day_of_week="mon-fri"),),
@@ -236,7 +236,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_ETF_ROTATION_US,
         name="美股 ETF 动量轮动",
-        description="检查日线覆盖后计算固定 ETF Universe 的动量排名、状态和买入候选",
+        description="计算固定 ETF Universe 的多因子动量、市场环境与公共轮动信号",
         task_type="scheduled_etf_rotation_us",
         celery_task_name=celery_task_name(JOB_ETF_ROTATION_US),
         schedules=(CronSchedule(minute="40", hour="18", day_of_week="mon-fri", timezone=US_TIMEZONE),),

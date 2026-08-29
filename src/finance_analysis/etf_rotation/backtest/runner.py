@@ -23,6 +23,7 @@ from finance_analysis.etf_rotation.backtest.reports import (
 from finance_analysis.etf_rotation.backtest.simulator import simulate_strategy
 from finance_analysis.etf_rotation.backtest.strategies import STRATEGIES
 from finance_analysis.etf_rotation.backtest.types import OhlcvBar, StrategyResult
+from finance_analysis.etf_rotation.config import DEFAULT_CONFIG
 from finance_analysis.etf_rotation.universe import enabled_etfs, normalize_etf_market
 
 WARMUP_CALENDAR_DAYS = 180
@@ -66,7 +67,7 @@ def run_market(
 ) -> list[StrategyResult]:
     market = normalize_etf_market(market)
     members = enabled_etfs(market)
-    codes = [member.code for member in members]
+    codes = sorted({member.code for member in members} | {DEFAULT_CONFIG.benchmark_codes[market]})
     probe_end = end or date.today()
     if start is not None:
         probe_start = start - timedelta(days=WARMUP_CALENDAR_DAYS)

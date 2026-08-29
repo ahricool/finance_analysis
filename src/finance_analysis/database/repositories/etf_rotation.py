@@ -6,15 +6,16 @@ from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import delete, desc, func, select
+from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
-from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot
+from finance_analysis.database.models.etf_rotation import ETFMarketRotationSnapshot, ETFMomentumSnapshot
 from finance_analysis.database.models.stock import MarketDataSymbol, StockDaily
 from finance_analysis.etf_rotation.universe import normalize_etf_market
 
 SORT_FIELDS = {
+    "composite_score": ETFMomentumSnapshot.composite_score,
     "entry_score": ETFMomentumSnapshot.entry_score,
     "momentum_score": ETFMomentumSnapshot.momentum_score,
     "ret_1d": ETFMomentumSnapshot.ret_1d,
@@ -140,6 +141,51 @@ class ETFRotationRepository:
                 result.setdefault(str(code), {})[offset] = int(rank)
         return result
 
+    def previous_candidate_codes(self, trade_date: date) -> set[str]:
+        with self.db.get_session() as session:
+            previous_date = session.execute(
+                select(func.max(ETFMomentumSnapshot.trade_date)).where(
+                    ETFMomentumSnapshot.market == self.market,
+                    ETFMomentumSnapshot.trade_date < trade_date,
+                )
+            ).scalar_one()
+            if previous_date is None:
+                return set()
+            return set(session.execute(
+                select(MarketDataSymbol.code)
+                .join(ETFMomentumSnapshot, ETFMomentumSnapshot.symbol_id == MarketDataSymbol.id)
+                .where(
+                    ETFMomentumSnapshot.market == self.market,
+                    ETFMomentumSnapshot.trade_date == previous_date,
+                    ETFMomentumSnapshot.is_candidate.is_(True),
+                )
+            ).scalars())
+
+    def upsert_market_snapshot(self, snapshot: Mapping[str, Any]) -> None:
+        record = {**snapshot, "generated_at": utc_now()}
+        record.setdefault("diagnostics", {})
+        with self.db.session_scope() as session:
+            stmt = pg_insert(ETFMarketRotationSnapshot).values(record)
+            excluded = stmt.excluded
+            session.execute(stmt.on_conflict_do_update(
+                constraint="uix_etf_market_rotation_date_market",
+                set_={
+                    column.name: getattr(excluded, column.name)
+                    for column in ETFMarketRotationSnapshot.__table__.columns
+                    if column.name not in {"id", "trade_date", "market"}
+                },
+            ))
+
+    def market_snapshot_by_date(self, trade_date: date) -> dict[str, Any] | None:
+        with self.db.get_session() as session:
+            snapshot = session.execute(select(ETFMarketRotationSnapshot).where(
+                ETFMarketRotationSnapshot.market == self.market,
+                ETFMarketRotationSnapshot.trade_date == trade_date,
+            )).scalar_one_or_none()
+        if snapshot is None:
+            return None
+        return {column.name: getattr(snapshot, column.name) for column in ETFMarketRotationSnapshot.__table__.columns}
+
     def upsert_snapshots(self, snapshots: list[dict[str, Any]]) -> int:
         if not snapshots:
             return 0
@@ -158,9 +204,10 @@ class ETFRotationRepository:
                 raise ValueError(f"ETF Rotation symbols are not registered: {', '.join(missing)}")
             generated_at = utc_now()
             metadata_keys = {"code", "market", "name", "category", "theme", "risk_group"}
+            column_names = {column.name for column in ETFMomentumSnapshot.__table__.columns}
             records = [
                 {
-                    **{key: value for key, value in item.items() if key not in metadata_keys},
+                    **{key: value for key, value in item.items() if key not in metadata_keys and key in column_names},
                     "market": self.market,
                     "symbol_id": symbol_ids[str(item["code"])],
                     "generated_at": generated_at,
@@ -218,7 +265,7 @@ class ETFRotationRepository:
         self,
         trade_date: date,
         *,
-        sort_by: str = "entry_score",
+        sort_by: str = "composite_score",
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         sort_column = SORT_FIELDS.get(sort_by)
@@ -232,7 +279,7 @@ class ETFRotationRepository:
                 MarketDataSymbol.market == self.market,
                 ETFMomentumSnapshot.trade_date == trade_date,
             )
-            .order_by(desc(sort_column), desc(ETFMomentumSnapshot.momentum_score), MarketDataSymbol.code)
+            .order_by(desc(sort_column).nulls_last(), desc(ETFMomentumSnapshot.momentum_score), MarketDataSymbol.code)
         )
         if limit is not None:
             query = query.limit(limit)
@@ -240,7 +287,7 @@ class ETFRotationRepository:
             rows = session.execute(query).all()
             return [self._payload(snapshot, str(code)) for snapshot, code in rows]
 
-    def latest_snapshots(self, *, sort_by: str = "entry_score", limit: int | None = None) -> list[dict[str, Any]]:
+    def latest_snapshots(self, *, sort_by: str = "composite_score", limit: int | None = None) -> list[dict[str, Any]]:
         latest = self.latest_trade_date()
         return [] if latest is None else self.snapshots_by_date(latest, sort_by=sort_by, limit=limit)
 
@@ -253,9 +300,16 @@ class ETFRotationRepository:
                     ETFMomentumSnapshot.market == self.market,
                     MarketDataSymbol.market == self.market,
                     ETFMomentumSnapshot.trade_date == trade_date,
-                    ETFMomentumSnapshot.is_candidate.is_(True),
+                    or_(
+                        ETFMomentumSnapshot.action.in_(("BUY", "HOLD", "EXIT")),
+                        ETFMomentumSnapshot.is_candidate.is_(True),
+                    ),
                 )
-                .order_by(ETFMomentumSnapshot.candidate_rank, MarketDataSymbol.code)
+                .order_by(
+                    ETFMomentumSnapshot.candidate_rank.asc().nulls_last(),
+                    desc(ETFMomentumSnapshot.composite_score),
+                    MarketDataSymbol.code,
+                )
                 .limit(limit)
             ).all()
             return [self._payload(snapshot, str(code)) for snapshot, code in rows]

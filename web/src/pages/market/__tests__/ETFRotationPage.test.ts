@@ -29,6 +29,10 @@ vi.mock('@/components/app/AppDatePicker.vue', () => ({
   },
 }));
 
+vi.mock('@/components/etf-rotation/ETFRotationHistoryCharts.vue', () => ({
+  default: { template: '<div data-testid="rotation-history-charts" />' },
+}));
+
 function snapshot(overrides: Partial<ETFMomentumSnapshot> = {}): ETFMomentumSnapshot {
   return {
     id: 1,
@@ -72,13 +76,39 @@ function snapshot(overrides: Partial<ETFMomentumSnapshot> = {}): ETFMomentumSnap
     stopLossPct: 0.05,
     suggestedStopPrice: 95,
     distanceFrom20dHigh: -0.01,
+    weightedSlope10D: 0.01,
+    weightedSlope25D: 0.008,
+    annualizedSlope10D: 1.2,
+    annualizedSlope25D: 0.9,
+    trendR225D: 0.9,
+    trendQuality25D: 0.81,
+    efficiencyRatio20D: 0.8,
+    trendAcceleration: 0.3,
+    rs20D: 0.03,
+    rs60D: 0.04,
+    relativeStrengthReady: true,
+    riskAdjustedMomentum60D: 1.1,
+    maxDrawdown20D: -0.05,
+    maxDrawdown60D: -0.08,
     momentumScore: 80.1,
+    momentumStrengthScore: 80.1,
+    trendQualityScore: 85,
+    relativeStrengthScore: 82,
+    accelerationScore: 75,
+    efficiencyScore: 88,
+    riskAdjustedScore: 70,
+    compositeScore: 82.5,
+    rank: 3,
     entryScore: 88.2,
+    absoluteTrendEligible: true,
+    liquidityEligible: true,
+    action: 'BUY',
     state: 'TRENDING',
     overheated: false,
     candidateRank: 1,
     isCandidate: true,
     scoreComponents: { baseMomentum: 70 },
+    diagnostics: {},
     generatedAt: '2026-08-25T10:40:00+00:00',
     ...overrides,
   };
@@ -95,6 +125,13 @@ function rankingPayload(market: ETFMarket, tradeDate: string, item: ETFMomentumS
     rankableCoverage: 1,
     generatedAt: `${tradeDate}T10:40:00Z`,
     warnings: [],
+    marketSnapshot: {
+      market, tradeDate, regime: 'RISK_ON', breadthAboveMa20: 0.8, breadthAboveMa60: 0.7,
+      breadthMa20AboveMa60: 0.65, benchmarkCode: market === 'US' ? 'SPY.US' : '510300.SH',
+      benchmarkClose: 100, benchmarkMa20Ratio: 0.02, benchmarkMa60Ratio: 0.03,
+      benchmarkTrend: 'POSITIVE', benchmarkAboveMa20: true, benchmarkAboveMa60: true,
+      benchmarkMa20AboveMa60: true,
+    },
     items: [item],
   };
 }
@@ -154,6 +191,10 @@ describe('ETFRotationPage', () => {
           name: date === '2026-08-21' ? '创业板ETF' : '科创50ETF',
         })],
       };
+    });
+    apiMocks.detail.mockImplementation(async (code: string, market: ETFMarket = 'CN') => {
+      const item = snapshot({ code, market, name: market === 'US' ? 'SPDR S&P 500 ETF' : '科创50ETF' });
+      return { market, metadata: item, latest: item, history: [item], marketSnapshot: null };
     });
   });
 
@@ -225,5 +266,21 @@ describe('ETFRotationPage', () => {
     expect(wrapper.text()).toContain('SPDR S&P 500 ETF');
     expect(wrapper.text()).not.toContain('创业板ETF');
     expect(wrapper.text()).toContain('$95.00');
+  });
+
+  it('opens a centered viewport-bounded detail modal with factor and raw metrics', async () => {
+    mount(ETFRotationPage, { attachTo: document.body });
+    await flushPromises();
+    const candidate = document.body.querySelector('[data-testid="rotation-candidate"]') as HTMLElement;
+    candidate.click();
+    await flushPromises();
+
+    const modal = document.body.querySelector('[data-testid="etf-detail-modal"]');
+    expect(modal).not.toBeNull();
+    expect(modal?.className).toContain('max-h-[calc(100dvh-2rem)]');
+    expect(document.body.textContent).toContain('Raw Metrics');
+    expect(document.body.textContent).toContain('Weighted Slope 25D');
+    expect(document.body.textContent).toContain('RS60');
+    expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN');
   });
 });

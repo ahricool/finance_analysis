@@ -4,194 +4,105 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import ETFRotationHistoryCharts from '@/components/etf-rotation/ETFRotationHistoryCharts.vue';
+import IndicatorLabel from '@/components/etf-rotation/IndicatorLabel.vue';
+import { indicatorDescriptions as descriptions } from '@/components/etf-rotation/indicatorDescriptions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { ETFDetailResponse, ETFMarket, ETFMomentumSnapshot, ETFState } from '@/types/etfRotation';
+import type { ETFAction, ETFDetailResponse, ETFMarket, ETFMarketRotationSnapshot, ETFMomentumSnapshot, ETFState } from '@/types/etfRotation';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { formatMarketCurrencyAmount } from '@/utils/marketCurrency';
-import { ArrowDown, ArrowUp, ArrowUpDown, RefreshCcw } from 'lucide-vue-next';
+import { RefreshCcw } from 'lucide-vue-next';
 import { computed, onMounted, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 
-type SortDirection = 'asc' | 'desc';
-type SortKey = keyof Pick<
-  ETFMomentumSnapshot,
-  | 'rank5D' | 'code' | 'name' | 'category' | 'theme' | 'state'
-  | 'ret1D' | 'ret5D' | 'ret10D' | 'ret20D' | 'ret30D' | 'ret60D'
-  | 'rankChange5D' | 'momentumScore' | 'entryScore' | 'overheated'
-  | 'stopLossPct' | 'suggestedStopPrice'
->;
-
 const items = ref<ETFMomentumSnapshot[]>([]);
 const candidates = ref<ETFMomentumSnapshot[]>([]);
-const summary = ref({
-  tradeDate: '', universeSize: 0, dataReadyCount: 0, dataCoverage: 0,
-  rankableSize: 0, rankableCoverage: 0, generatedAt: null as string | null, warnings: [] as string[],
-});
+const marketSnapshot = ref<ETFMarketRotationSnapshot | null>(null);
+const summary = ref({ tradeDate: '', universeSize: 0, dataReadyCount: 0, dataCoverage: 0,
+  rankableSize: 0, rankableCoverage: 0, generatedAt: null as string | null, warnings: [] as string[] });
 const selectedDate = ref('');
 const availableDates = ref<string[]>([]);
 const loading = ref(true);
 const runLoading = ref(false);
 const error = ref<ParsedApiError | null>(null);
-const sortKey = ref<SortKey>('entryScore');
-const sortDirection = ref<SortDirection>('desc');
-const selectedSort = ref<SortKey>('entryScore');
 const selected = ref<ETFDetailResponse | null>(null);
 const detailLoading = ref(false);
 const detailError = ref<ParsedApiError | null>(null);
 const market = ref<ETFMarket>('CN');
-let loadGeneration = 0;
+const sortKey = ref<'compositeScore' | 'momentumStrengthScore' | 'trendQualityScore' | 'relativeStrengthScore' | 'entryScore'>('compositeScore');
+let generation = 0;
 
-const sortOptions: Array<{ value: SortKey; label: string }> = [
-  { value: 'entryScore', label: 'Entry Score' },
-  { value: 'momentumScore', label: 'Momentum' },
-  { value: 'ret1D', label: '1D' }, { value: 'ret5D', label: '5D' },
-  { value: 'ret10D', label: '10D' }, { value: 'ret20D', label: '20D' },
-  { value: 'ret30D', label: '30D' }, { value: 'ret60D', label: '60D' },
-];
-
-const sortedItems = computed(() => [...items.value].sort((left, right) => {
-  const a = left[sortKey.value];
-  const b = right[sortKey.value];
-  if (a === b) return left.code.localeCompare(right.code);
-  if (a === null || a === undefined) return 1;
-  if (b === null || b === undefined) return -1;
-  const result = typeof a === 'number' && typeof b === 'number'
-    ? a - b
-    : String(a).localeCompare(String(b), 'zh-CN');
-  return sortDirection.value === 'asc' ? result : -result;
+const sortedItems = computed(() => [...items.value].sort((a, b) => {
+  const left = a[sortKey.value] ?? -Infinity;
+  const right = b[sortKey.value] ?? -Infinity;
+  return right - left || a.code.localeCompare(b.code);
 }));
-
-function setSort(key: SortKey) {
-  if (sortKey.value === key) sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
-  else {
-    sortKey.value = key;
-    sortDirection.value = ['code', 'name', 'category', 'theme', 'state'].includes(key) ? 'asc' : 'desc';
-  }
-}
-
-watch(selectedSort, (value) => {
-  sortKey.value = value;
-  sortDirection.value = 'desc';
-});
-
-watch(market, () => {
-  selected.value = null;
-  selectedDate.value = '';
-  availableDates.value = [];
-  void load({ refreshDates: true });
-});
-
-function sortIcon(key: SortKey) {
-  if (sortKey.value !== key) return ArrowUpDown;
-  return sortDirection.value === 'asc' ? ArrowUp : ArrowDown;
-}
-
-function pct(value: number | null | undefined): string {
-  if (value === null || value === undefined) return '—';
-  return `${value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`;
-}
-
-function score(value: number): string { return value.toFixed(1); }
-function stopPct(value: number | null): string { return value === null ? '—' : `-${(value * 100).toFixed(1)}%`; }
-function price(value: number | null): string { return formatMarketCurrencyAmount(value, market.value); }
-function rankChange(value: number | null): string { return value === null ? '—' : `${value > 0 ? '+' : ''}${value}`; }
-function returnClass(value: number): string { return value > 0 ? 'text-destructive' : value < 0 ? 'text-success' : ''; }
-function changeClass(value: number | null): string { return value && value > 0 ? 'text-destructive' : value && value < 0 ? 'text-success' : ''; }
-
+function pct(value: number | null | undefined, sign = true) { return value == null ? '—' : `${sign && value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`; }
+function stopPct(value: number | null | undefined) { return value == null ? '—' : `-${(value * 100).toFixed(1)}%`; }
+function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
+function decimal(value: number | null | undefined, digits = 3) { return value == null ? '—' : value.toFixed(digits); }
+function price(value: number | null) { return formatMarketCurrencyAmount(value, market.value); }
+function rankChange(value: number | null) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value}`; }
+function boolText(value: boolean | null) { return value == null ? '—' : value ? '通过' : '未通过'; }
+function stateIcon(state: ETFState) { return ({ EMERGING: '🚀', STRONG: '🟢', TRENDING: '🔵', COOLING: '🟡', EXHAUSTED: '🔴', WEAK: '⚫', NEUTRAL: '⚪' })[state]; }
 function stateVariant(state: ETFState): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
   if (state === 'STRONG' || state === 'EMERGING') return 'destructive';
   if (state === 'TRENDING') return 'default';
   if (state === 'COOLING' || state === 'EXHAUSTED') return 'warning';
-  if (state === 'WEAK') return 'success';
-  return 'info';
+  return state === 'WEAK' ? 'outline' : 'info';
 }
-
-async function load(options: { refreshDates?: boolean } = {}) {
-  const generation = ++loadGeneration;
-  const requestedMarket = market.value;
-  const requestedDate = selectedDate.value;
-  loading.value = true;
-  error.value = null;
+function actionVariant(action: ETFAction | null): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
+  if (action === 'BUY') return 'success'; if (action === 'HOLD') return 'default';
+  if (action === 'EXIT') return 'destructive'; return 'outline';
+}
+function correlationText(item: ETFMomentumSnapshot) {
+  const value = item.diagnostics?.correlation as { status?: string; max_with_universe?: number | null } | undefined;
+  if (!value || value.status !== 'ready' || value.max_with_universe == null) return '相关性数据不足';
+  return `最高相关性 ${(value.max_with_universe * 100).toFixed(0)}%`;
+}
+async function load(refreshDates = false) {
+  const current = ++generation; loading.value = true; error.value = null;
   try {
-    if (options.refreshDates || !availableDates.value.length) {
-      const dates = await etfRotationApi.dates(requestedMarket);
-      if (generation !== loadGeneration) return;
+    if (refreshDates || !availableDates.value.length) {
+      const dates = await etfRotationApi.dates(market.value); if (current !== generation) return;
       availableDates.value = dates.items;
     }
-    const ranking = await etfRotationApi.ranking(requestedMarket, requestedDate || undefined);
-    if (generation !== loadGeneration) return;
-    Object.assign(summary.value, ranking);
+    const ranking = await etfRotationApi.ranking(market.value, selectedDate.value || undefined);
+    if (current !== generation) return;
+    Object.assign(summary.value, ranking); marketSnapshot.value = ranking.marketSnapshot; items.value = ranking.items;
     if (!selectedDate.value) selectedDate.value = ranking.tradeDate;
-    items.value = ranking.items;
-    const candidatePayload = await etfRotationApi.candidates(requestedMarket, ranking.tradeDate);
-    if (generation !== loadGeneration) return;
-    candidates.value = candidatePayload.items;
-  } catch (err) {
-    if (generation !== loadGeneration) return;
-    error.value = getParsedApiError(err);
-    items.value = [];
-    candidates.value = [];
-  } finally {
-    if (generation === loadGeneration) loading.value = false;
-  }
+    const result = await etfRotationApi.candidates(market.value, ranking.tradeDate);
+    if (current === generation) candidates.value = result.items;
+  } catch (err) { if (current === generation) { error.value = getParsedApiError(err); items.value = []; candidates.value = []; } }
+  finally { if (current === generation) loading.value = false; }
 }
-
-function selectDate(value: string) {
-  if (value === selectedDate.value) return;
-  selectedDate.value = value;
-  void load();
-}
-
-function refresh() {
-  void load({ refreshDates: true });
-}
-
-async function runRotation() {
-  runLoading.value = true;
-  try {
-    const accepted = await etfRotationApi.run(market.value);
-    toast.success(`任务已提交：${accepted.taskId}`);
-  } catch (err) {
-    error.value = getParsedApiError(err);
-  } finally {
-    runLoading.value = false;
-  }
-}
-
 async function openDetail(item: ETFMomentumSnapshot) {
-  detailLoading.value = true;
-  detailError.value = null;
-  selected.value = { market: market.value, metadata: item, latest: item, history: [] };
-  try {
-    selected.value = await etfRotationApi.detail(item.code, market.value);
-  } catch (err) {
-    detailError.value = getParsedApiError(err);
-  } finally {
-    detailLoading.value = false;
-  }
+  selected.value = { market: market.value, metadata: item, latest: item, history: [], marketSnapshot: marketSnapshot.value };
+  detailLoading.value = true; detailError.value = null;
+  try { selected.value = await etfRotationApi.detail(item.code, market.value); }
+  catch (err) { detailError.value = getParsedApiError(err); } finally { detailLoading.value = false; }
 }
-
-onMounted(() => { void load({ refreshDates: true }); });
+async function runRotation() { runLoading.value = true; try { const result = await etfRotationApi.run(market.value); toast.success(`任务已提交：${result.taskId}`); }
+  catch (err) { error.value = getParsedApiError(err); } finally { runLoading.value = false; } }
+watch(market, () => { selectedDate.value = ''; availableDates.value = []; selected.value = null; void load(true); });
+onMounted(() => void load(true));
 </script>
 
 <template>
   <div class="min-w-0 space-y-4">
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h2 class="text-lg font-semibold tracking-tight">
-          ETF 动量轮动
-        </h2>
-        <p class="mt-1 text-xs leading-5 text-muted-foreground">
-          收盘后基于固定 {{ market === 'CN' ? 'A 股' : '美股' }} ETF Universe 生成可解释的横截面动量排名与候选。
+        <h2 class="text-lg font-semibold">
+          ETF 动量轮动 V2
+        </h2><p class="mt-1 text-xs text-muted-foreground">
+          完全基于公开市场行情的多维轮动看板；Action 是公共策略信号，不代表个人交易建议。
         </p>
       </div>
       <div class="flex flex-wrap items-end gap-2">
@@ -202,27 +113,25 @@ onMounted(() => { void load({ refreshDates: true }); });
         >
           <NativeSelectOption value="CN">
             A股
-          </NativeSelectOption>
-          <NativeSelectOption value="US">
+          </NativeSelectOption><NativeSelectOption value="US">
             美股
           </NativeSelectOption>
         </NativeSelect>
         <AppDatePicker
           :model-value="selectedDate"
           label="交易日"
-          placeholder="选择交易日"
           :available-dates="availableDates"
           :clearable="false"
           :disabled="loading"
           class="w-56"
           data-testid="etf-rotation-date"
-          @update:model-value="selectDate"
+          @update:model-value="value => { selectedDate = value; load(); }"
         />
         <Button
           variant="outline"
           size="sm"
           :disabled="loading"
-          @click="refresh"
+          @click="load(true)"
         >
           <RefreshCcw class="size-4" />刷新
         </Button>
@@ -236,144 +145,169 @@ onMounted(() => { void load({ refreshDates: true }); });
         </LoadingButton>
       </div>
     </header>
-
     <AppApiErrorAlert
       v-if="error"
       :error="error"
     />
     <div
       v-if="loading"
-      class="grid gap-3 sm:grid-cols-3 xl:grid-cols-6"
+      class="grid gap-3 sm:grid-cols-4"
     >
       <Skeleton
-        v-for="index in 6"
-        :key="index"
-        class="h-20"
+        v-for="i in 4"
+        :key="i"
+        class="h-24"
       />
     </div>
-    <div
-      v-else
-      class="grid gap-3 sm:grid-cols-3 xl:grid-cols-6"
-    >
-      <Card>
-        <CardHeader class="pb-2">
-          <CardDescription>Trade Date</CardDescription><CardTitle
-            class="text-base"
-            data-testid="etf-rotation-trade-date"
-          >
-            {{ summary.tradeDate || '—' }}
-          </CardTitle>
-        </CardHeader>
-      </Card>
-      <Card>
-        <CardHeader class="pb-2">
-          <CardDescription>Data Coverage</CardDescription><CardTitle class="text-base">
-            {{ summary.dataReadyCount }}/{{ summary.universeSize }} · {{ (summary.dataCoverage * 100).toFixed(1) }}%
-          </CardTitle>
-        </CardHeader>
-      </Card>
-      <Card>
-        <CardHeader class="pb-2">
-          <CardDescription>Universe Size</CardDescription><CardTitle class="text-base">
-            {{ summary.universeSize }}
-          </CardTitle>
-        </CardHeader>
-      </Card>
-      <Card>
-        <CardHeader class="pb-2">
-          <CardDescription>Rankable Size</CardDescription><CardTitle class="text-base">
-            {{ summary.rankableSize }} · {{ (summary.rankableCoverage * 100).toFixed(1) }}%
-          </CardTitle>
-        </CardHeader>
-      </Card>
-      <Card class="sm:col-span-2">
-        <CardHeader class="pb-2">
-          <CardDescription>Generated At</CardDescription><CardTitle class="text-base">
-            {{ formatDateTimeInDisplayTimezone(summary.generatedAt) }}
-          </CardTitle>
-        </CardHeader>
-      </Card>
-    </div>
-
-    <Alert
-      v-for="warning in summary.warnings"
-      :key="warning"
-      variant="warning"
-    >
-      <AlertTitle>数据覆盖提醒</AlertTitle><AlertDescription>{{ warning }}</AlertDescription>
-    </Alert>
+    <Card v-else>
+      <CardHeader>
+        <CardTitle class="flex items-center gap-2">
+          <IndicatorLabel
+            label="Market Regime"
+            :description="descriptions.regime"
+          /><Badge :variant="marketSnapshot?.regime === 'RISK_ON' ? 'success' : marketSnapshot?.regime === 'RISK_OFF' ? 'destructive' : 'warning'">
+            {{ marketSnapshot?.regime ?? 'N/A' }}
+          </Badge>
+        </CardTitle><CardDescription><span data-testid="etf-rotation-trade-date">{{ summary.tradeDate }}</span> · {{ summary.dataReadyCount }}/{{ summary.universeSize }} 数据就绪 · {{ formatDateTimeInDisplayTimezone(summary.generatedAt) }}</CardDescription>
+      </CardHeader>
+      <CardContent class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div class="rounded border p-3">
+          <IndicatorLabel
+            label="Breadth > MA20"
+            :description="descriptions.breadth"
+          /><strong class="mt-1 block">{{ pct(marketSnapshot?.breadthAboveMa20, false) }}</strong>
+        </div>
+        <div class="rounded border p-3">
+          <IndicatorLabel
+            label="Breadth > MA60"
+            :description="descriptions.breadth"
+          /><strong class="mt-1 block">{{ pct(marketSnapshot?.breadthAboveMa60, false) }}</strong>
+        </div>
+        <div class="rounded border p-3">
+          <IndicatorLabel
+            label="MA20 > MA60 Breadth"
+            :description="descriptions.breadth"
+          /><strong class="mt-1 block">{{ pct(marketSnapshot?.breadthMa20AboveMa60, false) }}</strong>
+        </div>
+        <div class="rounded border p-3">
+          <span class="text-sm text-muted-foreground">Benchmark</span><strong class="mt-1 block break-words">{{ marketSnapshot?.benchmarkCode ?? '—' }}</strong>
+        </div>
+        <div class="rounded border p-3">
+          <span class="text-sm text-muted-foreground">Benchmark Trend</span><strong class="mt-1 block">{{ marketSnapshot?.benchmarkTrend ?? '—' }}</strong>
+        </div>
+      </CardContent>
+    </Card>
 
     <Card>
-      <CardHeader><CardTitle>Buy Candidates</CardTitle><CardDescription>按 Entry Score 排序，并限制每个 risk group 最多 2 只；WEAK 与 EXHAUSTED 已排除。</CardDescription></CardHeader>
+      <CardHeader><CardTitle>Rotation Candidates</CardTitle><CardDescription>公共策略候选与退出信号；采用 Entry/Hold buffer、risk group 和 60 日相关性约束。</CardDescription></CardHeader>
       <CardContent>
-        <div
-          v-if="candidates.length"
-          class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
-        >
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <button
             v-for="item in candidates"
             :key="item.code"
-            class="rounded-lg border p-3 text-left transition-colors hover:bg-muted/50"
+            data-testid="rotation-candidate"
+            class="min-w-0 rounded border p-3 text-left hover:bg-muted/50"
             @click="openDetail(item)"
           >
-            <div class="flex items-center justify-between">
-              <span class="font-medium">#{{ item.candidateRank }} {{ item.name }}</span><Badge :variant="stateVariant(item.state)">
-                {{ item.state }}
+            <div class="flex items-center justify-between gap-2">
+              <strong class="min-w-0 break-words">#{{ item.candidateRank ?? '—' }} {{ item.name }}</strong><Badge :variant="actionVariant(item.action)">
+                {{ item.action ?? '—' }}
               </Badge>
             </div>
-            <div class="mt-2 text-xs text-muted-foreground">
+            <p class="mt-1 truncate text-xs text-muted-foreground">
               {{ item.code }} · {{ item.riskGroup }}
-            </div>
+            </p>
             <div class="mt-3 flex justify-between text-sm">
-              <span>Entry <strong>{{ score(item.entryScore) }}</strong></span><span>Momentum <strong>{{ score(item.momentumScore) }}</strong></span>
+              <span>Composite {{ score(item.compositeScore) }}</span><Badge :variant="stateVariant(item.state)">
+                {{ stateIcon(item.state) }} {{ item.state }}
+              </Badge>
             </div>
-            <div class="mt-2 flex justify-between text-xs text-muted-foreground">
-              <span>Stop <strong class="text-foreground">{{ stopPct(item.stopLossPct) }}</strong></span>
-              <span>Suggested Stop <strong class="text-foreground">{{ price(item.suggestedStopPrice) }}</strong></span>
+            <div class="mt-2 text-xs">
+              趋势 {{ boolText(item.absoluteTrendEligible) }} · 流动性 {{ boolText(item.liquidityEligible) }}
+            </div><div class="mt-1 break-words text-xs">
+              {{ correlationText(item) }} · Stop {{ stopPct(item.stopLossPct) }} · {{ price(item.suggestedStopPrice) }}
             </div>
           </button>
         </div>
-        <Empty v-else>
-          <EmptyHeader><EmptyTitle>暂无候选</EmptyTitle><EmptyDescription>当前 snapshot 没有符合风险约束的 Buy Candidate。</EmptyDescription></EmptyHeader>
-        </Empty>
       </CardContent>
     </Card>
 
     <Card>
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
-        <div><CardTitle>完整排名</CardTitle><CardDescription>点击任意列标题进行本地排序，点击 ETF 查看评分拆解与历史。</CardDescription></div><NativeSelect
-          v-model="selectedSort"
+        <div><CardTitle>Rotation Ranking</CardTitle><CardDescription>主列表保留收益率与六个因子横向比较；点击 ETF 查看全部原始指标。</CardDescription></div>
+        <NativeSelect
+          v-model="sortKey"
           size="sm"
-          aria-label="默认排序"
         >
-          <NativeSelectOption
-            v-for="option in sortOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
+          <NativeSelectOption value="compositeScore">
+            Composite
+          </NativeSelectOption><NativeSelectOption value="momentumStrengthScore">
+            Momentum
+          </NativeSelectOption><NativeSelectOption value="trendQualityScore">
+            Trend Quality
+          </NativeSelectOption><NativeSelectOption value="relativeStrengthScore">
+            Relative Strength
+          </NativeSelectOption><NativeSelectOption value="entryScore">
+            Entry
           </NativeSelectOption>
         </NativeSelect>
       </CardHeader>
       <CardContent class="px-0">
         <ScrollArea class="w-full">
-          <Table class="min-w-[1700px]">
+          <Table class="min-w-[1900px]">
             <TableHeader>
               <TableRow>
-                <TableHead
-                  v-for="column in ([['rank5D','Rank'],['code','ETF Code'],['name','ETF Name'],['category','Category'],['theme','Theme'],['state','State'],['ret1D','1D'],['ret5D','5D'],['ret10D','10D'],['ret20D','20D'],['ret30D','30D'],['ret60D','60D'],['rankChange5D','5D Rank Δ'],['momentumScore','Momentum'],['entryScore','Entry'],['stopLossPct','Stop %'],['suggestedStopPrice','Suggested Stop'],['overheated','Overheated']] as Array<[SortKey,string]>)"
-                  :key="column[0]"
+                <TableHead>Rank</TableHead><TableHead>ETF</TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Composite"
+                    :description="descriptions.composite"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Momentum"
+                    :description="descriptions.momentum"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Trend Quality"
+                    :description="descriptions.trendQuality"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Relative Strength"
+                    :description="descriptions.relativeStrength"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Acceleration"
+                    :description="descriptions.acceleration"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Efficiency"
+                    :description="descriptions.efficiency"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Volatility"
+                    :description="descriptions.volatility"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="State"
+                    :description="descriptions.state"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Action"
+                    :description="descriptions.action"
+                  />
+                </TableHead><TableHead>Candidate</TableHead><TableHead
+                  v-for="window in [1,5,10,20,30,60]"
+                  :key="window"
                 >
-                  <button
-                    class="inline-flex items-center gap-1 whitespace-nowrap"
-                    @click="setSort(column[0])"
-                  >
-                    {{ column[1] }}<component
-                      :is="sortIcon(column[0])"
-                      class="size-3"
-                    />
-                  </button>
-                </TableHead>
+                  {{ window }}D
+                </TableHead><TableHead>Rank Δ 5D</TableHead><TableHead>Entry</TableHead>
               </TableRow>
             </TableHeader><TableBody>
               <TableRow
@@ -382,37 +316,27 @@ onMounted(() => { void load({ refreshDates: true }); });
                 class="cursor-pointer"
                 @click="openDetail(item)"
               >
-                <TableCell>#{{ item.rank5D }}</TableCell><TableCell class="font-mono text-xs">
-                  {{ item.code }}
-                </TableCell><TableCell class="font-medium">
-                  {{ item.name }}
-                </TableCell><TableCell>{{ item.category }}</TableCell><TableCell>{{ item.theme }}</TableCell><TableCell>
-                  <Badge :variant="stateVariant(item.state)">
-                    {{ item.state }}
-                  </Badge>
+                <TableCell>#{{ item.rank ?? '—' }}</TableCell><TableCell class="max-w-44">
+                  <strong class="block break-words">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
                 </TableCell>
+                <TableCell class="font-bold text-primary">
+                  {{ score(item.compositeScore) }}
+                </TableCell><TableCell>{{ score(item.momentumStrengthScore) }}</TableCell><TableCell>{{ score(item.trendQualityScore) }}</TableCell><TableCell>{{ score(item.relativeStrengthScore) }}</TableCell><TableCell>{{ score(item.accelerationScore) }}</TableCell><TableCell>{{ score(item.efficiencyScore) }}</TableCell><TableCell>{{ pct(item.realizedVol20D, false) }}</TableCell>
+                <TableCell>
+                  <Badge :variant="stateVariant(item.state)">
+                    {{ stateIcon(item.state) }} {{ item.state }}
+                  </Badge>
+                </TableCell><TableCell>
+                  <Badge :variant="actionVariant(item.action)">
+                    {{ item.action ?? '—' }}
+                  </Badge>
+                </TableCell><TableCell>{{ item.isCandidate ? `#${item.candidateRank}` : '—' }}</TableCell>
                 <TableCell
                   v-for="key in (['ret1D','ret5D','ret10D','ret20D','ret30D','ret60D'] as const)"
                   :key="key"
-                  :class="returnClass(item[key])"
                 >
                   {{ pct(item[key]) }}
-                </TableCell>
-                <TableCell :class="changeClass(item.rankChange5D)">
-                  {{ rankChange(item.rankChange5D) }}
-                </TableCell><TableCell class="font-semibold">
-                  {{ score(item.momentumScore) }}
-                </TableCell><TableCell class="font-semibold text-primary">
-                  {{ score(item.entryScore) }}
-                </TableCell><TableCell class="font-medium">
-                  {{ stopPct(item.stopLossPct) }}
-                </TableCell><TableCell class="font-medium">
-                  {{ price(item.suggestedStopPrice) }}
-                </TableCell><TableCell>
-                  <Badge :variant="item.overheated ? 'warning' : 'outline'">
-                    {{ item.overheated ? '是' : '否' }}
-                  </Badge>
-                </TableCell>
+                </TableCell><TableCell>{{ rankChange(item.rankChange5D) }}</TableCell><TableCell>{{ score(item.entryScore) }}</TableCell>
               </TableRow>
             </TableBody>
           </Table><template #horizontal-scrollbar>
@@ -422,94 +346,63 @@ onMounted(() => { void load({ refreshDates: true }); });
       </CardContent>
     </Card>
 
-    <Sheet
+    <Dialog
       :open="selected !== null"
-      @update:open="(open) => { if (!open) selected = null; }"
+      @update:open="open => { if (!open) selected = null; }"
     >
-      <SheetContent
-        side="right"
-        class="w-full overflow-y-auto sm:max-w-3xl"
+      <DialogContent
+        data-testid="etf-detail-modal"
+        class="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] max-w-6xl flex-col overflow-hidden p-0"
       >
-        <SheetHeader><SheetTitle>{{ selected?.metadata.name }} · {{ selected?.metadata.code }}</SheetTitle><SheetDescription>{{ selected?.metadata.category }} / {{ selected?.metadata.theme }} · {{ selected?.metadata.riskGroup }}</SheetDescription></SheetHeader>
-        <div class="space-y-5 p-4">
+        <DialogHeader class="border-b p-5 text-left">
+          <DialogTitle class="break-words">
+            {{ selected?.metadata.name }} · {{ selected?.metadata.code }}
+          </DialogTitle><DialogDescription>{{ selected?.metadata.category }} / {{ selected?.metadata.theme }} · {{ selected?.metadata.riskGroup }}</DialogDescription>
+        </DialogHeader>
+        <div class="min-h-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden p-5">
           <AppApiErrorAlert
             v-if="detailError"
             :error="detailError"
           /><Skeleton
             v-if="detailLoading"
-            class="h-40"
-          /><template v-else-if="selected">
-            <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Card>
-                <CardHeader class="pb-2">
-                  <CardDescription>State</CardDescription><Badge :variant="stateVariant(selected.latest.state)">
-                    {{ selected.latest.state }}
-                  </Badge>
-                </CardHeader>
-              </Card><Card>
-                <CardHeader class="pb-2">
-                  <CardDescription>Momentum</CardDescription><CardTitle>{{ score(selected.latest.momentumScore) }}</CardTitle>
-                </CardHeader>
-              </Card><Card>
-                <CardHeader class="pb-2">
-                  <CardDescription>Entry</CardDescription><CardTitle>{{ score(selected.latest.entryScore) }}</CardTitle>
-                </CardHeader>
-              </Card><Card>
-                <CardHeader class="pb-2">
-                  <CardDescription>5D Rank</CardDescription><CardTitle>#{{ selected.latest.rank5D }} ({{ rankChange(selected.latest.rankChange5D) }})</CardTitle>
-                </CardHeader>
-              </Card><Card>
-                <CardHeader class="pb-2">
-                  <CardDescription>Current / Ref Price</CardDescription><CardTitle>{{ price(selected.latest.referencePrice) }}</CardTitle>
-                </CardHeader>
-              </Card><Card>
-                <CardHeader class="pb-2">
-                  <CardDescription>20D Realized Vol</CardDescription><CardTitle>{{ pct(selected.latest.realizedVol20D) }}</CardTitle>
-                </CardHeader>
-              </Card><Card>
-                <CardHeader class="pb-2">
-                  <CardDescription>Stop</CardDescription><CardTitle>{{ stopPct(selected.latest.stopLossPct) }}</CardTitle>
-                </CardHeader>
-              </Card><Card>
-                <CardHeader class="pb-2">
-                  <CardDescription>Suggested Stop</CardDescription><CardTitle>{{ price(selected.latest.suggestedStopPrice) }}</CardTitle>
-                </CardHeader>
-              </Card>
+            class="h-48"
+          />
+          <template v-else-if="selected">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
+              <div
+                v-for="factor in ([['Composite',selected.latest.compositeScore,descriptions.composite],['Momentum',selected.latest.momentumStrengthScore,descriptions.momentum],['Trend Quality',selected.latest.trendQualityScore,descriptions.trendQuality],['Relative Strength',selected.latest.relativeStrengthScore,descriptions.relativeStrength],['Acceleration',selected.latest.accelerationScore,descriptions.acceleration],['Efficiency',selected.latest.efficiencyScore,descriptions.efficiency],['Risk Adjusted',selected.latest.riskAdjustedScore,descriptions.riskAdjusted]] as const)"
+                :key="factor[0]"
+                class="min-w-0 rounded border p-3"
+              >
+                <IndicatorLabel
+                  :label="factor[0]"
+                  :description="factor[2]"
+                /><strong class="mt-1 block text-xl">{{ score(factor[1]) }}</strong>
+              </div>
             </div>
             <Card>
-              <CardHeader><CardTitle>Score Components</CardTitle></CardHeader><CardContent>
-                <div class="grid gap-2 sm:grid-cols-2">
-                  <div
-                    v-for="(value,key) in selected.latest.scoreComponents"
-                    :key="key"
-                    class="flex justify-between rounded border px-3 py-2 text-sm"
-                  >
-                    <span class="text-muted-foreground">{{ key }}</span><strong>{{ Number(value).toFixed(1) }}</strong>
-                  </div>
+              <CardHeader><CardTitle>Raw Metrics</CardTitle></CardHeader><CardContent class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div
+                  v-for="metric in ([['1D',pct(selected.latest.ret1D),''],['5D',pct(selected.latest.ret5D),''],['10D',pct(selected.latest.ret10D),''],['20D',pct(selected.latest.ret20D),''],['30D',pct(selected.latest.ret30D),''],['60D',pct(selected.latest.ret60D),''],['Weighted Slope 10D',decimal(selected.latest.weightedSlope10D,5),descriptions.weightedSlope],['Weighted Slope 25D',decimal(selected.latest.weightedSlope25D,5),descriptions.weightedSlope],['R² 25D',decimal(selected.latest.trendR225D),descriptions.r2],['ER 20D',decimal(selected.latest.efficiencyRatio20D),descriptions.efficiency],['RS20',pct(selected.latest.rs20D),descriptions.relativeStrength],['RS60',pct(selected.latest.rs60D),descriptions.relativeStrength],['Trend Acceleration',pct(selected.latest.trendAcceleration),descriptions.acceleration],['Risk-adjusted Momentum',decimal(selected.latest.riskAdjustedMomentum60D),descriptions.riskAdjusted],['Volatility 20D',pct(selected.latest.realizedVol20D,false),descriptions.volatility],['Max Drawdown 20D',pct(selected.latest.maxDrawdown20D),descriptions.drawdown],['Max Drawdown 60D',pct(selected.latest.maxDrawdown60D),descriptions.drawdown],['MA20 Deviation',pct(selected.latest.ma20Ratio),descriptions.maDeviation],['MA60 Deviation',pct(selected.latest.ma60Ratio),descriptions.maDeviation],['Distance from High',pct(selected.latest.distanceFrom20dHigh),descriptions.distanceHigh],['Volume Ratio',decimal(selected.latest.volumeRatio5D),descriptions.volumeRatio],['Average Amount',price(selected.latest.avgAmount20D),''],['Rank Change 1/3/5D',`${rankChange(selected.latest.rankChange1D)} / ${rankChange(selected.latest.rankChange3D)} / ${rankChange(selected.latest.rankChange5D)}`,descriptions.rankChange],['Suggested Stop',price(selected.latest.suggestedStopPrice),descriptions.stop]] as const)"
+                  :key="metric[0]"
+                  class="min-w-0 rounded border px-3 py-2"
+                >
+                  <IndicatorLabel
+                    :label="metric[0]"
+                    :description="metric[2] || metric[0]"
+                  /><strong class="mt-1 block break-words">{{ metric[1] }}</strong>
                 </div>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>最近 Snapshot 历史</CardTitle></CardHeader><CardContent class="px-0">
-                <Table>
-                  <TableHeader><TableRow><TableHead>日期</TableHead><TableHead>5D Rank</TableHead><TableHead>Momentum</TableHead><TableHead>Entry</TableHead><TableHead>State</TableHead></TableRow></TableHeader><TableBody>
-                    <TableRow
-                      v-for="row in selected.history"
-                      :key="row.tradeDate"
-                    >
-                      <TableCell>{{ row.tradeDate }}</TableCell><TableCell>#{{ row.rank5D }}</TableCell><TableCell>{{ score(row.momentumScore) }}</TableCell><TableCell>{{ score(row.entryScore) }}</TableCell><TableCell>
-                        <Badge :variant="stateVariant(row.state)">
-                          {{ row.state }}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
+              <CardHeader><CardTitle>Eligibility & Signal</CardTitle></CardHeader><CardContent class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div>Absolute Trend: <strong>{{ boolText(selected.latest.absoluteTrendEligible) }}</strong></div><div>Liquidity: <strong>{{ boolText(selected.latest.liquidityEligible) }}</strong></div><div>State: <strong>{{ selected.latest.state }}</strong></div><div>Action: <strong>{{ selected.latest.action ?? '—' }}</strong></div>
               </CardContent>
             </Card>
+            <Card><CardHeader><CardTitle>History</CardTitle><CardDescription>价格/MA、Composite、Rank 与 Relative Strength；旧快照缺失字段时保留空点。</CardDescription></CardHeader><CardContent><ETFRotationHistoryCharts :history="selected.history" /></CardContent></Card>
           </template>
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

@@ -12,31 +12,47 @@ from sqlalchemy.dialects import postgresql
 from finance_analysis.database.repositories.etf_rotation import ETFRotationRepository
 from finance_analysis.etf_rotation.readiness import ETFRotationReadinessError
 from finance_analysis.etf_rotation.service import ETFRotationService
+from finance_analysis.etf_rotation.config import DEFAULT_CONFIG
 from finance_analysis.etf_rotation.universe import enabled_etfs
 
 TRADE_DATE = date(2026, 8, 25)
 
 
 class FakeRepository:
-    def __init__(self, *, market: str = "CN", ready_count: int | None = None, history_bars: int = 61):
+    def __init__(
+        self,
+        *,
+        market: str = "CN",
+        ready_count: int | None = None,
+        history_bars: int = 61,
+        benchmark_ready: bool = True,
+    ):
         self.market = market
         self.codes = [member.code for member in enabled_etfs(market)]
         ready_count = len(self.codes) if ready_count is None else ready_count
         self.ready_count = ready_count
         self.history_bars = history_bars
+        self.benchmark_ready = benchmark_ready
         self.saved: dict[tuple[str, str], dict] = {}
         self.coverage_codes: set[str] = set()
+        self.market_snapshot = None
 
     def latest_daily_dates(self, _codes):
         self.coverage_codes = set(_codes)
-        return {
+        result = {
             code: TRADE_DATE if index < self.ready_count else TRADE_DATE - timedelta(days=1)
             for index, code in enumerate(self.codes)
         }
+        if self.benchmark_ready:
+            result[DEFAULT_CONFIG.benchmark_codes[self.market]] = TRADE_DATE
+        return result
 
     def daily_codes_on_date(self, _codes, _trade_date):
-        self.coverage_codes = set(_codes)
-        return set(self.codes[: self.ready_count])
+        if len(set(_codes)) > 1:
+            self.coverage_codes = set(_codes)
+        selected = set(self.codes[: self.ready_count])
+        benchmark = DEFAULT_CONFIG.benchmark_codes[self.market]
+        return ({benchmark} if self.benchmark_ready and benchmark in set(_codes) else set()) | (selected & set(_codes))
 
     def load_daily_history(self, codes, trade_date):
         rows = []
@@ -51,7 +67,7 @@ class FakeRepository:
                         "trade_date": start + timedelta(days=index),
                         "close": 100 + index * (1 + code_index / 100),
                         "volume": 1000 + index,
-                        "amount": 100_000 + index,
+                        "amount": (100_000_000 if self.market == "CN" else 10_000_000) + index,
                     }
                 )
         return rows
@@ -64,16 +80,24 @@ class FakeRepository:
             self.saved[(snapshot["trade_date"].isoformat(), snapshot["code"])] = dict(snapshot)
         return len(snapshots)
 
+    def previous_candidate_codes(self, _trade_date):
+        return set()
+
+    def upsert_market_snapshot(self, snapshot):
+        self.market_snapshot = dict(snapshot)
+
 
 def test_service_generates_complete_snapshot_and_same_date_rerun_is_idempotent() -> None:
     repository = FakeRepository()
     service = ETFRotationService(repository=repository)
     first = service.run(TRADE_DATE)
     second = service.run(TRADE_DATE)
-    assert first["snapshot_count"] == second["snapshot_count"] == 40
-    assert len(repository.saved) == 40
-    assert first["candidate_count"] == 5
+    assert first["snapshot_count"] == second["snapshot_count"] == len(enabled_etfs("CN"))
+    assert len(repository.saved) == len(enabled_etfs("CN"))
+    assert 0 < first["candidate_count"] <= DEFAULT_CONFIG.max_candidates
     assert all("score_components" in snapshot for snapshot in repository.saved.values())
+    assert all("composite_score" in snapshot for snapshot in repository.saved.values())
+    assert repository.market_snapshot["benchmark_code"] == "510300.SH"
     assert all(snapshot["reference_price"] > 0 for snapshot in repository.saved.values())
     assert all(0.03 <= snapshot["stop_loss_pct"] <= 0.08 for snapshot in repository.saved.values())
     assert all(
@@ -81,6 +105,23 @@ def test_service_generates_complete_snapshot_and_same_date_rerun_is_idempotent()
         == pytest.approx(snapshot["reference_price"] * (1 - snapshot["stop_loss_pct"]))
         for snapshot in repository.saved.values()
     )
+
+
+def test_historical_rerun_aligns_benchmark_and_never_uses_future_bars() -> None:
+    repository = FakeRepository()
+    ETFRotationService(repository=repository).run(TRADE_DATE)
+    assert all(snapshot["trade_date"] == TRADE_DATE for snapshot in repository.saved.values())
+    assert repository.market_snapshot["trade_date"] == TRADE_DATE
+    assert all(snapshot["relative_strength_ready"] is True for snapshot in repository.saved.values())
+
+
+def test_missing_benchmark_is_explicit_and_does_not_fabricate_relative_strength() -> None:
+    repository = FakeRepository(benchmark_ready=False)
+    result = ETFRotationService(repository=repository).run(TRADE_DATE)
+    assert any("benchmark" in warning for warning in result["warnings"])
+    assert result["candidate_count"] == 0
+    assert repository.market_snapshot is None
+    assert all(snapshot["rs_20d"] is None and snapshot["rs_60d"] is None for snapshot in repository.saved.values())
 
 
 def test_cn_and_us_services_use_identical_stop_loss_calculation() -> None:
@@ -137,10 +178,10 @@ def test_us_service_uses_us_calendar_and_shared_engine_functions() -> None:
             ).rank_cross_section,
         ) as ranking,
         patch(
-            "finance_analysis.etf_rotation.service.calculate_momentum_score",
+            "finance_analysis.etf_rotation.service.calculate_factor_scores",
             wraps=__import__(
-                "finance_analysis.etf_rotation.service", fromlist=["calculate_momentum_score"]
-            ).calculate_momentum_score,
+                "finance_analysis.etf_rotation.service", fromlist=["calculate_factor_scores"]
+            ).calculate_factor_scores,
         ) as scoring,
         patch(
             "finance_analysis.etf_rotation.service.classify_state",
@@ -156,7 +197,7 @@ def test_us_service_uses_us_calendar_and_shared_engine_functions() -> None:
     calendar.assert_called_once_with("us", 1, now)
     assert result["market"] == "US"
     assert result["universe_size"] == result["snapshot_count"] == 49
-    assert features.call_count == 49
+    assert features.call_count == 50
     ranking.assert_called_once()
     assert scoring.call_count == classifier.call_count == 49
     selector.assert_called_once()
@@ -189,7 +230,7 @@ def test_repository_uses_postgresql_conflict_update_for_idempotent_reruns() -> N
         fake = FakeRepository()
         ETFRotationService(repository=fake).run(TRADE_DATE)
         snapshots = list(fake.saved.values())
-    assert ETFRotationRepository(FakeDatabase()).upsert_snapshots(snapshots) == 40
+    assert ETFRotationRepository(FakeDatabase()).upsert_snapshots(snapshots) == len(enabled_etfs("CN"))
     upsert_sql = str(session.execute.call_args_list[1].args[0].compile(dialect=postgresql.dialect()))
     upsert_params = session.execute.call_args_list[1].args[0].compile(dialect=postgresql.dialect()).params
     cleanup_sql = str(session.execute.call_args_list[2].args[0].compile(dialect=postgresql.dialect()))

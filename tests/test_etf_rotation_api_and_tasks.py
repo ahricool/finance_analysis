@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 from finance_analysis.interfaces.api.v1.endpoints import etf_rotation
 from finance_analysis.interfaces.api.v1.schemas.etf_rotation import ETFRotationRunRequest
+from finance_analysis.etf_rotation.universe import enabled_etfs
 from finance_analysis.tasks.celery.jobs import TASK_MODULES
 from finance_analysis.tasks.celery.schedule import (
     JOB_ETF_ROTATION_CN,
@@ -26,6 +27,25 @@ def _snapshot(code="588000.SH"):
         "code": code,
         "entry_score": 88.0,
         "momentum_score": 80.0,
+        "momentum_strength_score": 80.0,
+        "trend_quality_score": 82.0,
+        "relative_strength_score": 78.0,
+        "acceleration_score": 70.0,
+        "efficiency_score": 85.0,
+        "risk_adjusted_score": 65.0,
+        "composite_score": 79.5,
+        "weighted_slope_10d": 0.01,
+        "weighted_slope_25d": 0.008,
+        "trend_r2_25d": 0.9,
+        "efficiency_ratio_20d": 0.8,
+        "rs_20d": 0.03,
+        "rs_60d": 0.05,
+        "risk_adjusted_momentum_60d": 1.2,
+        "max_drawdown_20d": -0.05,
+        "max_drawdown_60d": -0.08,
+        "absolute_trend_eligible": True,
+        "liquidity_eligible": True,
+        "action": "BUY",
         "reference_price": 100.0,
         "realized_vol_20d": 0.3175,
         "stop_loss_pct": 0.05,
@@ -68,7 +88,7 @@ def test_ranking_candidates_and_detail_use_rotation_repository(monkeypatch) -> N
     candidates = asyncio.run(etf_rotation.candidates(None, 5, user))
     detail = asyncio.run(etf_rotation.detail("588000.SH", 60, user))
     assert ranking["items"][0]["name"] == "科创50ETF"
-    assert ranking["universe_size"] == 40
+    assert ranking["universe_size"] == len(enabled_etfs("CN"))
     assert candidates["items"][0]["code"] == "588000.SH"
     assert detail["metadata"]["theme"] == "STAR50"
     assert detail["latest"]["code"] == "588000.SH"
@@ -77,6 +97,9 @@ def test_ranking_candidates_and_detail_use_rotation_repository(monkeypatch) -> N
         assert payload["realized_vol_20d"] == 0.3175
         assert payload["stop_loss_pct"] == 0.05
         assert payload["suggested_stop_price"] == 95.0
+        assert payload["composite_score"] == 79.5
+        assert payload["weighted_slope_25d"] == 0.008
+        assert not ({"user_position", "target_weight", "account", "recommended_exposure"} & payload.keys())
 
 
 def test_ranking_uses_requested_trade_date(monkeypatch) -> None:
@@ -168,7 +191,7 @@ def test_universe_api_separates_cn_and_us_with_cn_default() -> None:
     user = SimpleNamespace(id=1)
     cn = asyncio.run(etf_rotation.universe(user))
     us = asyncio.run(etf_rotation.universe(user, "US"))
-    assert cn["market"] == "CN" and cn["size"] == 40
+    assert cn["market"] == "CN" and cn["size"] == len(enabled_etfs("CN"))
     assert us["market"] == "US" and us["size"] == 49
     assert {"SPY.US", "QQQ.US", "IWM.US"} <= {item["code"] for item in us["items"]}
 
