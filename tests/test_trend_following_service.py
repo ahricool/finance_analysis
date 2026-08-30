@@ -328,6 +328,23 @@ def test_historical_failure_invalidates_the_remaining_future_chain(monkeypatch):
     assert repository.invalidated_dates == [TRADE_DATE + timedelta(days=1)]
 
 
+def test_historical_exception_also_invalidates_the_remaining_future_chain(monkeypatch):
+    repository = HistoricalFailureRepository()
+    service = TrendFollowingService("US", repository)
+    failed_at = TRADE_DATE + timedelta(days=1)
+
+    def run_date(trade_date):
+        if trade_date == TRADE_DATE:
+            return {"status": "completed", "trade_date": trade_date.isoformat()}
+        raise RuntimeError("calculation failed")
+
+    monkeypatch.setattr(service, "_run_single_date", run_date)
+    result = service.run(TRADE_DATE)
+    assert result["status"] == "failed"
+    assert result["rebuild_stopped_at"] == failed_at.isoformat()
+    assert repository.invalidated_dates == [failed_at]
+
+
 @pytest.mark.parametrize("pending_action", ["EXIT", "REDUCE"])
 def test_missing_data_preserves_pending_risk_reduction(monkeypatch, pending_action):
     repository = MissingActiveRepository(pending_action)

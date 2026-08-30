@@ -70,7 +70,27 @@ class TrendFollowingService:
         dates = self._rebuild_dates(trade_date)
         results: list[dict[str, Any]] = []
         for current in dates:
-            result = self._run_single_date(current)
+            try:
+                result = self._run_single_date(current)
+            except Exception as exc:
+                if trade_date is not None and initial_latest is not None and current <= initial_latest:
+                    self.repository.invalidate_from(current)
+                logger.exception(
+                    "market=%s job=trend_following rebuild_failed_at=%s",
+                    self.market,
+                    current,
+                )
+                return {
+                    "status": "failed",
+                    "market": self.market,
+                    "trade_date": current.isoformat(),
+                    "rebuilt_from": dates[0].isoformat(),
+                    "rebuilt_dates": [item["trade_date"] for item in results],
+                    "rebuild_count": len(results),
+                    "rebuild_status": "stopped",
+                    "rebuild_stopped_at": current.isoformat(),
+                    "warnings": [f"Trend Following rebuild failed: {exc}"],
+                }
             results.append(result)
             if result["status"] != "completed":
                 if trade_date is not None and initial_latest is not None and current <= initial_latest:
