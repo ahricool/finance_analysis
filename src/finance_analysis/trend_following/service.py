@@ -13,7 +13,7 @@ from .features import calculate_features
 from .models import DailyBar
 from .ranking import rank_candidates
 from .regime import calculate_market_regime
-from .state import apply_exposure_gate, transition_state
+from .state import apply_exposure_gate, evaluate_close, execute_pending_at_open
 from .universe import get_universe, normalize_market
 
 logger = logging.getLogger(__name__)
@@ -56,17 +56,25 @@ class TrendFollowingService:
                 if item > latest_snapshot
             ]
         if latest_snapshot is None or latest_snapshot <= requested:
-            return [requested]
+            if latest_snapshot is None or latest_snapshot == requested:
+                return [requested]
+            return [
+                item for item in self.repository.daily_dates_between(benchmark, latest_snapshot, requested)
+                if item > latest_snapshot
+            ]
         dates = self.repository.daily_dates_between(benchmark, requested, latest_snapshot)
         return sorted(set([requested, *dates]))
 
     def run(self, trade_date: date | None = None) -> dict[str, Any]:
+        initial_latest = self.repository.latest_snapshot_date()
         dates = self._rebuild_dates(trade_date)
         results: list[dict[str, Any]] = []
         for current in dates:
             result = self._run_single_date(current)
             results.append(result)
             if result["status"] != "completed":
+                if trade_date is not None and initial_latest is not None and current <= initial_latest:
+                    self.repository.invalidate_from(current)
                 return {
                     **result,
                     "rebuilt_from": dates[0].isoformat(),
@@ -183,25 +191,37 @@ class TrendFollowingService:
         )
         ranked = rank_candidates(features, self.config)
         previous = self.repository.previous_snapshots(effective_date, universe_codes)
-        desired = {
-            row["code"]: transition_state(
-                row, previous.get(row["code"]), trade_date=effective_date,
-                market_regime=regime["market_regime"], config=self.config,
+        opened = {
+            row["code"]: execute_pending_at_open(
+                row,
+                previous.get(row["code"]),
+                trade_date=effective_date,
+                config=self.config,
             )
             for row in ranked
         }
-        gated = apply_exposure_gate(
+        allocated = apply_exposure_gate(
             ranked,
-            desired,
+            opened,
             previous,
-            max_exposure=regime["suggested_max_exposure"],
-            market_regime=regime["market_regime"],
+            config=self.config,
         )
+        decisions = {
+            row["code"]: evaluate_close(
+                row,
+                allocated[row["code"]],
+                trade_date=effective_date,
+                market_regime=regime["market_regime"],
+                max_exposure=regime["suggested_max_exposure"],
+                config=self.config,
+            )
+            for row in ranked
+        }
         snapshots: list[dict[str, Any]] = []
         internal_keys = {"code", "is_candidate", "setup", "trend_score", "rs_score", "breakout_score",
                          "alpha_score", "score_breakdown", "rank"}
         for row in ranked:
-            decision = gated[row["code"]]
+            decision = decisions[row["code"]]
             snapshots.append({
                 "market": self.market,
                 "trade_date": effective_date,
@@ -239,8 +259,11 @@ class TrendFollowingService:
                         "last_add_price", "highest_close", "initial_stop", "trailing_stop",
                         "next_add_price", "exit_level", "units", "opened_at",
                         "suggested_initial_weight", "suggested_max_weight", "intraday_confirmation",
+                        "pending_action", "pending_since", "pending_regime", "pending_max_exposure",
                     )
                 }
+                pending = str(prior.get("pending_action") or "")
+                preserve_pending = pending in {"EXIT", "REDUCE"}
                 carried.update(
                     market=self.market,
                     trade_date=effective_date,
@@ -248,13 +271,23 @@ class TrendFollowingService:
                     market_regime=regime["market_regime"],
                     market_score=regime["market_score"],
                     action="HOLD",
-                    pending_action=None,
-                    pending_since=None,
                     reasons=[
                         *(prior.get("reasons") or []),
                         "current daily data unavailable; active state carried forward",
+                        *(
+                            [f"pending {pending} preserved until the next executable open"]
+                            if preserve_pending
+                            else ([f"pending {pending} expired because execution data was unavailable"] if pending else [])
+                        ),
                     ],
                 )
+                if not preserve_pending:
+                    carried.update(
+                        pending_action=None,
+                        pending_since=None,
+                        pending_regime=None,
+                        pending_max_exposure=None,
+                    )
                 snapshots.append(carried)
             elif prior_state == "CANDIDATE":
                 expired = {
