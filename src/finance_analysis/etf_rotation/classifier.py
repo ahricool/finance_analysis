@@ -23,23 +23,35 @@ def classify_state(
     config: ETFRotationConfig = DEFAULT_CONFIG,
 ) -> str:
     """Apply EXHAUSTED > COOLING > EMERGING > STRONG > TRENDING > WEAK > NEUTRAL."""
+    composite = float(row.get("composite_score") if row.get("composite_score") is not None else momentum_score)
     rank_change = row.get("rank_change_5d")
-    acceleration = float(row["momentum_acceleration"])
-    if momentum_score >= 80 and is_overheated(row, config):
+    trend_acceleration = float(row.get("trend_acceleration", row.get("momentum_acceleration", 0.0)))
+    acceleration_score = float(row.get("acceleration_score") or 0.0)
+    trend_quality_score = float(row.get("trend_quality_score") or 0.0)
+    absolute_trend = bool(row.get("absolute_trend_eligible", True))
+    if composite >= config.strong_composite_threshold and is_overheated(row, config):
         return "EXHAUSTED"
-    if momentum_score >= 70 and acceleration < 0 and rank_change is not None and int(rank_change) < 0:
-        return "COOLING"
-    if int(row["rank_5d"]) <= 10 and rank_change is not None and int(rank_change) >= 10 and acceleration > 0:
-        return "EMERGING"
-    if momentum_score >= 80:
-        return "STRONG"
     if (
-        float(row["pct_rank_5d"]) >= 80
-        and float(row["pct_rank_10d"]) >= 70
-        and float(row["pct_rank_30d"]) >= 60
+        composite >= config.trending_composite_threshold
+        and trend_acceleration < 0
+        and rank_change is not None
+        and int(rank_change) < 0
     ):
+        return "COOLING"
+    if (
+        rank_change is not None and int(rank_change) > 0 and trend_acceleration > 0
+        and acceleration_score >= config.emerging_acceleration_threshold
+        and trend_quality_score >= config.emerging_trend_quality_threshold
+    ):
+        return "EMERGING"
+    if (
+        composite >= config.strong_composite_threshold
+        and trend_quality_score >= config.strong_trend_quality_threshold and absolute_trend
+    ):
+        return "STRONG"
+    if composite >= config.trending_composite_threshold and absolute_trend:
         return "TRENDING"
-    if momentum_score < 40:
+    if composite < config.weak_composite_threshold or not absolute_trend:
         return "WEAK"
     return "NEUTRAL"
 

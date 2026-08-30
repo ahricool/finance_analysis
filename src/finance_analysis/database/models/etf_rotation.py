@@ -50,13 +50,39 @@ class ETFMomentumSnapshot(Base):
     stop_loss_pct = Column(Float)
     suggested_stop_price = Column(Float)
     distance_from_20d_high = Column(Float, nullable=False)
+    weighted_slope_10d = Column(Float)
+    weighted_slope_25d = Column(Float)
+    annualized_slope_10d = Column(Float)
+    annualized_slope_25d = Column(Float)
+    trend_r2_25d = Column(Float)
+    trend_quality_25d = Column(Float)
+    efficiency_ratio_20d = Column(Float)
+    trend_acceleration = Column(Float)
+    rs_20d = Column(Float)
+    rs_60d = Column(Float)
+    relative_strength_ready = Column(Boolean)
+    risk_adjusted_momentum_60d = Column(Float)
+    max_drawdown_20d = Column(Float)
+    max_drawdown_60d = Column(Float)
     momentum_score = Column(Float, nullable=False)
+    momentum_strength_score = Column(Float)
+    trend_quality_score = Column(Float)
+    relative_strength_score = Column(Float)
+    acceleration_score = Column(Float)
+    efficiency_score = Column(Float)
+    risk_adjusted_score = Column(Float)
+    composite_score = Column(Float)
+    rank = Column(Integer)
     entry_score = Column(Float, nullable=False)
+    absolute_trend_eligible = Column(Boolean)
+    liquidity_eligible = Column(Boolean)
+    action = Column(String(8))
     state = Column(String(16), nullable=False)
     overheated = Column(Boolean, nullable=False, default=False)
     candidate_rank = Column(Integer)
     is_candidate = Column(Boolean, nullable=False, default=False)
     score_components = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict)
+    diagnostics = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
     symbol = relationship("MarketDataSymbol", lazy="joined")
@@ -98,6 +124,7 @@ class ETFMomentumSnapshot(Base):
         CheckConstraint("candidate_rank IS NULL OR candidate_rank > 0", name="ck_etf_candidate_rank_positive"),
         Index("ix_etf_momentum_snapshot_market_date_entry", "market", "trade_date", "entry_score"),
         Index("ix_etf_momentum_snapshot_symbol_date", "symbol_id", "trade_date"),
+        Index("ix_etf_momentum_snapshot_market_date_composite", "market", "trade_date", "composite_score"),
         Index(
             "ix_etf_momentum_snapshot_market_date_candidate",
             "market",
@@ -108,4 +135,33 @@ class ETFMomentumSnapshot(Base):
     )
 
 
-__all__ = ["ETFMomentumSnapshot"]
+class ETFMarketRotationSnapshot(Base):
+    __tablename__ = "etf_market_rotation_snapshot"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    trade_date = Column(Date, nullable=False)
+    market = Column(String(8), nullable=False)
+    regime = Column(String(16), nullable=False)
+    breadth_above_ma20 = Column(Float, nullable=False)
+    breadth_above_ma60 = Column(Float, nullable=False)
+    breadth_ma20_above_ma60 = Column(Float, nullable=False)
+    benchmark_code = Column(String(32), nullable=False)
+    benchmark_close = Column(Float, nullable=False)
+    benchmark_ma20_ratio = Column(Float, nullable=False)
+    benchmark_ma60_ratio = Column(Float, nullable=False)
+    benchmark_trend = Column(String(16), nullable=False)
+    benchmark_above_ma20 = Column(Boolean, nullable=False)
+    benchmark_above_ma60 = Column(Boolean, nullable=False)
+    benchmark_ma20_above_ma60 = Column(Boolean, nullable=False)
+    diagnostics = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict)
+    generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("trade_date", "market", name="uix_etf_market_rotation_date_market"),
+        CheckConstraint("market IN ('CN', 'US')", name="ck_etf_market_rotation_market"),
+        CheckConstraint("regime IN ('RISK_ON', 'NEUTRAL', 'RISK_OFF')", name="ck_etf_market_rotation_regime"),
+        Index("ix_etf_market_rotation_market_date", "market", "trade_date"),
+    )
+
+
+__all__ = ["ETFMarketRotationSnapshot", "ETFMomentumSnapshot"]

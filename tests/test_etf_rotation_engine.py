@@ -74,8 +74,8 @@ def test_rank_change_direction_and_missing_history() -> None:
 
 
 def test_momentum_score_uses_percentiles() -> None:
-    row = {"pct_rank_5d": 100, "pct_rank_10d": 80, "pct_rank_30d": 60, "pct_rank_60d": 40}
-    assert calculate_momentum_score(row) == pytest.approx(78)
+    row = {"pct_rank_5d": 100, "pct_rank_20d": 70, "pct_rank_30d": 60, "pct_rank_60d": 40}
+    assert calculate_momentum_score(row) == pytest.approx(58)
 
 
 def test_volatility_stop_loss_normal_floor_cap_and_price() -> None:
@@ -106,7 +106,7 @@ def test_suggested_stop_rejects_invalid_reference_price(reference_price: float) 
 def test_stop_metadata_does_not_change_scores_or_candidate_order() -> None:
     score_row = {
         "pct_rank_5d": 100,
-        "pct_rank_10d": 80,
+        "pct_rank_20d": 80,
         "pct_rank_30d": 60,
         "pct_rank_60d": 40,
         "ret_1d": 0.02,
@@ -148,18 +148,13 @@ def test_entry_score_all_independent_components_and_overheat() -> None:
     }
     score, components = calculate_entry_score(base, 70)
     assert components == {
-        "base_momentum": 70.0,
-        "daily_confirmation": 3.0,
-        "acceleration": 5.0,
-        "rank_improvement": 5.0,
+        "base_composite": 70.0,
+        "daily_confirmation": 2.0,
         "volume_confirmation": 2.0,
         "ma20_penalty": -5.0,
         "daily_overheat_penalty": 0.0,
     }
-    assert score == 80
-
-    strong = {**base, "momentum_acceleration": 0.05}
-    assert calculate_entry_score(strong, 70)[1]["acceleration"] == 8
+    assert score == 69
     overheated = {**base, "ret_1d": 0.060001}
     overheat_components = calculate_entry_score(overheated, 70)[1]
     assert overheat_components["daily_confirmation"] == 0
@@ -176,6 +171,10 @@ def _state_row(**updates):
         "pct_rank_5d": 50,
         "pct_rank_10d": 50,
         "pct_rank_30d": 50,
+        "trend_quality_score": 75,
+        "acceleration_score": 60,
+        "trend_acceleration": 0.01,
+        "absolute_trend_eligible": True,
     }
     row.update(updates)
     return row
@@ -185,13 +184,13 @@ def test_state_classification_and_priority() -> None:
     assert STATE_PRIORITY == ("EXHAUSTED", "COOLING", "EMERGING", "STRONG", "TRENDING", "WEAK", "NEUTRAL")
     assert classify_state(_state_row(), 30) == "WEAK"
     assert classify_state(_state_row(), 85) == "STRONG"
-    assert classify_state(_state_row(pct_rank_5d=85, pct_rank_10d=75, pct_rank_30d=65), 70) == "TRENDING"
+    assert classify_state(_state_row(), 70) == "TRENDING"
     assert classify_state(_state_row(rank_5d=6, rank_change_5d=22), 65) == "EMERGING"
-    assert classify_state(_state_row(momentum_acceleration=-0.01, rank_change_5d=-2), 75) == "COOLING"
+    assert classify_state(_state_row(trend_acceleration=-0.01, rank_change_5d=-2), 75) == "COOLING"
     assert classify_state(_state_row(), 55) == "NEUTRAL"
     # EXHAUSTED wins over STRONG and EMERGING; COOLING wins over EMERGING.
     assert classify_state(_state_row(ret_1d=0.07, rank_5d=1, rank_change_5d=20), 90) == "EXHAUSTED"
-    assert classify_state(_state_row(momentum_acceleration=-0.01, rank_5d=1, rank_change_5d=-1), 75) == "COOLING"
+    assert classify_state(_state_row(trend_acceleration=-0.01, rank_5d=1, rank_change_5d=-1), 75) == "COOLING"
 
 
 def test_candidate_risk_groups_and_deterministic_ordering() -> None:

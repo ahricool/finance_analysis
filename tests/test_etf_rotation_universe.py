@@ -6,9 +6,9 @@ from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 from finance_analysis.tasks.celery.jobs.market_data_sync.service import MarketDataSyncService
 
 
-def test_static_universe_has_40_unique_complete_members() -> None:
-    assert len(ETF_UNIVERSE) == 40
-    assert len({member.code for member in ETF_UNIVERSE}) == 40
+def test_static_universe_has_unique_complete_members() -> None:
+    assert len(ETF_UNIVERSE) == 42
+    assert len({member.code for member in ETF_UNIVERSE}) == len(ETF_UNIVERSE)
     assert all(member.category and member.theme and member.risk_group for member in enabled_etfs())
 
 
@@ -31,7 +31,7 @@ def test_cn_scope_contains_enabled_strategy_dependencies_without_polluting_quant
 def test_us_universe_has_49_canonical_unique_members_and_required_broad_etfs() -> None:
     cn_codes = {member.code for member in enabled_etfs("CN")}
     us_codes = {member.code for member in enabled_etfs("US")}
-    assert len(ETF_UNIVERSE) == 40
+    assert len(ETF_UNIVERSE) == 42
     assert len(US_ETF_UNIVERSE) == len(us_codes) == 49
     assert {"SPY.US", "QQQ.US", "IWM.US"} <= us_codes
     assert all(code.endswith(".US") for code in us_codes)
@@ -80,5 +80,5 @@ def test_cn_sync_scope_registers_static_strategy_members_as_enabled() -> None:
     )
     service.load_scope()
     strategy_call = symbol_repository.upsert_symbols.call_args_list[0]
-    assert len(strategy_call.args[0]) == 40
+    assert len(strategy_call.args[0]) == len(enabled_etfs("CN"))
     assert strategy_call.kwargs["force_daily_sync"] is True

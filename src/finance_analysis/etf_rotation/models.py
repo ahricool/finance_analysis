@@ -31,6 +31,17 @@ class FeatureSet:
     avg_amount_20d: float | None
     realized_vol_20d: float
     distance_from_20d_high: float
+    weighted_slope_10d: float
+    weighted_slope_25d: float
+    annualized_slope_10d: float
+    annualized_slope_25d: float
+    trend_r2_25d: float
+    trend_quality_25d: float
+    efficiency_ratio_20d: float
+    trend_acceleration: float
+    risk_adjusted_momentum_60d: float
+    max_drawdown_20d: float
+    max_drawdown_60d: float
 
     def to_dict(self) -> dict[str, float | None]:
         return asdict(self)
