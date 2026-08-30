@@ -228,6 +228,18 @@ class TrendFollowingRepository:
             session.execute(TrendFollowingSummary.__table__.insert().values(**summary_record))
         return len(records)
 
+    def invalidate_from(self, trade_date: date) -> None:
+        """Atomically invalidate this market's recursive state chain from a failed date."""
+        with self.db.session_scope() as session:
+            session.execute(delete(TrendFollowingSnapshot).where(
+                TrendFollowingSnapshot.market == self.market,
+                TrendFollowingSnapshot.trade_date >= trade_date,
+            ))
+            session.execute(delete(TrendFollowingSummary).where(
+                TrendFollowingSummary.market == self.market,
+                TrendFollowingSummary.trade_date >= trade_date,
+            ))
+
     def upsert_summary(self, summary: dict[str, Any]) -> None:
         columns = {column.name for column in TrendFollowingSummary.__table__.columns}
         record = {key: value for key, value in summary.items() if key in columns and key != "id"}

@@ -156,3 +156,26 @@ def test_replace_day_removes_stale_codes_and_replaces_summary_atomically():
     stored_summary = repository.summary_by_date(trade_date)
     assert stored_summary is not None
     assert stored_summary["universe_size"] == 2
+
+
+def test_invalidate_from_removes_only_trend_following_future_chain():
+    database = _Database()
+    dates = [date(2026, 6, day) for day in range(1, 5)]
+    with database.session_scope() as session:
+        session.add(MarketDataSymbol(id=1, market="US", code="AAA.US", name="AAA"))
+        for snapshot_id, trade_date in enumerate(dates, 1):
+            session.add(_snapshot(
+                snapshot_id=snapshot_id,
+                code="AAA.US",
+                symbol_id=1,
+                trade_date=trade_date,
+            ))
+            session.add(TrendFollowingSummary(
+                id=snapshot_id,
+                generated_at=datetime.now(timezone.utc),
+                **_summary(trade_date),
+            ))
+    repository = TrendFollowingRepository("US", database)
+    repository.invalidate_from(date(2026, 6, 2))
+    assert repository.available_trade_dates() == [date(2026, 6, 1)]
+    assert repository.snapshot_history("AAA.US", limit=10)[0]["trade_date"] == date(2026, 6, 1)

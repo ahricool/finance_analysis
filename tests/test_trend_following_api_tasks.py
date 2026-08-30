@@ -124,3 +124,10 @@ def test_migration_and_snapshot_have_no_user_columns():
     assert 'down_revision: Union[str, Sequence[str], None] = "0032_trend_following_signal"' in pending
     assert "pending_action" in pending
     assert "pending_since" in pending
+    execution = (
+        Path(PROJECT_ROOT) / "alembic/versions/0034_trend_following_execution_context.py"
+    ).read_text(encoding="utf-8")
+    assert 'revision: str = "0034_trend_execution_context"' in execution
+    assert 'down_revision: Union[str, Sequence[str], None] = "0033_trend_pending_action"' in execution
+    assert "pending_regime" in execution
+    assert "pending_max_exposure" in execution

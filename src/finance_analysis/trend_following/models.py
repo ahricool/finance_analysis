@@ -48,6 +48,8 @@ class StrategyDecision:
     signal_price: float | None = None
     pending_action: str | None = None
     pending_since: date | None = None
+    pending_regime: str | None = None
+    pending_max_exposure: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()

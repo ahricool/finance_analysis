@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
 from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
 from finance_analysis.core.paths import PROJECT_ROOT
 from finance_analysis.trend_following.models import UniverseMember
@@ -21,6 +22,7 @@ class FakeRepository:
         self.previous_requested = None
         self.previous_calls = []
         self.upserted_dates = []
+        self.invalidated_dates = []
         self.snapshots = []
         self.summary = None
 
@@ -76,6 +78,9 @@ class FakeRepository:
         self.summary = summary
         self.upserted_dates.append(trade_date)
         return len(snapshots)
+
+    def invalidate_from(self, trade_date):
+        self.invalidated_dates.append(trade_date)
 
 
 def test_service_reads_repository_only_and_persists_point_in_time(monkeypatch):
@@ -240,6 +245,10 @@ def test_rebuild_stops_immediately_when_an_intermediate_date_is_incomplete(monke
 
 
 class MissingActiveRepository(FakeRepository):
+    def __init__(self, pending_action=None):
+        super().__init__()
+        self.pending_action = pending_action
+
     def daily_codes_on_date(self, codes, trade_date):
         if "SPY.US" in codes:
             return {"SPY.US"}
@@ -258,6 +267,10 @@ class MissingActiveRepository(FakeRepository):
                 "exit_level": 105.0, "units": 1, "opened_at": trade_date - timedelta(days=5),
                 "suggested_initial_weight": 0.1, "suggested_max_weight": 0.1,
                 "reasons": ["holding"], "intraday_confirmation": "UNAVAILABLE",
+                "pending_action": self.pending_action,
+                "pending_since": trade_date - timedelta(days=1) if self.pending_action else None,
+                "pending_regime": "RISK_ON" if self.pending_action else None,
+                "pending_max_exposure": 1.0 if self.pending_action else None,
             }
         }
 
@@ -276,3 +289,85 @@ def test_missing_active_code_is_carried_forward_without_changing_risk(monkeypatc
     assert carried["initial_stop"] == 96.0
     assert carried["trailing_stop"] == 105.0
     assert "carried forward" in carried["reasons"][-1]
+
+
+def test_explicit_future_run_recovers_intermediate_benchmark_sessions(monkeypatch):
+    repository = LatestRecoveryRepository()
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
+    )
+    result = TrendFollowingService("US", repository).run(repository.raw_date)
+    assert result["rebuild_status"] == "completed"
+    assert repository.upserted_dates == [
+        TRADE_DATE + timedelta(days=1),
+        TRADE_DATE + timedelta(days=2),
+        TRADE_DATE + timedelta(days=3),
+    ]
+
+
+class HistoricalFailureRepository(LatestRecoveryRepository):
+    def __init__(self):
+        super().__init__(incomplete_date=TRADE_DATE + timedelta(days=1))
+        self.snapshot_date = TRADE_DATE + timedelta(days=3)
+
+    def latest_snapshot_date(self):
+        return self.snapshot_date
+
+
+def test_historical_failure_invalidates_the_remaining_future_chain(monkeypatch):
+    repository = HistoricalFailureRepository()
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
+    )
+    result = TrendFollowingService("US", repository).run(TRADE_DATE)
+    assert result["rebuild_status"] == "stopped"
+    assert result["rebuild_stopped_at"] == (TRADE_DATE + timedelta(days=1)).isoformat()
+    assert repository.upserted_dates == [TRADE_DATE]
+    assert repository.invalidated_dates == [TRADE_DATE + timedelta(days=1)]
+
+
+def test_historical_exception_also_invalidates_the_remaining_future_chain(monkeypatch):
+    repository = HistoricalFailureRepository()
+    service = TrendFollowingService("US", repository)
+    failed_at = TRADE_DATE + timedelta(days=1)
+
+    def run_date(trade_date):
+        if trade_date == TRADE_DATE:
+            return {"status": "completed", "trade_date": trade_date.isoformat()}
+        raise RuntimeError("calculation failed")
+
+    monkeypatch.setattr(service, "_run_single_date", run_date)
+    result = service.run(TRADE_DATE)
+    assert result["status"] == "failed"
+    assert result["rebuild_stopped_at"] == failed_at.isoformat()
+    assert repository.invalidated_dates == [failed_at]
+
+
+@pytest.mark.parametrize("pending_action", ["EXIT", "REDUCE"])
+def test_missing_data_preserves_pending_risk_reduction(monkeypatch, pending_action):
+    repository = MissingActiveRepository(pending_action)
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
+    )
+    config = replace(DEFAULT_CONFIG, minimum_data_coverage=0.5)
+    TrendFollowingService("US", repository, config=config).run(TRADE_DATE)
+    carried = next(item for item in repository.snapshots if item["code"] == "AAA.US")
+    assert carried["pending_action"] == pending_action
+    assert carried["pending_regime"] == "RISK_ON"
+    assert "preserved" in carried["reasons"][-1]
+
+
+def test_missing_data_expires_pending_add(monkeypatch):
+    repository = MissingActiveRepository("ADD")
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
+    )
+    config = replace(DEFAULT_CONFIG, minimum_data_coverage=0.5)
+    TrendFollowingService("US", repository, config=config).run(TRADE_DATE)
+    carried = next(item for item in repository.snapshots if item["code"] == "AAA.US")
+    assert carried["pending_action"] is None
+    assert "expired" in carried["reasons"][-1]

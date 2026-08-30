@@ -4,6 +4,10 @@ from datetime import date, timedelta
 
 import pytest
 
+from finance_analysis.trend_following.state import (  # pragma: allowlist secret
+    evaluate_close,
+    execute_pending_at_open,
+)
 from finance_analysis.stocks.reference_data.stock_index import (
     CSI300_STOCK_INDEX,
     CSI500_STOCK_INDEX,
@@ -123,6 +127,7 @@ def _previous(**updates):
         "alpha_score": 80.0, "rank": 1, "atr": 2.0,
         "features": {"recent_structure_low": 95.0},
         "pending_action": None, "pending_since": None,
+        "pending_regime": "RISK_ON", "pending_max_exposure": 1.0,
     }
     previous.update(updates)
     return previous
@@ -135,13 +140,15 @@ def test_atr_risk_levels_and_signal_day_is_not_entry():
     assert trailing_stop(110, 2) == 105
     assert next_add_price(100, 2) == 101
     signal = transition_state(_row(), None, trade_date=TRADE_DATE, market_regime="RISK_ON")
-    assert (signal.state, signal.action, signal.units) == ("CANDIDATE", "PENDING_ENTRY", 0)
+    assert (signal.state, signal.action, signal.units) == ("CANDIDATE", "WATCH", 0)
+    assert signal.pending_action == "ENTRY"
     assert signal.signal_date == TRADE_DATE
     assert signal.signal_price == 110.0
     assert signal.entry_price is None
     assert signal.opened_at is None
     blocked = transition_state(_row(), None, trade_date=TRADE_DATE, market_regime="RISK_OFF")
-    assert (blocked.state, blocked.action, blocked.units) == ("CANDIDATE", "WATCH", 0)
+    assert (blocked.state, blocked.action, blocked.units) == ("WATCHING", "WATCH", 0)
+    assert blocked.pending_action is None
 
 
 def test_candidate_enters_next_session_at_open_not_signal_close():
@@ -149,6 +156,8 @@ def test_candidate_enters_next_session_at_open_not_signal_close():
         "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27),
         "signal_price": 100.0, "trade_date": date(2026, 8, 27), "reference_price": 100.0,
         "action": "PENDING_ENTRY", "pending_action": "ENTRY",
+        "pending_regime": "RISK_ON", "pending_max_exposure": 1.0,
+        "atr": 2.0, "features": {"recent_structure_low": 104.0},
     }
     filled = transition_state(
         _row(open=115.0, reference_price=116.0, atr20=2.0),
@@ -165,8 +174,8 @@ def test_candidate_enters_next_session_at_open_not_signal_close():
     risk_off = transition_state(
         _row(open=115.0), previous, trade_date=TRADE_DATE, market_regime="RISK_OFF",
     )
-    assert (risk_off.state, risk_off.action, risk_off.units) == ("CANDIDATE", "WATCH", 0)
-    assert risk_off.entry_price is None
+    assert (risk_off.state, risk_off.action, risk_off.units) == ("ENTRY", "ENTRY", 1)
+    assert risk_off.entry_price == 115.0
 
 
 def test_trailing_stop_never_moves_downward_when_atr_expands():
@@ -202,7 +211,8 @@ def test_next_add_price_stays_fixed_until_add_and_ignores_atr_drift():
         _row(reference_price=111.2, atr20=2.0, previous_low_10=80.0),
         held, trade_date=TRADE_DATE, market_regime="RISK_ON",
     )
-    assert (added.state, added.action, added.units) == ("HOLDING", "PENDING_ADD", 1)
+    assert (added.state, added.action, added.units) == ("HOLDING", "HOLD", 1)
+    assert added.pending_action == "ADD"
     executed = transition_state(
         _row(open=112.0, reference_price=113.0, previous_low_10=80.0),
         {**held, "pending_action": "ADD", "pending_since": TRADE_DATE},
@@ -215,7 +225,8 @@ def test_next_add_price_stays_fixed_until_add_and_ignores_atr_drift():
 
 def test_add_stop_add_reduce_and_exit_transitions():
     added = transition_state(_row(), _previous(), trade_date=TRADE_DATE, market_regime="RISK_ON")
-    assert (added.state, added.action, added.units) == ("HOLDING", "PENDING_ADD", 1)
+    assert (added.state, added.action, added.units) == ("HOLDING", "HOLD", 1)
+    assert added.pending_action == "ADD"
     risk_off = transition_state(_row(), _previous(), trade_date=TRADE_DATE, market_regime="RISK_OFF")
     assert risk_off.action == "STOP_ADD"
     stopped = transition_state(_row(trend_score=59), _previous(), trade_date=TRADE_DATE, market_regime="RISK_ON")
@@ -224,7 +235,8 @@ def test_add_stop_add_reduce_and_exit_transitions():
         _row(reference_price=106, ma10=108, rs_score=54, previous_low_10=100),
         _previous(), trade_date=TRADE_DATE, market_regime="RISK_ON",
     )
-    assert (reduced.state, reduced.action, reduced.units) == ("WEAKENING", "PENDING_REDUCE", 1)
+    assert (reduced.state, reduced.action, reduced.units) == ("WEAKENING", "HOLD", 1)
+    assert reduced.pending_action == "REDUCE"
     reduced_at_open = transition_state(
         _row(reference_price=106, ma10=108, rs_score=54, previous_low_10=100),
         _previous(units=3, pending_action="REDUCE", pending_since=TRADE_DATE - timedelta(days=1)),
@@ -234,7 +246,8 @@ def test_add_stop_add_reduce_and_exit_transitions():
     exited = transition_state(
         _row(reference_price=95, previous_low_10=96), _previous(), trade_date=TRADE_DATE, market_regime="RISK_ON",
     )
-    assert (exited.state, exited.action, exited.units) == ("WEAKENING", "PENDING_EXIT", 1)
+    assert (exited.state, exited.action, exited.units) == ("WEAKENING", "HOLD", 1)
+    assert exited.pending_action == "EXIT"
     exited_at_open = transition_state(
         _row(reference_price=95, previous_low_10=96),
         _previous(pending_action="EXIT", pending_since=TRADE_DATE - timedelta(days=1)),
@@ -247,6 +260,7 @@ def test_regime_exposure_cap_blocks_excess_entry_and_add():
     pending = {
         "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27), "signal_price": 100.0,
         "action": "PENDING_ENTRY", "pending_action": "ENTRY",
+        "pending_regime": "NEUTRAL", "pending_max_exposure": 0.2,
     }
     rows = [
         _row(code="AAA.US", alpha_score=90, open=100),
@@ -261,9 +275,7 @@ def test_regime_exposure_cap_blocks_excess_entry_and_add():
     gated = apply_exposure_gate(rows, desired, {row["code"]: pending for row in rows}, max_exposure=0.2)
     assert gated["AAA.US"].action == "ENTRY"
     assert gated["BBB.US"].action == "ENTRY"
-    assert (gated["CCC.US"].state, gated["CCC.US"].action, gated["CCC.US"].units) == (
-        "CANDIDATE", "EXPOSURE_BLOCKED", 0,
-    )
+    assert (gated["CCC.US"].action, gated["CCC.US"].units) == ("EXPOSURE_BLOCKED", 0)
     add_rows = [_row(code="DDD.US", alpha_score=95), _row(code="EEE.US", alpha_score=60)]
     holding = _previous(
         units=1,
@@ -272,6 +284,7 @@ def test_regime_exposure_cap_blocks_excess_entry_and_add():
         next_add_price=101.0,
         pending_action="ADD",
         pending_since=TRADE_DATE - timedelta(days=1),
+        pending_max_exposure=0.075,
     )
     add_desired = {
         row["code"]: transition_state(row, holding, trade_date=TRADE_DATE, market_regime="RISK_ON")
@@ -291,15 +304,17 @@ def test_risk_off_blocks_entry_and_add_but_allows_exit():
     pending = {
         "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27),
         "signal_price": 100.0, "action": "PENDING_ENTRY", "pending_action": "ENTRY",
+        "pending_regime": "RISK_ON", "pending_max_exposure": 1.0,
     }
     blocked_entry = transition_state(_row(open=115), pending, trade_date=TRADE_DATE, market_regime="RISK_OFF")
-    assert (blocked_entry.state, blocked_entry.action) == ("CANDIDATE", "WATCH")
+    assert (blocked_entry.state, blocked_entry.action, blocked_entry.units) == ("ENTRY", "ENTRY", 1)
     blocked_add = transition_state(_row(), _previous(), trade_date=TRADE_DATE, market_regime="RISK_OFF")
     assert blocked_add.action == "STOP_ADD"
     exited = transition_state(
         _row(reference_price=95, previous_low_10=96), _previous(), trade_date=TRADE_DATE, market_regime="RISK_OFF",
     )
-    assert (exited.state, exited.action, exited.units) == ("WEAKENING", "PENDING_EXIT", 1)
+    assert (exited.state, exited.action, exited.units) == ("WEAKENING", "HOLD", 1)
+    assert exited.pending_action == "EXIT"
     executed = transition_state(
         _row(reference_price=95, previous_low_10=96),
         _previous(pending_action="EXIT", pending_since=TRADE_DATE - timedelta(days=1)),
@@ -318,11 +333,13 @@ def test_entry_allocation_uses_signal_day_alpha_not_execution_day_close_alpha():
             "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27),
             "signal_price": 100.0, "pending_action": "ENTRY", "alpha_score": 90.0,
             "rank": 1, "atr": 2.0, "features": {"recent_structure_low": 95.0},
+            "pending_regime": "RISK_ON", "pending_max_exposure": 0.1,
         },
         "BBB.US": {
             "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27),
             "signal_price": 100.0, "pending_action": "ENTRY", "alpha_score": 80.0,
             "rank": 2, "atr": 2.0, "features": {"recent_structure_low": 95.0},
+            "pending_regime": "RISK_ON", "pending_max_exposure": 0.1,
         },
     }
     desired = {
@@ -368,6 +385,7 @@ def test_missing_active_code_still_consumes_portfolio_exposure():
             "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27),
             "signal_price": 100.0, "pending_action": "ENTRY", "alpha_score": 80.0,
             "rank": 2, "atr": 2.0, "features": {"recent_structure_low": 95.0},
+            "pending_regime": "RISK_ON", "pending_max_exposure": 0.1,
         },
     }
     desired = transition_state(
@@ -379,24 +397,102 @@ def test_missing_active_code_still_consumes_portfolio_exposure():
     assert gated["BBB.US"].action == "EXPOSURE_BLOCKED"
 
 
-def test_candidate_expires_after_one_execution_session():
+def test_previous_regime_controls_entry_even_when_current_close_is_risk_off():
     signal = transition_state(
         _row(), None, trade_date=date(2026, 8, 1), market_regime="RISK_ON",
     )
-    blocked = transition_state(
+    executed = transition_state(
         _row(),
-        signal.to_dict(),
+        {
+            **signal.to_dict(),
+            "atr": 2.0,
+            "features": {"recent_structure_low": 104.0},
+            "market_regime": "RISK_ON",
+        },
         trade_date=date(2026, 8, 2),
         market_regime="RISK_OFF",
     )
-    assert (blocked.state, blocked.action, blocked.units) == ("CANDIDATE", "WATCH", 0)
-    assert blocked.signal_date == date(2026, 8, 2)
-    assert blocked.pending_action is None
-    recovered = transition_state(
-        _row(), blocked.to_dict(), trade_date=date(2026, 8, 3), market_regime="RISK_ON",
+    assert (executed.state, executed.action, executed.units) == ("ENTRY", "ENTRY", 1)
+    assert executed.pending_action is None
+
+
+def test_previous_exposure_cap_controls_open_allocation_not_current_close_cap():
+    rows = [_row(code="AAA.US"), _row(code="BBB.US")]
+    previous = {
+        code: {
+            "state": "CANDIDATE", "action": "WATCH", "units": 0,
+            "signal_date": date(2026, 8, 27), "signal_price": 100.0,
+            "pending_action": "ENTRY", "pending_regime": "NEUTRAL",
+            "pending_max_exposure": 0.1, "alpha_score": 90.0 - index,
+            "rank": index + 1, "atr": 2.0, "features": {"recent_structure_low": 95.0},
+        }
+        for index, code in enumerate(("AAA.US", "BBB.US"))
+    }
+    opened = {
+        row["code"]: execute_pending_at_open(
+            row, previous[row["code"]], trade_date=TRADE_DATE,
+        )
+        for row in rows
+    }
+    allocated = apply_exposure_gate(rows, opened, previous)
+    assert allocated["AAA.US"].action == "ENTRY"
+    assert allocated["BBB.US"].action == "EXPOSURE_BLOCKED"
+    final = evaluate_close(
+        rows[0], allocated["AAA.US"], trade_date=TRADE_DATE,
+        market_regime="RISK_OFF", max_exposure=0.0,
     )
-    assert (recovered.state, recovered.action, recovered.units) == ("CANDIDATE", "PENDING_ENTRY", 0)
-    assert recovered.signal_date == date(2026, 8, 3)
+    assert final.action == "ENTRY"
+    assert final.units == 1
+
+
+def test_entry_execution_can_generate_same_day_pending_exit():
+    previous = {
+        "state": "CANDIDATE", "action": "WATCH", "units": 0,
+        "signal_date": date(2026, 8, 27), "signal_price": 100.0,
+        "pending_action": "ENTRY", "pending_regime": "RISK_ON",
+        "pending_max_exposure": 1.0, "alpha_score": 90.0, "rank": 1,
+        "atr": 2.0, "features": {"recent_structure_low": 95.0},
+    }
+    result = transition_state(
+        _row(open=100.0, reference_price=90.0, previous_low_10=92.0),
+        previous, trade_date=TRADE_DATE, market_regime="RISK_OFF", max_exposure=0.0,
+    )
+    assert (result.action, result.units, result.pending_action) == ("ENTRY", 1, "EXIT")
+    next_day = transition_state(
+        _row(open=89.0, reference_price=88.0),
+        result.to_dict(), trade_date=TRADE_DATE + timedelta(days=1), market_regime="RISK_OFF",
+    )
+    assert (next_day.action, next_day.units) == ("EXIT", 0)
+
+
+def test_add_execution_can_generate_reduce_and_reduce_can_repeat():
+    prior_add = _previous(
+        units=1, initial_stop=80.0, trailing_stop=80.0, next_add_price=101.0,
+        pending_action="ADD", pending_since=TRADE_DATE - timedelta(days=1),
+        pending_regime="RISK_ON", pending_max_exposure=1.0,
+        suggested_initial_weight=0.025, suggested_max_weight=0.1,
+    )
+    added = transition_state(
+        _row(open=101.0, reference_price=106.0, previous_low_10=80.0, ma10=108.0, rs_score=54.0),
+        prior_add, trade_date=TRADE_DATE, market_regime="NEUTRAL",
+    )
+    assert (added.action, added.units, added.pending_action) == ("ADD", 2, "REDUCE")
+
+    prior_reduce = _previous(
+        units=3, initial_stop=80.0, trailing_stop=80.0, next_add_price=120.0,
+        pending_action="REDUCE", pending_since=TRADE_DATE - timedelta(days=1),
+        pending_regime="RISK_OFF", pending_max_exposure=0.0,
+    )
+    reduced = transition_state(
+        _row(reference_price=106.0, previous_low_10=80.0, ma10=108.0, rs_score=54.0),
+        prior_reduce, trade_date=TRADE_DATE, market_regime="RISK_OFF",
+    )
+    assert (reduced.action, reduced.units, reduced.pending_action) == ("REDUCE", 2, "REDUCE")
+
+
+def test_candidate_expiry_configuration_only_supports_one_session():
+    with pytest.raises(ValueError, match="candidate_expiry_sessions=1"):
+        type(DEFAULT_CONFIG)(candidate_expiry_sessions=2)
 
 
 def test_realized_volatility_uses_exactly_20_returns():

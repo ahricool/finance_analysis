@@ -56,6 +56,8 @@ export interface TrendSnapshot {
   signalPrice: number | null;
   pendingAction: 'ENTRY' | 'ADD' | 'REDUCE' | 'EXIT' | null;
   pendingSince: string | null;
+  pendingRegime: TrendRegime | null;
+  pendingMaxExposure: number | null;
   openedAt: string | null;
   lastAddPrice: number | null;
   highestClose: number | null;
