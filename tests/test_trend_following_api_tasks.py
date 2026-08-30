@@ -21,16 +21,22 @@ TRADE_DATE = date(2026, 8, 28)
 
 class FakeRepository:
     def __init__(self, market): self.market = market
-    def latest_trade_date(self): return TRADE_DATE
-    def available_trade_dates(self): return [TRADE_DATE]
+    def latest_trade_date(self): return date(2026, 8, 29)
+    def available_trade_dates(self): return [date(2026, 8, 29), TRADE_DATE]
     def summary_by_date(self, trade_date):
         return {"market": self.market, "trade_date": trade_date, "market_regime": "RISK_ON", "market_score": 80}
     def snapshots_by_date(self, trade_date, *, sort_by, limit):
         return [{"code": "AAPL.US", "trade_date": trade_date, "alpha_score": 80}]
     def candidates_by_date(self, trade_date, *, limit):
         return [{"code": "AAPL.US", "trade_date": trade_date, "state": "ENTRY"}]
-    def snapshot_history(self, code, *, limit):
-        return [{"code": code, "name": "Apple", "trade_date": TRADE_DATE, "state": "ENTRY"}]
+    def snapshot_history(self, code, *, limit, as_of=None):
+        rows = [
+            {"code": code, "name": "Apple", "trade_date": date(2026, 8, 29), "state": "HOLDING"},
+            {"code": code, "name": "Apple", "trade_date": TRADE_DATE, "state": "ENTRY"},
+        ]
+        if as_of is not None:
+            rows = [row for row in rows if row["trade_date"] <= as_of]
+        return rows
 
 
 def test_snapshot_api_contracts(monkeypatch):
@@ -39,11 +45,15 @@ def test_snapshot_api_contracts(monkeypatch):
     ranking = asyncio.run(trend_following.ranking(None, "alpha_score", None, user, "US"))
     candidates = asyncio.run(trend_following.candidates(None, 100, user, "US"))
     dates = asyncio.run(trend_following.dates(user, "US"))
-    detail = asyncio.run(trend_following.detail("AAPL.US", 60, user, "US"))
+    detail = asyncio.run(trend_following.detail("AAPL.US", 60, TRADE_DATE, user, "US"))
     assert ranking["items"][0]["code"] == "AAPL.US"
     assert candidates["items"][0]["state"] == "ENTRY"
-    assert dates["latest"] == "2026-08-28"
+    assert dates["latest"] == "2026-08-29"
     assert detail["latest"]["state"] == "ENTRY"
+    assert detail["latest"]["trade_date"] == "2026-08-28"
+    assert all(item["trade_date"] <= "2026-08-28" for item in detail["history"])
+    latest = asyncio.run(trend_following.detail("AAPL.US", 60, None, user, "US"))
+    assert latest["latest"]["trade_date"] == "2026-08-29"
 
 
 def test_tasks_and_schedules_are_registered():
@@ -74,6 +84,12 @@ def test_manual_run_submits_celery(monkeypatch):
     assert result["task_id"] == "trend-task"
     assert submitted["kwargs"]["trade_date"] == "2026-08-28"
     assert submitted["queue"] == "analysis"
+    submitted.clear()
+    latest = asyncio.run(trend_following.run_trend_following(
+        TrendFollowingRunRequest(market="US", trade_date=None), SimpleNamespace(id=7)
+    ))
+    assert latest["task_id"] == "trend-task"
+    assert submitted["kwargs"]["trade_date"] is None
 
 
 def test_migration_and_snapshot_have_no_user_columns():
@@ -82,3 +98,9 @@ def test_migration_and_snapshot_have_no_user_columns():
     assert 'down_revision: Union[str, Sequence[str], None] = "0030_etf_rotation_v2"' in migration
     for column in ("uid", "user_id", "account_id", "position_id", "user_cost", "user_weight", "user_pnl"):
         assert f'Column("{column}"' not in migration
+    signal = (Path(PROJECT_ROOT) / "alembic/versions/0032_trend_following_signal.py").read_text(encoding="utf-8")
+    assert 'revision: str = "0032_trend_following_signal"' in signal
+    assert 'down_revision: Union[str, Sequence[str], None] = "0031_trend_following"' in signal
+    assert "signal_date" in signal
+    assert "signal_price" in signal
+    assert "0031_trend_following" in migration
