@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import delete, desc, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
@@ -170,6 +170,62 @@ class TrendFollowingRepository:
                 set_={column.name: getattr(excluded, column.name) for column in TrendFollowingSnapshot.__table__.columns
                       if column.name not in immutable},
             ))
+        return len(records)
+
+    def replace_day(
+        self,
+        trade_date: date,
+        snapshots: list[dict[str, Any]],
+        summary: dict[str, Any],
+    ) -> int:
+        """Atomically replace one complete market/date snapshot set and its summary."""
+        codes = sorted({str(item["code"]) for item in snapshots})
+        with self.db.session_scope() as session:
+            symbol_ids = dict(session.execute(select(MarketDataSymbol.code, MarketDataSymbol.id).where(
+                MarketDataSymbol.market == self.market,
+                MarketDataSymbol.code.in_(codes),
+            )).all()) if codes else {}
+            missing = sorted(set(codes) - set(symbol_ids))
+            if missing:
+                raise ValueError(f"Trend Following symbols are not registered: {', '.join(missing[:10])}")
+
+            session.execute(delete(TrendFollowingSnapshot).where(
+                TrendFollowingSnapshot.market == self.market,
+                TrendFollowingSnapshot.trade_date == trade_date,
+            ))
+            snapshot_columns = {column.name for column in TrendFollowingSnapshot.__table__.columns}
+            generated_at = utc_now()
+            records = []
+            next_snapshot_id = None
+            if session.bind is not None and session.bind.dialect.name == "sqlite":
+                next_snapshot_id = int(session.execute(
+                    select(func.coalesce(func.max(TrendFollowingSnapshot.id), 0))
+                ).scalar_one()) + 1
+            for item in snapshots:
+                record = {key: value for key, value in item.items() if key in snapshot_columns and key != "id"}
+                record.update(symbol_id=symbol_ids[item["code"]], generated_at=generated_at)
+                if next_snapshot_id is not None:
+                    record["id"] = next_snapshot_id
+                    next_snapshot_id += 1
+                records.append(record)
+            if records:
+                session.execute(TrendFollowingSnapshot.__table__.insert(), records)
+
+            session.execute(delete(TrendFollowingSummary).where(
+                TrendFollowingSummary.market == self.market,
+                TrendFollowingSummary.trade_date == trade_date,
+            ))
+            summary_columns = {column.name for column in TrendFollowingSummary.__table__.columns}
+            summary_record = {
+                key: value for key, value in summary.items()
+                if key in summary_columns and key != "id"
+            }
+            summary_record["generated_at"] = generated_at
+            if session.bind is not None and session.bind.dialect.name == "sqlite":
+                summary_record["id"] = int(session.execute(
+                    select(func.coalesce(func.max(TrendFollowingSummary.id), 0))
+                ).scalar_one()) + 1
+            session.execute(TrendFollowingSummary.__table__.insert().values(**summary_record))
         return len(records)
 
     def upsert_summary(self, summary: dict[str, Any]) -> None:
