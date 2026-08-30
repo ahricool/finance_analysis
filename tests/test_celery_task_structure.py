@@ -36,6 +36,8 @@ EXPECTED_CUSTOM_TASKS = {
     "scheduled.quant_daily_pipeline_cn",
     "scheduled.etf_rotation_cn",
     "scheduled.etf_rotation_us",
+    "scheduled.trend_following_cn",
+    "scheduled.trend_following_us",
     "quant.daily.finalize",
     "quant.daily.failed",
 }
@@ -56,8 +58,8 @@ def test_worker_registers_exactly_the_expected_custom_tasks():
 
 
 def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
-    assert len(TASK_PACKAGES) == 20
-    assert len(TASK_MODULES) == 20
+    assert len(TASK_PACKAGES) == 21
+    assert len(TASK_MODULES) == 21
     for package, module_name in zip(TASK_PACKAGES, TASK_MODULES):
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)
@@ -66,7 +68,7 @@ def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
             expected_count = 4
         elif package.endswith("quant_training"):
             expected_count = 3
-        elif package.endswith(("market_data_sync", "etf_rotation")):
+        elif package.endswith(("market_data_sync", "etf_rotation", "trend_following")):
             expected_count = 2
         else:
             expected_count = 1
@@ -79,7 +81,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 23
+    assert len(celery_names) == len(set(celery_names)) == 25
     assert len(job_ids) == len(set(job_ids))
 
 

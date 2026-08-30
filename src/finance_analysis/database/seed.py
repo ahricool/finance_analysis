@@ -82,9 +82,13 @@ def seed_nasdaq100_market_data_symbols(db_manager=None) -> int:
 
 
 def seed_market_data_reference_symbols(db_manager=None) -> dict[str, int]:
-    """Idempotently seed the S&P 500 and CSI 300 daily synchronization universes."""
+    """Idempotently seed S&P 500 and CSI 300/500 daily synchronization symbols."""
     from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
-    from finance_analysis.stocks.reference_data.stock_index import CSI300_STOCK_INDEX, SP500_STOCK_INDEX
+    from finance_analysis.stocks.reference_data.stock_index import (
+        CSI300_STOCK_INDEX,
+        CSI500_STOCK_INDEX,
+        SP500_STOCK_INDEX,
+    )
     from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 
     repository = MarketDataSymbolRepository(db_manager)
@@ -108,7 +112,7 @@ def seed_market_data_reference_symbols(db_manager=None) -> dict[str, int]:
             "sync_daily": True,
             "sync_minute": False,
         }
-        for code, name in CSI300_STOCK_INDEX.items()
+        for code, name in {**CSI300_STOCK_INDEX, **CSI500_STOCK_INDEX}.items()
     )
     repository.upsert_symbols(MarketDataScopeResolver.dependency_records("US"))
     repository.upsert_symbols(MarketDataScopeResolver.dependency_records("CN"))

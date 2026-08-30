@@ -34,6 +34,8 @@ EXPECTED_JOBS = {
     "quant_daily_pipeline_cn": ("scheduled_quant_daily_cn", "Asia/Shanghai"),
     "etf_rotation_cn": ("scheduled_etf_rotation_cn", "Asia/Shanghai"),
     "etf_rotation_us": ("scheduled_etf_rotation_us", "America/New_York"),
+    "trend_following_cn": ("scheduled_trend_following_cn", "Asia/Shanghai"),
+    "trend_following_us": ("scheduled_trend_following_us", "America/New_York"),
 }
 
 
