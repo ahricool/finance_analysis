@@ -37,6 +37,8 @@ class TrendFollowingSnapshot(Base):
     reference_price = Column(Float, nullable=False)
     atr = Column(Float, nullable=False)
     entry_price = Column(Float)
+    signal_date = Column(Date)
+    signal_price = Column(Float)
     last_add_price = Column(Float)
     highest_close = Column(Float)
     initial_stop = Column(Float)

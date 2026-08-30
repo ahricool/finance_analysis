@@ -44,6 +44,8 @@ class StrategyDecision:
     suggested_initial_weight: float | None
     suggested_max_weight: float | None
     reasons: list[str]
+    signal_date: date | None = None
+    signal_price: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()
