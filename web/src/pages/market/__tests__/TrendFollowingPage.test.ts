@@ -21,7 +21,7 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
     marketRegime: 'RISK_ON', marketScore: 82, rank: 1, trendScore: 80, rsScore: 78,
     breakoutScore: 76, alphaScore: 79, setup: 'BREAKOUT_55D', state: 'ENTRY', action: 'ENTRY',
     referencePrice: 110, atr: 2, signalDate: '2026-08-27', signalPrice: 108, openedAt: '2026-08-28',
-    pendingAction: null, pendingSince: null,
+    pendingAction: null, pendingSince: null, pendingRegime: null, pendingMaxExposure: null,
     lastAddPrice: 110, highestClose: 110, entryPrice: 110, initialStop: 106, trailingStop: 105,
     nextAddPrice: 111, exitLevel: 106, units: 1, suggestedInitialWeight: 0.1,
     suggestedMaxWeight: 0.1, reasons: ['candidate thresholds passed'], intradayConfirmation: 'UNAVAILABLE',

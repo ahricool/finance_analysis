@@ -57,6 +57,10 @@ class TrendFollowingConfig:
     history_limit_default: int = 60
     history_limit_max: int = 250
 
+    def __post_init__(self) -> None:
+        if self.candidate_expiry_sessions != 1:
+            raise ValueError("Trend Following currently supports candidate_expiry_sessions=1 only")
+
 
 DEFAULT_CONFIG = TrendFollowingConfig()
 
