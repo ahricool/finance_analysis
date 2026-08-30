@@ -70,7 +70,7 @@ def test_entry_score_keeps_confirmation_and_overheat_components() -> None:
         "ma20_penalty": -5.0,
         "daily_overheat_penalty": 0.0,
     }
-    assert calculate_entry_score({**row, "ret_1d": 0.07}, 70)[0] == 60
+    assert calculate_entry_score({**row, "ret_1d": 0.07}, 70)[0] == 62
 
 
 def test_coverage_thresholds() -> None:

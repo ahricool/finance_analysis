@@ -307,8 +307,21 @@ onMounted(() => void load(true));
                   v-for="window in [1,3,5,10,20]"
                   :key="window"
                 >
-                  {{ window }}D
-                </TableHead><TableHead>Rank Δ 1/3/5D</TableHead><TableHead>Entry</TableHead>
+                  <IndicatorLabel
+                    :label="`${window}D`"
+                    :description="descriptions.return"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Rank Δ 1/3/5D"
+                    :description="descriptions.rankChange"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Entry"
+                    :description="descriptions.entry"
+                  />
+                </TableHead>
               </TableRow>
             </TableHeader><TableBody>
               <TableRow
@@ -384,7 +397,7 @@ onMounted(() => void load(true));
             <Card>
               <CardHeader><CardTitle>Raw Metrics</CardTitle></CardHeader><CardContent class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <div
-                  v-for="metric in ([['1D',pct(selected.latest.ret1D),''],['3D',pct(selected.latest.ret3D),''],['5D',pct(selected.latest.ret5D),''],['10D',pct(selected.latest.ret10D),''],['20D',pct(selected.latest.ret20D),''],['RS5',pct(selected.latest.rs5D),descriptions.relativeStrength],['RS10',pct(selected.latest.rs10D),descriptions.relativeStrength],['RS20',pct(selected.latest.rs20D),descriptions.relativeStrength],['Weighted Slope 5D',decimal(selected.latest.weightedSlope5D,5),descriptions.weightedSlope],['Weighted Slope 10D',decimal(selected.latest.weightedSlope10D,5),descriptions.weightedSlope],['Weighted Slope 15D',decimal(selected.latest.weightedSlope15D,5),descriptions.weightedSlope],['Annualized Slope 5D',pct(selected.latest.annualizedSlope5D),descriptions.weightedSlope],['Annualized Slope 10D',pct(selected.latest.annualizedSlope10D),descriptions.weightedSlope],['Annualized Slope 15D',pct(selected.latest.annualizedSlope15D),descriptions.weightedSlope],['R² 15D',decimal(selected.latest.trendR215D),descriptions.r2],['Trend Quality 15D',decimal(selected.latest.trendQuality15D),descriptions.trendQuality],['Momentum Acceleration 3D',pct(selected.latest.momentumAcceleration3D),descriptions.acceleration],['Momentum Acceleration 5D',pct(selected.latest.momentumAcceleration5D),descriptions.acceleration],['Trend Acceleration',pct(selected.latest.trendAcceleration),descriptions.acceleration],['Signed ER10',decimal(selected.latest.signedEfficiencyRatio10D),descriptions.efficiency],['Volatility 20D',pct(selected.latest.realizedVol20D,false),descriptions.volatility],['Max Drawdown 20D',pct(selected.latest.maxDrawdown20D),descriptions.drawdown],['MA10 Deviation',pct(selected.latest.ma10Ratio),descriptions.maDeviation],['MA20 Deviation',pct(selected.latest.ma20Ratio),descriptions.maDeviation],['Distance from High',pct(selected.latest.distanceFrom20dHigh),descriptions.distanceHigh],['Volume Ratio',decimal(selected.latest.volumeRatio5D),descriptions.volumeRatio],['Average Amount',price(selected.latest.avgAmount20D),''],['Rank Change 1/3/5D',`${rankChange(selected.latest.rankChange1D)} / ${rankChange(selected.latest.rankChange3D)} / ${rankChange(selected.latest.rankChange5D)}`,descriptions.rankChange],['Suggested Stop',price(selected.latest.suggestedStopPrice),descriptions.stop]] as const)"
+                  v-for="metric in ([['1D',pct(selected.latest.ret1D),descriptions.return],['3D',pct(selected.latest.ret3D),descriptions.return],['5D',pct(selected.latest.ret5D),descriptions.return],['10D',pct(selected.latest.ret10D),descriptions.return],['20D',pct(selected.latest.ret20D),descriptions.return],['RS5',pct(selected.latest.rs5D),descriptions.relativeStrength],['RS10',pct(selected.latest.rs10D),descriptions.relativeStrength],['RS20',pct(selected.latest.rs20D),descriptions.relativeStrength],['Weighted Slope 5D',decimal(selected.latest.weightedSlope5D,5),descriptions.weightedSlope],['Weighted Slope 10D',decimal(selected.latest.weightedSlope10D,5),descriptions.weightedSlope],['Weighted Slope 15D',decimal(selected.latest.weightedSlope15D,5),descriptions.weightedSlope],['Annualized Slope 5D',pct(selected.latest.annualizedSlope5D),descriptions.weightedSlope],['Annualized Slope 10D',pct(selected.latest.annualizedSlope10D),descriptions.weightedSlope],['Annualized Slope 15D',pct(selected.latest.annualizedSlope15D),descriptions.weightedSlope],['R² 15D',decimal(selected.latest.trendR215D),descriptions.r2],['Trend Quality 15D',decimal(selected.latest.trendQuality15D),descriptions.trendQuality],['Momentum Acceleration 3D',pct(selected.latest.momentumAcceleration3D),descriptions.acceleration],['Momentum Acceleration 5D',pct(selected.latest.momentumAcceleration5D),descriptions.acceleration],['Trend Acceleration',pct(selected.latest.trendAcceleration),descriptions.acceleration],['Signed ER10',decimal(selected.latest.signedEfficiencyRatio10D),descriptions.efficiency],['Volatility 20D',pct(selected.latest.realizedVol20D,false),descriptions.volatility],['Max Drawdown 20D',pct(selected.latest.maxDrawdown20D),descriptions.drawdown],['MA10 Deviation',pct(selected.latest.ma10Ratio),descriptions.maDeviation],['MA20 Deviation',pct(selected.latest.ma20Ratio),descriptions.maDeviation],['Distance from High',pct(selected.latest.distanceFrom20dHigh),descriptions.distanceHigh],['Volume Ratio',decimal(selected.latest.volumeRatio5D),descriptions.volumeRatio],['Average Amount',price(selected.latest.avgAmount20D),'最近 20 日平均成交额，用于 A 股/美股各自的流动性门槛。'],['Rank Change 1/3/5D',`${rankChange(selected.latest.rankChange1D)} / ${rankChange(selected.latest.rankChange3D)} / ${rankChange(selected.latest.rankChange5D)}`,descriptions.rankChange],['Suggested Stop',price(selected.latest.suggestedStopPrice),descriptions.stop]] as const)"
                   :key="metric[0]"
                   class="min-w-0 rounded border px-3 py-2"
                 >

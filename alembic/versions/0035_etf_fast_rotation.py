@@ -1,7 +1,7 @@
 """Replace slow ETF rotation fields with 20-session fast-rotation fields.
 
 Revision ID: 0035_etf_fast_rotation
-Revises: 0034_trend_following_execution_context
+Revises: 0034_trend_execution_context
 Create Date: 2026-08-30
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0035_etf_fast_rotation"
-down_revision: Union[str, Sequence[str], None] = "0034_trend_following_execution_context"
+down_revision: Union[str, Sequence[str], None] = "0034_trend_execution_context"
 branch_labels = None
 depends_on = None
 

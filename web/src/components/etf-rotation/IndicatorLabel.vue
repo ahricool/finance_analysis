@@ -14,6 +14,7 @@ defineProps<{ label: string; description: string }>();
           <button
             type="button"
             class="shrink-0 text-muted-foreground hover:text-foreground"
+            :aria-label="`查看 ${label} 计算公式`"
             @click.stop
           >
             <CircleHelp class="size-3.5" />

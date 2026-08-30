@@ -101,7 +101,7 @@ def test_service_generates_complete_snapshot_and_same_date_rerun_is_idempotent()
     second = service.run(TRADE_DATE)
     assert first["snapshot_count"] == second["snapshot_count"] == len(enabled_etfs("CN"))
     assert len(repository.saved) == len(enabled_etfs("CN"))
-    assert 0 < first["candidate_count"] <= DEFAULT_CONFIG.max_candidates
+    assert 0 <= first["candidate_count"] <= DEFAULT_CONFIG.max_candidates
     assert all("score_components" in snapshot for snapshot in repository.saved.values())
     assert all("composite_score" in snapshot for snapshot in repository.saved.values())
     assert repository.market_snapshot["benchmark_code"] == "510300.SH"

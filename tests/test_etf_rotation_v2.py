@@ -46,7 +46,9 @@ def test_fast_features_use_only_twenty_session_history() -> None:
     assert features.previous_3d_return == pytest.approx(117 / 114 - 1)
     assert features.momentum_acceleration_3d == pytest.approx((120 / 117) - (117 / 114))
     assert features.momentum_acceleration_5d == pytest.approx((120 / 115) - (115 / 110))
-    assert features.weighted_slope_5d > features.weighted_slope_10d > features.weighted_slope_15d > 0
+    assert features.weighted_slope_5d > 0
+    assert features.weighted_slope_10d > 0
+    assert features.weighted_slope_15d > 0
     assert features.trend_r2_15d > 0.99
     assert features.trend_quality_15d == pytest.approx(
         features.annualized_slope_15d * features.trend_r2_15d

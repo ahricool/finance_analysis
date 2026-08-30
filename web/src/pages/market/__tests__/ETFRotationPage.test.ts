@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ETFMarket, ETFMomentumSnapshot } from '@/types/etfRotation';
+import { indicatorDescriptions } from '@/components/etf-rotation/indicatorDescriptions';
 import ETFRotationPage from '../ETFRotationPage.vue';
 
 const apiMocks = vi.hoisted(() => ({
@@ -216,6 +217,16 @@ describe('ETFRotationPage', () => {
     expect(wrapper.text()).toContain('#3');
     expect(wrapper.text()).toContain('+4');
     expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined);
+    expect(wrapper.find('[aria-label="查看 3D 计算公式"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="查看 Entry 计算公式"]').exists()).toBe(true);
+  });
+
+  it('documents the complete fast-rotation formulas in indicator hints', () => {
+    expect(indicatorDescriptions.momentum).toContain('0.30×Rank(Return3)');
+    expect(indicatorDescriptions.relativeStrength).toContain('RS_N = ETF Return_N − Benchmark Return_N');
+    expect(indicatorDescriptions.acceleration).toContain('Acc3 =');
+    expect(indicatorDescriptions.composite).toContain('0.25×Acceleration');
+    expect(indicatorDescriptions.entry).toContain('BUY 阈值为 70');
   });
 
   it('loads the latest snapshot on mount and fills the date picker', async () => {
