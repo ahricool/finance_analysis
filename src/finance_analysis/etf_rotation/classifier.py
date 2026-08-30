@@ -24,24 +24,28 @@ def classify_state(
 ) -> str:
     """Apply EXHAUSTED > COOLING > EMERGING > STRONG > TRENDING > WEAK > NEUTRAL."""
     composite = float(row.get("composite_score") if row.get("composite_score") is not None else momentum_score)
-    rank_change = row.get("rank_change_5d")
-    trend_acceleration = float(row.get("trend_acceleration", row.get("momentum_acceleration", 0.0)))
+    rank_change_3d = row.get("rank_change_3d")
+    trend_acceleration = float(row.get("trend_acceleration", 0.0))
     acceleration_score = float(row.get("acceleration_score") or 0.0)
     trend_quality_score = float(row.get("trend_quality_score") or 0.0)
+    rs_10d_score = float(row.get("rs_10d_score") or 0.0)
     absolute_trend = bool(row.get("absolute_trend_eligible", True))
     if composite >= config.strong_composite_threshold and is_overheated(row, config):
         return "EXHAUSTED"
     if (
-        composite >= config.trending_composite_threshold
+        composite >= config.cooling_composite_threshold
         and trend_acceleration < 0
-        and rank_change is not None
-        and int(rank_change) < 0
+        and rank_change_3d is not None
+        and int(rank_change_3d) < 0
     ):
         return "COOLING"
     if (
-        rank_change is not None and int(rank_change) > 0 and trend_acceleration > 0
+        rank_change_3d is not None
+        and int(rank_change_3d) >= config.emerging_rank_change_3d
         and acceleration_score >= config.emerging_acceleration_threshold
-        and trend_quality_score >= config.emerging_trend_quality_threshold
+        and rs_10d_score >= config.emerging_rs10_threshold
+        and float(row["weighted_slope_10d"]) > 0
+        and absolute_trend
     ):
         return "EMERGING"
     if (

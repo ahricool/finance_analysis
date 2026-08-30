@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from finance_analysis.etf_rotation.backtest.types import OpenPosition, StrategySpec
+from finance_analysis.etf_rotation.selector import is_valid_hold  # pragma: allowlist secret
 
 STRATEGIES: tuple[StrategySpec, ...] = (
     StrategySpec("A_baseline", "Baseline Entry#1 / hold top2", max_positions=1, buy_entry_rank=1, exit_entry_rank=2),
@@ -68,12 +69,12 @@ STRATEGIES: tuple[StrategySpec, ...] = (
         risk_off=True,
     ),
     StrategySpec(
-        "I_hysteresis",
-        "Hysteresis Top3",
-        max_positions=3,
-        buy_entry_rank=3,
-        exit_weak=True,
-        hysteresis=True,
+        "I_fast_rotation",
+        "Live Fast Rotation Top4/Top6",
+        max_positions=5,
+        buy_entry_rank=4,
+        risk_off=True,
+        fast_rotation=True,
     ),
 )
 
@@ -87,20 +88,24 @@ def ranking_by_code(rows: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str,
 def market_is_risk_off(rows: Sequence[Mapping[str, Any]], threshold: float = RISK_OFF_THRESHOLD) -> bool:
     if not rows:
         return False
+    if rows[0].get("market_regime") is not None:
+        return str(rows[0]["market_regime"]) == "RISK_OFF"
     positive_5d = sum(1 for row in rows if float(row["ret_5d"]) > 0) / len(rows)
-    above_ma20 = sum(1 for row in rows if float(row["ma20_ratio"]) > 0) / len(rows)
-    return positive_5d < threshold and above_ma20 < threshold
+    above_ma10 = sum(1 for row in rows if float(row["ma10_ratio"]) > 0) / len(rows)
+    return positive_5d <= threshold and above_ma10 <= threshold
 
 
 def breadth_stats(rows: Sequence[Mapping[str, Any]]) -> tuple[float, float]:
     if not rows:
         return 0.0, 0.0
     positive_5d = sum(1 for row in rows if float(row["ret_5d"]) > 0) / len(rows)
-    above_ma20 = sum(1 for row in rows if float(row["ma20_ratio"]) > 0) / len(rows)
-    return positive_5d, above_ma20
+    above_ma10 = sum(1 for row in rows if float(row["ma10_ratio"]) > 0) / len(rows)
+    return positive_5d, above_ma10
 
 
 def passes_buy_filter(row: Mapping[str, Any], spec: StrategySpec) -> bool:
+    if spec.fast_rotation:
+        return bool(row.get("is_candidate")) and str(row.get("action")) in {"BUY", "HOLD"}
     if int(row["entry_rank"]) > spec.buy_entry_rank:
         return False
     if spec.absolute_filter and (float(row["ret_5d"]) <= 0 or float(row["ma20_ratio"]) <= 0):
@@ -129,6 +134,8 @@ def exit_reason(
         return "stop"
     if row is None:
         return "missing_signal"
+    if spec.fast_rotation and not is_valid_hold(row):
+        return "fast_rotation_exit"
     if spec.exit_weak and str(row["state"]) == "WEAK":
         return "weak"
     if spec.exit_entry_rank is not None and int(row["entry_rank"]) > spec.exit_entry_rank:

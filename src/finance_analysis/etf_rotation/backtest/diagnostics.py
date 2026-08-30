@@ -8,8 +8,8 @@ from datetime import date
 from statistics import mean
 from typing import Any
 
-from finance_analysis.etf_rotation.backtest.simulator import index_bars
-from finance_analysis.etf_rotation.backtest.types import OhlcvBar
+from finance_analysis.etf_rotation.backtest.simulator import index_bars  # pragma: allowlist secret
+from finance_analysis.etf_rotation.backtest.types import Fill, OhlcvBar  # pragma: allowlist secret
 
 RANK_BUCKETS: tuple[tuple[str, int, int], ...] = (
     ("rank_1", 1, 1),
@@ -144,4 +144,60 @@ def entry1_return_split(
     }
 
 
-__all__ = ["entry1_return_split", "entry_rank_forward_returns"]
+def rotation_speed_diagnostics(
+    rankings: Mapping[date, Sequence[Mapping[str, Any]]],
+    fills: Sequence[Fill],
+) -> dict[str, float | int | None]:
+    """Measure leader capture and stale-hold delay from point-in-time signals."""
+    ordered_dates = sorted(rankings)
+    buys = {(fill.signal_date, fill.code) for fill in fills if fill.side == "buy"}
+    leader_delays: list[int] = []
+    missed_leader_episodes = 0
+    active_leaders: set[str] = set()
+    episode_starts: dict[str, int] = {}
+    for index, trade_date in enumerate(ordered_dates):
+        rows = rankings[trade_date]
+        leaders = {str(row["code"]) for row in rows if int(row["rank"]) <= 4}
+        for code in leaders - active_leaders:
+            episode_starts[code] = index
+        for code in leaders:
+            if code in episode_starts and ((trade_date, code) in buys or any(
+                str(row["code"]) == code and bool(row.get("is_candidate")) for row in rows
+            )):
+                leader_delays.append(index - episode_starts[code])
+                episode_starts.pop(code, None)
+        for code in active_leaders - leaders:
+            if code in episode_starts:
+                missed_leader_episodes += 1
+                episode_starts.pop(code, None)
+        active_leaders = leaders
+    missed_leader_episodes += len(episode_starts)
+
+    rank_by_date = {
+        trade_date: {str(row["code"]): int(row["rank"]) for row in rows}
+        for trade_date, rows in rankings.items()
+    }
+    stale_delays: list[int] = []
+    for fill in fills:
+        if fill.side != "sell":
+            continue
+        signal_index = ordered_dates.index(fill.signal_date) if fill.signal_date in rank_by_date else -1
+        if signal_index < 0 or rank_by_date[fill.signal_date].get(fill.code, 0) <= 6:
+            continue
+        delay = 0
+        for index in range(signal_index, -1, -1):
+            rank = rank_by_date[ordered_dates[index]].get(fill.code)
+            if rank is None or rank <= 6:
+                break
+            delay += 1
+        stale_delays.append(delay)
+    return {
+        "leader_capture_delay": mean(leader_delays) if leader_delays else None,
+        "leader_capture_samples": len(leader_delays),
+        "missed_leader_episodes": missed_leader_episodes,
+        "stale_hold_days": mean(stale_delays) if stale_delays else 0.0,
+        "stale_hold_samples": len(stale_delays),
+    }
+
+
+__all__ = ["entry1_return_split", "entry_rank_forward_returns", "rotation_speed_diagnostics"]

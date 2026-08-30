@@ -11,6 +11,7 @@ from typing import Any
 from finance_analysis.etf_rotation.backtest.types import OhlcvBar
 from finance_analysis.etf_rotation.classifier import classify_state
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG, ETFRotationConfig
+from finance_analysis.etf_rotation.correlation import rolling_correlations  # pragma: allowlist secret
 from finance_analysis.etf_rotation.eligibility import is_absolute_trend_eligible, is_liquidity_eligible
 from finance_analysis.etf_rotation.features import calculate_features
 from finance_analysis.etf_rotation.models import DailyBar
@@ -21,7 +22,9 @@ from finance_analysis.etf_rotation.ranking import (
     rank_features,
 )
 from finance_analysis.etf_rotation.risk import calculate_stop_loss_pct
+from finance_analysis.etf_rotation.regime import calculate_market_regime  # pragma: allowlist secret
 from finance_analysis.etf_rotation.scoring import calculate_entry_score, calculate_factor_scores
+from finance_analysis.etf_rotation.selector import public_rotation_action, select_candidates  # pragma: allowlist secret
 from finance_analysis.etf_rotation.universe import ETFUniverseMember
 
 RANK_CHANGE_OFFSETS = (1, 3, 5)
@@ -51,7 +54,7 @@ def _bars_on_or_before(bars: Sequence[OhlcvBar], trade_date: date) -> Sequence[O
     return window
 
 
-def _historical_rank_5d(history: Sequence[int]) -> dict[int, int]:
+def _historical_ranks(history: Sequence[int]) -> dict[int, int]:
     return {offset: history[-offset] for offset in RANK_CHANGE_OFFSETS if len(history) >= offset}
 
 
@@ -74,7 +77,8 @@ def compute_entry_rankings(
         for code, bars in bars_by_code.items()
     }
     trade_dates = sorted({bar.trade_date for bars in ordered.values() for bar in bars})
-    rank_5d_history: dict[str, list[int]] = defaultdict(list)
+    composite_rank_history: dict[str, list[int]] = defaultdict(list)
+    previous_candidates: set[str] = set()
     rankings: dict[date, list[dict[str, Any]]] = {}
     for trade_date in trade_dates:
         benchmark_history = _bars_on_or_before(ordered.get(benchmark_code, ()), trade_date)
@@ -84,20 +88,23 @@ def compute_entry_rankings(
         if benchmark_features is None and not config.allow_missing_relative_strength:
             continue
         feature_rows: list[dict[str, Any]] = []
+        point_in_time_histories: dict[str, list[DailyBar]] = {}
         for code, member in member_by_code.items():
             history = _bars_on_or_before(ordered.get(code, ()), trade_date)
             if not history:
                 continue
-            features = calculate_features(_as_daily_bars(history[-80:]), config)
+            daily_history = _as_daily_bars(history)
+            features = calculate_features(daily_history[-80:], config)
             if features is None:
                 continue
+            point_in_time_histories[code] = daily_history
             payload = features.to_dict()
-            payload["rs_20d"] = (
-                payload["ret_20d"] - benchmark_features.ret_20d if benchmark_features is not None else None
-            )
-            payload["rs_60d"] = (
-                payload["ret_60d"] - benchmark_features.ret_60d if benchmark_features is not None else None
-            )
+            for window in config.relative_strength_windows:
+                payload[f"rs_{window}d"] = (
+                    payload[f"ret_{window}d"] - getattr(benchmark_features, f"ret_{window}d")
+                    if benchmark_features is not None
+                    else None
+                )
             feature_rows.append(
                 {
                     "trade_date": trade_date,
@@ -115,8 +122,6 @@ def compute_entry_rankings(
         ranked = rank_features(rank_cross_section(feature_rows), FACTOR_RANK_DIRECTIONS)
         evaluated: list[dict[str, Any]] = []
         for row in ranked:
-            history = _historical_rank_5d(rank_5d_history[str(row["code"])])
-            row.update(calculate_rank_changes(int(row["rank_5d"]), history))
             row.update(calculate_factor_scores(row, config))
             row["momentum_score"] = row["momentum_strength_score"]
             row["absolute_trend_eligible"] = is_absolute_trend_eligible(row, config)
@@ -126,16 +131,42 @@ def compute_entry_rankings(
         for row in evaluated:
             row["rank"] = row.pop("rank_composite_score")
             row.pop("pct_rank_composite_score", None)
+            history = _historical_ranks(composite_rank_history[str(row["code"])])
+            row.update(calculate_rank_changes(int(row["rank"]), history))
             composite_score = float(row["composite_score"] or 0.0)
             entry_score, components = calculate_entry_score(row, composite_score, config)
             row["entry_score"] = entry_score
             row["score_components"] = components
             row["state"] = classify_state(row, composite_score, config)
             row["stop_loss_pct"] = calculate_stop_loss_pct(float(row["realized_vol_20d"]), config)
+        regime = "NEUTRAL"
+        if benchmark_features is not None:
+            regime = str(calculate_market_regime(
+                evaluated,
+                benchmark_features.to_dict(),
+                market=market,
+                trade_date=trade_date,
+                benchmark_code=benchmark_code,
+                config=config,
+            )["regime"])
+        correlations = rolling_correlations(point_in_time_histories, config.correlation_window)
+        candidate_codes = select_candidates(
+            evaluated,
+            config,
+            previous_candidate_codes=previous_candidates,
+            regime=regime,
+            correlations=correlations,
+        )
+        selected = set(candidate_codes)
+        for row in evaluated:
+            row["market_regime"] = regime
+            row["is_candidate"] = str(row["code"]) in selected
+            row["action"] = public_rotation_action(row, selected, previous_candidates, config)
+        previous_candidates = selected
         evaluated.sort(key=entry_sort_key)
         for index, row in enumerate(evaluated, start=1):
             row["entry_rank"] = index
-            rank_5d_history[str(row["code"])].append(int(row["rank_5d"]))
+            composite_rank_history[str(row["code"])].append(int(row["rank"]))
         by_momentum = sorted(evaluated, key=momentum_sort_key)
         for index, row in enumerate(by_momentum, start=1):
             row["momentum_rank"] = index

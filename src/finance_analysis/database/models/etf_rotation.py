@@ -19,30 +19,29 @@ class ETFMomentumSnapshot(Base):
     trade_date = Column(Date, nullable=False)
     symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
     ret_1d = Column(Float, nullable=False)
+    ret_3d = Column(Float)
     ret_5d = Column(Float, nullable=False)
     ret_10d = Column(Float, nullable=False)
     ret_20d = Column(Float, nullable=False)
-    ret_30d = Column(Float, nullable=False)
-    ret_60d = Column(Float, nullable=False)
     rank_1d = Column(Integer, nullable=False)
+    rank_3d = Column(Integer)
     rank_5d = Column(Integer, nullable=False)
     rank_10d = Column(Integer, nullable=False)
     rank_20d = Column(Integer, nullable=False)
-    rank_30d = Column(Integer, nullable=False)
-    rank_60d = Column(Integer, nullable=False)
     pct_rank_1d = Column(Float, nullable=False)
+    pct_rank_3d = Column(Float)
     pct_rank_5d = Column(Float, nullable=False)
     pct_rank_10d = Column(Float, nullable=False)
     pct_rank_20d = Column(Float, nullable=False)
-    pct_rank_30d = Column(Float, nullable=False)
-    pct_rank_60d = Column(Float, nullable=False)
+    previous_3d_return = Column(Float)
     previous_5d_return = Column(Float, nullable=False)
-    momentum_acceleration = Column(Float, nullable=False)
+    momentum_acceleration_3d = Column(Float)
+    momentum_acceleration_5d = Column(Float)
     rank_change_1d = Column(Integer)
     rank_change_3d = Column(Integer)
     rank_change_5d = Column(Integer)
+    ma10_ratio = Column(Float)
     ma20_ratio = Column(Float, nullable=False)
-    ma60_ratio = Column(Float, nullable=False)
     volume_ratio_5d = Column(Float)
     avg_amount_20d = Column(Float)
     realized_vol_20d = Column(Float, nullable=False)
@@ -50,27 +49,27 @@ class ETFMomentumSnapshot(Base):
     stop_loss_pct = Column(Float)
     suggested_stop_price = Column(Float)
     distance_from_20d_high = Column(Float, nullable=False)
+    weighted_slope_5d = Column(Float)
     weighted_slope_10d = Column(Float)
-    weighted_slope_25d = Column(Float)
+    weighted_slope_15d = Column(Float)
+    annualized_slope_5d = Column(Float)
     annualized_slope_10d = Column(Float)
-    annualized_slope_25d = Column(Float)
-    trend_r2_25d = Column(Float)
-    trend_quality_25d = Column(Float)
-    efficiency_ratio_20d = Column(Float)
+    annualized_slope_15d = Column(Float)
+    trend_r2_15d = Column(Float)
+    trend_quality_15d = Column(Float)
+    signed_efficiency_ratio_10d = Column(Float)
     trend_acceleration = Column(Float)
+    rs_5d = Column(Float)
+    rs_10d = Column(Float)
     rs_20d = Column(Float)
-    rs_60d = Column(Float)
     relative_strength_ready = Column(Boolean)
-    risk_adjusted_momentum_60d = Column(Float)
     max_drawdown_20d = Column(Float)
-    max_drawdown_60d = Column(Float)
     momentum_score = Column(Float, nullable=False)
     momentum_strength_score = Column(Float)
     trend_quality_score = Column(Float)
     relative_strength_score = Column(Float)
     acceleration_score = Column(Float)
     efficiency_score = Column(Float)
-    risk_adjusted_score = Column(Float)
     composite_score = Column(Float)
     rank = Column(Integer)
     entry_score = Column(Float, nullable=False)
@@ -108,13 +107,15 @@ class ETFMomentumSnapshot(Base):
             name="ck_etf_stop_loss_metadata_complete",
         ),
         CheckConstraint(
-            "rank_1d > 0 AND rank_5d > 0 AND rank_10d > 0 AND rank_20d > 0 AND rank_30d > 0 AND rank_60d > 0",
+            "rank_1d > 0 AND (rank_3d IS NULL OR rank_3d > 0) "
+            "AND rank_5d > 0 AND rank_10d > 0 AND rank_20d > 0",
             name="ck_etf_momentum_ranks_positive",
         ),
         CheckConstraint(
-            "pct_rank_1d BETWEEN 0 AND 100 AND pct_rank_5d BETWEEN 0 AND 100 "
-            "AND pct_rank_10d BETWEEN 0 AND 100 AND pct_rank_20d BETWEEN 0 AND 100 "
-            "AND pct_rank_30d BETWEEN 0 AND 100 AND pct_rank_60d BETWEEN 0 AND 100",
+            "pct_rank_1d BETWEEN 0 AND 100 "
+            "AND (pct_rank_3d IS NULL OR pct_rank_3d BETWEEN 0 AND 100) "
+            "AND pct_rank_5d BETWEEN 0 AND 100 "
+            "AND pct_rank_10d BETWEEN 0 AND 100 AND pct_rank_20d BETWEEN 0 AND 100",
             name="ck_etf_momentum_pct_ranks_range",
         ),
         CheckConstraint(
@@ -142,17 +143,14 @@ class ETFMarketRotationSnapshot(Base):
     trade_date = Column(Date, nullable=False)
     market = Column(String(8), nullable=False)
     regime = Column(String(16), nullable=False)
-    breadth_above_ma20 = Column(Float, nullable=False)
-    breadth_above_ma60 = Column(Float, nullable=False)
-    breadth_ma20_above_ma60 = Column(Float, nullable=False)
+    positive_5d_breadth = Column(Float)
+    above_ma10_breadth = Column(Float)
     benchmark_code = Column(String(32), nullable=False)
     benchmark_close = Column(Float, nullable=False)
-    benchmark_ma20_ratio = Column(Float, nullable=False)
-    benchmark_ma60_ratio = Column(Float, nullable=False)
+    benchmark_ret_5d = Column(Float)
+    benchmark_ma10_ratio = Column(Float)
+    benchmark_weighted_slope_10d = Column(Float)
     benchmark_trend = Column(String(16), nullable=False)
-    benchmark_above_ma20 = Column(Boolean, nullable=False)
-    benchmark_above_ma60 = Column(Boolean, nullable=False)
-    benchmark_ma20_above_ma60 = Column(Boolean, nullable=False)
     diagnostics = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 

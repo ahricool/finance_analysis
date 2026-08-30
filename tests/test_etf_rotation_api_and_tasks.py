@@ -32,17 +32,16 @@ def _snapshot(code="588000.SH"):
         "relative_strength_score": 78.0,
         "acceleration_score": 70.0,
         "efficiency_score": 85.0,
-        "risk_adjusted_score": 65.0,
         "composite_score": 79.5,
+        "weighted_slope_5d": 0.012,
         "weighted_slope_10d": 0.01,
-        "weighted_slope_25d": 0.008,
-        "trend_r2_25d": 0.9,
-        "efficiency_ratio_20d": 0.8,
+        "weighted_slope_15d": 0.008,
+        "trend_r2_15d": 0.9,
+        "signed_efficiency_ratio_10d": 0.8,
+        "rs_5d": 0.02,
+        "rs_10d": 0.025,
         "rs_20d": 0.03,
-        "rs_60d": 0.05,
-        "risk_adjusted_momentum_60d": 1.2,
         "max_drawdown_20d": -0.05,
-        "max_drawdown_60d": -0.08,
         "absolute_trend_eligible": True,
         "liquidity_eligible": True,
         "action": "BUY",
@@ -98,7 +97,7 @@ def test_ranking_candidates_and_detail_use_rotation_repository(monkeypatch) -> N
         assert payload["stop_loss_pct"] == 0.05
         assert payload["suggested_stop_price"] == 95.0
         assert payload["composite_score"] == 79.5
-        assert payload["weighted_slope_25d"] == 0.008
+        assert payload["weighted_slope_15d"] == 0.008
         assert not ({"user_position", "target_weight", "account", "recommended_exposure"} & payload.keys())
 
 

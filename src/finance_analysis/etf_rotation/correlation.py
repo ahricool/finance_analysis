@@ -10,7 +10,7 @@ from finance_analysis.etf_rotation.models import DailyBar
 
 
 def rolling_correlations(
-    histories: Mapping[str, Sequence[DailyBar]], window: int = 60
+    histories: Mapping[str, Sequence[DailyBar]], window: int = 20
 ) -> dict[tuple[str, str], float | None]:
     returns: dict[str, dict[object, float]] = {}
     for code, bars in histories.items():

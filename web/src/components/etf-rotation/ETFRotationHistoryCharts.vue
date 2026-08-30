@@ -22,14 +22,15 @@ function option(series: Array<{ name: string; values: Array<number | null> }>, i
 }
 const priceOption = computed(() => option([
   { name: 'Price', values: ordered.value.map(row => row.referencePrice) },
+  { name: 'MA10', values: ordered.value.map(row => row.referencePrice === null || row.ma10Ratio === null ? null : row.referencePrice / (1 + row.ma10Ratio)) },
   { name: 'MA20', values: ordered.value.map(row => row.referencePrice === null ? null : row.referencePrice / (1 + row.ma20Ratio)) },
-  { name: 'MA60', values: ordered.value.map(row => row.referencePrice === null ? null : row.referencePrice / (1 + row.ma60Ratio)) },
 ]));
 const compositeOption = computed(() => option([{ name: 'Composite', values: ordered.value.map(row => row.compositeScore) }]));
 const rankOption = computed(() => option([{ name: 'Rank', values: ordered.value.map(row => row.rank) }], true));
 const rsOption = computed(() => option([
+  { name: 'RS5', values: ordered.value.map(row => row.rs5D) },
+  { name: 'RS10', values: ordered.value.map(row => row.rs10D) },
   { name: 'RS20', values: ordered.value.map(row => row.rs20D) },
-  { name: 'RS60', values: ordered.value.map(row => row.rs60D) },
 ]));
 </script>
 
