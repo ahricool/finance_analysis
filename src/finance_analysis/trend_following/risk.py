@@ -46,8 +46,32 @@ def next_add_price(last_add_price: float, atr: float, config: TrendFollowingConf
     return round(last_add_price + config.pyramid_interval_atr * atr, 6)
 
 
-def position_weight(units: int | None, suggested_initial_weight: float | None) -> float:
-    return max(0, int(units or 0)) * float(suggested_initial_weight or 0.0)
+def theoretical_position_weight(
+    units: int | None,
+    unit_weight: float | None,
+    max_weight: float | None,
+) -> float:
+    """Return the persisted theoretical weight without allowing a stock-level overflow."""
+    raw_weight = max(0, int(units or 0)) * max(0.0, float(unit_weight or 0.0))
+    return min(raw_weight, max(0.0, float(max_weight or 0.0)))
 
 
-__all__ = ["initial_risk_levels", "next_add_price", "position_weight", "trailing_stop"]
+def can_add_unit(
+    units: int | None,
+    unit_weight: float | None,
+    max_weight: float | None,
+) -> bool:
+    """Reject a unit when incrementing it would exceed the stock's configured cap."""
+    current_units = max(0, int(units or 0))
+    weight = max(0.0, float(unit_weight or 0.0))
+    cap = max(0.0, float(max_weight or 0.0))
+    return weight > 0 and (current_units + 1) * weight <= cap + 1e-12
+
+
+__all__ = [
+    "can_add_unit",
+    "initial_risk_levels",
+    "next_add_price",
+    "theoretical_position_weight",
+    "trailing_stop",
+]

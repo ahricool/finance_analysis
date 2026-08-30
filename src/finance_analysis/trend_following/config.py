@@ -53,6 +53,7 @@ class TrendFollowingConfig:
     structure_stop_buffer_atr: float = 0.5
     pyramid_interval_atr: float = 0.5
     trailing_stop_atr: float = 2.5
+    candidate_expiry_sessions: int = 1
     history_limit_default: int = 60
     history_limit_max: int = 250
 
