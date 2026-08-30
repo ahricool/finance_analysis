@@ -2,12 +2,14 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { CircleHelp } from 'lucide-vue-next';
 
-defineProps<{ label: string; description: string }>();
+withDefaults(defineProps<{ label: string; description: string; wrap?: boolean }>(), {
+  wrap: false,
+});
 </script>
 
 <template>
-  <span class="inline-flex min-w-0 items-center gap-1">
-    <span class="truncate">{{ label }}</span>
+  <span class="inline-flex min-w-0 items-start gap-1">
+    <span :class="wrap ? 'whitespace-normal break-words' : 'truncate'">{{ label }}</span>
     <TooltipProvider :delay-duration="150">
       <Tooltip>
         <TooltipTrigger as-child>

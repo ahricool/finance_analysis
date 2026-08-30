@@ -286,6 +286,12 @@ describe('ETFRotationPage', () => {
     const modal = document.body.querySelector('[data-testid="etf-detail-modal"]');
     expect(modal).not.toBeNull();
     expect(modal?.className).toContain('max-h-[calc(100dvh-2rem)]');
+    expect(modal?.className).toContain('sm:max-w-[calc(100%-2rem)]');
+    expect(modal?.className).toContain('lg:max-w-6xl');
+    expect(document.body.querySelector('[data-testid="etf-factor-grid"]')?.className)
+      .toContain('grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]');
+    expect(document.body.querySelector('[data-testid="etf-raw-metrics-grid"]')?.className)
+      .toContain('grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]');
     expect(document.body.textContent).toContain('Raw Metrics');
     expect(document.body.textContent).toContain('Weighted Slope 15D');
     expect(document.body.textContent).toContain('RS10');

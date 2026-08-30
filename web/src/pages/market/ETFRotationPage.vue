@@ -366,7 +366,7 @@ onMounted(() => void load(true));
     >
       <DialogContent
         data-testid="etf-detail-modal"
-        class="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] max-w-6xl flex-col overflow-hidden p-0"
+        class="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col overflow-hidden p-0 sm:max-w-[calc(100%-2rem)] lg:max-w-6xl"
       >
         <DialogHeader class="border-b p-5 text-left">
           <DialogTitle class="break-words">
@@ -382,7 +382,10 @@ onMounted(() => void load(true));
             class="h-48"
           />
           <template v-else-if="selected">
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <div
+              data-testid="etf-factor-grid"
+              class="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-3"
+            >
               <div
                 v-for="factor in ([['Composite',selected.latest.compositeScore,descriptions.composite],['Momentum',selected.latest.momentumStrengthScore,descriptions.momentum],['Relative Strength',selected.latest.relativeStrengthScore,descriptions.relativeStrength],['Acceleration',selected.latest.accelerationScore,descriptions.acceleration],['Trend Quality',selected.latest.trendQualityScore,descriptions.trendQuality],['Efficiency',selected.latest.efficiencyScore,descriptions.efficiency]] as const)"
                 :key="factor[0]"
@@ -391,11 +394,15 @@ onMounted(() => void load(true));
                 <IndicatorLabel
                   :label="factor[0]"
                   :description="factor[2]"
+                  wrap
                 /><strong class="mt-1 block text-xl">{{ score(factor[1]) }}</strong>
               </div>
             </div>
             <Card>
-              <CardHeader><CardTitle>Raw Metrics</CardTitle></CardHeader><CardContent class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <CardHeader><CardTitle>Raw Metrics</CardTitle></CardHeader><CardContent
+                data-testid="etf-raw-metrics-grid"
+                class="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2"
+              >
                 <div
                   v-for="metric in ([['1D',pct(selected.latest.ret1D),descriptions.return],['3D',pct(selected.latest.ret3D),descriptions.return],['5D',pct(selected.latest.ret5D),descriptions.return],['10D',pct(selected.latest.ret10D),descriptions.return],['20D',pct(selected.latest.ret20D),descriptions.return],['RS5',pct(selected.latest.rs5D),descriptions.relativeStrength],['RS10',pct(selected.latest.rs10D),descriptions.relativeStrength],['RS20',pct(selected.latest.rs20D),descriptions.relativeStrength],['Weighted Slope 5D',decimal(selected.latest.weightedSlope5D,5),descriptions.weightedSlope],['Weighted Slope 10D',decimal(selected.latest.weightedSlope10D,5),descriptions.weightedSlope],['Weighted Slope 15D',decimal(selected.latest.weightedSlope15D,5),descriptions.weightedSlope],['Annualized Slope 5D',pct(selected.latest.annualizedSlope5D),descriptions.weightedSlope],['Annualized Slope 10D',pct(selected.latest.annualizedSlope10D),descriptions.weightedSlope],['Annualized Slope 15D',pct(selected.latest.annualizedSlope15D),descriptions.weightedSlope],['R² 15D',decimal(selected.latest.trendR215D),descriptions.r2],['Trend Quality 15D',decimal(selected.latest.trendQuality15D),descriptions.trendQuality],['Momentum Acceleration 3D',pct(selected.latest.momentumAcceleration3D),descriptions.acceleration],['Momentum Acceleration 5D',pct(selected.latest.momentumAcceleration5D),descriptions.acceleration],['Trend Acceleration',pct(selected.latest.trendAcceleration),descriptions.acceleration],['Signed ER10',decimal(selected.latest.signedEfficiencyRatio10D),descriptions.efficiency],['Volatility 20D',pct(selected.latest.realizedVol20D,false),descriptions.volatility],['Max Drawdown 20D',pct(selected.latest.maxDrawdown20D),descriptions.drawdown],['MA10 Deviation',pct(selected.latest.ma10Ratio),descriptions.maDeviation],['MA20 Deviation',pct(selected.latest.ma20Ratio),descriptions.maDeviation],['Distance from High',pct(selected.latest.distanceFrom20dHigh),descriptions.distanceHigh],['Volume Ratio',decimal(selected.latest.volumeRatio5D),descriptions.volumeRatio],['Average Amount',price(selected.latest.avgAmount20D),'最近 20 日平均成交额，用于 A 股/美股各自的流动性门槛。'],['Rank Change 1/3/5D',`${rankChange(selected.latest.rankChange1D)} / ${rankChange(selected.latest.rankChange3D)} / ${rankChange(selected.latest.rankChange5D)}`,descriptions.rankChange],['Suggested Stop',price(selected.latest.suggestedStopPrice),descriptions.stop]] as const)"
                   :key="metric[0]"
@@ -404,12 +411,13 @@ onMounted(() => void load(true));
                   <IndicatorLabel
                     :label="metric[0]"
                     :description="metric[2] || metric[0]"
-                  /><strong class="mt-1 block break-words">{{ metric[1] }}</strong>
+                    wrap
+                  /><strong class="mt-1 block tabular-nums [overflow-wrap:anywhere]">{{ metric[1] }}</strong>
                 </div>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Eligibility & Signal</CardTitle></CardHeader><CardContent class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <CardHeader><CardTitle>Eligibility & Signal</CardTitle></CardHeader><CardContent class="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-3">
                 <div>Absolute Trend: <strong>{{ boolText(selected.latest.absoluteTrendEligible) }}</strong></div><div>Liquidity: <strong>{{ boolText(selected.latest.liquidityEligible) }}</strong></div><div>State: <strong>{{ selected.latest.state }}</strong></div><div>Action: <strong>{{ selected.latest.action ?? '—' }}</strong></div>
               </CardContent>
             </Card>
