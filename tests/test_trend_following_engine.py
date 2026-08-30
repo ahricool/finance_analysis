@@ -120,6 +120,9 @@ def _previous(**updates):
         "next_add_price": 101.0, "opened_at": date(2026, 8, 1),
         "suggested_initial_weight": 0.1, "suggested_max_weight": 0.1,
         "signal_date": date(2026, 7, 31), "signal_price": 99.0,
+        "alpha_score": 80.0, "rank": 1, "atr": 2.0,
+        "features": {"recent_structure_low": 95.0},
+        "pending_action": None, "pending_since": None,
     }
     previous.update(updates)
     return previous
@@ -145,6 +148,7 @@ def test_candidate_enters_next_session_at_open_not_signal_close():
     previous = {
         "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27),
         "signal_price": 100.0, "trade_date": date(2026, 8, 27), "reference_price": 100.0,
+        "action": "PENDING_ENTRY", "pending_action": "ENTRY",
     }
     filled = transition_state(
         _row(open=115.0, reference_price=116.0, atr20=2.0),
@@ -198,14 +202,20 @@ def test_next_add_price_stays_fixed_until_add_and_ignores_atr_drift():
         _row(reference_price=111.2, atr20=2.0, previous_low_10=80.0),
         held, trade_date=TRADE_DATE, market_regime="RISK_ON",
     )
-    assert (added.state, added.action, added.units) == ("PYRAMIDING", "ADD", 2)
-    assert added.last_add_price == 111.0
-    assert added.next_add_price == next_add_price(111.0, 2.0)
+    assert (added.state, added.action, added.units) == ("HOLDING", "PENDING_ADD", 1)
+    executed = transition_state(
+        _row(open=112.0, reference_price=113.0, previous_low_10=80.0),
+        {**held, "pending_action": "ADD", "pending_since": TRADE_DATE},
+        trade_date=TRADE_DATE + timedelta(days=1), market_regime="RISK_ON",
+    )
+    assert (executed.state, executed.action, executed.units) == ("PYRAMIDING", "ADD", 2)
+    assert executed.last_add_price == 112.0
+    assert executed.next_add_price == next_add_price(112.0, 2.0)
 
 
 def test_add_stop_add_reduce_and_exit_transitions():
     added = transition_state(_row(), _previous(), trade_date=TRADE_DATE, market_regime="RISK_ON")
-    assert (added.state, added.action, added.units) == ("PYRAMIDING", "ADD", 2)
+    assert (added.state, added.action, added.units) == ("HOLDING", "PENDING_ADD", 1)
     risk_off = transition_state(_row(), _previous(), trade_date=TRADE_DATE, market_regime="RISK_OFF")
     assert risk_off.action == "STOP_ADD"
     stopped = transition_state(_row(trend_score=59), _previous(), trade_date=TRADE_DATE, market_regime="RISK_ON")
@@ -214,16 +224,29 @@ def test_add_stop_add_reduce_and_exit_transitions():
         _row(reference_price=106, ma10=108, rs_score=54, previous_low_10=100),
         _previous(), trade_date=TRADE_DATE, market_regime="RISK_ON",
     )
-    assert (reduced.state, reduced.action) == ("REDUCE", "REDUCE")
+    assert (reduced.state, reduced.action, reduced.units) == ("WEAKENING", "PENDING_REDUCE", 1)
+    reduced_at_open = transition_state(
+        _row(reference_price=106, ma10=108, rs_score=54, previous_low_10=100),
+        _previous(units=3, pending_action="REDUCE", pending_since=TRADE_DATE - timedelta(days=1)),
+        trade_date=TRADE_DATE, market_regime="RISK_ON",
+    )
+    assert (reduced_at_open.state, reduced_at_open.action, reduced_at_open.units) == ("REDUCE", "REDUCE", 2)
     exited = transition_state(
         _row(reference_price=95, previous_low_10=96), _previous(), trade_date=TRADE_DATE, market_regime="RISK_ON",
     )
-    assert (exited.state, exited.action, exited.units) == ("EXIT", "EXIT", 0)
+    assert (exited.state, exited.action, exited.units) == ("WEAKENING", "PENDING_EXIT", 1)
+    exited_at_open = transition_state(
+        _row(reference_price=95, previous_low_10=96),
+        _previous(pending_action="EXIT", pending_since=TRADE_DATE - timedelta(days=1)),
+        trade_date=TRADE_DATE, market_regime="RISK_ON",
+    )
+    assert (exited_at_open.state, exited_at_open.action, exited_at_open.units) == ("EXIT", "EXIT", 0)
 
 
 def test_regime_exposure_cap_blocks_excess_entry_and_add():
     pending = {
         "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27), "signal_price": 100.0,
+        "action": "PENDING_ENTRY", "pending_action": "ENTRY",
     }
     rows = [
         _row(code="AAA.US", alpha_score=90, open=100),
@@ -242,14 +265,21 @@ def test_regime_exposure_cap_blocks_excess_entry_and_add():
         "CANDIDATE", "EXPOSURE_BLOCKED", 0,
     )
     add_rows = [_row(code="DDD.US", alpha_score=95), _row(code="EEE.US", alpha_score=60)]
-    holding = _previous(units=1, suggested_initial_weight=0.1, next_add_price=101.0)
+    holding = _previous(
+        units=1,
+        suggested_initial_weight=0.025,
+        suggested_max_weight=0.1,
+        next_add_price=101.0,
+        pending_action="ADD",
+        pending_since=TRADE_DATE - timedelta(days=1),
+    )
     add_desired = {
         row["code"]: transition_state(row, holding, trade_date=TRADE_DATE, market_regime="RISK_ON")
         for row in add_rows
     }
     assert all(item.action == "ADD" for item in add_desired.values())
     add_gated = apply_exposure_gate(
-        add_rows, add_desired, {row["code"]: holding for row in add_rows}, max_exposure=0.3,
+        add_rows, add_desired, {row["code"]: holding for row in add_rows}, max_exposure=0.075,
     )
     assert add_gated["DDD.US"].action == "ADD"
     assert add_gated["EEE.US"].action == "EXPOSURE_BLOCKED"
@@ -258,7 +288,10 @@ def test_regime_exposure_cap_blocks_excess_entry_and_add():
 
 
 def test_risk_off_blocks_entry_and_add_but_allows_exit():
-    pending = {"state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27), "signal_price": 100.0}
+    pending = {
+        "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27),
+        "signal_price": 100.0, "action": "PENDING_ENTRY", "pending_action": "ENTRY",
+    }
     blocked_entry = transition_state(_row(open=115), pending, trade_date=TRADE_DATE, market_regime="RISK_OFF")
     assert (blocked_entry.state, blocked_entry.action) == ("CANDIDATE", "WATCH")
     blocked_add = transition_state(_row(), _previous(), trade_date=TRADE_DATE, market_regime="RISK_OFF")
@@ -266,7 +299,104 @@ def test_risk_off_blocks_entry_and_add_but_allows_exit():
     exited = transition_state(
         _row(reference_price=95, previous_low_10=96), _previous(), trade_date=TRADE_DATE, market_regime="RISK_OFF",
     )
-    assert (exited.state, exited.action, exited.units) == ("EXIT", "EXIT", 0)
+    assert (exited.state, exited.action, exited.units) == ("WEAKENING", "PENDING_EXIT", 1)
+    executed = transition_state(
+        _row(reference_price=95, previous_low_10=96),
+        _previous(pending_action="EXIT", pending_since=TRADE_DATE - timedelta(days=1)),
+        trade_date=TRADE_DATE, market_regime="RISK_OFF",
+    )
+    assert (executed.state, executed.action, executed.units) == ("EXIT", "EXIT", 0)
+
+
+def test_entry_allocation_uses_signal_day_alpha_not_execution_day_close_alpha():
+    rows = [
+        _row(code="AAA.US", alpha_score=60.0),
+        _row(code="BBB.US", alpha_score=95.0),
+    ]
+    previous = {
+        "AAA.US": {
+            "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27),
+            "signal_price": 100.0, "pending_action": "ENTRY", "alpha_score": 90.0,
+            "rank": 1, "atr": 2.0, "features": {"recent_structure_low": 95.0},
+        },
+        "BBB.US": {
+            "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27),
+            "signal_price": 100.0, "pending_action": "ENTRY", "alpha_score": 80.0,
+            "rank": 2, "atr": 2.0, "features": {"recent_structure_low": 95.0},
+        },
+    }
+    desired = {
+        row["code"]: transition_state(
+            row, previous[row["code"]], trade_date=TRADE_DATE, market_regime="RISK_ON",
+        )
+        for row in rows
+    }
+    gated = apply_exposure_gate(rows, desired, previous, max_exposure=0.1)
+    assert gated["AAA.US"].action == "ENTRY"
+    assert gated["BBB.US"].action == "EXPOSURE_BLOCKED"
+
+
+def test_single_stock_max_weight_blocks_add_without_incrementing_units():
+    row = _row(code="AAA.US", open=112.0)
+    capped = _previous(
+        units=1, suggested_initial_weight=0.1, suggested_max_weight=0.1,
+        pending_action="ADD", pending_since=TRADE_DATE - timedelta(days=1),
+    )
+    desired = transition_state(row, capped, trade_date=TRADE_DATE, market_regime="RISK_ON")
+    assert desired.units == 2
+    gated = apply_exposure_gate([row], {"AAA.US": desired}, {"AAA.US": capped}, max_exposure=1.0)
+    assert gated["AAA.US"].action == "EXPOSURE_BLOCKED"
+    assert gated["AAA.US"].units == 1
+    assert "single-stock" in gated["AAA.US"].reasons[-1]
+
+    four_unit = _previous(
+        units=3, suggested_initial_weight=0.025, suggested_max_weight=0.1,
+        pending_action="ADD", pending_since=TRADE_DATE - timedelta(days=1),
+    )
+    desired_four = transition_state(row, four_unit, trade_date=TRADE_DATE, market_regime="RISK_ON")
+    allowed = apply_exposure_gate(
+        [row], {"AAA.US": desired_four}, {"AAA.US": four_unit}, max_exposure=1.0,
+    )
+    assert (allowed["AAA.US"].action, allowed["AAA.US"].units) == ("ADD", 4)
+
+
+def test_missing_active_code_still_consumes_portfolio_exposure():
+    entry_row = _row(code="BBB.US")
+    previous = {
+        "AAA.US": _previous(units=1, suggested_initial_weight=0.1, suggested_max_weight=0.1),
+        "BBB.US": {
+            "state": "CANDIDATE", "units": 0, "signal_date": date(2026, 8, 27),
+            "signal_price": 100.0, "pending_action": "ENTRY", "alpha_score": 80.0,
+            "rank": 2, "atr": 2.0, "features": {"recent_structure_low": 95.0},
+        },
+    }
+    desired = transition_state(
+        entry_row, previous["BBB.US"], trade_date=TRADE_DATE, market_regime="RISK_ON",
+    )
+    gated = apply_exposure_gate(
+        [entry_row], {"BBB.US": desired}, previous, max_exposure=0.1,
+    )
+    assert gated["BBB.US"].action == "EXPOSURE_BLOCKED"
+
+
+def test_candidate_expires_after_one_execution_session():
+    signal = transition_state(
+        _row(), None, trade_date=date(2026, 8, 1), market_regime="RISK_ON",
+    )
+    blocked = transition_state(
+        _row(),
+        signal.to_dict(),
+        trade_date=date(2026, 8, 2),
+        market_regime="RISK_OFF",
+    )
+    assert (blocked.state, blocked.action, blocked.units) == ("CANDIDATE", "WATCH", 0)
+    assert blocked.signal_date == date(2026, 8, 2)
+    assert blocked.pending_action is None
+    recovered = transition_state(
+        _row(), blocked.to_dict(), trade_date=date(2026, 8, 3), market_regime="RISK_ON",
+    )
+    assert (recovered.state, recovered.action, recovered.units) == ("CANDIDATE", "PENDING_ENTRY", 0)
+    assert recovered.signal_date == date(2026, 8, 3)
 
 
 def test_realized_volatility_uses_exactly_20_returns():

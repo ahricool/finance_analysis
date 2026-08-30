@@ -5,6 +5,8 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from finance_analysis.core.paths import PROJECT_ROOT
 from finance_analysis.interfaces.api.v1.endpoints import trend_following
 from finance_analysis.interfaces.api.v1.schemas.trend_following import TrendFollowingRunRequest
@@ -56,6 +58,17 @@ def test_snapshot_api_contracts(monkeypatch):
     assert latest["latest"]["trade_date"] == "2026-08-29"
 
 
+def test_historical_detail_requires_an_exact_snapshot_date(monkeypatch):
+    monkeypatch.setattr(trend_following, "TrendFollowingRepository", FakeRepository)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(
+            trend_following.detail(
+                "AAPL.US", 60, date(2026, 8, 27), SimpleNamespace(id=1), "US",
+            )
+        )
+    assert error.value.status_code == 404
+
+
 def test_tasks_and_schedules_are_registered():
     cn = require_scheduled_task_definition(JOB_TREND_FOLLOWING_CN)
     us = require_scheduled_task_definition(JOB_TREND_FOLLOWING_US)
@@ -104,3 +117,10 @@ def test_migration_and_snapshot_have_no_user_columns():
     assert "signal_date" in signal
     assert "signal_price" in signal
     assert "0031_trend_following" in migration
+    pending = (
+        Path(PROJECT_ROOT) / "alembic/versions/0033_trend_following_pending_action.py"
+    ).read_text(encoding="utf-8")
+    assert 'revision: str = "0033_trend_pending_action"' in pending
+    assert 'down_revision: Union[str, Sequence[str], None] = "0032_trend_following_signal"' in pending
+    assert "pending_action" in pending
+    assert "pending_since" in pending

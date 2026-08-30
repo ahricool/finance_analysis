@@ -73,15 +73,16 @@ function stateText(state: TrendState) {
     HOLDING: '继续持有', WEAKENING: '趋势弱化', REDUCE: '建议减仓', EXIT: '退出' })[state];
 }
 function actionText(action: TrendAction) {
-  return ({ WATCH: '观察', PENDING_ENTRY: '等待入场', ENTRY: '建议入场', ADD: '允许加仓', HOLD: '继续持有',
-    STOP_ADD: '停止加仓', REDUCE: '建议减仓', EXIT: '退出', EXPOSURE_BLOCKED: '敞口已满' })[action];
+  return ({ WATCH: '观察', PENDING_ENTRY: '等待入场', PENDING_ADD: '等待加仓', PENDING_REDUCE: '等待减仓',
+    PENDING_EXIT: '等待退出', ENTRY: '已入场', ADD: '已加仓', HOLD: '继续持有',
+    STOP_ADD: '停止加仓', REDUCE: '已减仓', EXIT: '已退出', EXPOSURE_BLOCKED: '敞口已满' })[action];
 }
 function badgeVariant(value: TrendState | TrendAction | string): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
   if (['ENTRY', 'ADD', 'PYRAMIDING', 'RISK_ON'].includes(value)) return 'success';
   if (['EXIT', 'REDUCE', 'RISK_OFF'].includes(value)) return 'destructive';
-  if (['WEAKENING', 'STOP_ADD', 'NEUTRAL', 'EXPOSURE_BLOCKED'].includes(value)) return 'warning';
+  if (['WEAKENING', 'STOP_ADD', 'NEUTRAL', 'EXPOSURE_BLOCKED', 'PENDING_REDUCE', 'PENDING_EXIT'].includes(value)) return 'warning';
   if (['HOLD', 'HOLDING'].includes(value)) return 'default';
-  if (['CANDIDATE', 'PENDING_ENTRY'].includes(value)) return 'info';
+  if (['CANDIDATE', 'PENDING_ENTRY', 'PENDING_ADD'].includes(value)) return 'info';
   return 'outline';
 }
 async function load(refreshDates = false) {

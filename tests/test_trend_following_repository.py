@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from finance_analysis.database.models.stock import MarketDataSymbol  # pragma: allowlist secret
 from finance_analysis.database.models.trend_following import TrendFollowingSnapshot  # pragma: allowlist secret
 from finance_analysis.database.repositories.trend_following import TrendFollowingRepository  # pragma: allowlist secret
+from finance_analysis.database.models.trend_following import TrendFollowingSummary  # pragma: allowlist secret
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,7 @@ class _Database:
         self.engine = create_engine("sqlite://")
         MarketDataSymbol.__table__.create(self.engine)
         TrendFollowingSnapshot.__table__.create(self.engine)
+        TrendFollowingSummary.__table__.create(self.engine)
 
     @contextmanager
     def get_session(self):
@@ -59,6 +61,17 @@ def _snapshot(*, snapshot_id, code, symbol_id, trade_date, state="HOLDING", unit
         intraday_confirmation="UNAVAILABLE",
         generated_at=datetime(2026, 8, 28, tzinfo=timezone.utc),
     )
+
+
+def _summary(trade_date):
+    return {
+        "market": "US", "trade_date": trade_date, "universe_key": "us_sp500",
+        "benchmark_code": "SPY.US", "market_regime": "RISK_ON", "market_score": 80.0,
+        "suggested_max_exposure": 1.0, "universe_size": 3, "data_ready_count": 2,
+        "data_coverage": 2 / 3, "rankable_count": 2, "candidate_count": 0,
+        "entry_count": 0, "add_count": 0, "hold_count": 2, "reduce_count": 0,
+        "exit_count": 0, "warnings": [], "features": {}, "score_breakdown": {},
+    }
 
 
 def test_previous_snapshots_are_per_code_and_ignore_missing_days():
@@ -107,3 +120,39 @@ def test_snapshot_history_is_anchored_to_requested_trade_date():
     assert all(row["trade_date"] <= date(2026, 6, 1) for row in history)
     latest = repository.snapshot_history("AAPL.US", limit=60)
     assert latest[0]["trade_date"] == date(2026, 6, 3)
+
+
+def test_replace_day_removes_stale_codes_and_replaces_summary_atomically():
+    database = _Database()
+    trade_date = date(2026, 8, 28)
+    with database.session_scope() as session:
+        session.add_all([
+            MarketDataSymbol(id=1, market="US", code="AAA.US", name="AAA"),
+            MarketDataSymbol(id=2, market="US", code="BBB.US", name="BBB"),
+            MarketDataSymbol(id=3, market="US", code="CCC.US", name="CCC"),
+        ])
+        session.add_all([
+            _snapshot(snapshot_id=1, code="AAA.US", symbol_id=1, trade_date=trade_date),
+            _snapshot(snapshot_id=2, code="BBB.US", symbol_id=2, trade_date=trade_date),
+            _snapshot(snapshot_id=3, code="CCC.US", symbol_id=3, trade_date=trade_date),
+        ])
+        session.add(TrendFollowingSummary(id=1, generated_at=datetime.now(timezone.utc), **_summary(trade_date)))
+
+    repository = TrendFollowingRepository("US", database)
+    replacement = []
+    for code in ("AAA.US", "BBB.US"):
+        payload = {
+            column.name: getattr(
+                _snapshot(snapshot_id=10, code=code, symbol_id=1, trade_date=trade_date),
+                column.name,
+            )
+            for column in TrendFollowingSnapshot.__table__.columns
+            if column.name not in {"id", "symbol_id", "generated_at"}
+        }
+        replacement.append(payload)
+    summary = {**_summary(trade_date), "universe_size": 2, "data_ready_count": 2, "data_coverage": 1.0}
+    assert repository.replace_day(trade_date, replacement, summary) == 2
+    assert {row["code"] for row in repository.snapshots_by_date(trade_date)} == {"AAA.US", "BBB.US"}
+    stored_summary = repository.summary_by_date(trade_date)
+    assert stored_summary is not None
+    assert stored_summary["universe_size"] == 2
