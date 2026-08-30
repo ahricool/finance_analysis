@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """Versioned reference constituents used by market-data database seeds.
 
-Nasdaq-100 was refreshed on 2026-06-18 from StockAnalysis.com. S&P 500 and
-CSI 300 were refreshed on 2026-07-20 from the datasets/s-and-p-500-companies
-constituent dataset and AKShare ``index_stock_cons_csindex('000300')`` respectively.
+Nasdaq-100 was refreshed on 2026-06-18 from StockAnalysis.com. S&P 500,
+CSI 300, and CSI 500 are versioned static constituents. CSI 500 was refreshed
+on 2026-08-28 from the CSI index constituent dataset.
 """
+
+from finance_analysis.stocks.reference_data.csi500 import CSI500_STOCK_INDEX
 
 NASDAQ100_STOCK_INDEX = {
     "NVDA": "NVIDIA Corporation",
@@ -926,4 +928,4 @@ _CSI300_DATA = """
 """
 CSI300_STOCK_INDEX = dict(line.split("|", 1) for line in _CSI300_DATA.splitlines() if line)
 
-__all__ = ["CSI300_STOCK_INDEX", "NASDAQ100_STOCK_INDEX", "SP500_STOCK_INDEX"]
+__all__ = ["CSI300_STOCK_INDEX", "CSI500_STOCK_INDEX", "NASDAQ100_STOCK_INDEX", "SP500_STOCK_INDEX"]

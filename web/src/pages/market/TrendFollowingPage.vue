@@ -1,0 +1,447 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue';
+import { RefreshCcw } from 'lucide-vue-next';
+import { toast } from 'vue-sonner';
+import { trendFollowingApi } from '@/api/trendFollowing';
+import { getParsedApiError, type ParsedApiError } from '@/api/error';
+import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import LoadingButton from '@/components/app/LoadingButton.vue';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import type {
+  TrendAction,
+  TrendDetailResponse,
+  TrendMarket,
+  TrendSnapshot,
+  TrendState,
+  TrendSummary,
+} from '@/types/trendFollowing';
+import { formatMarketCurrencyAmount } from '@/utils/marketCurrency';
+
+const emptySummary = (): TrendSummary => ({
+  market: 'CN', tradeDate: '', universeKey: 'cn_csi300_csi500', benchmarkCode: '510300.SH',
+  marketRegime: 'NEUTRAL', marketScore: 0, suggestedMaxExposure: 0, universeSize: 0,
+  dataReadyCount: 0, dataCoverage: 0, rankableCount: 0, candidateCount: 0, entryCount: 0,
+  addCount: 0, holdCount: 0, reduceCount: 0, exitCount: 0, warnings: [], features: {},
+  scoreBreakdown: {}, generatedAt: '',
+});
+const market = ref<TrendMarket>('CN');
+const selectedDate = ref('');
+const availableDates = ref<string[]>([]);
+const summary = ref<TrendSummary>(emptySummary());
+const items = ref<TrendSnapshot[]>([]);
+const candidates = ref<TrendSnapshot[]>([]);
+const loading = ref(true);
+const running = ref(false);
+const error = ref<ParsedApiError | null>(null);
+const detailOpen = ref(false);
+const detailLoading = ref(false);
+const detail = ref<TrendDetailResponse | null>(null);
+const detailError = ref<ParsedApiError | null>(null);
+const sortKey = ref<'rank' | 'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore'>('rank');
+let generation = 0;
+
+const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
+const sortedItems = computed(() => [...items.value].sort((left, right) => {
+  if (sortKey.value === 'rank') return left.rank - right.rank;
+  return right[sortKey.value] - left[sortKey.value] || left.code.localeCompare(right.code);
+}));
+const cards = computed(() => [
+  ['Market Regime', summary.value.marketRegime], ['Market Score', score(summary.value.marketScore)],
+  ['最大理论风险敞口', pct(summary.value.suggestedMaxExposure)], ['Universe Size', summary.value.universeSize],
+  ['Data Coverage', pct(summary.value.dataCoverage)], ['Rankable', summary.value.rankableCount],
+  ['Candidate', summary.value.candidateCount], ['ENTRY', summary.value.entryCount],
+  ['ADD', summary.value.addCount], ['HOLD', summary.value.holdCount],
+  ['REDUCE', summary.value.reduceCount], ['EXIT', summary.value.exitCount],
+]);
+
+function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
+function pct(value: number | null | undefined) { return value == null ? '—' : `${(value * 100).toFixed(1)}%`; }
+function price(value: number | null | undefined) {
+  return value == null ? '—' : formatMarketCurrencyAmount(value, market.value);
+}
+function stateText(state: TrendState) {
+  return ({ IDLE: '空闲', WATCHING: '观察', CANDIDATE: '候选', ENTRY: '建议入场', PYRAMIDING: '加仓中',
+    HOLDING: '继续持有', WEAKENING: '趋势弱化', REDUCE: '建议减仓', EXIT: '退出' })[state];
+}
+function actionText(action: TrendAction) {
+  return ({ WATCH: '观察', ENTRY: '建议入场', ADD: '允许加仓', HOLD: '继续持有', STOP_ADD: '停止加仓',
+    REDUCE: '建议减仓', EXIT: '退出' })[action];
+}
+function badgeVariant(value: TrendState | TrendAction | string): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
+  if (['ENTRY', 'ADD', 'PYRAMIDING', 'RISK_ON'].includes(value)) return 'success';
+  if (['EXIT', 'REDUCE', 'RISK_OFF'].includes(value)) return 'destructive';
+  if (['WEAKENING', 'STOP_ADD', 'NEUTRAL'].includes(value)) return 'warning';
+  if (['HOLD', 'HOLDING'].includes(value)) return 'default';
+  return 'outline';
+}
+async function load(refreshDates = false) {
+  const current = ++generation;
+  loading.value = true;
+  error.value = null;
+  try {
+    if (refreshDates || !availableDates.value.length) {
+      const dates = await trendFollowingApi.dates(market.value);
+      if (current !== generation) return;
+      availableDates.value = dates.items;
+    }
+    const ranking = await trendFollowingApi.ranking(market.value, selectedDate.value || undefined);
+    if (current !== generation) return;
+    summary.value = ranking;
+    items.value = ranking.items;
+    selectedDate.value = ranking.tradeDate;
+    const candidateResult = await trendFollowingApi.candidates(market.value, ranking.tradeDate);
+    if (current === generation) candidates.value = candidateResult.items;
+  } catch (reason) {
+    if (current === generation) {
+      error.value = getParsedApiError(reason);
+      items.value = [];
+      candidates.value = [];
+    }
+  } finally {
+    if (current === generation) loading.value = false;
+  }
+}
+async function runStrategy() {
+  running.value = true;
+  try {
+    const result = await trendFollowingApi.run(market.value, selectedDate.value || undefined);
+    toast.success(`趋势跟踪任务已提交：${result.taskId}`);
+  } catch (reason) {
+    error.value = getParsedApiError(reason);
+  } finally {
+    running.value = false;
+  }
+}
+async function openDetail(item: TrendSnapshot) {
+  detailOpen.value = true;
+  detailLoading.value = true;
+  detailError.value = null;
+  detail.value = null;
+  try {
+    detail.value = await trendFollowingApi.detail(item.code, market.value);
+  } catch (reason) {
+    detailError.value = getParsedApiError(reason);
+  } finally {
+    detailLoading.value = false;
+  }
+}
+watch(market, () => {
+  selectedDate.value = '';
+  availableDates.value = [];
+  detailOpen.value = false;
+  summary.value = { ...emptySummary(), market: market.value };
+  void load(true);
+});
+onMounted(() => void load(true));
+</script>
+
+<template>
+  <div
+    class="min-w-0 space-y-4"
+    data-testid="trend-following-page"
+  >
+    <header class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold">
+          趋势跟踪
+        </h2>
+        <p class="mt-1 text-xs text-muted-foreground">
+          {{ scope }} · Research Signal / 策略模型建议，不是用户真实交易指令。
+        </p>
+      </div>
+      <div class="flex flex-wrap items-end gap-2">
+        <NativeSelect
+          v-model="market"
+          size="sm"
+          aria-label="市场"
+          data-testid="trend-market"
+        >
+          <NativeSelectOption value="CN">
+            A股
+          </NativeSelectOption>
+          <NativeSelectOption value="US">
+            美股
+          </NativeSelectOption>
+        </NativeSelect>
+        <AppDatePicker
+          :model-value="selectedDate"
+          label="交易日"
+          :available-dates="availableDates"
+          :clearable="false"
+          :disabled="loading"
+          class="w-56"
+          data-testid="trend-date"
+          @update:model-value="value => { selectedDate = value; load(); }"
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="loading"
+          @click="load(true)"
+        >
+          <RefreshCcw class="size-4" />刷新
+        </Button>
+        <LoadingButton
+          size="sm"
+          :loading="running"
+          loading-text="提交中…"
+          @click="runStrategy"
+        >
+          手动运行
+        </LoadingButton>
+      </div>
+    </header>
+
+    <AppApiErrorAlert
+      v-if="error"
+      :error="error"
+    />
+    <div
+      v-if="summary.warnings.length"
+      role="alert"
+      class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+    >
+      {{ summary.warnings.join('；') }}
+    </div>
+    <div
+      v-if="loading"
+      class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+    >
+      <Skeleton
+        v-for="index in 8"
+        :key="index"
+        class="h-20"
+      />
+    </div>
+    <div
+      v-else
+      class="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6"
+      data-testid="trend-summary"
+    >
+      <Card
+        v-for="card in cards"
+        :key="String(card[0])"
+      >
+        <CardContent class="p-3">
+          <span class="text-xs text-muted-foreground">{{ card[0] }}</span>
+          <strong class="mt-1 block text-lg">{{ card[1] }}</strong>
+        </CardContent>
+      </Card>
+    </div>
+
+    <Card>
+      <CardHeader>
+        <CardTitle>策略生命周期</CardTitle>
+        <CardDescription>CANDIDATE、ENTRY、ADD、HOLD、REDUCE 与 EXIT 都会保留在观察区。</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Empty v-if="!loading && !candidates.length">
+          <EmptyHeader><EmptyTitle>暂无策略候选</EmptyTitle><EmptyDescription>所选交易日没有处于策略生命周期的股票。</EmptyDescription></EmptyHeader>
+        </Empty>
+        <div
+          v-else
+          class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        >
+          <button
+            v-for="item in candidates"
+            :key="item.code"
+            class="rounded-md border p-3 text-left hover:bg-muted/50"
+            data-testid="trend-candidate"
+            @click="openDetail(item)"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <strong class="truncate">#{{ item.rank }} {{ item.name }}</strong>
+              <Badge :variant="badgeVariant(item.action)">
+                {{ actionText(item.action) }}
+              </Badge>
+            </div>
+            <p class="mt-1 font-mono text-xs text-muted-foreground">
+              {{ item.code }}
+            </p>
+            <div class="mt-3 flex items-center justify-between text-sm">
+              <span>Alpha {{ score(item.alphaScore) }}</span>
+              <Badge :variant="badgeVariant(item.state)">
+                {{ stateText(item.state) }}
+              </Badge>
+            </div>
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
+        <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ summary.tradeDate || '—' }} · {{ scope }} · {{ summary.dataReadyCount }}/{{ summary.universeSize }} 数据就绪</CardDescription></div>
+        <NativeSelect
+          v-model="sortKey"
+          size="sm"
+          aria-label="排序"
+        >
+          <NativeSelectOption value="rank">
+            Rank
+          </NativeSelectOption>
+          <NativeSelectOption value="alphaScore">
+            Alpha Score
+          </NativeSelectOption>
+          <NativeSelectOption value="trendScore">
+            Trend Score
+          </NativeSelectOption>
+          <NativeSelectOption value="rsScore">
+            RS Score
+          </NativeSelectOption>
+          <NativeSelectOption value="breakoutScore">
+            Breakout Score
+          </NativeSelectOption>
+        </NativeSelect>
+      </CardHeader>
+      <CardContent class="px-0">
+        <Empty v-if="!loading && !items.length">
+          <EmptyHeader><EmptyTitle>暂无趋势快照</EmptyTitle><EmptyDescription>请确认所选日期已完成收盘行情同步和策略计算。</EmptyDescription></EmptyHeader>
+        </Empty>
+        <ScrollArea
+          v-else
+          class="w-full"
+        >
+          <Table class="min-w-[1800px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Rank</TableHead><TableHead>股票</TableHead><TableHead>State</TableHead><TableHead>Action</TableHead>
+                <TableHead>Alpha</TableHead><TableHead>Trend</TableHead><TableHead>RS</TableHead><TableHead>Breakout</TableHead>
+                <TableHead>Setup</TableHead><TableHead>20D Return</TableHead><TableHead>60D Return</TableHead><TableHead>ATR</TableHead>
+                <TableHead>Reference</TableHead><TableHead>Entry</TableHead><TableHead>Stop</TableHead><TableHead>Next Add</TableHead>
+                <TableHead>Exit Level</TableHead><TableHead>理论初始权重</TableHead><TableHead>Reasons</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow
+                v-for="item in sortedItems"
+                :key="item.code"
+                class="cursor-pointer"
+                data-testid="trend-row"
+                @click="openDetail(item)"
+              >
+                <TableCell>#{{ item.rank }}</TableCell><TableCell><strong class="block">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span></TableCell>
+                <TableCell>
+                  <Badge :variant="badgeVariant(item.state)">
+                    {{ stateText(item.state) }}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge :variant="badgeVariant(item.action)">
+                    {{ actionText(item.action) }}
+                  </Badge>
+                </TableCell>
+                <TableCell class="font-bold text-primary">
+                  {{ score(item.alphaScore) }}
+                </TableCell><TableCell>{{ score(item.trendScore) }}</TableCell>
+                <TableCell>{{ score(item.rsScore) }}</TableCell><TableCell>{{ score(item.breakoutScore) }}</TableCell><TableCell>{{ item.setup }}</TableCell>
+                <TableCell>{{ pct(item.features.return20D) }}</TableCell><TableCell>{{ pct(item.features.return60D) }}</TableCell><TableCell>{{ price(item.atr) }}</TableCell>
+                <TableCell>{{ price(item.referencePrice) }}</TableCell><TableCell>{{ price(item.entryPrice) }}</TableCell><TableCell>{{ price(item.initialStop) }}</TableCell>
+                <TableCell>{{ price(item.nextAddPrice) }}</TableCell><TableCell>{{ price(item.exitLevel) }}</TableCell><TableCell>{{ pct(item.suggestedInitialWeight) }}</TableCell>
+                <TableCell class="max-w-72 whitespace-normal">
+                  {{ item.reasons.join('；') }}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+          <template #horizontal-scrollbar>
+            <ScrollBar orientation="horizontal" />
+          </template>
+        </ScrollArea>
+      </CardContent>
+    </Card>
+
+    <Sheet
+      :open="detailOpen"
+      @update:open="value => { detailOpen = value; }"
+    >
+      <SheetContent
+        class="w-full overflow-y-auto sm:max-w-2xl"
+        data-testid="trend-detail"
+      >
+        <SheetHeader><SheetTitle>{{ detail?.metadata.name || '趋势详情' }}</SheetTitle><SheetDescription>{{ detail?.metadata.code }} · 指标、风险线与 point-in-time 状态历史</SheetDescription></SheetHeader>
+        <div
+          v-if="detailLoading"
+          class="space-y-3 px-4"
+        >
+          <Skeleton
+            v-for="index in 6"
+            :key="index"
+            class="h-16"
+          />
+        </div>
+        <AppApiErrorAlert
+          v-else-if="detailError"
+          class="mx-4"
+          :error="detailError"
+        />
+        <div
+          v-else-if="detail"
+          class="space-y-5 px-4 pb-6"
+        >
+          <div class="flex flex-wrap gap-2">
+            <Badge :variant="badgeVariant(detail.latest.state)">
+              {{ stateText(detail.latest.state) }}
+            </Badge><Badge :variant="badgeVariant(detail.latest.action)">
+              {{ actionText(detail.latest.action) }}
+            </Badge><Badge variant="outline">
+              {{ detail.latest.setup }}
+            </Badge>
+          </div>
+          <section>
+            <h3 class="mb-2 font-semibold">
+              Alpha Score Breakdown
+            </h3><pre class="overflow-x-auto rounded bg-muted p-3 text-xs">{{ JSON.stringify(detail.latest.scoreBreakdown, null, 2) }}</pre>
+          </section>
+          <section>
+            <h3 class="mb-2 font-semibold">
+              Trend / RS / Breakout
+            </h3><div class="grid grid-cols-2 gap-2 text-sm">
+              <div>Weighted slope<br><strong>{{ score(detail.latest.features.rawWeightedSlope) }}</strong></div><div>Slope percentile<br><strong>{{ score(detail.latest.features.weightedSlopePercentile) }}</strong></div>
+              <div>R²<br><strong>{{ score(detail.latest.features.weightedR2) }}</strong></div><div>20D / 60D<br><strong>{{ pct(detail.latest.features.return20D) }} / {{ pct(detail.latest.features.return60D) }}</strong></div>
+              <div>Drawdown 20D / 60D<br><strong>{{ pct(detail.latest.features.drawdown20D) }} / {{ pct(detail.latest.features.drawdown60D) }}</strong></div><div>MA10 / MA20 / MA60<br><strong>{{ score(detail.latest.features.ma10) }} / {{ score(detail.latest.features.ma20) }} / {{ score(detail.latest.features.ma60) }}</strong></div>
+              <div>RS 20D / 60D<br><strong>{{ pct(detail.latest.features.rs20D) }} / {{ pct(detail.latest.features.rs60D) }}</strong></div><div>RS Percentile<br><strong>{{ score(detail.latest.features.return20DPercentile) }} / {{ score(detail.latest.features.return60DPercentile) }}</strong></div>
+              <div>20D / 55D Breakout<br><strong>{{ detail.latest.features.breakout20D ? '是' : '否' }} / {{ detail.latest.features.breakout55D ? '是' : '否' }}</strong></div><div>Volume / Compression<br><strong>{{ score(detail.latest.features.volumeRatio) }} / {{ detail.latest.features.priorCompression ? '是' : '否' }}</strong></div>
+            </div>
+          </section>
+          <section>
+            <h3 class="mb-2 font-semibold">
+              Risk（理论策略 NAV）
+            </h3><div class="grid grid-cols-2 gap-2 text-sm">
+              <div>ATR<br><strong>{{ price(detail.latest.atr) }}</strong></div><div>Units<br><strong>{{ detail.latest.units }}</strong></div>
+              <div>Entry / Stop<br><strong>{{ price(detail.latest.entryPrice) }} / {{ price(detail.latest.initialStop) }}</strong></div><div>Trailing / Exit<br><strong>{{ price(detail.latest.trailingStop) }} / {{ price(detail.latest.exitLevel) }}</strong></div>
+              <div>Next Add<br><strong>{{ price(detail.latest.nextAddPrice) }}</strong></div><div>理论风险权重<br><strong>{{ pct(detail.latest.suggestedInitialWeight) }}</strong></div>
+            </div>
+          </section>
+          <section>
+            <h3 class="mb-2 font-semibold">
+              历史 Snapshot / 状态变化
+            </h3><div class="space-y-2">
+              <div
+                v-for="snapshot in detail.history"
+                :key="snapshot.tradeDate"
+                class="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm"
+                data-testid="trend-history"
+              >
+                <span>{{ snapshot.tradeDate }}</span><span>Alpha {{ score(snapshot.alphaScore) }}</span><Badge :variant="badgeVariant(snapshot.state)">
+                  {{ stateText(snapshot.state) }}
+                </Badge><Badge :variant="badgeVariant(snapshot.action)">
+                  {{ actionText(snapshot.action) }}
+                </Badge>
+              </div>
+            </div>
+          </section>
+        </div>
+      </SheetContent>
+    </Sheet>
+  </div>
+</template>

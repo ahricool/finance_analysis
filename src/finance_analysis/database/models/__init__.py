@@ -30,6 +30,7 @@ from finance_analysis.database.models.stock import (
     StockMinute,
 )
 from finance_analysis.database.models.task import TaskRecord
+from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary
 from finance_analysis.database.models.user import User
 from finance_analysis.database.models.watch_list import WatchListItem
 
@@ -62,6 +63,8 @@ __all__ = [
     "StockDaily",
     "StockMinute",
     "TaskRecord",
+    "TrendFollowingSnapshot",
+    "TrendFollowingSummary",
     "User",
     "WatchListItem",
 ]

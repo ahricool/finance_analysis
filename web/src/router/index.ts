@@ -28,6 +28,7 @@ const QuantModelsPage = () => import('@/pages/market/quant/QuantModelsPage.vue')
 const QuantModelRunPage = () => import('@/pages/market/quant/QuantModelRunPage.vue');
 const QuantPortfoliosPage = () => import('@/pages/market/quant/QuantPortfoliosPage.vue');
 const ETFRotationPage = () => import('@/pages/market/ETFRotationPage.vue');
+const TrendFollowingPage = () => import('@/pages/market/TrendFollowingPage.vue');
 const LoginPage = () => import('@/pages/LoginPage.vue');
 const CalendarPage = () => import('@/pages/CalendarPage.vue');
 const ProfilePage = () => import('@/pages/ProfilePage.vue');
@@ -100,6 +101,12 @@ const router = createRouter({
               name: 'market-etf-rotation',
               component: ETFRotationPage,
               meta: { title: 'ETF动量轮动' },
+            },
+            {
+              path: 'trend-following',
+              name: 'market-trend-following',
+              component: TrendFollowingPage,
+              meta: { title: '趋势跟踪' },
             },
           ],
         },

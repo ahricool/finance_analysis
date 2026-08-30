@@ -26,6 +26,7 @@ from finance_analysis.interfaces.api.v1.endpoints import (
     signals,
     stocks,
     tasks,
+    trend_following,
     usage,
     watch_list,
 )
@@ -116,3 +117,5 @@ router.include_router(
 router.include_router(quant.router, prefix="/quant", tags=["Quant"])
 
 router.include_router(etf_rotation.router, prefix="/etf-rotation", tags=["ETF Rotation"])
+
+router.include_router(trend_following.router, prefix="/trend-following", tags=["Trend Following"])
