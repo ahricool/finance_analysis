@@ -7,14 +7,14 @@ from collections import defaultdict
 from datetime import date
 from typing import Any
 
-from finance_analysis.database.repositories.trend_following import TrendFollowingRepository
-from finance_analysis.trend_following.config import DEFAULT_CONFIG, TrendFollowingConfig
-from finance_analysis.trend_following.features import calculate_features
-from finance_analysis.trend_following.models import DailyBar
-from finance_analysis.trend_following.ranking import rank_candidates
-from finance_analysis.trend_following.regime import calculate_market_regime
-from finance_analysis.trend_following.state import transition_state
-from finance_analysis.trend_following.universe import get_universe, normalize_market
+from ..database.repositories.trend_following import TrendFollowingRepository
+from .config import DEFAULT_CONFIG, TrendFollowingConfig
+from .features import calculate_features
+from .models import DailyBar
+from .ranking import rank_candidates
+from .regime import calculate_market_regime
+from .state import apply_exposure_gate, transition_state
+from .universe import get_universe, normalize_market
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +44,37 @@ class TrendFollowingService:
             raise ValueError(f"No raw DB daily data is available for benchmark {benchmark}")
         return latest
 
+    def _rebuild_dates(self, start: date) -> list[date]:
+        latest_existing = None
+        if hasattr(self.repository, "latest_snapshot_date"):
+            latest_existing = self.repository.latest_snapshot_date()
+        if latest_existing is None and hasattr(self.repository, "latest_trade_date"):
+            latest_existing = self.repository.latest_trade_date()
+        if latest_existing is None or latest_existing <= start:
+            return [start]
+        dates = {start}
+        benchmark = self.config.benchmark_codes[self.market]
+        if hasattr(self.repository, "daily_dates_between"):
+            dates.update(self.repository.daily_dates_between(benchmark, start, latest_existing))
+        if hasattr(self.repository, "snapshot_dates_between"):
+            dates.update(self.repository.snapshot_dates_between(start, latest_existing))
+        return sorted(dates)
+
     def run(self, trade_date: date | None = None) -> dict[str, Any]:
-        effective_date = self.resolve_trade_date(trade_date)
+        start = self.resolve_trade_date(trade_date)
+        dates = self._rebuild_dates(start)
+        results = [self._run_single_date(current) for current in dates]
+        last = results[-1]
+        if len(results) == 1:
+            return last
+        return {
+            **last,
+            "rebuilt_from": start.isoformat(),
+            "rebuilt_dates": [item["trade_date"] for item in results],
+            "rebuild_count": len(results),
+        }
+
+    def _run_single_date(self, effective_date: date) -> dict[str, Any]:
         members = get_universe(self.market)
         member_by_code = {member.code: member for member in members}
         universe_codes = set(member_by_code)
@@ -75,6 +104,8 @@ class TrendFollowingService:
         )
         histories: dict[str, list[DailyBar]] = defaultdict(list)
         for item in rows:
+            if item["trade_date"] > effective_date:
+                continue
             histories[str(item["code"])].append(DailyBar(
                 trade_date=item["trade_date"], open=float(item["open"]), high=float(item["high"]),
                 low=float(item["low"]), close=float(item["close"]), volume=float(item["volume"]),
@@ -116,14 +147,21 @@ class TrendFollowingService:
         )
         ranked = rank_candidates(features, self.config)
         previous = self.repository.previous_snapshots(effective_date, universe_codes)
+        desired = {
+            row["code"]: transition_state(
+                row, previous.get(row["code"]), trade_date=effective_date,
+                market_regime=regime["market_regime"], config=self.config,
+            )
+            for row in ranked
+        }
+        gated = apply_exposure_gate(
+            ranked, desired, previous, max_exposure=regime["suggested_max_exposure"],
+        )
         snapshots: list[dict[str, Any]] = []
         internal_keys = {"code", "is_candidate", "setup", "trend_score", "rs_score", "breakout_score",
                          "alpha_score", "score_breakdown", "rank"}
         for row in ranked:
-            decision = transition_state(
-                row, previous.get(row["code"]), trade_date=effective_date,
-                market_regime=regime["market_regime"], config=self.config,
-            )
+            decision = gated[row["code"]]
             snapshots.append({
                 "market": self.market,
                 "trade_date": effective_date,
@@ -146,7 +184,7 @@ class TrendFollowingService:
             })
         snapshot_count = self.repository.upsert_snapshots(snapshots)
         counts = {action: sum(item["action"] == action for item in snapshots) for action in (
-            "ENTRY", "ADD", "HOLD", "REDUCE", "EXIT"
+            "ENTRY", "ADD", "HOLD", "REDUCE", "EXIT", "PENDING_ENTRY", "EXPOSURE_BLOCKED"
         )}
         summary = {
             "market": self.market,
@@ -160,7 +198,7 @@ class TrendFollowingService:
             "data_ready_count": len(ready_codes),
             "data_coverage": data_coverage,
             "rankable_count": len(ranked),
-            "candidate_count": sum(bool(row["is_candidate"]) for row in ranked),
+            "candidate_count": sum(item["state"] == "CANDIDATE" for item in snapshots),
             "entry_count": counts["ENTRY"],
             "add_count": counts["ADD"],
             "hold_count": counts["HOLD"],

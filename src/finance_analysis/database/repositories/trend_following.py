@@ -86,25 +86,63 @@ class TrendFollowingRepository:
             ).mappings())
 
     def previous_snapshots(self, trade_date: date, codes: Iterable[str]) -> dict[str, dict[str, Any]]:
-        """Load only the latest strategy snapshot strictly before the requested date."""
+        """Load each code's latest snapshot strictly before the requested date."""
         selected = sorted(set(codes))
         if not selected:
             return {}
-        with self.db.get_session() as session:
-            previous_date = session.execute(
-                select(func.max(TrendFollowingSnapshot.trade_date)).where(
-                    TrendFollowingSnapshot.market == self.market,
-                    TrendFollowingSnapshot.trade_date < trade_date,
-                )
-            ).scalar_one()
-            if previous_date is None:
-                return {}
-            rows = session.execute(select(TrendFollowingSnapshot).where(
+        ranked = (
+            select(
+                TrendFollowingSnapshot.id.label("snapshot_id"),
+                func.row_number().over(
+                    partition_by=TrendFollowingSnapshot.code,
+                    order_by=desc(TrendFollowingSnapshot.trade_date),
+                ).label("row_rank"),
+            )
+            .where(
                 TrendFollowingSnapshot.market == self.market,
-                TrendFollowingSnapshot.trade_date == previous_date,
+                TrendFollowingSnapshot.trade_date < trade_date,
                 TrendFollowingSnapshot.code.in_(selected),
-            )).scalars()
+            )
+            .subquery()
+        )
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(TrendFollowingSnapshot)
+                .join(ranked, ranked.c.snapshot_id == TrendFollowingSnapshot.id)
+                .where(ranked.c.row_rank == 1)
+            ).scalars()
             return {row.code: self._snapshot_payload(row) for row in rows}
+
+    def latest_snapshot_date(self) -> date | None:
+        with self.db.get_session() as session:
+            return session.execute(select(func.max(TrendFollowingSnapshot.trade_date)).where(
+                TrendFollowingSnapshot.market == self.market
+            )).scalar_one()
+
+    def snapshot_dates_between(self, start: date, end: date) -> list[date]:
+        with self.db.get_session() as session:
+            return list(session.execute(
+                select(TrendFollowingSnapshot.trade_date)
+                .where(
+                    TrendFollowingSnapshot.market == self.market,
+                    TrendFollowingSnapshot.trade_date.between(start, end),
+                )
+                .distinct()
+                .order_by(TrendFollowingSnapshot.trade_date)
+            ).scalars())
+
+    def daily_dates_between(self, code: str, start: date, end: date) -> list[date]:
+        with self.db.get_session() as session:
+            return list(session.execute(
+                select(StockDaily.date)
+                .join(MarketDataSymbol, MarketDataSymbol.id == StockDaily.symbol_id)
+                .where(
+                    MarketDataSymbol.market == self.market,
+                    MarketDataSymbol.code == code,
+                    StockDaily.date.between(start, end),
+                )
+                .order_by(StockDaily.date)
+            ).scalars())
 
     def upsert_snapshots(self, snapshots: list[dict[str, Any]]) -> int:
         if not snapshots:
@@ -209,13 +247,19 @@ class TrendFollowingRepository:
             ).all()
             return [self._snapshot_payload(row, str(name)) for row, name in rows]
 
-    def snapshot_history(self, code: str, *, limit: int) -> list[dict]:
+    def snapshot_history(self, code: str, *, limit: int, as_of: date | None = None) -> list[dict]:
         canonical = str(code).strip().upper()
+        filters = [
+            TrendFollowingSnapshot.market == self.market,
+            TrendFollowingSnapshot.code == canonical,
+        ]
+        if as_of is not None:
+            filters.append(TrendFollowingSnapshot.trade_date <= as_of)
         with self.db.get_session() as session:
             rows = session.execute(
                 select(TrendFollowingSnapshot, MarketDataSymbol.name)
                 .join(MarketDataSymbol, MarketDataSymbol.id == TrendFollowingSnapshot.symbol_id)
-                .where(TrendFollowingSnapshot.market == self.market, TrendFollowingSnapshot.code == canonical)
+                .where(*filters)
                 .order_by(desc(TrendFollowingSnapshot.trade_date)).limit(limit)
             ).all()
             return [self._snapshot_payload(row, str(name)) for row, name in rows]

@@ -28,12 +28,26 @@ def initial_risk_levels(
     }
 
 
-def trailing_stop(highest_close: float, atr: float, config: TrendFollowingConfig = DEFAULT_CONFIG) -> float:
-    return round(highest_close - config.trailing_stop_atr * atr, 6)
+def trailing_stop(
+    highest_close: float,
+    atr: float,
+    config: TrendFollowingConfig = DEFAULT_CONFIG,
+    *,
+    previous_stop: float | None = None,
+) -> float:
+    """Long-only trailing stop: the level can stay or rise, never fall after entry."""
+    candidate = round(highest_close - config.trailing_stop_atr * atr, 6)
+    if previous_stop is None:
+        return candidate
+    return round(max(float(previous_stop), candidate), 6)
 
 
 def next_add_price(last_add_price: float, atr: float, config: TrendFollowingConfig = DEFAULT_CONFIG) -> float:
     return round(last_add_price + config.pyramid_interval_atr * atr, 6)
 
 
-__all__ = ["initial_risk_levels", "next_add_price", "trailing_stop"]
+def position_weight(units: int | None, suggested_initial_weight: float | None) -> float:
+    return max(0, int(units or 0)) * float(suggested_initial_weight or 0.0)
+
+
+__all__ = ["initial_risk_levels", "next_add_price", "position_weight", "trailing_stop"]
