@@ -39,6 +39,8 @@ class TrendFollowingSnapshot(Base):
     entry_price = Column(Float)
     signal_date = Column(Date)
     signal_price = Column(Float)
+    pending_action = Column(String(24))
+    pending_since = Column(Date)
     last_add_price = Column(Float)
     highest_close = Column(Float)
     initial_stop = Column(Float)
