@@ -101,7 +101,7 @@ def test_empty_database_upgrade_creates_current_schema_and_stamps_head() -> None
 
     with engine.connect() as connection:
         tables = set(inspect(connection).get_table_names())
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0034_trend_execution_context"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0035_etf_fast_rotation"
         assert {
             "portfolio_account",
             "account_cash_balance",

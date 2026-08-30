@@ -66,74 +66,74 @@ OLD_MARKET_COLUMNS = (
 
 
 def upgrade() -> None:
-    op.drop_constraint("ck_etf_momentum_ranks_positive", "etf_momentum_snapshot", type_="check")
-    op.drop_constraint("ck_etf_momentum_pct_ranks_range", "etf_momentum_snapshot", type_="check")
-    for name in OLD_MOMENTUM_COLUMNS:
-        op.drop_column("etf_momentum_snapshot", name)
-    for name in NEW_MOMENTUM_FLOAT_COLUMNS:
-        op.add_column("etf_momentum_snapshot", sa.Column(name, sa.Float(), nullable=True))
-    op.add_column("etf_momentum_snapshot", sa.Column("rank_3d", sa.Integer(), nullable=True))
-    op.create_check_constraint(
-        "ck_etf_momentum_ranks_positive",
-        "etf_momentum_snapshot",
-        "rank_1d > 0 AND (rank_3d IS NULL OR rank_3d > 0) "
-        "AND rank_5d > 0 AND rank_10d > 0 AND rank_20d > 0",
-    )
-    op.create_check_constraint(
-        "ck_etf_momentum_pct_ranks_range",
-        "etf_momentum_snapshot",
-        "pct_rank_1d BETWEEN 0 AND 100 "
-        "AND (pct_rank_3d IS NULL OR pct_rank_3d BETWEEN 0 AND 100) "
-        "AND pct_rank_5d BETWEEN 0 AND 100 "
-        "AND pct_rank_10d BETWEEN 0 AND 100 AND pct_rank_20d BETWEEN 0 AND 100",
-    )
+    with op.batch_alter_table("etf_momentum_snapshot") as batch_op:
+        batch_op.drop_constraint("ck_etf_momentum_ranks_positive", type_="check")
+        batch_op.drop_constraint("ck_etf_momentum_pct_ranks_range", type_="check")
+        for name in OLD_MOMENTUM_COLUMNS:
+            batch_op.drop_column(name)
+        for name in NEW_MOMENTUM_FLOAT_COLUMNS:
+            batch_op.add_column(sa.Column(name, sa.Float(), nullable=True))
+        batch_op.add_column(sa.Column("rank_3d", sa.Integer(), nullable=True))
+        batch_op.create_check_constraint(
+            "ck_etf_momentum_ranks_positive",
+            "rank_1d > 0 AND (rank_3d IS NULL OR rank_3d > 0) "
+            "AND rank_5d > 0 AND rank_10d > 0 AND rank_20d > 0",
+        )
+        batch_op.create_check_constraint(
+            "ck_etf_momentum_pct_ranks_range",
+            "pct_rank_1d BETWEEN 0 AND 100 "
+            "AND (pct_rank_3d IS NULL OR pct_rank_3d BETWEEN 0 AND 100) "
+            "AND pct_rank_5d BETWEEN 0 AND 100 "
+            "AND pct_rank_10d BETWEEN 0 AND 100 AND pct_rank_20d BETWEEN 0 AND 100",
+        )
 
-    for name in OLD_MARKET_COLUMNS:
-        op.drop_column("etf_market_rotation_snapshot", name)
-    for name in (
-        "positive_5d_breadth",
-        "above_ma10_breadth",
-        "benchmark_ret_5d",
-        "benchmark_ma10_ratio",
-        "benchmark_weighted_slope_10d",
-    ):
-        op.add_column("etf_market_rotation_snapshot", sa.Column(name, sa.Float(), nullable=True))
+    with op.batch_alter_table("etf_market_rotation_snapshot") as batch_op:
+        for name in OLD_MARKET_COLUMNS:
+            batch_op.drop_column(name)
+        for name in (
+            "positive_5d_breadth",
+            "above_ma10_breadth",
+            "benchmark_ret_5d",
+            "benchmark_ma10_ratio",
+            "benchmark_weighted_slope_10d",
+        ):
+            batch_op.add_column(sa.Column(name, sa.Float(), nullable=True))
 
 
 def downgrade() -> None:
-    for name in (
-        "positive_5d_breadth",
-        "above_ma10_breadth",
-        "benchmark_ret_5d",
-        "benchmark_ma10_ratio",
-        "benchmark_weighted_slope_10d",
-    ):
-        op.drop_column("etf_market_rotation_snapshot", name)
-    for name in OLD_MARKET_COLUMNS:
-        column_type = (
-            sa.Boolean()
-            if name in {"benchmark_above_ma20", "benchmark_above_ma60", "benchmark_ma20_above_ma60"}
-            else sa.Float()
-        )
-        op.add_column("etf_market_rotation_snapshot", sa.Column(name, column_type, nullable=True))
+    with op.batch_alter_table("etf_market_rotation_snapshot") as batch_op:
+        for name in (
+            "positive_5d_breadth",
+            "above_ma10_breadth",
+            "benchmark_ret_5d",
+            "benchmark_ma10_ratio",
+            "benchmark_weighted_slope_10d",
+        ):
+            batch_op.drop_column(name)
+        for name in OLD_MARKET_COLUMNS:
+            column_type = (
+                sa.Boolean()
+                if name in {"benchmark_above_ma20", "benchmark_above_ma60", "benchmark_ma20_above_ma60"}
+                else sa.Float()
+            )
+            batch_op.add_column(sa.Column(name, column_type, nullable=True))
 
-    op.drop_constraint("ck_etf_momentum_ranks_positive", "etf_momentum_snapshot", type_="check")
-    op.drop_constraint("ck_etf_momentum_pct_ranks_range", "etf_momentum_snapshot", type_="check")
-    op.drop_column("etf_momentum_snapshot", "rank_3d")
-    for name in reversed(NEW_MOMENTUM_FLOAT_COLUMNS):
-        op.drop_column("etf_momentum_snapshot", name)
-    for name in OLD_MOMENTUM_COLUMNS:
-        column_type = sa.Integer() if name.startswith("rank_") else sa.Float()
-        op.add_column("etf_momentum_snapshot", sa.Column(name, column_type, nullable=True))
-    op.create_check_constraint(
-        "ck_etf_momentum_ranks_positive",
-        "etf_momentum_snapshot",
-        "rank_1d > 0 AND rank_5d > 0 AND rank_10d > 0 AND rank_20d > 0 "
-        "AND (rank_30d IS NULL OR rank_30d > 0) AND (rank_60d IS NULL OR rank_60d > 0)",
-    )
-    op.create_check_constraint(
-        "ck_etf_momentum_pct_ranks_range",
-        "etf_momentum_snapshot",
-        "pct_rank_1d BETWEEN 0 AND 100 AND pct_rank_5d BETWEEN 0 AND 100 "
-        "AND pct_rank_10d BETWEEN 0 AND 100 AND pct_rank_20d BETWEEN 0 AND 100",
-    )
+    with op.batch_alter_table("etf_momentum_snapshot") as batch_op:
+        batch_op.drop_constraint("ck_etf_momentum_ranks_positive", type_="check")
+        batch_op.drop_constraint("ck_etf_momentum_pct_ranks_range", type_="check")
+        batch_op.drop_column("rank_3d")
+        for name in reversed(NEW_MOMENTUM_FLOAT_COLUMNS):
+            batch_op.drop_column(name)
+        for name in OLD_MOMENTUM_COLUMNS:
+            column_type = sa.Integer() if name.startswith("rank_") else sa.Float()
+            batch_op.add_column(sa.Column(name, column_type, nullable=True))
+        batch_op.create_check_constraint(
+            "ck_etf_momentum_ranks_positive",
+            "rank_1d > 0 AND rank_5d > 0 AND rank_10d > 0 AND rank_20d > 0 "
+            "AND (rank_30d IS NULL OR rank_30d > 0) AND (rank_60d IS NULL OR rank_60d > 0)",
+        )
+        batch_op.create_check_constraint(
+            "ck_etf_momentum_pct_ranks_range",
+            "pct_rank_1d BETWEEN 0 AND 100 AND pct_rank_5d BETWEEN 0 AND 100 "
+            "AND pct_rank_10d BETWEEN 0 AND 100 AND pct_rank_20d BETWEEN 0 AND 100",
+        )

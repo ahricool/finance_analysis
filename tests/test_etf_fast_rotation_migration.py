@@ -49,7 +49,7 @@ def test_fast_rotation_migration_follows_current_head_and_drops_slow_fields() ->
         Path(PROJECT_ROOT) / "alembic" / "versions" / "0035_etf_fast_rotation.py"
     ).read_text(encoding="utf-8")
     assert 'down_revision: Union[str, Sequence[str], None] = "0034_trend_execution_context"' in source
-    assert '"ret_30d"' in source and 'op.drop_column("etf_momentum_snapshot", name)' in source
+    assert '"ret_30d"' in source and "batch_op.drop_column(name)" in source
     assert '"ret_3d"' in source and '"signed_efficiency_ratio_10d"' in source
 
 
