@@ -129,6 +129,16 @@ def test_ranking_uses_requested_trade_date(monkeypatch) -> None:
     assert candidates["trade_date"] == requested
 
 
+def test_ranking_serializes_absent_public_action_as_null(monkeypatch) -> None:
+    class NullActionRepository(FakeRepository):
+        def snapshots_by_date(self, trade_date, *, sort_by="composite_score"):
+            return [{**_snapshot(), "action": None, "is_candidate": False, "candidate_rank": None}]
+
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", NullActionRepository)
+    payload = asyncio.run(etf_rotation.ranking(None, "composite_score", None, SimpleNamespace(id=1)))
+    assert payload["items"][0]["action"] is None
+
+
 def test_dates_lists_available_snapshot_trade_dates(monkeypatch) -> None:
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", FakeRepository)
     payload = asyncio.run(etf_rotation.dates(SimpleNamespace(id=1)))

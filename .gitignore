@@ -81,3 +81,6 @@ verify_*.py
 
 # ignore static files
 static/
+
+# Runtime-generated ETF rotation research reports
+src/finance_analysis/etf_rotation/backtest/report/

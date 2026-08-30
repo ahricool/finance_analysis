@@ -81,6 +81,8 @@ def compute_entry_rankings(
         benchmark_features = (
             calculate_features(_as_daily_bars(benchmark_history[-80:]), config) if benchmark_history else None
         )
+        if benchmark_features is None and not config.allow_missing_relative_strength:
+            continue
         feature_rows: list[dict[str, Any]] = []
         for code, member in member_by_code.items():
             history = _bars_on_or_before(ordered.get(code, ()), trade_date)

@@ -30,6 +30,7 @@ from finance_analysis.market_review.trading_calendar import get_completed_tradin
 
 logger = logging.getLogger(__name__)
 
+
 class ETFRotationService:
     def __init__(self, market: str = "CN", repository: ETFRotationRepository | None = None, *,
                  config: ETFRotationConfig = DEFAULT_CONFIG, now: datetime | None = None) -> None:
@@ -45,6 +46,39 @@ class ETFRotationService:
 
     def resolve_trade_date(self, requested: date | None = None) -> date:
         return requested or get_completed_trading_days(self.market.lower(), 1, self.now)[-1]
+
+    def _incomplete_summary(
+        self,
+        *,
+        trade_date: date,
+        universe_size: int,
+        data_ready_count: int,
+        data_coverage: float,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        summary = {
+            "status": "incomplete",
+            "signal_status": "SIGNAL_UNAVAILABLE",
+            "market": self.market,
+            "trade_date": trade_date.isoformat(),
+            "universe_size": universe_size,
+            "data_ready_count": data_ready_count,
+            "data_coverage": data_coverage,
+            "rankable_count": 0,
+            "rankable_coverage": 0.0,
+            "snapshot_count": 0,
+            "candidate_count": 0,
+            "candidate_codes": [],
+            "regime": None,
+            "warnings": warnings,
+        }
+        logger.warning(
+            "market=%s job=etf_rotation_v2 trade_date=%s status=incomplete warnings=%s",
+            self.market,
+            trade_date,
+            warnings,
+        )
+        return summary
 
     def run(self, trade_date: date | None = None) -> dict[str, Any]:
         effective_date = self.resolve_trade_date(trade_date)
@@ -70,6 +104,14 @@ class ETFRotationService:
             warnings.append(warning)
         if not benchmark_ready:
             warnings.append(f"benchmark {benchmark_code} is missing on completed trading date {effective_date}")
+            if not self.config.allow_missing_relative_strength:
+                return self._incomplete_summary(
+                    trade_date=effective_date,
+                    universe_size=len(codes),
+                    data_ready_count=len(ready_codes),
+                    data_coverage=data_coverage,
+                    warnings=warnings,
+                )
 
         requested_codes = ready_codes | ({benchmark_code} if benchmark_ready else set())
         history_rows = self.repository.load_daily_history(requested_codes, effective_date)
@@ -88,6 +130,14 @@ class ETFRotationService:
         benchmark_ready = benchmark_features is not None and histories[benchmark_code][-1].trade_date == effective_date
         if not benchmark_ready and not any("benchmark" in item for item in warnings):
             warnings.append(f"benchmark {benchmark_code} has insufficient aligned history")
+        if not benchmark_ready and not self.config.allow_missing_relative_strength:
+            return self._incomplete_summary(
+                trade_date=effective_date,
+                universe_size=len(codes),
+                data_ready_count=len(ready_codes),
+                data_coverage=data_coverage,
+                warnings=warnings,
+            )
 
         feature_rows: list[dict[str, Any]] = []
         for code in sorted(ready_codes):
@@ -167,7 +217,12 @@ class ETFRotationService:
             {code: histories[code] for code in ready_codes}, self.config.correlation_window
         )
         candidate_codes = select_candidates(
-            ranked_composite, self.config, previous_candidate_codes=previous, regime=regime, correlations=correlations
+            ranked_composite,
+            self.config,
+            previous_candidate_codes=previous,
+            regime=regime,
+            correlations=correlations,
+            diagnostics=warnings,
         )
         selected = set(candidate_codes)
         candidate_rank = {code: index + 1 for index, code in enumerate(candidate_codes)}
@@ -175,7 +230,7 @@ class ETFRotationService:
             code = str(row["code"])
             row["is_candidate"] = code in selected
             row["candidate_rank"] = candidate_rank.get(code)
-            row["action"] = public_rotation_action(code, selected, previous)
+            row["action"] = public_rotation_action(row, selected, previous, self.config)
             known = [value for pair, value in correlations.items() if code in pair and value is not None]
             row["diagnostics"]["correlation"] = {
                 "window": self.config.correlation_window,

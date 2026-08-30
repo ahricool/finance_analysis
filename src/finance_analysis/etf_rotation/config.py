@@ -28,6 +28,7 @@ class ETFRotationConfig:
     risk_adjusted_window: int = 60
     relative_strength_windows: tuple[int, ...] = (20, 60)
     relative_strength_weights: dict[int, float] = field(default_factory=lambda: {20: 0.40, 60: 0.60})
+    relative_strength_score_ranges: dict[int, float] = field(default_factory=lambda: {20: 0.10, 60: 0.20})
     acceleration_weights: dict[str, float] = field(
         default_factory=lambda: {"trend_acceleration": 0.75, "momentum_acceleration": 0.25}
     )
@@ -48,11 +49,11 @@ class ETFRotationConfig:
         (0.10, -5.0),
         (0.05, -2.0),
     )
-    entry_rank: int = 5
-    hold_rank: int = 10
-    entry_score: float = 75.0
-    hold_score: float = 60.0
-    watch_score: float = 55.0
+    entry_rank_threshold: int = 5
+    hold_rank_threshold: int = 10
+    entry_score_threshold: float = 75.0
+    hold_composite_threshold: float = 60.0
+    watch_composite_threshold: float = 55.0
     absolute_trend_require_positive_slope: bool = True
     absolute_trend_min_secondary_conditions: int = 1
     minimum_liquidity: dict[str, float] = field(default_factory=lambda: {"CN": 50_000_000.0, "US": 5_000_000.0})
@@ -87,14 +88,18 @@ class ETFRotationConfig:
             raise ValueError("factor_weights must sum to 1")
         if not math.isclose(sum(self.relative_strength_weights.values()), 1.0, abs_tol=1e-9):
             raise ValueError("relative_strength_weights must sum to 1")
+        if set(self.relative_strength_score_ranges) != set(self.relative_strength_windows):
+            raise ValueError("relative_strength_score_ranges must define every relative strength window")
+        if any(value <= 0 for value in self.relative_strength_score_ranges.values()):
+            raise ValueError("relative_strength_score_ranges must be positive")
         if not math.isclose(sum(self.acceleration_weights.values()), 1.0, abs_tol=1e-9):
             raise ValueError("acceleration_weights must sum to 1")
         if not math.isclose(sum(self.risk_adjusted_weights.values()), 1.0, abs_tol=1e-9):
             raise ValueError("risk_adjusted_weights must sum to 1")
-        if self.entry_rank > self.hold_rank:
-            raise ValueError("entry_rank must be <= hold_rank")
-        if self.entry_score < self.hold_score:
-            raise ValueError("entry_score must be >= hold_score")
+        if self.entry_rank_threshold > self.hold_rank_threshold:
+            raise ValueError("entry_rank_threshold must be <= hold_rank_threshold")
+        if self.entry_score_threshold < self.hold_composite_threshold:
+            raise ValueError("entry_score_threshold must be >= hold_composite_threshold")
         if not 0 <= self.max_candidate_correlation <= 1:
             raise ValueError("max_candidate_correlation must be between 0 and 1")
         if min(self.regression_short_window, self.regression_long_window) <= 1:

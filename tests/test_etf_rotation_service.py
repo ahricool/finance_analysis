@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -26,6 +27,7 @@ class FakeRepository:
         ready_count: int | None = None,
         history_bars: int = 61,
         benchmark_ready: bool = True,
+        previous_candidates: set[str] | None = None,
     ):
         self.market = market
         self.codes = [member.code for member in enabled_etfs(market)]
@@ -33,9 +35,12 @@ class FakeRepository:
         self.ready_count = ready_count
         self.history_bars = history_bars
         self.benchmark_ready = benchmark_ready
+        self.previous_candidates = previous_candidates or set()
         self.saved: dict[tuple[str, str], dict] = {}
         self.coverage_codes: set[str] = set()
         self.market_snapshot = None
+        self.snapshot_write_calls = 0
+        self.market_write_calls = 0
 
     def latest_daily_dates(self, _codes):
         self.coverage_codes = set(_codes)
@@ -76,14 +81,16 @@ class FakeRepository:
         return {}
 
     def upsert_snapshots(self, snapshots):
+        self.snapshot_write_calls += 1
         for snapshot in snapshots:
             self.saved[(snapshot["trade_date"].isoformat(), snapshot["code"])] = dict(snapshot)
         return len(snapshots)
 
     def previous_candidate_codes(self, _trade_date):
-        return set()
+        return set(self.previous_candidates)
 
     def upsert_market_snapshot(self, snapshot):
+        self.market_write_calls += 1
         self.market_snapshot = dict(snapshot)
 
 
@@ -118,10 +125,45 @@ def test_historical_rerun_aligns_benchmark_and_never_uses_future_bars() -> None:
 def test_missing_benchmark_is_explicit_and_does_not_fabricate_relative_strength() -> None:
     repository = FakeRepository(benchmark_ready=False)
     result = ETFRotationService(repository=repository).run(TRADE_DATE)
+    assert result["status"] == "incomplete"
+    assert result["signal_status"] == "SIGNAL_UNAVAILABLE"
     assert any("benchmark" in warning for warning in result["warnings"])
     assert result["candidate_count"] == 0
     assert repository.market_snapshot is None
-    assert all(snapshot["rs_20d"] is None and snapshot["rs_60d"] is None for snapshot in repository.saved.values())
+    assert repository.saved == {}
+    assert repository.snapshot_write_calls == repository.market_write_calls == 0
+
+
+def test_missing_benchmark_with_previous_candidates_does_not_write_false_exits() -> None:
+    repository = FakeRepository(
+        benchmark_ready=False,
+        previous_candidates={"OLD_A", "OLD_B", "OLD_C"},
+    )
+    result = ETFRotationService(repository=repository).run(TRADE_DATE)
+    assert result["status"] == "incomplete"
+    assert result["candidate_count"] == 0
+    assert repository.saved == {}
+    assert repository.snapshot_write_calls == repository.market_write_calls == 0
+
+
+def test_same_date_rerun_with_missing_benchmark_preserves_complete_snapshots() -> None:
+    repository = FakeRepository()
+    service = ETFRotationService(repository=repository)
+    completed = service.run(TRADE_DATE)
+    saved_before = {key: dict(value) for key, value in repository.saved.items()}
+    market_before = dict(repository.market_snapshot)
+    snapshot_write_calls = repository.snapshot_write_calls
+    market_write_calls = repository.market_write_calls
+
+    repository.benchmark_ready = False
+    incomplete = service.run(TRADE_DATE)
+
+    assert completed["status"] == "completed"
+    assert incomplete["status"] == "incomplete"
+    assert repository.saved == saved_before
+    assert repository.market_snapshot == market_before
+    assert repository.snapshot_write_calls == snapshot_write_calls
+    assert repository.market_write_calls == market_write_calls
 
 
 def test_cn_and_us_services_use_identical_stop_loss_calculation() -> None:
@@ -154,7 +196,10 @@ def test_service_refuses_insufficient_daily_coverage_without_writes() -> None:
 def test_service_refuses_insufficient_rankable_coverage_without_writes() -> None:
     repository = FakeRepository(history_bars=60)
     with pytest.raises(ETFRotationReadinessError, match="rankable"):
-        ETFRotationService(repository=repository).run(TRADE_DATE)
+        ETFRotationService(
+            repository=repository,
+            config=replace(DEFAULT_CONFIG, allow_missing_relative_strength=True),
+        ).run(TRADE_DATE)
     assert repository.saved == {}
 
 

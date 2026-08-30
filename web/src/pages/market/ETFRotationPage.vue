@@ -150,6 +150,13 @@ onMounted(() => void load(true));
       :error="error"
     />
     <div
+      v-if="summary.warnings.length"
+      class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+      role="alert"
+    >
+      {{ summary.warnings.join('；') }}
+    </div>
+    <div
       v-if="loading"
       class="grid gap-3 sm:grid-cols-4"
     >

@@ -283,4 +283,19 @@ describe('ETFRotationPage', () => {
     expect(document.body.textContent).toContain('RS60');
     expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN');
   });
+
+  it('renders nullable actions and snapshot warnings without treating them as signals', async () => {
+    const item = snapshot({ action: null, isCandidate: false, candidateRank: null, state: 'WEAK' });
+    apiMocks.ranking.mockResolvedValueOnce({
+      ...rankingPayload('CN', '2026-08-25', item),
+      warnings: ['benchmark 510300.SH missing; latest valid snapshot retained'],
+    });
+    apiMocks.candidates.mockResolvedValueOnce({ market: 'CN', tradeDate: '2026-08-25', items: [] });
+
+    const wrapper = mount(ETFRotationPage);
+    await flushPromises();
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('benchmark 510300.SH missing');
+    expect(wrapper.text()).not.toContain('WATCH');
+  });
 });

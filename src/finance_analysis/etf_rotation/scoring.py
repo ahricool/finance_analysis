@@ -22,12 +22,24 @@ def _weighted(values: list[tuple[float | None, float]]) -> float | None:
     return max(0.0, min(100.0, sum(float(value) * weight for value, weight in values if value is not None)))
 
 
+def map_relative_strength_score(value: float | None, score_range: float) -> float | None:
+    """Map absolute excess return to 0..100, with benchmark parity at 50."""
+    if value is None:
+        return None
+    return max(0.0, min(100.0, 50.0 + 50.0 * float(value) / score_range))
+
+
 def calculate_factor_scores(
     row: Mapping[str, Any], config: ETFRotationConfig = DEFAULT_CONFIG
 ) -> dict[str, float | None]:
     momentum = calculate_momentum_score(row, config)
     relative = _weighted([
-        (row.get(f"pct_rank_rs_{window}d"), weight)
+        (
+            map_relative_strength_score(
+                row.get(f"rs_{window}d"), config.relative_strength_score_ranges[window]
+            ),
+            weight,
+        )
         for window, weight in config.relative_strength_weights.items()
     ])
     acceleration = _weighted([
@@ -96,5 +108,9 @@ def calculate_entry_score(
 
 
 __all__ = [
-    "calculate_entry_score", "calculate_factor_scores", "calculate_momentum_score", "ma20_overextension_penalty"
+    "calculate_entry_score",
+    "calculate_factor_scores",
+    "calculate_momentum_score",
+    "ma20_overextension_penalty",
+    "map_relative_strength_score",
 ]

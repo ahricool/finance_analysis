@@ -100,7 +100,7 @@ async def ranking(
 @router.get("/candidates")
 async def candidates(
     trade_date: date | None = None,
-    limit: int = Query(default=DEFAULT_CONFIG.hold_rank, ge=1, le=40),
+    limit: int = Query(default=DEFAULT_CONFIG.hold_rank_threshold, ge=1, le=40),
     _: User = Depends(require_current_user),
     market: Market = "CN",
 ):

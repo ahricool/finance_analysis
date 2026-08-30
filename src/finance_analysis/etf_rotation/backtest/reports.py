@@ -1,4 +1,4 @@
-"""CSV report writers under ``etf_rotation/backtest/report``."""
+"""CSV report writers under the configured runtime data directory."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from finance_analysis.core.paths import get_report_dir
 from finance_analysis.etf_rotation.backtest.types import StrategyResult
 
-PACKAGE_DIR = Path(__file__).resolve().parent
-DEFAULT_REPORT_DIR = PACKAGE_DIR / "report"
+DEFAULT_REPORT_DIR = get_report_dir() / "etf_rotation_backtest"
 
 COMPARISON_FIELDS = (
     "market",
