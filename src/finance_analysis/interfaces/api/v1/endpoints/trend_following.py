@@ -117,8 +117,12 @@ async def detail(
     repository = TrendFollowingRepository(market)
     resolved = _resolve_date(repository, trade_date)
     history = repository.snapshot_history(canonical, limit=limit, as_of=resolved)
-    if not history:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Trend Following snapshot is not available")
+    summary = repository.summary_by_date(resolved)
+    if not history or history[0]["trade_date"] != resolved or summary is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Trend Following snapshot not found for {canonical} on {resolved}",
+        )
     metadata = {**member.to_dict(), "name": history[0].get("name") or member.name}
     return jsonable_encoder({
         "market": market,
@@ -126,7 +130,7 @@ async def detail(
         "metadata": metadata,
         "latest": history[0],
         "history": history,
-        "market_context": repository.summary_by_date(resolved),
+        "market_context": summary,
     })
 
 

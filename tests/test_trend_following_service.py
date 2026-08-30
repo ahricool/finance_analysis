@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
+from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
 from finance_analysis.core.paths import PROJECT_ROOT
 from finance_analysis.trend_following.models import UniverseMember
 from finance_analysis.trend_following.service import TrendFollowingService
@@ -69,6 +71,12 @@ class FakeRepository:
     def upsert_summary(self, summary):
         self.summary = summary
 
+    def replace_day(self, trade_date, snapshots, summary):
+        self.snapshots = snapshots
+        self.summary = summary
+        self.upserted_dates.append(trade_date)
+        return len(snapshots)
+
 
 def test_service_reads_repository_only_and_persists_point_in_time(monkeypatch):
     repository = FakeRepository()
@@ -123,12 +131,7 @@ class RebuildRepository(FakeRepository):
 
     def daily_dates_between(self, code, start, end):
         assert code == "SPY.US"
-        current = start
-        dates = []
-        while current <= end:
-            dates.append(current)
-            current += timedelta(days=1)
-        return dates
+        return [start, end]
 
     def snapshot_dates_between(self, start, end):
         return [start, date(2026, 8, 29), self.future]
@@ -141,10 +144,10 @@ class RebuildRepository(FakeRepository):
             if payload["trade_date"] < trade_date
         }
 
-    def upsert_snapshots(self, snapshots):
+    def replace_day(self, trade_date, snapshots, summary):
         for item in snapshots:
             self.states[item["code"]] = item
-        return super().upsert_snapshots(snapshots)
+        return super().replace_day(trade_date, snapshots, summary)
 
 
 def test_historical_rerun_rebuilds_future_dates_in_order(monkeypatch):
@@ -154,9 +157,9 @@ def test_historical_rerun_rebuilds_future_dates_in_order(monkeypatch):
         lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
     )
     result = TrendFollowingService("US", repository).run(TRADE_DATE)
-    assert result["rebuild_count"] == 4
+    assert result["rebuild_count"] == 2
     assert repository.upserted_dates == [
-        TRADE_DATE, date(2026, 8, 29), date(2026, 8, 30), date(2026, 8, 31),
+        TRADE_DATE, date(2026, 8, 31),
     ]
     assert [item[0] for item in repository.previous_calls] == repository.upserted_dates
     assert all(call[0] <= TRADE_DATE or True for call in repository.previous_calls)
@@ -181,3 +184,95 @@ def test_signal_day_snapshots_do_not_assume_same_day_fill(monkeypatch):
             assert item["signal_date"] == TRADE_DATE
         if item["action"] == "ENTRY":
             raise AssertionError("signal day must not produce a same-session ENTRY")
+
+
+class LatestRecoveryRepository(FakeRepository):
+    def __init__(self, *, incomplete_date=None):
+        super().__init__()
+        self.snapshot_date = TRADE_DATE
+        self.raw_date = TRADE_DATE + timedelta(days=3)
+        self.incomplete_date = incomplete_date
+
+    def latest_daily_date(self, code):
+        assert code == "SPY.US"
+        return self.raw_date
+
+    def latest_snapshot_date(self):
+        return self.snapshot_date
+
+    def daily_dates_between(self, code, start, end):
+        assert code == "SPY.US"
+        return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
+
+    def daily_codes_on_date(self, codes, trade_date):
+        if "SPY.US" in codes and trade_date == self.incomplete_date:
+            return set()
+        return set(codes)
+
+
+def test_run_latest_recovers_missing_benchmark_trading_dates_in_order(monkeypatch):
+    repository = LatestRecoveryRepository()
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
+    )
+    result = TrendFollowingService("US", repository).run(None)
+    assert result["rebuild_status"] == "completed"
+    assert repository.upserted_dates == [
+        TRADE_DATE + timedelta(days=1),
+        TRADE_DATE + timedelta(days=2),
+        TRADE_DATE + timedelta(days=3),
+    ]
+
+
+def test_rebuild_stops_immediately_when_an_intermediate_date_is_incomplete(monkeypatch):
+    stopped_at = TRADE_DATE + timedelta(days=2)
+    repository = LatestRecoveryRepository(incomplete_date=stopped_at)
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
+    )
+    result = TrendFollowingService("US", repository).run(None)
+    assert result["status"] == "incomplete"
+    assert result["rebuild_status"] == "stopped"
+    assert result["rebuild_stopped_at"] == stopped_at.isoformat()
+    assert repository.upserted_dates == [TRADE_DATE + timedelta(days=1)]
+
+
+class MissingActiveRepository(FakeRepository):
+    def daily_codes_on_date(self, codes, trade_date):
+        if "SPY.US" in codes:
+            return {"SPY.US"}
+        return {"BBB.US"}
+
+    def previous_snapshots(self, trade_date, codes):
+        return {
+            "AAA.US": {
+                "market": "US", "trade_date": trade_date - timedelta(days=1), "code": "AAA.US",
+                "universe_key": "us_sp500", "market_regime": "RISK_ON", "market_score": 80.0,
+                "rank": 1, "trend_score": 80.0, "rs_score": 80.0, "breakout_score": 80.0,
+                "alpha_score": 90.0, "features": {}, "score_breakdown": {}, "setup": "BREAKOUT_20D",
+                "state": "HOLDING", "action": "HOLD", "reference_price": 110.0, "atr": 2.0,
+                "entry_price": 100.0, "last_add_price": 100.0, "highest_close": 110.0,
+                "initial_stop": 96.0, "trailing_stop": 105.0, "next_add_price": 111.0,
+                "exit_level": 105.0, "units": 1, "opened_at": trade_date - timedelta(days=5),
+                "suggested_initial_weight": 0.1, "suggested_max_weight": 0.1,
+                "reasons": ["holding"], "intraday_confirmation": "UNAVAILABLE",
+            }
+        }
+
+
+def test_missing_active_code_is_carried_forward_without_changing_risk(monkeypatch):
+    repository = MissingActiveRepository()
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
+    )
+    config = replace(DEFAULT_CONFIG, minimum_data_coverage=0.5)
+    result = TrendFollowingService("US", repository, config=config).run(TRADE_DATE)
+    assert result["status"] == "completed"
+    carried = next(item for item in repository.snapshots if item["code"] == "AAA.US")
+    assert (carried["state"], carried["action"], carried["units"]) == ("HOLDING", "HOLD", 1)
+    assert carried["initial_stop"] == 96.0
+    assert carried["trailing_stop"] == 105.0
+    assert "carried forward" in carried["reasons"][-1]

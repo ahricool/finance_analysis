@@ -46,6 +46,8 @@ class StrategyDecision:
     reasons: list[str]
     signal_date: date | None = None
     signal_price: float | None = None
+    pending_action: str | None = None
+    pending_since: date | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()

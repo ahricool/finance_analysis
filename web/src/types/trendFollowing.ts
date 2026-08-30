@@ -1,7 +1,7 @@
 export type TrendMarket = 'CN' | 'US';
 export type TrendRegime = 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF';
 export type TrendState = 'IDLE' | 'WATCHING' | 'CANDIDATE' | 'ENTRY' | 'PYRAMIDING' | 'HOLDING' | 'WEAKENING' | 'REDUCE' | 'EXIT';
-export type TrendAction = 'WATCH' | 'PENDING_ENTRY' | 'ENTRY' | 'ADD' | 'HOLD' | 'STOP_ADD' | 'REDUCE' | 'EXIT' | 'EXPOSURE_BLOCKED';
+export type TrendAction = 'WATCH' | 'PENDING_ENTRY' | 'PENDING_ADD' | 'PENDING_REDUCE' | 'PENDING_EXIT' | 'ENTRY' | 'ADD' | 'HOLD' | 'STOP_ADD' | 'REDUCE' | 'EXIT' | 'EXPOSURE_BLOCKED';
 
 export interface TrendFeatures {
   ma10: number;
@@ -54,6 +54,8 @@ export interface TrendSnapshot {
   entryPrice: number | null;
   signalDate: string | null;
   signalPrice: number | null;
+  pendingAction: 'ENTRY' | 'ADD' | 'REDUCE' | 'EXIT' | null;
+  pendingSince: string | null;
   openedAt: string | null;
   lastAddPrice: number | null;
   highestClose: number | null;
