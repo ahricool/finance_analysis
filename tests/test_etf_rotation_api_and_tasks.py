@@ -214,7 +214,7 @@ def test_scheduler_definition_and_task_registration() -> None:
     assert build_beat_schedule()[JOB_ETF_ROTATION_CN]["options"]["queue"] == "analysis"
     us_definition = require_scheduled_task_definition(JOB_ETF_ROTATION_US)
     assert us_definition.celery_task_name == "scheduled.etf_rotation_us"
-    assert us_definition.schedule_text == "周一至周五 18:40 America/New_York"
+    assert us_definition.schedule_text == "周一至周五 21:00 America/New_York"
     assert build_beat_schedule()[JOB_ETF_ROTATION_US]["options"]["queue"] == "analysis"
     assert "finance_analysis.tasks.celery.jobs.etf_rotation.tasks" in TASK_MODULES
 
