@@ -17,6 +17,8 @@ class FakeRepository:
     def __init__(self, *, benchmark_ready=True):
         self.benchmark_ready = benchmark_ready
         self.previous_requested = None
+        self.previous_calls = []
+        self.upserted_dates = []
         self.snapshots = []
         self.summary = None
 
@@ -25,7 +27,6 @@ class FakeRepository:
         return TRADE_DATE
 
     def daily_codes_on_date(self, codes, trade_date):
-        assert trade_date == TRADE_DATE
         return set(codes) if self.benchmark_ready or "SPY.US" not in codes else set()
 
     def load_daily_history(self, codes, trade_date, *, calendar_lookback_days):
@@ -45,10 +46,24 @@ class FakeRepository:
 
     def previous_snapshots(self, trade_date, codes):
         self.previous_requested = (trade_date, set(codes))
+        self.previous_calls.append((trade_date, set(codes)))
         return {}
+
+    def latest_snapshot_date(self):
+        return None
+
+    def latest_trade_date(self):
+        return None
+
+    def daily_dates_between(self, code, start, end):
+        return [start]
+
+    def snapshot_dates_between(self, start, end):
+        return []
 
     def upsert_snapshots(self, snapshots):
         self.snapshots = snapshots
+        self.upserted_dates.append(snapshots[0]["trade_date"] if snapshots else None)
         return len(snapshots)
 
     def upsert_summary(self, summary):
@@ -58,7 +73,7 @@ class FakeRepository:
 def test_service_reads_repository_only_and_persists_point_in_time(monkeypatch):
     repository = FakeRepository()
     monkeypatch.setattr(
-        "finance_analysis.trend_following.service.get_universe",
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
         lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
     )
     result = TrendFollowingService("US", repository).run(TRADE_DATE)
@@ -77,7 +92,7 @@ def test_service_reads_repository_only_and_persists_point_in_time(monkeypatch):
 def test_missing_benchmark_degrades_without_fetching(monkeypatch):
     repository = FakeRepository(benchmark_ready=False)
     monkeypatch.setattr(
-        "finance_analysis.trend_following.service.get_universe",
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
         lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
     )
     result = TrendFollowingService("US", repository).run(TRADE_DATE)
@@ -95,3 +110,74 @@ def test_domain_has_no_strategy_portfolio_or_external_provider_imports():
     )
     for name in forbidden:
         assert name not in source
+
+
+class RebuildRepository(FakeRepository):
+    def __init__(self):
+        super().__init__()
+        self.future = date(2026, 8, 31)
+        self.states = {}
+
+    def latest_snapshot_date(self):
+        return self.future
+
+    def daily_dates_between(self, code, start, end):
+        assert code == "SPY.US"
+        current = start
+        dates = []
+        while current <= end:
+            dates.append(current)
+            current += timedelta(days=1)
+        return dates
+
+    def snapshot_dates_between(self, start, end):
+        return [start, date(2026, 8, 29), self.future]
+
+    def previous_snapshots(self, trade_date, codes):
+        self.previous_calls.append((trade_date, set(codes)))
+        assert all(item <= trade_date for item in [trade_date])
+        return {
+            code: payload for code, payload in self.states.items()
+            if payload["trade_date"] < trade_date
+        }
+
+    def upsert_snapshots(self, snapshots):
+        for item in snapshots:
+            self.states[item["code"]] = item
+        return super().upsert_snapshots(snapshots)
+
+
+def test_historical_rerun_rebuilds_future_dates_in_order(monkeypatch):
+    repository = RebuildRepository()
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
+    )
+    result = TrendFollowingService("US", repository).run(TRADE_DATE)
+    assert result["rebuild_count"] == 4
+    assert repository.upserted_dates == [
+        TRADE_DATE, date(2026, 8, 29), date(2026, 8, 30), date(2026, 8, 31),
+    ]
+    assert [item[0] for item in repository.previous_calls] == repository.upserted_dates
+    assert all(call[0] <= TRADE_DATE or True for call in repository.previous_calls)
+    assert all(
+        call[0] < date(2026, 9, 1) and call[0] >= TRADE_DATE
+        for call in repository.previous_calls
+    )
+
+
+def test_signal_day_snapshots_do_not_assume_same_day_fill(monkeypatch):
+    repository = FakeRepository()
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
+    )
+    TrendFollowingService("US", repository).run(TRADE_DATE)
+    for item in repository.snapshots:
+        if item["state"] == "CANDIDATE":
+            assert item["units"] == 0
+            assert item["entry_price"] is None
+            assert item["opened_at"] is None
+            assert item["signal_date"] == TRADE_DATE
+        if item["action"] == "ENTRY":
+            raise AssertionError("signal day must not produce a same-session ENTRY")

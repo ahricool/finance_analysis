@@ -8,9 +8,20 @@ from datetime import date
 
 import numpy as np
 
-from finance_analysis.trend_following.config import DEFAULT_CONFIG, TrendFollowingConfig
-from finance_analysis.trend_following.models import DailyBar
-from finance_analysis.trend_following.scoring import clamp
+from .config import DEFAULT_CONFIG, TrendFollowingConfig
+from .models import DailyBar
+from .scoring import clamp
+
+
+def realized_volatility_20d(closes: np.ndarray) -> float:
+    """Annualize sample volatility from exactly 20 daily returns (21 closes)."""
+    recent = np.asarray(closes[-21:], dtype=float)
+    if len(recent) < 21:
+        raise ValueError("realized volatility requires 21 closes")
+    daily_returns = recent[1:] / recent[:-1] - 1.0
+    if len(daily_returns) != 20:
+        raise ValueError("realized volatility must use exactly 20 daily returns")
+    return float(np.std(daily_returns, ddof=1) * math.sqrt(252.0))
 
 
 def calculate_market_regime(
@@ -31,8 +42,7 @@ def calculate_market_regime(
     ma60 = float(np.mean(closes[-60:]))
     return_20d = float(closes[-1] / closes[-21] - 1.0)
     return_60d = float(closes[-1] / closes[-61] - 1.0)
-    daily_returns = closes[-21:] / closes[-22:-1] - 1.0
-    realized_volatility_20d = float(np.std(daily_returns, ddof=1) * math.sqrt(252.0))
+    realized_vol = realized_volatility_20d(closes)
     peaks = np.maximum.accumulate(closes[-60:])
     max_drawdown_60d = float(np.min(closes[-60:] / peaks - 1.0))
 
@@ -70,7 +80,7 @@ def calculate_market_regime(
         clamp(50.0 + (high20 - low20) / divisor * 200.0),
     ])
     risk_score = np.mean([
-        clamp(100.0 - realized_volatility_20d * 180.0),
+        clamp(100.0 - realized_vol * 180.0),
         clamp(100.0 + max_drawdown_60d * 300.0),
     ])
     components = {"trend": float(trend_score), "breadth": float(breadth_score), "risk": float(risk_score)}
@@ -93,7 +103,7 @@ def calculate_market_regime(
             "benchmark_vs_ma60": benchmark_close / ma60 - 1.0,
             "benchmark_return_20d": return_20d,
             "benchmark_return_60d": return_60d,
-            "realized_volatility_20d": realized_volatility_20d,
+            "realized_volatility_20d": realized_vol,
             "max_drawdown_60d": max_drawdown_60d,
             **breadth,
             "breadth_ready_count": ready,
@@ -102,4 +112,4 @@ def calculate_market_regime(
     }
 
 
-__all__ = ["calculate_market_regime"]
+__all__ = ["calculate_market_regime", "realized_volatility_20d"]

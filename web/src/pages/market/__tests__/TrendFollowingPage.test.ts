@@ -20,7 +20,8 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
     name: market === 'CN' ? '平安银行' : 'Apple', universeKey: market === 'CN' ? 'cn_csi300_csi500' : 'us_sp500',
     marketRegime: 'RISK_ON', marketScore: 82, rank: 1, trendScore: 80, rsScore: 78,
     breakoutScore: 76, alphaScore: 79, setup: 'BREAKOUT_55D', state: 'ENTRY', action: 'ENTRY',
-    referencePrice: 110, atr: 2, entryPrice: 110, initialStop: 106, trailingStop: 105,
+    referencePrice: 110, atr: 2, signalDate: '2026-08-27', signalPrice: 108, openedAt: '2026-08-28',
+    lastAddPrice: 110, highestClose: 110, entryPrice: 110, initialStop: 106, trailingStop: 105,
     nextAddPrice: 111, exitLevel: 106, units: 1, suggestedInitialWeight: 0.1,
     suggestedMaxWeight: 0.1, reasons: ['candidate thresholds passed'], intradayConfirmation: 'UNAVAILABLE',
     scoreBreakdown: { trend: { weightedR2: 90 } }, generatedAt: '2026-08-28T12:00:00Z',
@@ -85,10 +86,20 @@ describe('TrendFollowingPage', () => {
     await flushPromises();
     (document.body.querySelector('[data-testid="trend-candidate"]') as HTMLElement).click();
     await flushPromises();
-    expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN');
+    expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28');
     expect(document.body.textContent).toContain('Alpha Score Breakdown');
     expect(document.body.textContent).toContain('理论风险权重');
+    expect(document.body.textContent).toContain('Signal Date / Price');
+    expect(document.body.textContent).toContain('Entry Date / Price');
     expect(document.body.querySelector('[data-testid="trend-history"]')).not.toBeNull();
+  });
+
+  it('runs latest data without sending the selected snapshot date', async () => {
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    await wrapper.get('[data-testid="trend-run-latest"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.run).toHaveBeenCalledWith('CN');
   });
 
   it('renders empty and error states', async () => {

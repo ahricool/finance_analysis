@@ -116,6 +116,7 @@ def calculate_features(bars: Sequence[DailyBar], minimum_bars: int = 61) -> dict
     elif breakout_20:
         setup = "BREAKOUT_20D"
     return {
+        "open": float(ordered[-1].open),
         "reference_price": float(closes[-1]),
         "ma10": ma10,
         "ma20": ma20,

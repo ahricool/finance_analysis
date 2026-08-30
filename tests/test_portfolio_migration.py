@@ -101,7 +101,7 @@ def test_empty_database_upgrade_creates_current_schema_and_stamps_head() -> None
 
     with engine.connect() as connection:
         tables = set(inspect(connection).get_table_names())
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0031_trend_following"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0032_trend_following_signal"
         assert {
             "portfolio_account",
             "account_cash_balance",
@@ -127,7 +127,7 @@ def test_upgrade_from_previous_head_seeds_users_and_discards_legacy_rows() -> No
     _upgrade_with_repository_alembic(engine)
 
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0031_trend_following"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0032_trend_following_signal"
         assert connection.scalar(text("SELECT COUNT(*) FROM portfolio_account")) == 6
         assert connection.scalar(text("SELECT COUNT(*) FROM account_cash_balance")) == 6
         assert "stock_list" not in inspect(connection).get_table_names()

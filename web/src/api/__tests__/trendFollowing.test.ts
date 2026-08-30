@@ -24,15 +24,21 @@ describe('trendFollowingApi', () => {
     vi.mocked(apiClient.post).mockResolvedValue({ data: { task_id: 'task-1', status: 'pending', market: 'CN' } });
     await trendFollowingApi.dates('CN');
     await trendFollowingApi.candidates('CN', '2026-08-28');
-    await trendFollowingApi.detail('000001.SZ', 'CN', 60);
+    await trendFollowingApi.detail('000001.SZ', 'CN', 60, '2026-06-01');
     const result = await trendFollowingApi.run('CN', '2026-08-28');
+    await trendFollowingApi.run('CN');
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/dates', { params: { market: 'CN' } });
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/candidates', {
       params: { market: 'CN', trade_date: '2026-08-28' },
     });
-    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/000001.SZ', { params: { market: 'CN', limit: 60 } });
+    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/000001.SZ', {
+      params: { market: 'CN', limit: 60, trade_date: '2026-06-01' },
+    });
     expect(apiClient.post).toHaveBeenCalledWith('/api/v1/trend-following/run', {
       market: 'CN', trade_date: '2026-08-28',
+    });
+    expect(apiClient.post).toHaveBeenCalledWith('/api/v1/trend-following/run', {
+      market: 'CN', trade_date: null,
     });
     expect(result.taskId).toBe('task-1');
   });

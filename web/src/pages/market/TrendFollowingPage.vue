@@ -73,14 +73,15 @@ function stateText(state: TrendState) {
     HOLDING: '继续持有', WEAKENING: '趋势弱化', REDUCE: '建议减仓', EXIT: '退出' })[state];
 }
 function actionText(action: TrendAction) {
-  return ({ WATCH: '观察', ENTRY: '建议入场', ADD: '允许加仓', HOLD: '继续持有', STOP_ADD: '停止加仓',
-    REDUCE: '建议减仓', EXIT: '退出' })[action];
+  return ({ WATCH: '观察', PENDING_ENTRY: '等待入场', ENTRY: '建议入场', ADD: '允许加仓', HOLD: '继续持有',
+    STOP_ADD: '停止加仓', REDUCE: '建议减仓', EXIT: '退出', EXPOSURE_BLOCKED: '敞口已满' })[action];
 }
 function badgeVariant(value: TrendState | TrendAction | string): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
   if (['ENTRY', 'ADD', 'PYRAMIDING', 'RISK_ON'].includes(value)) return 'success';
   if (['EXIT', 'REDUCE', 'RISK_OFF'].includes(value)) return 'destructive';
-  if (['WEAKENING', 'STOP_ADD', 'NEUTRAL'].includes(value)) return 'warning';
+  if (['WEAKENING', 'STOP_ADD', 'NEUTRAL', 'EXPOSURE_BLOCKED'].includes(value)) return 'warning';
   if (['HOLD', 'HOLDING'].includes(value)) return 'default';
+  if (['CANDIDATE', 'PENDING_ENTRY'].includes(value)) return 'info';
   return 'outline';
 }
 async function load(refreshDates = false) {
@@ -110,10 +111,10 @@ async function load(refreshDates = false) {
     if (current === generation) loading.value = false;
   }
 }
-async function runStrategy() {
+async function runLatest() {
   running.value = true;
   try {
-    const result = await trendFollowingApi.run(market.value, selectedDate.value || undefined);
+    const result = await trendFollowingApi.run(market.value);
     toast.success(`趋势跟踪任务已提交：${result.taskId}`);
   } catch (reason) {
     error.value = getParsedApiError(reason);
@@ -127,7 +128,12 @@ async function openDetail(item: TrendSnapshot) {
   detailError.value = null;
   detail.value = null;
   try {
-    detail.value = await trendFollowingApi.detail(item.code, market.value);
+    detail.value = await trendFollowingApi.detail(
+      item.code,
+      market.value,
+      60,
+      selectedDate.value || item.tradeDate,
+    );
   } catch (reason) {
     detailError.value = getParsedApiError(reason);
   } finally {
@@ -194,9 +200,10 @@ onMounted(() => void load(true));
           size="sm"
           :loading="running"
           loading-text="提交中…"
-          @click="runStrategy"
+          data-testid="trend-run-latest"
+          @click="runLatest"
         >
-          手动运行
+          运行最新数据
         </LoadingButton>
       </div>
     </header>
@@ -311,13 +318,14 @@ onMounted(() => void load(true));
           v-else
           class="w-full"
         >
-          <Table class="min-w-[1800px]">
+          <Table class="min-w-[2100px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Rank</TableHead><TableHead>股票</TableHead><TableHead>State</TableHead><TableHead>Action</TableHead>
                 <TableHead>Alpha</TableHead><TableHead>Trend</TableHead><TableHead>RS</TableHead><TableHead>Breakout</TableHead>
                 <TableHead>Setup</TableHead><TableHead>20D Return</TableHead><TableHead>60D Return</TableHead><TableHead>ATR</TableHead>
-                <TableHead>Reference</TableHead><TableHead>Entry</TableHead><TableHead>Stop</TableHead><TableHead>Next Add</TableHead>
+                <TableHead>Reference</TableHead><TableHead>Signal Date</TableHead><TableHead>Signal Price</TableHead>
+                <TableHead>Entry Date</TableHead><TableHead>Entry Price</TableHead><TableHead>Stop</TableHead><TableHead>Next Add</TableHead>
                 <TableHead>Exit Level</TableHead><TableHead>理论初始权重</TableHead><TableHead>Reasons</TableHead>
               </TableRow>
             </TableHeader>
@@ -345,7 +353,10 @@ onMounted(() => void load(true));
                 </TableCell><TableCell>{{ score(item.trendScore) }}</TableCell>
                 <TableCell>{{ score(item.rsScore) }}</TableCell><TableCell>{{ score(item.breakoutScore) }}</TableCell><TableCell>{{ item.setup }}</TableCell>
                 <TableCell>{{ pct(item.features.return20D) }}</TableCell><TableCell>{{ pct(item.features.return60D) }}</TableCell><TableCell>{{ price(item.atr) }}</TableCell>
-                <TableCell>{{ price(item.referencePrice) }}</TableCell><TableCell>{{ price(item.entryPrice) }}</TableCell><TableCell>{{ price(item.initialStop) }}</TableCell>
+                <TableCell>{{ price(item.referencePrice) }}</TableCell>
+                <TableCell>{{ item.signalDate || '—' }}</TableCell><TableCell>{{ price(item.signalPrice) }}</TableCell>
+                <TableCell>{{ item.openedAt || '—' }}</TableCell><TableCell>{{ price(item.entryPrice) }}</TableCell>
+                <TableCell>{{ price(item.initialStop) }}</TableCell>
                 <TableCell>{{ price(item.nextAddPrice) }}</TableCell><TableCell>{{ price(item.exitLevel) }}</TableCell><TableCell>{{ pct(item.suggestedInitialWeight) }}</TableCell>
                 <TableCell class="max-w-72 whitespace-normal">
                   {{ item.reasons.join('；') }}
@@ -418,7 +429,9 @@ onMounted(() => void load(true));
               Risk（理论策略 NAV）
             </h3><div class="grid grid-cols-2 gap-2 text-sm">
               <div>ATR<br><strong>{{ price(detail.latest.atr) }}</strong></div><div>Units<br><strong>{{ detail.latest.units }}</strong></div>
-              <div>Entry / Stop<br><strong>{{ price(detail.latest.entryPrice) }} / {{ price(detail.latest.initialStop) }}</strong></div><div>Trailing / Exit<br><strong>{{ price(detail.latest.trailingStop) }} / {{ price(detail.latest.exitLevel) }}</strong></div>
+              <div>Signal Date / Price<br><strong>{{ detail.latest.signalDate || '—' }} / {{ price(detail.latest.signalPrice) }}</strong></div>
+              <div>Entry Date / Price<br><strong>{{ detail.latest.openedAt || '—' }} / {{ price(detail.latest.entryPrice) }}</strong></div>
+              <div>Stop<br><strong>{{ price(detail.latest.initialStop) }}</strong></div><div>Trailing / Exit<br><strong>{{ price(detail.latest.trailingStop) }} / {{ price(detail.latest.exitLevel) }}</strong></div>
               <div>Next Add<br><strong>{{ price(detail.latest.nextAddPrice) }}</strong></div><div>理论风险权重<br><strong>{{ pct(detail.latest.suggestedInitialWeight) }}</strong></div>
             </div>
           </section>
