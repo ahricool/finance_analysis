@@ -26,16 +26,16 @@ export const trendFollowingApi = {
     const { data } = await apiClient.get('/api/v1/trend-following/dates', { params: { market } });
     return toCamelCase(data);
   },
-  async detail(code: string, market: TrendMarket, limit = 60): Promise<TrendDetailResponse> {
+  async detail(code: string, market: TrendMarket, limit = 60, tradeDate?: string): Promise<TrendDetailResponse> {
     const { data } = await apiClient.get(`/api/v1/trend-following/${encodeURIComponent(code)}`, {
-      params: { market, limit },
+      params: { market, limit, ...(tradeDate ? { trade_date: tradeDate } : {}) },
     });
     return toCamelCase(data);
   },
-  async run(market: TrendMarket, tradeDate?: string): Promise<TrendRunAccepted> {
+  async run(market: TrendMarket, tradeDate?: string | null): Promise<TrendRunAccepted> {
     const { data } = await apiClient.post('/api/v1/trend-following/run', {
       market,
-      trade_date: tradeDate || null,
+      trade_date: tradeDate ?? null,
     });
     return toCamelCase(data);
   },
