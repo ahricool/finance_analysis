@@ -178,28 +178,29 @@ def test_trailing_stop_never_moves_downward_when_atr_expands():
 
 
 def test_next_add_price_stays_fixed_until_add_and_ignores_atr_drift():
+    held = _previous(
+        next_add_price=111.0, last_add_price=100.0, trailing_stop=90.0,
+        highest_close=110.0, initial_stop=80.0,
+    )
     expanding = transition_state(
-        _row(reference_price=100.4, atr20=4.0),
-        _previous(next_add_price=101.0, last_add_price=100.0),
-        trade_date=TRADE_DATE, market_regime="RISK_ON",
+        _row(reference_price=110.4, atr20=4.0, previous_low_10=80.0),
+        held, trade_date=TRADE_DATE, market_regime="RISK_ON",
     )
     assert expanding.action == "HOLD"
-    assert expanding.next_add_price == 101.0
+    assert expanding.next_add_price == 111.0
     contracting = transition_state(
-        _row(reference_price=100.4, atr20=0.5),
-        _previous(next_add_price=101.0, last_add_price=100.0),
-        trade_date=TRADE_DATE, market_regime="RISK_ON",
+        _row(reference_price=110.4, atr20=0.5, previous_low_10=80.0),
+        held, trade_date=TRADE_DATE, market_regime="RISK_ON",
     )
     assert contracting.action == "HOLD"
-    assert contracting.next_add_price == 101.0
+    assert contracting.next_add_price == 111.0
     added = transition_state(
-        _row(reference_price=101.2, atr20=2.0),
-        _previous(next_add_price=101.0, last_add_price=100.0),
-        trade_date=TRADE_DATE, market_regime="RISK_ON",
+        _row(reference_price=111.2, atr20=2.0, previous_low_10=80.0),
+        held, trade_date=TRADE_DATE, market_regime="RISK_ON",
     )
     assert (added.state, added.action, added.units) == ("PYRAMIDING", "ADD", 2)
-    assert added.last_add_price == 101.0
-    assert added.next_add_price == next_add_price(101.0, 2.0)
+    assert added.last_add_price == 111.0
+    assert added.next_add_price == next_add_price(111.0, 2.0)
 
 
 def test_add_stop_add_reduce_and_exit_transitions():
