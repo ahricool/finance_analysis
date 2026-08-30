@@ -19,9 +19,9 @@ from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, comput
 
 EXPECTED_JOBS = {
     "analysis_daily": ("scheduled_daily", "Asia/Shanghai"),
-    "market_calendar": ("scheduled_market_calendar", "Asia/Shanghai"),
-    "analysis_us_premarket_news": ("scheduled_us_premarket_news", "Asia/Shanghai"),
-    "analysis_us_premarket": ("scheduled_us_premarket", "Asia/Shanghai"),
+    "market_calendar": ("scheduled_market_calendar", "America/New_York"),
+    "analysis_us_premarket_news": ("scheduled_us_premarket_news", "America/New_York"),
+    "analysis_us_premarket": ("scheduled_us_premarket", "America/New_York"),
     "analysis_us_intraday": ("scheduled_us_intraday", "America/New_York"),
     "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
     "market_data_sync_cn_hk": ("scheduled_market_data_sync_cn_hk", "Asia/Shanghai"),
@@ -56,7 +56,7 @@ def test_all_original_jobs_enter_beat_schedule():
         if definition.enabled:
             assert celery_task_name(job_id) in task_names
     a_share_entries = [k for k in schedule if k.startswith("analysis_a_share_intraday")]
-    assert len(a_share_entries) == 5
+    assert len(a_share_entries) == 2
     us_intraday_entries = [k for k in schedule if k.startswith("analysis_us_intraday")]
     assert len(us_intraday_entries) == 2
 
@@ -81,21 +81,18 @@ def test_us_intraday_uses_new_york_offset_windows():
     assert definition.timezone == "America/New_York"
     assert definition.expires == 4 * 60
     schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
-    assert ("9", "45,50,55", "mon-fri", "America/New_York") in schedules
-    assert ("10-15", "*/5", "mon-fri", "America/New_York") in schedules
-    assert "每5分钟" in definition.schedule_text
+    assert ("9", "45", "mon-fri", "America/New_York") in schedules
+    assert ("10-15", "15,45", "mon-fri", "America/New_York") in schedules
+    assert "每30分钟" in definition.schedule_text
 
 
-def test_a_share_intraday_uses_five_minute_windows_and_skips_lunch():
+def test_a_share_intraday_uses_hourly_windows_and_skips_lunch():
     definition = get_scheduled_task_definition("analysis_a_share_intraday")
 
     assert definition.timezone == "Asia/Shanghai"
     schedules = {(item.hour, item.minute, item.day_of_week, item.timezone) for item in definition.schedules}
-    assert ("9", "45,50,55", "mon-fri", "Asia/Shanghai") in schedules
-    assert ("10", "*/5", "mon-fri", "Asia/Shanghai") in schedules
-    assert ("11", "0,5,10,15,20,25,30", "mon-fri", "Asia/Shanghai") in schedules
-    assert ("13-14", "*/5", "mon-fri", "Asia/Shanghai") in schedules
-    assert ("15", "0", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("9-10", "45", "mon-fri", "Asia/Shanghai") in schedules
+    assert ("13-15", "0", "mon-fri", "Asia/Shanghai") in schedules
     assert "午休不运行" in definition.schedule_text
 
 
@@ -119,7 +116,7 @@ def test_signal_evaluation_jobs_are_market_scoped_and_independently_scheduled():
         ("18", "30", "mon-fri", "Asia/Shanghai")
     }
     assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in us.schedules} == {
-        ("17", "0", "mon-fri", "America/New_York")
+        ("18", "30", "mon-fri", "America/New_York")
     }
 
 
@@ -187,15 +184,15 @@ def test_multi_cron_takes_earliest_window():
 def test_us_postmarket_review_follows_new_york_dst():
     definition = get_scheduled_task_definition("analysis_us_postmarket_review")
 
-    # Summer (EDT, UTC-4): 16:30 New York == 20:30 UTC.
+    # Summer (EDT, UTC-4): 18:00 New York == 22:00 UTC.
     summer = datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
     summer_next = definition.next_run_time(now=summer)
-    assert summer_next == datetime(2026, 7, 1, 20, 30, tzinfo=timezone.utc)
+    assert summer_next == datetime(2026, 7, 1, 22, 0, tzinfo=timezone.utc)
 
-    # Winter (EST, UTC-5): 16:30 New York == 21:30 UTC.
+    # Winter (EST, UTC-5): 18:00 New York == 23:00 UTC.
     winter = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
     winter_next = definition.next_run_time(now=winter)
-    assert winter_next == datetime(2026, 1, 5, 21, 30, tzinfo=timezone.utc)
+    assert winter_next == datetime(2026, 1, 5, 23, 0, tzinfo=timezone.utc)
 
 
 def test_market_data_sync_schedules_and_queue():
@@ -211,7 +208,7 @@ def test_market_data_sync_schedules_and_queue():
         ("18", "0", "mon-fri", "Asia/Shanghai")
     }
     assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in us.schedules} == {
-        ("18", "0", "mon-fri", "America/New_York")
+        ("20", "0", "mon-fri", "America/New_York")
     }
 
 
