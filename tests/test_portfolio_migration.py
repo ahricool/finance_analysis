@@ -127,7 +127,7 @@ def test_upgrade_from_previous_head_seeds_users_and_discards_legacy_rows() -> No
     _upgrade_with_repository_alembic(engine)
 
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0034_trend_execution_context"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0035_etf_fast_rotation"
         assert connection.scalar(text("SELECT COUNT(*) FROM portfolio_account")) == 6
         assert connection.scalar(text("SELECT COUNT(*) FROM account_cash_balance")) == 6
         assert "stock_list" not in inspect(connection).get_table_names()
