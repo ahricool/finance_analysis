@@ -120,12 +120,8 @@ class MarketDataScopeResolver:
         if normalized_market not in {"CN", "US"}:
             return set()
         from finance_analysis.etf_rotation.universe import enabled_etfs
-        from finance_analysis.trend_following.universe import get_universe
 
-        return {
-            member.code
-            for member in (*enabled_etfs(normalized_market), *get_universe(normalized_market))
-        }
+        return {member.code for member in enabled_etfs(normalized_market)}
 
     @staticmethod
     def strategy_dependency_records(market: str) -> list[dict[str, Any]]:
@@ -133,12 +129,7 @@ class MarketDataScopeResolver:
         if normalized_market not in {"CN", "US"}:
             return []
         from finance_analysis.etf_rotation.universe import enabled_etfs
-        from finance_analysis.trend_following.universe import get_universe
 
-        members_by_code = {
-            member.code: member
-            for member in (*get_universe(normalized_market), *enabled_etfs(normalized_market))
-        }
         return [
             {
                 "market": normalized_market,
@@ -148,7 +139,7 @@ class MarketDataScopeResolver:
                 "sync_daily": True,
                 "sync_minute": False,
             }
-            for member in members_by_code.values()
+            for member in enabled_etfs(normalized_market)
         ]
 
     @staticmethod
