@@ -22,7 +22,6 @@ from finance_analysis.tasks.celery.jobs.intraday_signal_state import (
     IntradaySignalStateStore,
     build_notification_signature,
 )
-from finance_analysis.tasks.lifecycle import TaskSkipped
 
 from .config import (
     BEARISH_SIGNAL_TYPES,
@@ -35,7 +34,6 @@ from .config import (
 )
 from .data_source import IntradayDataSource
 from .llm import IntradayLLMJudge, candidate_id, normalize_verdict
-from .lock import release_us_intraday_running_lock, try_acquire_us_intraday_lock
 from .market_calendar import get_us_trading_date, is_us_market_open, parse_timestamp
 from .metrics import compute_intraday_metrics
 from .models import IntradaySignalResult, IntradayTaskSummary
@@ -65,8 +63,6 @@ class USIntradayAnalysisService:
         market_data_service: Optional[MarketDataService] = None,
         news_fetcher: Optional[LongbridgeNewsFetcher] = None,
         rules: Optional[Sequence[RulePredicate]] = None,
-        use_lock: bool = True,
-        lock_client: Any = None,
         signal_state_store: Optional[IntradaySignalStateStore] = None,
     ) -> None:
         self.config = config
@@ -77,8 +73,6 @@ class USIntradayAnalysisService:
         self.llm_judge = IntradayLLMJudge(config)
         self.reporter = SignalReporter()
         self.rules: Sequence[RulePredicate] = rules if rules is not None else DEFAULT_INTRADAY_SIGNAL_RULES
-        self.use_lock = use_lock
-        self.lock_client = lock_client
         self.signal_state_store = signal_state_store or IntradaySignalStateStore()
         self._news_cache: Dict[str, List[Dict[str, Any]]] = {}
         self._run_query_id = ""
@@ -98,17 +92,7 @@ class USIntradayAnalysisService:
 
         summary = IntradayTaskSummary(market_open=True, total_symbols=len(stock_codes))
         summary.timings["started_at"] = run_time.isoformat()
-        lock_token = None
         try:
-            if self.use_lock:
-                lock_token = try_acquire_us_intraday_lock(
-                    trading_date=get_us_trading_date(run_time),
-                    window_time=run_time.strftime("%H:%M"),
-                    client=self.lock_client,
-                )
-                if lock_token is None:
-                    raise TaskSkipped("美股盘中分析任务正在执行或当前窗口已处理")
-
             market_context = self._load_market_context(run_time)
             qqq_metrics = market_context.get("QQQ", {})
             sector_metrics = {
@@ -142,8 +126,6 @@ class USIntradayAnalysisService:
                 summary.status = "degraded"
             return summary
         finally:
-            if self.use_lock:
-                release_us_intraday_running_lock(lock_token)
             summary.timings["duration_seconds"] = round(time.perf_counter() - started, 4)
 
     def _collect_candidates(

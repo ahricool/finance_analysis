@@ -252,7 +252,6 @@ def _service(*, data=None, client=None, reporter=None, limits=None, recent_resul
             }
         ],
         existing_news_provider=lambda entities: [],
-        use_lock=False,
     )
 
 

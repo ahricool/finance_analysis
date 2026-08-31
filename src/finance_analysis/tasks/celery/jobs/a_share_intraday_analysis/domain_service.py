@@ -43,10 +43,6 @@ from .config import (
 )
 from .data_source import AShareIntradayDataSource
 from .llm import AShareIntradayLLMJudge, candidate_id, normalize_verdict
-from .lock import (
-    release_a_share_intraday_lock,
-    try_acquire_a_share_intraday_lock,
-)
 from .metrics import _change_over_minutes, compute_a_share_intraday_metrics
 from .models import (
     AShareCandidate,
@@ -89,7 +85,6 @@ class AShareIntradayAnalysisService:
         reporter: Optional[AShareIntradayReporter] = None,
         watchlist_provider: Optional[Callable[[], Sequence[str]]] = None,
         rules: Optional[Sequence[SignalRule]] = None,
-        use_lock: bool = True,
         signal_state_store: Optional[IntradaySignalStateStore] = None,
     ) -> None:
         self.config = config
@@ -100,7 +95,6 @@ class AShareIntradayAnalysisService:
         self.rules: Sequence[SignalRule] = (
             rules if rules is not None else DEFAULT_A_SHARE_INTRADAY_SIGNAL_RULES
         )
-        self.use_lock = use_lock
         self.signal_state_store = signal_state_store or IntradaySignalStateStore()
         self._benchmark_cache: Dict[str, Optional[Dict[str, Any]]] = {}
         self._state_observed_symbols: set[str] = set()
@@ -126,12 +120,6 @@ class AShareIntradayAnalysisService:
             market_open=True,
         )
         
-        # Todo：改成 redis 锁
-        lock_key = f"a_share_intraday:{trading_date.isoformat()}:{run_time.strftime('%H:%M')}"
-        lock_token = try_acquire_a_share_intraday_lock(lock_key) if self.use_lock else object()
-        if lock_token is None:
-            raise TaskSkipped("已有 A 股盘中分析任务正在执行")
-
         timings: Dict[str, Any] = {"external_api_calls": 0, "llm_calls": 0}
         total_start = _time.time()
         try:
@@ -168,8 +156,6 @@ class AShareIntradayAnalysisService:
 
             self._report(summary, market_snapshot, signals, send_notification)
         finally:
-            if self.use_lock:
-                release_a_share_intraday_lock(lock_token)
             timings["total_seconds"] = round(_time.time() - total_start, 3)
             summary.timings = timings
 

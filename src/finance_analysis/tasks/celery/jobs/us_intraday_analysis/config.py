@@ -18,11 +18,6 @@ DEFAULT_INTRADAY_BAR_COUNT = 420
 # Stale data guard for scheduled intraday analysis.
 STALE_BAR_SECONDS = 3 * 60
 
-# Lock TTLs. The running lock protects overlapping workers; the window lock is
-# kept after success so the same schedule window is not processed again.
-US_INTRADAY_RUNNING_LOCK_TTL_SECONDS = 14 * 60
-US_INTRADAY_WINDOW_LOCK_TTL_SECONDS = 2 * 60 * 60
-
 # Number of candidate signals bundled into a single LLM request. Batching avoids
 # one LLM call per stock and amortizes latency/cost across the watch list.
 LLM_BATCH_SIZE = 10

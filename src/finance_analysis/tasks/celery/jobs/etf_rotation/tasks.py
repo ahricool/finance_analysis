@@ -28,7 +28,6 @@ US_DEFINITION = require_scheduled_task_definition(JOB_ETF_ROTATION_US)
     record_result=True,
     success_message="A股 ETF 动量轮动完成",
     strip_lifecycle_kwargs=True,
-    dedupe_key=f"scheduled:{CN_DEFINITION.job_id}",
 )
 def run_etf_rotation_cn(
     scheduler_job_id: Optional[str] = None,
@@ -50,7 +49,6 @@ def run_etf_rotation_cn(
     record_result=True,
     success_message="美股 ETF 动量轮动完成",
     strip_lifecycle_kwargs=True,
-    dedupe_key=f"scheduled:{US_DEFINITION.job_id}",
 )
 def run_etf_rotation_us(
     scheduler_job_id: Optional[str] = None,

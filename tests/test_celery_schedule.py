@@ -282,9 +282,6 @@ def test_before_publish_creates_single_pending_record_with_scheduler_metadata():
     assert metadata.source == "celery"
     assert metadata.scheduler_job_id == "analysis_daily"
     assert metadata.trigger_source == "scheduler"
-    # No dedupe_key here: manual runs pre-create the record with it, and the
-    # auto-pending path only resolves uniqueness by task_id.
-    assert "dedupe_key" not in event
 
 
 def test_before_publish_carries_manual_trigger_metadata():

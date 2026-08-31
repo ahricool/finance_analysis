@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, TypeVar
 from finance_analysis.core.logging import get_log_base_dir, get_task_log_file, task_logging_context
 from finance_analysis.database.repositories.task_record import TaskRecordRepository
 from finance_analysis.core.time import utc_now
+from finance_analysis.tasks.advisory_lock import PostgreSQLAdvisoryLock, TaskAdvisoryLockId
 
 logger = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
@@ -195,7 +196,6 @@ class TaskLifecycleService:
         progress: int = 0,
         task_log: Optional[str] = None,
         retry_count: int = 0,
-        dedupe_key: Optional[str] = None,
     ) -> None:
         self._safe_write(
             "create pending task record",
@@ -213,7 +213,6 @@ class TaskLifecycleService:
                 parent_task_id=metadata.parent_task_id,
                 retry_count=retry_count,
                 scheduler_job_id=metadata.scheduler_job_id,
-                dedupe_key=dedupe_key,
                 trigger_source=metadata.trigger_source,
                 triggered_by_uid=metadata.triggered_by_uid,
             ),
@@ -251,19 +250,6 @@ class TaskLifecycleService:
                 triggered_by_uid=metadata.triggered_by_uid,
             ),
         )
-
-    def claim_active_dedupe_key(self, *, task_id: str, dedupe_key: str) -> bool:
-        if (
-            self.repository is None
-            and os.getenv("PYTEST_CURRENT_TEST")
-            and not os.getenv("FINANCE_TASK_RECORD_DB_TEST")
-        ):
-            return True
-        try:
-            return self._get_repository().claim_active_dedupe_key(task_id, dedupe_key)
-        except Exception:
-            logger.warning("Task lifecycle DB write failed while claiming dedupe key", exc_info=True)
-            raise
 
     def mark_progress(self, *, task_id: str, progress: int, message: Optional[str] = None) -> None:
         self._safe_write(
@@ -481,7 +467,8 @@ def track_task(
     record_result: bool = True,
     success_message: Optional[str] = None,
     strip_lifecycle_kwargs: bool = False,
-    dedupe_key: Optional[str] = None,
+    advisory_lock_id: Optional[TaskAdvisoryLockId] = None,
+    advisory_lock_blocking: bool = False,
 ) -> Callable[[F], F]:
     """Decorate task functions with persistent lifecycle tracking and task log context."""
 
@@ -517,16 +504,16 @@ def track_task(
                     task_log=task_log,
                     retry_count=retry_count,
                 )
-                if dedupe_key and not service.claim_active_dedupe_key(task_id=task_id, dedupe_key=dedupe_key):
-                    service.mark_skipped(
-                        task_id=task_id,
-                        metadata=metadata,
-                        message=f"已有运行中的同类任务: {dedupe_key}",
-                        result={"sync_status": "skipped", "dedupe_key": dedupe_key},
-                    )
-                    CURRENT_TASK_ID.reset(token)
-                    return None
+                advisory_lock: PostgreSQLAdvisoryLock | None = None
                 try:
+                    if advisory_lock_id is not None:
+                        advisory_lock = PostgreSQLAdvisoryLock(
+                            advisory_lock_id,
+                            blocking=advisory_lock_blocking,
+                        )
+                        if not advisory_lock.acquire():
+                            raise TaskSkipped(f"同类任务正在执行: advisory_lock={advisory_lock_id.name}")
+
                     call_kwargs = _strip_lifecycle_kwargs(kwargs) if strip_lifecycle_kwargs else kwargs
                     result = func(*args, **call_kwargs)
                 except TaskSkipped as exc:
@@ -556,9 +543,13 @@ def track_task(
                     )
                     return result
                 finally:
+                    if advisory_lock is not None:
+                        advisory_lock.release()
                     CURRENT_TASK_ID.reset(token)
 
         wrapper._finance_tracked_task = True  # type: ignore[attr-defined]
+        wrapper._finance_advisory_lock_id = advisory_lock_id  # type: ignore[attr-defined]
+        wrapper._finance_advisory_lock_blocking = advisory_lock_blocking  # type: ignore[attr-defined]
         return wrapper  # type: ignore[return-value]
 
     return decorator

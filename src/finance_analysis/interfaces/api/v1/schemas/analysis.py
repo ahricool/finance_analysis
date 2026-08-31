@@ -335,22 +335,3 @@ class TaskListResponse(BaseModel):
                 "tasks": []
             }
         }
-
-
-class DuplicateTaskErrorResponse(BaseModel):
-    """重复任务错误响应模型"""
-    
-    error: str = Field("duplicate_task", description="错误类型")
-    message: str = Field(..., description="错误信息")
-    stock_code: str = Field(..., description="股票代码")
-    existing_task_id: str = Field(..., description="已存在的任务 ID")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "error": "duplicate_task",
-                "message": "股票 600519 正在分析中",
-                "stock_code": "600519",
-                "existing_task_id": "abc123def456"
-            }
-        }

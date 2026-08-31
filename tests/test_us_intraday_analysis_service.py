@@ -7,14 +7,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from finance_analysis.integrations.market_data.realtime_types import RealtimeSource, UnifiedRealtimeQuote
+from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote
 from finance_analysis.tasks.celery.jobs.intraday_signal_state import IntradaySignalStateStore
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.bars import aggregate_bars
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.config import BEARISH_SIGNAL_TYPES
-from finance_analysis.tasks.celery.jobs.us_intraday_analysis.data_source import (
-    IntradayDataSource,
-    filter_current_trading_day_bars,
-)
+from finance_analysis.tasks.celery.jobs.us_intraday_analysis.data_source import filter_current_trading_day_bars
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.domain_service import (
     USIntradayAnalysisService,
     _notification_severity,
@@ -24,10 +21,6 @@ from finance_analysis.tasks.celery.jobs.us_intraday_analysis.llm import (
     build_intraday_llm_prompt,
     normalize_verdict,
     parse_llm_json_response,
-)
-from finance_analysis.tasks.celery.jobs.us_intraday_analysis.lock import (
-    release_us_intraday_running_lock,
-    try_acquire_us_intraday_lock,
 )
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.market_calendar import is_us_market_open
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.metrics import (
@@ -51,7 +44,6 @@ from finance_analysis.tasks.celery.jobs.us_intraday_analysis.rules import (
     evaluate_signal_candidates,
     select_primary_candidate,
 )
-from finance_analysis.tasks.lifecycle import TaskSkipped
 
 US_EASTERN = ZoneInfo("America/New_York")
 
@@ -111,7 +103,6 @@ def test_no_rule_candidates_do_not_fetch_market_news():
         config=object(),
         longbridge_fetcher=_FakeLongbridge({}),
         news_fetcher=_AvailableNews(),
-        use_lock=False,
         signal_state_store=IntradaySignalStateStore(redis_client=False),
     )
 
@@ -642,30 +633,12 @@ class _FakeReporter:
         return True
 
 
-class _FakeRedis:
-    def __init__(self):
-        self.values = {}
-
-    def set(self, key, value, nx=False, ex=None):
-        if nx and key in self.values:
-            return False
-        self.values[key] = value
-        return True
-
-    def eval(self, _script, _numkeys, key, token):
-        if self.values.get(key) == token:
-            self.values.pop(key, None)
-            return 1
-        return 0
-
-
 def _service(now: datetime, bars_by_symbol: dict[str, list[dict]], missing_quotes: set[str] | None = None):
     longbridge = _FakeLongbridge(bars_by_symbol, missing_quotes=missing_quotes)
     service = USIntradayAnalysisService(
         config=object(),
         longbridge_fetcher=longbridge,
         news_fetcher=_FakeNewsFetcher(),
-        use_lock=False,
         signal_state_store=IntradaySignalStateStore(redis_client=False),
     )
     service.data_source = SimpleNamespace(
@@ -847,33 +820,3 @@ def test_service_marks_llm_unavailable_warning_and_summary_json():
     assert summary.warnings
     assert summary.degraded is True
     json.dumps(summary.to_dict(), ensure_ascii=False)
-
-
-def test_us_intraday_lock_blocks_same_window_until_ttl():
-    redis = _FakeRedis()
-    first = try_acquire_us_intraday_lock(trading_date="2026-06-10", window_time="09:46", client=redis)
-    second = try_acquire_us_intraday_lock(trading_date="2026-06-10", window_time="09:46", client=redis)
-
-    try:
-        assert first is not None
-        assert second is None
-    finally:
-        release_us_intraday_running_lock(first)
-
-
-def test_service_lock_competition_raises_task_skipped():
-    now = datetime(2026, 6, 10, 9, 46, tzinfo=US_EASTERN)
-    redis = _FakeRedis()
-    first = try_acquire_us_intraday_lock(trading_date="2026-06-10", window_time="09:46", client=redis)
-    service = USIntradayAnalysisService(
-        config=object(),
-        longbridge_fetcher=_FakeLongbridge({}),
-        news_fetcher=_FakeNewsFetcher(),
-        lock_client=redis,
-    )
-
-    try:
-        with pytest.raises(TaskSkipped):
-            service.run(["NVDA"], now=now)
-    finally:
-        release_us_intraday_running_lock(first)

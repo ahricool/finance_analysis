@@ -117,9 +117,6 @@ def _create_pending_task_record(
         # Beat (or a manual submission) is publishing a registered periodic task;
         # seed the pending TaskRecord with the stable job_id and scheduler metadata
         # so the single record matches what the worker's ``track_task`` writes.
-        # ``dedupe_key`` is intentionally omitted here: manual runs pre-create the
-        # record (with the dedupe key) before publishing, and ``ensure_record``
-        # only resolves uniqueness conflicts by ``task_id``.
         get_task_lifecycle_service().create_pending(
             task_id=task_id,
             metadata=TaskLifecycleMetadata(

@@ -3,7 +3,6 @@
 
 from datetime import datetime
 import json
-import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -35,7 +34,7 @@ except Exception:  # pragma: no cover - optional dependency environments
 
 from finance_analysis.reporting.types import ReportType
 from finance_analysis.analysis.service import AnalysisService
-from finance_analysis.tasks.queue import AnalysisTaskQueue, DuplicateTaskError, TaskStatus, reset_task_state_for_tests
+from finance_analysis.tasks.queue import AnalysisTaskQueue, reset_task_state_for_tests
 from tests.task_repo_fakes import FakeTaskRecordRepository
 try:
     from pydantic import ValidationError
@@ -85,49 +84,22 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         with self.assertRaises(ValidationError):
             MarketReviewRequest(send_notification=False)
 
-    def test_trigger_market_review_rejects_duplicate_submission(self) -> None:
+    def test_trigger_market_review_submits_celery(self) -> None:
         if trigger_market_review is None or analysis_endpoint_module is None:
             self.skipTest("analysis endpoint helpers unavailable in this environment")
 
-        task_queue = MagicMock()
-        task_queue.submit_market_review.side_effect = DuplicateTaskError("market_review", "existing-task")
-        request = SimpleNamespace(send_notification=True)
         config = SimpleNamespace(trading_day_check_enabled=False)
-
+        task_queue = MagicMock()
+        task_queue.submit_market_review.return_value = SimpleNamespace(task_id="market-task-1")
         with patch.object(
             analysis_endpoint_module,
             "_compute_market_review_override_region",
             return_value=None,
         ), patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
-            with self.assertRaises(Exception) as ctx:
-                trigger_market_review(
-                    request=request,
-                    config=config,
-                )
-
-        self.assertEqual(getattr(ctx.exception, "status_code", None), 409)
-        task_queue.submit_market_review.assert_called_once()
-
-    def test_trigger_market_review_submits_celery_even_when_file_lock_is_worker_owned(self) -> None:
-        if trigger_market_review is None or analysis_endpoint_module is None:
-            self.skipTest("analysis endpoint helpers unavailable in this environment")
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config = SimpleNamespace(
-                trading_day_check_enabled=False,
-                data_dir=temp_dir,
+            response = trigger_market_review(
+                request=SimpleNamespace(send_notification=True),
+                config=config,
             )
-            task_queue = MagicMock()
-            task_queue.submit_market_review.return_value = SimpleNamespace(task_id="market-task-1")
-            with patch.object(
-                analysis_endpoint_module,
-                "_compute_market_review_override_region",
-                return_value=None,
-            ), patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
-                response = trigger_market_review(
-                    request=SimpleNamespace(send_notification=True),
-                    config=config,
-                )
 
         self.assertEqual(response.task_id, "market-task-1")
         task_queue.submit_market_review.assert_called_once()
@@ -165,10 +137,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         runtime_notifier = MagicMock()
         runtime_search = MagicMock()
         runtime_analyzer = MagicMock()
-        lock_token = object()
-        with patch("finance_analysis.market_review.lock.try_acquire_market_review_lock", return_value=lock_token), \
-             patch("finance_analysis.market_review.lock.release_market_review_lock") as release_market_review_lock, \
-             patch(
+        with patch(
                  "finance_analysis.market_review.runtime.build_market_review_runtime",
                  return_value=(runtime_notifier, runtime_analyzer, runtime_search),
              ), \
@@ -187,7 +156,6 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             send_notification=False,
             override_region="cn,us",
         )
-        release_market_review_lock.assert_called_once_with(lock_token)
         reset_task_state_for_tests()
 
     def test_market_review_celery_task_marks_failed_when_report_is_empty(self) -> None:
@@ -198,10 +166,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
         task = queue.submit_market_review(send_notification=False, override_region="cn")
 
-        lock_token = object()
-        with patch("finance_analysis.market_review.lock.try_acquire_market_review_lock", return_value=lock_token), \
-             patch("finance_analysis.market_review.lock.release_market_review_lock") as release_market_review_lock, \
-             patch(
+        with patch(
                  "finance_analysis.market_review.runtime.build_market_review_runtime",
                  return_value=(MagicMock(), MagicMock(), MagicMock()),
              ), \
@@ -213,7 +178,6 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                     override_region="cn",
                 )
 
-        release_market_review_lock.assert_called_once_with(lock_token)
         reset_task_state_for_tests()
 
     def test_get_analysis_status_returns_market_review_report_from_task_record(self) -> None:
@@ -1154,7 +1118,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             notify=True,
         )
 
-    def test_trigger_analysis_rejects_cross_request_duplicate_for_equivalent_code_shapes(self) -> None:
+    def test_trigger_analysis_allows_cross_request_repeat_for_equivalent_code_shapes(self) -> None:
         if trigger_analysis is None:
             self.skipTest("fastapi is not installed in this test environment")
 
@@ -1195,13 +1159,8 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                 )
 
             self.assertEqual(first.status_code, 202)
-            self.assertEqual(second.status_code, 409)
-            self.assertEqual(json.loads(second.body)["error"], "duplicate_task")
-            self.assertEqual(json.loads(second.body)["stock_code"], "600519.SH")
-            self.assertEqual(
-                json.loads(second.body)["existing_task_id"],
-                json.loads(first.body)["task_id"],
-            )
+            self.assertEqual(second.status_code, 202)
+            self.assertNotEqual(json.loads(second.body)["task_id"], json.loads(first.body)["task_id"])
         finally:
             AnalysisTaskQueue._instance = original_instance
 
@@ -1274,7 +1233,7 @@ class BatchTaskQueueContractTestCase(unittest.TestCase):
         self.assertEqual([task.stock_code for task in accepted], ["600519"])
         self.assertEqual(duplicates, [])
 
-    def test_batch_submit_deduplicates_equivalent_stock_code_shapes(self) -> None:
+    def test_batch_submit_allows_sequential_equivalent_stock_code_shapes(self) -> None:
         queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
 
         with patch.object(queue, "_apply_celery_task"):
@@ -1282,16 +1241,12 @@ class BatchTaskQueueContractTestCase(unittest.TestCase):
 
         self.assertEqual(len(accepted), 1)
         self.assertEqual(duplicates, [])
-        self.assertTrue(queue.is_analyzing("600519.SH"))
-        self.assertEqual(queue.get_analyzing_task_id("600519.SH"), accepted[0].task_id)
-
         with patch.object(queue, "_apply_celery_task"):
             accepted_again, duplicates_again = queue.submit_tasks_batch(["600519.SH"], report_type="detailed")
 
-        self.assertEqual(accepted_again, [])
-        self.assertEqual(len(duplicates_again), 1)
-        self.assertEqual(duplicates_again[0].stock_code, "600519.SH")
-        self.assertEqual(duplicates_again[0].existing_task_id, accepted[0].task_id)
+        self.assertEqual(len(accepted_again), 1)
+        self.assertEqual(duplicates_again, [])
+        self.assertNotEqual(accepted_again[0].task_id, accepted[0].task_id)
 
     def test_submit_task_rejects_blank_stock_code(self) -> None:
         queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())

@@ -4,6 +4,7 @@
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -62,10 +63,14 @@ class TestCeleryTaskService(unittest.TestCase):
         accepted, _duplicates = queue.submit_tasks_batch(["600519"], report_type="detailed")
 
         task = accepted[0]
+        acquired_lock = SimpleNamespace(acquire=lambda: True, release=lambda: None)
         with patch(
             "finance_analysis.tasks.celery.jobs.stock_analysis.service.StockAnalysisTaskService._run_api_analysis",
             side_effect=RuntimeError("JSON 解析失败"),
-        ), patch("finance_analysis.tasks.lifecycle.get_task_lifecycle_service", return_value=_FakeLifecycleService(repository)):
+        ), patch(
+            "finance_analysis.tasks.lifecycle.get_task_lifecycle_service",
+            return_value=_FakeLifecycleService(repository),
+        ), patch("finance_analysis.tasks.lifecycle.PostgreSQLAdvisoryLock", return_value=acquired_lock):
             with self.assertRaisesRegex(RuntimeError, "JSON 解析失败"):
                 run_stock_analysis(
                     task_id=task.task_id,

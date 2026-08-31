@@ -101,7 +101,7 @@ def test_empty_database_upgrade_creates_current_schema_and_stamps_head() -> None
 
     with engine.connect() as connection:
         tables = set(inspect(connection).get_table_names())
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0035_etf_fast_rotation"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0036_unified_task_mutex"
         assert {
             "portfolio_account",
             "account_cash_balance",
@@ -112,6 +112,8 @@ def test_empty_database_upgrade_creates_current_schema_and_stamps_head() -> None
             "trend_following_summary",
         }.issubset(tables)
         assert "stock_list" not in tables
+        assert "scheduled_task_slot" not in tables
+        assert "dedupe_key" not in {column["name"] for column in inspect(connection).get_columns("task")}
 
 
 def test_upgrade_from_previous_head_seeds_users_and_discards_legacy_rows() -> None:
@@ -127,10 +129,11 @@ def test_upgrade_from_previous_head_seeds_users_and_discards_legacy_rows() -> No
     _upgrade_with_repository_alembic(engine)
 
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0035_etf_fast_rotation"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0036_unified_task_mutex"
         assert connection.scalar(text("SELECT COUNT(*) FROM portfolio_account")) == 6
         assert connection.scalar(text("SELECT COUNT(*) FROM account_cash_balance")) == 6
         assert "stock_list" not in inspect(connection).get_table_names()
         assert {"trend_following_snapshot", "trend_following_summary"}.issubset(
             inspect(connection).get_table_names()
         )
+        assert "scheduled_task_slot" not in inspect(connection).get_table_names()

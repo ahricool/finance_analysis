@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -48,12 +47,6 @@ class ManualRunNotAllowedError(RuntimeError):
 
 class ManualRunParameterError(ValueError):
     """Raised when manual-only task parameters do not match the task definition."""
-
-
-@dataclass
-class DuplicateScheduledTaskError(RuntimeError):
-    existing_task_id: str
-    message: str
 
 
 def _duration_seconds(record: TaskRecord) -> Optional[float]:
@@ -182,19 +175,14 @@ class ScheduledTaskService:
         elif sync_mode is not None:
             raise ManualRunParameterError(f"{definition.name} 不支持同步模式参数")
 
-        existing = self.repository.get_active_by_scheduler_job_id(job_id)
-        if existing is not None:
-            raise DuplicateScheduledTaskError(existing.task_id, f"{definition.name} 正在执行中")
-
         task_id = uuid.uuid4().hex
-        dedupe_key = f"scheduled:{job_id}"
         payload = {
             "job_id": job_id,
             "trigger_source": "manual",
             "triggered_by_uid": triggered_by_uid,
             **task_kwargs,
         }
-        record, created = self.repository.create_pending_or_get_duplicate(
+        self.repository.ensure_record(
             task_id=task_id,
             task_type=definition.task_type,
             task_name=definition.name,
@@ -202,14 +190,11 @@ class ScheduledTaskService:
             trigger_source="manual",
             triggered_by_uid=triggered_by_uid,
             scheduler_job_id=definition.job_id,
-            dedupe_key=dedupe_key,
+            status=TaskExecutionStatus.PENDING.value,
             payload=_json_summary(payload, limit=MAX_PAYLOAD_CHARS),
             message="管理员手动提交，等待 Celery Worker 执行",
             progress=0,
         )
-        if not created:
-            raise DuplicateScheduledTaskError(record.task_id, f"{definition.name} 正在执行中")
-
         try:
             self._task_submitter(
                 definition,

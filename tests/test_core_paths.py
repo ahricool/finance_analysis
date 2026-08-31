@@ -24,7 +24,6 @@ from finance_analysis.core.paths import (
     get_log_dir,
     get_report_analysis_dir,
     get_reports_dir,
-    get_runtime_locks_dir,
     resolve_project_path,
 )
 
@@ -97,7 +96,6 @@ def test_derived_directories_under_data_dir(monkeypatch: pytest.MonkeyPatch, tmp
     assert get_log_dir() == (tmp_path / "data-root" / "logs").resolve()
     assert get_log_app_dir() == (tmp_path / "data-root" / "logs" / "app").resolve()
     assert get_report_analysis_dir() == (tmp_path / "data-root" / "reports" / "analysis").resolve()
-    assert get_runtime_locks_dir() == (tmp_path / "data-root" / "runtime" / "locks").resolve()
 
 
 def test_get_reports_dir_points_to_analysis_subdirectory(

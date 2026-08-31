@@ -12,6 +12,7 @@ from finance_analysis.tasks.celery.schedule import (
     require_scheduled_task_definition,
 )
 from finance_analysis.tasks.lifecycle import track_task
+from finance_analysis.tasks.advisory_lock import TaskAdvisoryLockId
 
 from .models import normalize_sync_mode
 from .service import MarketDataSyncError, MarketDataSyncService
@@ -91,7 +92,7 @@ def _run_markets(markets: tuple[str, ...], sync_mode: str = "incremental") -> di
     scheduler_job_id=CN_HK_DEFINITION.job_id,
     record_result=True,
     strip_lifecycle_kwargs=True,
-    dedupe_key=f"scheduled:{CN_HK_DEFINITION.job_id}",
+    advisory_lock_id=TaskAdvisoryLockId.CN_DAILY_MARKET_DATA_SYNC,
 )
 def sync_cn_hk_market_data(
     scheduler_job_id: Optional[str] = None,
@@ -111,7 +112,7 @@ def sync_cn_hk_market_data(
     scheduler_job_id=US_DEFINITION.job_id,
     record_result=True,
     strip_lifecycle_kwargs=True,
-    dedupe_key=f"scheduled:{US_DEFINITION.job_id}",
+    advisory_lock_id=TaskAdvisoryLockId.US_DAILY_MARKET_DATA_SYNC,
 )
 def sync_us_market_data(
     scheduler_job_id: Optional[str] = None,

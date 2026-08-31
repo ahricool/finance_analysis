@@ -21,7 +21,6 @@ from finance_analysis.tasks.lifecycle import TaskSkipped
 from .config import DEFAULT_CONFIG, MAIN_INDEX_CODES, TASK_TYPE, PreCloseReviewConfig
 from .data_source import ASharePreCloseDataSource
 from .llm import ASharePreCloseWebLLM
-from .lock import release_lock, try_acquire_lock
 from .metrics import (
     determine_market_state,
     determine_turnover_state,
@@ -52,7 +51,6 @@ class ASharePreCloseReviewService:
         holdings_provider: Optional[Callable[[], Sequence[Any]]] = None,
         recent_results_provider: Optional[Callable[[], Sequence[dict[str, Any]]]] = None,
         existing_news_provider: Optional[Callable[[Sequence[dict[str, Any]]], Sequence[dict[str, Any]]]] = None,
-        use_lock: bool = True,
     ) -> None:
         self.config = config or self._load_pipeline_config()
         self.limits = limits
@@ -62,7 +60,6 @@ class ASharePreCloseReviewService:
         self.holdings_provider = holdings_provider
         self.recent_results_provider = recent_results_provider
         self.existing_news_provider = existing_news_provider
-        self.use_lock = use_lock
 
     def run(
         self,
@@ -74,155 +71,147 @@ class ASharePreCloseReviewService:
         llm_deadline = task_deadline - self.limits.task_completion_reserve_seconds
         run_time = get_a_share_market_now(now)
         self._validate_trading_time(run_time)
-        token = try_acquire_lock() if self.use_lock else object()
-        if token is None:
-            raise TaskSkipped("已有 A 股收盘前复核任务正在执行")
+        previous_results = self._load_recent_results()
+        if any(item.get("trading_date") == run_time.date().isoformat() for item in previous_results):
+            raise TaskSkipped("当天 A 股收盘前复核已经完成")
 
-        try:
-            previous_results = self._load_recent_results()
-            if any(item.get("trading_date") == run_time.date().isoformat() for item in previous_results):
-                raise TaskSkipped("当天 A 股收盘前复核已经完成")
+        warnings: list[str] = []
+        quality = DataQuality()
+        rows = self.data_source.get_market_snapshot_rows()
+        self._assess_snapshot(rows, run_time, quality)
 
-            warnings: list[str] = []
-            quality = DataQuality()
-            rows = self.data_source.get_market_snapshot_rows()
-            self._assess_snapshot(rows, run_time, quality)
+        from ..a_share_intraday_analysis.domain_service import compute_market_breadth
 
-            from ..a_share_intraday_analysis.domain_service import compute_market_breadth
+        breadth = compute_market_breadth(rows, run_time.date()) if rows else {}
+        indices = self._normalize_indices(self.data_source.get_main_indices())
+        quality.index_coverage = len(indices)
+        quality.indices_complete = len(indices) >= self.limits.minimum_index_count
+        if len(indices) < self.limits.minimum_index_count:
+            quality.issues.append("主要指数覆盖不足")
 
-            breadth = compute_market_breadth(rows, run_time.date()) if rows else {}
-            indices = self._normalize_indices(self.data_source.get_main_indices())
-            quality.index_coverage = len(indices)
-            quality.indices_complete = len(indices) >= self.limits.minimum_index_count
-            if len(indices) < self.limits.minimum_index_count:
-                quality.issues.append("主要指数覆盖不足")
+        ranked_top, ranked_bottom = self.data_source.get_sector_rankings(self.limits.sector_ranking_scan_limit)
+        top_sectors = ranked_top[: self.limits.max_strong_sectors]
+        sector_rankings = [*ranked_top, *ranked_bottom]
+        quality.sector_coverage = len({str(item.get("name")) for item in sector_rankings})
+        quality.sectors_complete = quality.sector_coverage >= self.limits.minimum_sector_count
+        if not quality.sectors_complete:
+            quality.issues.append("强势板块排行覆盖不足")
 
-            ranked_top, ranked_bottom = self.data_source.get_sector_rankings(self.limits.sector_ranking_scan_limit)
-            top_sectors = ranked_top[: self.limits.max_strong_sectors]
-            sector_rankings = [*ranked_top, *ranked_bottom]
-            quality.sector_coverage = len({str(item.get("name")) for item in sector_rankings})
-            quality.sectors_complete = quality.sector_coverage >= self.limits.minimum_sector_count
-            if not quality.sectors_complete:
-                quality.issues.append("强势板块排行覆盖不足")
+        market_state, risk_state, rationale = determine_market_state(breadth, indices)
+        turnover_state = determine_turnover_state(
+            safe_float(breadth.get("total_amount"), 0.0) or 0.0,
+            previous_results,
+        )
+        strong_sectors = review_strong_sectors(
+            top_sectors,
+            previous_results,
+            market_state=market_state,
+            limit=self.limits.max_strong_sectors,
+        )
+        holdings = self._load_holdings()
+        quality.holding_total = len(holdings)
+        quote_by_code = {normalize_stock_code(str(row.get("code") or "")): row for row in rows}
+        sector_changes: dict[str, float] = {}
+        for item in sector_rankings:
+            sector_name = str(item.get("name") or "").strip()
+            sector_change = safe_float(item.get("change_pct"))
+            if sector_name and sector_change is not None:
+                sector_changes[sector_name] = sector_change
+        strong_sector_changes = {item.name: item.change_pct for item in strong_sectors}
+        benchmark_change = self._benchmark_change(indices)
+        security_analyzer = PreCloseSecurityAnalyzer(
+            data_source=self.data_source,
+            limits=self.limits,
+            quality=quality,
+            now=run_time,
+            benchmark_change=benchmark_change,
+        )
+        market_trends = security_analyzer.load_market_trends()
+        holding_reviews = security_analyzer.review_holdings(
+            holdings,
+            quote_by_code,
+            sector_changes,
+        )
 
-            market_state, risk_state, rationale = determine_market_state(breadth, indices)
-            turnover_state = determine_turnover_state(
-                safe_float(breadth.get("total_amount"), 0.0) or 0.0,
-                previous_results,
-            )
-            strong_sectors = review_strong_sectors(
-                top_sectors,
-                previous_results,
-                market_state=market_state,
-                limit=self.limits.max_strong_sectors,
-            )
-            holdings = self._load_holdings()
-            quality.holding_total = len(holdings)
-            quote_by_code = {normalize_stock_code(str(row.get("code") or "")): row for row in rows}
-            sector_changes: dict[str, float] = {}
-            for item in sector_rankings:
-                sector_name = str(item.get("name") or "").strip()
-                sector_change = safe_float(item.get("change_pct"))
-                if sector_name and sector_change is not None:
-                    sector_changes[sector_name] = sector_change
-            strong_sector_changes = {item.name: item.change_pct for item in strong_sectors}
-            benchmark_change = self._benchmark_change(indices)
-            security_analyzer = PreCloseSecurityAnalyzer(
-                data_source=self.data_source,
-                limits=self.limits,
-                quality=quality,
-                now=run_time,
-                benchmark_change=benchmark_change,
-            )
-            market_trends = security_analyzer.load_market_trends()
-            holding_reviews = security_analyzer.review_holdings(
-                holdings,
-                quote_by_code,
-                sector_changes,
-            )
+        raw_candidates = screen_candidates(
+            rows,
+            holding_codes=[item.code for item in holding_reviews],
+            limit=self.limits.max_candidates,
+        )
+        candidate_reviews = security_analyzer.review_candidates(
+            raw_candidates,
+            strong_sector_changes,
+        )
 
-            raw_candidates = screen_candidates(
-                rows,
-                holding_codes=[item.code for item in holding_reviews],
-                limit=self.limits.max_candidates,
-            )
-            candidate_reviews = security_analyzer.review_candidates(
-                raw_candidates,
-                strong_sector_changes,
-            )
+        entities = self._news_entities(strong_sectors, holding_reviews, candidate_reviews, quality)
+        existing_news = self._load_existing_news(entities, warnings)
+        news = self.web_llm.research_news(
+            entities,
+            existing_news,
+            trading_date=run_time.date().isoformat(),
+            warnings=warnings,
+            deadline=llm_deadline,
+        )
+        quality.news_coverage = sum(1 for item in news if item.get("coverage") != "none")
+        required_news_keys = {"market:cn", *[f"stock:{item.code}" for item in holding_reviews]}
+        covered_news_keys = {str(item.get("entity_key")) for item in news if item.get("coverage") != "none"}
+        quality.news_complete = bool(required_news_keys) and required_news_keys.issubset(covered_news_keys)
+        if entities and quality.news_coverage < len(entities):
+            quality.issues.append(f"新闻覆盖 {quality.news_coverage}/{len(entities)}")
+        if not quality.news_complete:
+            quality.issues.append("大盘或持仓新闻覆盖不足，主动调整建议已禁用")
 
-            entities = self._news_entities(strong_sectors, holding_reviews, candidate_reviews, quality)
-            existing_news = self._load_existing_news(entities, warnings)
-            news = self.web_llm.research_news(
-                entities,
-                existing_news,
-                trading_date=run_time.date().isoformat(),
-                warnings=warnings,
-                deadline=llm_deadline,
-            )
-            quality.news_coverage = sum(1 for item in news if item.get("coverage") != "none")
-            required_news_keys = {"market:cn", *[f"stock:{item.code}" for item in holding_reviews]}
-            covered_news_keys = {str(item.get("entity_key")) for item in news if item.get("coverage") != "none"}
-            quality.news_complete = bool(required_news_keys) and required_news_keys.issubset(covered_news_keys)
-            if entities and quality.news_coverage < len(entities):
-                quality.issues.append(f"新闻覆盖 {quality.news_coverage}/{len(entities)}")
-            if not quality.news_complete:
-                quality.issues.append("大盘或持仓新闻覆盖不足，主动调整建议已禁用")
+        context = self._build_llm_context(
+            run_time,
+            market_state,
+            risk_state,
+            turnover_state,
+            rationale,
+            breadth,
+            indices,
+            market_trends,
+            strong_sectors,
+            holding_reviews,
+            candidate_reviews,
+            news,
+            quality,
+        )
+        decision, fallback_used = self.web_llm.decide(
+            context,
+            holding_reviews,
+            candidate_reviews,
+            quality,
+            warnings=warnings,
+            deadline=llm_deadline,
+        )
 
-            context = self._build_llm_context(
-                run_time,
-                market_state,
-                risk_state,
-                turnover_state,
-                rationale,
-                breadth,
-                indices,
-                market_trends,
-                strong_sectors,
-                holding_reviews,
-                candidate_reviews,
-                news,
-                quality,
-            )
-            decision, fallback_used = self.web_llm.decide(
-                context,
-                holding_reviews,
-                candidate_reviews,
-                quality,
-                warnings=warnings,
-                deadline=llm_deadline,
-            )
-
-            summary = PreCloseReviewSummary(
-                trading_date=run_time.date(),
-                started_at=run_time,
-                finished_at=get_a_share_market_now(),
-                market_state=market_state,
-                market_rationale=rationale,
-                turnover_state=turnover_state,
-                risk_state=risk_state,
-                breadth=breadth,
-                indices=indices,
-                market_trends=market_trends,
-                strong_sectors=strong_sectors,
-                holdings=holding_reviews,
-                candidates=candidate_reviews,
-                news=news,
-                decision=decision,
-                data_quality=quality,
-                warnings=warnings,
-                fallback_used=fallback_used,
-                llm_calls=self.web_llm.call_count,
-            )
-            summary.calendar_id = self.reporter.record_to_calendar(summary)
-            summary.notification_sent = self.reporter.send_notification(
-                summary,
-                send_notification=send_notification,
-            )
-            return summary
-        finally:
-            if self.use_lock:
-                release_lock(token)
+        summary = PreCloseReviewSummary(
+            trading_date=run_time.date(),
+            started_at=run_time,
+            finished_at=get_a_share_market_now(),
+            market_state=market_state,
+            market_rationale=rationale,
+            turnover_state=turnover_state,
+            risk_state=risk_state,
+            breadth=breadth,
+            indices=indices,
+            market_trends=market_trends,
+            strong_sectors=strong_sectors,
+            holdings=holding_reviews,
+            candidates=candidate_reviews,
+            news=news,
+            decision=decision,
+            data_quality=quality,
+            warnings=warnings,
+            fallback_used=fallback_used,
+            llm_calls=self.web_llm.call_count,
+        )
+        summary.calendar_id = self.reporter.record_to_calendar(summary)
+        summary.notification_sent = self.reporter.send_notification(
+            summary,
+            send_notification=send_notification,
+        )
+        return summary
 
     def _validate_trading_time(self, now: datetime) -> None:
         if now.weekday() >= 5 or not is_a_share_trading_day(now.date(), now):

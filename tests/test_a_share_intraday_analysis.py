@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -17,10 +17,6 @@ from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.llm import (
     normalize_verdict,
     parse_llm_batch_results,
     parse_llm_json_response,
-)
-from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.lock import (
-    release_a_share_intraday_lock,
-    try_acquire_a_share_intraday_lock,
 )
 from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.market_calendar import (
     is_a_share_intraday_analysis_time,
@@ -174,7 +170,6 @@ def _make_service(data_source, llm, reporter, watchlist):
         llm_judge=llm,
         reporter=reporter,
         watchlist_provider=lambda: watchlist,
-        use_lock=False,
         signal_state_store=IntradaySignalStateStore(redis_client=False),
     )
 
@@ -290,20 +285,6 @@ def test_a_share_intraday_time_boundaries_include_session_end_but_not_lunch():
     assert not is_a_share_intraday_analysis_time(datetime(2026, 6, 24, 15, 1, tzinfo=SH))
 
 
-def test_a_share_running_lock_blocks_overlapping_five_minute_windows(tmp_path):
-    with patch(
-        "finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.lock._lock_path",
-        return_value=tmp_path / "a-share.lock",
-    ):
-        first = try_acquire_a_share_intraday_lock("a_share_intraday:2026-06-24:10:30")
-        second = try_acquire_a_share_intraday_lock("a_share_intraday:2026-06-24:10:35")
-        try:
-            assert first is not None
-            assert second is None
-        finally:
-            release_a_share_intraday_lock(first)
-
-
 def test_skips_pre_market():
     service = _empty_service()
     pre = datetime(2026, 6, 24, 9, 35, tzinfo=SH)
@@ -327,10 +308,10 @@ def test_morning_and_afternoon_run_succeeds():
     with patch(f"{SERVICE_MODULE}.is_a_share_trading_day", return_value=True):
         morning = service.run(now=datetime(2026, 6, 24, 10, 30, tzinfo=SH))
         afternoon = service.run(now=datetime(2026, 6, 24, 14, 0, tzinfo=SH))
-    assert morning.market_phase == "morning"
+    assert morning.market_phase == "上午"
     assert morning.snapshot_time.tzinfo is not None
     assert str(morning.snapshot_time.tzinfo) == "Asia/Shanghai"
-    assert afternoon.market_phase == "afternoon"
+    assert afternoon.market_phase == "下午"
 
 
 # ---------------------------------------------------------------------------

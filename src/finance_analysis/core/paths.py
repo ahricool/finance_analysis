@@ -118,11 +118,6 @@ def get_runtime_dir() -> Path:
     return get_data_dir() / "runtime"
 
 
-def get_runtime_locks_dir() -> Path:
-    """Return ``data/runtime/locks``."""
-    return get_runtime_dir() / "locks"
-
-
 def get_runtime_pid_dir() -> Path:
     """Return ``data/runtime/pid``."""
     return get_runtime_dir() / "pid"
@@ -190,7 +185,6 @@ __all__ = [
     "get_report_exports_dir",
     "get_reports_dir",
     "get_runtime_dir",
-    "get_runtime_locks_dir",
     "get_runtime_pid_dir",
     "get_temp_dir",
     "get_upload_dir",

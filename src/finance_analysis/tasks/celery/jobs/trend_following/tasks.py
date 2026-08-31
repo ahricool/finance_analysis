@@ -23,7 +23,6 @@ US_DEFINITION = require_scheduled_task_definition(JOB_TREND_FOLLOWING_US)
     task_type=CN_DEFINITION.task_type, task_name=CN_DEFINITION.name, source="celery",
     trigger_source="scheduler", scheduler_job_id=CN_DEFINITION.job_id, record_result=True,
     success_message="A股趋势跟踪计算完成", strip_lifecycle_kwargs=True,
-    dedupe_key=f"scheduled:{CN_DEFINITION.job_id}",
 )
 def run_trend_following_cn(
     scheduler_job_id: Optional[str] = None, trade_date: str | None = None, **_: Any,
@@ -37,7 +36,6 @@ def run_trend_following_cn(
     task_type=US_DEFINITION.task_type, task_name=US_DEFINITION.name, source="celery",
     trigger_source="scheduler", scheduler_job_id=US_DEFINITION.job_id, record_result=True,
     success_message="美股趋势跟踪计算完成", strip_lifecycle_kwargs=True,
-    dedupe_key=f"scheduled:{US_DEFINITION.job_id}",
 )
 def run_trend_following_us(
     scheduler_job_id: Optional[str] = None, trade_date: str | None = None, **_: Any,
