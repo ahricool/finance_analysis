@@ -25,7 +25,7 @@ CN_LATEST_DAILY_SEQUENCE = ("tickflow", "akshare", "pytdx", "efinance_snapshot",
 
 DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
     (Market.CN, DAILY_BARS): ("tickflow", "akshare", "pytdx", "baostock", "yfinance"),
-    (Market.US, DAILY_BARS): ("longbridge", "yfinance", "tickflow", "akshare"),
+    (Market.US, DAILY_BARS): ("yfinance", "tickflow", "akshare"),
     (Market.HK, DAILY_BARS): ("longbridge", "akshare", "yfinance"),
     (Market.CN, MINUTE_BARS): ("streaming", "longbridge", "efinance", "pytdx", "akshare"),
     (Market.US, MINUTE_BARS): ("streaming", "longbridge", "yfinance"),
