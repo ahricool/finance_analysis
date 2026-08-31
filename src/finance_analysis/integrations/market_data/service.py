@@ -172,7 +172,10 @@ def build_default_registry(
     )
     registry.register(
         "tickflow",
-        TickFlowFreeProvider(),
+        TickFlowFreeProvider(
+            batch_size=resolved_config.market_data_tickflow_batch_size,
+            max_workers=resolved_config.market_data_tickflow_max_concurrency,
+        ),
         capabilities={DAILY_BARS, INSTRUMENT_INFO, ADJUSTMENT_FACTORS},
     )
     registry.register(
@@ -193,7 +196,14 @@ def build_default_registry(
     registry.register(
         "pytdx",
         PyTDXProvider(),
-        capabilities={DAILY_BARS, MINUTE_BARS, REALTIME_QUOTES, LATEST_MARKET_SNAPSHOT, MARKET_INDICES, INSTRUMENT_INFO},
+        capabilities={
+            DAILY_BARS,
+            MINUTE_BARS,
+            REALTIME_QUOTES,
+            LATEST_MARKET_SNAPSHOT,
+            MARKET_INDICES,
+            INSTRUMENT_INFO,
+        },
     )
     registry.register("baostock", BaoStockProvider(), capabilities={DAILY_BARS, INSTRUMENT_INFO})
     registry.register(
@@ -270,7 +280,9 @@ class MarketDataService:
                 result.providers_used.pop(symbol, None)
                 continue
             factors_by_date = {item.trade_date: item.factor for item in factors}
-            first_factor = next((factors_by_date[bar.trade_date] for bar in bars if bar.trade_date in factors_by_date), None)
+            first_factor = next(
+                (factors_by_date[bar.trade_date] for bar in bars if bar.trade_date in factors_by_date), None
+            )
             if first_factor is None or first_factor <= 0:
                 result.failed_symbols[symbol] = "invalid adjustment factor series"
                 result.data.pop(symbol)
@@ -311,19 +323,13 @@ class MarketDataService:
     ) -> BatchQuoteResult:
         return self.router.route_quotes(QuoteRequest(self._canonical_symbols(symbols)), providers)
 
-    def get_market_snapshot(
-        self, market: Market | str, *, providers: Iterable[str] | None = None
-    ) -> BatchQuoteResult:
+    def get_market_snapshot(self, market: Market | str, *, providers: Iterable[str] | None = None) -> BatchQuoteResult:
         return self.router.route_market_snapshot(market_from_value(market), providers)
 
-    def get_market_indices(
-        self, market: Market | str, *, providers: Iterable[str] | None = None
-    ) -> list[MarketIndex]:
+    def get_market_indices(self, market: Market | str, *, providers: Iterable[str] | None = None) -> list[MarketIndex]:
         return self.router.route_indices(market_from_value(market), providers)
 
-    def get_market_stats(
-        self, market: Market | str, *, providers: Iterable[str] | None = None
-    ) -> MarketStats | None:
+    def get_market_stats(self, market: Market | str, *, providers: Iterable[str] | None = None) -> MarketStats | None:
         return self.router.route_market_stats(market_from_value(market), providers)
 
     def get_sector_rankings(
@@ -460,7 +466,9 @@ class MarketDataService:
 
             bundle = AkshareFundamentalAdapter().get_fundamental_bundle(canonical.split(".", 1)[0])
             bundle_status = str(bundle.get("status") or "partial")
-            growth = self._context_block(bundle_status, dict(bundle.get("growth") or {}), "akshare", bundle.get("errors"))
+            growth = self._context_block(
+                bundle_status, dict(bundle.get("growth") or {}), "akshare", bundle.get("errors")
+            )
             earnings = self._context_block(
                 bundle_status, dict(bundle.get("earnings") or {}), "akshare", bundle.get("errors")
             )

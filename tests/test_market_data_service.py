@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -5,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from finance_analysis.integrations.market_data.config import provider_order
+from finance_analysis.integrations.market_data.config import DataProviderConfig, provider_order
 from finance_analysis.integrations.market_data.models import (
     Adjustment,
     AdjustmentFactor,
@@ -29,8 +30,9 @@ from finance_analysis.integrations.market_data.registry import (
     ProviderConfigurationError,
     ProviderRegistry,
 )
-from finance_analysis.integrations.market_data.service import MarketDataService
-from finance_analysis.integrations.market_data.service import build_default_registry
+from finance_analysis.integrations.market_data.service import MarketDataService, build_default_registry
+from finance_analysis.tasks.celery.jobs.market_data_sync.models import AdjustmentResult as SyncAdjustmentResult
+from finance_analysis.tasks.celery.jobs.market_data_sync.models import SymbolResult
 from finance_analysis.tasks.celery.jobs.market_data_sync.service import MarketDataSyncService
 
 
@@ -136,8 +138,17 @@ def test_tickflow_free_uses_maximum_history_count_native_batch_raw_and_cn_lots_b
             calls.append((symbols, kwargs))
             return {
                 "600519.SH": pd.DataFrame(
-                    [{"date": "2025-01-02", "open": 10, "high": 11, "low": 9, "close": 10.5,
-                      "volume": 123, "amount": 129150}]
+                    [
+                        {
+                            "date": "2025-01-02",
+                            "open": 10,
+                            "high": 11,
+                            "low": 9,
+                            "close": 10.5,
+                            "volume": 123,
+                            "amount": 129150,
+                        }
+                    ]
                 )
             }
 
@@ -152,6 +163,66 @@ def test_tickflow_free_uses_maximum_history_count_native_batch_raw_and_cn_lots_b
     assert result.data["600519.SH"][0].volume == 12300
     assert result.data["600519.SH"][0].amount == 129150
     assert result.data["600519.SH"][0].adjustment is Adjustment.RAW
+
+
+def test_tickflow_daily_uses_one_sdk_batch_call_for_multiple_symbols_with_explicit_limits():
+    calls = []
+    symbols = ("600519.SH", "000001.SZ", "600000.SH")
+
+    class _Klines:
+        def batch(self, requested_symbols, **kwargs):
+            calls.append((requested_symbols, kwargs))
+            return {
+                symbol: pd.DataFrame(
+                    [
+                        {
+                            "date": "2025-01-02",
+                            "open": 10,
+                            "high": 11,
+                            "low": 9,
+                            "close": 10.5,
+                            "volume": 123,
+                            "amount": 129150,
+                        }
+                    ]
+                )
+                for symbol in requested_symbols
+            }
+
+    provider = TickFlowFreeProvider(
+        client=SimpleNamespace(klines=_Klines()),
+        batch_size=80,
+        max_workers=3,
+    )
+    result = provider.fetch_daily_bars(DailyBarsRequest(symbols, date(2025, 1, 1), date(2025, 1, 3), Adjustment.RAW))
+
+    assert len(calls) == 1
+    assert calls[0][0] == list(symbols)
+    assert calls[0][1]["batch_size"] == 80
+    assert calls[0][1]["max_workers"] == 3
+    assert set(result.data) == set(symbols)
+
+
+def test_tickflow_batch_configuration_defaults_and_validation():
+    config = DataProviderConfig()
+    assert config.market_data_tickflow_batch_size == 100
+    assert config.market_data_tickflow_max_concurrency == 5
+    configured = (
+        build_default_registry(
+            DataProviderConfig(
+                market_data_tickflow_batch_size=40,
+                market_data_tickflow_max_concurrency=2,
+            )
+        )
+        .get("tickflow")
+        .provider
+    )
+    assert configured.batch_size == 40
+    assert configured.max_workers == 2
+    with pytest.raises(ValueError, match="between 1 and 100"):
+        TickFlowFreeProvider(batch_size=101)
+    with pytest.raises(ValueError, match="at least 1"):
+        TickFlowFreeProvider(max_workers=0)
 
 
 def test_tickflow_derives_daily_factors_from_consistent_raw_and_forward_ohlc():
@@ -278,6 +349,164 @@ def test_sync_treats_zero_amount_as_missing_vwap():
     assert persisted[0]["vwap_quality"] == "missing"
 
 
+class _DailyUpsertRepository:
+    def __init__(self) -> None:
+        self.persisted: dict[int, tuple[list[dict], str]] = {}
+
+    def upsert_daily(self, symbol_id, rows, source):
+        self.persisted[symbol_id] = (rows, source)
+        return SimpleNamespace(inserted_rows=len(rows), updated_rows=0)
+
+
+def _batch_sync_service(market_data):
+    service = MarketDataSyncService.__new__(MarketDataSyncService)
+    service.market = "CN"
+    service.market_data = market_data
+    service.stock_repository = _DailyUpsertRepository()
+    return service
+
+
+def _bar_on(symbol: str, provider: str, trade_date: date, *, amount=1050) -> MarketBar:
+    return replace(_bar(symbol, provider, amount=amount), trade_date=trade_date)
+
+
+def test_cn_daily_batches_ten_symbols_with_same_window_in_one_service_call():
+    symbols = [SimpleNamespace(id=index, code=f"600{index:03d}.SH") for index in range(10)]
+    requested_days = [date(2025, 1, 2), date(2025, 1, 3)]
+    calls = []
+
+    def get_daily_bars(codes, start_date, end_date, *, adjustment):
+        calls.append((list(codes), start_date, end_date, adjustment))
+        return BatchBarResult(
+            data={code: [_bar_on(code, "tickflow", day) for day in requested_days] for code in codes},
+            providers_used={code: "tickflow" for code in codes},
+        )
+
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=get_daily_bars))
+    results = service._sync_daily_batch_groups(
+        symbols,
+        {symbol.code: requested_days for symbol in symbols},
+    )
+
+    assert len(calls) == 1
+    assert calls[0][0] == [symbol.code for symbol in symbols]
+    assert all(result.status == "success" for result in results.values())
+    assert len(service.stock_repository.persisted) == 10
+
+
+def test_cn_daily_groups_initial_and_incremental_windows_into_two_calls():
+    symbols = [SimpleNamespace(id=index, code=f"000{index:03d}.SZ") for index in range(10)]
+    refresh_days = [date(2025, 1, 2), date(2025, 1, 3)]
+    initial_days = [date(2020, 1, 2), date(2025, 1, 3)]
+    days_by_code = {symbol.code: refresh_days if index < 8 else initial_days for index, symbol in enumerate(symbols)}
+    calls = []
+
+    def get_daily_bars(codes, start_date, end_date, *, adjustment):
+        calls.append((tuple(codes), start_date, end_date))
+        requested = refresh_days if start_date == refresh_days[0] else initial_days
+        return BatchBarResult(
+            data={code: [_bar_on(code, "tickflow", day) for day in requested] for code in codes},
+            providers_used={code: "tickflow" for code in codes},
+        )
+
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=get_daily_bars))
+    results = service._sync_daily_batch_groups(symbols, days_by_code)
+
+    assert len(calls) == 2
+    assert sorted(len(call[0]) for call in calls) == [2, 8]
+    assert all(result.status == "success" for result in results.values())
+
+
+def test_cn_daily_batch_preserves_per_symbol_router_fallback_and_provider_attribution():
+    trade_date = date(2025, 1, 2)
+
+    class _PartialTickFlow(_DailyProvider):
+        def fetch_daily_bars(self, request):
+            result = super().fetch_daily_bars(request)
+            result.missing_symbols = [symbol for symbol in result.missing_symbols if symbol != "000002.SZ"]
+            result.failed_symbols["000002.SZ"] = "timeout"
+            return result
+
+    first = _PartialTickFlow(
+        "tickflow",
+        {
+            "600000.SH": [_bar_on("600000.SH", "tickflow", trade_date)],
+            "000001.SZ": [_bar_on("000001.SZ", "tickflow", trade_date)],
+        },
+    )
+    fallback = _DailyProvider(
+        "akshare",
+        {"000002.SZ": [_bar_on("000002.SZ", "akshare", trade_date)]},
+    )
+    registry = ProviderRegistry()
+    registry.register("tickflow", first, capabilities={DAILY_BARS})
+    registry.register("akshare", fallback, capabilities={DAILY_BARS})
+    market_data = MarketDataService(registry)
+    symbols = [
+        SimpleNamespace(id=1, code="600000.SH"),
+        SimpleNamespace(id=2, code="000001.SZ"),
+        SimpleNamespace(id=3, code="000002.SZ"),
+    ]
+    service = _batch_sync_service(market_data)
+
+    results = service._sync_daily_batch_groups(
+        symbols,
+        {symbol.code: [trade_date] for symbol in symbols},
+    )
+
+    assert len(first.requests) == 1
+    assert first.requests[0].symbols == tuple(symbol.code for symbol in symbols)
+    assert fallback.requests[0].symbols == ("000002.SZ",)
+    assert results["600000.SH"].providers == ["tickflow"]
+    assert results["000001.SZ"].providers == ["tickflow"]
+    assert results["000002.SZ"].providers == ["akshare"]
+    assert all(result.status == "success" for result in results.values())
+    service.sync_mode = "incremental"
+    service.unsupported_symbols = []
+    summary = service._summarize(
+        [SymbolResult(symbol.code, results[symbol.code], SyncAdjustmentResult("success")) for symbol in symbols],
+        len(symbols),
+    )
+    assert summary["success_symbols"] == 3
+    assert summary["failed_symbols"] == 0
+    assert summary["provider_counts"] == {"tickflow": 2, "akshare": 1}
+
+
+def test_cn_daily_batch_computes_missing_days_and_isolates_symbol_errors():
+    first_day = date(2025, 1, 2)
+    second_day = date(2025, 1, 3)
+    symbols = [
+        SimpleNamespace(id=1, code="600000.SH"),
+        SimpleNamespace(id=2, code="000001.SZ"),
+        SimpleNamespace(id=3, code="000002.SZ"),
+    ]
+    routed = BatchBarResult(
+        data={
+            "600000.SH": [
+                _bar_on("600000.SH", "tickflow", first_day),
+                _bar_on("600000.SH", "tickflow", second_day),
+            ],
+            "000001.SZ": [_bar_on("000001.SZ", "akshare", first_day)],
+        },
+        providers_used={"600000.SH": "tickflow", "000001.SZ": "akshare"},
+        failed_symbols={"000002.SZ": "tickflow: timeout; akshare: empty"},
+    )
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed))
+
+    results = service._sync_daily_batch_groups(
+        symbols,
+        {symbol.code: [first_day, second_day] for symbol in symbols},
+    )
+
+    assert results["600000.SH"].status == "success"
+    assert results["600000.SH"].fallback_reasons == []
+    assert results["000001.SZ"].status == "partial"
+    assert results["000001.SZ"].reason == "missing_trading_days=1"
+    assert results["000001.SZ"].fallback_reasons == []
+    assert results["000002.SZ"].status == "failed"
+    assert results["000002.SZ"].fallback_reasons == ["tickflow: timeout; akshare: empty"]
+
+
 def test_sync_refreshes_instrument_names_in_one_remote_batch():
     calls = []
     upserts = []
@@ -330,9 +559,7 @@ def test_sync_refreshes_instrument_names_in_one_remote_batch():
         get_instrument_info=get_instrument_info,
     )
     service.symbol_repository = SimpleNamespace(
-        upsert_symbols=lambda records, overwrite_runtime_flags: upserts.append(
-            (records, overwrite_runtime_flags)
-        )
+        upsert_symbols=lambda records, overwrite_runtime_flags: upserts.append((records, overwrite_runtime_flags))
     )
     service.instrument_names_refreshed = 0
     service.instrument_name_failures = {}
@@ -354,8 +581,12 @@ def test_cn_daily_default_chain_uses_efinance_snapshot_for_latest_day():
     today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
     tickflow = _DailyProvider("tickflow", {"600000.SH": [_bar("600000.SH", "tickflow")]})
     tickflow.values["600000.SH"][0] = MarketBar(
-        **{**tickflow.values["600000.SH"][0].to_dict(), "trade_date": today - timedelta(days=1),
-           "market": Market.CN, "adjustment": Adjustment.RAW}
+        **{
+            **tickflow.values["600000.SH"][0].to_dict(),
+            "trade_date": today - timedelta(days=1),
+            "market": Market.CN,
+            "adjustment": Adjustment.RAW,
+        }
     )
     empty_akshare = _DailyProvider("akshare", {})
     empty_pytdx = _DailyProvider("pytdx", {})
@@ -363,8 +594,16 @@ def test_cn_daily_default_chain_uses_efinance_snapshot_for_latest_day():
     class _Snapshot:
         def fetch_market_snapshot(self, market):
             quote = MarketQuote(
-                symbol="600000.SH", market=Market.CN, provider="efinance", currency="CNY",
-                price=10.8, open_price=10.1, high=11, low=10, volume=1000, amount=10800,
+                symbol="600000.SH",
+                market=Market.CN,
+                provider="efinance",
+                currency="CNY",
+                price=10.8,
+                open_price=10.1,
+                high=11,
+                low=10,
+                volume=1000,
+                amount=10800,
                 quote_time=datetime.now(ZoneInfo("Asia/Shanghai")),
             )
             return BatchQuoteResult(data={"600000.SH": quote})

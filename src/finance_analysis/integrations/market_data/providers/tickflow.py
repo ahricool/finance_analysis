@@ -40,8 +40,21 @@ class TickFlowFreeProvider:
 
     name = "tickflow"
 
-    def __init__(self, *, timeout: float = 30.0, client: Any = None) -> None:
+    def __init__(
+        self,
+        *,
+        timeout: float = 30.0,
+        batch_size: int = 100,
+        max_workers: int = 5,
+        client: Any = None,
+    ) -> None:
+        if not 1 <= int(batch_size) <= 100:
+            raise ValueError("TickFlow batch_size must be between 1 and 100")
+        if int(max_workers) < 1:
+            raise ValueError("TickFlow max_workers must be at least 1")
         self.timeout = timeout
+        self.batch_size = int(batch_size)
+        self.max_workers = int(max_workers)
         self._client = client
         self._client_lock = RLock()
 
@@ -167,6 +180,8 @@ class TickFlowFreeProvider:
             adjust=adjust,
             as_dataframe=True,
             show_progress=False,
+            batch_size=self.batch_size,
+            max_workers=self.max_workers,
         )
 
     def _bars_by_date(self, frame, symbol, adjustment, request):
