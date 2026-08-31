@@ -149,10 +149,13 @@ class ETFRotationService:
                 continue
             payload = features.to_dict()
             if benchmark_ready and benchmark_features is not None:
-                payload["rs_20d"] = payload["ret_20d"] - benchmark_features.ret_20d
-                payload["rs_60d"] = payload["ret_60d"] - benchmark_features.ret_60d
+                for window in self.config.relative_strength_windows:
+                    payload[f"rs_{window}d"] = (
+                        payload[f"ret_{window}d"] - getattr(benchmark_features, f"ret_{window}d")
+                    )
             else:
-                payload["rs_20d"] = payload["rs_60d"] = None
+                for window in self.config.relative_strength_windows:
+                    payload[f"rs_{window}d"] = None
             member = member_by_code[code]
             feature_rows.append({
                 "trade_date": effective_date, "market": self.market, "symbol_id": symbol_ids[code],
@@ -171,10 +174,8 @@ class ETFRotationService:
         if warning:
             warnings.append(warning)
         ranked = rank_features(rank_cross_section(feature_rows), FACTOR_RANK_DIRECTIONS)
-        historical = self.repository.historical_rank_5d(effective_date, codes)
         evaluated: list[dict[str, Any]] = []
         for row in ranked:
-            row.update(calculate_rank_changes(int(row["rank_5d"]), historical.get(str(row["code"]), {})))
             row.update(calculate_factor_scores(row, self.config))
             row["momentum_score"] = row["momentum_strength_score"]
             row["absolute_trend_eligible"] = is_absolute_trend_eligible(row, self.config)
@@ -182,15 +183,17 @@ class ETFRotationService:
             evaluated.append(row)
 
         ranked_composite = rank_features(evaluated, {"composite_score": True})
+        historical = self.repository.historical_composite_ranks(effective_date, codes)
         for row in ranked_composite:
             row["rank"] = row.pop("rank_composite_score")
             row.pop("pct_rank_composite_score", None)
+            row.update(calculate_rank_changes(int(row["rank"]), historical.get(str(row["code"]), {})))
             composite = float(row["composite_score"] or 0.0)
             entry_score, entry_components = calculate_entry_score(row, composite, self.config)
             factor_components = {
                 key.removesuffix("_score"): row.get(key) for key in (
                     "momentum_strength_score", "trend_quality_score", "relative_strength_score",
-                    "acceleration_score", "efficiency_score", "risk_adjusted_score", "composite_score",
+                    "acceleration_score", "efficiency_score", "composite_score",
                 )
             }
             row["entry_score"] = entry_score

@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ETFMarket, ETFMomentumSnapshot } from '@/types/etfRotation';
+import { indicatorDescriptions } from '@/components/etf-rotation/indicatorDescriptions';
 import ETFRotationPage from '../ETFRotationPage.vue';
 
 const apiMocks = vi.hoisted(() => ({
@@ -45,30 +46,29 @@ function snapshot(overrides: Partial<ETFMomentumSnapshot> = {}): ETFMomentumSnap
     riskGroup: 'BROAD_GROWTH',
     enabled: true,
     ret1D: 0.011,
+    ret3D: 0.018,
     ret5D: 0.0234,
     ret10D: -0.012,
     ret20D: 0.04,
-    ret30D: 0.05,
-    ret60D: 0.0611,
     rank1D: 4,
+    rank3D: 2,
     rank5D: 3,
     rank10D: 5,
     rank20D: 6,
-    rank30D: 7,
-    rank60D: 8,
     pctRank1D: 90,
+    pctRank3D: 92,
     pctRank5D: 85,
     pctRank10D: 80,
     pctRank20D: 70,
-    pctRank30D: 60,
-    pctRank60D: 50,
+    previous3dReturn: 0.004,
     previous5dReturn: 0.01,
-    momentumAcceleration: 0.0134,
+    momentumAcceleration3D: 0.014,
+    momentumAcceleration5D: 0.0134,
     rankChange1D: 1,
     rankChange3D: 2,
     rankChange5D: 4,
+    ma10Ratio: 0.015,
     ma20Ratio: 0.02,
-    ma60Ratio: 0.03,
     volumeRatio5D: 1.2,
     avgAmount20D: 1000,
     realizedVol20D: 0.2,
@@ -76,27 +76,27 @@ function snapshot(overrides: Partial<ETFMomentumSnapshot> = {}): ETFMomentumSnap
     stopLossPct: 0.05,
     suggestedStopPrice: 95,
     distanceFrom20dHigh: -0.01,
+    weightedSlope5D: 0.012,
     weightedSlope10D: 0.01,
-    weightedSlope25D: 0.008,
+    weightedSlope15D: 0.008,
+    annualizedSlope5D: 1.5,
     annualizedSlope10D: 1.2,
-    annualizedSlope25D: 0.9,
-    trendR225D: 0.9,
-    trendQuality25D: 0.81,
-    efficiencyRatio20D: 0.8,
+    annualizedSlope15D: 0.9,
+    trendR215D: 0.9,
+    trendQuality15D: 0.81,
+    signedEfficiencyRatio10D: 0.8,
     trendAcceleration: 0.3,
+    rs5D: 0.025,
+    rs10D: 0.03,
     rs20D: 0.03,
-    rs60D: 0.04,
     relativeStrengthReady: true,
-    riskAdjustedMomentum60D: 1.1,
     maxDrawdown20D: -0.05,
-    maxDrawdown60D: -0.08,
     momentumScore: 80.1,
     momentumStrengthScore: 80.1,
     trendQualityScore: 85,
     relativeStrengthScore: 82,
     accelerationScore: 75,
     efficiencyScore: 88,
-    riskAdjustedScore: 70,
     compositeScore: 82.5,
     rank: 3,
     entryScore: 88.2,
@@ -126,11 +126,10 @@ function rankingPayload(market: ETFMarket, tradeDate: string, item: ETFMomentumS
     generatedAt: `${tradeDate}T10:40:00Z`,
     warnings: [],
     marketSnapshot: {
-      market, tradeDate, regime: 'RISK_ON', breadthAboveMa20: 0.8, breadthAboveMa60: 0.7,
-      breadthMa20AboveMa60: 0.65, benchmarkCode: market === 'US' ? 'SPY.US' : '510300.SH',
-      benchmarkClose: 100, benchmarkMa20Ratio: 0.02, benchmarkMa60Ratio: 0.03,
-      benchmarkTrend: 'POSITIVE', benchmarkAboveMa20: true, benchmarkAboveMa60: true,
-      benchmarkMa20AboveMa60: true,
+      market, tradeDate, regime: 'RISK_ON', positive5dBreadth: 0.8, aboveMa10Breadth: 0.7,
+      benchmarkCode: market === 'US' ? 'SPY.US' : '510300.SH',
+      benchmarkClose: 100, benchmarkRet5D: 0.02, benchmarkMa10Ratio: 0.03,
+      benchmarkWeightedSlope10D: 0.01, benchmarkTrend: 'POSITIVE',
     },
     items: [item],
   };
@@ -203,7 +202,7 @@ describe('ETFRotationPage', () => {
     vi.clearAllMocks();
   });
 
-  it('renders 1D-60D returns instead of placeholders when snapshot values exist', async () => {
+  it('renders 1D-20D fast-rotation returns instead of slow-window placeholders', async () => {
     const wrapper = mount(ETFRotationPage);
     await flushPromises();
 
@@ -212,13 +211,22 @@ describe('ETFRotationPage', () => {
     expect(wrapper.text()).toContain('+2.34%');
     expect(wrapper.text()).toContain('-1.20%');
     expect(wrapper.text()).toContain('+4.00%');
-    expect(wrapper.text()).toContain('+5.00%');
-    expect(wrapper.text()).toContain('+6.11%');
+    expect(wrapper.text()).toContain('+1.80%');
     expect(wrapper.text()).toContain('-5.0%');
     expect(wrapper.text()).toContain('¥95.00');
     expect(wrapper.text()).toContain('#3');
     expect(wrapper.text()).toContain('+4');
     expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined);
+    expect(wrapper.find('[aria-label="查看 3D 计算公式"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="查看 Entry 计算公式"]').exists()).toBe(true);
+  });
+
+  it('documents the complete fast-rotation formulas in indicator hints', () => {
+    expect(indicatorDescriptions.momentum).toContain('0.30×Rank(Return3)');
+    expect(indicatorDescriptions.relativeStrength).toContain('RS_N = ETF Return_N − Benchmark Return_N');
+    expect(indicatorDescriptions.acceleration).toContain('Acc3 =');
+    expect(indicatorDescriptions.composite).toContain('0.25×Acceleration');
+    expect(indicatorDescriptions.entry).toContain('BUY 阈值为 70');
   });
 
   it('loads the latest snapshot on mount and fills the date picker', async () => {
@@ -278,9 +286,16 @@ describe('ETFRotationPage', () => {
     const modal = document.body.querySelector('[data-testid="etf-detail-modal"]');
     expect(modal).not.toBeNull();
     expect(modal?.className).toContain('max-h-[calc(100dvh-2rem)]');
+    expect(modal?.className).toContain('sm:max-w-[calc(100%-2rem)]');
+    expect(modal?.className).toContain('lg:max-w-6xl');
+    expect(document.body.querySelector('[data-testid="etf-factor-grid"]')?.className)
+      .toContain('grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]');
+    expect(document.body.querySelector('[data-testid="etf-raw-metrics-grid"]')?.className)
+      .toContain('grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]');
     expect(document.body.textContent).toContain('Raw Metrics');
-    expect(document.body.textContent).toContain('Weighted Slope 25D');
-    expect(document.body.textContent).toContain('RS60');
+    expect(document.body.textContent).toContain('Weighted Slope 15D');
+    expect(document.body.textContent).toContain('RS10');
+    expect(document.body.textContent).toContain('Signed ER10');
     expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN');
   });
 

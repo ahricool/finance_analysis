@@ -18,16 +18,23 @@ def calculate_market_regime(
     config: ETFRotationConfig = DEFAULT_CONFIG,
 ) -> dict[str, Any]:
     count = len(rows)
-    breadth_ma20 = sum(float(row["ma20_ratio"]) > 0 for row in rows) / count if count else 0.0
-    breadth_ma60 = sum(float(row["ma60_ratio"]) > 0 for row in rows) / count if count else 0.0
-    breadth_cross = sum(float(row["ma20_ratio"]) < float(row["ma60_ratio"]) for row in rows) / count if count else 0.0
-    above_ma20 = float(benchmark["ma20_ratio"]) > 0
-    above_ma60 = float(benchmark["ma60_ratio"]) > 0
-    ma20_above_ma60 = float(benchmark["ma20_ratio"]) < float(benchmark["ma60_ratio"])
-    trend_positive = float(benchmark["weighted_slope_25d"]) > 0
-    if breadth_ma60 > config.regime_risk_on_breadth_ma60 and above_ma60 and trend_positive:
+    positive_5d_breadth = sum(float(row["ret_5d"]) > 0 for row in rows) / count if count else 0.0
+    above_ma10_breadth = sum(float(row["ma10_ratio"]) > 0 for row in rows) / count if count else 0.0
+    benchmark_ret_5d = float(benchmark["ret_5d"])
+    benchmark_slope_10d = float(benchmark["weighted_slope_10d"])
+    if (
+        positive_5d_breadth >= config.regime_risk_on_breadth
+        and above_ma10_breadth >= config.regime_risk_on_breadth
+        and benchmark_ret_5d > 0
+        and benchmark_slope_10d > 0
+    ):
         regime = "RISK_ON"
-    elif breadth_ma60 < config.regime_risk_off_breadth_ma60 and not above_ma60:
+    elif (
+        positive_5d_breadth <= config.regime_risk_off_breadth
+        and above_ma10_breadth <= config.regime_risk_off_breadth
+        and benchmark_ret_5d < 0
+        and benchmark_slope_10d < 0
+    ):
         regime = "RISK_OFF"
     else:
         regime = "NEUTRAL"
@@ -35,21 +42,18 @@ def calculate_market_regime(
         "trade_date": trade_date,
         "market": market,
         "regime": regime,
-        "breadth_above_ma20": breadth_ma20,
-        "breadth_above_ma60": breadth_ma60,
-        "breadth_ma20_above_ma60": breadth_cross,
+        "positive_5d_breadth": positive_5d_breadth,
+        "above_ma10_breadth": above_ma10_breadth,
         "benchmark_code": benchmark_code,
         "benchmark_close": benchmark["reference_price"],
-        "benchmark_ma20_ratio": benchmark["ma20_ratio"],
-        "benchmark_ma60_ratio": benchmark["ma60_ratio"],
+        "benchmark_ret_5d": benchmark_ret_5d,
+        "benchmark_ma10_ratio": benchmark["ma10_ratio"],
+        "benchmark_weighted_slope_10d": benchmark_slope_10d,
         "benchmark_trend": (
             "POSITIVE"
-            if trend_positive and above_ma60
-            else "NEGATIVE" if not trend_positive and not above_ma60 else "MIXED"
+            if benchmark_ret_5d > 0 and benchmark_slope_10d > 0
+            else "NEGATIVE" if benchmark_ret_5d < 0 and benchmark_slope_10d < 0 else "MIXED"
         ),
-        "benchmark_above_ma20": above_ma20,
-        "benchmark_above_ma60": above_ma60,
-        "benchmark_ma20_above_ma60": ma20_above_ma60,
     }
 
 

@@ -2,7 +2,7 @@
 
 ## 功能与边界
 
-ETF Rotation 是独立的、规则驱动且可解释的 A 股行业/主题 ETF 日频轮动模块。它在收盘后计算完整横截面排名、Momentum Score、Entry Score、状态与 Buy Candidates，并保存 point-in-time snapshot。V1 不交易、不接券商、不使用 Qlib/ML，也不使用 Redis 或任何 cache layer。
+ETF Rotation 是独立、规则驱动且可解释的 A 股/美股 ETF 快速轮动模块。它在收盘后计算完整横截面排名、Entry Score、状态与候选，并保存 point-in-time snapshot。
 
 生产信号代表 T 日收盘后才可获得的信息。回测和后续执行必须默认使用 **T+1 Open** 或更晚价格，不能假设以 T 日 Close 成交。
 
@@ -65,39 +65,42 @@ ETF Rotation 是独立的、规则驱动且可解释的 A 股行业/主题 ETF �
 
 所有计算函数位于独立 `etf_rotation` 域，不依赖 Quant Feature Engine：
 
-- `ret_Nd = close[t] / close[t-N] - 1`，N 为 1/5/10/20/30/60。
+- `ret_Nd = close[t] / close[t-N] - 1`，N 为 1/3/5/10/20。
+- `momentum_acceleration_3d = ret_3d - previous_3d_return`。
 - `previous_5d_return = close[t-5] / close[t-10] - 1`。
-- `momentum_acceleration = ret_5d - previous_5d_return`。
-- `ma20_ratio`、`ma60_ratio` 为当前 close 相对最近 20/60 根均线的偏离。
+- `momentum_acceleration_5d = ret_5d - previous_5d_return`。
+- `ma10_ratio` 用于绝对趋势门槛；`ma20_ratio` 只用于追高风险。
+- 对 log(close) 计算 5/10/15 日近期加权回归；`trend_quality_15d = annualized_slope_15d * trend_r2_15d`。
+- `signed_efficiency_ratio_10d` 保留净移动方向，范围约为 -1 到 1。
 - `volume_ratio_5d` 为最近 5 根平均 volume / 最近 20 根平均 volume。
 - `avg_amount_20d` 为最近 20 根非空 amount 的平均值。
 - `realized_vol_20d` 为最近 20 个 close-to-close return 的样本标准差乘 `sqrt(252)`。
 - `distance_from_20d_high = close[t] / max(close[t-19:t]) - 1`。
 
-完整计算至少需要 61 根截至 T 日的日线。横截面 rank 中 1 为最强；percentile 中 100 为最强、0 为最弱。收益相同时使用 competition rank，percentile 使用 tie group 的平均位置，因此 ties 得到相同且可重复的值。
+完整计算至少需要 21 根截至 T 日的日线。横截面 rank 中 1 为最强；percentile 中 100 为最强、0 为最弱。
 
-`rank_change_Nd = N 个历史 snapshot 交易日之前的 rank_5d - 当前 rank_5d`，N 为 1/3/5；正值表示改善。历史不足时保存 NULL，不伪造为 0。
+`rank_change_Nd = N 个历史 snapshot 交易日之前的 Composite rank - 当前 Composite rank`，N 为 1/3/5；正值表示改善。
 
 ## Momentum 与 Entry Score
 
 Momentum Score 使用横截面 percentile，不直接加权收益：
 
 ```text
-0.40 * pct_rank_5d
+0.30 * pct_rank_3d
++ 0.35 * pct_rank_5d
 + 0.25 * pct_rank_10d
-+ 0.20 * pct_rank_30d
-+ 0.15 * pct_rank_60d
++ 0.10 * pct_rank_20d
 ```
 
-Entry Score 以 Momentum Score 为基础：1D 在 `(0, 4%]` 加 3；acceleration 在 `(0, 5%)` 加 5、`>=5%` 加 8；`rank_change_5d >= 10` 加 5；`volume_ratio_5d >= 1.2` 加 2。MA20 偏离在 `[5%,10%)`、`[10%,15%)`、`>=15%` 分别扣 2、5、10；1D return `>6%` 另扣 5。最终 clamp 到 `[0,100]`。每项贡献保存在 `score_components` JSONB。
+Composite 为 Momentum 30% + RS5/10/20 25% + Acceleration 25% + Trend Quality15 15% + Signed ER10 5%。Entry Score 以 Composite 为基础，保留温和单日上涨、放量确认、MA20 偏离和单日暴涨惩罚。
 
 所有权重、阈值、coverage 和候选限制集中在 `etf_rotation/config.py`。
 
 ## State 与 Candidates
 
-状态 priority 固定为：`EXHAUSTED > COOLING > EMERGING > STRONG > TRENDING > WEAK > NEUTRAL`。判断条件与 `classifier.py` 一致：EXHAUSTED/STRONG 使用 80 分，COOLING 使用 70 分与负 acceleration/rank change，EMERGING 使用 Top10、五日 rank 改善至少 10 且 acceleration 为正，TRENDING 使用 5D/10D/30D percentile 80/70/60，40 分以下为 WEAK。
+状态 priority 固定为：`EXHAUSTED > COOLING > EMERGING > STRONG > TRENDING > WEAK > NEUTRAL`。EMERGING 使用 3 日排名改善、Acceleration、RS10 与 10 日正斜率识别刚启动热点。
 
-候选按 `entry_score DESC, momentum_score DESC, rank_5d ASC, code ASC`；排除 WEAK 和 EXHAUSTED；每个 risk group 最多 2 只，默认 Top5。缺失 risk group 时使用 `UNKNOWN:{code}` 并写 warning。
+BUY 要求 Composite Top4、Entry Score 至少 70 且状态为 EMERGING/STRONG/TRENDING。HOLD 要求 Top6、Composite 至少 60，并满足加速度或 5 日收益条件；明显加速度恶化或单日排名坠落直接 EXIT。候选相关性只使用最近 20 个交易日。
 
 ## Data readiness 与持久化
 

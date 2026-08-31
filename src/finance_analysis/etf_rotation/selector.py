@@ -32,8 +32,26 @@ def _passes_hard_gates(row: Mapping[str, Any], config: ETFRotationConfig) -> boo
     )
 
 
-def _passes_entry_gates(row: Mapping[str, Any], config: ETFRotationConfig) -> bool:
-    return _passes_hard_gates(row, config) and str(row["state"]) not in config.excluded_candidate_states
+def is_entry_candidate(row: Mapping[str, Any], config: ETFRotationConfig = DEFAULT_CONFIG) -> bool:
+    return _passes_hard_gates(row, config) and str(row["state"]) in config.entry_candidate_states
+
+
+def is_valid_hold(row: Mapping[str, Any], config: ETFRotationConfig = DEFAULT_CONFIG) -> bool:
+    acceleration = float(row.get("acceleration_score") or 0.0)
+    rank_change_1d = row.get("rank_change_1d")
+    return (
+        _passes_hard_gates(row, config)
+        and _rank(row) <= config.hold_rank_threshold
+        and _composite_score(row) >= config.hold_composite_threshold
+        and str(row["state"]) not in {"WEAK", "EXHAUSTED"}
+        and (acceleration >= config.hold_acceleration_threshold or float(row.get("ret_5d") or 0.0) > 0)
+        and not (acceleration < config.exit_acceleration_threshold and float(row.get("ret_3d") or 0.0) < 0)
+        and not (
+            rank_change_1d is not None
+            and int(rank_change_1d) <= config.rank_collapse_threshold
+            and acceleration < config.hold_acceleration_threshold
+        )
+    )
 
 
 def _sort_key(row: Mapping[str, Any]) -> tuple[float, int, str]:
@@ -74,9 +92,7 @@ def select_candidates(
             row
             for row in rows
             if str(row["code"]) in previous_candidate_codes
-            and _passes_hard_gates(row, config)
-            and _rank(row) <= config.hold_rank_threshold
-            and _composite_score(row) >= config.hold_composite_threshold
+            and is_valid_hold(row, config)
         ),
         key=_sort_key,
     )
@@ -101,7 +117,7 @@ def select_candidates(
             for row in rows
             if str(row["code"]) not in previous_candidate_codes
             and regime != "RISK_OFF"
-            and _passes_entry_gates(row, config)
+            and is_entry_candidate(row, config)
             and _rank(row) <= config.entry_rank_threshold
             and _entry_score(row) >= config.entry_score_threshold
         ),
@@ -147,4 +163,4 @@ def public_rotation_action(
     return None
 
 
-__all__ = ["public_rotation_action", "select_candidates"]
+__all__ = ["is_entry_candidate", "is_valid_hold", "public_rotation_action", "select_candidates"]

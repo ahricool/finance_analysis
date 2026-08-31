@@ -33,30 +33,24 @@ def calculate_factor_scores(
     row: Mapping[str, Any], config: ETFRotationConfig = DEFAULT_CONFIG
 ) -> dict[str, float | None]:
     momentum = calculate_momentum_score(row, config)
-    relative = _weighted([
-        (
-            map_relative_strength_score(
-                row.get(f"rs_{window}d"), config.relative_strength_score_ranges[window]
-            ),
-            weight,
+    rs_scores = {
+        window: map_relative_strength_score(
+            row.get(f"rs_{window}d"), config.relative_strength_score_ranges[window]
         )
-        for window, weight in config.relative_strength_weights.items()
-    ])
+        for window in config.relative_strength_windows
+    }
+    relative = _weighted([(rs_scores[window], weight) for window, weight in config.relative_strength_weights.items()])
     acceleration = _weighted([
         (row.get(f"pct_rank_{field}"), weight)
         for field, weight in config.acceleration_weights.items()
     ])
-    risk_adjusted = _weighted([
-        (row.get(f"pct_rank_{field}"), weight)
-        for field, weight in config.risk_adjusted_weights.items()
-    ])
     scores: dict[str, float | None] = {
         "momentum_strength_score": momentum,
-        "trend_quality_score": row.get("pct_rank_trend_quality_25d"),
+        "trend_quality_score": row.get("pct_rank_trend_quality_15d"),
         "relative_strength_score": relative,
         "acceleration_score": acceleration,
-        "efficiency_score": row.get("pct_rank_efficiency_ratio_20d"),
-        "risk_adjusted_score": risk_adjusted,
+        "efficiency_score": row.get("pct_rank_signed_efficiency_ratio_10d"),
+        **{f"rs_{window}d_score": value for window, value in rs_scores.items()},
     }
     factor_map = {
         "momentum_strength": scores["momentum_strength_score"],
@@ -64,7 +58,6 @@ def calculate_factor_scores(
         "relative_strength": scores["relative_strength_score"],
         "acceleration": scores["acceleration_score"],
         "efficiency": scores["efficiency_score"],
-        "risk_adjusted": scores["risk_adjusted_score"],
     }
     if factor_map["relative_strength"] is None and not config.allow_missing_relative_strength:
         composite = None

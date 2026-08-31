@@ -1,4 +1,4 @@
-"""Public market-data eligibility gates for ETF Rotation V2."""
+"""Public market-data eligibility gates for fast ETF rotation."""
 
 from __future__ import annotations
 
@@ -11,10 +11,12 @@ from finance_analysis.etf_rotation.config import DEFAULT_CONFIG, ETFRotationConf
 def is_absolute_trend_eligible(
     row: Mapping[str, Any], config: ETFRotationConfig = DEFAULT_CONFIG
 ) -> bool:
-    if config.absolute_trend_require_positive_slope and float(row["weighted_slope_25d"]) <= 0:
-        return False
-    secondary = (float(row["ma60_ratio"]) > 0, float(row["ret_60d"]) > 0)
-    return sum(secondary) >= config.absolute_trend_min_secondary_conditions
+    conditions = (
+        float(row["ret_5d"]) > 0,
+        float(row["weighted_slope_10d"]) > 0,
+        float(row["ma10_ratio"]) > 0,
+    )
+    return sum(conditions) >= config.absolute_trend_min_conditions
 
 
 def is_liquidity_eligible(

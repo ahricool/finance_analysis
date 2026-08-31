@@ -32,6 +32,7 @@ class StrategySpec:
     stop_loss: bool = False
     trailing_stop: bool = False
     risk_off: bool = False
+    fast_rotation: bool = False
     hysteresis: bool = False
     hysteresis_hold_rank: int = 15
     hysteresis_observe_rank: int = 20

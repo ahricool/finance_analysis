@@ -19,11 +19,10 @@ SORT_FIELDS = {
     "entry_score": ETFMomentumSnapshot.entry_score,
     "momentum_score": ETFMomentumSnapshot.momentum_score,
     "ret_1d": ETFMomentumSnapshot.ret_1d,
+    "ret_3d": ETFMomentumSnapshot.ret_3d,
     "ret_5d": ETFMomentumSnapshot.ret_5d,
     "ret_10d": ETFMomentumSnapshot.ret_10d,
     "ret_20d": ETFMomentumSnapshot.ret_20d,
-    "ret_30d": ETFMomentumSnapshot.ret_30d,
-    "ret_60d": ETFMomentumSnapshot.ret_60d,
 }
 
 
@@ -104,7 +103,7 @@ class ETFRotationRepository:
                 ).mappings()
             )
 
-    def historical_rank_5d(self, trade_date: date, codes: Iterable[str]) -> dict[str, dict[int, int]]:
+    def historical_composite_ranks(self, trade_date: date, codes: Iterable[str]) -> dict[str, dict[int, int]]:
         selected = sorted(set(codes))
         if not selected:
             return {}
@@ -124,13 +123,14 @@ class ETFRotationRepository:
             if not dates:
                 return {}
             rows = session.execute(
-                select(MarketDataSymbol.code, ETFMomentumSnapshot.trade_date, ETFMomentumSnapshot.rank_5d)
+                select(MarketDataSymbol.code, ETFMomentumSnapshot.trade_date, ETFMomentumSnapshot.rank)
                 .join(MarketDataSymbol, MarketDataSymbol.id == ETFMomentumSnapshot.symbol_id)
                 .where(
                     ETFMomentumSnapshot.market == self.market,
                     MarketDataSymbol.market == self.market,
                     MarketDataSymbol.code.in_(selected),
                     ETFMomentumSnapshot.trade_date.in_(dates),
+                    ETFMomentumSnapshot.rank.is_not(None),
                 )
             ).all()
         offsets = {snapshot_date: index + 1 for index, snapshot_date in enumerate(dates)}

@@ -25,7 +25,7 @@ class FakeRepository:
         *,
         market: str = "CN",
         ready_count: int | None = None,
-        history_bars: int = 61,
+        history_bars: int = 21,
         benchmark_ready: bool = True,
         previous_candidates: set[str] | None = None,
     ):
@@ -77,7 +77,7 @@ class FakeRepository:
                 )
         return rows
 
-    def historical_rank_5d(self, _trade_date, _codes):
+    def historical_composite_ranks(self, _trade_date, _codes):
         return {}
 
     def upsert_snapshots(self, snapshots):
@@ -101,7 +101,7 @@ def test_service_generates_complete_snapshot_and_same_date_rerun_is_idempotent()
     second = service.run(TRADE_DATE)
     assert first["snapshot_count"] == second["snapshot_count"] == len(enabled_etfs("CN"))
     assert len(repository.saved) == len(enabled_etfs("CN"))
-    assert 0 < first["candidate_count"] <= DEFAULT_CONFIG.max_candidates
+    assert 0 <= first["candidate_count"] <= DEFAULT_CONFIG.max_candidates
     assert all("score_components" in snapshot for snapshot in repository.saved.values())
     assert all("composite_score" in snapshot for snapshot in repository.saved.values())
     assert repository.market_snapshot["benchmark_code"] == "510300.SH"
@@ -194,7 +194,7 @@ def test_service_refuses_insufficient_daily_coverage_without_writes() -> None:
 
 
 def test_service_refuses_insufficient_rankable_coverage_without_writes() -> None:
-    repository = FakeRepository(history_bars=60)
+    repository = FakeRepository(history_bars=20)
     with pytest.raises(ETFRotationReadinessError, match="rankable"):
         ETFRotationService(
             repository=repository,

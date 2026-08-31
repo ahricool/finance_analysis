@@ -100,7 +100,7 @@ onMounted(() => void load(true));
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 class="text-lg font-semibold">
-          ETF 动量轮动 V2
+          ETF 动量轮动 · Fast Rotation
         </h2><p class="mt-1 text-xs text-muted-foreground">
           完全基于公开市场行情的多维轮动看板；Action 是公共策略信号，不代表个人交易建议。
         </p>
@@ -177,24 +177,18 @@ onMounted(() => void load(true));
           </Badge>
         </CardTitle><CardDescription><span data-testid="etf-rotation-trade-date">{{ summary.tradeDate }}</span> · {{ summary.dataReadyCount }}/{{ summary.universeSize }} 数据就绪 · {{ formatDateTimeInDisplayTimezone(summary.generatedAt) }}</CardDescription>
       </CardHeader>
-      <CardContent class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <CardContent class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded border p-3">
           <IndicatorLabel
-            label="Breadth > MA20"
+            label="Positive 5D Breadth"
             :description="descriptions.breadth"
-          /><strong class="mt-1 block">{{ pct(marketSnapshot?.breadthAboveMa20, false) }}</strong>
+          /><strong class="mt-1 block">{{ pct(marketSnapshot?.positive5dBreadth, false) }}</strong>
         </div>
         <div class="rounded border p-3">
           <IndicatorLabel
-            label="Breadth > MA60"
+            label="Breadth > MA10"
             :description="descriptions.breadth"
-          /><strong class="mt-1 block">{{ pct(marketSnapshot?.breadthAboveMa60, false) }}</strong>
-        </div>
-        <div class="rounded border p-3">
-          <IndicatorLabel
-            label="MA20 > MA60 Breadth"
-            :description="descriptions.breadth"
-          /><strong class="mt-1 block">{{ pct(marketSnapshot?.breadthMa20AboveMa60, false) }}</strong>
+          /><strong class="mt-1 block">{{ pct(marketSnapshot?.aboveMa10Breadth, false) }}</strong>
         </div>
         <div class="rounded border p-3">
           <span class="text-sm text-muted-foreground">Benchmark</span><strong class="mt-1 block break-words">{{ marketSnapshot?.benchmarkCode ?? '—' }}</strong>
@@ -206,7 +200,7 @@ onMounted(() => void load(true));
     </Card>
 
     <Card>
-      <CardHeader><CardTitle>Rotation Candidates</CardTitle><CardDescription>公共策略候选与退出信号；采用 Entry/Hold buffer、risk group 和 60 日相关性约束。</CardDescription></CardHeader>
+      <CardHeader><CardTitle>Rotation Candidates</CardTitle><CardDescription>公共策略候选与快速退出信号；采用 Top4 Entry、Top6 Hold、risk group 和 20 日相关性约束。</CardDescription></CardHeader>
       <CardContent>
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <button
@@ -241,7 +235,7 @@ onMounted(() => void load(true));
 
     <Card>
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
-        <div><CardTitle>Rotation Ranking</CardTitle><CardDescription>主列表保留收益率与六个因子横向比较；点击 ETF 查看全部原始指标。</CardDescription></div>
+        <div><CardTitle>Rotation Ranking</CardTitle><CardDescription>主列表比较 20 日以内收益与五个 Alpha 因子；点击 ETF 查看全部原始指标。</CardDescription></div>
         <NativeSelect
           v-model="sortKey"
           size="sm"
@@ -310,11 +304,24 @@ onMounted(() => void load(true));
                     :description="descriptions.action"
                   />
                 </TableHead><TableHead>Candidate</TableHead><TableHead
-                  v-for="window in [1,5,10,20,30,60]"
+                  v-for="window in [1,3,5,10,20]"
                   :key="window"
                 >
-                  {{ window }}D
-                </TableHead><TableHead>Rank Δ 5D</TableHead><TableHead>Entry</TableHead>
+                  <IndicatorLabel
+                    :label="`${window}D`"
+                    :description="descriptions.return"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Rank Δ 1/3/5D"
+                    :description="descriptions.rankChange"
+                  />
+                </TableHead><TableHead>
+                  <IndicatorLabel
+                    label="Entry"
+                    :description="descriptions.entry"
+                  />
+                </TableHead>
               </TableRow>
             </TableHeader><TableBody>
               <TableRow
@@ -339,11 +346,11 @@ onMounted(() => void load(true));
                   </Badge>
                 </TableCell><TableCell>{{ item.isCandidate ? `#${item.candidateRank}` : '—' }}</TableCell>
                 <TableCell
-                  v-for="key in (['ret1D','ret5D','ret10D','ret20D','ret30D','ret60D'] as const)"
+                  v-for="key in (['ret1D','ret3D','ret5D','ret10D','ret20D'] as const)"
                   :key="key"
                 >
                   {{ pct(item[key]) }}
-                </TableCell><TableCell>{{ rankChange(item.rankChange5D) }}</TableCell><TableCell>{{ score(item.entryScore) }}</TableCell>
+                </TableCell><TableCell>{{ rankChange(item.rankChange1D) }} / {{ rankChange(item.rankChange3D) }} / {{ rankChange(item.rankChange5D) }}</TableCell><TableCell>{{ score(item.entryScore) }}</TableCell>
               </TableRow>
             </TableBody>
           </Table><template #horizontal-scrollbar>
@@ -359,7 +366,7 @@ onMounted(() => void load(true));
     >
       <DialogContent
         data-testid="etf-detail-modal"
-        class="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] max-w-6xl flex-col overflow-hidden p-0"
+        class="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] flex-col overflow-hidden p-0 sm:max-w-[calc(100%-2rem)] lg:max-w-6xl"
       >
         <DialogHeader class="border-b p-5 text-left">
           <DialogTitle class="break-words">
@@ -375,34 +382,42 @@ onMounted(() => void load(true));
             class="h-48"
           />
           <template v-else-if="selected">
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
+            <div
+              data-testid="etf-factor-grid"
+              class="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-3"
+            >
               <div
-                v-for="factor in ([['Composite',selected.latest.compositeScore,descriptions.composite],['Momentum',selected.latest.momentumStrengthScore,descriptions.momentum],['Trend Quality',selected.latest.trendQualityScore,descriptions.trendQuality],['Relative Strength',selected.latest.relativeStrengthScore,descriptions.relativeStrength],['Acceleration',selected.latest.accelerationScore,descriptions.acceleration],['Efficiency',selected.latest.efficiencyScore,descriptions.efficiency],['Risk Adjusted',selected.latest.riskAdjustedScore,descriptions.riskAdjusted]] as const)"
+                v-for="factor in ([['Composite',selected.latest.compositeScore,descriptions.composite],['Momentum',selected.latest.momentumStrengthScore,descriptions.momentum],['Relative Strength',selected.latest.relativeStrengthScore,descriptions.relativeStrength],['Acceleration',selected.latest.accelerationScore,descriptions.acceleration],['Trend Quality',selected.latest.trendQualityScore,descriptions.trendQuality],['Efficiency',selected.latest.efficiencyScore,descriptions.efficiency]] as const)"
                 :key="factor[0]"
                 class="min-w-0 rounded border p-3"
               >
                 <IndicatorLabel
                   :label="factor[0]"
                   :description="factor[2]"
+                  wrap
                 /><strong class="mt-1 block text-xl">{{ score(factor[1]) }}</strong>
               </div>
             </div>
             <Card>
-              <CardHeader><CardTitle>Raw Metrics</CardTitle></CardHeader><CardContent class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <CardHeader><CardTitle>Raw Metrics</CardTitle></CardHeader><CardContent
+                data-testid="etf-raw-metrics-grid"
+                class="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2"
+              >
                 <div
-                  v-for="metric in ([['1D',pct(selected.latest.ret1D),''],['5D',pct(selected.latest.ret5D),''],['10D',pct(selected.latest.ret10D),''],['20D',pct(selected.latest.ret20D),''],['30D',pct(selected.latest.ret30D),''],['60D',pct(selected.latest.ret60D),''],['Weighted Slope 10D',decimal(selected.latest.weightedSlope10D,5),descriptions.weightedSlope],['Weighted Slope 25D',decimal(selected.latest.weightedSlope25D,5),descriptions.weightedSlope],['R² 25D',decimal(selected.latest.trendR225D),descriptions.r2],['ER 20D',decimal(selected.latest.efficiencyRatio20D),descriptions.efficiency],['RS20',pct(selected.latest.rs20D),descriptions.relativeStrength],['RS60',pct(selected.latest.rs60D),descriptions.relativeStrength],['Trend Acceleration',pct(selected.latest.trendAcceleration),descriptions.acceleration],['Risk-adjusted Momentum',decimal(selected.latest.riskAdjustedMomentum60D),descriptions.riskAdjusted],['Volatility 20D',pct(selected.latest.realizedVol20D,false),descriptions.volatility],['Max Drawdown 20D',pct(selected.latest.maxDrawdown20D),descriptions.drawdown],['Max Drawdown 60D',pct(selected.latest.maxDrawdown60D),descriptions.drawdown],['MA20 Deviation',pct(selected.latest.ma20Ratio),descriptions.maDeviation],['MA60 Deviation',pct(selected.latest.ma60Ratio),descriptions.maDeviation],['Distance from High',pct(selected.latest.distanceFrom20dHigh),descriptions.distanceHigh],['Volume Ratio',decimal(selected.latest.volumeRatio5D),descriptions.volumeRatio],['Average Amount',price(selected.latest.avgAmount20D),''],['Rank Change 1/3/5D',`${rankChange(selected.latest.rankChange1D)} / ${rankChange(selected.latest.rankChange3D)} / ${rankChange(selected.latest.rankChange5D)}`,descriptions.rankChange],['Suggested Stop',price(selected.latest.suggestedStopPrice),descriptions.stop]] as const)"
+                  v-for="metric in ([['1D',pct(selected.latest.ret1D),descriptions.return],['3D',pct(selected.latest.ret3D),descriptions.return],['5D',pct(selected.latest.ret5D),descriptions.return],['10D',pct(selected.latest.ret10D),descriptions.return],['20D',pct(selected.latest.ret20D),descriptions.return],['RS5',pct(selected.latest.rs5D),descriptions.relativeStrength],['RS10',pct(selected.latest.rs10D),descriptions.relativeStrength],['RS20',pct(selected.latest.rs20D),descriptions.relativeStrength],['Weighted Slope 5D',decimal(selected.latest.weightedSlope5D,5),descriptions.weightedSlope],['Weighted Slope 10D',decimal(selected.latest.weightedSlope10D,5),descriptions.weightedSlope],['Weighted Slope 15D',decimal(selected.latest.weightedSlope15D,5),descriptions.weightedSlope],['Annualized Slope 5D',pct(selected.latest.annualizedSlope5D),descriptions.weightedSlope],['Annualized Slope 10D',pct(selected.latest.annualizedSlope10D),descriptions.weightedSlope],['Annualized Slope 15D',pct(selected.latest.annualizedSlope15D),descriptions.weightedSlope],['R² 15D',decimal(selected.latest.trendR215D),descriptions.r2],['Trend Quality 15D',decimal(selected.latest.trendQuality15D),descriptions.trendQuality],['Momentum Acceleration 3D',pct(selected.latest.momentumAcceleration3D),descriptions.acceleration],['Momentum Acceleration 5D',pct(selected.latest.momentumAcceleration5D),descriptions.acceleration],['Trend Acceleration',pct(selected.latest.trendAcceleration),descriptions.acceleration],['Signed ER10',decimal(selected.latest.signedEfficiencyRatio10D),descriptions.efficiency],['Volatility 20D',pct(selected.latest.realizedVol20D,false),descriptions.volatility],['Max Drawdown 20D',pct(selected.latest.maxDrawdown20D),descriptions.drawdown],['MA10 Deviation',pct(selected.latest.ma10Ratio),descriptions.maDeviation],['MA20 Deviation',pct(selected.latest.ma20Ratio),descriptions.maDeviation],['Distance from High',pct(selected.latest.distanceFrom20dHigh),descriptions.distanceHigh],['Volume Ratio',decimal(selected.latest.volumeRatio5D),descriptions.volumeRatio],['Average Amount',price(selected.latest.avgAmount20D),'最近 20 日平均成交额，用于 A 股/美股各自的流动性门槛。'],['Rank Change 1/3/5D',`${rankChange(selected.latest.rankChange1D)} / ${rankChange(selected.latest.rankChange3D)} / ${rankChange(selected.latest.rankChange5D)}`,descriptions.rankChange],['Suggested Stop',price(selected.latest.suggestedStopPrice),descriptions.stop]] as const)"
                   :key="metric[0]"
                   class="min-w-0 rounded border px-3 py-2"
                 >
                   <IndicatorLabel
                     :label="metric[0]"
                     :description="metric[2] || metric[0]"
-                  /><strong class="mt-1 block break-words">{{ metric[1] }}</strong>
+                    wrap
+                  /><strong class="mt-1 block tabular-nums [overflow-wrap:anywhere]">{{ metric[1] }}</strong>
                 </div>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Eligibility & Signal</CardTitle></CardHeader><CardContent class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <CardHeader><CardTitle>Eligibility & Signal</CardTitle></CardHeader><CardContent class="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-3">
                 <div>Absolute Trend: <strong>{{ boolText(selected.latest.absoluteTrendEligible) }}</strong></div><div>Liquidity: <strong>{{ boolText(selected.latest.liquidityEligible) }}</strong></div><div>State: <strong>{{ selected.latest.state }}</strong></div><div>Action: <strong>{{ selected.latest.action ?? '—' }}</strong></div>
               </CardContent>
             </Card>

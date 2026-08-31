@@ -10,12 +10,11 @@ import math
 from finance_analysis.etf_rotation.config import RETURN_WINDOWS
 
 FACTOR_RANK_DIRECTIONS = {
-    "trend_quality_25d": True,
-    "efficiency_ratio_20d": True,
+    "trend_quality_15d": True,
+    "signed_efficiency_ratio_10d": True,
     "trend_acceleration": True,
-    "momentum_acceleration": True,
-    "risk_adjusted_momentum_60d": True,
-    "max_drawdown_60d": True,
+    "momentum_acceleration_3d": True,
+    "momentum_acceleration_5d": True,
 }
 
 

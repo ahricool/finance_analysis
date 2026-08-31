@@ -9,7 +9,11 @@ from pathlib import Path
 
 from finance_analysis.etf_rotation.backtest.analysis import build_analysis, write_analysis
 from finance_analysis.etf_rotation.backtest.data import load_ohlcv_from_url
-from finance_analysis.etf_rotation.backtest.diagnostics import entry1_return_split, entry_rank_forward_returns
+from finance_analysis.etf_rotation.backtest.diagnostics import (  # pragma: allowlist secret
+    entry1_return_split,
+    entry_rank_forward_returns,
+    rotation_speed_diagnostics,
+)
 from finance_analysis.etf_rotation.backtest.metrics import compute_metrics
 from finance_analysis.etf_rotation.backtest.rankings import compute_entry_rankings
 from finance_analysis.etf_rotation.backtest.reports import (
@@ -99,6 +103,7 @@ def run_market(
             spec, rankings, bars, window_start, window_end, initial_equity=initial_equity
         )
         metrics = compute_metrics(equity, closed, fills, initial_equity=initial_equity)
+        metrics.update(rotation_speed_diagnostics(rankings, fills))
         result = StrategyResult(
             market=market,
             spec=spec,

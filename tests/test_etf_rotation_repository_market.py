@@ -35,10 +35,9 @@ def _snapshot(snapshot_id: int, market: str, symbol_id: int, trade_date: date, r
         "market": market,
         "trade_date": trade_date,
         "symbol_id": symbol_id,
+        "rank": rank,
         "previous_5d_return": 0.01,
-        "momentum_acceleration": 0.01,
         "ma20_ratio": 0.01,
-        "ma60_ratio": 0.01,
         "volume_ratio_5d": 1.0,
         "avg_amount_20d": 1000.0,
         "realized_vol_20d": 0.2,
@@ -52,7 +51,7 @@ def _snapshot(snapshot_id: int, market: str, symbol_id: int, trade_date: date, r
         "score_components": {"base_momentum": 70.0},
         "generated_at": datetime(2026, 8, 27, tzinfo=timezone.utc),
     }
-    for window in (1, 5, 10, 20, 30, 60):
+    for window in (1, 5, 10, 20):
         values[f"ret_{window}d"] = 0.01
         values[f"rank_{window}d"] = rank
         values[f"pct_rank_{window}d"] = 90.0
@@ -98,4 +97,4 @@ def test_snapshot_queries_and_historical_dates_are_isolated_by_market() -> None:
     assert {row["market"] for row in us.candidates_by_date(date(2026, 8, 24))} == {"US"}
     assert {row["market"] for row in cn.snapshot_history("588000.SH")} == {"CN"}
     assert {row["market"] for row in us.snapshot_history("SPY.US")} == {"US"}
-    assert us.historical_rank_5d(date(2026, 8, 26), {"SPY.US"}) == {"SPY.US": {1: 10, 3: 30}}
+    assert us.historical_composite_ranks(date(2026, 8, 26), {"SPY.US"}) == {"SPY.US": {1: 10, 3: 30}}
