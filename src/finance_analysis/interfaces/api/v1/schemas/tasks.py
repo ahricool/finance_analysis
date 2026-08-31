@@ -91,9 +91,3 @@ class ScheduledTaskRunAccepted(BaseModel):
 
 class ScheduledTaskRunRequest(BaseModel):
     sync_mode: Optional[Literal["incremental", "full"]] = None
-
-
-class DuplicateTaskResponse(BaseModel):
-    error: str = "task_already_running"
-    message: str
-    existing_task_id: str

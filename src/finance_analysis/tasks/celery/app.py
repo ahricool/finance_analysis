@@ -25,6 +25,11 @@ from finance_analysis.tasks.celery.schedule import (
     build_task_routes,
     get_definition_by_task_name,
 )
+from finance_analysis.tasks.celery.schedule.constants import (
+    JOB_A_SHARE_INTRADAY_ANALYSIS,
+    JOB_US_INTRADAY_ANALYSIS,
+)
+from finance_analysis.tasks.celery.schedule.slots import resolve_scheduled_slot
 from finance_analysis.tasks.lifecycle import TaskLifecycleMetadata, get_task_lifecycle_service, is_tracked_callable
 
 CELERY_APP_NAME = "finance_analysis"
@@ -114,12 +119,15 @@ def _create_pending_task_record(
 
     definition = get_definition_by_task_name(task_name)
     if definition is not None:
+        if (
+            definition.job_id in {JOB_A_SHARE_INTRADAY_ANALYSIS, JOB_US_INTRADAY_ANALYSIS}
+            and str(kwargs.get("_trigger_source") or "scheduler") == "scheduler"
+            and not kwargs.get("_scheduled_slot")
+        ):
+            kwargs["_scheduled_slot"] = resolve_scheduled_slot(definition).isoformat()
         # Beat (or a manual submission) is publishing a registered periodic task;
         # seed the pending TaskRecord with the stable job_id and scheduler metadata
         # so the single record matches what the worker's ``track_task`` writes.
-        # ``dedupe_key`` is intentionally omitted here: manual runs pre-create the
-        # record (with the dedupe key) before publishing, and ``ensure_record``
-        # only resolves uniqueness conflicts by ``task_id``.
         get_task_lifecycle_service().create_pending(
             task_id=task_id,
             metadata=TaskLifecycleMetadata(

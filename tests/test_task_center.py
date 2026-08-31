@@ -9,7 +9,6 @@ from finance_analysis.core.time import utc_now
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.schedule import get_scheduled_task_definition
 from finance_analysis.tasks.service import (
-    DuplicateScheduledTaskError,
     ManualRunParameterError,
     ScheduledTaskService,
     SchedulerUnavailableError,
@@ -53,16 +52,7 @@ class _FakeTaskRepo:
                 result[job_id] = sorted(matching, key=lambda record: record.created_at, reverse=True)[0]
         return result
 
-    def get_active_by_scheduler_job_id(self, job_id):
-        for record in self.records:
-            if record.scheduler_job_id == job_id and record.status in self.ACTIVE_STATUSES:
-                return record
-        return None
-
-    def create_pending_or_get_duplicate(self, **kwargs):
-        for record in self.records:
-            if record.dedupe_key == kwargs.get("dedupe_key") and record.status in self.ACTIVE_STATUSES:
-                return record, False
+    def ensure_record(self, **kwargs):
         record = SimpleNamespace(
             id=len(self.records) + 1,
             result=None,
@@ -75,10 +65,9 @@ class _FakeTaskRepo:
             finished_at=None,
             updated_at=utc_now(),
             **kwargs,
-            status="pending",
         )
         self.records.append(record)
-        return record, True
+        return record
 
     def update_status(self, **kwargs):
         self.updated.append(kwargs)
@@ -132,7 +121,6 @@ def _record(task_id, *, uid, status="completed", scheduler_job_id=None, payload=
         parent_task_id=None,
         retry_count=0,
         scheduler_job_id=scheduler_job_id,
-        dedupe_key=f"scheduled:{scheduler_job_id}" if scheduler_job_id else None,
         created_at=utc_now(),
         started_at=utc_now(),
         finished_at=utc_now(),
@@ -217,17 +205,15 @@ def test_manual_non_sync_task_rejects_sync_mode():
         )
 
 
-def test_manual_run_returns_duplicate_when_job_active():
+def test_manual_run_does_not_use_task_status_as_a_mutex():
     active = _record("active-task", uid=None, status="processing", scheduler_job_id="analysis_us_premarket")
-    service = ScheduledTaskService(
-        repository=_FakeTaskRepo([active]),
-        task_submitter=_RecordingSubmitter(),
-    )
+    submitter = _RecordingSubmitter()
+    service = ScheduledTaskService(repository=_FakeTaskRepo([active]), task_submitter=submitter)
 
-    with pytest.raises(DuplicateScheduledTaskError) as exc:
-        service.run_scheduled_task_now(job_id="analysis_us_premarket", triggered_by_uid=7)
+    result = service.run_scheduled_task_now(job_id="analysis_us_premarket", triggered_by_uid=7)
 
-    assert exc.value.existing_task_id == "active-task"
+    assert result["status"] == "pending"
+    assert len(submitter.calls) == 1
 
 
 def test_manual_run_marks_record_cancelled_when_submission_fails():

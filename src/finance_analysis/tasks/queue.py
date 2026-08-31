@@ -16,7 +16,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from finance_analysis.integrations.market_data.codes import canonical_stock_code, normalize_stock_code
+from finance_analysis.integrations.market_data.codes import canonical_stock_code
 
 from finance_analysis.database.repositories.task_record import TaskRecordRepository
 from finance_analysis.tasks.lifecycle import (
@@ -29,17 +29,6 @@ from finance_analysis.core.time import utc_now
 from finance_analysis.analysis.metadata import SELECTION_SOURCES
 
 logger = logging.getLogger(__name__)
-
-
-def _dedupe_stock_code_key(stock_code: str) -> str:
-    """Normalize equivalent stock-code shapes to one duplicate-detection key."""
-    return canonical_stock_code(normalize_stock_code(stock_code))
-
-
-def _dedupe_key_for_task(task_type: str, stock_code: str) -> str:
-    if task_type == "stock_analysis":
-        return f"stock_analysis:{_dedupe_stock_code_key(stock_code)}"
-    return task_type
 
 
 class TaskStatus(str, Enum):
@@ -76,7 +65,6 @@ class TaskInfo:
     task_type: Optional[str] = None
     source: Optional[str] = None
     trigger_source: Optional[str] = None
-    dedupe_key: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.created_at is None:
@@ -107,20 +95,10 @@ class TaskInfo:
         data["result"] = self.result
         data["task_type"] = self.task_type
         data["source"] = self.source
-        data["dedupe_key"] = self.dedupe_key
         return data
 
     def copy(self) -> "TaskInfo":
         return TaskInfo(**self.__dict__)
-
-
-class DuplicateTaskError(Exception):
-    """Raised when an in-flight database task has the same dedupe key."""
-
-    def __init__(self, stock_code: str, existing_task_id: str):
-        self.stock_code = stock_code
-        self.existing_task_id = existing_task_id
-        super().__init__(f"股票 {stock_code} 正在分析中 (task_id: {existing_task_id})")
 
 
 class AnalysisTaskQueue:
@@ -176,13 +154,6 @@ class AnalysisTaskQueue:
         if selection_source is not None and selection_source not in SELECTION_SOURCES:
             raise ValueError(f"Invalid selection_source: {selection_source}. Must be one of {SELECTION_SOURCES}")
 
-    def is_analyzing(self, stock_code: str) -> bool:
-        return self.get_analyzing_task_id(stock_code) is not None
-
-    def get_analyzing_task_id(self, stock_code: str) -> Optional[str]:
-        record = self._repo().get_active_by_dedupe_key(_dedupe_key_for_task("stock_analysis", stock_code))
-        return record.task_id if record else None
-
     def submit_task(
         self,
         stock_code: str,
@@ -202,8 +173,6 @@ class AnalysisTaskQueue:
             force_refresh=force_refresh,
             owner_uid=owner_uid,
         )
-        if duplicates:
-            raise duplicates[0]
         if not accepted:
             raise ValueError("股票代码不能为空或仅包含空白字符")
         return accepted[0]
@@ -218,10 +187,10 @@ class AnalysisTaskQueue:
         force_refresh: bool = False,
         notify: bool = True,
         owner_uid: Optional[int] = None,
-    ) -> Tuple[List[TaskInfo], List[DuplicateTaskError]]:
+    ) -> Tuple[List[TaskInfo], List[Any]]:
         self.validate_selection_source(selection_source)
         accepted: List[TaskInfo] = []
-        duplicates: List[DuplicateTaskError] = []
+        duplicates: List[Any] = []
 
         from finance_analysis.tasks.celery.jobs.stock_analysis.tasks import run_stock_analysis
 
@@ -252,13 +221,8 @@ class AnalysisTaskQueue:
                 task_type="stock_analysis",
                 source="celery_manual",
                 trigger_source="api",
-                dedupe_key=_dedupe_key_for_task("stock_analysis", stock_code),
             )
-            created = self._create_pending_record(task, payload)
-            if not created:
-                existing_task_id = task.task_id
-                duplicates.append(DuplicateTaskError(stock_code, existing_task_id))
-                continue
+            self._create_pending_record(task, payload)
 
             try:
                 self._apply_celery_task(
@@ -303,13 +267,11 @@ class AnalysisTaskQueue:
             task_type="stock_analysis",
             source="celery_manual",
             trigger_source="bot",
-            dedupe_key=_dedupe_key_for_task("stock_analysis", stock_code),
         )
-        if not self._create_pending_record(
+        self._create_pending_record(
             task,
             {"stock_code": stock_code, "report_type": report_type, "task_source": "bot"},
-        ):
-            raise DuplicateTaskError(stock_code, task.task_id)
+        )
         try:
             self._apply_celery_task(
                 run_stock_analysis,
@@ -350,13 +312,11 @@ class AnalysisTaskQueue:
             task_type="market_review",
             source="celery_manual",
             trigger_source="bot" if bot_message else "api",
-            dedupe_key=_dedupe_key_for_task("market_review", "market_review"),
         )
-        if not self._create_pending_record(
+        self._create_pending_record(
             task,
             {"send_notification": send_notification, "override_region": override_region},
-        ):
-            raise DuplicateTaskError("market_review", task.task_id)
+        )
         try:
             self._apply_celery_task(
                 run_market_review,
@@ -394,25 +354,19 @@ class AnalysisTaskQueue:
             return "大盘复盘"
         return f"股票分析 {stock_code}"
 
-    def _create_pending_record(self, task: TaskInfo, payload: Optional[Dict[str, Any]] = None) -> bool:
-        record, created = self._repo().create_pending_or_get_duplicate(
+    def _create_pending_record(self, task: TaskInfo, payload: Optional[Dict[str, Any]] = None) -> None:
+        self._repo().ensure_record(
             task_id=task.task_id,
             task_type=task.task_type or self._infer_task_type(task.stock_code),
             task_name=task.stock_name or self._infer_task_name(task.stock_code, task.task_type or ""),
             uid=task.owner_uid,
             source=task.source or "celery_manual",
             trigger_source=task.trigger_source,
-            dedupe_key=task.dedupe_key,
+            status=TaskStatus.PENDING.value,
             payload=_json_summary(payload, limit=MAX_PAYLOAD_CHARS),
             message=task.message,
             progress=task.progress,
         )
-        if not created:
-            task.task_id = record.task_id
-            task.status = TaskStatus(record.status)
-            task.progress = int(record.progress or 0)
-            task.message = record.message
-        return created
 
     def _mark_cancelled_record(self, task: TaskInfo, message: str) -> None:
         get_task_lifecycle_service().mark_cancelled(
@@ -540,7 +494,6 @@ def _task_info_from_record(record: Any) -> TaskInfo:
         task_type=record.task_type,
         source=record.source,
         trigger_source=getattr(record, "trigger_source", None),
-        dedupe_key=getattr(record, "dedupe_key", None),
     )
 
 

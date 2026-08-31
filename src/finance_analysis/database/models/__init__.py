@@ -22,6 +22,7 @@ from finance_analysis.database.models.quant import (
     QuantUniverse, QuantUniverseMember, SectorRegimeSnapshot,
 )
 from finance_analysis.database.models.signal import Signal
+from finance_analysis.database.models.scheduled_task_slot import ScheduledTaskSlot
 from finance_analysis.database.models.stock import (
     MarketDataSymbol,
     StockAdjustmentFactor,
@@ -58,6 +59,7 @@ __all__ = [
     "ModelDefinition", "ModelRun", "ModelPublication", "ModelPrediction", "ModelSignal",
     "PortfolioRecommendation", "PortfolioRecommendationItem", "IntradayConfirmation",
     "Signal",
+    "ScheduledTaskSlot",
     "StockAdjustmentFactor",
     "StockCorporateAction",
     "StockDaily",

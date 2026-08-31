@@ -16,7 +16,6 @@
 
 import logging
 import re
-from pathlib import Path
 from typing import Optional, Union, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Body, Request
@@ -33,7 +32,6 @@ from finance_analysis.interfaces.api.v1.schemas.analysis import (
     TaskStatus,
     TaskInfo,
     TaskListResponse,
-    DuplicateTaskErrorResponse,
     MarketReviewRequest,
     MarketReviewAccepted,
 )
@@ -47,17 +45,11 @@ from finance_analysis.interfaces.api.v1.schemas.history import (
 )
 from finance_analysis.integrations.market_data.codes import canonical_stock_code, normalize_stock_code
 from finance_analysis.analysis.pipeline_config import PipelineConfig
-from finance_analysis.market_review.lock import (
-    market_review_lock_path,
-)
 from finance_analysis.reporting.config import get_report_config
 from finance_analysis.reporting.localization import get_localized_stock_name, normalize_report_language
 from finance_analysis.stocks.resolver import resolve_name_to_code
 from finance_analysis.stocks.symbols import is_code_like
-from finance_analysis.tasks.queue import (
-    get_task_queue,
-    DuplicateTaskError,
-)
+from finance_analysis.tasks.queue import get_task_queue
 from finance_analysis.database.repositories.task_record import TaskRecordRepository
 from finance_analysis.analysis.context_normalizer import (
     normalize_model_used,
@@ -72,10 +64,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _SUPPORTED_FREE_TEXT_RE = re.compile(r"^[A-Za-z0-9.*\-+\u3400-\u9fff\s]+$")
-
-
-def _market_review_lock_path(config: PipelineConfig) -> Path:
-    return market_review_lock_path(config)
 
 
 def _compute_market_review_override_region(config: PipelineConfig) -> Optional[str]:
@@ -160,11 +148,10 @@ def _resolve_and_normalize_input(raw_value: str) -> str:
             "model": Union[TaskAccepted, BatchTaskAcceptedResponse],
         },
         400: {"description": "请求参数错误", "model": ErrorResponse},
-        409: {"description": "股票正在分析中，拒绝重复提交", "model": DuplicateTaskErrorResponse},
         500: {"description": "分析失败", "model": ErrorResponse},
     },
     summary="触发股票分析",
-    description="启动 AI 智能分析任务，支持同步和异步模式。异步模式下相同股票代码不允许重复提交。"
+    description="启动 AI 智能分析任务，支持同步和异步模式。"
 )
 def trigger_analysis(
         request: AnalyzeRequest,
@@ -321,20 +308,6 @@ def _handle_async_analysis_batch(
         for dup in duplicate_errors
     ]
     
-    # 单只股票且被拒绝：保持 409 兼容性
-    if len(stock_codes) == 1 and duplicates:
-        dup = duplicates[0]
-        error_response = DuplicateTaskErrorResponse(
-            error="duplicate_task",
-            message=dup.message,
-            stock_code=dup.stock_code,
-            existing_task_id=dup.existing_task_id,
-        )
-        return JSONResponse(
-            status_code=409,
-            content=error_response.model_dump()
-        )
-    
     # 单只股票成功：保持原有响应格式兼容性
     if len(stock_codes) == 1 and accepted:
         task_accepted = TaskAccepted(
@@ -445,7 +418,7 @@ def _handle_sync_analysis(
         500: {"description": "提交失败", "model": ErrorResponse},
     },
     summary="触发大盘复盘",
-    description="提交一个后台大盘复盘任务，复用 CLI 的大盘复盘链路并保存报告。接口内部仅提供进程内/单机防重，如多实例（多 Worker/多容器）部署，需结合外部幂等机制避免重复触发。",
+    description="提交一个后台大盘复盘任务，复用 CLI 的大盘复盘链路并保存报告。",
 )
 def trigger_market_review(
     request: Optional[MarketReviewRequest] = Body(None),
@@ -462,21 +435,10 @@ def trigger_market_review(
             send_notification=True,
         )
 
-    try:
-        task = get_task_queue().submit_market_review(
-            send_notification=True,
-            override_region=override_region,
-        )
-    except DuplicateTaskError:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "duplicate_market_review",
-                "message": "大盘复盘正在执行中，请稍后再试",
-            },
-        )
-    except Exception:
-        raise
+    task = get_task_queue().submit_market_review(
+        send_notification=True,
+        override_region=override_region,
+    )
 
     return MarketReviewAccepted(
         status="accepted",

@@ -23,7 +23,6 @@ from finance_analysis.market_review.trading_calendar import (
 from finance_analysis.reporting.localization import normalize_report_language
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
-from .lock import release_us_postmarket_review_lock, try_acquire_us_postmarket_review_lock
 from .models import (
     InstrumentPerformance,
     US_POSTMARKET_BENCHMARKS,
@@ -84,50 +83,42 @@ class USPostmarketReviewService:
             started_at=started_at,
             finished_at=started_at,
         )
-        lock_key = f"us_postmarket_review:{trading_date.isoformat()}"
-        lock_token = try_acquire_us_postmarket_review_lock(lock_key)
-        if lock_token is None:
-            raise TaskSkipped("同一交易日美股收盘复盘正在执行")
+        logger.info("美股收盘复盘开始: trading_date=%s", trading_date.isoformat())
+        context = self._build_context(trading_date)
+        summary.warnings.extend(context.warnings)
+        summary.benchmark_count = len(context.benchmarks)
+        summary.sector_count = len(context.sector_etfs)
+        summary.watchlist_count = context.watchlist_summary.total_count
+        summary.watchlist_up_count = context.watchlist_summary.up_count
+        summary.watchlist_down_count = context.watchlist_summary.down_count
+        summary.market_regime = context.market_regime
 
-        try:
-            logger.info("美股收盘复盘开始: trading_date=%s", trading_date.isoformat())
-            context = self._build_context(trading_date)
-            summary.warnings.extend(context.warnings)
-            summary.benchmark_count = len(context.benchmarks)
-            summary.sector_count = len(context.sector_etfs)
-            summary.watchlist_count = context.watchlist_summary.total_count
-            summary.watchlist_up_count = context.watchlist_summary.up_count
-            summary.watchlist_down_count = context.watchlist_summary.down_count
-            summary.market_regime = context.market_regime
+        if not context.benchmarks:
+            raise RuntimeError("所有主要指数行情均无法获取")
 
-            if not context.benchmarks:
-                raise RuntimeError("所有主要指数行情均无法获取")
+        report = self._generate_llm_report(context, summary.warnings)
+        if not report:
+            summary.fallback_used = True
+            report = self._generate_fallback_report(context)
+        summary.report = self._ensure_required_sections(report, context)
 
-            report = self._generate_llm_report(context, summary.warnings)
-            if not report:
-                summary.fallback_used = True
-                report = self._generate_fallback_report(context)
-            summary.report = self._ensure_required_sections(report, context)
-
-            summary.finished_at = self._market_now()
-            summary.report_file = self.reporter.save_report_file(summary)
-            summary.calendar_id = self.reporter.record_to_calendar(summary)
-            summary.notification_sent = self.reporter.send_notification(
-                summary,
-                send_notification=send_notification,
-            )
-            logger.info(
-                "美股收盘复盘完成: trading_date=%s regime=%s benchmarks=%s sectors=%s watchlist=%s warnings=%s",
-                trading_date.isoformat(),
-                summary.market_regime,
-                summary.benchmark_count,
-                summary.sector_count,
-                summary.watchlist_count,
-                len(summary.warnings),
-            )
-            return summary
-        finally:
-            release_us_postmarket_review_lock(lock_token)
+        summary.finished_at = self._market_now()
+        summary.report_file = self.reporter.save_report_file(summary)
+        summary.calendar_id = self.reporter.record_to_calendar(summary)
+        summary.notification_sent = self.reporter.send_notification(
+            summary,
+            send_notification=send_notification,
+        )
+        logger.info(
+            "美股收盘复盘完成: trading_date=%s regime=%s benchmarks=%s sectors=%s watchlist=%s warnings=%s",
+            trading_date.isoformat(),
+            summary.market_regime,
+            summary.benchmark_count,
+            summary.sector_count,
+            summary.watchlist_count,
+            len(summary.warnings),
+        )
+        return summary
 
     def _validate_trading_day_and_close(self, now: datetime) -> date:
         local_date = now.date()

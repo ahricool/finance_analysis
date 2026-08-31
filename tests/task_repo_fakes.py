@@ -12,11 +12,10 @@ class FakeTaskRecordRepository:
     def __init__(self) -> None:
         self.records: dict[str, Any] = {}
 
-    def create_pending_or_get_duplicate(self, **kwargs):
-        dedupe_key = kwargs.get("dedupe_key")
-        existing = self.get_active_by_dedupe_key(dedupe_key)
+    def ensure_record(self, **kwargs):
+        existing = self.records.get(kwargs["task_id"])
         if existing is not None:
-            return existing, False
+            return existing
         record = SimpleNamespace(
             id=len(self.records) + 1,
             task_id=kwargs["task_id"],
@@ -26,7 +25,7 @@ class FakeTaskRecordRepository:
             source=kwargs["source"],
             trigger_source=kwargs.get("trigger_source"),
             triggered_by_uid=kwargs.get("triggered_by_uid"),
-            status="pending",
+            status=kwargs["status"],
             progress=kwargs.get("progress", 0),
             message=kwargs.get("message"),
             payload=kwargs.get("payload"),
@@ -36,22 +35,13 @@ class FakeTaskRecordRepository:
             parent_task_id=kwargs.get("parent_task_id"),
             retry_count=kwargs.get("retry_count", 0),
             scheduler_job_id=kwargs.get("scheduler_job_id"),
-            dedupe_key=dedupe_key,
             created_at=utc_now(),
             started_at=None,
             finished_at=None,
             updated_at=utc_now(),
         )
         self.records[record.task_id] = record
-        return record, True
-
-    def get_active_by_dedupe_key(self, dedupe_key: Optional[str]):
-        if not dedupe_key:
-            return None
-        for record in self.records.values():
-            if record.dedupe_key == dedupe_key and record.status in self.ACTIVE_STATUSES:
-                return record
-        return None
+        return record
 
     def get_by_task_id(self, task_id: str):
         return self.records.get(task_id)

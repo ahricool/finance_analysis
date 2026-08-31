@@ -202,6 +202,17 @@ class DatabaseManager(ConversationUsageMixin):
             session.close()
             raise
 
+    def connect(self):
+        """Open a raw SQLAlchemy connection owned by the caller.
+
+        Session-scoped PostgreSQL features such as advisory locks must keep the
+        same connection open for their full lifetime.
+        """
+
+        if not getattr(self, '_initialized', False) or not hasattr(self, '_engine'):
+            raise RuntimeError("DatabaseManager 未正确初始化")
+        return self._engine.connect()
+
     @contextmanager
     def session_scope(self):
         """Provide a transactional scope around a series of operations."""

@@ -25,7 +25,7 @@ if _orig_data_provider is None:
     pkg_mod.base = sys.modules["finance_analysis.integrations.market_data.base"]
     sys.modules["data_provider"] = pkg_mod
 
-from finance_analysis.tasks.queue import AnalysisTaskQueue, get_task_queue, reset_task_state_for_tests, _dedupe_stock_code_key
+from finance_analysis.tasks.queue import AnalysisTaskQueue, get_task_queue, reset_task_state_for_tests
 
 if _orig_data_provider_base is None:
     sys.modules.pop("finance_analysis.integrations.market_data.base", None)
@@ -81,9 +81,6 @@ class TaskQueueConfigSyncTestCase(unittest.TestCase):
             queue = get_task_queue()
 
         self.assertEqual(queue.max_workers, 2)
-
-    def test_dedupe_stock_code_key_normalizes_market_suffix(self) -> None:
-        self.assertEqual(_dedupe_stock_code_key(" 600519.sh "), "600519")
 
     def test_get_task_queue_applies_sync_without_local_busy_state(self) -> None:
         queue = AnalysisTaskQueue(max_workers=3)

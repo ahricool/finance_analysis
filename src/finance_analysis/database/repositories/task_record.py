@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -39,7 +39,6 @@ class TaskRecordRepository:
         parent_task_id: Optional[str] = None,
         retry_count: Optional[int] = None,
         scheduler_job_id: Optional[str] = None,
-        dedupe_key: Optional[str] = None,
         trigger_source: Optional[str] = None,
         triggered_by_uid: Optional[int] = None,
     ) -> TaskRecord:
@@ -62,7 +61,6 @@ class TaskRecordRepository:
                     parent_task_id=parent_task_id,
                     retry_count=retry_count,
                     scheduler_job_id=scheduler_job_id,
-                    dedupe_key=dedupe_key,
                     trigger_source=trigger_source,
                     triggered_by_uid=triggered_by_uid,
                 )
@@ -86,7 +84,6 @@ class TaskRecordRepository:
                 parent_task_id=parent_task_id,
                 retry_count=0 if retry_count is None else retry_count,
                 scheduler_job_id=scheduler_job_id,
-                dedupe_key=dedupe_key,
                 trigger_source=trigger_source,
                 triggered_by_uid=triggered_by_uid,
                 created_at=now,
@@ -111,89 +108,10 @@ class TaskRecordRepository:
                     parent_task_id=parent_task_id,
                     retry_count=retry_count,
                     scheduler_job_id=scheduler_job_id,
-                    dedupe_key=dedupe_key,
                     trigger_source=trigger_source,
                     triggered_by_uid=triggered_by_uid,
                 )
             return self._detach(session, record)
-
-    def create_pending_or_get_duplicate(
-        self,
-        *,
-        task_id: str,
-        task_type: str,
-        source: str,
-        dedupe_key: Optional[str],
-        task_name: Optional[str] = None,
-        uid: Optional[int] = None,
-        payload: Optional[str] = None,
-        message: Optional[str] = None,
-        progress: int = 0,
-        task_log: Optional[str] = None,
-        parent_task_id: Optional[str] = None,
-        retry_count: int = 0,
-        scheduler_job_id: Optional[str] = None,
-        trigger_source: Optional[str] = None,
-        triggered_by_uid: Optional[int] = None,
-    ) -> Tuple[TaskRecord, bool]:
-        """
-        Create a pending task record.
-
-        Returns ``(record, created)``. If a database uniqueness constraint finds
-        another in-flight row with the same dedupe key, returns that existing row
-        with ``created=False``.
-        """
-
-        now = utc_now()
-        with self.db.session_scope() as session:
-            record = TaskRecord(
-                task_id=task_id,
-                task_type=task_type,
-                task_name=task_name,
-                uid=uid,
-                source=source,
-                status="pending",
-                progress=max(0, min(100, int(progress))),
-                message=message,
-                payload=payload,
-                task_log=task_log,
-                parent_task_id=parent_task_id,
-                retry_count=retry_count,
-                scheduler_job_id=scheduler_job_id,
-                dedupe_key=dedupe_key,
-                trigger_source=trigger_source,
-                triggered_by_uid=triggered_by_uid,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(record)
-            try:
-                session.flush()
-            except IntegrityError:
-                session.rollback()
-                existing = self.get_active_by_dedupe_key(dedupe_key) if dedupe_key else self.get_by_task_id(task_id)
-                if existing is None:
-                    existing = self.ensure_record(
-                        task_id=task_id,
-                        task_type=task_type,
-                        source=source,
-                        status="pending",
-                        task_name=task_name,
-                        uid=uid,
-                        payload=payload,
-                        message=message,
-                        progress=progress,
-                        task_log=task_log,
-                        parent_task_id=parent_task_id,
-                        retry_count=retry_count,
-                        scheduler_job_id=scheduler_job_id,
-                        dedupe_key=dedupe_key,
-                        trigger_source=trigger_source,
-                        triggered_by_uid=triggered_by_uid,
-                    )
-                    return existing, True
-                return existing, False
-            return self._detach(session, record), True
 
     def update_status(
         self,
@@ -215,7 +133,6 @@ class TaskRecordRepository:
         parent_task_id: Optional[str] = None,
         retry_count: Optional[int] = None,
         scheduler_job_id: Optional[str] = None,
-        dedupe_key: Optional[str] = None,
         trigger_source: Optional[str] = None,
         triggered_by_uid: Optional[int] = None,
     ) -> Optional[TaskRecord]:
@@ -245,7 +162,6 @@ class TaskRecordRepository:
                     parent_task_id=parent_task_id,
                     retry_count=0 if retry_count is None else retry_count,
                     scheduler_job_id=scheduler_job_id,
-                    dedupe_key=dedupe_key,
                     trigger_source=trigger_source,
                     triggered_by_uid=triggered_by_uid,
                     created_at=now,
@@ -274,7 +190,6 @@ class TaskRecordRepository:
                         parent_task_id=parent_task_id,
                         retry_count=retry_count,
                         scheduler_job_id=scheduler_job_id,
-                        dedupe_key=dedupe_key,
                         trigger_source=trigger_source,
                         triggered_by_uid=triggered_by_uid,
                     )
@@ -292,7 +207,6 @@ class TaskRecordRepository:
                 parent_task_id=parent_task_id,
                 retry_count=retry_count,
                 scheduler_job_id=scheduler_job_id,
-                dedupe_key=dedupe_key,
                 trigger_source=trigger_source,
                 triggered_by_uid=triggered_by_uid,
             )
@@ -313,58 +227,6 @@ class TaskRecordRepository:
     def get_by_task_id(self, task_id: str) -> Optional[TaskRecord]:
         with self.db.get_session() as session:
             record = session.execute(select(TaskRecord).where(TaskRecord.task_id == task_id)).scalar_one_or_none()
-            return self._detach(session, record) if record is not None else None
-
-    def get_active_by_dedupe_key(self, dedupe_key: Optional[str]) -> Optional[TaskRecord]:
-        if not dedupe_key:
-            return None
-        with self.db.get_session() as session:
-            record = session.execute(
-                select(TaskRecord)
-                .where(
-                    TaskRecord.dedupe_key == dedupe_key,
-                    TaskRecord.status.in_(self.ACTIVE_STATUSES),
-                )
-                .order_by(desc(TaskRecord.created_at))
-                .limit(1)
-            ).scalar_one_or_none()
-            return self._detach(session, record) if record is not None else None
-
-    def claim_active_dedupe_key(self, task_id: str, dedupe_key: str) -> bool:
-        """Atomically claim a cross-process active-task key for an existing record."""
-        try:
-            with self.db.session_scope() as session:
-                record = self._get_for_update(session, task_id)
-                if record is None:
-                    return False
-                if record.dedupe_key == dedupe_key:
-                    return True
-                existing = session.execute(
-                    select(TaskRecord.id).where(
-                        TaskRecord.dedupe_key == dedupe_key,
-                        TaskRecord.status.in_(self.ACTIVE_STATUSES),
-                        TaskRecord.task_id != task_id,
-                    ).limit(1)
-                ).scalar_one_or_none()
-                if existing is not None:
-                    return False
-                record.dedupe_key = dedupe_key
-                session.flush()  # partial unique index closes the concurrent race
-                return True
-        except IntegrityError:
-            return False
-
-    def get_active_by_scheduler_job_id(self, scheduler_job_id: str) -> Optional[TaskRecord]:
-        with self.db.get_session() as session:
-            record = session.execute(
-                select(TaskRecord)
-                .where(
-                    TaskRecord.scheduler_job_id == scheduler_job_id,
-                    TaskRecord.status.in_(self.ACTIVE_STATUSES),
-                )
-                .order_by(desc(TaskRecord.created_at))
-                .limit(1)
-            ).scalar_one_or_none()
             return self._detach(session, record) if record is not None else None
 
     def get_latest_by_scheduler_job_ids(self, scheduler_job_ids: Iterable[str]) -> Dict[str, TaskRecord]:
@@ -530,7 +392,6 @@ class TaskRecordRepository:
             "error": record.error,
             "task_log": record.task_log,
             "parent_task_id": record.parent_task_id,
-            "dedupe_key": record.dedupe_key,
             "retry_count": record.retry_count,
             "scheduler_job_id": record.scheduler_job_id,
             "created_at": record.created_at,

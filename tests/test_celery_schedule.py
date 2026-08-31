@@ -16,6 +16,7 @@ from finance_analysis.tasks.celery.schedule import (
     get_scheduled_task_definitions,
 )
 from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab
+from finance_analysis.tasks.celery.schedule.slots import resolve_scheduled_slot
 
 EXPECTED_JOBS = {
     "analysis_daily": ("scheduled_daily", "Asia/Shanghai"),
@@ -236,6 +237,20 @@ def test_us_intraday_schedule_follows_new_york_dst():
     assert definition.next_run_time(now=winter) == datetime(2026, 1, 5, 14, 45, tzinfo=timezone.utc)
 
 
+def test_intraday_scheduled_slot_is_derived_from_beat_publish_time_not_worker_time():
+    cn = get_scheduled_task_definition("analysis_a_share_intraday")
+    us = get_scheduled_task_definition("analysis_us_intraday")
+
+    assert resolve_scheduled_slot(
+        cn,
+        datetime(2026, 8, 31, 9, 47, tzinfo=ZoneInfo("Asia/Shanghai")),
+    ).isoformat() == "2026-08-31T09:45:00+08:00"
+    assert resolve_scheduled_slot(
+        us,
+        datetime(2026, 8, 31, 9, 47, tzinfo=ZoneInfo("America/New_York")),
+    ).isoformat() == "2026-08-31T09:45:00-04:00"
+
+
 def test_compute_next_run_handles_localized_per_schedule_timezone():
     ny = LocalizedCrontab(minute="30", hour="16", tz="America/New_York")
     summer = datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
@@ -282,9 +297,6 @@ def test_before_publish_creates_single_pending_record_with_scheduler_metadata():
     assert metadata.source == "celery"
     assert metadata.scheduler_job_id == "analysis_daily"
     assert metadata.trigger_source == "scheduler"
-    # No dedupe_key here: manual runs pre-create the record with it, and the
-    # auto-pending path only resolves uniqueness by task_id.
-    assert "dedupe_key" not in event
 
 
 def test_before_publish_carries_manual_trigger_metadata():
@@ -317,6 +329,30 @@ def test_before_publish_carries_manual_trigger_metadata():
     metadata = events[0]["metadata"]
     assert metadata.trigger_source == "manual"
     assert metadata.triggered_by_uid == 42
+
+
+def test_before_publish_attaches_original_slot_to_scheduled_intraday_message():
+    from unittest.mock import patch
+
+    from finance_analysis.tasks.celery import app as app_module
+
+    body = (
+        [],
+        {"scheduler_job_id": "analysis_us_intraday", "_trigger_source": "scheduler"},
+        {},
+    )
+    service = type("Service", (), {"create_pending": lambda self, **kwargs: None})()
+    slot = datetime(2026, 8, 31, 9, 45, tzinfo=ZoneInfo("America/New_York"))
+    with patch.object(app_module, "get_task_lifecycle_service", return_value=service), patch.object(
+        app_module, "resolve_scheduled_slot", return_value=slot
+    ):
+        app_module._create_pending_task_record(
+            sender="scheduled.analysis_us_intraday",
+            headers={"id": "intraday-1"},
+            body=body,
+        )
+
+    assert body[1]["_scheduled_slot"] == slot.isoformat()
 
 
 def test_before_publish_skips_internal_quant_callback_record():

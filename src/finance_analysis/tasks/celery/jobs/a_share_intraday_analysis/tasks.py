@@ -10,6 +10,7 @@ from finance_analysis.tasks.celery.schedule import (
     require_scheduled_task_definition,
 )
 from finance_analysis.tasks.lifecycle import track_task
+from finance_analysis.tasks.advisory_lock import TaskAdvisoryLockId
 
 from .service import AShareIntradayAnalysisTaskService
 
@@ -26,6 +27,8 @@ DEFINITION = require_scheduled_task_definition(JOB_A_SHARE_INTRADAY_ANALYSIS)
     record_result=True,
     success_message="定时任务执行完成",
     strip_lifecycle_kwargs=True,
+    advisory_lock_id=TaskAdvisoryLockId.CN_INTRADAY_ANALYSIS,
+    scheduled_slot_idempotency=True,
 )
 def analysis_a_share_intraday(scheduler_job_id: Optional[str] = None, **_: Any) -> dict[str, Any]:
     return AShareIntradayAnalysisTaskService().run()

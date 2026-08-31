@@ -7,12 +7,10 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import JSONResponse
 
 from finance_analysis.database.models.user import User
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.schemas.tasks import (
-    DuplicateTaskResponse,
     ScheduledTaskListResponse,
     ScheduledTaskRunAccepted,
     ScheduledTaskRunRequest,
@@ -20,7 +18,6 @@ from finance_analysis.interfaces.api.v1.schemas.tasks import (
     TaskRunListResponse,
 )
 from finance_analysis.tasks.service import (
-    DuplicateScheduledTaskError,
     ManualRunNotAllowedError,
     ManualRunParameterError,
     ScheduledTaskNotFoundError,
@@ -49,7 +46,6 @@ async def list_scheduled_tasks(_: User = Depends(require_admin)):
     "/scheduled/{job_id}/run",
     response_model=ScheduledTaskRunAccepted,
     status_code=status.HTTP_202_ACCEPTED,
-    responses={409: {"model": DuplicateTaskResponse}},
 )
 async def run_scheduled_task(
     job_id: str,
@@ -69,15 +65,6 @@ async def run_scheduled_task(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ManualRunParameterError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except DuplicateScheduledTaskError as exc:
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content={
-                "error": "task_already_running",
-                "message": exc.message,
-                "existing_task_id": exc.existing_task_id,
-            },
-        )
     except SchedulerUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc) or "Scheduler unavailable") from exc
 

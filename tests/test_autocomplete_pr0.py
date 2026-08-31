@@ -17,7 +17,6 @@ from pydantic import ValidationError
 from finance_analysis.interfaces.api.v1.schemas.analysis import AnalyzeRequest
 from finance_analysis.tasks.queue import (
     TaskInfo,
-    DuplicateTaskError,
     AnalysisTaskQueue,
     reset_task_state_for_tests,
 )
@@ -182,8 +181,7 @@ class TestTaskQueue:
             assert task.original_query == "600519,000001"
             assert task.selection_source == "import"
 
-    def test_task_queue_duplicate_detection_with_new_fields(self):
-        """Test that new fields do not affect duplicate submission detection logic"""
+    def test_task_queue_allows_repeated_submissions_with_new_fields(self):
         queue = self._build_queue()
         stock_code = "600519"
 
@@ -197,16 +195,16 @@ class TestTaskQueue:
         assert len(tasks1) == 1
         assert len(dups1) == 0
 
-        # Second submission (should be rejected)
+        # Task history is not used as an execution mutex.
         tasks2, dups2 = queue.submit_tasks_batch(
             stock_codes=[stock_code],
             stock_name="贵州茅台",
             original_query="茅台",
-            selection_source="manual",  # Rejection still applies even if selection_source differs
+            selection_source="manual",
         )
-        assert len(tasks2) == 0
-        assert len(dups2) == 1
-        assert isinstance(dups2[0], DuplicateTaskError)
+        assert len(tasks2) == 1
+        assert len(dups2) == 0
+        assert tasks2[0].task_id != tasks1[0].task_id
 
 
 class TestIntegration:

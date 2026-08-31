@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Task execution record ORM model."""
 
-from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text, UniqueConstraint
 
 from finance_analysis.database.base import Base
 from finance_analysis.core.time import utc_now
@@ -28,7 +28,6 @@ class TaskRecord(Base):
     error = Column(Text, nullable=True)
     task_log = Column(String(255), nullable=True)
     parent_task_id = Column(String(64), nullable=True, index=True)
-    dedupe_key = Column(String(160), nullable=True, index=True)
     retry_count = Column(Integer, nullable=False, default=0)
     scheduler_job_id = Column(String(96), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
@@ -41,11 +40,4 @@ class TaskRecord(Base):
         Index("ix_task_type_created_at", "task_type", "created_at"),
         Index("ix_task_status_created_at", "status", "created_at"),
         Index("ix_task_uid_created_at", "uid", "created_at"),
-        Index("ix_task_dedupe_status", "dedupe_key", "status"),
-        Index(
-            "uix_task_active_dedupe",
-            "dedupe_key",
-            unique=True,
-            postgresql_where=text("dedupe_key IS NOT NULL AND status IN ('pending','processing','retrying')"),
-        ),
     )
