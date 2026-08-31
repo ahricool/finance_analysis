@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from finance_analysis.integrations.market_data.models import Adjustment, DailyBarsRequest
+from finance_analysis.integrations.market_data.models import Adjustment, AdjustmentRequest, DailyBarsRequest
 from finance_analysis.integrations.market_data.providers.baostock import BaoStockProvider
 from finance_analysis.integrations.market_data.providers.pytdx import PyTDXProvider
 from finance_analysis.integrations.market_data.providers.yfinance import YFinanceProvider
@@ -100,3 +100,62 @@ def test_yfinance_daily_download_disables_auto_adjust_and_requests_actions(monke
     assert result.data["AAPL.US"][0].amount is None
     assert captured["auto_adjust"] is False
     assert captured["actions"] is True
+
+
+def test_yfinance_daily_download_batches_ten_us_symbols_once_with_threads(monkeypatch):
+    calls = []
+    symbols = tuple(f"US{index}.US" for index in range(10))
+    provider_symbols = [f"US{index}" for index in range(10)]
+
+    def download(**kwargs):
+        calls.append(kwargs)
+        frames = {
+            ticker: pd.DataFrame(
+                {"Open": [10], "High": [11], "Low": [9], "Close": [10.5], "Volume": [100]},
+                index=pd.DatetimeIndex(["2025-01-02"], name="Date"),
+            )
+            for ticker in provider_symbols
+        }
+        return pd.concat(frames, axis=1)
+
+    monkeypatch.setattr("yfinance.download", download)
+    result = YFinanceProvider().fetch_daily_bars(
+        DailyBarsRequest(symbols, date(2025, 1, 1), date(2025, 1, 3), Adjustment.RAW)
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["tickers"] == provider_symbols
+    assert calls[0]["threads"] is True
+    assert set(result.data) == set(symbols)
+
+
+def test_yfinance_adjustments_batch_ten_us_symbols_once_with_threads(monkeypatch):
+    calls = []
+    symbols = tuple(f"US{index}.US" for index in range(10))
+    provider_symbols = [f"US{index}" for index in range(10)]
+
+    def download(**kwargs):
+        calls.append(kwargs)
+        frames = {
+            ticker: pd.DataFrame(
+                {
+                    "Close": [10],
+                    "Adj Close": [9.5],
+                    "Dividends": [0],
+                    "Stock Splits": [0],
+                },
+                index=pd.DatetimeIndex(["2025-01-02"], name="Date"),
+            )
+            for ticker in provider_symbols
+        }
+        return pd.concat(frames, axis=1)
+
+    monkeypatch.setattr("yfinance.download", download)
+    result = YFinanceProvider().get_adjustment_factors(
+        AdjustmentRequest(symbols, date(2025, 1, 1), date(2025, 1, 3))
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["tickers"] == provider_symbols
+    assert calls[0]["threads"] is True
+    assert set(result.factors) == set(symbols)

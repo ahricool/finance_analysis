@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -15,6 +14,7 @@ from finance_analysis.integrations.market_data.config import (
     get_data_provider_config,
     provider_order,
 )
+from finance_analysis.integrations.market_data.models import AdjustmentResult as MarketAdjustmentResult
 from finance_analysis.integrations.market_data.models import BatchBarResult
 from finance_analysis.integrations.market_data.registry import INSTRUMENT_INFO
 from finance_analysis.integrations.market_data.service import MarketDataService
@@ -25,7 +25,7 @@ from .models import AdjustmentResult, DailyResult, SymbolResult, normalize_sync_
 
 logger = logging.getLogger(__name__)
 MAX_RESULT_ITEMS = 20
-REMOTE_INSTRUMENT_PROVIDERS = frozenset({"tickflow", "longbridge", "akshare"})
+REMOTE_INSTRUMENT_PROVIDERS = frozenset({"tickflow", "akshare"})
 
 
 class MarketDataSyncError(RuntimeError):
@@ -107,12 +107,19 @@ class MarketDataSyncService:
             deleted_daily_rows,
             deleted_adjustment_rows,
         )
-        if self.market == "CN":
-            daily_results = self._sync_daily_batch_groups(symbols, daily_days_by_code)
-            results = []
+        daily_results = self._sync_daily_batch_groups(symbols, daily_days_by_code)
+        if self.market == "US":
+            adjustment_results = self._sync_adjustment_batch_groups(
+                symbols,
+                adjustment_days_by_code,
+                full_adjustment_days,
+                force_full_factor_window_by_code,
+            )
+        else:
+            adjustment_results = {}
             for symbol in symbols:
                 try:
-                    adjustment = self._sync_adjustment(
+                    adjustment_results[symbol.code] = self._sync_adjustment(
                         symbol,
                         adjustment_days_by_code[symbol.code],
                         full_adjustment_days,
@@ -120,45 +127,18 @@ class MarketDataSyncService:
                     )
                 except Exception as exc:
                     logger.exception("market=%s code=%s adjustment synchronization failed", self.market, symbol.code)
-                    adjustment = AdjustmentResult("failed", reason=str(exc))
-                results.append(
-                    SymbolResult(
-                        symbol.code,
-                        daily_results.get(symbol.code, DailyResult("failed", reason="daily result missing")),
-                        adjustment,
-                    )
-                )
-        else:
-            workers = min(5, max(1, self.config.market_data_longbridge_max_concurrency))
-            results = []
-            with ThreadPoolExecutor(
-                max_workers=workers,
-                thread_name_prefix=f"{self.market.lower()}-daily-sync",
-            ) as executor:
-                futures = {
-                    executor.submit(
-                        self._sync_symbol,
-                        symbol,
-                        daily_days_by_code[symbol.code],
-                        adjustment_days_by_code[symbol.code],
-                        full_adjustment_days,
-                        force_full_factor_window_by_code[symbol.code],
-                    ): symbol
-                    for symbol in symbols
-                }
-                for future in as_completed(futures):
-                    symbol = futures[future]
-                    try:
-                        results.append(future.result())
-                    except Exception as exc:
-                        logger.exception("market=%s code=%s synchronization failed", self.market, symbol.code)
-                        results.append(
-                            SymbolResult(
-                                symbol.code,
-                                DailyResult("failed", reason=str(exc)),
-                                AdjustmentResult("failed", reason=str(exc)),
-                            )
-                        )
+                    adjustment_results[symbol.code] = AdjustmentResult("failed", reason=str(exc))
+        results = [
+            SymbolResult(
+                symbol.code,
+                daily_results.get(symbol.code, DailyResult("failed", reason="daily result missing")),
+                adjustment_results.get(
+                    symbol.code,
+                    AdjustmentResult("failed", reason="adjustment result missing"),
+                ),
+            )
+            for symbol in symbols
+        ]
         factor_gaps_after = self._missing_factor_gaps(symbol_ids, retention_cutoff, latest_completed_day)
         self._apply_unresolved_factor_gaps(results, symbols, factor_gaps_after)
         summary = self._summarize(
@@ -325,23 +305,6 @@ class MarketDataSyncService:
             if reason not in result.adjustment.fallback_reasons:
                 result.adjustment.fallback_reasons.append(reason)
 
-    def _sync_symbol(
-        self,
-        symbol: Any,
-        daily_days: list[date],
-        adjustment_days: list[date],
-        full_adjustment_days: list[date] | None = None,
-        force_full_factor_window: bool = False,
-    ) -> SymbolResult:
-        daily = self._sync_daily(symbol, daily_days)
-        adjustment = self._sync_adjustment(
-            symbol,
-            adjustment_days,
-            full_adjustment_days,
-            force_full_factor_window=force_full_factor_window,
-        )
-        return SymbolResult(symbol.code, daily, adjustment)
-
     def _sync_daily(self, symbol: Any, requested_days: list[date]) -> DailyResult:
         try:
             routed = self.market_data.get_daily_bars(
@@ -467,15 +430,20 @@ class MarketDataSyncService:
         full_adjustment_days: list[date] | None = None,
         *,
         force_full_factor_window: bool = False,
+        routed: MarketAdjustmentResult | None = None,
     ) -> AdjustmentResult:
-        routed = self.market_data.get_adjustment_factors([symbol.code], min(requested_days), max(requested_days))
+        if routed is None:
+            routed = self.market_data.get_adjustment_factors(
+                [symbol.code], min(requested_days), max(requested_days)
+            )
         provider = routed.providers_used.get(symbol.code)
         factors = routed.factors.get(symbol.code, [])
         if provider is None or not factors:
+            failure = routed.failed_symbols.get(symbol.code)
             return AdjustmentResult(
                 "failed",
                 reason="no adjustment provider succeeded",
-                fallback_reasons=list(routed.failed_symbols.values()),
+                fallback_reasons=[failure] if failure else [],
             )
         start_date, end_date = min(requested_days), max(requested_days)
         factors_by_date = {
@@ -491,11 +459,12 @@ class MarketDataSyncService:
         }
         factor_rows = list(factors_by_date.values())
         if not factor_rows:
+            failure = routed.failed_symbols.get(symbol.code)
             return AdjustmentResult(
                 "failed",
                 provider=provider,
                 reason="provider returned no in-window daily adjustment factors",
-                fallback_reasons=list(routed.failed_symbols.values()),
+                fallback_reasons=[failure] if failure else [],
             )
         replace_full_factor_window = force_full_factor_window
         is_recent_probe = bool(full_adjustment_days and requested_days != full_adjustment_days)
@@ -513,7 +482,14 @@ class MarketDataSyncService:
             full_routed = self.market_data.get_adjustment_factors(
                 [symbol.code], min(full_adjustment_days), max(full_adjustment_days)
             )
-            fallback_reasons = [*routed.failed_symbols.values(), *full_routed.failed_symbols.values()]
+            fallback_reasons = [
+                reason
+                for reason in (
+                    routed.failed_symbols.get(symbol.code),
+                    full_routed.failed_symbols.get(symbol.code),
+                )
+                if reason
+            ]
             full_provider = full_routed.providers_used.get(symbol.code)
             full_factors = full_routed.factors.get(symbol.code, [])
             if full_provider is None or not full_factors:
@@ -606,8 +582,68 @@ class MarketDataSyncService:
             adjustment_factor_rows=len(factor_rows),
             provider=provider,
             reason=adjustment_reason,
-            fallback_reasons=list(routed.failed_symbols.values()),
+            fallback_reasons=[routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else [],
         )
+
+    def _sync_adjustment_batch_groups(
+        self,
+        symbols: list[Any],
+        adjustment_days_by_code: dict[str, list[date]],
+        full_adjustment_days: list[date],
+        force_full_factor_window_by_code: dict[str, bool],
+    ) -> dict[str, AdjustmentResult]:
+        groups: dict[tuple[date, date], list[Any]] = defaultdict(list)
+        for symbol in symbols:
+            requested_days = adjustment_days_by_code[symbol.code]
+            groups[(min(requested_days), max(requested_days))].append(symbol)
+        logger.info(
+            "market=%s data_type=adjustment symbol_count=%s batch_group_count=%s",
+            self.market,
+            len(symbols),
+            len(groups),
+        )
+
+        results: dict[str, AdjustmentResult] = {}
+        for (start_date, end_date), grouped_symbols in groups.items():
+            codes = [symbol.code for symbol in grouped_symbols]
+            logger.info(
+                "market=%s data_type=adjustment action=batch_fetch symbol_count=%s "
+                "start_date=%s end_date=%s sample=%s",
+                self.market,
+                len(codes),
+                start_date,
+                end_date,
+                codes[:5],
+            )
+            try:
+                routed = self.market_data.get_adjustment_factors(codes, start_date, end_date)
+            except Exception as exc:
+                logger.exception(
+                    "market=%s data_type=adjustment batch fetch failed symbol_count=%s "
+                    "start_date=%s end_date=%s",
+                    self.market,
+                    len(codes),
+                    start_date,
+                    end_date,
+                )
+                routed = MarketAdjustmentResult(failed_symbols={code: str(exc) for code in codes})
+            for symbol in grouped_symbols:
+                try:
+                    results[symbol.code] = self._sync_adjustment(
+                        symbol,
+                        adjustment_days_by_code[symbol.code],
+                        full_adjustment_days,
+                        force_full_factor_window=force_full_factor_window_by_code[symbol.code],
+                        routed=routed,
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "market=%s code=%s adjustment persistence failed",
+                        self.market,
+                        symbol.code,
+                    )
+                    results[symbol.code] = AdjustmentResult("failed", reason=str(exc))
+        return results
 
     def _summarize(
         self,

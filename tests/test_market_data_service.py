@@ -120,6 +120,11 @@ def test_amount_is_not_estimated_when_provider_omits_it():
 
 def test_default_orders_are_explicit_and_not_integer_priorities():
     assert provider_order(Market.CN, DAILY_BARS) == ("tickflow", "akshare", "pytdx", "baostock", "yfinance")
+    assert provider_order(Market.CN, DAILY_BARS)[0] == "tickflow"
+    assert "longbridge" not in provider_order(Market.CN, DAILY_BARS)
+    assert provider_order(Market.US, DAILY_BARS) == ("yfinance", "tickflow", "akshare")
+    assert provider_order(Market.US, DAILY_BARS)[0] == "yfinance"
+    assert "longbridge" not in provider_order(Market.US, DAILY_BARS)
     assert provider_order(Market.CN, MINUTE_BARS) == ("streaming", "longbridge", "efinance", "pytdx", "akshare")
     assert provider_order(Market.CN, ADJUSTMENT_FACTORS) == ("akshare", "tickflow", "yfinance")
 
@@ -358,9 +363,9 @@ class _DailyUpsertRepository:
         return SimpleNamespace(inserted_rows=len(rows), updated_rows=0)
 
 
-def _batch_sync_service(market_data):
+def _batch_sync_service(market_data, market="CN"):
     service = MarketDataSyncService.__new__(MarketDataSyncService)
-    service.market = "CN"
+    service.market = market
     service.market_data = market_data
     service.stock_repository = _DailyUpsertRepository()
     return service
@@ -373,16 +378,40 @@ def _bar_on(symbol: str, provider: str, trade_date: date, *, amount=1050) -> Mar
 def test_cn_daily_batches_ten_symbols_with_same_window_in_one_service_call():
     symbols = [SimpleNamespace(id=index, code=f"600{index:03d}.SH") for index in range(10)]
     requested_days = [date(2025, 1, 2), date(2025, 1, 3)]
+    tickflow = _DailyProvider(
+        "tickflow",
+        {
+            symbol.code: [_bar_on(symbol.code, "tickflow", day) for day in requested_days]
+            for symbol in symbols
+        },
+    )
+    registry = ProviderRegistry()
+    registry.register("tickflow", tickflow, capabilities={DAILY_BARS})
+    service = _batch_sync_service(MarketDataService(registry))
+    results = service._sync_daily_batch_groups(
+        symbols,
+        {symbol.code: requested_days for symbol in symbols},
+    )
+
+    assert len(tickflow.requests) == 1
+    assert tickflow.requests[0].symbols == tuple(symbol.code for symbol in symbols)
+    assert all(result.status == "success" for result in results.values())
+    assert len(service.stock_repository.persisted) == 10
+
+
+def test_us_daily_batches_ten_symbols_with_same_window_in_one_service_call():
+    symbols = [SimpleNamespace(id=index, code=f"US{index}.US") for index in range(10)]
+    requested_days = [date(2025, 1, 2), date(2025, 1, 3)]
     calls = []
 
     def get_daily_bars(codes, start_date, end_date, *, adjustment):
         calls.append((list(codes), start_date, end_date, adjustment))
         return BatchBarResult(
-            data={code: [_bar_on(code, "tickflow", day) for day in requested_days] for code in codes},
-            providers_used={code: "tickflow" for code in codes},
+            data={code: [_bar_on(code, "yfinance", day) for day in requested_days] for code in codes},
+            providers_used={code: "yfinance" for code in codes},
         )
 
-    service = _batch_sync_service(SimpleNamespace(get_daily_bars=get_daily_bars))
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=get_daily_bars), market="US")
     results = service._sync_daily_batch_groups(
         symbols,
         {symbol.code: requested_days for symbol in symbols},
@@ -391,7 +420,43 @@ def test_cn_daily_batches_ten_symbols_with_same_window_in_one_service_call():
     assert len(calls) == 1
     assert calls[0][0] == [symbol.code for symbol in symbols]
     assert all(result.status == "success" for result in results.values())
+    assert all(result.providers == ["yfinance"] for result in results.values())
     assert len(service.stock_repository.persisted) == 10
+
+
+def test_us_adjustments_batch_ten_symbols_with_same_window_in_one_service_call():
+    symbols = [SimpleNamespace(id=index, code=f"US{index}.US") for index in range(10)]
+    requested_days = [date(2025, 1, 2), date(2025, 1, 3)]
+    calls = []
+    routed = AdjustmentResult()
+
+    def get_adjustment_factors(codes, start_date, end_date):
+        calls.append((list(codes), start_date, end_date))
+        return routed
+
+    service = _batch_sync_service(
+        SimpleNamespace(get_adjustment_factors=get_adjustment_factors),
+        market="US",
+    )
+    received = []
+
+    def sync_adjustment(symbol, days, full_days, *, force_full_factor_window, routed):
+        received.append((symbol.code, list(days), force_full_factor_window, routed))
+        return SyncAdjustmentResult("success", provider="yfinance")
+
+    service._sync_adjustment = sync_adjustment
+    results = service._sync_adjustment_batch_groups(
+        symbols,
+        {symbol.code: requested_days for symbol in symbols},
+        requested_days,
+        {symbol.code: True for symbol in symbols},
+    )
+
+    assert len(calls) == 1
+    assert calls[0][0] == [symbol.code for symbol in symbols]
+    assert [item[0] for item in received] == [symbol.code for symbol in symbols]
+    assert all(item[3] is routed for item in received)
+    assert all(result.provider == "yfinance" for result in results.values())
 
 
 def test_cn_daily_groups_initial_and_incremental_windows_into_two_calls():
@@ -543,7 +608,7 @@ def test_sync_refreshes_instrument_names_in_one_remote_batch():
                     symbol="000001.SZ",
                     market=Market.CN,
                     name="平安银行",
-                    provider="longbridge",
+                    provider="tickflow",
                     currency="CNY",
                     exchange="SZ",
                     instrument_type="stock",
@@ -569,12 +634,41 @@ def test_sync_refreshes_instrument_names_in_one_remote_batch():
     assert calls == [
         (
             ["600000.SH", "000001.SZ"],
-            ("tickflow", "longbridge", "akshare"),
+            ("tickflow", "akshare"),
         )
     ]
     assert [record["name"] for record in upserts[0][0]] == ["浦发银行", "平安银行"]
     assert upserts[0][1] is False
     assert service.instrument_names_refreshed == 2
+
+
+def test_us_sync_instrument_name_refresh_does_not_route_to_longbridge():
+    calls = []
+    symbol = SimpleNamespace(
+        code="AAPL.US",
+        enabled=True,
+        sync_daily=True,
+        sync_minute=False,
+    )
+
+    def get_instrument_info(codes, *, providers):
+        calls.append((list(codes), tuple(providers)))
+        return BatchInstrumentResult(missing_symbols=list(codes))
+
+    service = MarketDataSyncService.__new__(MarketDataSyncService)
+    service.market = "US"
+    service.market_data = SimpleNamespace(
+        registry=SimpleNamespace(names=lambda: ("database", "tickflow", "longbridge", "yfinance", "akshare")),
+        get_instrument_info=get_instrument_info,
+    )
+    service.symbol_repository = SimpleNamespace(upsert_symbols=lambda *args, **kwargs: None)
+    service.instrument_names_refreshed = 0
+    service.instrument_name_failures = {}
+
+    service._refresh_instrument_names([symbol])
+
+    assert calls == [(["AAPL.US"], ("tickflow", "akshare"))]
+    assert "longbridge" not in calls[0][1]
 
 
 def test_cn_daily_default_chain_uses_efinance_snapshot_for_latest_day():
