@@ -10,7 +10,7 @@ ETF Rotation 是独立、规则驱动且可解释的 A 股/美股 ETF 快速轮�
 
 计算只读取 PostgreSQL 的 `market_data_symbol` 和 `stock_daily`，不会直接调用 AkShare、EFinance、YFinance 或其它公网 Provider。V1 使用同步后的未复权日线 close/volume/amount；这是一个明确且稳定的 point-in-time 口径，除权事件附近可能出现机械价格跳变，属于 V1 已知限制。
 
-静态 Universe 同时也是 `MarketDataScopeResolver` 的 strategy dependency 来源。执行 `MarketDataSyncService("CN")` 时，同步范围为现有 CSI300/自选股/benchmark dependencies，再加 enabled ETF members。ETF 不需要进入用户 watchlist，也不会加入 Quant fixed universe。
+静态 Universe 同时也是 `MarketDataScopeResolver` 的 strategy dependency 来源。执行 `MarketDataSyncService("CN")` 时，同步范围为现有 CSI300/自选股/benchmark dependencies，再加 enabled ETF members 和趋势跟踪 Universe。ETF 不需要进入用户 watchlist，也不会加入 Quant fixed universe。
 
 ## 固定 Universe
 
