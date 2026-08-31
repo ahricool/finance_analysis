@@ -75,6 +75,8 @@ class DataProviderConfig:
     market_data_initial_daily_days: int = FIVE_YEAR_HISTORY_DAYS
     market_data_refresh_daily_days: int = 60
     market_data_retention_daily_days: int = FIVE_YEAR_HISTORY_DAYS
+    market_data_tickflow_batch_size: int = 100
+    market_data_tickflow_max_concurrency: int = 5
     market_data_longbridge_max_concurrency: int = 5
     market_data_longbridge_max_retries: int = 3
     market_data_yfinance_max_concurrency: int = 3
@@ -95,6 +97,8 @@ def get_data_provider_config() -> DataProviderConfig:
         market_data_initial_daily_days=env_int("MARKET_DATA_INITIAL_DAILY_DAYS", FIVE_YEAR_HISTORY_DAYS, minimum=1),
         market_data_refresh_daily_days=env_int("MARKET_DATA_REFRESH_DAILY_DAYS", 60, minimum=1),
         market_data_retention_daily_days=env_int("MARKET_DATA_RETENTION_DAILY_DAYS", FIVE_YEAR_HISTORY_DAYS, minimum=1),
+        market_data_tickflow_batch_size=env_int("MARKET_DATA_TICKFLOW_BATCH_SIZE", 100, minimum=1, maximum=100),
+        market_data_tickflow_max_concurrency=env_int("MARKET_DATA_TICKFLOW_MAX_CONCURRENCY", 5, minimum=1),
         market_data_longbridge_max_concurrency=env_int(
             "MARKET_DATA_LONGBRIDGE_MAX_CONCURRENCY", 5, minimum=1, maximum=5
         ),
