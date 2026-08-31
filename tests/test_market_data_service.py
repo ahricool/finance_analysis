@@ -253,6 +253,31 @@ def test_sync_persists_raw_bars_without_priority_or_estimated_amount():
     assert result.providers == ["tickflow"]
 
 
+def test_sync_treats_zero_amount_as_missing_vwap():
+    bar = _bar("AAPL.US", "tickflow", amount=0)
+    routed = BatchBarResult(data={"AAPL.US": [bar]}, providers_used={"AAPL.US": "tickflow"})
+    persisted = []
+    market_data = SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed)
+    stock_repository = SimpleNamespace(
+        upsert_daily=lambda symbol_id, rows, source: (
+            persisted.extend(rows) or SimpleNamespace(inserted_rows=1, updated_rows=0)
+        )
+    )
+    service = MarketDataSyncService.__new__(MarketDataSyncService)
+    service.market = "US"
+    service.market_data = market_data
+    service.stock_repository = stock_repository
+
+    result = service._sync_daily(SimpleNamespace(id=1, code="AAPL.US"), [date(2025, 1, 2)])
+
+    assert result.status == "success"
+    assert result.vwap_qualities == {"missing"}
+    assert persisted[0]["amount"] == 0
+    assert persisted[0]["vwap"] is None
+    assert persisted[0]["vwap_source"] is None
+    assert persisted[0]["vwap_quality"] == "missing"
+
+
 def test_sync_refreshes_instrument_names_in_one_remote_batch():
     calls = []
     upserts = []

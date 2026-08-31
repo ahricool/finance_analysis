@@ -350,7 +350,7 @@ class MarketDataSyncService:
             provider = routed.providers_used[symbol.code]
             rows = []
             for bar in bars:
-                vwap = bar.amount / bar.volume if bar.amount is not None and bar.volume > 0 else None
+                vwap = bar.amount / bar.volume if bar.amount is not None and bar.amount > 0 and bar.volume > 0 else None
                 rows.append(
                     {
                         "date": bar.trade_date,
@@ -373,7 +373,10 @@ class MarketDataSyncService:
                 updated_rows=stats.updated_rows,
                 providers=[provider],
                 missing_amount=any(bar.amount is None for bar in bars),
-                vwap_qualities={"calculated" if bar.amount is not None and bar.volume > 0 else "missing" for bar in bars},
+                vwap_qualities={
+                    "calculated" if bar.amount is not None and bar.amount > 0 and bar.volume > 0 else "missing"
+                    for bar in bars
+                },
                 reason=f"missing_trading_days={len(missing)}" if missing else "",
                 fallback_reasons=list(routed.failed_symbols.values()),
             )
