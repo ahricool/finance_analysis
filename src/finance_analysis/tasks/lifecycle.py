@@ -12,13 +12,11 @@ import traceback
 import uuid
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, TypeVar
 
 from finance_analysis.core.logging import get_log_base_dir, get_task_log_file, task_logging_context
-from finance_analysis.database.repositories.scheduled_task_slot import ScheduledTaskSlotRepository
 from finance_analysis.database.repositories.task_record import TaskRecordRepository
 from finance_analysis.core.time import utc_now
 from finance_analysis.tasks.advisory_lock import PostgreSQLAdvisoryLock, TaskAdvisoryLockId
@@ -470,7 +468,7 @@ def track_task(
     success_message: Optional[str] = None,
     strip_lifecycle_kwargs: bool = False,
     advisory_lock_id: Optional[TaskAdvisoryLockId] = None,
-    scheduled_slot_idempotency: bool = False,
+    advisory_lock_blocking: bool = False,
 ) -> Callable[[F], F]:
     """Decorate task functions with persistent lifecycle tracking and task log context."""
 
@@ -509,41 +507,15 @@ def track_task(
                 advisory_lock: PostgreSQLAdvisoryLock | None = None
                 try:
                     if advisory_lock_id is not None:
-                        advisory_lock = PostgreSQLAdvisoryLock(advisory_lock_id)
+                        advisory_lock = PostgreSQLAdvisoryLock(
+                            advisory_lock_id,
+                            blocking=advisory_lock_blocking,
+                        )
                         if not advisory_lock.acquire():
                             raise TaskSkipped(f"同类任务正在执行: advisory_lock={advisory_lock_id.name}")
 
-                    scheduled_slot = _scheduled_slot_for_run(
-                        kwargs,
-                        trigger_source=resolved_trigger_source,
-                        scheduler_job_id=scheduler_job_id,
-                        enabled=scheduled_slot_idempotency,
-                    )
-                    slot_repository = ScheduledTaskSlotRepository() if scheduled_slot is not None else None
-                    if scheduled_slot is not None and slot_repository is not None:
-                        if slot_repository.was_completed(
-                            job_id=str(scheduler_job_id),
-                            trading_date=scheduled_slot.date(),
-                            scheduled_slot=scheduled_slot,
-                        ):
-                            raise TaskSkipped(
-                                f"原始调度时隙已成功处理: {scheduler_job_id} {scheduled_slot.isoformat()}"
-                            )
-
                     call_kwargs = _strip_lifecycle_kwargs(kwargs) if strip_lifecycle_kwargs else kwargs
                     result = func(*args, **call_kwargs)
-                    if scheduled_slot is not None and slot_repository is not None:
-                        if not slot_repository.record_completed(
-                            job_id=str(scheduler_job_id),
-                            trading_date=scheduled_slot.date(),
-                            scheduled_slot=scheduled_slot,
-                            task_id=task_id,
-                        ):
-                            logger.warning(
-                                "Scheduled slot was recorded concurrently after execution: job_id=%s slot=%s",
-                                scheduler_job_id,
-                                scheduled_slot.isoformat(),
-                            )
                 except TaskSkipped as exc:
                     service.mark_skipped(
                         task_id=task_id,
@@ -577,33 +549,10 @@ def track_task(
 
         wrapper._finance_tracked_task = True  # type: ignore[attr-defined]
         wrapper._finance_advisory_lock_id = advisory_lock_id  # type: ignore[attr-defined]
-        wrapper._finance_scheduled_slot_idempotency = scheduled_slot_idempotency  # type: ignore[attr-defined]
+        wrapper._finance_advisory_lock_blocking = advisory_lock_blocking  # type: ignore[attr-defined]
         return wrapper  # type: ignore[return-value]
 
     return decorator
-
-
-def _scheduled_slot_for_run(
-    kwargs: Mapping[str, Any],
-    *,
-    trigger_source: Optional[str],
-    scheduler_job_id: Optional[str],
-    enabled: bool,
-) -> datetime | None:
-    if not enabled or trigger_source != "scheduler":
-        return None
-    if not scheduler_job_id:
-        raise RuntimeError("Scheduled-slot idempotency requires scheduler_job_id")
-    raw = kwargs.get("_scheduled_slot")
-    if not raw:
-        raise TaskSkipped(f"缺少原始调度时隙: {scheduler_job_id}")
-    try:
-        scheduled_slot = datetime.fromisoformat(str(raw))
-    except ValueError as exc:
-        raise TaskSkipped(f"原始调度时隙无效: {scheduler_job_id} {raw}") from exc
-    if scheduled_slot.tzinfo is None or scheduled_slot.utcoffset() is None:
-        raise TaskSkipped(f"原始调度时隙必须包含时区: {scheduler_job_id} {raw}")
-    return scheduled_slot
 
 
 def _resolve_task_id(
@@ -678,7 +627,7 @@ def _strip_lifecycle_kwargs(kwargs: Mapping[str, Any]) -> Dict[str, Any]:
     return {
         key: value
         for key, value in kwargs.items()
-        if key not in {"task_id", "_trigger_source", "_triggered_by_uid", "_scheduled_slot"}
+        if key not in {"task_id", "_trigger_source", "_triggered_by_uid"}
     }
 
 

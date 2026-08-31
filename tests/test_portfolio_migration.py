@@ -110,9 +110,9 @@ def test_empty_database_upgrade_creates_current_schema_and_stamps_head() -> None
             "position",
             "trend_following_snapshot",
             "trend_following_summary",
-            "scheduled_task_slot",
         }.issubset(tables)
         assert "stock_list" not in tables
+        assert "scheduled_task_slot" not in tables
         assert "dedupe_key" not in {column["name"] for column in inspect(connection).get_columns("task")}
 
 
@@ -136,4 +136,4 @@ def test_upgrade_from_previous_head_seeds_users_and_discards_legacy_rows() -> No
         assert {"trend_following_snapshot", "trend_following_summary"}.issubset(
             inspect(connection).get_table_names()
         )
-        assert "scheduled_task_slot" in inspect(connection).get_table_names()
+        assert "scheduled_task_slot" not in inspect(connection).get_table_names()

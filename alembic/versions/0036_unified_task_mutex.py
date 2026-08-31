@@ -1,4 +1,4 @@
-"""Replace task-record dedupe locks with scheduled-slot idempotency.
+"""Remove task-record active-status dedupe locks.
 
 Revision ID: 0036_unified_task_mutex
 Revises: 0035_etf_fast_rotation
@@ -30,32 +30,8 @@ def upgrade() -> None:
             with op.batch_alter_table("task") as batch_op:
                 batch_op.drop_column("dedupe_key")
 
-    if "scheduled_task_slot" not in inspector.get_table_names():
-        op.create_table(
-            "scheduled_task_slot",
-            sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-            sa.Column("job_id", sa.String(length=96), nullable=False),
-            sa.Column("trading_date", sa.Date(), nullable=False),
-            sa.Column("scheduled_slot", sa.DateTime(timezone=True), nullable=False),
-            sa.Column("task_id", sa.String(length=64), nullable=False),
-            sa.Column(
-                "completed_at",
-                sa.DateTime(timezone=True),
-                server_default=sa.text("CURRENT_TIMESTAMP"),
-                nullable=False,
-            ),
-            sa.PrimaryKeyConstraint("id"),
-            sa.UniqueConstraint(
-                "job_id",
-                "trading_date",
-                "scheduled_slot",
-                name="uix_scheduled_task_slot_identity",
-            ),
-        )
-
 
 def downgrade() -> None:
-    op.drop_table("scheduled_task_slot")
     op.add_column("task", sa.Column("dedupe_key", sa.String(length=160), nullable=True))
     op.create_index("ix_task_dedupe_key", "task", ["dedupe_key"], unique=False)
     op.create_index("ix_task_dedupe_status", "task", ["dedupe_key", "status"], unique=False)

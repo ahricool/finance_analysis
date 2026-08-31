@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from finance_analysis.tasks.advisory_lock import TaskAdvisoryLockId
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.metadata import STOCK_ANALYSIS_TASK
 from finance_analysis.tasks.lifecycle import track_task
@@ -23,6 +24,8 @@ def _task_display_name(**kwargs: Any) -> str:
     uid_getter=lambda **kwargs: kwargs.get("owner_uid"),
     task_name_getter=_task_display_name,
     success_message="分析完成",
+    advisory_lock_id=TaskAdvisoryLockId.STOCK_ANALYSIS,
+    advisory_lock_blocking=True,
 )
 def run_stock_analysis(
     *,

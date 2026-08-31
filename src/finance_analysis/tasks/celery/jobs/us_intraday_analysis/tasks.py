@@ -28,7 +28,6 @@ DEFINITION = require_scheduled_task_definition(JOB_US_INTRADAY_ANALYSIS)
     success_message="定时任务执行完成",
     strip_lifecycle_kwargs=True,
     advisory_lock_id=TaskAdvisoryLockId.US_INTRADAY_ANALYSIS,
-    scheduled_slot_idempotency=True,
 )
 def analysis_us_intraday(scheduler_job_id: Optional[str] = None, **_: Any) -> dict[str, Any]:
     return USIntradayAnalysisTaskService().run()
