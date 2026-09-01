@@ -78,10 +78,41 @@ describe('TrendFollowingPage', () => {
     expect(trendIndicatorDescriptions.alpha).toContain('综合 Alpha 分');
     expect(trendIndicatorDescriptions.alpha).toContain('0.35×Trend');
     expect(trendIndicatorDescriptions.trend).toContain('趋势分');
-    expect(trendIndicatorDescriptions.trend).toContain('0.30×SlopePct');
+    expect(trendIndicatorDescriptions.trend).toContain('0.30×clamp(SlopePct)');
     expect(trendIndicatorDescriptions.relativeStrength).toContain('RS =');
     expect(trendIndicatorDescriptions.atr).toContain('ATR20 = Mean(TR, 20)');
     expect(trendIndicatorDescriptions.initialWeight).toContain('0.5%');
+  });
+
+  it('keeps target-date data coverage separate from history coverage', () => {
+    expect(trendIndicatorDescriptions.dataCoverage).toContain('只检查成分股在该日是否存在日线记录');
+    expect(trendIndicatorDescriptions.dataCoverage).toContain('Data Coverage = DataReadyCount / UniverseSize');
+    expect(trendIndicatorDescriptions.dataCoverage).toContain('不包含历史长度检查');
+    expect(trendIndicatorDescriptions.dataCoverage).toContain('feature/history coverage 阶段单独检查');
+    expect(trendIndicatorDescriptions.dataCoverage).not.toContain('当日收盘数据且历史长度足够');
+  });
+
+  it('documents candidate state and lifecycle action counts exactly', () => {
+    expect(trendIndicatorDescriptions.candidate).toContain('Candidate = Count(State == "CANDIDATE")');
+    expect(trendIndicatorDescriptions.candidate).toContain('不包含观察或持有状态');
+    expect(trendIndicatorDescriptions.lifecycleCount).toContain('ENTRY = Count(Action == "ENTRY")');
+    expect(trendIndicatorDescriptions.lifecycleCount).toContain('ADD = Count(Action == "ADD")');
+    expect(trendIndicatorDescriptions.lifecycleCount).toContain('HOLD = Count(Action == "HOLD")');
+    expect(trendIndicatorDescriptions.lifecycleCount).toContain('REDUCE = Count(Action == "REDUCE")');
+    expect(trendIndicatorDescriptions.lifecycleCount).toContain('EXIT = Count(Action == "EXIT")');
+  });
+
+  it('documents the ValidSetup branch in breakout distance quality', () => {
+    expect(trendIndicatorDescriptions.breakout).toContain('ValidSetup == false 时 DistanceQuality = 0');
+    expect(trendIndicatorDescriptions.breakout).toContain('ValidSetup == true 时 DistanceQuality = clamp');
+    expect(trendIndicatorDescriptions.breakout).toContain('BreakoutDistance×Close/max(ATR, 1e-12)−0.75');
+  });
+
+  it('preserves the exact exit comparison boundaries', () => {
+    expect(trendIndicatorDescriptions.exitLevel).toContain('Close <= InitialStop');
+    expect(trendIndicatorDescriptions.exitLevel).toContain('Close <= TrailingStop');
+    expect(trendIndicatorDescriptions.exitLevel).toContain('Close < PreviousLow10');
+    expect(trendIndicatorDescriptions.exitLevel).not.toContain('Close <= PreviousLow10');
   });
 
   it('switches to US S&P 500 snapshots', async () => {
