@@ -20,8 +20,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type {
   TrendAction,
+  TrendChange,
   TrendDetailResponse,
   TrendMarket,
+  TrendRankingChanges,
   TrendSnapshot,
   TrendState,
   TrendSummary,
@@ -41,6 +43,7 @@ const availableDates = ref<string[]>([]);
 const summary = ref<TrendSummary>(emptySummary());
 const items = ref<TrendSnapshot[]>([]);
 const candidates = ref<TrendSnapshot[]>([]);
+const changes = ref<TrendRankingChanges | null>(null);
 const loading = ref(true);
 const running = ref(false);
 const error = ref<ParsedApiError | null>(null);
@@ -70,8 +73,16 @@ const cards = computed(() => [
   ['REDUCE', summary.value.reduceCount, descriptions.lifecycleCount],
   ['EXIT', summary.value.exitCount, descriptions.lifecycleCount],
 ]);
+const changeGroups = computed(() => [
+  { label: 'New Candidates', items: changes.value?.newCandidates ?? [], variant: 'info' as const },
+  { label: 'New Weakening', items: changes.value?.newWeakening ?? [], variant: 'warning' as const },
+  { label: 'New REDUCE', items: changes.value?.newReduces ?? [], variant: 'destructive' as const },
+  { label: 'New EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const },
+]);
 
 function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
+function scoreDelta(value: number | null | undefined) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(1)}`; }
+function rankDelta(value: number | null | undefined) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value}`; }
 function pct(value: number | null | undefined) { return value == null ? '—' : `${(value * 100).toFixed(1)}%`; }
 function price(value: number | null | undefined) {
   return value == null ? '—' : formatMarketCurrencyAmount(value, market.value);
@@ -93,6 +104,9 @@ function badgeVariant(value: TrendState | TrendAction | string): 'default' | 'su
   if (['CANDIDATE', 'PENDING_ENTRY', 'PENDING_ADD'].includes(value)) return 'info';
   return 'outline';
 }
+function transitionText(change: TrendChange) {
+  return `${change.previousState ?? 'NEW'} → ${change.current.state}`;
+}
 async function load(refreshDates = false) {
   const current = ++generation;
   loading.value = true;
@@ -107,6 +121,7 @@ async function load(refreshDates = false) {
     if (current !== generation) return;
     summary.value = ranking;
     items.value = ranking.items;
+    changes.value = ranking.changes ?? null;
     selectedDate.value = ranking.tradeDate;
     const candidateResult = await trendFollowingApi.candidates(market.value, ranking.tradeDate);
     if (current === generation) candidates.value = candidateResult.items;
@@ -115,6 +130,7 @@ async function load(refreshDates = false) {
       error.value = getParsedApiError(reason);
       items.value = [];
       candidates.value = [];
+      changes.value = null;
     }
   } finally {
     if (current === generation) loading.value = false;
@@ -302,6 +318,113 @@ onMounted(() => void load(true));
     </Card>
 
     <Card>
+      <CardHeader>
+        <CardTitle>Today's Changes</CardTitle>
+        <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的市场、状态和显著分数变化。</CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div
+            class="rounded border p-3"
+            data-testid="trend-market-score-change"
+          >
+            <IndicatorLabel
+              label="Market Score Δ"
+              :description="descriptions.marketScoreChange"
+            />
+            <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.marketScoreChange) }}</strong>
+          </div>
+          <div
+            class="rounded border p-3"
+            data-testid="trend-breadth-score-change"
+          >
+            <IndicatorLabel
+              label="Breadth Score Δ"
+              :description="descriptions.breadthScoreChange"
+            />
+            <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.breadthScoreChange) }}</strong>
+          </div>
+        </div>
+        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <section
+            v-for="group in changeGroups"
+            :key="group.label"
+            class="rounded border p-3"
+          >
+            <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
+              {{ group.label }} <Badge :variant="group.variant">
+                {{ group.items.length }}
+              </Badge>
+            </h3>
+            <button
+              v-for="change in group.items"
+              :key="change.current.code"
+              class="mb-2 block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
+              :data-testid="`trend-change-${group.label.toLowerCase().replace(' ', '-')}`"
+              @click="openDetail(change.current)"
+            >
+              <strong>{{ change.current.name }}</strong>
+              <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
+              <span class="mt-1 block">{{ transitionText(change) }} · Alpha Δ {{ scoreDelta(change.alphaScoreChange) }}</span>
+            </button>
+            <p
+              v-if="!group.items.length"
+              class="text-xs text-muted-foreground"
+            >
+              无
+            </p>
+          </section>
+        </div>
+        <section>
+          <h3 class="mb-2 text-sm font-semibold">
+            State Transitions
+          </h3>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="change in changes?.transitions ?? []"
+              :key="change.current.code"
+              data-testid="trend-transition"
+              class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
+              @click="openDetail(change.current)"
+            >
+              <strong>{{ change.current.name }}</strong>
+              <span class="ml-2">{{ transitionText(change) }}</span>
+              <span class="ml-2">{{ change.previousAction ?? '—' }} → {{ change.current.action }}</span>
+            </button>
+            <span
+              v-if="!changes?.transitions?.length"
+              class="text-xs text-muted-foreground"
+            >无状态转换</span>
+          </div>
+        </section>
+        <section>
+          <h3 class="mb-2 text-sm font-semibold">
+            Rank / Score Movers
+          </h3>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="change in changes?.movers ?? []"
+              :key="change.current.code"
+              data-testid="trend-mover"
+              class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
+              @click="openDetail(change.current)"
+            >
+              <strong>{{ change.current.name }}</strong>
+              <span class="ml-2">Rank {{ rankDelta(change.rankChange) }}</span>
+              <span class="ml-2">Trend {{ scoreDelta(change.trendScoreChange) }}</span>
+              <span class="ml-2">RS {{ scoreDelta(change.rsScoreChange) }}</span>
+              <span class="ml-2">Alpha {{ scoreDelta(change.alphaScoreChange) }}</span>
+            </button>
+            <span
+              v-if="!changes?.movers?.length"
+              class="text-xs text-muted-foreground"
+            >无显著变化</span>
+          </div>
+        </section>
+      </CardContent>
+    </Card>
+
+    <Card>
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
         <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ summary.tradeDate || '—' }} · {{ scope }} · {{ summary.dataReadyCount }}/{{ summary.universeSize }} 数据就绪</CardDescription></div>
         <NativeSelect
@@ -387,13 +510,19 @@ onMounted(() => void load(true));
                 </TableHead>
                 <TableHead>
                   <IndicatorLabel
-                    label="20D Return"
+                    label="5D Return"
                     :description="descriptions.return"
                   />
                 </TableHead>
                 <TableHead>
                   <IndicatorLabel
-                    label="60D Return"
+                    label="10D Return"
+                    :description="descriptions.return"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="20D Return"
                     :description="descriptions.return"
                   />
                 </TableHead>
@@ -488,7 +617,7 @@ onMounted(() => void load(true));
                   {{ score(item.alphaScore) }}
                 </TableCell><TableCell>{{ score(item.trendScore) }}</TableCell>
                 <TableCell>{{ score(item.rsScore) }}</TableCell><TableCell>{{ score(item.breakoutScore) }}</TableCell><TableCell>{{ item.setup }}</TableCell>
-                <TableCell>{{ pct(item.features.return20D) }}</TableCell><TableCell>{{ pct(item.features.return60D) }}</TableCell><TableCell>{{ price(item.atr) }}</TableCell>
+                <TableCell>{{ pct(item.features.return5D) }}</TableCell><TableCell>{{ pct(item.features.return10D) }}</TableCell><TableCell>{{ pct(item.features.return20D) }}</TableCell><TableCell>{{ price(item.atr) }}</TableCell>
                 <TableCell>{{ price(item.referencePrice) }}</TableCell>
                 <TableCell>{{ item.signalDate || '—' }}</TableCell><TableCell>{{ price(item.signalPrice) }}</TableCell>
                 <TableCell>{{ item.openedAt || '—' }}</TableCell><TableCell>{{ price(item.entryPrice) }}</TableCell>
@@ -558,15 +687,15 @@ onMounted(() => void load(true));
             </h3><div class="grid grid-cols-2 gap-2 text-sm">
               <div>
                 <IndicatorLabel
-                  label="Weighted slope"
+                  label="Weighted slope 15D"
                   :description="descriptions.weightedSlope"
                   wrap
                 /><strong class="block">{{ score(detail.latest.features.rawWeightedSlope) }}</strong>
               </div>
               <div>
                 <IndicatorLabel
-                  label="Slope percentile"
-                  :description="descriptions.weightedSlope"
+                  label="Slope percentile 15D"
+                  :description="descriptions.slopePercentile"
                   wrap
                 /><strong class="block">{{ score(detail.latest.features.weightedSlopePercentile) }}</strong>
               </div>
@@ -579,45 +708,52 @@ onMounted(() => void load(true));
               </div>
               <div>
                 <IndicatorLabel
-                  label="20D / 60D"
+                  label="Return 5D / 10D / 20D"
                   :description="descriptions.return"
                   wrap
-                /><strong class="block">{{ pct(detail.latest.features.return20D) }} / {{ pct(detail.latest.features.return60D) }}</strong>
+                /><strong class="block">{{ pct(detail.latest.features.return5D) }} / {{ pct(detail.latest.features.return10D) }} / {{ pct(detail.latest.features.return20D) }}</strong>
               </div>
               <div>
                 <IndicatorLabel
-                  label="Drawdown 20D / 60D"
+                  label="Drawdown 20D"
                   :description="descriptions.drawdown"
                   wrap
-                /><strong class="block">{{ pct(detail.latest.features.drawdown20D) }} / {{ pct(detail.latest.features.drawdown60D) }}</strong>
+                /><strong class="block">{{ pct(detail.latest.features.drawdown20D) }}</strong>
               </div>
               <div>
                 <IndicatorLabel
-                  label="MA10 / MA20 / MA60"
+                  label="MA10 / MA20"
                   :description="descriptions.movingAverage"
                   wrap
-                /><strong class="block">{{ score(detail.latest.features.ma10) }} / {{ score(detail.latest.features.ma20) }} / {{ score(detail.latest.features.ma60) }}</strong>
+                /><strong class="block">{{ score(detail.latest.features.ma10) }} / {{ score(detail.latest.features.ma20) }}</strong>
               </div>
               <div>
                 <IndicatorLabel
-                  label="RS 20D / 60D"
+                  label="RS 5D / 10D / 20D"
                   :description="descriptions.rawRelativeStrength"
                   wrap
-                /><strong class="block">{{ pct(detail.latest.features.rs20D) }} / {{ pct(detail.latest.features.rs60D) }}</strong>
+                /><strong class="block">{{ pct(detail.latest.features.rs5D) }} / {{ pct(detail.latest.features.rs10D) }} / {{ pct(detail.latest.features.rs20D) }}</strong>
               </div>
               <div>
                 <IndicatorLabel
-                  label="RS Percentile"
+                  label="Return Percentile 10D / 20D"
                   :description="descriptions.returnPercentile"
                   wrap
-                /><strong class="block">{{ score(detail.latest.features.return20DPercentile) }} / {{ score(detail.latest.features.return60DPercentile) }}</strong>
+                /><strong class="block">{{ score(detail.latest.features.return10DPercentile) }} / {{ score(detail.latest.features.return20DPercentile) }}</strong>
               </div>
               <div>
                 <IndicatorLabel
-                  label="20D / 55D Breakout"
+                  label="10D / 20D Breakout"
                   :description="descriptions.breakoutFlags"
                   wrap
-                /><strong class="block">{{ detail.latest.features.breakout20D ? '是' : '否' }} / {{ detail.latest.features.breakout55D ? '是' : '否' }}</strong>
+                /><strong class="block">{{ detail.latest.features.breakout10D ? '是' : '否' }} / {{ detail.latest.features.breakout20D ? '是' : '否' }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="Trend Resume"
+                  :description="descriptions.trendResume"
+                  wrap
+                /><strong class="block">{{ detail.latest.features.trendResume ? '是' : '否' }}</strong>
               </div>
               <div>
                 <IndicatorLabel

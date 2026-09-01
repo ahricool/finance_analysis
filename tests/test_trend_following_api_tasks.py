@@ -58,6 +58,49 @@ def test_snapshot_api_contracts(monkeypatch):
     assert latest["latest"]["trade_date"] == "2026-08-29"
 
 
+def test_ranking_reuses_previous_snapshots_for_daily_changes(monkeypatch):
+    previous_date = date(2026, 8, 27)
+
+    class ChangesRepository(FakeRepository):
+        def previous_trade_date(self, trade_date):
+            assert trade_date == TRADE_DATE
+            return previous_date
+
+        def summary_by_date(self, trade_date):
+            return {
+                "market": self.market,
+                "trade_date": trade_date,
+                "market_regime": "RISK_ON",
+                "market_score": 75 if trade_date == TRADE_DATE else 70,
+                "score_breakdown": {"breadth": 65 if trade_date == TRADE_DATE else 60},
+            }
+
+        def snapshots_by_date(self, trade_date, *, sort_by, limit):
+            assert sort_by in {"alpha_score", "rank"}
+            if trade_date == previous_date:
+                return [{
+                    "code": "AAPL.US", "trade_date": trade_date, "rank": 12,
+                    "state": "WATCHING", "action": "WATCH", "pending_action": None,
+                    "trend_score": 60, "rs_score": 58, "alpha_score": 62,
+                }]
+            return [{
+                "code": "AAPL.US", "trade_date": trade_date, "rank": 3,
+                "state": "CANDIDATE", "action": "WATCH", "pending_action": "ENTRY",
+                "trend_score": 69, "rs_score": 66, "alpha_score": 70,
+            }]
+
+    monkeypatch.setattr(trend_following, "TrendFollowingRepository", ChangesRepository)
+    payload = asyncio.run(
+        trend_following.ranking(TRADE_DATE, "alpha_score", None, SimpleNamespace(id=1), "US")
+    )
+    changes = payload["changes"]
+    assert changes["market_score_change"] == 5
+    assert changes["breadth_score_change"] == 5
+    assert changes["new_candidates"][0]["current"]["code"] == "AAPL.US"
+    assert changes["transitions"][0]["previous_state"] == "WATCHING"
+    assert changes["movers"][0]["rank_change"] == 9
+
+
 def test_historical_detail_requires_an_exact_snapshot_date(monkeypatch):
     monkeypatch.setattr(trend_following, "TrendFollowingRepository", FakeRepository)
     with pytest.raises(HTTPException) as error:
@@ -74,8 +117,8 @@ def test_tasks_and_schedules_are_registered():
     us = require_scheduled_task_definition(JOB_TREND_FOLLOWING_US)
     assert cn.celery_task_name == "scheduled.trend_following_cn"
     assert us.celery_task_name == "scheduled.trend_following_us"
-    assert cn.schedule_text.startswith("周一至周五 19:30")
-    assert us.schedule_text.startswith("周一至周五 22:00")
+    assert cn.schedule_text.startswith("周一至周五 18:40")
+    assert us.schedule_text.startswith("周一至周五 18:40")
     assert build_beat_schedule()[JOB_TREND_FOLLOWING_CN]["options"]["queue"] == "analysis"
     assert build_beat_schedule()[JOB_TREND_FOLLOWING_US]["options"]["queue"] == "analysis"
     assert "finance_analysis.tasks.celery.jobs.trend_following.tasks" in TASK_MODULES

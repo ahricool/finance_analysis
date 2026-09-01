@@ -19,12 +19,21 @@ def rank_candidates(rows: list[dict[str, Any]], config: TrendFollowingConfig = D
         return []
     for key, output in (
         ("raw_weighted_slope", "weighted_slope_percentile"),
+        ("return_10d", "return_10d_percentile"),
         ("return_20d", "return_20d_percentile"),
-        ("return_60d", "return_60d_percentile"),
     ):
         for row, rank in zip(rows, percentile_ranks(item[key] for item in rows)):
             row[output] = rank
     for row in rows:
+        row["trend_resume"] = bool(
+            row["trend_resume_base"]
+            and not row["breakout_10d"]
+            and row["rs_10d"] > 0
+            and row["return_10d_percentile"] >= 60.0
+        )
+        if row["trend_resume"]:
+            row["setup"] = "TREND_RESUME"
+            row["valid_setup"] = True
         row["trend_score"], trend = calculate_trend_score(row, config)
         row["rs_score"], rs = calculate_rs_score(row, config)
         row["breakout_score"], breakout = calculate_breakout_score(row)

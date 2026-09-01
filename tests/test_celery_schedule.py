@@ -219,11 +219,11 @@ def test_market_data_sync_schedules_and_queue():
         (item.hour, item.minute, item.day_of_week, item.day_of_month, item.timezone, item.sync_mode)
         for item in us.schedules
     } == {
-        ("20", "0", "mon-fri", "*", "America/New_York", "incremental"),
+        ("18", "0", "mon-fri", "*", "America/New_York", "incremental"),
         ("10", "0", "sun", "1-7", "America/New_York", "full"),
     }
     assert cn_hk.schedule_text == "周一至周五 18:00 增量；每月第一个周日 10:00 全量（Asia/Shanghai）"
-    assert us.schedule_text == "周一至周五 20:00 增量；每月第一个周日 10:00 全量（America/New_York）"
+    assert us.schedule_text == "周一至周五 18:00 增量；每月第一个周日 10:00 全量（America/New_York）"
 
 
 def test_market_data_full_beat_crons_fire_only_on_the_first_sunday_of_each_month():

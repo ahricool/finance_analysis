@@ -15,7 +15,16 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { ETFAction, ETFDetailResponse, ETFMarket, ETFMarketRotationSnapshot, ETFMomentumSnapshot, ETFState } from '@/types/etfRotation';
+import type {
+  ETFAction,
+  ETFChange,
+  ETFDetailResponse,
+  ETFMarket,
+  ETFMarketRotationSnapshot,
+  ETFMomentumSnapshot,
+  ETFRankingChanges,
+  ETFState,
+} from '@/types/etfRotation';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { formatMarketCurrencyAmount } from '@/utils/marketCurrency';
 import { RefreshCcw } from 'lucide-vue-next';
@@ -24,6 +33,8 @@ import { toast } from 'vue-sonner';
 
 const items = ref<ETFMomentumSnapshot[]>([]);
 const candidates = ref<ETFMomentumSnapshot[]>([]);
+const exits = ref<ETFMomentumSnapshot[]>([]);
+const changes = ref<ETFRankingChanges | null>(null);
 const marketSnapshot = ref<ETFMarketRotationSnapshot | null>(null);
 const summary = ref({ tradeDate: '', universeSize: 0, dataReadyCount: 0, dataCoverage: 0,
   rankableSize: 0, rankableCoverage: 0, generatedAt: null as string | null, warnings: [] as string[] });
@@ -44,12 +55,19 @@ const sortedItems = computed(() => [...items.value].sort((a, b) => {
   const right = b[sortKey.value] ?? -Infinity;
   return right - left || a.code.localeCompare(b.code);
 }));
+const changeGroups = computed(() => [
+  { label: 'NEW BUY', items: changes.value?.newBuys ?? [], variant: 'success' as const, transition: 'action' as const },
+  { label: 'NEW EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const, transition: 'action' as const },
+  { label: 'NEW EMERGING', items: changes.value?.newEmerging ?? [], variant: 'info' as const, transition: 'state' as const },
+  { label: 'NEW COOLING', items: changes.value?.newCooling ?? [], variant: 'warning' as const, transition: 'state' as const },
+]);
 function pct(value: number | null | undefined, sign = true) { return value == null ? '—' : `${sign && value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`; }
 function stopPct(value: number | null | undefined) { return value == null ? '—' : `-${(value * 100).toFixed(1)}%`; }
 function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
 function decimal(value: number | null | undefined, digits = 3) { return value == null ? '—' : value.toFixed(digits); }
 function price(value: number | null) { return formatMarketCurrencyAmount(value, market.value); }
 function rankChange(value: number | null) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value}`; }
+function scoreChange(value: number | null) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(1)}`; }
 function boolText(value: boolean | null) { return value == null ? '—' : value ? '通过' : '未通过'; }
 function stateIcon(state: ETFState) { return ({ EMERGING: '🚀', STRONG: '🟢', TRENDING: '🔵', COOLING: '🟡', EXHAUSTED: '🔴', WEAK: '⚫', NEUTRAL: '⚪' })[state]; }
 function stateVariant(state: ETFState): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
@@ -67,6 +85,10 @@ function correlationText(item: ETFMomentumSnapshot) {
   if (!value || value.status !== 'ready' || value.max_with_universe == null) return '相关性数据不足';
   return `最高相关性 ${(value.max_with_universe * 100).toFixed(0)}%`;
 }
+function changeTransition(change: ETFChange, transition: 'action' | 'state') {
+  if (transition === 'action') return `${change.previousAction ?? 'NEW'} → ${change.current.action}`;
+  return `${change.previousState ?? 'NEW'} → ${change.current.state}`;
+}
 async function load(refreshDates = false) {
   const current = ++generation; loading.value = true; error.value = null;
   try {
@@ -77,10 +99,14 @@ async function load(refreshDates = false) {
     const ranking = await etfRotationApi.ranking(market.value, selectedDate.value || undefined);
     if (current !== generation) return;
     Object.assign(summary.value, ranking); marketSnapshot.value = ranking.marketSnapshot; items.value = ranking.items;
+    changes.value = ranking.changes ?? null;
     if (!selectedDate.value) selectedDate.value = ranking.tradeDate;
     const result = await etfRotationApi.candidates(market.value, ranking.tradeDate);
-    if (current === generation) candidates.value = result.items;
-  } catch (err) { if (current === generation) { error.value = getParsedApiError(err); items.value = []; candidates.value = []; } }
+    if (current === generation) {
+      candidates.value = result.candidates ?? result.items.filter(item => item.action === 'BUY' || item.action === 'HOLD');
+      exits.value = result.exits ?? result.items.filter(item => item.action === 'EXIT');
+    }
+  } catch (err) { if (current === generation) { error.value = getParsedApiError(err); items.value = []; candidates.value = []; exits.value = []; changes.value = null; } }
   finally { if (current === generation) loading.value = false; }
 }
 async function openDetail(item: ETFMomentumSnapshot) {
@@ -206,8 +232,14 @@ onMounted(() => void load(true));
     </Card>
 
     <Card>
-      <CardHeader><CardTitle>Rotation Candidates</CardTitle><CardDescription>公共策略候选与快速退出信号；采用 Top4 Entry、Top6 Hold、risk group 和 20 日相关性约束。</CardDescription></CardHeader>
+      <CardHeader><CardTitle>Current Candidates</CardTitle><CardDescription>当前 BUY / HOLD 候选；采用 Top4 Entry、Top6 Hold、risk group 和 20 日相关性约束。</CardDescription></CardHeader>
       <CardContent>
+        <p
+          v-if="!loading && !candidates.length"
+          class="text-sm text-muted-foreground"
+        >
+          暂无当前候选
+        </p>
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <button
             v-for="item in candidates"
@@ -236,6 +268,114 @@ onMounted(() => void load(true));
             </div>
           </button>
         </div>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader><CardTitle>Today's Exit</CardTitle><CardDescription>所选交易日 action = EXIT 的全部标的；此分区不受候选数量 limit 限制。</CardDescription></CardHeader>
+      <CardContent>
+        <p
+          v-if="!loading && !exits.length"
+          class="text-sm text-muted-foreground"
+        >
+          今日无退出信号
+        </p>
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <button
+            v-for="item in exits"
+            :key="item.code"
+            data-testid="rotation-exit"
+            class="min-w-0 rounded border border-destructive/30 p-3 text-left hover:bg-muted/50"
+            @click="openDetail(item)"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <strong class="min-w-0 break-words">{{ item.name }}</strong>
+              <Badge variant="destructive">
+                EXIT
+              </Badge>
+            </div>
+            <p class="mt-1 truncate font-mono text-xs text-muted-foreground">
+              {{ item.code }}
+            </p>
+            <div class="mt-3 flex justify-between text-sm">
+              <span>Composite {{ score(item.compositeScore) }}</span>
+              <Badge :variant="stateVariant(item.state)">
+                {{ stateIcon(item.state) }} {{ item.state }}
+              </Badge>
+            </div>
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle>Today's Changes</CardTitle>
+        <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的信号、状态和排名变化。</CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <div
+          v-if="changes?.regimeChange"
+          class="rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30"
+          data-testid="etf-regime-change"
+        >
+          <strong>Regime Change</strong>
+          <span class="ml-2">{{ changes.regimeChange.from }} → {{ changes.regimeChange.to }}</span>
+        </div>
+        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <section
+            v-for="group in changeGroups"
+            :key="group.label"
+            class="rounded border p-3"
+          >
+            <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
+              {{ group.label }} <Badge :variant="group.variant">
+                {{ group.items.length }}
+              </Badge>
+            </h3>
+            <div class="space-y-2">
+              <button
+                v-for="change in group.items"
+                :key="change.current.code"
+                class="block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
+                :data-testid="`etf-change-${group.label.toLowerCase().replace(' ', '-')}`"
+                @click="openDetail(change.current)"
+              >
+                <strong>{{ change.current.name }}</strong>
+                <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
+                <span class="mt-1 block">{{ changeTransition(change, group.transition) }} · Composite Δ {{ scoreChange(change.compositeScoreChange) }}</span>
+              </button>
+              <p
+                v-if="!group.items.length"
+                class="text-xs text-muted-foreground"
+              >
+                无
+              </p>
+            </div>
+          </section>
+        </div>
+        <section>
+          <h3 class="mb-2 text-sm font-semibold">
+            Rank Movers
+          </h3>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="change in changes?.rankMovers ?? []"
+              :key="change.current.code"
+              data-testid="etf-rank-mover"
+              class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
+              @click="openDetail(change.current)"
+            >
+              <strong>{{ change.current.name }}</strong>
+              <span class="ml-2">#{{ change.previousRank ?? '—' }} → #{{ change.current.rank ?? '—' }} ({{ rankChange(change.rankChange) }})</span>
+              <span class="ml-2">Composite Δ {{ scoreChange(change.compositeScoreChange) }}</span>
+            </button>
+            <span
+              v-if="!changes?.rankMovers?.length"
+              class="text-xs text-muted-foreground"
+            >无显著排名变化</span>
+          </div>
+        </section>
       </CardContent>
     </Card>
 

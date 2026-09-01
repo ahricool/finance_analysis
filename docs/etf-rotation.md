@@ -112,7 +112,9 @@ BUY 要求 Composite Top4、Entry Score 至少 70 且状态为 EMERGING/STRONG/T
 
 ## Scheduler、手动运行与 API
 
-Celery Beat 任务 `scheduled.etf_rotation_cn` 默认在工作日 18:40 Asia/Shanghai 进入 `analysis` queue。时间顺序不是数据正确性的保障，任务自身总会执行 readiness 检查。
+Celery Beat 任务 `scheduled.etf_rotation_cn` / `scheduled.etf_rotation_us` 默认分别在工作日
+18:30 Asia/Shanghai / 18:30 America/New_York 进入 `analysis` queue。时间顺序不是数据正确性的保障，
+任务自身总会执行 readiness 检查。
 
 管理员可在前端点击“手动运行”，或调用：
 
@@ -132,4 +134,7 @@ Content-Type: application/json
 - `GET /api/v1/etf-rotation/{code}?market=&limit=60`
 - `POST /api/v1/etf-rotation/run`（admin）
 
-`dates` 按市场返回已持久化 snapshot 的交易日，降序排列；`ranking` / `candidates` 不传 `trade_date` 时回落到该市场最新交易日。前端入口为“研究 → ETF动量轮动”，可用 A股/美股切换和日期选择器查看某一市场某一日的排名与候选。
+`candidates` 返回受 `limit` 限制的 BUY/HOLD `candidates`，以及不受该限制的当日 `exits`；兼容字段
+`items` 继续映射到当前 candidates。`dates` 按市场返回已持久化 snapshot 的交易日，降序排列；
+`ranking` / `candidates` 不传 `trade_date` 时回落到该市场最新交易日。前端入口为“研究 → ETF动量轮动”，
+可用 A股/美股切换和日期选择器查看某一市场某一日的排名与候选。

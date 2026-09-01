@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class TrendFollowingConfig:
-    history_bars: int = 120
-    minimum_history_bars: int = 61
-    calendar_lookback_days: int = 220
+    history_bars: int = 60
+    minimum_history_bars: int = 21
+    calendar_lookback_days: int = 180
     minimum_data_coverage: float = 0.95
     benchmark_codes: dict[str, str] = field(
         default_factory=lambda: {"CN": "510300.SH", "US": "SPY.US"}
@@ -20,7 +20,7 @@ class TrendFollowingConfig:
     risk_on_threshold: float = 65.0
     risk_off_threshold: float = 40.0
     regime_max_exposure: dict[str, float] = field(
-        default_factory=lambda: {"RISK_ON": 1.0, "NEUTRAL": 0.5, "RISK_OFF": 0.0}
+        default_factory=lambda: {"RISK_ON": 1.0, "NEUTRAL": 0.5, "RISK_OFF": 0.2}
     )
     regime_weights: dict[str, float] = field(
         default_factory=lambda: {"trend": 0.35, "breadth": 0.40, "risk": 0.25}
@@ -28,21 +28,27 @@ class TrendFollowingConfig:
     trend_score_weights: dict[str, float] = field(
         default_factory=lambda: {
             "weighted_slope_percentile": 0.30,
-            "weighted_r2": 0.25,
+            "weighted_r2": 0.20,
+            "return_10d": 0.20,
             "return_20d": 0.20,
-            "return_60d": 0.15,
             "drawdown_quality": 0.10,
         }
     )
     rs_score_weights: dict[str, float] = field(
-        default_factory=lambda: {"rs_20d": 0.30, "rs_60d": 0.20, "percentile_20d": 0.30, "percentile_60d": 0.20}
+        default_factory=lambda: {
+            "rs_5d": 0.25,
+            "rs_10d": 0.35,
+            "rs_20d": 0.20,
+            "percentile_10d": 0.10,
+            "percentile_20d": 0.10,
+        }
     )
     alpha_score_weights: dict[str, float] = field(
         default_factory=lambda: {"trend": 0.35, "rs": 0.30, "breakout": 0.20, "volume": 0.10, "compression": 0.05}
     )
-    candidate_trend_score: float = 65.0
-    candidate_rs_score: float = 65.0
-    candidate_alpha_score: float = 70.0
+    candidate_trend_score: float = 62.0
+    candidate_rs_score: float = 60.0
+    candidate_alpha_score: float = 67.0
     add_trend_score: float = 60.0
     add_rs_score: float = 55.0
     reduce_rs_score: float = 55.0

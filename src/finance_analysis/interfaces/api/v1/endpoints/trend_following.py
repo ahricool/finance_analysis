@@ -28,6 +28,112 @@ Market = Literal["CN", "US"]
 SortField = Literal["alpha_score", "trend_score", "rs_score", "breakout_score", "rank"]
 
 
+def _changes(
+    repository: TrendFollowingRepository,
+    trade_date: date,
+    current_rows: list[dict],
+    current_summary: dict,
+) -> dict:
+    previous_date_loader = getattr(repository, "previous_trade_date", None)
+    previous_date = previous_date_loader(trade_date) if previous_date_loader is not None else None
+    previous_rows = (
+        repository.snapshots_by_date(previous_date, sort_by="rank", limit=None)
+        if previous_date is not None
+        else []
+    )
+    previous_summary = repository.summary_by_date(previous_date) if previous_date is not None else None
+    previous_by_code = {str(row["code"]): row for row in previous_rows}
+
+    def changed(row: dict) -> dict:
+        previous = previous_by_code.get(str(row["code"]), {})
+
+        def delta(key: str) -> float | None:
+            current_value = row.get(key)
+            previous_value = previous.get(key)
+            return (
+                float(current_value) - float(previous_value)
+                if current_value is not None and previous_value is not None
+                else None
+            )
+
+        current_rank = row.get("rank")
+        previous_rank = previous.get("rank")
+        return {
+            "current": row,
+            "previous_state": previous.get("state"),
+            "previous_action": previous.get("action"),
+            "previous_pending_action": previous.get("pending_action"),
+            "previous_rank": previous_rank,
+            "rank_change": (
+                int(previous_rank) - int(current_rank)
+                if previous_rank is not None and current_rank is not None
+                else None
+            ),
+            "trend_score_change": delta("trend_score"),
+            "rs_score_change": delta("rs_score"),
+            "alpha_score_change": delta("alpha_score"),
+        }
+
+    changes = [changed(row) for row in current_rows]
+    current_breadth = (current_summary.get("score_breakdown") or {}).get("breadth")
+    previous_breadth = ((previous_summary or {}).get("score_breakdown") or {}).get("breadth")
+    market_score_change = (
+        float(current_summary["market_score"]) - float(previous_summary["market_score"])
+        if previous_summary is not None
+        else None
+    )
+    breadth_score_change = (
+        float(current_breadth) - float(previous_breadth)
+        if current_breadth is not None and previous_breadth is not None
+        else None
+    )
+    return {
+        "previous_trade_date": previous_date,
+        "market_score_change": market_score_change,
+        "breadth_score_change": breadth_score_change,
+        "new_candidates": [
+            item for item in changes
+            if item["current"].get("state") == "CANDIDATE" and item["previous_state"] != "CANDIDATE"
+        ],
+        "new_weakening": [
+            item for item in changes
+            if item["current"].get("state") == "WEAKENING" and item["previous_state"] != "WEAKENING"
+        ],
+        "new_reduces": [
+            item for item in changes
+            if (
+                item["current"].get("action") == "REDUCE"
+                or item["current"].get("pending_action") == "REDUCE"
+            ) and item["previous_action"] != "REDUCE" and item["previous_pending_action"] != "REDUCE"
+        ],
+        "new_exits": [
+            item for item in changes
+            if (
+                item["current"].get("action") == "EXIT"
+                or item["current"].get("pending_action") == "EXIT"
+            ) and item["previous_action"] != "EXIT" and item["previous_pending_action"] != "EXIT"
+        ],
+        "transitions": [
+            item for item in changes
+            if item["previous_state"] is not None
+            and item["previous_state"] != item["current"].get("state")
+        ],
+        "movers": sorted(
+            [
+                item for item in changes
+                if item["rank_change"] not in {None, 0}
+                or abs(item["trend_score_change"] or 0.0) >= 5.0
+                or abs(item["rs_score_change"] or 0.0) >= 5.0
+            ],
+            key=lambda item: -max(
+                abs(item["rank_change"] or 0),
+                abs(item["trend_score_change"] or 0.0),
+                abs(item["rs_score_change"] or 0.0),
+            ),
+        )[:12],
+    }
+
+
 def _resolve_date(repository: TrendFollowingRepository, requested: date | None) -> date:
     resolved = requested or repository.latest_trade_date()
     if resolved is None:
@@ -49,7 +155,10 @@ async def ranking(
     summary = repository.summary_by_date(resolved)
     if not rows or summary is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Trend Following snapshot not found for {resolved}")
-    return jsonable_encoder({**summary, "items": rows})
+    change_rows = rows
+    if limit is not None:
+        change_rows = repository.snapshots_by_date(resolved, sort_by="rank", limit=None)
+    return jsonable_encoder({**summary, "changes": _changes(repository, resolved, change_rows, summary), "items": rows})
 
 
 @router.get("/candidates")

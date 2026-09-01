@@ -110,9 +110,41 @@ export interface ETFRankingResponse {
   warnings: string[];
   marketSnapshot: ETFMarketRotationSnapshot | null;
   items: ETFMomentumSnapshot[];
+  changes?: ETFRankingChanges | null;
 }
 
-export interface ETFCandidatesResponse { market: ETFMarket; tradeDate: string; marketSnapshot: ETFMarketRotationSnapshot | null; items: ETFMomentumSnapshot[] }
+export interface ETFChange {
+  current: ETFMomentumSnapshot;
+  previousState: ETFState | null;
+  previousAction: ETFAction | null;
+  previousRank: number | null;
+  rankChange: number | null;
+  compositeScoreChange: number | null;
+}
+
+export interface ETFRegimeChange {
+  from: MarketRegime;
+  to: MarketRegime;
+}
+
+export interface ETFRankingChanges {
+  previousTradeDate: string | null;
+  newBuys: ETFChange[];
+  newExits: ETFChange[];
+  newEmerging: ETFChange[];
+  newCooling: ETFChange[];
+  regimeChange: ETFRegimeChange | null;
+  rankMovers: ETFChange[];
+}
+
+export interface ETFCandidatesResponse {
+  market: ETFMarket;
+  tradeDate: string;
+  marketSnapshot: ETFMarketRotationSnapshot | null;
+  items: ETFMomentumSnapshot[];
+  candidates?: ETFMomentumSnapshot[];
+  exits?: ETFMomentumSnapshot[];
+}
 export interface ETFDatesResponse { market: ETFMarket; latest: string | null; items: string[] }
 export interface ETFDetailResponse {
   market: ETFMarket;

@@ -13,7 +13,12 @@ from .features import calculate_features
 from .models import DailyBar
 from .ranking import rank_candidates
 from .regime import calculate_market_regime
-from .state import apply_exposure_gate, evaluate_close, execute_pending_at_open
+from .state import (
+    apply_exposure_gate,
+    apply_regime_exposure_reduction,
+    evaluate_close,
+    execute_pending_at_open,
+)
 from .universe import get_universe, normalize_market
 
 logger = logging.getLogger(__name__)
@@ -174,8 +179,9 @@ class TrendFollowingService:
                 "candidate_count": 0, "warnings": [*warnings, warning],
             }
         benchmark_close = [bar.close for bar in benchmark_bars]
+        benchmark_return_5d = benchmark_close[-1] / benchmark_close[-6] - 1.0
+        benchmark_return_10d = benchmark_close[-1] / benchmark_close[-11] - 1.0
         benchmark_return_20d = benchmark_close[-1] / benchmark_close[-21] - 1.0
-        benchmark_return_60d = benchmark_close[-1] / benchmark_close[-61] - 1.0
         features: list[dict[str, Any]] = []
         sufficient_histories: dict[str, list[DailyBar]] = {}
         for code in sorted(ready_codes):
@@ -185,8 +191,9 @@ class TrendFollowingService:
                 continue
             result.update(
                 code=code,
+                rs_5d=result["return_5d"] - benchmark_return_5d,
+                rs_10d=result["return_10d"] - benchmark_return_10d,
                 rs_20d=result["return_20d"] - benchmark_return_20d,
-                rs_60d=result["return_60d"] - benchmark_return_60d,
             )
             features.append(result)
             sufficient_histories[code] = bars
@@ -237,6 +244,14 @@ class TrendFollowingService:
             )
             for row in ranked
         }
+        decisions = apply_regime_exposure_reduction(
+            ranked,
+            decisions,
+            trade_date=effective_date,
+            market_regime=regime["market_regime"],
+            max_exposure=regime["suggested_max_exposure"],
+            previous=previous,
+        )
         snapshots: list[dict[str, Any]] = []
         internal_keys = {"code", "is_candidate", "setup", "trend_score", "rs_score", "breakout_score",
                          "alpha_score", "score_breakdown", "rank"}

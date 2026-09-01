@@ -265,6 +265,13 @@ class TrendFollowingRepository:
                 TrendFollowingSummary.market == self.market
             ).order_by(desc(TrendFollowingSummary.trade_date))).scalars())
 
+    def previous_trade_date(self, trade_date: date) -> date | None:
+        with self.db.get_session() as session:
+            return session.execute(select(func.max(TrendFollowingSummary.trade_date)).where(
+                TrendFollowingSummary.market == self.market,
+                TrendFollowingSummary.trade_date < trade_date,
+            )).scalar_one()
+
     def summary_by_date(self, trade_date: date) -> dict[str, Any] | None:
         with self.db.get_session() as session:
             row = session.execute(select(TrendFollowingSummary).where(

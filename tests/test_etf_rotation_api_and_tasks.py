@@ -72,6 +72,9 @@ class FakeRepository:
     def candidates_by_date(self, trade_date, *, limit=5):
         return [_snapshot()][:limit]
 
+    def exits_by_date(self, trade_date):
+        return [{**_snapshot("510300.SH"), "action": "EXIT", "is_candidate": False}]
+
     def snapshot_history(self, code, *, limit=60):
         assert code == "588000.SH"
         return [_snapshot(code)][:limit]
@@ -89,6 +92,8 @@ def test_ranking_candidates_and_detail_use_rotation_repository(monkeypatch) -> N
     assert ranking["items"][0]["name"] == "科创50ETF"
     assert ranking["universe_size"] == len(enabled_etfs("CN"))
     assert candidates["items"][0]["code"] == "588000.SH"
+    assert candidates["candidates"][0]["action"] == "BUY"
+    assert candidates["exits"][0]["action"] == "EXIT"
     assert detail["metadata"]["theme"] == "STAR50"
     assert detail["latest"]["code"] == "588000.SH"
     for payload in (ranking["items"][0], candidates["items"][0], detail["latest"]):
@@ -126,6 +131,73 @@ def test_ranking_uses_requested_trade_date(monkeypatch) -> None:
     candidates = asyncio.run(etf_rotation.candidates(requested, 5, user))
     assert ranking["trade_date"] == "2026-08-21"
     assert candidates["trade_date"] == requested
+
+
+def test_candidate_limit_never_hides_exits(monkeypatch) -> None:
+    class SplitRepository(FakeRepository):
+        def candidates_by_date(self, trade_date, *, limit=5):
+            return [
+                {**_snapshot(f"51030{index}.SH"), "action": "HOLD", "candidate_rank": index}
+                for index in range(1, 8)
+            ][:limit]
+
+        def exits_by_date(self, trade_date):
+            return [
+                {**_snapshot(f"15990{index}.SZ"), "action": "EXIT", "candidate_rank": None}
+                for index in range(1, 5)
+            ]
+
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", SplitRepository)
+    payload = asyncio.run(etf_rotation.candidates(None, 2, SimpleNamespace(id=1)))
+    assert len(payload["candidates"]) == 2
+    assert {item["action"] for item in payload["candidates"]} == {"HOLD"}
+    assert len(payload["exits"]) == 4
+    assert {item["action"] for item in payload["exits"]} == {"EXIT"}
+    assert payload["items"] == payload["candidates"]
+
+
+def test_ranking_builds_daily_changes_from_previous_snapshot(monkeypatch) -> None:
+    previous_date = date(2026, 8, 24)
+
+    class ChangesRepository(FakeRepository):
+        def previous_trade_date(self, trade_date):
+            return previous_date
+
+        def snapshots_by_date(self, trade_date, *, sort_by="composite_score"):
+            if trade_date == previous_date:
+                return [{
+                    **_snapshot(),
+                    "trade_date": previous_date,
+                    "rank": 12,
+                    "state": "STRONG",
+                    "action": "HOLD",
+                    "composite_score": 72.0,
+                }]
+            return [{
+                **_snapshot(),
+                "trade_date": trade_date,
+                "rank": 3,
+                "state": "COOLING",
+                "action": "EXIT",
+                "composite_score": 79.5,
+            }]
+
+        def market_snapshot_by_date(self, trade_date):
+            return {
+                "trade_date": trade_date,
+                "regime": "RISK_OFF" if trade_date != previous_date else "NEUTRAL",
+            }
+
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", ChangesRepository)
+    payload = asyncio.run(
+        etf_rotation.ranking(None, "composite_score", None, SimpleNamespace(id=1))
+    )
+    changes = payload["changes"]
+    assert changes["new_exits"][0]["current"]["code"] == "588000.SH"
+    assert changes["new_cooling"][0]["previous_state"] == "STRONG"
+    assert changes["regime_change"] == {"from": "NEUTRAL", "to": "RISK_OFF"}
+    assert changes["rank_movers"][0]["rank_change"] == 9
+    assert changes["rank_movers"][0]["composite_score_change"] == 7.5
 
 
 def test_ranking_serializes_absent_public_action_as_null(monkeypatch) -> None:
@@ -208,12 +280,12 @@ def test_universe_api_separates_cn_and_us_with_cn_default() -> None:
 def test_scheduler_definition_and_task_registration() -> None:
     definition = require_scheduled_task_definition(JOB_ETF_ROTATION_CN)
     assert definition.celery_task_name == "scheduled.etf_rotation_cn"
-    assert definition.schedule_text == "周一至周五 18:40 Asia/Shanghai"
+    assert definition.schedule_text == "周一至周五 18:30 Asia/Shanghai"
     assert definition.allow_manual_run is True
     assert build_beat_schedule()[JOB_ETF_ROTATION_CN]["options"]["queue"] == "analysis"
     us_definition = require_scheduled_task_definition(JOB_ETF_ROTATION_US)
     assert us_definition.celery_task_name == "scheduled.etf_rotation_us"
-    assert us_definition.schedule_text == "周一至周五 21:00 America/New_York"
+    assert us_definition.schedule_text == "周一至周五 18:30 America/New_York"
     assert build_beat_schedule()[JOB_ETF_ROTATION_US]["options"]["queue"] == "analysis"
     assert "finance_analysis.tasks.celery.jobs.etf_rotation.tasks" in TASK_MODULES
 

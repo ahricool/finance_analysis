@@ -131,6 +131,10 @@ function rankingPayload(market: ETFMarket, tradeDate: string, item: ETFMomentumS
       benchmarkClose: 100, benchmarkRet5D: 0.02, benchmarkMa10Ratio: 0.03,
       benchmarkWeightedSlope10D: 0.01, benchmarkTrend: 'POSITIVE',
     },
+    changes: {
+      previousTradeDate: '2026-08-22', newBuys: [], newExits: [], newEmerging: [],
+      newCooling: [], regimeChange: null, rankMovers: [],
+    },
     items: [item],
   };
 }
@@ -167,28 +171,38 @@ describe('ETFRotationPage', () => {
     apiMocks.candidates.mockImplementation(async (market: ETFMarket = 'CN', tradeDate?: string) => {
       if (market === 'US') {
         const date = tradeDate || '2026-08-20';
+        const candidate = snapshot({
+          market: 'US',
+          tradeDate: date,
+          code: 'SPY.US',
+          name: 'SPDR S&P 500 ETF',
+          theme: 'SP500',
+          riskGroup: 'BROAD_MARKET',
+        });
+        const exit = snapshot({ market: 'US', tradeDate: date, code: 'QQQ.US', name: 'Invesco QQQ',
+          action: 'EXIT', state: 'COOLING', isCandidate: false, candidateRank: null });
         return {
           market: 'US',
           tradeDate: date,
-          items: [snapshot({
-            market: 'US',
-            tradeDate: date,
-            code: 'SPY.US',
-            name: 'SPDR S&P 500 ETF',
-            theme: 'SP500',
-            riskGroup: 'BROAD_MARKET',
-          })],
+          items: [candidate, exit],
+          candidates: [candidate],
+          exits: [exit],
         };
       }
       const date = tradeDate || '2026-08-25';
+      const candidate = snapshot({
+        tradeDate: date,
+        code: date === '2026-08-21' ? '159915.SZ' : '588000.SH',
+        name: date === '2026-08-21' ? '创业板ETF' : '科创50ETF',
+      });
+      const exit = snapshot({ tradeDate: date, code: '510050.SH', name: '上证50ETF',
+        action: 'EXIT', state: 'COOLING', isCandidate: false, candidateRank: null });
       return {
         market: 'CN',
         tradeDate: date,
-        items: [snapshot({
-          tradeDate: date,
-          code: date === '2026-08-21' ? '159915.SZ' : '588000.SH',
-          name: date === '2026-08-21' ? '创业板ETF' : '科创50ETF',
-        })],
+        items: [candidate, exit],
+        candidates: [candidate],
+        exits: [exit],
       };
     });
     apiMocks.detail.mockImplementation(async (code: string, market: ETFMarket = 'CN') => {
@@ -243,6 +257,39 @@ describe('ETFRotationPage', () => {
     expect(wrapper.get('[data-testid="etf-rotation-trade-date"]').text()).toBe('2026-08-25');
     expect(wrapper.get('[data-testid="etf-rotation-date"]').element).toHaveProperty('value', '2026-08-25');
     expect(wrapper.text()).toContain('科创50ETF');
+  });
+
+  it('separates current candidates from unlimited exits and renders today changes', async () => {
+    const current = snapshot({ state: 'EMERGING' });
+    const change = {
+      current,
+      previousState: 'NEUTRAL' as const,
+      previousAction: null,
+      previousRank: 8,
+      rankChange: 5,
+      compositeScoreChange: 7.2,
+    };
+    apiMocks.ranking.mockResolvedValueOnce({
+      ...rankingPayload('CN', '2026-08-25', current),
+      changes: {
+        previousTradeDate: '2026-08-22',
+        newBuys: [change],
+        newExits: [],
+        newEmerging: [change],
+        newCooling: [],
+        regimeChange: { from: 'NEUTRAL', to: 'RISK_ON' },
+        rankMovers: [change],
+      },
+    });
+    const wrapper = mount(ETFRotationPage);
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="rotation-candidate"]').text()).toContain('科创50ETF');
+    expect(wrapper.get('[data-testid="rotation-exit"]').text()).toContain('上证50ETF');
+    expect(wrapper.get('[data-testid="etf-regime-change"]').text()).toContain('NEUTRAL → RISK_ON');
+    expect(wrapper.get('[data-testid="etf-change-new-buy"]').text()).toContain('Composite Δ +7.2');
+    expect(wrapper.get('[data-testid="etf-change-new-emerging"]').text()).toContain('NEUTRAL → EMERGING');
+    expect(wrapper.get('[data-testid="etf-rank-mover"]').text()).toContain('#8 → #3 (+5)');
   });
 
   it('reloads ranking and candidates for the selected trade date', async () => {
