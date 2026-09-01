@@ -146,7 +146,6 @@ class MarketDataScopeResolver:
                 "name": member.name,
                 "enabled": True,
                 "sync_daily": True,
-                "sync_minute": False,
             }
             for member in members_by_code.values()
         ]
@@ -163,7 +162,6 @@ class MarketDataScopeResolver:
                 "name": dependencies[code],
                 "enabled": True,
                 "sync_daily": True,
-                "sync_minute": False,
             }
             for code in sorted(selected)
             if code in dependencies

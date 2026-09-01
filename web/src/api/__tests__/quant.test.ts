@@ -62,11 +62,8 @@ describe('quant API market scope', () => {
     expect(training.status).toBe('pending');
   });
 
-  it('scopes confirmations to the portfolio recommendation shown by the UI', async () => {
-    await quantApi.confirmations('US', 42);
-
-    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/quant/intraday-confirmations', {
-      params: { market: 'US', recommendation_id: 42 },
-    });
+  it('does not expose the removed legacy confirmation client', () => {
+    const legacyMethod = ['confirm', 'ations'].join('');
+    expect(legacyMethod in quantApi).toBe(false);
   });
 });

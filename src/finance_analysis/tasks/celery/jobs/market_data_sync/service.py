@@ -170,7 +170,6 @@ class MarketDataSyncService:
                     "name": info.name,
                     "enabled": current.enabled,
                     "sync_daily": current.sync_daily,
-                    "sync_minute": current.sync_minute,
                 }
             )
         if records:

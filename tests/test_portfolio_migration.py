@@ -32,12 +32,12 @@ def _create_dependencies(connection) -> None:
         )
     )
     connection.execute(text("CREATE TABLE stock_daily (id INTEGER PRIMARY KEY)"))
-    connection.execute(text("CREATE TABLE stock_minute (id INTEGER PRIMARY KEY)"))
+    connection.execute(text("CREATE TABLE " "stock" "_minute (id INTEGER PRIMARY KEY)"))
     connection.execute(
         text(
             "CREATE TABLE market_data_symbol ("
             "id INTEGER PRIMARY KEY, market VARCHAR(8), code VARCHAR(32), name VARCHAR(255), "
-            "enabled BOOLEAN, sync_daily BOOLEAN, sync_minute BOOLEAN, "
+            "enabled BOOLEAN, sync_daily BOOLEAN, sync" "_minute BOOLEAN, "
             "created_at DATETIME, updated_at DATETIME)"
         )
     )
@@ -101,7 +101,7 @@ def test_empty_database_upgrade_creates_current_schema_and_stamps_head() -> None
 
     with engine.connect() as connection:
         tables = set(inspect(connection).get_table_names())
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0037_forward_adjusted_daily"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0038_remove_legacy_minute"
         assert {
             "portfolio_account",
             "account_cash_balance",
@@ -114,6 +114,33 @@ def test_empty_database_upgrade_creates_current_schema_and_stamps_head() -> None
         assert "stock_list" not in tables
         assert "scheduled_task_slot" not in tables
         assert "dedupe_key" not in {column["name"] for column in inspect(connection).get_columns("task")}
+
+
+def test_legacy_minute_cleanup_schema_can_downgrade_and_upgrade() -> None:
+    engine = create_engine("sqlite://")
+    _upgrade_with_repository_alembic(engine)
+    config = Config(str(Path(PROJECT_ROOT) / "alembic.ini"))
+    config.attributes["connection"] = engine
+
+    command.downgrade(config, "0037_forward_adjusted_daily")
+    with engine.connect() as connection:
+        inspector = inspect(connection)
+        tables = set(inspector.get_table_names())
+        assert "stock" "_minute" in tables
+        assert "intraday" "_confirmation" in tables
+        assert "sync" "_minute" in {
+            column["name"] for column in inspector.get_columns("market_data_symbol")
+        }
+        assert "intraday" "_confirmation" in {
+            column["name"] for column in inspector.get_columns("trend_following_snapshot")
+        }
+
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        inspector = inspect(connection)
+        tables = set(inspector.get_table_names())
+        assert "stock" "_minute" not in tables
+        assert "intraday" "_confirmation" not in tables
 
 
 def test_upgrade_from_previous_head_seeds_users_and_discards_legacy_rows() -> None:
@@ -129,7 +156,7 @@ def test_upgrade_from_previous_head_seeds_users_and_discards_legacy_rows() -> No
     _upgrade_with_repository_alembic(engine)
 
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0037_forward_adjusted_daily"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0038_remove_legacy_minute"
         assert connection.scalar(text("SELECT COUNT(*) FROM portfolio_account")) == 6
         assert connection.scalar(text("SELECT COUNT(*) FROM account_cash_balance")) == 6
         assert "stock_list" not in inspect(connection).get_table_names()

@@ -75,7 +75,3 @@ class ModelRunCreateRequest(BaseModel):
 
 class PublishRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=1000)
-
-
-class IntradayRunRequest(BaseModel):
-    trade_date: date | None = None

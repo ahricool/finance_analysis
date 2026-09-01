@@ -54,7 +54,6 @@ class TrendFollowingSnapshot(Base):
     suggested_initial_weight = Column(Float)
     suggested_max_weight = Column(Float)
     reasons = Column(JSON_TYPE, nullable=False, default=list)
-    intraday_confirmation = Column(String(16), nullable=False, default="UNAVAILABLE")
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
     symbol = relationship("MarketDataSymbol", lazy="joined")

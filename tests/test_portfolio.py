@@ -70,7 +70,7 @@ class TestDatabase:
                 text(
                     "CREATE TABLE market_data_symbol (id INTEGER PRIMARY KEY, market VARCHAR(8), "
                     "code VARCHAR(32), name VARCHAR(255), enabled BOOLEAN, sync_daily BOOLEAN, "
-                    "sync_minute BOOLEAN, created_at DATETIME, updated_at DATETIME)"
+                    "created_at DATETIME, updated_at DATETIME)"
                 )
             )
             connection.execute(

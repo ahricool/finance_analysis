@@ -2,7 +2,6 @@ import apiClient from './index';
 import { toCamelCase } from './utils';
 import type {
   DatasetBuildAccepted,
-  IntradayConfirmation,
   MarketRegime,
   ModelRun,
   ModelRunCreateAccepted,
@@ -111,12 +110,6 @@ export const quantApi = {
   },
   async portfolio(market: QuantMarket = 'US'): Promise<Portfolio> {
     const { data } = await apiClient.get('/api/v1/quant/portfolios/latest', { params: withMarket(market) });
-    return toCamelCase(data);
-  },
-  async confirmations(market: QuantMarket = 'US', recommendationId?: number): Promise<IntradayConfirmation[]> {
-    const { data } = await apiClient.get('/api/v1/quant/intraday-confirmations', {
-      params: withMarket(market, recommendationId === undefined ? {} : { recommendation_id: recommendationId }),
-    });
     return toCamelCase(data);
   },
 };

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Any, Iterable, Optional, Sequence
 
 from sqlalchemy import delete, desc, func, literal_column, or_, select
@@ -15,7 +15,6 @@ from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.stock import (
     MarketDataSymbol,
     StockDaily,
-    StockMinute,
     validate_market_data_code,
 )
 
@@ -101,9 +100,6 @@ class MarketDataSymbolRepository:
                 session.expunge(row)
             return list(rows)
 
-    def list_enabled_minute_symbols(self, market: str) -> list[MarketDataSymbol]:
-        return self._list_enabled(market, MarketDataSymbol.sync_minute)
-
     def list_enabled_symbols(self, market: str) -> list[MarketDataSymbol]:
         normalized = str(market).upper()
         with self.db.get_session() as session:
@@ -173,12 +169,11 @@ class MarketDataSymbolRepository:
                     {
                         "enabled": stmt.excluded.enabled,
                         "sync_daily": stmt.excluded.sync_daily,
-                        "sync_minute": stmt.excluded.sync_minute,
                     }
                 )
             elif force_daily_sync:
                 # Strategy dependencies may require daily data without taking
-                # ownership of a watched symbol's minute-sync preference.
+                # ownership of other runtime flags.
                 update_values.update(
                     {
                         "enabled": stmt.excluded.enabled,
@@ -208,7 +203,6 @@ class MarketDataSymbolRepository:
                 "name": _normalize_security_name(item["name"]),
                 "enabled": bool(item.get("enabled", True)),
                 "sync_daily": bool(item.get("sync_daily", True)),
-                "sync_minute": bool(item.get("sync_minute", True)),
                 "created_at": now,
                 "updated_at": now,
             }
@@ -240,9 +234,6 @@ class StockRepository:
 
     def has_daily_data(self, symbol_id: int) -> bool:
         return self._exists(StockDaily, symbol_id)
-
-    def has_minute_data(self, symbol_id: int) -> bool:
-        return self._exists(StockMinute, symbol_id)
 
     def _exists(self, model, symbol_id: int) -> bool:
         with self.db.get_session() as session:
@@ -337,22 +328,6 @@ class StockRepository:
                 "missing_open_days": int(row[1] or 0),
             }
 
-    def get_minute_range(self, code: str, start_time: datetime, end_time: datetime) -> list[StockMinute]:
-        canonical = self._canonical_code(code)
-        with self.db.get_session() as session:
-            return list(
-                session.execute(
-                    select(StockMinute)
-                    .join(MarketDataSymbol)
-                    .where(
-                        MarketDataSymbol.code == canonical,
-                        StockMinute.bar_time >= start_time,
-                        StockMinute.bar_time < end_time,
-                    )
-                    .order_by(StockMinute.bar_time)
-                ).scalars().unique().all()
-            )
-
     def get_start_daily(
         self, *, code: str, analysis_date: date, market: Optional[str] = None
     ) -> Optional[StockDaily]:
@@ -413,18 +388,6 @@ class StockRepository:
             ).all()
         return {trade_date: float(close) for trade_date, close in rows if close is not None}
 
-    def minute_times(self, symbol_id: int, start_time: datetime, end_time: datetime) -> set[datetime]:
-        with self.db.get_session() as session:
-            return set(
-                session.execute(
-                    select(StockMinute.bar_time).where(
-                        StockMinute.symbol_id == symbol_id,
-                        StockMinute.bar_time >= start_time,
-                        StockMinute.bar_time < end_time,
-                    )
-                ).scalars().all()
-            )
-
     def upsert_daily(self, symbol_id: int, bars: Sequence[dict[str, Any]], source: str) -> UpsertStats:
         records = self._daily_records(symbol_id, bars, source)
         return self._upsert(
@@ -448,18 +411,6 @@ class StockRepository:
             session.execute(StockDaily.__table__.insert(), records)
             deleted_rows = int(deleted.rowcount or 0)
         return UpsertStats(inserted_rows=len(records), deleted_rows=deleted_rows)
-
-    def upsert_minute(self, symbol_id: int, bars: Sequence[dict[str, Any]], source: str) -> UpsertStats:
-        records = self._minute_records(symbol_id, bars, source)
-        return self._upsert(
-            StockMinute,
-            records,
-            "uix_stock_minute_symbol_time",
-            (
-                "open", "high", "low", "close", "volume", "amount", "session_type",
-                "data_source", "updated_at",
-            ),
-        )
 
     @staticmethod
     def _daily_records(
@@ -502,23 +453,6 @@ class StockRepository:
                 )
             )
             return int(result.rowcount or 0)
-
-    @staticmethod
-    def _minute_records(
-        symbol_id: int, bars: Sequence[dict[str, Any]], source: str
-    ) -> list[dict[str, Any]]:
-        now = utc_now()
-        return [
-            {
-                "symbol_id": symbol_id,
-                "bar_time": row["bar_time"].astimezone(timezone.utc),
-                "open": row["open"], "high": row["high"], "low": row["low"], "close": row["close"],
-                "volume": row["volume"], "amount": row.get("amount"), "session_type": "regular",
-                "data_source": source,
-                "created_at": now, "updated_at": now,
-            }
-            for row in bars
-        ]
 
     def _upsert(
         self, model, records: list[dict[str, Any]], constraint: str, update_columns: tuple[str, ...]

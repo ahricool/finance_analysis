@@ -259,7 +259,6 @@ class TrendFollowingService:
                 "setup": row["setup"],
                 "reference_price": row["reference_price"],
                 "atr": row["atr20"],
-                "intraday_confirmation": "UNAVAILABLE",
                 **decision.to_dict(),
             })
 
@@ -278,7 +277,7 @@ class TrendFollowingService:
                         "reference_price", "atr", "entry_price", "signal_date", "signal_price",
                         "last_add_price", "highest_close", "initial_stop", "trailing_stop",
                         "next_add_price", "exit_level", "units", "opened_at",
-                        "suggested_initial_weight", "suggested_max_weight", "intraday_confirmation",
+                        "suggested_initial_weight", "suggested_max_weight",
                         "pending_action", "pending_since", "pending_regime", "pending_max_exposure",
                     )
                 }
@@ -315,7 +314,7 @@ class TrendFollowingService:
                     for key in (
                         "code", "universe_key", "rank", "trend_score", "rs_score", "breakout_score",
                         "alpha_score", "features", "score_breakdown", "setup",
-                        "reference_price", "atr", "intraday_confirmation",
+                        "reference_price", "atr",
                     )
                 }
                 expired.update(

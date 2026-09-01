@@ -8,7 +8,6 @@ import pytest
 
 from finance_analysis.database.models.quant import QUANT_TABLES
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features, build_forward_excess_label
-from finance_analysis.quant.intraday_confirmation.service import IntradayConfirmationService
 from finance_analysis.quant.models.splits import WalkForwardConfig, walk_forward_splits
 from finance_analysis.quant.portfolio.backtest import BacktestCostConfig, run_topk_backtest
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
@@ -25,7 +24,7 @@ def daily_frame(count=90, start="2025-01-01", drift=1.0):
 
 def test_quant_schema_uses_canonical_market_tables_only():
     names = {model.__tablename__ for model in QUANT_TABLES}
-    assert len(names) == 16
+    assert len(names) == 15
     assert not names & {"security_master", "daily_bar", "minute_bar"}
     foreign_keys = {str(fk.target_fullname) for model in QUANT_TABLES for fk in model.__table__.foreign_keys}
     assert "market_data_symbol.id" in foreign_keys
@@ -180,12 +179,3 @@ def test_backtest_uses_next_open_and_costs():
     benchmark = pd.DataFrame({"date":bars.date,"close":[100,100,100]})
     result = run_topk_backtest(predictions,bars,benchmark,top_k=1,costs=BacktestCostConfig(commission_bps=0,slippage_bps=0))
     assert next(iter(result["daily_returns"].values())) == pytest.approx(22/20-1)
-
-
-def test_intraday_replay_excludes_bar_at_evaluation_time():
-    times = pd.date_range("2026-07-03 13:30", periods=31, freq="min", tz="UTC")
-    bars = pd.DataFrame({"bar_time":times,"open":100,"high":101,"low":99,"close":100+np.arange(31)*.01,"volume":100})
-    result = IntradayConfirmationService().evaluate("NVDA.US",bars,bars,bars,times[-1])
-    assert result["features"]["first_30m_return"] == pytest.approx(bars.close.iloc[29]/100-1)
-    changed=bars.copy(); changed.loc[30,"close"]=9999
-    assert IntradayConfirmationService().evaluate("NVDA.US",changed,changed,changed,times[-1])["features"]["price"] != 9999

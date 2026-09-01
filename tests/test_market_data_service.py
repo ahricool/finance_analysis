@@ -914,13 +914,11 @@ def test_sync_refreshes_instrument_names_in_one_remote_batch():
             code="600000.SH",
             enabled=True,
             sync_daily=True,
-            sync_minute=False,
         ),
         SimpleNamespace(
             code="000001.SZ",
             enabled=True,
             sync_daily=True,
-            sync_minute=True,
         ),
     ]
 
@@ -980,7 +978,6 @@ def test_us_sync_instrument_name_refresh_does_not_route_to_longbridge():
         code="AAPL.US",
         enabled=True,
         sync_daily=True,
-        sync_minute=False,
     )
 
     def get_instrument_info(codes, *, providers):

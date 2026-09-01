@@ -124,14 +124,6 @@ class PortfolioConfig:
 
 
 @dataclass(frozen=True)
-class IntradayConfig:
-    minimum_bars: int = 30
-    minimum_volume_ratio: float = 0.8
-    maximum_opening_gap: float = 0.05
-    maximum_drawdown: float = 0.03
-
-
-@dataclass(frozen=True)
 class QuantConfig:
     feature_version: str = "daily-v1"
     regime_model_version: str = "regime-rules-v2"
@@ -146,7 +138,6 @@ class QuantConfig:
     regime: RegimeConfig = field(default_factory=RegimeConfig)
     fusion: FusionConfig = field(default_factory=FusionConfig)
     portfolio: PortfolioConfig = field(default_factory=PortfolioConfig)
-    intraday: IntradayConfig = field(default_factory=IntradayConfig)
 
     def version_payload(self) -> dict:
         value = asdict(self)

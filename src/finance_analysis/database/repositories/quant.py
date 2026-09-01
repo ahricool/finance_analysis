@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.quant import (
-    DailyFeatureSnapshot, IntradayConfirmation, MarketRegimeSnapshot, ModelDefinition, ModelPublication,
+    DailyFeatureSnapshot, MarketRegimeSnapshot, ModelDefinition, ModelPublication,
     ModelRun, ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem,
     QuantDatasetSnapshot, QuantUniverse, SectorRegimeSnapshot,
 )
@@ -502,34 +502,6 @@ class QuantRepository:
             session.expunge(row)
             return row
 
-    def save_confirmations(self, values: list[dict[str, Any]]) -> None:
-        with self.db.session_scope() as session:
-            if not values:
-                return
-            item_ids = {value["recommendation_item_id"] for value in values}
-            universes = list(
-                session.execute(
-                    select(QuantUniverse)
-                    .join(
-                        PortfolioRecommendation,
-                        PortfolioRecommendation.universe_id == QuantUniverse.id,
-                    )
-                    .join(
-                        PortfolioRecommendationItem,
-                        PortfolioRecommendationItem.recommendation_id == PortfolioRecommendation.id,
-                    )
-                    .where(PortfolioRecommendationItem.id.in_(item_ids))
-                    .distinct()
-                ).scalars()
-            )
-            if not universes:
-                raise ValueError("Intraday confirmations require supported portfolio items")
-            for universe in universes:
-                validate_universe_for_market(universe.market, universe.key)
-                if not universe.enabled:
-                    raise ValueError(f"Universe {universe.key} is not enabled")
-            session.add_all(IntradayConfirmation(**value) for value in values)
-
     def latest_signals(
         self,
         market: str,
@@ -652,65 +624,5 @@ class QuantRepository:
                 return None
             items = list(session.execute(select(PortfolioRecommendationItem).where(PortfolioRecommendationItem.recommendation_id == row.id).order_by(PortfolioRecommendationItem.rank)).scalars())
             session.expunge(row); self._detach(session, items); return row, items
-
-    def confirmations(
-        self,
-        market: str,
-        trade_date: date | None = None,
-        code: str | None = None,
-        universe_id: int | None = None,
-        recommendation_id: int | None = None,
-        limit: int = 200,
-    ) -> list[IntradayConfirmation]:
-        clauses = []
-        if trade_date: clauses.append(IntradayConfirmation.trade_date == trade_date)
-        if code: clauses.append(IntradayConfirmation.code == code.upper())
-        with self.db.get_session() as session:
-            ranked = (
-                select(
-                    IntradayConfirmation.id.label("confirmation_id"),
-                    func.row_number().over(
-                        partition_by=IntradayConfirmation.recommendation_item_id,
-                        order_by=(
-                            desc(IntradayConfirmation.evaluated_at),
-                            desc(IntradayConfirmation.id),
-                        ),
-                    ).label("confirmation_rank"),
-                )
-                .join(
-                    PortfolioRecommendationItem,
-                    PortfolioRecommendationItem.id == IntradayConfirmation.recommendation_item_id,
-                )
-                .join(
-                    PortfolioRecommendation,
-                    PortfolioRecommendation.id == PortfolioRecommendationItem.recommendation_id,
-                )
-                .where(
-                    PortfolioRecommendation.market == market.upper(),
-                    *(
-                        [PortfolioRecommendation.universe_id == universe_id]
-                        if universe_id is not None
-                        else []
-                    ),
-                    *(
-                        [PortfolioRecommendation.id == recommendation_id]
-                        if recommendation_id is not None
-                        else []
-                    ),
-                    *clauses,
-                )
-                .subquery()
-            )
-            rows = list(
-                session.execute(
-                    select(IntradayConfirmation)
-                    .join(ranked, ranked.c.confirmation_id == IntradayConfirmation.id)
-                    .where(ranked.c.confirmation_rank == 1)
-                    .order_by(desc(IntradayConfirmation.evaluated_at))
-                    .limit(limit)
-                ).scalars()
-            )
-            return self._detach(session, rows)
-
 
 __all__ = ["QuantRepository"]
