@@ -269,6 +269,24 @@ def test_tickflow_batch_configuration_defaults_and_validation():
         TickFlowFreeProvider(max_workers=0)
 
 
+def test_yfinance_batch_and_retry_configuration_reaches_default_registry():
+    configured = (
+        build_default_registry(
+            DataProviderConfig(
+                market_data_yfinance_batch_size=25,
+                market_data_yfinance_max_concurrency=2,
+                market_data_yfinance_max_retries=4,
+            )
+        )
+        .get("yfinance")
+        .provider
+    )
+
+    assert configured.batch_size == 25
+    assert configured.max_workers == 2
+    assert configured.max_retries == 4
+
+
 def test_sync_persists_only_provider_daily_fields_with_nullable_amount():
     bar = _bar("600000.SH", "tickflow", amount=None)
     routed = BatchBarResult(data={"600000.SH": [bar]}, providers_used={"600000.SH": "tickflow"})
@@ -289,7 +307,9 @@ def test_sync_persists_only_provider_daily_fields_with_nullable_amount():
     assert result.status == "success"
     assert result.missing_amount is True
     assert result.providers == ["tickflow"]
-    assert set(persisted[0]) == {"date", "open", "high", "low", "close", "volume", "amount"}
+    assert set(persisted[0]) == {
+        "date", "open", "high", "low", "close", "volume", "amount", "data_source",
+    }
     assert persisted[0]["date"] == date(2025, 1, 2)
     assert persisted[0]["open"] == 10
     assert persisted[0]["high"] == 11
@@ -297,6 +317,28 @@ def test_sync_persists_only_provider_daily_fields_with_nullable_amount():
     assert persisted[0]["close"] == 10.5
     assert persisted[0]["volume"] == 100
     assert persisted[0]["amount"] is None
+    assert persisted[0]["data_source"] == "tickflow"
+
+
+def test_stock_daily_records_preserve_per_row_provider_for_gap_patches():
+    records = StockRepository._daily_records(
+        1,
+        [
+            {
+                "date": date(2025, 1, 2),
+                "open": 10,
+                "high": 11,
+                "low": 9,
+                "close": 10.5,
+                "volume": 100,
+                "amount": None,
+                "data_source": "tickflow",
+            }
+        ],
+        "mixed",
+    )
+
+    assert records[0]["data_source"] == "tickflow"
 
 
 def test_sync_preserves_provider_amount_without_persisting_derived_price_metadata():
@@ -437,6 +479,54 @@ def test_us_daily_batches_ten_symbols_with_same_window_in_one_service_call():
     assert all(result.status == "success" for result in results.values())
     assert all(result.providers == ["yfinance"] for result in results.values())
     assert len(service.stock_repository.persisted) == 10
+
+
+def test_us_daily_retries_observed_date_gaps_then_patches_with_tickflow():
+    first_day = date(2025, 1, 2)
+    second_day = date(2025, 1, 3)
+    symbols = [SimpleNamespace(id=1, code="AAPL.US"), SimpleNamespace(id=2, code="MSFT.US")]
+    calls = []
+
+    def get_daily_bars(codes, start_date, end_date, *, adjustment, providers=None):
+        calls.append((tuple(codes), start_date, end_date, providers))
+        if providers == ("tickflow",):
+            return BatchBarResult(
+                data={"MSFT.US": [_bar_on("MSFT.US", "tickflow", second_day)]},
+                providers_used={"MSFT.US": "tickflow"},
+            )
+        if providers == ("yfinance",):
+            return BatchBarResult(
+                data={"MSFT.US": [_bar_on("MSFT.US", "yfinance", first_day)]},
+                providers_used={"MSFT.US": "yfinance"},
+            )
+        return BatchBarResult(
+            data={
+                "AAPL.US": [
+                    _bar_on("AAPL.US", "yfinance", first_day),
+                    _bar_on("AAPL.US", "yfinance", second_day),
+                ],
+                "MSFT.US": [_bar_on("MSFT.US", "yfinance", first_day)],
+            },
+            providers_used={"AAPL.US": "yfinance", "MSFT.US": "yfinance"},
+        )
+
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=get_daily_bars), market="US")
+    service.config = SimpleNamespace(market_data_yfinance_max_retries=2)
+    results = service._sync_daily_batch_groups(
+        symbols,
+        {symbol.code: [first_day, second_day] for symbol in symbols},
+    )
+
+    assert [call[3] for call in calls] == [None, ("yfinance",), ("yfinance",), ("tickflow",)]
+    assert results["AAPL.US"].providers == ["yfinance"]
+    assert results["MSFT.US"].providers == ["yfinance", "tickflow"]
+    assert results["MSFT.US"].status == "success"
+    rows, source = service.stock_repository.persisted[2]
+    assert source == "mixed"
+    assert [(row["date"], row["data_source"]) for row in rows] == [
+        (first_day, "yfinance"),
+        (second_day, "tickflow"),
+    ]
 
 
 def test_cn_daily_groups_initial_and_incremental_windows_into_two_calls():

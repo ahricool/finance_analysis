@@ -46,6 +46,17 @@ _HK_INDICES = (
 class YFinanceProvider:
     name = "yfinance"
 
+    def __init__(self, *, batch_size: int = 100, max_workers: int = 3, max_retries: int = 2) -> None:
+        if batch_size < 1:
+            raise ValueError("batch_size must be at least 1")
+        if max_workers < 1:
+            raise ValueError("max_workers must be at least 1")
+        if max_retries < 0:
+            raise ValueError("max_retries must be at least 0")
+        self.batch_size = batch_size
+        self.max_workers = max_workers
+        self.max_retries = max_retries
+
     @staticmethod
     def to_yfinance_symbol(code: str) -> str:
         canonical = canonical_symbol(code)
@@ -70,8 +81,7 @@ class YFinanceProvider:
                 return raw.xs(ticker, axis=1, level=level, drop_level=True).copy()
         return pd.DataFrame()
 
-    @staticmethod
-    def _download(symbols: list[str], *, auto_adjust: bool = False, **kwargs: Any) -> pd.DataFrame:
+    def _download(self, symbols: list[str], *, auto_adjust: bool = False, **kwargs: Any) -> pd.DataFrame:
         import yfinance as yf
 
         return yf.download(
@@ -81,9 +91,12 @@ class YFinanceProvider:
             prepost=False,
             group_by="ticker",
             multi_level_index=True,
-            threads=True,
+            threads=self.max_workers,
             **kwargs,
         )
+
+    def _batches(self, values: list[tuple[str, str]]) -> list[list[tuple[str, str]]]:
+        return [values[index : index + self.batch_size] for index in range(0, len(values), self.batch_size)]
 
     def fetch_daily_bars(self, request: DailyBarsRequest) -> BatchBarResult:
         if request.adjustment is not Adjustment.FORWARD:
@@ -91,31 +104,46 @@ class YFinanceProvider:
         symbols = [canonical_symbol(value) for value in request.symbols]
         provider_symbols = [self.to_yfinance_symbol(symbol) for symbol in symbols]
         result = BatchBarResult()
-        try:
-            raw = self._download(
-                provider_symbols,
-                start=request.start_date,
-                end=request.end_date + timedelta(days=1),
-                interval="1d",
-                actions=False,
-                auto_adjust=True,
-            )
-        except Exception as exc:
-            return BatchBarResult(failed_symbols={symbol: str(exc) for symbol in symbols})
-        for symbol, provider_symbol in zip(symbols, provider_symbols):
-            frame = self._ticker_frame(raw, provider_symbol).reset_index()
-            bars = bars_from_frame(
-                frame,
-                symbol=symbol,
-                provider=self.name,
-                interval="1d",
-                adjustment=Adjustment.FORWARD,
-            )
-            if bars:
-                result.data[symbol] = bars
-                result.providers_used[symbol] = self.name
-            else:
-                result.missing_symbols.append(symbol)
+        for batch in self._batches(list(zip(symbols, provider_symbols))):
+            pending = list(batch)
+            errors: dict[str, str] = {}
+            for _attempt in range(self.max_retries + 1):
+                if not pending:
+                    break
+                try:
+                    raw = self._download(
+                        [provider_symbol for _, provider_symbol in pending],
+                        start=request.start_date,
+                        end=request.end_date + timedelta(days=1),
+                        interval="1d",
+                        actions=False,
+                        auto_adjust=True,
+                    )
+                except Exception as exc:
+                    errors.update({symbol: str(exc) for symbol, _ in pending})
+                    continue
+                next_pending: list[tuple[str, str]] = []
+                for symbol, provider_symbol in pending:
+                    frame = self._ticker_frame(raw, provider_symbol).reset_index()
+                    bars = bars_from_frame(
+                        frame,
+                        symbol=symbol,
+                        provider=self.name,
+                        interval="1d",
+                        adjustment=Adjustment.FORWARD,
+                    )
+                    if bars:
+                        result.data[symbol] = bars
+                        result.providers_used[symbol] = self.name
+                        errors.pop(symbol, None)
+                    else:
+                        next_pending.append((symbol, provider_symbol))
+                pending = next_pending
+            for symbol, _ in pending:
+                if symbol in errors:
+                    result.failed_symbols[symbol] = errors[symbol]
+                else:
+                    result.missing_symbols.append(symbol)
         return result
 
     def fetch_minute_bars(self, request: MinuteBarsRequest) -> BatchBarResult:

@@ -75,6 +75,7 @@ class DataProviderConfig:
     market_data_tickflow_max_concurrency: int = 5
     market_data_longbridge_max_concurrency: int = 5
     market_data_longbridge_max_retries: int = 3
+    market_data_yfinance_batch_size: int = 100
     market_data_yfinance_max_concurrency: int = 3
     market_data_yfinance_max_retries: int = 2
 
@@ -99,6 +100,9 @@ def get_data_provider_config() -> DataProviderConfig:
             "MARKET_DATA_LONGBRIDGE_MAX_CONCURRENCY", 5, minimum=1, maximum=5
         ),
         market_data_longbridge_max_retries=env_int("MARKET_DATA_LONGBRIDGE_MAX_RETRIES", 3, minimum=0),
+        market_data_yfinance_batch_size=env_int(
+            "MARKET_DATA_YFINANCE_BATCH_SIZE", 100, minimum=1, maximum=200
+        ),
         market_data_yfinance_max_concurrency=env_int("MARKET_DATA_YFINANCE_MAX_CONCURRENCY", 3, minimum=1),
         market_data_yfinance_max_retries=env_int("MARKET_DATA_YFINANCE_MAX_RETRIES", 2, minimum=0),
     )
