@@ -92,6 +92,9 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.text()).toContain('平安银行');
     expect(wrapper.text()).toContain('建议入场');
     expect(wrapper.find('table').classes().join(' ')).toContain('min-w-');
+    const reasons = wrapper.get('[data-testid="trend-reasons"]');
+    expect(reasons.classes()).toEqual(expect.arrayContaining(['truncate', 'whitespace-nowrap']));
+    expect(reasons.attributes('title')).toBe('candidate thresholds passed');
     expect(wrapper.find('[aria-label="查看 Market Score 指标说明与计算公式"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="查看 Alpha 指标说明与计算公式"]').exists()).toBe(true);
   });
@@ -122,6 +125,9 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.get('[data-testid="trend-transition"]').text()).toContain('CANDIDATE → ENTRY');
     expect(wrapper.get('[data-testid="trend-mover"]').text()).toContain('Trend +7.0');
     expect(wrapper.get('[data-testid="trend-mover"]').text()).toContain('RS +6.0');
+    expect(wrapper.get('[data-testid="trend-changes-scroll"]').classes()).toEqual(
+      expect.arrayContaining(['max-h-[32rem]', 'overflow-y-auto']),
+    );
   });
 
   it('renders the historical theoretical portfolio between summary and lifecycle sections', async () => {

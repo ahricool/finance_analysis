@@ -485,82 +485,89 @@ onMounted(() => void load(true));
             <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.breadthScoreChange) }}</strong>
           </div>
         </div>
-        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <section
-            v-for="group in changeGroups"
-            :key="group.label"
-            class="rounded border p-3"
-          >
-            <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
-              {{ group.label }} <Badge :variant="group.variant">
-                {{ group.items.length }}
-              </Badge>
+        <div
+          class="max-h-[32rem] space-y-4 overflow-y-auto pr-2"
+          data-testid="trend-changes-scroll"
+          tabindex="0"
+          aria-label="Today's Changes 明细"
+        >
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <section
+              v-for="group in changeGroups"
+              :key="group.label"
+              class="rounded border p-3"
+            >
+              <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
+                {{ group.label }} <Badge :variant="group.variant">
+                  {{ group.items.length }}
+                </Badge>
+              </h3>
+              <button
+                v-for="change in group.items"
+                :key="change.current.code"
+                class="mb-2 block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
+                :data-testid="`trend-change-${group.label.toLowerCase().replace(' ', '-')}`"
+                @click="openDetail(change.current)"
+              >
+                <strong>{{ change.current.name }}</strong>
+                <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
+                <span class="mt-1 block">{{ transitionText(change) }} · Alpha Δ {{ scoreDelta(change.alphaScoreChange) }}</span>
+              </button>
+              <p
+                v-if="!group.items.length"
+                class="text-xs text-muted-foreground"
+              >
+                无
+              </p>
+            </section>
+          </div>
+          <section>
+            <h3 class="mb-2 text-sm font-semibold">
+              State Transitions
             </h3>
-            <button
-              v-for="change in group.items"
-              :key="change.current.code"
-              class="mb-2 block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
-              :data-testid="`trend-change-${group.label.toLowerCase().replace(' ', '-')}`"
-              @click="openDetail(change.current)"
-            >
-              <strong>{{ change.current.name }}</strong>
-              <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
-              <span class="mt-1 block">{{ transitionText(change) }} · Alpha Δ {{ scoreDelta(change.alphaScoreChange) }}</span>
-            </button>
-            <p
-              v-if="!group.items.length"
-              class="text-xs text-muted-foreground"
-            >
-              无
-            </p>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="change in changes?.transitions ?? []"
+                :key="change.current.code"
+                data-testid="trend-transition"
+                class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
+                @click="openDetail(change.current)"
+              >
+                <strong>{{ change.current.name }}</strong>
+                <span class="ml-2">{{ transitionText(change) }}</span>
+                <span class="ml-2">{{ change.previousAction ?? '—' }} → {{ change.current.action }}</span>
+              </button>
+              <span
+                v-if="!changes?.transitions?.length"
+                class="text-xs text-muted-foreground"
+              >无状态转换</span>
+            </div>
+          </section>
+          <section>
+            <h3 class="mb-2 text-sm font-semibold">
+              Rank / Score Movers
+            </h3>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="change in changes?.movers ?? []"
+                :key="change.current.code"
+                data-testid="trend-mover"
+                class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
+                @click="openDetail(change.current)"
+              >
+                <strong>{{ change.current.name }}</strong>
+                <span class="ml-2">Rank {{ rankDelta(change.rankChange) }}</span>
+                <span class="ml-2">Trend {{ scoreDelta(change.trendScoreChange) }}</span>
+                <span class="ml-2">RS {{ scoreDelta(change.rsScoreChange) }}</span>
+                <span class="ml-2">Alpha {{ scoreDelta(change.alphaScoreChange) }}</span>
+              </button>
+              <span
+                v-if="!changes?.movers?.length"
+                class="text-xs text-muted-foreground"
+              >无显著变化</span>
+            </div>
           </section>
         </div>
-        <section>
-          <h3 class="mb-2 text-sm font-semibold">
-            State Transitions
-          </h3>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="change in changes?.transitions ?? []"
-              :key="change.current.code"
-              data-testid="trend-transition"
-              class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
-              @click="openDetail(change.current)"
-            >
-              <strong>{{ change.current.name }}</strong>
-              <span class="ml-2">{{ transitionText(change) }}</span>
-              <span class="ml-2">{{ change.previousAction ?? '—' }} → {{ change.current.action }}</span>
-            </button>
-            <span
-              v-if="!changes?.transitions?.length"
-              class="text-xs text-muted-foreground"
-            >无状态转换</span>
-          </div>
-        </section>
-        <section>
-          <h3 class="mb-2 text-sm font-semibold">
-            Rank / Score Movers
-          </h3>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="change in changes?.movers ?? []"
-              :key="change.current.code"
-              data-testid="trend-mover"
-              class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
-              @click="openDetail(change.current)"
-            >
-              <strong>{{ change.current.name }}</strong>
-              <span class="ml-2">Rank {{ rankDelta(change.rankChange) }}</span>
-              <span class="ml-2">Trend {{ scoreDelta(change.trendScoreChange) }}</span>
-              <span class="ml-2">RS {{ scoreDelta(change.rsScoreChange) }}</span>
-              <span class="ml-2">Alpha {{ scoreDelta(change.alphaScoreChange) }}</span>
-            </button>
-            <span
-              v-if="!changes?.movers?.length"
-              class="text-xs text-muted-foreground"
-            >无显著变化</span>
-          </div>
-        </section>
       </CardContent>
     </Card>
 
@@ -597,7 +604,7 @@ onMounted(() => void load(true));
           v-else
           class="w-full"
         >
-          <Table class="min-w-[2100px]">
+          <Table class="min-w-[2450px]">
             <TableHeader>
               <TableRow>
                 <TableHead>
@@ -726,7 +733,7 @@ onMounted(() => void load(true));
                     :description="descriptions.initialWeight"
                   />
                 </TableHead>
-                <TableHead>
+                <TableHead class="w-[480px] min-w-[420px]">
                   <IndicatorLabel
                     label="Reasons"
                     :description="descriptions.reasons"
@@ -763,8 +770,14 @@ onMounted(() => void load(true));
                 <TableCell>{{ item.openedAt || '—' }}</TableCell><TableCell>{{ price(item.entryPrice) }}</TableCell>
                 <TableCell>{{ price(item.initialStop) }}</TableCell>
                 <TableCell>{{ price(item.nextAddPrice) }}</TableCell><TableCell>{{ price(item.exitLevel) }}</TableCell><TableCell>{{ pct(item.suggestedInitialWeight) }}</TableCell>
-                <TableCell class="max-w-72 whitespace-normal">
-                  {{ item.reasons.join('；') }}
+                <TableCell class="w-[480px] min-w-[420px] max-w-[520px]">
+                  <div
+                    class="truncate whitespace-nowrap"
+                    data-testid="trend-reasons"
+                    :title="item.reasons.join('；')"
+                  >
+                    {{ item.reasons.join('；') || '—' }}
+                  </div>
                 </TableCell>
               </TableRow>
             </TableBody>
