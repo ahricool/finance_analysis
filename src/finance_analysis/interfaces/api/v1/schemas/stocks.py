@@ -59,7 +59,6 @@ class StockInstrumentInfo(BaseModel):
     currency: str = Field(..., description="交易币种")
     exchange: Optional[str] = Field(None, description="交易所")
     instrument_type: Optional[str] = Field(None, description="证券类型")
-    lot_size: Optional[int] = Field(None, description="每手股数")
 
 
 class KLineData(BaseModel):

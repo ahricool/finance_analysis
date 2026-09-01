@@ -62,7 +62,6 @@ def get_stock_info(stock_code: str) -> StockInstrumentInfo:
         currency=info.currency,
         exchange=info.exchange,
         instrument_type=info.instrument_type,
-        lot_size=info.lot_size,
     )
 
 

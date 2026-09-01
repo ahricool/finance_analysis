@@ -22,8 +22,7 @@ def _row(code: str, day: date, close: float, *, open_price: float | None = None)
     return {
         "instrument": code, "datetime": day, "open": open_price,
         "high": max(open_price, close) + 1.0, "low": min(open_price, close) - 1.0,
-        "close": close, "volume": 100.0, "amount": 9_800.0, "vwap": close,
-        "vwap_source": "provider", "vwap_quality": "provider", "daily_data_source": "fixture",
+        "close": close, "volume": 100.0, "amount": 9_800.0, "daily_data_source": "fixture",
     }
 
 

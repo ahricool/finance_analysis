@@ -36,6 +36,12 @@ def _checks(table_name: str) -> set[str]:
 
 def upgrade() -> None:
     tables = _tables()
+    if "market_data_symbol" in tables:
+        if "ck_market_data_symbol_lot_size" in _checks("market_data_symbol"):
+            op.drop_constraint("ck_market_data_symbol_lot_size", "market_data_symbol", type_="check")
+        if "lot_size" in _columns("market_data_symbol"):
+            op.drop_column("market_data_symbol", "lot_size")
+
     if {"stock_daily", "stock_adjustment_factor"}.issubset(tables):
         factor = """
             SELECT forward_adjustment_factor
@@ -51,10 +57,7 @@ def upgrade() -> None:
                 SET open = open * ({factor}),
                     high = high * ({factor}),
                     low = low * ({factor}),
-                    close = close * ({factor}),
-                    vwap = CASE WHEN vwap IS NULL THEN NULL ELSE vwap * ({factor}) END,
-                    limit_up = CASE WHEN limit_up IS NULL THEN NULL ELSE limit_up * ({factor}) END,
-                    limit_down = CASE WHEN limit_down IS NULL THEN NULL ELSE limit_down * ({factor}) END
+                    close = close * ({factor})
                 WHERE EXISTS ({factor})
                 """
             )
@@ -65,13 +68,24 @@ def upgrade() -> None:
         op.execute(sa.text(f"DELETE FROM stock_daily WHERE NOT EXISTS ({factor})"))
         op.drop_table("stock_adjustment_factor")
 
+    if "stock_daily" in tables:
+        checks = _checks("stock_daily")
+        for constraint in ("ck_stock_daily_vwap_quality", "ck_stock_daily_vwap_positive"):
+            if constraint in checks:
+                op.drop_constraint(constraint, "stock_daily", type_="check")
+        columns = _columns("stock_daily")
+        for column in ("limit_up", "limit_down", "suspended", "vwap", "vwap_source", "vwap_quality"):
+            if column in columns:
+                op.drop_column("stock_daily", column)
+
+    for table_name in ("backtest_trade", "backtest_equity", "backtest_run"):
+        if table_name in tables:
+            op.drop_table(table_name)
+
     if "quant_dataset_snapshot" in tables and "price_mode" in _columns("quant_dataset_snapshot"):
         if "ck_quant_dataset_price_mode" in _checks("quant_dataset_snapshot"):
             op.drop_constraint("ck_quant_dataset_price_mode", "quant_dataset_snapshot", type_="check")
         op.drop_column("quant_dataset_snapshot", "price_mode")
-
-    if "backtest_run" in tables and "price_mode" in _columns("backtest_run"):
-        op.drop_column("backtest_run", "price_mode")
 
 
 def downgrade() -> None:

@@ -119,9 +119,6 @@ class QuantRepository:
                         StockDaily.close,
                         StockDaily.volume,
                         StockDaily.amount,
-                        StockDaily.vwap,
-                        StockDaily.vwap_source,
-                        StockDaily.vwap_quality,
                         StockDaily.data_source.label("daily_data_source"),
                     )
                     .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)

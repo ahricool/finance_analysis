@@ -75,7 +75,6 @@ class _DatabaseInstrumentProvider:
                 currency=currency_for_market(market),
                 exchange=symbol.rsplit(".", 1)[1],
                 instrument_type="stock",
-                lot_size=row.lot_size,
             )
             result.providers_used[symbol] = self.name
         return result

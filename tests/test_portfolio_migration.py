@@ -37,7 +37,7 @@ def _create_dependencies(connection) -> None:
         text(
             "CREATE TABLE market_data_symbol ("
             "id INTEGER PRIMARY KEY, market VARCHAR(8), code VARCHAR(32), name VARCHAR(255), "
-            "enabled BOOLEAN, sync_daily BOOLEAN, sync_minute BOOLEAN, lot_size INTEGER, "
+            "enabled BOOLEAN, sync_daily BOOLEAN, sync_minute BOOLEAN, "
             "created_at DATETIME, updated_at DATETIME)"
         )
     )
@@ -101,7 +101,7 @@ def test_empty_database_upgrade_creates_current_schema_and_stamps_head() -> None
 
     with engine.connect() as connection:
         tables = set(inspect(connection).get_table_names())
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0036_unified_task_mutex"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0037_forward_adjusted_daily"
         assert {
             "portfolio_account",
             "account_cash_balance",
@@ -129,7 +129,7 @@ def test_upgrade_from_previous_head_seeds_users_and_discards_legacy_rows() -> No
     _upgrade_with_repository_alembic(engine)
 
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0036_unified_task_mutex"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0037_forward_adjusted_daily"
         assert connection.scalar(text("SELECT COUNT(*) FROM portfolio_account")) == 6
         assert connection.scalar(text("SELECT COUNT(*) FROM account_cash_balance")) == 6
         assert "stock_list" not in inspect(connection).get_table_names()

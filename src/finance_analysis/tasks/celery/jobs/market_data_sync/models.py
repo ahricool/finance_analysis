@@ -23,7 +23,6 @@ class DailyResult:
     updated_rows: int = 0
     providers: list[str] = field(default_factory=list)
     missing_amount: bool = False
-    vwap_qualities: set[str] = field(default_factory=set)
     deleted_rows: int = 0
     automatic_full_refresh: bool = False
     reason: str = ""

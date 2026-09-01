@@ -241,11 +241,11 @@ test.describe('web smoke', () => {
     await navigationTrigger.click();
     const navigationSheet = page.getByTestId('mobile-menu');
     await expect(navigationSheet).toBeVisible();
-    for (const label of ['分析', '自选股', '投资组合', '策略回测', '量化研究', '日历', '问股', '任务']) {
+    for (const label of ['分析', '自选股', '投资组合', '量化研究', '日历', '问股', '任务']) {
       await expect(navigationSheet.getByRole('link', { name: label })).toBeVisible();
     }
-    await navigationSheet.getByRole('link', { name: '策略回测' }).click();
-    await expect(page).toHaveURL(/\/market\/backtests$/);
+    await navigationSheet.getByRole('link', { name: '量化研究' }).click();
+    await expect(page).toHaveURL(/\/market\/quant$/);
     await expect(navigationSheet).toBeHidden();
 
     await page.goto('/tasks/runs');

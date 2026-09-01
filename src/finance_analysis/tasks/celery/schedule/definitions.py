@@ -173,7 +173,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_MARKET_DATA_SYNC_CN_HK,
         name="A股日线行情同步",
-        description="同步沪深300及自选A股的前复权日线与VWAP；工作日增量刷新，每月全量刷新约五年",
+        description="同步沪深300及自选A股的前复权日线；工作日增量刷新，每月全量刷新约五年",
         task_type="scheduled_market_data_sync_cn_hk",
         celery_task_name=celery_task_name(JOB_MARKET_DATA_SYNC_CN_HK),
         schedules=(

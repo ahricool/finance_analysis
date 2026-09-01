@@ -19,9 +19,6 @@ DAILY_COLUMNS = (
     "close",
     "volume",
     "amount",
-    "vwap",
-    "vwap_source",
-    "vwap_quality",
     "daily_data_source",
 )
 
@@ -59,37 +56,29 @@ class DailyBarLoader:
         result = frame.copy()
         total = len(result)
         if result.empty:
-            return result, DailyBarLoader._vwap_report(0, 0, 0, 0)
+            return result, DailyBarLoader._vwap_report(0, 0, 0)
         low = pd.to_numeric(result["low"], errors="coerce")
         high = pd.to_numeric(result["high"], errors="coerce")
         close = pd.to_numeric(result["close"], errors="coerce")
-        stored = pd.to_numeric(result["vwap"], errors="coerce")
-        stored = stored.where(np.isfinite(stored) & (stored > 0))
-        quality = result["vwap_quality"].fillna("").astype(str)
         typical = (high + low + close) / 3.0
-        fallback = stored.isna() & np.isfinite(typical) & (typical > 0)
-        result["vwap"] = stored.where(~fallback, typical)
+        result["vwap"] = typical
         result["vwap"] = result["vwap"].where(np.isfinite(result["vwap"]) & (result["vwap"] > 0))
-        estimated = (stored.notna() & quality.eq("estimated")) | fallback
         valid = result["vwap"].notna()
         return result, DailyBarLoader._vwap_report(
             total,
-            int((valid & ~estimated).sum()),
-            int(estimated.sum()),
+            int(valid.sum()),
             int((~valid).sum()),
         )
 
     @staticmethod
-    def _vwap_report(total: int, provider_rows: int, estimated_rows: int, missing_rows: int) -> dict[str, int | float]:
+    def _vwap_report(total: int, estimated_rows: int, missing_rows: int) -> dict[str, int | float]:
         def ratio(value: int) -> float:
             return value / total if total else 0.0
 
         return {
-            "valid_rows": provider_rows + estimated_rows,
-            "provider_calculated_rows": provider_rows,
+            "valid_rows": estimated_rows,
             "estimated_rows": estimated_rows,
             "missing_rows": missing_rows,
-            "provider_calculated_ratio": ratio(provider_rows),
             "estimated_ratio": ratio(estimated_rows),
             "missing_ratio": ratio(missing_rows),
         }

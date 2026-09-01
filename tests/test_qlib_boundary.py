@@ -20,7 +20,7 @@ def test_main_environment_does_not_install_qlib() -> None:
     assert importlib.util.find_spec("qlib") is None
 
 
-def test_vwap_prefers_database_values_and_reports_hlc3_fallback_ratio() -> None:
+def test_vwap_is_derived_from_forward_adjusted_hlc3_at_load_time() -> None:
     frame = pd.DataFrame(
         {
             "low": [9.0, 19.0, 29.0, np.nan],
@@ -28,28 +28,24 @@ def test_vwap_prefers_database_values_and_reports_hlc3_fallback_ratio() -> None:
             "close": [10.0, 20.0, 30.0, np.nan],
             "volume": [100.0, 100.0, 100.0, 0.0],
             "amount": [1_000.0, np.nan, np.nan, np.nan],
-            "vwap": [10.25, 20.5, np.nan, np.nan],
-            "vwap_quality": ["calculated", "estimated", None, "missing"],
         }
     )
     result, report = DailyBarLoader._with_vwap(frame)
-    assert result.loc[0, "vwap"] == 10.25
-    assert result.loc[1, "vwap"] == 20.5
+    assert result.loc[0, "vwap"] == 10.0
+    assert result.loc[1, "vwap"] == 20.0
     assert result.loc[2, "vwap"] == 30.0
     assert np.isnan(result.loc[3, "vwap"])
     assert report == {
         "valid_rows": 3,
-        "provider_calculated_rows": 1,
-        "estimated_rows": 2,
+        "estimated_rows": 3,
         "missing_rows": 1,
-        "provider_calculated_ratio": 0.25,
-        "estimated_ratio": 0.5,
+        "estimated_ratio": 0.75,
         "missing_ratio": 0.25,
     }
     assert "vwap" in QlibDatasetExporter.FIELDS
 
 
-def test_qlib_writer_exports_persisted_vwap_field(tmp_path: Path) -> None:
+def test_qlib_writer_exports_consumer_derived_vwap_field(tmp_path: Path) -> None:
     frame = pd.DataFrame({
         "instrument": ["AAPL.US"],
         "datetime": [pd.Timestamp("2026-07-17")],
@@ -60,8 +56,6 @@ def test_qlib_writer_exports_persisted_vwap_field(tmp_path: Path) -> None:
         "volume": [100.0],
         "amount": [np.nan],
         "vwap": [10.25],
-        "vwap_source": ["hlc3"],
-        "vwap_quality": ["estimated"],
     })
     exporter = object.__new__(QlibDatasetExporter)
     exporter._write_qlib(tmp_path, frame)

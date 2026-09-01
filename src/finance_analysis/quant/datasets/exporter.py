@@ -143,8 +143,7 @@ class QlibDatasetExporter:
                     f"VWAP used HLC3 estimates for {vwap_report['estimated_rows']} rows"
                 )
             logger.info(
-                "Qlib VWAP quality provider_calculated=%.2f%% estimated=%.2f%% missing=%.2f%%",
-                vwap_report["provider_calculated_ratio"] * 100,
+                "Qlib consumer-derived VWAP quality estimated=%.2f%% missing=%.2f%%",
                 vwap_report["estimated_ratio"] * 100,
                 vwap_report["missing_ratio"] * 100,
             )

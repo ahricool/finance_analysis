@@ -166,7 +166,6 @@ class MarketDataSymbolRepository:
             stmt = pg_insert(MarketDataSymbol).values(records)
             update_values = {
                 "name": stmt.excluded.name,
-                "lot_size": func.coalesce(stmt.excluded.lot_size, MarketDataSymbol.lot_size),
                 "updated_at": stmt.excluded.updated_at,
             }
             if overwrite_runtime_flags:
@@ -210,7 +209,6 @@ class MarketDataSymbolRepository:
                 "enabled": bool(item.get("enabled", True)),
                 "sync_daily": bool(item.get("sync_daily", True)),
                 "sync_minute": bool(item.get("sync_minute", True)),
-                "lot_size": item.get("lot_size"),
                 "created_at": now,
                 "updated_at": now,
             }
@@ -218,7 +216,7 @@ class MarketDataSymbolRepository:
 
 
 class StockRepository:
-    """Raw-bar queries and deterministic PostgreSQL batch UPSERTs."""
+    """Provider bar queries and deterministic PostgreSQL batch UPSERTs."""
 
     def __init__(self, db_manager=None):
         if db_manager is None:
@@ -434,9 +432,7 @@ class StockRepository:
             records,
             "uix_stock_daily_symbol_date",
             (
-                "open", "high", "low", "close", "volume", "amount", "vwap", "vwap_source", "vwap_quality",
-                "limit_up", "limit_down", "suspended",
-                "data_source", "updated_at",
+                "open", "high", "low", "close", "volume", "amount", "data_source", "updated_at",
             ),
         )
 
@@ -476,10 +472,6 @@ class StockRepository:
                 "date": row["date"],
                 "open": row["open"], "high": row["high"], "low": row["low"], "close": row["close"],
                 "volume": row["volume"], "amount": row.get("amount"),
-                "vwap": row.get("vwap"), "vwap_source": row.get("vwap_source"),
-                "vwap_quality": row.get("vwap_quality"),
-                "limit_up": row.get("limit_up"), "limit_down": row.get("limit_down"),
-                "suspended": bool(row.get("suspended", False)),
                 "data_source": source,
                 "created_at": now, "updated_at": now,
             }

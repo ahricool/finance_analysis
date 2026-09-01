@@ -2,7 +2,6 @@
 """ORM model exports."""
 
 from finance_analysis.database.models.analysis import AnalysisHistory
-from finance_analysis.database.models.backtest import BacktestEquity, BacktestRun, BacktestTrade
 from finance_analysis.database.models.calendar import CalendarEntry
 from finance_analysis.database.models.conversation import ConversationMessage, LLMUsage
 from finance_analysis.database.models.etf_rotation import ETFMarketRotationSnapshot, ETFMomentumSnapshot
@@ -36,9 +35,6 @@ from finance_analysis.database.models.watch_list import WatchListItem
 __all__ = [
     "AnalysisHistory",
     "AccountCashBalance",
-    "BacktestEquity",
-    "BacktestRun",
-    "BacktestTrade",
     "CalendarEntry",
     "ConversationMessage",
     "ETFMomentumSnapshot",

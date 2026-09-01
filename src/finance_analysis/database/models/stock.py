@@ -59,7 +59,6 @@ class MarketDataSymbol(Base):
     enabled = Column(Boolean, nullable=False, default=True)
     sync_daily = Column(Boolean, nullable=False, default=True)
     sync_minute = Column(Boolean, nullable=False, default=True)
-    lot_size = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
@@ -73,7 +72,6 @@ class MarketDataSymbol(Base):
         UniqueConstraint("code", name="uix_market_data_symbol_code"),
         UniqueConstraint("market", "code", name="uix_market_data_symbol_market_code"),
         CheckConstraint("market IN ('US', 'HK', 'CN')", name="ck_market_data_symbol_market"),
-        CheckConstraint("lot_size IS NULL OR lot_size > 0", name="ck_market_data_symbol_lot_size"),
         CheckConstraint(
             "(market = 'US' AND code LIKE '%.US') OR "
             "(market = 'HK' AND code ~ '^[1-9][0-9]*\\.HK$') OR "
@@ -96,7 +94,7 @@ def _validate_symbol(_mapper: Any, _connection: Any, target: MarketDataSymbol) -
 
 
 class StockDaily(Base):
-    """Forward-adjusted daily OHLC with unadjusted volume/amount and sourced VWAP metadata."""
+    """Provider-sourced forward-adjusted daily OHLCV and optional amount."""
 
     __tablename__ = "stock_daily"
 
@@ -109,12 +107,6 @@ class StockDaily(Base):
     close = Column(Float, nullable=False)
     volume = Column(Float, nullable=False)
     amount = Column(Float, nullable=True)
-    vwap = Column(Float, nullable=True)
-    vwap_source = Column(String(32), nullable=True)
-    vwap_quality = Column(String(16), nullable=True)
-    limit_up = Column(Float, nullable=True)
-    limit_down = Column(Float, nullable=True)
-    suspended = Column(Boolean, nullable=False, default=False)
     data_source = Column(String(50), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
@@ -125,11 +117,6 @@ class StockDaily(Base):
         UniqueConstraint("symbol_id", "date", name="uix_stock_daily_symbol_date"),
         CheckConstraint("volume >= 0", name="ck_stock_daily_volume_nonnegative"),
         CheckConstraint("amount IS NULL OR amount >= 0", name="ck_stock_daily_amount_nonnegative"),
-        CheckConstraint("vwap IS NULL OR vwap > 0", name="ck_stock_daily_vwap_positive"),
-        CheckConstraint(
-            "vwap_quality IS NULL OR vwap_quality IN ('provider', 'calculated', 'estimated', 'missing')",
-            name="ck_stock_daily_vwap_quality",
-        ),
         Index("ix_stock_daily_symbol_date", "symbol_id", "date"),
     )
 
@@ -152,12 +139,6 @@ class StockDaily(Base):
             "close": self.close,
             "volume": self.volume,
             "amount": self.amount,
-            "vwap": self.vwap,
-            "vwap_source": self.vwap_source,
-            "vwap_quality": self.vwap_quality,
-            "limit_up": self.limit_up,
-            "limit_down": self.limit_down,
-            "suspended": self.suspended,
             "data_source": self.data_source,
         }
 

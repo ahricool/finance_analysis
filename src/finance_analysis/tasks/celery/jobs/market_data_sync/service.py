@@ -171,7 +171,6 @@ class MarketDataSyncService:
                     "enabled": current.enabled,
                     "sync_daily": current.sync_daily,
                     "sync_minute": current.sync_minute,
-                    "lot_size": info.lot_size,
                 }
             )
         if records:
@@ -359,7 +358,6 @@ class MarketDataSyncService:
                         status="partial",
                         providers=[provider],
                         missing_amount=any(bar.amount is None for bar in bars),
-                        vwap_qualities={"missing"},
                         reason=coverage_reason,
                         fallback_reasons=(
                             [routed.failed_symbols[symbol.code]]
@@ -378,11 +376,6 @@ class MarketDataSyncService:
                         "close": bar.close,
                         "volume": bar.volume,
                         "amount": bar.amount,
-                        # Provider amount and volume retain their raw scale. Dividing
-                        # them would produce a raw VWAP beside adjusted OHLC.
-                        "vwap": None,
-                        "vwap_source": None,
-                        "vwap_quality": "missing",
                     }
                 )
             if replace_history:
@@ -396,7 +389,6 @@ class MarketDataSyncService:
                 deleted_rows=getattr(stats, "deleted_rows", 0),
                 providers=[provider],
                 missing_amount=any(bar.amount is None for bar in bars),
-                vwap_qualities={"missing"},
                 reason=f"missing_trading_days={len(missing)}" if missing else "",
                 fallback_reasons=[routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else [],
             )
@@ -481,18 +473,6 @@ class MarketDataSyncService:
             "missing_amount_symbols": sorted(result.code for result in results if result.daily.missing_amount),
             "fallback_reasons": fallback_reasons[:MAX_RESULT_ITEMS],
             "fallback_reasons_truncated": len(fallback_reasons) > MAX_RESULT_ITEMS,
-            "provider_vwap_symbols": sorted(
-                result.code for result in results if "provider" in result.daily.vwap_qualities
-            ),
-            "calculated_vwap_symbols": sorted(
-                result.code for result in results if "calculated" in result.daily.vwap_qualities
-            ),
-            "estimated_vwap_symbols": sorted(
-                result.code for result in results if "estimated" in result.daily.vwap_qualities
-            ),
-            "missing_vwap_symbols": sorted(
-                result.code for result in results if "missing" in result.daily.vwap_qualities
-            ),
             "automatic_full_refresh_symbols": sorted(
                 result.code for result in results if result.daily.automatic_full_refresh
             ),

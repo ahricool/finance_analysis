@@ -269,7 +269,7 @@ def test_tickflow_batch_configuration_defaults_and_validation():
         TickFlowFreeProvider(max_workers=0)
 
 
-def test_sync_persists_forward_adjusted_bars_without_priority_or_estimated_amount():
+def test_sync_persists_only_provider_daily_fields_with_nullable_amount():
     bar = _bar("600000.SH", "tickflow", amount=None)
     routed = BatchBarResult(data={"600000.SH": [bar]}, providers_used={"600000.SH": "tickflow"})
     market_data = SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed)
@@ -289,12 +289,17 @@ def test_sync_persists_forward_adjusted_bars_without_priority_or_estimated_amoun
     assert result.status == "success"
     assert result.missing_amount is True
     assert result.providers == ["tickflow"]
-    assert persisted[0]["vwap"] is None
-    assert persisted[0]["vwap_source"] is None
-    assert persisted[0]["vwap_quality"] == "missing"
+    assert set(persisted[0]) == {"date", "open", "high", "low", "close", "volume", "amount"}
+    assert persisted[0]["date"] == date(2025, 1, 2)
+    assert persisted[0]["open"] == 10
+    assert persisted[0]["high"] == 11
+    assert persisted[0]["low"] == 9
+    assert persisted[0]["close"] == 10.5
+    assert persisted[0]["volume"] == 100
+    assert persisted[0]["amount"] is None
 
 
-def test_sync_does_not_mix_adjusted_ohlc_with_raw_amount_divided_by_volume():
+def test_sync_preserves_provider_amount_without_persisting_derived_price_metadata():
     bar = _bar("AAPL.US", "yfinance", amount=10_500)
     routed = BatchBarResult(data={"AAPL.US": [bar]}, providers_used={"AAPL.US": "yfinance"})
     persisted = []
@@ -308,14 +313,12 @@ def test_sync_does_not_mix_adjusted_ohlc_with_raw_amount_divided_by_volume():
 
     result = service._persist_daily_result(SimpleNamespace(id=1, code="AAPL.US"), [bar.trade_date], routed)
 
-    assert result.vwap_qualities == {"missing"}
+    assert result.status == "success"
     assert persisted[0]["amount"] == 10_500
-    assert persisted[0]["vwap"] is None
-    assert persisted[0]["vwap_source"] is None
-    assert persisted[0]["vwap_quality"] == "missing"
+    assert "vwap" not in persisted[0]
 
 
-def test_sync_treats_zero_amount_as_missing_vwap():
+def test_sync_preserves_zero_provider_amount_without_derived_metadata():
     bar = _bar("AAPL.US", "tickflow", amount=0)
     routed = BatchBarResult(data={"AAPL.US": [bar]}, providers_used={"AAPL.US": "tickflow"})
     persisted = []
@@ -333,11 +336,8 @@ def test_sync_treats_zero_amount_as_missing_vwap():
     result = service._sync_daily(SimpleNamespace(id=1, code="AAPL.US"), [date(2025, 1, 2)])
 
     assert result.status == "success"
-    assert result.vwap_qualities == {"missing"}
     assert persisted[0]["amount"] == 0
-    assert persisted[0]["vwap"] is None
-    assert persisted[0]["vwap_source"] is None
-    assert persisted[0]["vwap_quality"] == "missing"
+    assert "vwap" not in persisted[0]
 
 
 class _DailyUpsertRepository:
@@ -873,7 +873,6 @@ def test_sync_refreshes_instrument_names_in_one_remote_batch():
                     currency="CNY",
                     exchange="SH",
                     instrument_type="stock",
-                    lot_size=100,
                 ),
                 "000001.SZ": InstrumentInfo(
                     symbol="000001.SZ",
@@ -883,7 +882,6 @@ def test_sync_refreshes_instrument_names_in_one_remote_batch():
                     currency="CNY",
                     exchange="SZ",
                     instrument_type="stock",
-                    lot_size=100,
                 ),
             }
         )

@@ -236,7 +236,6 @@ class InstrumentInfo:
     currency: str
     exchange: str | None = None
     instrument_type: str | None = None
-    lot_size: int | None = None
 
 
 @dataclass(slots=True)

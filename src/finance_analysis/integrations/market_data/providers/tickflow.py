@@ -122,7 +122,6 @@ class TickFlowFreeProvider:
                 result.missing_symbols.append(symbol)
                 continue
             market = infer_market(symbol)
-            ext = item.get("ext") or {}
             result.data[symbol] = InstrumentInfo(
                 symbol=symbol,
                 market=market,
@@ -131,7 +130,6 @@ class TickFlowFreeProvider:
                 currency=currency_for_market(market),
                 exchange=str(item.get("exchange") or "") or None,
                 instrument_type=str(item.get("type") or "") or None,
-                lot_size=int(ext["lot_size"]) if ext.get("lot_size") else None,
             )
             result.providers_used[symbol] = self.name
         return result
