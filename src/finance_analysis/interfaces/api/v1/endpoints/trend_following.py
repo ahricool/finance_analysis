@@ -62,6 +62,7 @@ def _changes(
             "current": row,
             "previous_state": previous.get("state"),
             "previous_action": previous.get("action"),
+            "previous_pending_action": previous.get("pending_action"),
             "previous_rank": previous_rank,
             "rank_change": (
                 int(previous_rank) - int(current_rank)
@@ -103,14 +104,14 @@ def _changes(
             if (
                 item["current"].get("action") == "REDUCE"
                 or item["current"].get("pending_action") == "REDUCE"
-            ) and item["previous_action"] != "REDUCE"
+            ) and item["previous_action"] != "REDUCE" and item["previous_pending_action"] != "REDUCE"
         ],
         "new_exits": [
             item for item in changes
             if (
                 item["current"].get("action") == "EXIT"
                 or item["current"].get("pending_action") == "EXIT"
-            ) and item["previous_action"] != "EXIT"
+            ) and item["previous_action"] != "EXIT" and item["previous_pending_action"] != "EXIT"
         ],
         "transitions": [
             item for item in changes

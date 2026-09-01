@@ -102,6 +102,7 @@ export interface TrendChange {
   current: TrendSnapshot;
   previousState: TrendState | null;
   previousAction: TrendAction | null;
+  previousPendingAction: TrendSnapshot['pendingAction'] | null;
   previousRank: number | null;
   rankChange: number | null;
   trendScoreChange: number | null;

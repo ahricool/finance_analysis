@@ -156,6 +156,50 @@ def test_candidate_limit_never_hides_exits(monkeypatch) -> None:
     assert payload["items"] == payload["candidates"]
 
 
+def test_ranking_builds_daily_changes_from_previous_snapshot(monkeypatch) -> None:
+    previous_date = date(2026, 8, 24)
+
+    class ChangesRepository(FakeRepository):
+        def previous_trade_date(self, trade_date):
+            return previous_date
+
+        def snapshots_by_date(self, trade_date, *, sort_by="composite_score"):
+            if trade_date == previous_date:
+                return [{
+                    **_snapshot(),
+                    "trade_date": previous_date,
+                    "rank": 12,
+                    "state": "STRONG",
+                    "action": "HOLD",
+                    "composite_score": 72.0,
+                }]
+            return [{
+                **_snapshot(),
+                "trade_date": trade_date,
+                "rank": 3,
+                "state": "COOLING",
+                "action": "EXIT",
+                "composite_score": 79.5,
+            }]
+
+        def market_snapshot_by_date(self, trade_date):
+            return {
+                "trade_date": trade_date,
+                "regime": "RISK_OFF" if trade_date != previous_date else "NEUTRAL",
+            }
+
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", ChangesRepository)
+    payload = asyncio.run(
+        etf_rotation.ranking(None, "composite_score", None, SimpleNamespace(id=1))
+    )
+    changes = payload["changes"]
+    assert changes["new_exits"][0]["current"]["code"] == "588000.SH"
+    assert changes["new_cooling"][0]["previous_state"] == "STRONG"
+    assert changes["regime_change"] == {"from": "NEUTRAL", "to": "RISK_OFF"}
+    assert changes["rank_movers"][0]["rank_change"] == 9
+    assert changes["rank_movers"][0]["composite_score_change"] == 7.5
+
+
 def test_ranking_serializes_absent_public_action_as_null(monkeypatch) -> None:
     class NullActionRepository(FakeRepository):
         def snapshots_by_date(self, trade_date, *, sort_by="composite_score"):
