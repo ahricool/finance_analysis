@@ -402,6 +402,18 @@ class StockRepository:
                 ).scalars().all()
             )
 
+    def daily_closes(self, symbol_id: int, start_date: date, end_date: date) -> dict[date, float]:
+        """Return stored closes for overlap checks during incremental synchronization."""
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(StockDaily.date, StockDaily.close).where(
+                    StockDaily.symbol_id == symbol_id,
+                    StockDaily.date >= start_date,
+                    StockDaily.date <= end_date,
+                )
+            ).all()
+        return {trade_date: float(close) for trade_date, close in rows if close is not None}
+
     def minute_times(self, symbol_id: int, start_time: datetime, end_time: datetime) -> set[datetime]:
         with self.db.get_session() as session:
             return set(

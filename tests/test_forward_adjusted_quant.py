@@ -14,6 +14,7 @@ from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
 from finance_analysis.quant.features.daily import build_daily_features
 from finance_analysis.tasks.celery.jobs.quant_dataset import tasks as dataset_tasks
+from qlib_worker.price_modes import require_forward_adjusted_manifest
 
 
 def _row(code: str, day: date, close: float, *, open_price: float | None = None) -> dict:
@@ -96,7 +97,8 @@ def test_dataset_export_uses_stored_prices_and_neutral_qlib_factor(tmp_path: Pat
     factor_bin = np.fromfile(root / "features" / "aapl.us" / "factor.day.bin", dtype="<f4")
 
     assert manifest["daily_price_semantics"] == "forward_adjusted"
-    assert "price_mode" not in manifest
+    assert manifest["price_mode"] == "forward_adjusted"
+    assert require_forward_adjusted_manifest(manifest) == "forward_adjusted"
     assert "adjustment_coverage" not in manifest
     assert set(daily["close"]) == {50.0}
     assert factor_bin.tolist() == [0.0, 1.0]

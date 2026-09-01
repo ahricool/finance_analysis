@@ -341,7 +341,7 @@ class AkShareProvider:
         return result
 
     def _fetch_daily_frame(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
-        """Fetch forward-adjusted daily bars using AKShare's qfq mode."""
+        """Fetch CN/HK forward-adjusted daily bars using AKShare's qfq mode."""
         import akshare as ak
 
         base = self._canonical_base(symbol.code)
@@ -364,8 +364,6 @@ class AkShareProvider:
                     end_date=end,
                     adjust="qfq",
                 )
-            elif symbol.market == "US":
-                raw = self._fetch_us_data(base, start_date.isoformat(), end_date.isoformat())
             else:
                 raise ValueError(f"AKShare daily history does not support market={symbol.market}")
             frame = self._normalize_data(raw, base)

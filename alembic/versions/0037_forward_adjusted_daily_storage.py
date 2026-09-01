@@ -73,48 +73,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    tables = _tables()
-    if "backtest_run" in tables and "price_mode" not in _columns("backtest_run"):
-        op.add_column(
-            "backtest_run",
-            sa.Column("price_mode", sa.String(length=16), server_default="forward_adjusted", nullable=False),
-        )
-    if "quant_dataset_snapshot" in tables and "price_mode" not in _columns("quant_dataset_snapshot"):
-        op.add_column(
-            "quant_dataset_snapshot",
-            sa.Column("price_mode", sa.String(length=24), server_default="forward_adjusted", nullable=False),
-        )
-        op.create_check_constraint(
-            "ck_quant_dataset_price_mode",
-            "quant_dataset_snapshot",
-            "price_mode IN ('raw','forward_adjusted')",
-        )
-    if "stock_adjustment_factor" not in tables:
-        op.create_table(
-            "stock_adjustment_factor",
-            sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
-            sa.Column("symbol_id", sa.Integer(), nullable=False),
-            sa.Column("trade_date", sa.Date(), nullable=False),
-            sa.Column("forward_adjustment_factor", sa.Float(), nullable=True),
-            sa.Column("hfq_factor", sa.Float(), nullable=True),
-            sa.Column("hfq_cash", sa.Float(), nullable=True),
-            sa.Column("adj_close", sa.Float(), nullable=True),
-            sa.Column("data_source", sa.String(length=50), nullable=False),
-            sa.Column("source_hash", sa.String(length=64), nullable=False),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.CheckConstraint(
-                "forward_adjustment_factor IS NULL OR forward_adjustment_factor > 0",
-                name="ck_stock_adjustment_forward_factor_positive",
-            ),
-            sa.CheckConstraint("hfq_factor IS NULL OR hfq_factor > 0", name="ck_stock_adjustment_hfq_positive"),
-            sa.ForeignKeyConstraint(["symbol_id"], ["market_data_symbol.id"], ondelete="CASCADE"),
-            sa.PrimaryKeyConstraint("id"),
-            sa.UniqueConstraint("symbol_id", "trade_date", name="uix_stock_adjustment_factor_symbol_date"),
-        )
-        op.create_index(
-            "ix_stock_adjustment_factor_symbol_date",
-            "stock_adjustment_factor",
-            ["symbol_id", "trade_date"],
-            unique=False,
-        )
+    raise RuntimeError(
+        "Migration 0037_forward_adjusted_daily is irreversible: upgrade rewrites daily prices "
+        "and deletes legacy adjustment-factor data. Restore a database backup to downgrade."
+    )

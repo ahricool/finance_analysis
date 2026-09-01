@@ -158,6 +158,9 @@ class QlibDatasetExporter:
                 "frequency": frequency,
                 "date_from": str(date_from),
                 "date_to": str(date_to),
+                # Artifact protocol compatibility: Qlib workers still validate this
+                # field even though the database no longer exposes a raw price mode.
+                "price_mode": "forward_adjusted",
                 "daily_price_semantics": "forward_adjusted",
                 "symbols": sorted(candidate_codes),
                 "benchmark_codes": sorted(benchmark_codes),

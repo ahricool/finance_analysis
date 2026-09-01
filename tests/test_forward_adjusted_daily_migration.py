@@ -6,6 +6,7 @@ from types import ModuleType
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+import pytest
 from sqlalchemy import create_engine, inspect, text
 
 from finance_analysis.core.paths import PROJECT_ROOT
@@ -80,3 +81,6 @@ def test_migration_converts_existing_ohlc_once_and_removes_legacy_indirection() 
         assert "stock_adjustment_factor" not in inspect(connection).get_table_names()
         assert "price_mode" not in {item["name"] for item in inspect(connection).get_columns("quant_dataset_snapshot")}
         assert "price_mode" not in {item["name"] for item in inspect(connection).get_columns("backtest_run")}
+
+        with pytest.raises(RuntimeError, match="irreversible"):
+            migration.downgrade()

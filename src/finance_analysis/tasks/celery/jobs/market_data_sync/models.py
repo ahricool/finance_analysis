@@ -25,6 +25,7 @@ class DailyResult:
     missing_amount: bool = False
     vwap_qualities: set[str] = field(default_factory=set)
     deleted_rows: int = 0
+    automatic_full_refresh: bool = False
     reason: str = ""
     fallback_reasons: list[str] = field(default_factory=list)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
+from statistics import median
 from typing import Any
 
 from finance_analysis.database.repositories.stock import MarketDataSymbolRepository, StockRepository
@@ -24,6 +25,9 @@ from .models import DailyResult, SymbolResult, normalize_sync_mode
 logger = logging.getLogger(__name__)
 MAX_RESULT_ITEMS = 20
 REMOTE_INSTRUMENT_PROVIDERS = frozenset({"tickflow", "akshare"})
+ADJUSTMENT_SCALE_MIN_DATES = 3
+ADJUSTMENT_SCALE_MIN_CHANGE = 0.003
+ADJUSTMENT_SCALE_MAX_DRIFT = 0.005
 
 
 class MarketDataSyncError(RuntimeError):
@@ -89,7 +93,7 @@ class MarketDataSyncService:
             self.config.market_data_retention_daily_days,
             deleted_daily_rows,
         )
-        daily_results = self._sync_daily_batch_groups(symbols, daily_days_by_code)
+        daily_results = self._sync_daily_batch_groups(symbols, daily_days_by_code, full_days=full_days)
         results = [
             SymbolResult(
                 symbol.code,
@@ -214,6 +218,8 @@ class MarketDataSyncService:
         self,
         symbols: list[Any],
         daily_days_by_code: dict[str, list[date]],
+        *,
+        full_days: list[date] | None = None,
     ) -> dict[str, DailyResult]:
         groups: dict[tuple[date, date], list[Any]] = defaultdict(list)
         for symbol in symbols:
@@ -227,6 +233,7 @@ class MarketDataSyncService:
         )
 
         results: dict[str, DailyResult] = {}
+        automatic_full_symbols: list[Any] = []
         for (start_date, end_date), grouped_symbols in groups.items():
             codes = [symbol.code for symbol in grouped_symbols]
             logger.info(
@@ -254,12 +261,64 @@ class MarketDataSyncService:
                 )
                 routed = BatchBarResult(failed_symbols={code: str(exc) for code in codes})
             for symbol in grouped_symbols:
-                results[symbol.code] = self._persist_daily_result(
-                    symbol,
-                    daily_days_by_code[symbol.code],
-                    routed,
+                bars = routed.data.get(symbol.code, [])
+                requested_days = daily_days_by_code[symbol.code]
+                is_incremental_window = bool(
+                    full_days
+                    and self.sync_mode == "incremental"
+                    and (min(requested_days), max(requested_days)) != (min(full_days), max(full_days))
                 )
+                if is_incremental_window and bars and self._has_adjustment_scale_change(symbol, bars):
+                    automatic_full_symbols.append(symbol)
+                    logger.warning(
+                        "market=%s code=%s daily adjustment scale changed; upgrading to full refresh",
+                        self.market,
+                        symbol.code,
+                    )
+                    continue
+                results[symbol.code] = self._persist_daily_result(symbol, requested_days, routed)
+
+        if automatic_full_symbols and full_days:
+            codes = [symbol.code for symbol in automatic_full_symbols]
+            try:
+                routed = self.market_data.get_daily_bars(
+                    codes,
+                    min(full_days),
+                    max(full_days),
+                    adjustment="forward",
+                )
+            except Exception as exc:
+                logger.exception(
+                    "market=%s data_type=daily automatic full refresh failed symbol_count=%s",
+                    self.market,
+                    len(codes),
+                )
+                routed = BatchBarResult(failed_symbols={code: str(exc) for code in codes})
+            for symbol in automatic_full_symbols:
+                result = self._persist_daily_result(symbol, full_days, routed)
+                result.automatic_full_refresh = True
+                results[symbol.code] = result
         return results
+
+    def _has_adjustment_scale_change(self, symbol: Any, bars: list[Any]) -> bool:
+        """Detect a coherent historical price-scale shift in the incremental overlap."""
+        load_closes = getattr(self.stock_repository, "daily_closes", None)
+        if not callable(load_closes) or len(bars) < ADJUSTMENT_SCALE_MIN_DATES:
+            return False
+        dates = [bar.trade_date for bar in bars]
+        stored = load_closes(symbol.id, min(dates), max(dates))
+        ratios: list[float] = []
+        for bar in sorted(bars, key=lambda item: item.trade_date):
+            old_close = stored.get(bar.trade_date)
+            if old_close is None or old_close <= 0 or bar.close <= 0:
+                continue
+            ratio = float(bar.close) / float(old_close)
+            if abs(ratio - 1.0) < ADJUSTMENT_SCALE_MIN_CHANGE:
+                break
+            if ratios and abs(ratio / median(ratios) - 1.0) > ADJUSTMENT_SCALE_MAX_DRIFT:
+                break
+            ratios.append(ratio)
+        return len(ratios) >= ADJUSTMENT_SCALE_MIN_DATES
 
     def _persist_daily_result(
         self,
@@ -281,7 +340,6 @@ class MarketDataSyncService:
                 raise ValueError("daily provider attribution missing")
             rows = []
             for bar in bars:
-                vwap = bar.amount / bar.volume if bar.amount is not None and bar.amount > 0 and bar.volume > 0 else None
                 rows.append(
                     {
                         "date": bar.trade_date,
@@ -291,9 +349,11 @@ class MarketDataSyncService:
                         "close": bar.close,
                         "volume": bar.volume,
                         "amount": bar.amount,
-                        "vwap": vwap,
-                        "vwap_source": provider if vwap is not None else None,
-                        "vwap_quality": "calculated" if vwap is not None else "missing",
+                        # Provider amount and volume retain their raw scale. Dividing
+                        # them would produce a raw VWAP beside adjusted OHLC.
+                        "vwap": None,
+                        "vwap_source": None,
+                        "vwap_quality": "missing",
                     }
                 )
             stats = self.stock_repository.upsert_daily(symbol.id, rows, provider)
@@ -304,10 +364,7 @@ class MarketDataSyncService:
                 updated_rows=stats.updated_rows,
                 providers=[provider],
                 missing_amount=any(bar.amount is None for bar in bars),
-                vwap_qualities={
-                    "calculated" if bar.amount is not None and bar.amount > 0 and bar.volume > 0 else "missing"
-                    for bar in bars
-                },
+                vwap_qualities={"missing"},
                 reason=f"missing_trading_days={len(missing)}" if missing else "",
                 fallback_reasons=[routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else [],
             )
@@ -362,6 +419,9 @@ class MarketDataSyncService:
             ),
             "missing_vwap_symbols": sorted(
                 result.code for result in results if "missing" in result.daily.vwap_qualities
+            ),
+            "automatic_full_refresh_symbols": sorted(
+                result.code for result in results if result.daily.automatic_full_refresh
             ),
             "unsupported_symbol_count": len(self.unsupported_symbols),
             "unsupported_symbols": self.unsupported_symbols,
