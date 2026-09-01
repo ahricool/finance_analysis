@@ -128,6 +128,35 @@ export interface TrendRankingResponse extends TrendSummary {
   items: TrendSnapshot[];
   changes?: TrendRankingChanges | null;
 }
+export interface TrendPortfolioPosition {
+  code: string;
+  name: string;
+  state: Extract<TrendState, 'ENTRY' | 'PYRAMIDING' | 'HOLDING' | 'WEAKENING' | 'REDUCE'>;
+  action: TrendAction;
+  pendingAction: TrendSnapshot['pendingAction'];
+  units: number;
+  unitWeight: number;
+  positionWeight: number;
+  maxWeight: number;
+  entryPrice: number | null;
+  referencePrice: number;
+  openedAt: string | null;
+  initialStop: number | null;
+  trailingStop: number | null;
+  nextAddPrice: number | null;
+  exitLevel: number | null;
+  alphaScore: number;
+}
+export interface TrendPortfolioResponse {
+  market: TrendMarket;
+  tradeDate: string;
+  marketRegime: TrendRegime;
+  maxExposure: number;
+  currentExposure: number;
+  remainingExposure: number;
+  positionCount: number;
+  positions: TrendPortfolioPosition[];
+}
 export interface TrendCandidatesResponse { market: TrendMarket; tradeDate: string; summary: TrendSummary | null; items: TrendSnapshot[] }
 export interface TrendDatesResponse { market: TrendMarket; latest: string | null; items: string[] }
 export interface TrendDetailResponse {

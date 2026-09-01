@@ -23,6 +23,8 @@ import type {
   TrendChange,
   TrendDetailResponse,
   TrendMarket,
+  TrendPortfolioPosition,
+  TrendPortfolioResponse,
   TrendRankingChanges,
   TrendSnapshot,
   TrendState,
@@ -37,12 +39,17 @@ const emptySummary = (): TrendSummary => ({
   addCount: 0, holdCount: 0, reduceCount: 0, exitCount: 0, warnings: [], features: {},
   scoreBreakdown: {}, generatedAt: '',
 });
+const emptyPortfolio = (portfolioMarket: TrendMarket = 'CN'): TrendPortfolioResponse => ({
+  market: portfolioMarket, tradeDate: '', marketRegime: 'NEUTRAL', maxExposure: 0,
+  currentExposure: 0, remainingExposure: 0, positionCount: 0, positions: [],
+});
 const market = ref<TrendMarket>('CN');
 const selectedDate = ref('');
 const availableDates = ref<string[]>([]);
 const summary = ref<TrendSummary>(emptySummary());
 const items = ref<TrendSnapshot[]>([]);
 const candidates = ref<TrendSnapshot[]>([]);
+const portfolio = ref<TrendPortfolioResponse>(emptyPortfolio());
 const changes = ref<TrendRankingChanges | null>(null);
 const loading = ref(true);
 const running = ref(false);
@@ -79,6 +86,10 @@ const changeGroups = computed(() => [
   { label: 'New REDUCE', items: changes.value?.newReduces ?? [], variant: 'destructive' as const },
   { label: 'New EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const },
 ]);
+const exposureProgress = computed(() => {
+  if (portfolio.value.maxExposure <= 0) return 0;
+  return Math.min(100, (portfolio.value.currentExposure / portfolio.value.maxExposure) * 100);
+});
 
 function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
 function scoreDelta(value: number | null | undefined) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(1)}`; }
@@ -94,7 +105,7 @@ function stateText(state: TrendState) {
 function actionText(action: TrendAction) {
   return ({ WATCH: '观察', PENDING_ENTRY: '等待入场', PENDING_ADD: '等待加仓', PENDING_REDUCE: '等待减仓',
     PENDING_EXIT: '等待退出', ENTRY: '已入场', ADD: '已加仓', HOLD: '继续持有',
-    STOP_ADD: '停止加仓', REDUCE: '已减仓', EXIT: '已退出', EXPOSURE_BLOCKED: '敞口已满' })[action];
+    STOP_ADD: '停止加仓', REDUCE: '已减仓', EXIT: '已退出', EXPOSURE_BLOCKED: '风险限制' })[action];
 }
 function badgeVariant(value: TrendState | TrendAction | string): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
   if (['ENTRY', 'ADD', 'PYRAMIDING', 'RISK_ON'].includes(value)) return 'success';
@@ -123,13 +134,20 @@ async function load(refreshDates = false) {
     items.value = ranking.items;
     changes.value = ranking.changes ?? null;
     selectedDate.value = ranking.tradeDate;
-    const candidateResult = await trendFollowingApi.candidates(market.value, ranking.tradeDate);
-    if (current === generation) candidates.value = candidateResult.items;
+    const [candidateResult, portfolioResult] = await Promise.all([
+      trendFollowingApi.candidates(market.value, ranking.tradeDate),
+      trendFollowingApi.portfolio(market.value, ranking.tradeDate),
+    ]);
+    if (current === generation) {
+      candidates.value = candidateResult.items;
+      portfolio.value = portfolioResult;
+    }
   } catch (reason) {
     if (current === generation) {
       error.value = getParsedApiError(reason);
       items.value = [];
       candidates.value = [];
+      portfolio.value = emptyPortfolio(market.value);
       changes.value = null;
     }
   } finally {
@@ -147,7 +165,7 @@ async function runLatest() {
     running.value = false;
   }
 }
-async function openDetail(item: TrendSnapshot) {
+async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: string }) {
   detailOpen.value = true;
   detailLoading.value = true;
   detailError.value = null;
@@ -165,11 +183,15 @@ async function openDetail(item: TrendSnapshot) {
     detailLoading.value = false;
   }
 }
+function openPositionDetail(position: TrendPortfolioPosition) {
+  void openDetail({ code: position.code, tradeDate: portfolio.value.tradeDate });
+}
 watch(market, () => {
   selectedDate.value = '';
   availableDates.value = [];
   detailOpen.value = false;
   summary.value = { ...emptySummary(), market: market.value };
+  portfolio.value = emptyPortfolio(market.value);
   void load(true);
 });
 onMounted(() => void load(true));
@@ -273,6 +295,124 @@ onMounted(() => void load(true));
         </CardContent>
       </Card>
     </div>
+
+    <Card data-testid="trend-portfolio">
+      <CardHeader>
+        <CardTitle>当前理论持仓</CardTitle>
+        <CardDescription>
+          {{ portfolio.tradeDate || summary.tradeDate || '—' }} · {{ portfolio.marketRegime }} · 由趋势跟踪 Snapshot 推导，不读取用户真实持仓、账户或资金数据。
+        </CardDescription>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <div
+          v-if="loading"
+          class="grid gap-3 grid-cols-2 lg:grid-cols-4"
+        >
+          <Skeleton
+            v-for="index in 4"
+            :key="index"
+            class="h-20"
+          />
+        </div>
+        <template v-else>
+          <div class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <div class="rounded-md border p-3">
+              <span class="text-xs text-muted-foreground">当前理论仓位</span>
+              <strong class="mt-1 block text-lg">{{ pct(portfolio.currentExposure) }}</strong>
+            </div>
+            <div class="rounded-md border p-3">
+              <span class="text-xs text-muted-foreground">最大允许敞口</span>
+              <strong class="mt-1 block text-lg">{{ pct(portfolio.maxExposure) }}</strong>
+            </div>
+            <div class="rounded-md border p-3">
+              <span class="text-xs text-muted-foreground">剩余可用敞口</span>
+              <strong class="mt-1 block text-lg">{{ pct(portfolio.remainingExposure) }}</strong>
+            </div>
+            <div class="rounded-md border p-3">
+              <span class="text-xs text-muted-foreground">当前持仓</span>
+              <strong class="mt-1 block text-lg">{{ portfolio.positionCount }}只</strong>
+            </div>
+          </div>
+          <div
+            class="space-y-2"
+            data-testid="trend-portfolio-progress"
+          >
+            <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>当前仓位 {{ pct(portfolio.currentExposure) }} / 最大敞口 {{ pct(portfolio.maxExposure) }}</span>
+              <span>{{ exposureProgress.toFixed(1) }}%</span>
+            </div>
+            <div
+              class="h-2 overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-label="理论仓位占最大敞口比例"
+              :aria-valuenow="exposureProgress"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            >
+              <div
+                class="h-full rounded-full bg-primary transition-[width]"
+                :style="{ width: `${exposureProgress}%` }"
+              />
+            </div>
+          </div>
+          <Empty v-if="!portfolio.positions.length">
+            <EmptyHeader>
+              <EmptyTitle>当前无理论持仓</EmptyTitle>
+              <EmptyDescription>所选交易日没有处于有效持仓状态且 Units 大于 0 的股票。</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+          <ScrollArea
+            v-else
+            class="w-full"
+          >
+            <Table class="min-w-[1650px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>股票</TableHead><TableHead>State</TableHead><TableHead>Action</TableHead>
+                  <TableHead>Units</TableHead><TableHead>单位仓位</TableHead><TableHead>当前仓位</TableHead>
+                  <TableHead>入场价</TableHead><TableHead>当前价</TableHead><TableHead>下一动作</TableHead>
+                  <TableHead>入场日期</TableHead><TableHead>初始止损</TableHead><TableHead>跟踪止损</TableHead>
+                  <TableHead>下次加仓价</TableHead><TableHead>退出线</TableHead><TableHead>Alpha</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow
+                  v-for="position in portfolio.positions"
+                  :key="position.code"
+                  class="cursor-pointer"
+                  data-testid="trend-position-row"
+                  @click="openPositionDetail(position)"
+                >
+                  <TableCell><strong class="block">{{ position.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ position.code }}</span></TableCell>
+                  <TableCell>
+                    <Badge :variant="badgeVariant(position.state)">
+                      {{ stateText(position.state) }}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge :variant="badgeVariant(position.action)">
+                      {{ actionText(position.action) }}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{{ position.units }}</TableCell><TableCell>{{ pct(position.unitWeight) }}</TableCell>
+                  <TableCell class="font-semibold text-primary">
+                    {{ pct(position.positionWeight) }}
+                  </TableCell>
+                  <TableCell>{{ price(position.entryPrice) }}</TableCell><TableCell>{{ price(position.referencePrice) }}</TableCell>
+                  <TableCell>{{ position.pendingAction ? actionText(position.pendingAction) : '—' }}</TableCell>
+                  <TableCell>{{ position.openedAt || '—' }}</TableCell><TableCell>{{ price(position.initialStop) }}</TableCell>
+                  <TableCell>{{ price(position.trailingStop) }}</TableCell><TableCell>{{ price(position.nextAddPrice) }}</TableCell>
+                  <TableCell>{{ price(position.exitLevel) }}</TableCell><TableCell>{{ score(position.alphaScore) }}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+            <template #horizontal-scrollbar>
+              <ScrollBar orientation="horizontal" />
+            </template>
+          </ScrollArea>
+        </template>
+      </CardContent>
+    </Card>
 
     <Card>
       <CardHeader>

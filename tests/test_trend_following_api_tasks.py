@@ -26,11 +26,23 @@ class FakeRepository:
     def latest_trade_date(self): return date(2026, 8, 29)
     def available_trade_dates(self): return [date(2026, 8, 29), TRADE_DATE]
     def summary_by_date(self, trade_date):
-        return {"market": self.market, "trade_date": trade_date, "market_regime": "RISK_ON", "market_score": 80}
+        return {
+            "market": self.market, "trade_date": trade_date, "market_regime": "RISK_ON",
+            "market_score": 80, "suggested_max_exposure": 0.5,
+        }
     def snapshots_by_date(self, trade_date, *, sort_by, limit):
         return [{"code": "AAPL.US", "trade_date": trade_date, "alpha_score": 80}]
     def candidates_by_date(self, trade_date, *, limit):
         return [{"code": "AAPL.US", "trade_date": trade_date, "state": "ENTRY"}]
+    def positions_by_date(self, trade_date):
+        return [{
+            "code": "AAPL.US", "name": "Apple", "trade_date": trade_date,
+            "state": "HOLDING", "action": "HOLD", "pending_action": None,
+            "units": 2, "suggested_initial_weight": 0.03, "suggested_max_weight": 0.1,
+            "entry_price": 180.0, "reference_price": 195.0, "opened_at": date(2026, 8, 20),
+            "initial_stop": 172.0, "trailing_stop": 188.0, "next_add_price": 198.0,
+            "exit_level": 188.0, "alpha_score": 82.5,
+        }]
     def snapshot_history(self, code, *, limit, as_of=None):
         rows = [
             {"code": code, "name": "Apple", "trade_date": date(2026, 8, 29), "state": "HOLDING"},
@@ -56,6 +68,29 @@ def test_snapshot_api_contracts(monkeypatch):
     assert all(item["trade_date"] <= "2026-08-28" for item in detail["history"])
     latest = asyncio.run(trend_following.detail("AAPL.US", 60, None, user, "US"))
     assert latest["latest"]["trade_date"] == "2026-08-29"
+
+
+def test_portfolio_rebuilds_theoretical_positions_for_requested_date(monkeypatch):
+    calls = []
+    monkeypatch.setattr(trend_following, "TrendFollowingRepository", FakeRepository)
+    monkeypatch.setattr(
+        trend_following,
+        "theoretical_position_weight",
+        lambda units, unit_weight, max_weight: calls.append((units, unit_weight, max_weight)) or 0.06,
+    )
+
+    payload = asyncio.run(trend_following.portfolio(TRADE_DATE, SimpleNamespace(id=1), "US"))
+
+    assert payload["market"] == "US"
+    assert payload["trade_date"] == "2026-08-28"
+    assert payload["market_regime"] == "RISK_ON"
+    assert payload["max_exposure"] == 0.5
+    assert payload["current_exposure"] == 0.06
+    assert payload["remaining_exposure"] == 0.44
+    assert payload["position_count"] == 1
+    assert payload["positions"][0]["code"] == "AAPL.US"
+    assert payload["positions"][0]["position_weight"] == 0.06
+    assert calls == [(2, 0.03, 0.1)]
 
 
 def test_ranking_reuses_previous_snapshots_for_daily_changes(monkeypatch):

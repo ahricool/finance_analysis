@@ -5,6 +5,7 @@ import type {
   TrendDatesResponse,
   TrendDetailResponse,
   TrendMarket,
+  TrendPortfolioResponse,
   TrendRankingResponse,
   TrendRunAccepted,
 } from '@/types/trendFollowing';
@@ -18,6 +19,12 @@ export const trendFollowingApi = {
   },
   async candidates(market: TrendMarket, tradeDate?: string): Promise<TrendCandidatesResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/candidates', {
+      params: { market, ...(tradeDate ? { trade_date: tradeDate } : {}) },
+    });
+    return toCamelCase(data);
+  },
+  async portfolio(market: TrendMarket, tradeDate?: string): Promise<TrendPortfolioResponse> {
+    const { data } = await apiClient.get('/api/v1/trend-following/portfolio', {
       params: { market, ...(tradeDate ? { trade_date: tradeDate } : {}) },
     });
     return toCamelCase(data);

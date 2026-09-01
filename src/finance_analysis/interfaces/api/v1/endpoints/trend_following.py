@@ -12,7 +12,10 @@ from fastapi.encoders import jsonable_encoder
 from finance_analysis.database.models.user import User
 from finance_analysis.database.repositories.trend_following import TrendFollowingRepository
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
-from finance_analysis.interfaces.api.v1.schemas.trend_following import TrendFollowingRunRequest
+from finance_analysis.interfaces.api.v1.schemas.trend_following import (
+    TrendFollowingPortfolioResponse,
+    TrendFollowingRunRequest,
+)
 from finance_analysis.tasks.celery.schedule import (
     JOB_TREND_FOLLOWING_CN,
     JOB_TREND_FOLLOWING_US,
@@ -20,6 +23,7 @@ from finance_analysis.tasks.celery.schedule import (
     require_scheduled_task_definition,
 )
 from finance_analysis.trend_following.config import DEFAULT_CONFIG
+from finance_analysis.trend_following.risk import theoretical_position_weight
 from finance_analysis.trend_following.universe import universe_by_code
 
 router = APIRouter()
@@ -175,6 +179,55 @@ async def candidates(
         "trade_date": resolved,
         "summary": repository.summary_by_date(resolved),
         "items": repository.candidates_by_date(resolved, limit=limit),
+    })
+
+
+@router.get("/portfolio", response_model=TrendFollowingPortfolioResponse)
+async def portfolio(
+    trade_date: date | None = None,
+    _: User = Depends(require_current_user),
+    market: Market = "CN",
+):
+    repository = TrendFollowingRepository(market)
+    resolved = _resolve_date(repository, trade_date)
+    summary = repository.summary_by_date(resolved)
+    if summary is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Trend Following summary not found for {resolved}")
+    positions = []
+    for row in repository.positions_by_date(resolved):
+        unit_weight = float(row.get("suggested_initial_weight") or 0.0)
+        max_weight = float(row.get("suggested_max_weight") or 0.0)
+        position_weight = theoretical_position_weight(row.get("units"), unit_weight, max_weight)
+        positions.append({
+            "code": row["code"],
+            "name": row.get("name") or row["code"],
+            "state": row["state"],
+            "action": row["action"],
+            "pending_action": row.get("pending_action"),
+            "units": int(row["units"]),
+            "unit_weight": unit_weight,
+            "position_weight": position_weight,
+            "max_weight": max_weight,
+            "entry_price": row.get("entry_price"),
+            "reference_price": row["reference_price"],
+            "opened_at": row.get("opened_at"),
+            "initial_stop": row.get("initial_stop"),
+            "trailing_stop": row.get("trailing_stop"),
+            "next_add_price": row.get("next_add_price"),
+            "exit_level": row.get("exit_level"),
+            "alpha_score": row["alpha_score"],
+        })
+    max_exposure = float(summary["suggested_max_exposure"])
+    current_exposure = sum(item["position_weight"] for item in positions)
+    return jsonable_encoder({
+        "market": market,
+        "trade_date": resolved,
+        "market_regime": summary["market_regime"],
+        "max_exposure": max_exposure,
+        "current_exposure": current_exposure,
+        "remaining_exposure": max(0.0, max_exposure - current_exposure),
+        "position_count": len(positions),
+        "positions": positions,
     })
 
 
