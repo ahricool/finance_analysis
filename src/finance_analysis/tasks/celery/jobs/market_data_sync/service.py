@@ -69,10 +69,6 @@ class MarketDataSyncService:
                 return self._summarize([], 0)
             raise MarketDataSyncError(f"No enabled daily symbols in the {self.market} synchronization scope")
         full_days = self._refresh_days(self.config.market_data_initial_daily_days)
-        latest_completed_day = full_days[-1]
-        retention_cutoff = latest_completed_day - timedelta(days=self.config.market_data_retention_daily_days - 1)
-        symbol_ids = [symbol.id for symbol in symbols]
-        deleted_daily_rows = int(self.stock_repository.delete_daily_before_symbols(symbol_ids, retention_cutoff) or 0)
         daily_days_by_code: dict[str, list[date]] = {}
         for symbol in symbols:
             has_history = self.stock_repository.has_daily_data(symbol.id) if self.sync_mode == "incremental" else False
@@ -84,14 +80,12 @@ class MarketDataSyncService:
             daily_days_by_code[symbol.code] = self._refresh_days(natural_days)
         logger.info(
             "market=%s job=market_data_sync sync_mode=%s symbol_count=%s initial_days=%s refresh_days=%s "
-            "retention_days=%s deleted_daily_rows=%s adjustment=forward",
+            "adjustment=forward",
             self.market,
             self.sync_mode,
             len(symbols),
             self.config.market_data_initial_daily_days,
             self.config.market_data_refresh_daily_days,
-            self.config.market_data_retention_daily_days,
-            deleted_daily_rows,
         )
         daily_results = self._sync_daily_batch_groups(symbols, daily_days_by_code, full_days=full_days)
         results = [
@@ -104,7 +98,6 @@ class MarketDataSyncService:
         summary = self._summarize(
             results,
             len(symbols),
-            deleted_daily_rows=deleted_daily_rows,
         )
         summary.update(
             {
@@ -234,6 +227,7 @@ class MarketDataSyncService:
 
         results: dict[str, DailyResult] = {}
         automatic_full_symbols: list[Any] = []
+        replace_fetched_history = getattr(self, "sync_mode", "incremental") == "full"
         for (start_date, end_date), grouped_symbols in groups.items():
             codes = [symbol.code for symbol in grouped_symbols]
             logger.info(
@@ -276,7 +270,12 @@ class MarketDataSyncService:
                         symbol.code,
                     )
                     continue
-                results[symbol.code] = self._persist_daily_result(symbol, requested_days, routed)
+                results[symbol.code] = self._persist_daily_result(
+                    symbol,
+                    requested_days,
+                    routed,
+                    replace_history=replace_fetched_history,
+                )
 
         if automatic_full_symbols and full_days:
             codes = [symbol.code for symbol in automatic_full_symbols]
@@ -295,7 +294,7 @@ class MarketDataSyncService:
                 )
                 routed = BatchBarResult(failed_symbols={code: str(exc) for code in codes})
             for symbol in automatic_full_symbols:
-                result = self._persist_daily_result(symbol, full_days, routed)
+                result = self._persist_daily_result(symbol, full_days, routed, replace_history=True)
                 result.automatic_full_refresh = True
                 results[symbol.code] = result
         return results
@@ -325,6 +324,8 @@ class MarketDataSyncService:
         symbol: Any,
         requested_days: list[date],
         routed: BatchBarResult,
+        *,
+        replace_history: bool = False,
     ) -> DailyResult:
         try:
             bars = routed.data.get(symbol.code, [])
@@ -356,12 +357,16 @@ class MarketDataSyncService:
                         "vwap_quality": "missing",
                     }
                 )
-            stats = self.stock_repository.upsert_daily(symbol.id, rows, provider)
+            if replace_history:
+                stats = self.stock_repository.replace_daily_history(symbol.id, rows, provider)
+            else:
+                stats = self.stock_repository.upsert_daily(symbol.id, rows, provider)
             missing = sorted(set(requested_days).difference(bar.trade_date for bar in bars))
             return DailyResult(
                 status="partial" if missing else "success",
                 inserted_rows=stats.inserted_rows,
                 updated_rows=stats.updated_rows,
+                deleted_rows=getattr(stats, "deleted_rows", 0),
                 providers=[provider],
                 missing_amount=any(bar.amount is None for bar in bars),
                 vwap_qualities={"missing"},
@@ -376,8 +381,6 @@ class MarketDataSyncService:
         self,
         results: list[SymbolResult],
         symbol_count: int,
-        *,
-        deleted_daily_rows: int = 0,
     ) -> dict[str, Any]:
         statuses = {result.code: result.daily.status for result in results}
         fallback_reasons = [
@@ -425,7 +428,7 @@ class MarketDataSyncService:
             ),
             "unsupported_symbol_count": len(self.unsupported_symbols),
             "unsupported_symbols": self.unsupported_symbols,
-            "deleted_daily_rows": deleted_daily_rows,
+            "deleted_daily_rows": sum(result.daily.deleted_rows for result in results),
             "failure_count": len(failures),
             "failures": failures[:MAX_RESULT_ITEMS],
             "failures_truncated": len(failures) > MAX_RESULT_ITEMS,

@@ -52,7 +52,9 @@ def upgrade() -> None:
                     high = high * ({factor}),
                     low = low * ({factor}),
                     close = close * ({factor}),
-                    vwap = CASE WHEN vwap IS NULL THEN NULL ELSE vwap * ({factor}) END
+                    vwap = CASE WHEN vwap IS NULL THEN NULL ELSE vwap * ({factor}) END,
+                    limit_up = CASE WHEN limit_up IS NULL THEN NULL ELSE limit_up * ({factor}) END,
+                    limit_down = CASE WHEN limit_down IS NULL THEN NULL ELSE limit_down * ({factor}) END
                 WHERE EXISTS ({factor})
                 """
             )

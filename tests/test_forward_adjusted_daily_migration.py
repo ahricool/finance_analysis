@@ -50,7 +50,7 @@ def test_migration_converts_existing_ohlc_once_and_removes_legacy_indirection() 
         connection.execute(
             text(
                 "CREATE TABLE stock_daily (id INTEGER PRIMARY KEY, symbol_id INTEGER NOT NULL, date DATE NOT NULL, "
-                "open FLOAT, high FLOAT, low FLOAT, close FLOAT, vwap FLOAT)"
+                "open FLOAT, high FLOAT, low FLOAT, close FLOAT, vwap FLOAT, limit_up FLOAT, limit_down FLOAT)"
             )
         )
         connection.execute(
@@ -65,8 +65,12 @@ def test_migration_converts_existing_ohlc_once_and_removes_legacy_indirection() 
         connection.execute(
             text("CREATE TABLE backtest_run (id INTEGER PRIMARY KEY, price_mode VARCHAR(16), status VARCHAR(16))")
         )
-        connection.execute(text("INSERT INTO stock_daily VALUES (1, 9, '2026-07-17', 100, 102, 98, 100, 99)"))
-        connection.execute(text("INSERT INTO stock_daily VALUES (2, 10, '2026-07-17', 20, 21, 19, 20, NULL)"))
+        connection.execute(
+            text("INSERT INTO stock_daily VALUES (1, 9, '2026-07-17', 100, 102, 98, 100, 99, 110, 90)")
+        )
+        connection.execute(
+            text("INSERT INTO stock_daily VALUES (2, 10, '2026-07-17', 20, 21, 19, 20, NULL, NULL, NULL)")
+        )
         connection.execute(text("INSERT INTO stock_adjustment_factor VALUES (1, 9, '2026-07-17', 0.5)"))
         connection.execute(text("INSERT INTO quant_dataset_snapshot VALUES (1, 'forward_adjusted', 'ready')"))
         connection.execute(text("INSERT INTO backtest_run VALUES (1, 'raw', 'completed')"))
@@ -75,8 +79,8 @@ def test_migration_converts_existing_ohlc_once_and_removes_legacy_indirection() 
         migration.upgrade()
 
         assert connection.execute(
-            text("SELECT open, high, low, close, vwap FROM stock_daily WHERE id = 1")
-        ).one() == (50.0, 51.0, 49.0, 50.0, 49.5)
+            text("SELECT open, high, low, close, vwap, limit_up, limit_down FROM stock_daily WHERE id = 1")
+        ).one() == (50.0, 51.0, 49.0, 50.0, 49.5, 55.0, 45.0)
         assert connection.execute(text("SELECT count(*) FROM stock_daily")).scalar_one() == 1
         assert "stock_adjustment_factor" not in inspect(connection).get_table_names()
         assert "price_mode" not in {item["name"] for item in inspect(connection).get_columns("quant_dataset_snapshot")}

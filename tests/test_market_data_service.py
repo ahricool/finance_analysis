@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
@@ -5,6 +6,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from finance_analysis.database.repositories.stock import StockRepository
 from finance_analysis.integrations.market_data.config import DataProviderConfig, provider_order
 from finance_analysis.integrations.market_data.models import (
     Adjustment,
@@ -339,13 +341,26 @@ def test_sync_treats_zero_amount_as_missing_vwap():
 
 
 class _DailyUpsertRepository:
-    def __init__(self, stored_closes=None) -> None:
+    def __init__(self, stored_closes=None, histories=None) -> None:
         self.persisted: dict[int, tuple[list[dict], str]] = {}
         self.stored_closes = stored_closes or {}
+        self.histories = {symbol_id: dict(rows) for symbol_id, rows in (histories or {}).items()}
+        self.upserted_symbol_ids = []
+        self.replaced_symbol_ids = []
 
     def upsert_daily(self, symbol_id, rows, source):
+        self.upserted_symbol_ids.append(symbol_id)
         self.persisted[symbol_id] = (rows, source)
+        history = self.histories.setdefault(symbol_id, {})
+        history.update({row["date"]: row for row in rows})
         return SimpleNamespace(inserted_rows=len(rows), updated_rows=0)
+
+    def replace_daily_history(self, symbol_id, rows, source):
+        self.replaced_symbol_ids.append(symbol_id)
+        self.persisted[symbol_id] = (rows, source)
+        deleted_rows = len(self.histories.get(symbol_id, {}))
+        self.histories[symbol_id] = {row["date"]: row for row in rows}
+        return SimpleNamespace(inserted_rows=len(rows), updated_rows=0, deleted_rows=deleted_rows)
 
     def daily_closes(self, symbol_id, start_date, end_date):
         return {
@@ -389,6 +404,7 @@ def test_cn_daily_batches_ten_symbols_with_same_window_in_one_service_call():
     assert tickflow.requests[0].symbols == tuple(symbol.code for symbol in symbols)
     assert all(result.status == "success" for result in results.values())
     assert len(service.stock_repository.persisted) == 10
+    assert service.stock_repository.replaced_symbol_ids == []
 
 
 def test_us_daily_batches_ten_symbols_with_same_window_in_one_service_call():
@@ -461,8 +477,10 @@ def test_incremental_scale_change_upgrades_only_affected_symbol_to_full_refresh(
 
     service = _batch_sync_service(SimpleNamespace(get_daily_bars=get_daily_bars))
     service.sync_mode = "incremental"
+    old_day = date(2019, 1, 2)
     service.stock_repository = _DailyUpsertRepository(
-        {symbol.id: {day: 100.0 for day in incremental_days}}
+        {symbol.id: {day: 100.0 for day in incremental_days}},
+        {symbol.id: {old_day: {"date": old_day}}},
     )
 
     result = service._sync_daily_batch_groups(
@@ -474,7 +492,10 @@ def test_incremental_scale_change_upgrades_only_affected_symbol_to_full_refresh(
     assert len(calls) == 2
     assert calls[1][1:3] == (full_days[0], full_days[-1])
     assert result.automatic_full_refresh is True
+    assert service.stock_repository.upserted_symbol_ids == []
+    assert service.stock_repository.replaced_symbol_ids == [symbol.id]
     assert [row["date"] for row in service.stock_repository.persisted[symbol.id][0]] == full_days
+    assert set(service.stock_repository.histories[symbol.id]) == set(full_days)
 
 
 def test_incremental_ordinary_price_correction_does_not_trigger_full_refresh():
@@ -498,8 +519,10 @@ def test_incremental_ordinary_price_correction_does_not_trigger_full_refresh():
 
     service = _batch_sync_service(SimpleNamespace(get_daily_bars=get_daily_bars), market="US")
     service.sync_mode = "incremental"
+    old_day = date(2020, 1, 2)
     service.stock_repository = _DailyUpsertRepository(
-        {symbol.id: {day: 100.0 for day in incremental_days}}
+        {symbol.id: {day: 100.0 for day in incremental_days}},
+        {symbol.id: {old_day: {"date": old_day}}},
     )
 
     result = service._sync_daily_batch_groups(
@@ -510,7 +533,128 @@ def test_incremental_ordinary_price_correction_does_not_trigger_full_refresh():
 
     assert len(calls) == 1
     assert result.automatic_full_refresh is False
+    assert service.stock_repository.upserted_symbol_ids == [symbol.id]
+    assert service.stock_repository.replaced_symbol_ids == []
     assert [row["date"] for row in service.stock_repository.persisted[symbol.id][0]] == incremental_days
+    assert old_day in service.stock_repository.histories[symbol.id]
+
+
+def test_automatic_full_partial_fetch_replaces_history_without_leaving_old_dates():
+    symbol = SimpleNamespace(id=1, code="600000.SH")
+    incremental_days = [date(2025, 1, day) for day in (2, 3, 6, 7)]
+    full_days = [date(2020, 1, 2), *incremental_days]
+    returned_full_days = [full_days[0], *incremental_days[:-1]]
+    stale_day = date(2022, 6, 1)
+
+    def get_daily_bars(codes, start_date, end_date, *, adjustment):
+        days = returned_full_days if start_date == full_days[0] else incremental_days
+        closes = [90.0] * len(days)
+        return BatchBarResult(
+            data={
+                symbol.code: [
+                    replace(_bar_on(symbol.code, "tickflow", day), close=close)
+                    for day, close in zip(days, closes)
+                ]
+            },
+            providers_used={symbol.code: "tickflow"},
+        )
+
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=get_daily_bars))
+    service.sync_mode = "incremental"
+    service.stock_repository = _DailyUpsertRepository(
+        {symbol.id: {day: 100.0 for day in incremental_days}},
+        {symbol.id: {stale_day: {"date": stale_day}}},
+    )
+
+    result = service._sync_daily_batch_groups(
+        [symbol],
+        {symbol.code: incremental_days},
+        full_days=full_days,
+    )[symbol.code]
+
+    assert result.status == "partial"
+    assert result.automatic_full_refresh is True
+    assert set(service.stock_repository.histories[symbol.id]) == set(returned_full_days)
+    assert stale_day not in service.stock_repository.histories[symbol.id]
+
+
+def test_full_replaces_successful_symbols_and_preserves_failed_symbol_history():
+    successful = SimpleNamespace(id=1, code="600000.SH")
+    failed = SimpleNamespace(id=2, code="000001.SZ")
+    symbols = [successful, failed]
+    full_days = [date(2020, 1, 2), date(2025, 1, 2)]
+    successful_old_day = date(2018, 1, 2)
+    failed_old_day = date(2019, 1, 2)
+
+    routed = BatchBarResult(
+        data={
+            successful.code: [
+                _bar_on(successful.code, "tickflow", day)
+                for day in full_days
+            ]
+        },
+        providers_used={successful.code: "tickflow"},
+        failed_symbols={failed.code: "tickflow: timeout"},
+    )
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed))
+    service.sync_mode = "full"
+    service.stock_repository = _DailyUpsertRepository(
+        histories={
+            successful.id: {successful_old_day: {"date": successful_old_day}},
+            failed.id: {failed_old_day: {"date": failed_old_day}},
+        }
+    )
+
+    results = service._sync_daily_batch_groups(
+        symbols,
+        {symbol.code: full_days for symbol in symbols},
+        full_days=full_days,
+    )
+
+    assert results[successful.code].status == "success"
+    assert results[failed.code].status == "failed"
+    assert service.stock_repository.replaced_symbol_ids == [successful.id]
+    assert service.stock_repository.upserted_symbol_ids == []
+    assert set(service.stock_repository.histories[successful.id]) == set(full_days)
+    assert service.stock_repository.histories[failed.id] == {failed_old_day: {"date": failed_old_day}}
+
+
+def test_replace_daily_history_uses_one_transaction_for_delete_and_insert():
+    statements = []
+    transactions = []
+
+    class _Session:
+        def execute(self, statement, *_args):
+            statements.append(statement)
+            return SimpleNamespace(rowcount=3)
+
+    class _Database:
+        @contextmanager
+        def session_scope(self):
+            transactions.append("begin")
+            yield _Session()
+            transactions.append("commit")
+
+    repository = StockRepository(_Database())
+    rows = [
+        {
+            "date": date(2025, 1, 2),
+            "open": 10.0,
+            "high": 11.0,
+            "low": 9.0,
+            "close": 10.5,
+            "volume": 100.0,
+        }
+    ]
+
+    stats = repository.replace_daily_history(1, rows, "tickflow")
+
+    assert transactions == ["begin", "commit"]
+    assert len(statements) == 2
+    assert str(statements[0]).startswith("DELETE FROM stock_daily")
+    assert str(statements[1]).startswith("INSERT INTO stock_daily")
+    assert stats.inserted_rows == 1
+    assert stats.deleted_rows == 3
 
 
 @pytest.mark.parametrize(
@@ -540,7 +684,6 @@ def test_sync_mode_preserves_sixty_day_incremental_and_five_year_full_windows(sy
     service._refresh_days = refresh_days
     service.stock_repository = SimpleNamespace(
         has_daily_data=lambda _symbol_id: True,
-        delete_daily_before_symbols=lambda *_args: 0,
     )
     service._sync_daily_batch_groups = lambda _symbols, _days, **_kwargs: {
         symbol.code: DailyResult("success", providers=["tickflow"])

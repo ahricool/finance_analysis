@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any, Iterable, Optional, Sequence
 
-from sqlalchemy import desc, func, literal_column, or_, select
+from sqlalchemy import delete, desc, func, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
@@ -34,6 +34,7 @@ def _normalize_security_name(value: str | None) -> str:
 class UpsertStats:
     inserted_rows: int = 0
     updated_rows: int = 0
+    deleted_rows: int = 0
 
     @property
     def affected_rows(self) -> int:
@@ -439,6 +440,19 @@ class StockRepository:
             ),
         )
 
+    def replace_daily_history(self, symbol_id: int, bars: Sequence[dict[str, Any]], source: str) -> UpsertStats:
+        """Atomically replace all daily history for one symbol with fetched bars."""
+        records = self._daily_records(symbol_id, bars, source)
+        if not records:
+            raise ValueError("Refusing to replace daily history with an empty fetch result")
+        with self.db.session_scope() as session:
+            deleted = session.execute(
+                delete(StockDaily).where(StockDaily.symbol_id == symbol_id)
+            )
+            session.execute(StockDaily.__table__.insert(), records)
+            deleted_rows = int(deleted.rowcount or 0)
+        return UpsertStats(inserted_rows=len(records), deleted_rows=deleted_rows)
+
     def upsert_minute(self, symbol_id: int, bars: Sequence[dict[str, Any]], source: str) -> UpsertStats:
         records = self._minute_records(symbol_id, bars, source)
         return self._upsert(
@@ -474,8 +488,6 @@ class StockRepository:
 
     def delete_daily_before(self, symbol_id: int, cutoff_date: date) -> int:
         """Delete expired daily bars for one symbol."""
-        from sqlalchemy import delete
-
         with self.db.session_scope() as session:
             result = session.execute(
                 delete(StockDaily).where(
@@ -487,8 +499,6 @@ class StockRepository:
 
     def delete_daily_before_symbols(self, symbol_ids: Sequence[int], cutoff_date: date) -> int:
         """Delete expired daily bars for the task scope before synchronization."""
-        from sqlalchemy import delete
-
         ids = list(symbol_ids)
         if not ids:
             return 0
