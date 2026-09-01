@@ -59,7 +59,6 @@ def load_ohlcv(
             StockDaily.close,
             StockDaily.volume,
             StockDaily.amount,
-            StockDaily.suspended,
         )
         .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
         .where(
@@ -70,7 +69,7 @@ def load_ohlcv(
         .order_by(MarketDataSymbol.code, StockDaily.date)
     ).all()
     bars: dict[str, list[OhlcvBar]] = defaultdict(list)
-    for code, trade_date, open_, high, low, close, volume, amount, suspended in rows:
+    for code, trade_date, open_, high, low, close, volume, amount in rows:
         bars[str(code)].append(
             OhlcvBar(
                 trade_date=trade_date,
@@ -80,7 +79,7 @@ def load_ohlcv(
                 close=float(close),
                 volume=float(volume),
                 amount=None if amount is None else float(amount),
-                suspended=bool(suspended),
+                suspended=float(volume) <= 0,
             )
         )
     return dict(bars)

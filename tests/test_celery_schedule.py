@@ -204,14 +204,50 @@ def test_market_data_sync_schedules_and_queue():
     assert cn_hk.allow_manual_run is us.allow_manual_run is True
     assert cn_hk.sync_modes == us.sync_modes == ("incremental", "full")
     beat = build_beat_schedule()
-    assert beat["market_data_sync_cn_hk"]["kwargs"]["sync_mode"] == "incremental"
-    assert beat["market_data_sync_us"]["kwargs"]["sync_mode"] == "incremental"
-    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in cn_hk.schedules} == {
-        ("18", "0", "mon-fri", "Asia/Shanghai")
+    assert beat["market_data_sync_cn_hk__0"]["kwargs"]["sync_mode"] == "incremental"
+    assert beat["market_data_sync_cn_hk__1"]["kwargs"]["sync_mode"] == "full"
+    assert beat["market_data_sync_us__0"]["kwargs"]["sync_mode"] == "incremental"
+    assert beat["market_data_sync_us__1"]["kwargs"]["sync_mode"] == "full"
+    assert {
+        (item.hour, item.minute, item.day_of_week, item.day_of_month, item.timezone, item.sync_mode)
+        for item in cn_hk.schedules
+    } == {
+        ("18", "0", "mon-fri", "*", "Asia/Shanghai", "incremental"),
+        ("10", "0", "sun", "1-7", "Asia/Shanghai", "full"),
     }
-    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in us.schedules} == {
-        ("20", "0", "mon-fri", "America/New_York")
+    assert {
+        (item.hour, item.minute, item.day_of_week, item.day_of_month, item.timezone, item.sync_mode)
+        for item in us.schedules
+    } == {
+        ("20", "0", "mon-fri", "*", "America/New_York", "incremental"),
+        ("10", "0", "sun", "1-7", "America/New_York", "full"),
     }
+    assert cn_hk.schedule_text == "周一至周五 18:00 增量；每月第一个周日 10:00 全量（Asia/Shanghai）"
+    assert us.schedule_text == "周一至周五 20:00 增量；每月第一个周日 10:00 全量（America/New_York）"
+
+
+def test_market_data_full_beat_crons_fire_only_on_the_first_sunday_of_each_month():
+    beat = build_beat_schedule()
+    cn_full = beat["market_data_sync_cn_hk__1"]["schedule"]
+    us_full = beat["market_data_sync_us__1"]["schedule"]
+
+    for schedule, timezone_name in ((cn_full, "Asia/Shanghai"), (us_full, "America/New_York")):
+        assert schedule.minute == {0}
+        assert schedule.hour == {10}
+        assert schedule.day_of_week == {0}
+        assert schedule.day_of_month == set(range(1, 8))
+        assert schedule.tz_name == timezone_name
+
+    assert next_run_for_crontab(
+        cn_full,
+        "Asia/Shanghai",
+        after=datetime(2026, 9, 6, 2, 1, tzinfo=timezone.utc),
+    ) == datetime(2026, 10, 4, 2, 0, tzinfo=timezone.utc)
+    assert next_run_for_crontab(
+        us_full,
+        "America/New_York",
+        after=datetime(2026, 9, 6, 14, 1, tzinfo=timezone.utc),
+    ) == datetime(2026, 10, 4, 14, 0, tzinfo=timezone.utc)
 
 
 def test_cn_quant_runs_one_hour_after_cn_daily_sync_on_analysis_queue():

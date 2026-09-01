@@ -14,8 +14,8 @@ describe('main navigation', () => {
       ],
     });
     expect(mainNavItems.find((item) => item.key === 'research')).toMatchObject({
+      to: '/market/quant',
       children: [
-        { key: 'backtest', to: '/market/backtests', activePathPrefix: '/market/backtests' },
         { key: 'quant', to: '/market/quant', activePathPrefix: '/market/quant' },
       ],
     });
@@ -24,7 +24,6 @@ describe('main navigation', () => {
       'watch-list',
       'holdings',
       'signals',
-      'backtest',
       'quant',
       'calendar',
       'chat',

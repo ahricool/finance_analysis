@@ -82,7 +82,6 @@ def test_cn_sync_scope_registers_static_strategy_members_as_enabled() -> None:
         "CN",
         symbol_repository=symbol_repository,
         stock_repository=MagicMock(),
-        adjustment_repository=MagicMock(),
         scope_resolver=MarketDataScopeResolver(watchlist),
         market_data_service=market_data,
     )

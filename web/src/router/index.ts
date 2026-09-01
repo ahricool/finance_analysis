@@ -17,8 +17,6 @@ const ResearchPage = () => import('@/pages/ResearchPage.vue');
 const MarketWatchListPage = () => import('@/pages/WatchListPage.vue');
 const MarketHoldingsPage = () => import('@/pages/StockListPage.vue');
 const SignalEvaluationPage = () => import('@/pages/market/SignalEvaluationPage.vue');
-const BacktestPage = () => import('@/pages/market/BacktestPage.vue');
-const BacktestDetailPage = () => import('@/pages/market/BacktestDetailPage.vue');
 const QuantPage = () => import('@/pages/market/QuantPage.vue');
 const QuantDashboardPage = () => import('@/pages/market/quant/QuantDashboardPage.vue');
 const QuantSignalsPage = () => import('@/pages/market/quant/QuantSignalsPage.vue');
@@ -77,12 +75,6 @@ const router = createRouter({
           meta: { title: '研究' },
           children: [
             {
-              path: 'backtests',
-              name: 'market-backtests',
-              component: BacktestPage,
-              meta: { title: '策略回测' },
-            },
-            {
               path: 'quant',
               component: QuantPage,
               meta: { title: '量化研究' },
@@ -109,12 +101,6 @@ const router = createRouter({
               meta: { title: '趋势跟踪' },
             },
           ],
-        },
-        {
-          path: 'market/backtests/:runId',
-          name: 'market-backtest-detail',
-          component: BacktestDetailPage,
-          meta: { title: '回测详情' },
         },
         { path: 'calendar', name: 'calendar', component: CalendarPage, meta: { title: '日历记录' } },
         { path: 'profile', redirect: { name: 'profile-info' }, meta: { title: '个人中心' } },

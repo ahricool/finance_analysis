@@ -93,7 +93,6 @@ def _dataset(identifier: int, status: str = "ready") -> QuantDatasetSnapshot:
         frequency="day",
         date_from=date(2025, 1, 1),
         date_to=date(2025, 12, 31),
-        price_mode="forward_adjusted",
         feature_version="v1",
         source_revision=f"revision-{identifier}",
         artifact_uri=f"quant://datasets/{identifier}",

@@ -1,4 +1,4 @@
-"""Market regime computed only from raw benchmark and universe bars."""
+"""Market regime computed only from canonical benchmark and universe daily bars."""
 
 from __future__ import annotations
 

@@ -23,7 +23,6 @@ from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.markets import get_quant_universe_codes
 from finance_analysis.quant.models import QLIB_TRAINABLE_MODEL_KEYS
-from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
 from finance_analysis.tasks.celery.schedule import QUEUE_ANALYSIS
 
 router = APIRouter()
@@ -82,7 +81,6 @@ def _dataset_payload(row) -> dict:
         "trainable": (
             row.status == "ready"
             and bool(row.artifact_uri)
-            and row.price_mode == DEFAULT_QUANT_PRICE_MODE.value
             and coverage_ratio >= minimum_coverage
         ),
     }
@@ -310,11 +308,6 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
         raise HTTPException(409, "Model run, universe, and dataset market must match")
     if dataset.status != "ready":
         raise HTTPException(409, "Dataset is not ready")
-    if dataset.price_mode != DEFAULT_QUANT_PRICE_MODE.value:
-        raise HTTPException(
-            409,
-            f"Production training requires dataset price_mode={DEFAULT_QUANT_PRICE_MODE.value}",
-        )
     universe_members = len(get_quant_universe_codes(market))
     coverage_ratio = int(dataset.symbol_count or 0) / universe_members if universe_members else 0.0
     minimum_coverage = get_quant_config().minimum_universe_coverage

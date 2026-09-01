@@ -16,9 +16,9 @@ vi.mock('@/api/quant', () => ({
 }));
 
 const capability = {
-  status: 'degraded', market: 'US', pythonVersion: '3.13', priceModes: ['raw'], markets: { US: 'available', CN: 'available' },
+  status: 'degraded', market: 'US', pythonVersion: '3.13', dailyPriceSemantics: 'forward_adjusted', markets: { US: 'available', CN: 'available' },
   qlib: { status: 'configured', version: '0.9.7', execution: 'celery_queue', reason: null },
-  models: { status: 'unavailable', required: {} }, adjustedPrices: { status: 'unavailable', reason: 'raw' }, warnings: [],
+  models: { status: 'unavailable', required: {} }, warnings: [],
 };
 
 async function mountMarket(path: string) {

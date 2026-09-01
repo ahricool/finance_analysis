@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Repositories for canonical symbols and raw historical market data."""
+"""Repositories for canonical symbols and historical market data."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any, Iterable, Optional, Sequence
 
-from sqlalchemy import desc, func, literal_column, or_, select
+from sqlalchemy import delete, desc, func, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
@@ -34,6 +34,7 @@ def _normalize_security_name(value: str | None) -> str:
 class UpsertStats:
     inserted_rows: int = 0
     updated_rows: int = 0
+    deleted_rows: int = 0
 
     @property
     def affected_rows(self) -> int:
@@ -165,7 +166,6 @@ class MarketDataSymbolRepository:
             stmt = pg_insert(MarketDataSymbol).values(records)
             update_values = {
                 "name": stmt.excluded.name,
-                "lot_size": func.coalesce(stmt.excluded.lot_size, MarketDataSymbol.lot_size),
                 "updated_at": stmt.excluded.updated_at,
             }
             if overwrite_runtime_flags:
@@ -209,7 +209,6 @@ class MarketDataSymbolRepository:
                 "enabled": bool(item.get("enabled", True)),
                 "sync_daily": bool(item.get("sync_daily", True)),
                 "sync_minute": bool(item.get("sync_minute", True)),
-                "lot_size": item.get("lot_size"),
                 "created_at": now,
                 "updated_at": now,
             }
@@ -217,7 +216,7 @@ class MarketDataSymbolRepository:
 
 
 class StockRepository:
-    """Raw-bar queries and deterministic PostgreSQL batch UPSERTs."""
+    """Provider bar queries and deterministic PostgreSQL batch UPSERTs."""
 
     def __init__(self, db_manager=None):
         if db_manager is None:
@@ -402,6 +401,18 @@ class StockRepository:
                 ).scalars().all()
             )
 
+    def daily_closes(self, symbol_id: int, start_date: date, end_date: date) -> dict[date, float]:
+        """Return stored closes for overlap checks during incremental synchronization."""
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(StockDaily.date, StockDaily.close).where(
+                    StockDaily.symbol_id == symbol_id,
+                    StockDaily.date >= start_date,
+                    StockDaily.date <= end_date,
+                )
+            ).all()
+        return {trade_date: float(close) for trade_date, close in rows if close is not None}
+
     def minute_times(self, symbol_id: int, start_time: datetime, end_time: datetime) -> set[datetime]:
         with self.db.get_session() as session:
             return set(
@@ -421,11 +432,22 @@ class StockRepository:
             records,
             "uix_stock_daily_symbol_date",
             (
-                "open", "high", "low", "close", "volume", "amount", "vwap", "vwap_source", "vwap_quality",
-                "limit_up", "limit_down", "suspended",
-                "data_source", "updated_at",
+                "open", "high", "low", "close", "volume", "amount", "data_source", "updated_at",
             ),
         )
+
+    def replace_daily_history(self, symbol_id: int, bars: Sequence[dict[str, Any]], source: str) -> UpsertStats:
+        """Atomically replace all daily history for one symbol with fetched bars."""
+        records = self._daily_records(symbol_id, bars, source)
+        if not records:
+            raise ValueError("Refusing to replace daily history with an empty fetch result")
+        with self.db.session_scope() as session:
+            deleted = session.execute(
+                delete(StockDaily).where(StockDaily.symbol_id == symbol_id)
+            )
+            session.execute(StockDaily.__table__.insert(), records)
+            deleted_rows = int(deleted.rowcount or 0)
+        return UpsertStats(inserted_rows=len(records), deleted_rows=deleted_rows)
 
     def upsert_minute(self, symbol_id: int, bars: Sequence[dict[str, Any]], source: str) -> UpsertStats:
         records = self._minute_records(symbol_id, bars, source)
@@ -450,10 +472,6 @@ class StockRepository:
                 "date": row["date"],
                 "open": row["open"], "high": row["high"], "low": row["low"], "close": row["close"],
                 "volume": row["volume"], "amount": row.get("amount"),
-                "vwap": row.get("vwap"), "vwap_source": row.get("vwap_source"),
-                "vwap_quality": row.get("vwap_quality"),
-                "limit_up": row.get("limit_up"), "limit_down": row.get("limit_down"),
-                "suspended": bool(row.get("suspended", False)),
                 "data_source": source,
                 "created_at": now, "updated_at": now,
             }
@@ -461,9 +479,7 @@ class StockRepository:
         ]
 
     def delete_daily_before(self, symbol_id: int, cutoff_date: date) -> int:
-        """Delete expired raw bars for one symbol."""
-        from sqlalchemy import delete
-
+        """Delete expired daily bars for one symbol."""
         with self.db.session_scope() as session:
             result = session.execute(
                 delete(StockDaily).where(
@@ -474,9 +490,7 @@ class StockRepository:
             return int(result.rowcount or 0)
 
     def delete_daily_before_symbols(self, symbol_ids: Sequence[int], cutoff_date: date) -> int:
-        """Delete expired raw bars for the task scope before synchronization."""
-        from sqlalchemy import delete
-
+        """Delete expired daily bars for the task scope before synchronization."""
         ids = list(symbol_ids)
         if not ids:
             return 0

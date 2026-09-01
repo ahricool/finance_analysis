@@ -5,11 +5,10 @@ export interface QuantCapabilities {
   status: CapabilityState;
   market: QuantMarket;
   pythonVersion: string;
-  priceModes: string[];
+  dailyPriceSemantics: 'forward_adjusted';
   markets: Record<string, CapabilityState>;
   qlib: { status: CapabilityState; version: string; execution: string; reason: string | null };
   models: { status: CapabilityState; required: Record<string, 'production' | 'unavailable'> };
-  adjustedPrices: { status: CapabilityState; reason: string };
   warnings: string[];
 }
 
@@ -47,7 +46,6 @@ export interface QuantDatasetSnapshot {
   market: QuantMarket;
   dateFrom: string;
   dateTo: string;
-  priceMode: string;
   featureVersion: string;
   artifactUri: string | null;
   rowCount: number;

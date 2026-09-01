@@ -1,4 +1,4 @@
-"""Yahoo Finance provider for raw bars, actions, quotes, indices, and metadata."""
+"""Yahoo Finance provider for forward-adjusted daily bars, quotes, indices, and metadata."""
 
 from __future__ import annotations
 
@@ -9,13 +9,9 @@ import pandas as pd
 
 from finance_analysis.integrations.market_data.models import (
     Adjustment,
-    AdjustmentFactor,
-    AdjustmentRequest,
-    AdjustmentResult,
     BatchBarResult,
     BatchInstrumentResult,
     BatchQuoteResult,
-    CorporateAction,
     DailyBarsRequest,
     InstrumentInfo,
     InstrumentRequest,
@@ -75,13 +71,13 @@ class YFinanceProvider:
         return pd.DataFrame()
 
     @staticmethod
-    def _download(symbols: list[str], **kwargs: Any) -> pd.DataFrame:
+    def _download(symbols: list[str], *, auto_adjust: bool = False, **kwargs: Any) -> pd.DataFrame:
         import yfinance as yf
 
         return yf.download(
             tickers=symbols,
             progress=False,
-            auto_adjust=False,
+            auto_adjust=auto_adjust,
             prepost=False,
             group_by="ticker",
             multi_level_index=True,
@@ -90,8 +86,8 @@ class YFinanceProvider:
         )
 
     def fetch_daily_bars(self, request: DailyBarsRequest) -> BatchBarResult:
-        if request.adjustment is not Adjustment.RAW:
-            raise ValueError("Yahoo storage reads must use adjustment='raw'")
+        if request.adjustment is not Adjustment.FORWARD:
+            raise ValueError("Yahoo daily storage reads require adjustment='forward'")
         symbols = [canonical_symbol(value) for value in request.symbols]
         provider_symbols = [self.to_yfinance_symbol(symbol) for symbol in symbols]
         result = BatchBarResult()
@@ -101,7 +97,8 @@ class YFinanceProvider:
                 start=request.start_date,
                 end=request.end_date + timedelta(days=1),
                 interval="1d",
-                actions=True,
+                actions=False,
+                auto_adjust=True,
             )
         except Exception as exc:
             return BatchBarResult(failed_symbols={symbol: str(exc) for symbol in symbols})
@@ -112,7 +109,7 @@ class YFinanceProvider:
                 symbol=symbol,
                 provider=self.name,
                 interval="1d",
-                adjustment=Adjustment.RAW,
+                adjustment=Adjustment.FORWARD,
             )
             if bars:
                 result.data[symbol] = bars
@@ -140,53 +137,6 @@ class YFinanceProvider:
             bars = bars_from_frame(frame, symbol=symbol, provider=self.name, interval=request.interval)
             if bars:
                 result.data[symbol] = bars
-                result.providers_used[symbol] = self.name
-            else:
-                result.missing_symbols.append(symbol)
-        return result
-
-    def get_adjustment_factors(self, request: AdjustmentRequest) -> AdjustmentResult:
-        symbols = [canonical_symbol(value) for value in request.symbols]
-        provider_symbols = [self.to_yfinance_symbol(symbol) for symbol in symbols]
-        result = AdjustmentResult()
-        try:
-            raw = self._download(
-                provider_symbols,
-                start=request.start_date,
-                end=request.end_date + timedelta(days=1),
-                interval="1d",
-                actions=True,
-            )
-        except Exception as exc:
-            return AdjustmentResult(failed_symbols={symbol: str(exc) for symbol in symbols})
-        for symbol, provider_symbol in zip(symbols, provider_symbols):
-            frame = self._ticker_frame(raw, provider_symbol)
-            if frame.empty:
-                result.missing_symbols.append(symbol)
-                continue
-            normalized = frame.reset_index()
-            normalized.columns = [str(column).strip().lower() for column in normalized.columns]
-            date_column = "date" if "date" in normalized.columns else normalized.columns[0]
-            normalized[date_column] = pd.to_datetime(normalized[date_column]).dt.date
-            factors: list[AdjustmentFactor] = []
-            actions: list[CorporateAction] = []
-            for row in normalized.to_dict(orient="records"):
-                trade_date = row[date_column]
-                close = pd.to_numeric(row.get("close"), errors="coerce")
-                adjusted_close = pd.to_numeric(row.get("adj close"), errors="coerce")
-                if pd.notna(close) and pd.notna(adjusted_close) and close > 0 and adjusted_close > 0:
-                    factors.append(
-                        AdjustmentFactor(symbol, trade_date, float(adjusted_close / close), self.name)
-                    )
-                dividend = pd.to_numeric(row.get("dividends", 0), errors="coerce")
-                if pd.notna(dividend) and dividend != 0:
-                    actions.append(CorporateAction(symbol, trade_date, "dividend", float(dividend), self.name))
-                split = pd.to_numeric(row.get("stock splits", 0), errors="coerce")
-                if pd.notna(split) and split != 0:
-                    actions.append(CorporateAction(symbol, trade_date, "split", float(split), self.name))
-            if factors:
-                result.factors[symbol] = factors
-                result.corporate_actions[symbol] = actions
                 result.providers_used[symbol] = self.name
             else:
                 result.missing_symbols.append(symbol)

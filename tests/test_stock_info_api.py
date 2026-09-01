@@ -25,7 +25,6 @@ def test_stock_info_uses_canonical_code_and_provider_fallback(monkeypatch):
                         currency="CNY",
                         exchange="SH",
                         instrument_type="stock",
-                        lot_size=100,
                     )
                 },
                 providers_used={"600519.SH": "tickflow"},
@@ -39,7 +38,7 @@ def test_stock_info_uses_canonical_code_and_provider_fallback(monkeypatch):
     assert response.code == "600519.SH"
     assert response.name == "贵州茅台"
     assert response.provider == "tickflow"
-    assert response.lot_size == 100
+    assert "lot_size" not in response.model_dump()
 
 
 def test_stock_info_returns_not_found_when_all_providers_miss(monkeypatch):

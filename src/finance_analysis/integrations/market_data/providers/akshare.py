@@ -58,13 +58,9 @@ from finance_analysis.integrations.market_data.codes import (
 )
 from finance_analysis.integrations.market_data.models import (
     Adjustment,
-    AdjustmentFactor,
-    AdjustmentRequest,
-    AdjustmentResult,
     BatchBarResult,
     BatchInstrumentResult,
     BatchQuoteResult,
-    CorporateAction,
     DailyBarsRequest,
     InstrumentInfo,
     InstrumentRequest,
@@ -231,8 +227,8 @@ class AkShareProvider:
         raise ValueError(f"AKShare daily history requires a canonical CN/HK symbol: {code}")
 
     def fetch_daily_bars(self, request: DailyBarsRequest) -> BatchBarResult:
-        if request.adjustment is not Adjustment.RAW:
-            raise ValueError("AKShare storage reads must use adjustment='raw'")
+        if request.adjustment is not Adjustment.FORWARD:
+            raise ValueError("AKShare daily storage reads require adjustment='forward'")
         result = BatchBarResult()
         for value in request.symbols:
             symbol = canonical_symbol(value)
@@ -248,7 +244,7 @@ class AkShareProvider:
                     symbol=symbol,
                     provider=self.name,
                     interval="1d",
-                    adjustment=Adjustment.RAW,
+                    adjustment=Adjustment.FORWARD,
                 )
                 if bars:
                     result.data[symbol] = bars
@@ -312,50 +308,6 @@ class AkShareProvider:
                 result.failed_symbols[symbol] = str(exc)
         return result
 
-    def get_adjustment_factors(self, request: AdjustmentRequest) -> AdjustmentResult:
-        result = AdjustmentResult()
-        days = list(pd.date_range(request.start_date, request.end_date, freq="D").date)
-        for value in request.symbols:
-            symbol = canonical_symbol(value)
-            market = infer_market(symbol)
-            try:
-                actions, factors = self._fetch_adjustment_data(
-                    SimpleNamespace(code=symbol, market=market.value), days
-                )
-                normalized_factors = [
-                    AdjustmentFactor(
-                        symbol=symbol,
-                        trade_date=row["trade_date"],
-                        factor=float(row["forward_adjustment_factor"]),
-                        provider=self.name,
-                    )
-                    for row in factors
-                    if row.get("forward_adjustment_factor") is not None
-                ]
-                if not normalized_factors:
-                    result.missing_symbols.append(symbol)
-                    continue
-                result.factors[symbol] = normalized_factors
-                result.corporate_actions[symbol] = [
-                    CorporateAction(
-                        symbol=symbol,
-                        action_date=row["action_date"],
-                        action_type=str(row.get("action_type") or "unknown"),
-                        value=float(
-                            row.get("cash_dividend")
-                            or row.get("split_ratio")
-                            or row.get("bonus_ratio")
-                            or 0
-                        ),
-                        provider=self.name,
-                    )
-                    for row in actions
-                ]
-                result.providers_used[symbol] = self.name
-            except Exception as exc:
-                result.failed_symbols[symbol] = str(exc)
-        return result
-
     def get_instrument_info(self, request: InstrumentRequest) -> BatchInstrumentResult:
         import akshare as ak
 
@@ -389,7 +341,7 @@ class AkShareProvider:
         return result
 
     def _fetch_daily_frame(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
-        """Fetch unadjusted CN/HK daily bars using AKShare's empty adjust mode."""
+        """Fetch CN/HK forward-adjusted daily bars using AKShare's qfq mode."""
         import akshare as ak
 
         base = self._canonical_base(symbol.code)
@@ -402,7 +354,7 @@ class AkShareProvider:
                     period="daily",
                     start_date=start,
                     end_date=end,
-                    adjust="",
+                    adjust="qfq",
                 )
             elif symbol.market == "HK":
                 raw = ak.stock_hk_hist(
@@ -410,7 +362,7 @@ class AkShareProvider:
                     period="daily",
                     start_date=start,
                     end_date=end,
-                    adjust="",
+                    adjust="qfq",
                 )
             else:
                 raise ValueError(f"AKShare daily history does not support market={symbol.market}")
@@ -432,209 +384,6 @@ class AkShareProvider:
         columns = ["date", "open", "high", "low", "close", "volume", "amount"]
         return frame[columns].sort_values("date").reset_index(drop=True)
 
-    def _fetch_adjustment_data(self, symbol, requested_days: list[date]):
-        """Expand AKShare forward/hfq event factors to every requested trading day."""
-        import akshare as ak
-
-        if not requested_days:
-            return [], []
-        base = self._canonical_base(symbol.code)
-        provider_symbol = to_sina_tx_symbol(base) if symbol.market == "CN" else base.zfill(5)
-        factor_api = ak.stock_zh_a_daily if symbol.market == "CN" else ak.stock_hk_daily
-        try:
-            # AKShare calls this ``qfq-factor``. Internally the canonical name is
-            # ``forward_adjustment_factor`` and adjusted_price = raw_price * factor.
-            forward_adjustment = factor_api(symbol=provider_symbol, adjust="qfq-factor")
-            hfq = factor_api(symbol=provider_symbol, adjust="hfq-factor")
-        except Exception as exc:
-            reason = str(exc)
-            retryable = any(token in reason.lower() for token in ("timeout", "connection", "429", "rate", "频率"))
-            raise RuntimeError(
-                f"provider={self.name} market={symbol.market} code={symbol.code} data_type=adjustment "
-                f"requested_range={min(requested_days)}..{max(requested_days)} retryable={retryable} reason={reason}"
-            ) from exc
-
-        # AKShare's response column uses the same external abbreviation as its
-        # request parameter. Translate it at the provider boundary immediately.
-        if forward_adjustment is not None and "qfq_factor" in forward_adjustment.columns:
-            forward_adjustment = forward_adjustment.rename(
-                columns={"qfq_factor": "forward_adjustment_factor"}
-            )
-
-        factors = pd.DataFrame({"trade_date": sorted(set(requested_days))})
-        factors["trade_date"] = pd.to_datetime(factors["trade_date"])
-
-        def merge_factor(frame: pd.DataFrame, value_columns: list[str]) -> None:
-            if frame is None or frame.empty or "date" not in frame.columns:
-                return
-            available = [column for column in value_columns if column in frame.columns]
-            if not available:
-                return
-            values = frame[["date", *available]].copy()
-            values["date"] = pd.to_datetime(values["date"])
-            for column in available:
-                values[column] = pd.to_numeric(values[column], errors="coerce")
-            values = values.dropna(subset=["date"]).sort_values("date")
-            merged = pd.merge_asof(
-                factors[["trade_date"]].sort_values("trade_date"),
-                values,
-                left_on="trade_date",
-                right_on="date",
-                direction="backward",
-            )
-            for column in available:
-                factors[column] = merged[column].bfill()
-
-        merge_factor(forward_adjustment, ["forward_adjustment_factor"])
-        merge_factor(hfq, ["hfq_factor", "cash"])
-        rows: list[dict[str, Any]] = []
-        for item in factors.to_dict(orient="records"):
-            forward_adjustment_value = item.get("forward_adjustment_factor")
-            hfq_value = item.get("hfq_factor")
-            if pd.isna(forward_adjustment_value) and pd.isna(hfq_value):
-                continue
-            forward_adjustment_multiplier = None
-            if not pd.isna(forward_adjustment_value):
-                provider_forward_adjustment_factor = float(forward_adjustment_value)
-                if provider_forward_adjustment_factor > 0:
-                    # AKShare's CN external forward-adjustment implementation divides raw prices by
-                    # its factor, while its HK implementation multiplies.
-                    # Persist one cross-market convention: adjusted = raw * factor.
-                    forward_adjustment_multiplier = (
-                        1.0 / provider_forward_adjustment_factor
-                        if symbol.market == "CN"
-                        else provider_forward_adjustment_factor
-                    )
-            rows.append(
-                {
-                    "trade_date": pd.Timestamp(item["trade_date"]).date(),
-                    "forward_adjustment_factor": forward_adjustment_multiplier,
-                    "hfq_factor": None if pd.isna(hfq_value) else float(hfq_value),
-                    "hfq_cash": None if pd.isna(item.get("cash")) else float(item["cash"]),
-                    "adj_close": None,
-                }
-            )
-        actions: list[dict[str, Any]] = []
-        actions_complete = True
-        try:
-            actions = self._fetch_corporate_actions(
-                ak,
-                symbol.market,
-                base,
-                min(requested_days),
-                max(requested_days),
-            )
-        except Exception as exc:
-            actions_complete = False
-            logger.warning(
-                "provider=%s market=%s code=%s data_type=corporate_action reason=%s",
-                self.name,
-                symbol.market,
-                symbol.code,
-                exc,
-            )
-        return actions, rows
-
-    @staticmethod
-    def _fetch_corporate_actions(ak, market: str, base: str, start_date: date, end_date: date):
-        def action_date(value: Any) -> date | None:
-            if value is None or pd.isna(value):
-                return None
-            result = pd.Timestamp(value).date()
-            return result if start_date <= result <= end_date else None
-
-        def number(value: Any) -> float | None:
-            result = pd.to_numeric(value, errors="coerce")
-            return None if pd.isna(result) else float(result)
-
-        def payload(row: dict[str, Any]) -> dict[str, Any]:
-            return {
-                key: None if value is None or pd.isna(value) else str(value)
-                for key, value in row.items()
-            }
-
-        actions: list[dict[str, Any]] = []
-        if market == "CN":
-            dividends = ak.stock_history_dividend_detail(symbol=base, indicator="分红")
-            for row in (dividends if dividends is not None else pd.DataFrame()).to_dict(orient="records"):
-                ex_date = action_date(row.get("除权除息日"))
-                if ex_date is None:
-                    continue
-                cash = number(row.get("派息"))
-                bonus = (number(row.get("送股")) or 0.0) + (number(row.get("转增")) or 0.0)
-                raw_payload = payload(row)
-                if cash:
-                    actions.append(
-                        {
-                            "action_date": ex_date,
-                            "action_type": "dividend",
-                            "cash_dividend": cash / 10.0,
-                            "split_ratio": None,
-                            "bonus_ratio": None,
-                            "rights_ratio": None,
-                            "rights_price": None,
-                            "currency": "CNY",
-                            "raw_payload": raw_payload,
-                        }
-                    )
-                if bonus:
-                    actions.append(
-                        {
-                            "action_date": ex_date,
-                            "action_type": "bonus",
-                            "cash_dividend": None,
-                            "split_ratio": None,
-                            "bonus_ratio": bonus / 10.0,
-                            "rights_ratio": None,
-                            "rights_price": None,
-                            "currency": "CNY",
-                            "raw_payload": raw_payload,
-                        }
-                    )
-            rights = ak.stock_history_dividend_detail(symbol=base, indicator="配股")
-            for row in (rights if rights is not None else pd.DataFrame()).to_dict(orient="records"):
-                ex_date = action_date(row.get("除权日"))
-                ratio = number(row.get("配股方案"))
-                if ex_date is None or not ratio:
-                    continue
-                actions.append(
-                    {
-                        "action_date": ex_date,
-                        "action_type": "rights",
-                        "cash_dividend": None,
-                        "split_ratio": None,
-                        "bonus_ratio": None,
-                        "rights_ratio": ratio / 10.0,
-                        "rights_price": number(row.get("配股价格")),
-                        "currency": "CNY",
-                        "raw_payload": payload(row),
-                    }
-                )
-            return actions
-
-        dividends = ak.stock_hk_dividend_payout_em(symbol=base.zfill(5))
-        for row in (dividends if dividends is not None else pd.DataFrame()).to_dict(orient="records"):
-            ex_date = action_date(row.get("除净日"))
-            scheme = str(row.get("分红方案") or "")
-            match = re.search(r"(?:每股派)?(?:港币|人民币|美元)?\s*([0-9]+(?:\.[0-9]+)?)", scheme)
-            if ex_date is None or match is None:
-                continue
-            currency = "CNY" if "人民币" in scheme else "USD" if "美元" in scheme else "HKD"
-            actions.append(
-                {
-                    "action_date": ex_date,
-                    "action_type": "dividend",
-                    "cash_dividend": float(match.group(1)),
-                    "split_ratio": None,
-                    "bonus_ratio": None,
-                    "rights_ratio": None,
-                    "rights_price": None,
-                    "currency": currency,
-                    "raw_payload": payload(row),
-                }
-            )
-        return actions
-    
     def _set_random_user_agent(self) -> None:
         """
         设置随机 User-Agent

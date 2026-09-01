@@ -13,7 +13,6 @@ from finance_analysis.database.repositories.stock import MarketDataSymbolReposit
 from .config import DataProviderConfig, get_data_provider_config
 from .models import (
     Adjustment,
-    AdjustmentRequest,
     BatchBarResult,
     BatchInstrumentResult,
     BatchQuoteResult,
@@ -31,7 +30,6 @@ from .models import (
 )
 from .normalizer import bars_from_frame, canonical_symbol, currency_for_market, infer_market, quote_from_value
 from .registry import (
-    ADJUSTMENT_FACTORS,
     DAILY_BARS,
     INSTRUMENT_INFO,
     LATEST_MARKET_SNAPSHOT,
@@ -77,7 +75,6 @@ class _DatabaseInstrumentProvider:
                 currency=currency_for_market(market),
                 exchange=symbol.rsplit(".", 1)[1],
                 instrument_type="stock",
-                lot_size=row.lot_size,
             )
             result.providers_used[symbol] = self.name
         return result
@@ -176,7 +173,7 @@ def build_default_registry(
             batch_size=resolved_config.market_data_tickflow_batch_size,
             max_workers=resolved_config.market_data_tickflow_max_concurrency,
         ),
-        capabilities={DAILY_BARS, INSTRUMENT_INFO, ADJUSTMENT_FACTORS},
+        capabilities={DAILY_BARS, INSTRUMENT_INFO},
     )
     registry.register(
         "akshare",
@@ -190,7 +187,6 @@ def build_default_registry(
             MARKET_STATS,
             SECTOR_RANKINGS,
             INSTRUMENT_INFO,
-            ADJUSTMENT_FACTORS,
         },
     )
     registry.register(
@@ -222,7 +218,7 @@ def build_default_registry(
     registry.register(
         "yfinance",
         YFinanceProvider(),
-        capabilities={DAILY_BARS, MINUTE_BARS, REALTIME_QUOTES, MARKET_INDICES, INSTRUMENT_INFO, ADJUSTMENT_FACTORS},
+        capabilities={DAILY_BARS, MINUTE_BARS, REALTIME_QUOTES, MARKET_INDICES, INSTRUMENT_INFO},
     )
     if resolved_config.longbridge_configured:
         from .providers.longbridge.market import LongbridgeProvider
@@ -267,44 +263,12 @@ class MarketDataService:
     ) -> BatchBarResult:
         canonical = self._canonical_symbols(symbols)
         requested_adjustment = adjustment_from_value(adjustment)
-        raw_request = DailyBarsRequest(canonical, start_date, end_date, Adjustment.RAW)
-        result = self.router.route_daily(raw_request, providers)
-        if requested_adjustment is Adjustment.RAW or not result.data:
-            return result
-        adjustment_result = self.router.route_adjustments(AdjustmentRequest(canonical, start_date, end_date))
-        for symbol, bars in tuple(result.data.items()):
-            factors = adjustment_result.factors.get(symbol)
-            if not factors:
-                result.failed_symbols[symbol] = "no adjustment factors available"
-                result.data.pop(symbol)
-                result.providers_used.pop(symbol, None)
-                continue
-            factors_by_date = {item.trade_date: item.factor for item in factors}
-            first_factor = next(
-                (factors_by_date[bar.trade_date] for bar in bars if bar.trade_date in factors_by_date), None
-            )
-            if first_factor is None or first_factor <= 0:
-                result.failed_symbols[symbol] = "invalid adjustment factor series"
-                result.data.pop(symbol)
-                result.providers_used.pop(symbol, None)
-                continue
-            adjusted = []
-            last_factor = first_factor
-            for bar in bars:
-                last_factor = factors_by_date.get(bar.trade_date, last_factor)
-                multiplier = last_factor if requested_adjustment is Adjustment.FORWARD else last_factor / first_factor
-                adjusted.append(
-                    replace(
-                        bar,
-                        open=bar.open * multiplier,
-                        high=bar.high * multiplier,
-                        low=bar.low * multiplier,
-                        close=bar.close * multiplier,
-                        adjustment=requested_adjustment,
-                    )
-                )
-            result.data[symbol] = adjusted
-        return result
+        if requested_adjustment is not Adjustment.FORWARD:
+            raise ValueError("Daily bars are stored and served only as forward-adjusted prices")
+        return self.router.route_daily(
+            DailyBarsRequest(canonical, start_date, end_date, Adjustment.FORWARD),
+            providers,
+        )
 
     def get_minute_bars(
         self,
@@ -348,18 +312,6 @@ class MarketDataService:
         self, symbols: Iterable[str], *, providers: Iterable[str] | None = None
     ) -> BatchInstrumentResult:
         return self.router.route_instruments(InstrumentRequest(self._canonical_symbols(symbols)), providers)
-
-    def get_adjustment_factors(
-        self,
-        symbols: Iterable[str],
-        start_date: date,
-        end_date: date,
-        *,
-        providers: Iterable[str] | None = None,
-    ):
-        return self.router.route_adjustments(
-            AdjustmentRequest(self._canonical_symbols(symbols), start_date, end_date), providers
-        )
 
     def get_chip_distribution(self, symbol: str):
         canonical = canonical_symbol(symbol)

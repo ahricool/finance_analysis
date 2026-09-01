@@ -218,8 +218,8 @@ def _handle_get_daily_history(stock_code: str, days: int = 60) -> dict:
 
 get_daily_history_tool = ToolDefinition(
     name="get_daily_history",
-    description="Get daily OHLCV (open, high, low, close, volume) historical data "
-                "with dynamically calculated MA5/MA10/MA20 indicators from database-only raw bars.",
+    description="Get forward-adjusted daily OHLCV historical data with dynamically calculated "
+                "MA5/MA10/MA20 indicators from database-only bars.",
     parameters=[
         ToolParameter(
             name="stock_code",

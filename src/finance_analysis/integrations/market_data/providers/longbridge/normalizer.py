@@ -9,7 +9,7 @@ from typing import Any
 
 from finance_analysis.integrations.market_data.realtime_state.models import CandleState
 
-CN_DEFAULT_LOT_SIZE = 100
+CN_VOLUME_MULTIPLIER = 100
 
 
 def longbridge_market_from_symbol(symbol: str) -> str | None:
@@ -28,27 +28,19 @@ def normalize_longbridge_volume(
     value: Any,
     *,
     market: str | None = None,
-    lot_size: Any = None,
 ) -> int | None:
     """Convert Longbridge volume to the application's share-based unit.
 
     Longbridge reports Shanghai and Shenzhen volume in board lots, while the
-    unified market-data models store volume in shares. A-share stocks and ETFs
-    use 100 shares per lot; prefer an explicit positive lot size when one is
-    available from static info or the symbol record.
+    unified market-data models store volume in shares. The provider's CN volume
+    unit has a fixed 100-share conversion for this integration.
     """
     if value is None:
         return None
     volume = int(value)
     if str(market or "").strip().upper() != "CN":
         return volume
-    try:
-        multiplier = int(lot_size or CN_DEFAULT_LOT_SIZE)
-    except (TypeError, ValueError):
-        multiplier = CN_DEFAULT_LOT_SIZE
-    if multiplier <= 0:
-        multiplier = CN_DEFAULT_LOT_SIZE
-    return volume * multiplier
+    return volume * CN_VOLUME_MULTIPLIER
 
 
 def longbridge_datetime_to_utc(value: Any, fallback: datetime) -> datetime:

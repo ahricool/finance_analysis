@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import Protocol
 
 from .models import (
-    AdjustmentRequest,
-    AdjustmentResult,
     BatchBarResult,
     BatchInstrumentResult,
     BatchQuoteResult,
@@ -47,7 +45,3 @@ class MarketOverviewProvider(Protocol):
 
 class InstrumentProvider(Protocol):
     def get_instrument_info(self, request: InstrumentRequest) -> BatchInstrumentResult: ...
-
-
-class AdjustmentProvider(Protocol):
-    def get_adjustment_factors(self, request: AdjustmentRequest) -> AdjustmentResult: ...

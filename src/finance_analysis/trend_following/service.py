@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class TrendFollowingService:
-    """Read raw DB bars, calculate all strategy outputs, and persist snapshots."""
+    """Read canonical forward-adjusted DB bars, calculate outputs, and persist snapshots."""
 
     def __init__(
         self,
@@ -41,18 +41,18 @@ class TrendFollowingService:
         benchmark = self.config.benchmark_codes[self.market]
         latest = self.repository.latest_daily_date(benchmark)
         if latest is None:
-            raise ValueError(f"No raw DB daily data is available for benchmark {benchmark}")
+            raise ValueError(f"No DB daily data is available for benchmark {benchmark}")
         return latest
 
     def _rebuild_dates(self, requested: date | None) -> list[date]:
         benchmark = self.config.benchmark_codes[self.market]
-        latest_raw = self.resolve_trade_date(requested)
+        latest_available = self.resolve_trade_date(requested)
         latest_snapshot = self.repository.latest_snapshot_date()
         if requested is None:
-            if latest_snapshot is None or latest_snapshot >= latest_raw:
-                return [latest_raw]
+            if latest_snapshot is None or latest_snapshot >= latest_available:
+                return [latest_available]
             return [
-                item for item in self.repository.daily_dates_between(benchmark, latest_snapshot, latest_raw)
+                item for item in self.repository.daily_dates_between(benchmark, latest_snapshot, latest_available)
                 if item > latest_snapshot
             ]
         if latest_snapshot is None or latest_snapshot <= requested:
@@ -130,7 +130,7 @@ class TrendFollowingService:
                 f"daily data coverage {data_coverage:.1%} is below {self.config.minimum_data_coverage:.1%}"
             )
         if not benchmark_ready:
-            warning = f"benchmark {benchmark_code} has no raw DB bar on {effective_date}"
+            warning = f"benchmark {benchmark_code} has no DB daily bar on {effective_date}"
             logger.warning("market=%s job=trend_following status=incomplete warning=%s", self.market, warning)
             return {
                 "status": "incomplete", "market": self.market, "trade_date": effective_date.isoformat(),

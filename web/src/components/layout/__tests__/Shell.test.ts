@@ -58,8 +58,6 @@ describe('Shell navigation', () => {
   );
 
   it.each([
-    '/market/backtests',
-    '/market/backtests/123',
     '/market/quant/models',
     '/market/quant/signals/NVDA.US',
   ])('marks research navigation active on %s', async (path) => {

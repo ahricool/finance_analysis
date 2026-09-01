@@ -416,7 +416,7 @@ class LongbridgeProvider:
             market = infer_market(symbol)
             try:
                 frame = self._fetch_daily_frame(
-                    SimpleNamespace(code=symbol, market=market.value, lot_size=None),
+                    SimpleNamespace(code=symbol, market=market.value),
                     request.start_date,
                     request.end_date,
                 )
@@ -445,7 +445,7 @@ class LongbridgeProvider:
             market = infer_market(symbol)
             try:
                 frame = self._fetch_minute_frame(
-                    SimpleNamespace(code=symbol, market=market.value, lot_size=None),
+                    SimpleNamespace(code=symbol, market=market.value),
                     request.start_time,
                     request.end_time,
                 )
@@ -500,7 +500,6 @@ class LongbridgeProvider:
                     currency=currency,
                     exchange=str(getattr(info, "exchange", "") or "") or None,
                     instrument_type="stock",
-                    lot_size=int(getattr(info, "lot_size", 0) or 0) or None,
                 )
                 result.providers_used[symbol] = self.name
             except Exception as exc:
@@ -547,7 +546,6 @@ class LongbridgeProvider:
                 item,
                 minute=False,
                 market=symbol.market,
-                lot_size=getattr(symbol, "lot_size", None),
             )
             for item in candles
         ]
@@ -579,7 +577,6 @@ class LongbridgeProvider:
                     item,
                     minute=True,
                     market=symbol.market,
-                    lot_size=getattr(symbol, "lot_size", None),
                 )
                 for item in candles
             ]
@@ -659,7 +656,6 @@ class LongbridgeProvider:
         *,
         minute: bool,
         market: str,
-        lot_size: Any = None,
     ) -> dict[str, Any]:
         raw_timestamp = getattr(candle, "timestamp", None)
         timestamp = longbridge_datetime_to_utc(raw_timestamp, datetime.now(timezone.utc))
@@ -671,7 +667,6 @@ class LongbridgeProvider:
             "volume": normalize_longbridge_volume(
                 getattr(candle, "volume", None),
                 market=market,
-                lot_size=lot_size,
             ),
             "amount": getattr(candle, "turnover", None),
             "vwap": getattr(candle, "vwap", None),
@@ -1108,12 +1103,10 @@ class LongbridgeProvider:
 
         # Fetch static info for derived fields
         static = self._get_static_info(symbol)
-        lot_size = getattr(static, "lot_size", None) if static is not None else None
         volume = (
             normalize_longbridge_volume(
                 getattr(q, "volume", 0),
                 market=longbridge_market_from_symbol(symbol),
-                lot_size=lot_size,
             )
             or 0
         )

@@ -17,7 +17,6 @@ TASK_PACKAGES = (
     "finance_analysis.tasks.celery.jobs.a_share_pre_close_review",
     "finance_analysis.tasks.celery.jobs.signal_evaluation_cn",
     "finance_analysis.tasks.celery.jobs.signal_evaluation_us",
-    "finance_analysis.tasks.celery.jobs.backtest",
     "finance_analysis.tasks.celery.jobs.quant_dataset",
     "finance_analysis.tasks.celery.jobs.quant_training",
     "finance_analysis.tasks.celery.jobs.quant_daily",

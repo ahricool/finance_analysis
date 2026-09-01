@@ -1,7 +1,7 @@
 # Qlib quant research
 
 The quant module keeps PostgreSQL as its source of truth. It reads canonical
-`market_data_symbol`, raw `stock_daily`, and `stock_adjustment_factor` rows, exports immutable
+`market_data_symbol` and canonical forward-adjusted `stock_daily` rows, exports immutable
 snapshots below `QUANT_ARTIFACT_ROOT`, and sends only artifact URIs and versioned
 configuration to the Qlib worker.
 
@@ -110,34 +110,21 @@ The binary fields include VWAP. Turnover/volume is used when provider units are
 valid, common legacy unit factors are checked against the daily price range,
 and missing turnover uses an explicit OHLC typical-price proxy only when volume
 is positive. Zero-volume rows remain missing rather than being zero-filled.
-Features and labels use one price mode per snapshot. Production dataset builds,
-training, and daily prediction require `price_mode="forward_adjusted"`. The
-single canonical formula is
-`forward_adjusted_price = raw_price * forward_adjustment_factor` and it is
-applied once to open, high, low, close, and VWAP. VWAP is first sourced or
-estimated in raw-price units. Volume and amount remain raw because the project
-does not have a separately sourced volume-adjustment factor. Raw mode remains
-available only for diagnostics and cannot train a production model.
-
-Every daily bar must have a positive factor before a production dataset or
-research snapshot is built; there is no implicit `1.0` fallback. Validation
-reports include expected rows, factor rows, missing rows, coverage ratio, and
-provider distribution. The stable dataset source revision hashes raw OHLCV,
-VWAP, the forward-adjustment factor, provider, and provider content hash, so a
-historical factor correction invalidates the old dataset key even when raw bars
-do not change. `source/daily.csv` and Qlib OHLC/VWAP binaries use the same
-forward-adjusted price units, while Qlib `factor.day.bin` contains
-`forward_adjustment_factor` (adjusted price divided by raw price).
+`stock_daily` is the canonical forward-adjusted daily source. Dataset export,
+training, research, and prediction read its OHLC values directly and never
+apply a second adjustment. Volume and amount retain provider units. The stable
+dataset source revision hashes the stored OHLCV, VWAP, and daily provider, so a
+historical price correction invalidates the old dataset key. `source/daily.csv`
+and Qlib OHLC/VWAP binaries use the same price units; Qlib `factor.day.bin` is
+always the neutral value `1.0` to prevent downstream double adjustment.
 
 Daily inference and production training require at least 90% of the fixed
 Universe by default. `QUANT_MIN_UNIVERSE_COVERAGE` can raise or lower this
 threshold within `(0, 1]`. Falling below it fails before model fan-out or
 training instead of producing rankings from a misleadingly small subset.
 
-Legacy raw snapshots remain immutable historical artifacts and are never
-relabeled. Model metadata records its training price mode; prediction fails if
-that mode differs from the prediction dataset, so models trained on legacy raw
-snapshots must be retrained before publication on the adjusted data path.
+Legacy dataset artifacts are not relabeled. Models trained before the canonical
+daily-price change should be rebuilt before publication.
 
 Model runs use expanding time-ordered walk-forward folds. The prediction
 horizon is purged before validation/test data and the configured embargo is

@@ -4,22 +4,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from datetime import datetime
 from typing import Callable, Iterable, TypeVar
-from zoneinfo import ZoneInfo
 
 from .config import provider_order
 from .models import (
-    AdjustmentRequest,
-    Adjustment,
-    AdjustmentResult,
     BatchBarResult,
     BatchInstrumentResult,
     BatchQuoteResult,
     DailyBarsRequest,
     InstrumentRequest,
     Market,
-    MarketBar,
     MarketIndex,
     MarketStats,
     MinuteBarsRequest,
@@ -28,7 +22,6 @@ from .models import (
 )
 from .normalizer import infer_market
 from .registry import (
-    ADJUSTMENT_FACTORS,
     DAILY_BARS,
     INSTRUMENT_INFO,
     LATEST_MARKET_SNAPSHOT,
@@ -95,11 +88,6 @@ class MarketDataRouter:
         errors: dict[str, list[str]] = {symbol: [] for symbol in request.symbols}
         for registration in registrations:
             if not pending:
-                if capability == DAILY_BARS and providers is None and market is Market.CN:
-                    if registration.name == "pytdx":
-                        pending = self._fill_cn_latest_from_snapshot(request, pending, result, errors)
-                        break
-                    continue
                 break
             provider_request = replace(request, symbols=tuple(pending))
             try:
@@ -113,6 +101,11 @@ class MarketDataRouter:
             for symbol in pending:
                 try:
                     bars = validate_bars(provider_result.data.get(symbol, []))
+                    if capability == DAILY_BARS and any(bar.adjustment is not request.adjustment for bar in bars):
+                        raise ValueError(
+                            f"provider returned {bars[0].adjustment.value} bars for "
+                            f"requested adjustment={request.adjustment.value}"
+                        )
                 except Exception as exc:
                     errors[symbol].append(f"{registration.name}: {exc}")
                     next_pending.append(symbol)
@@ -126,85 +119,12 @@ class MarketDataRouter:
                         errors[symbol].append(f"{registration.name}: {reason}")
                     next_pending.append(symbol)
             pending = next_pending
-            if (
-                capability == DAILY_BARS
-                and providers is None
-                and market is Market.CN
-                and registration.name == "pytdx"
-            ):
-                pending = self._fill_cn_latest_from_snapshot(request, pending, result, errors)
         for symbol in pending:
             if errors[symbol]:
                 result.failed_symbols[symbol] = "; ".join(errors[symbol])
             else:
                 result.missing_symbols.append(symbol)
         return result
-
-    def _fill_cn_latest_from_snapshot(self, request, pending, result, errors) -> list[str]:
-        """Use one Efinance full-market snapshot between PyTDX and BaoStock."""
-        today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
-        if not (request.start_date <= today <= request.end_date):
-            return pending
-        candidates = [
-            symbol
-            for symbol in request.symbols
-            if not result.data.get(symbol) or max(bar.trade_date for bar in result.data[symbol]) < today
-        ]
-        if not candidates:
-            return pending
-        try:
-            registration = self.registry.resolve(("efinance",), LATEST_MARKET_SNAPSHOT)[0]
-            snapshot = registration.provider.fetch_market_snapshot(Market.CN)
-        except Exception as exc:
-            for symbol in candidates:
-                errors[symbol].append(f"efinance_snapshot: {exc}")
-            return pending
-        remaining = list(pending)
-        for symbol in candidates:
-            quote = snapshot.data.get(symbol)
-            prices = (quote.open_price, quote.high, quote.low, quote.price) if quote is not None else ()
-            if (
-                quote is None
-                or quote.quote_time is None
-                or quote.volume is None
-                or any(value is None for value in prices)
-            ):
-                continue
-            trade_date = quote.quote_time.astimezone(ZoneInfo("Asia/Shanghai")).date()
-            existing = result.data.get(symbol, [])
-            if not (request.start_date <= trade_date <= request.end_date) or (
-                existing and max(bar.trade_date for bar in existing) >= trade_date
-            ):
-                continue
-            try:
-                bars = validate_bars(
-                    [
-                        MarketBar(
-                            symbol=symbol,
-                            market=Market.CN,
-                            interval="1d",
-                            trade_date=trade_date,
-                            bar_time=None,
-                            open=float(quote.open_price),
-                            high=float(quote.high),
-                            low=float(quote.low),
-                            close=float(quote.price),
-                            volume=int(quote.volume),
-                            amount=quote.amount,
-                            currency=quote.currency,
-                            adjustment=Adjustment.RAW,
-                            provider="efinance",
-                        )
-                    ]
-                )
-            except Exception as exc:
-                errors[symbol].append(f"efinance_snapshot: {exc}")
-                continue
-            result.data[symbol] = sorted([*existing, *bars], key=lambda bar: bar.trade_date)
-            result.providers_used[symbol] = "efinance"
-            if symbol in remaining:
-                remaining.remove(symbol)
-        return remaining
 
     def route_quotes(self, request: QuoteRequest, providers: Iterable[str] | None = None) -> BatchQuoteResult:
         market = self._market_for_symbols(request.symbols)
@@ -310,43 +230,6 @@ class MarketDataRouter:
                 info = provider_result.data.get(symbol)
                 if info is not None and info.name.strip():
                     result.data[symbol] = info
-                    result.providers_used[symbol] = registration.name
-                else:
-                    reason = provider_result.failed_symbols.get(symbol)
-                    if reason:
-                        errors[symbol].append(f"{registration.name}: {reason}")
-                    next_pending.append(symbol)
-            pending = next_pending
-        for symbol in pending:
-            if errors[symbol]:
-                result.failed_symbols[symbol] = "; ".join(errors[symbol])
-            else:
-                result.missing_symbols.append(symbol)
-        return result
-
-    def route_adjustments(
-        self, request: AdjustmentRequest, providers: Iterable[str] | None = None
-    ) -> AdjustmentResult:
-        market = self._market_for_symbols(request.symbols)
-        registrations = self._providers(market=market, capability=ADJUSTMENT_FACTORS, providers=providers)
-        pending = list(request.symbols)
-        result = AdjustmentResult()
-        errors: dict[str, list[str]] = {symbol: [] for symbol in request.symbols}
-        for registration in registrations:
-            if not pending:
-                break
-            try:
-                provider_result = registration.provider.get_adjustment_factors(replace(request, symbols=tuple(pending)))
-            except Exception as exc:
-                for symbol in pending:
-                    errors[symbol].append(f"{registration.name}: {exc}")
-                continue
-            next_pending = []
-            for symbol in pending:
-                factors = provider_result.factors.get(symbol, [])
-                if factors:
-                    result.factors[symbol] = factors
-                    result.corporate_actions[symbol] = provider_result.corporate_actions.get(symbol, [])
                     result.providers_used[symbol] = registration.name
                 else:
                     reason = provider_result.failed_symbols.get(symbol)

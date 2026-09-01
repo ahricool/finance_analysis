@@ -71,7 +71,6 @@ class FakeQuantRepository:
             universe_id=1,
             status="ready",
             artifact_uri="quant://datasets/us-ready",
-            price_mode="forward_adjusted",
             symbol_count=len(get_quant_universe_codes("US")),
         )
 
@@ -396,16 +395,16 @@ def test_model_run_rejects_dataset_below_minimum_universe_coverage(monkeypatch):
     assert repository.created_model_run is None
 
 
-def test_model_run_rejects_legacy_raw_dataset(monkeypatch):
+def test_model_run_does_not_depend_on_removed_price_mode(monkeypatch):
     client, repository = _client(monkeypatch)
     original = repository.get_dataset
 
-    def raw_dataset(snapshot_id):
+    def dataset_without_legacy_mode(snapshot_id):
         dataset = original(snapshot_id)
-        dataset.price_mode = "raw"
+        assert not hasattr(dataset, "price_mode")
         return dataset
 
-    repository.get_dataset = raw_dataset
+    repository.get_dataset = dataset_without_legacy_mode
     response = client.post(
         "/quant/model-runs",
         json={
@@ -416,9 +415,8 @@ def test_model_run_rejects_legacy_raw_dataset(monkeypatch):
         },
     )
 
-    assert response.status_code == 409
-    assert "forward_adjusted" in response.json()["detail"]
-    assert repository.created_model_run is None
+    assert response.status_code == 202
+    assert repository.created_model_run["dataset_snapshot_id"] == 5
 
 
 def test_model_run_request_rejects_worker_incompatible_configuration():

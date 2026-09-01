@@ -9,7 +9,6 @@ from finance_analysis.config.env_parsing import env_bool, env_int, env_str
 
 from .models import Market, market_from_value
 from .registry import (
-    ADJUSTMENT_FACTORS,
     DAILY_BARS,
     INSTRUMENT_INFO,
     LATEST_MARKET_SNAPSHOT,
@@ -25,7 +24,7 @@ CN_LATEST_DAILY_SEQUENCE = ("tickflow", "akshare", "pytdx", "efinance_snapshot",
 
 DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
     (Market.CN, DAILY_BARS): ("tickflow", "akshare", "pytdx", "baostock", "yfinance"),
-    (Market.US, DAILY_BARS): ("yfinance", "tickflow", "akshare"),
+    (Market.US, DAILY_BARS): ("yfinance", "tickflow"),
     (Market.HK, DAILY_BARS): ("longbridge", "akshare", "yfinance"),
     (Market.CN, MINUTE_BARS): ("streaming", "longbridge", "efinance", "pytdx", "akshare"),
     (Market.US, MINUTE_BARS): ("streaming", "longbridge", "yfinance"),
@@ -42,9 +41,6 @@ DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
     (Market.CN, INSTRUMENT_INFO): ("database", "tickflow", "longbridge", "pytdx", "akshare", "yfinance"),
     (Market.US, INSTRUMENT_INFO): ("database", "tickflow", "longbridge", "yfinance", "akshare"),
     (Market.HK, INSTRUMENT_INFO): ("database", "tickflow", "longbridge", "akshare", "yfinance"),
-    (Market.CN, ADJUSTMENT_FACTORS): ("akshare", "tickflow", "yfinance"),
-    (Market.US, ADJUSTMENT_FACTORS): ("yfinance",),
-    (Market.HK, ADJUSTMENT_FACTORS): ("akshare", "yfinance"),
 }
 
 

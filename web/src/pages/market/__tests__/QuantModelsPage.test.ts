@@ -56,7 +56,6 @@ const readyDataset: QuantDatasetSnapshot = {
   market: 'CN',
   dateFrom: '2021-01-01',
   dateTo: '2026-07-22',
-  priceMode: 'forward_adjusted',
   featureVersion: 'feature-v1',
   artifactUri: 'quant://datasets/cn-ready',
   rowCount: 620000,

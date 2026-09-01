@@ -23,20 +23,8 @@ class DailyResult:
     updated_rows: int = 0
     providers: list[str] = field(default_factory=list)
     missing_amount: bool = False
-    vwap_qualities: set[str] = field(default_factory=set)
     deleted_rows: int = 0
-    reason: str = ""
-    fallback_reasons: list[str] = field(default_factory=list)
-
-
-@dataclass
-class AdjustmentResult:
-    status: Literal["success", "partial", "failed", "skipped"]
-    changed: bool = False
-    corporate_action_rows: int = 0
-    adjustment_factor_rows: int = 0
-    deleted_rows: int = 0
-    provider: str | None = None
+    automatic_full_refresh: bool = False
     reason: str = ""
     fallback_reasons: list[str] = field(default_factory=list)
 
@@ -45,11 +33,9 @@ class AdjustmentResult:
 class SymbolResult:
     code: str
     daily: DailyResult
-    adjustment: AdjustmentResult
 
 
 __all__ = [
-    "AdjustmentResult",
     "DailyResult",
     "SYNC_MODES",
     "SyncMode",

@@ -6,7 +6,6 @@ import {
   CalendarDays,
   ChartNoAxesCombined,
   ClipboardList,
-  FlaskConical,
   MessageSquareQuote,
   Sigma,
   Star,
@@ -50,16 +49,9 @@ export const mainNavItems: MainNavItem[] = [
   {
     key: 'research',
     label: '研究',
-    to: '/market/backtests',
+    to: '/market/quant',
     icon: BarChart3,
     children: [
-      {
-        key: 'backtest',
-        label: '策略回测',
-        to: '/market/backtests',
-        icon: FlaskConical,
-        activePathPrefix: '/market/backtests',
-      },
       {
         key: 'quant',
         label: '量化研究',
