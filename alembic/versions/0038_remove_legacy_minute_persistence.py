@@ -89,10 +89,20 @@ def downgrade() -> None:
             sa.Column("close", sa.Float(), nullable=False),
             sa.Column("volume", sa.Float(), nullable=False),
             sa.Column("amount", sa.Float()),
-            sa.Column("session_type", sa.String(16), nullable=False),
+            sa.Column("session_type", sa.String(16), server_default="regular", nullable=False),
             sa.Column("data_source", sa.String(50), nullable=False),
-            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
             sa.CheckConstraint("volume >= 0", name="ck_stock_minute_volume_nonnegative"),
             sa.CheckConstraint("amount IS NULL OR amount >= 0", name="ck_stock_minute_amount_nonnegative"),
             sa.CheckConstraint("session_type = 'regular'", name="ck_stock_minute_regular_session"),
@@ -159,3 +169,12 @@ def downgrade() -> None:
                 nullable=False,
             ),
         )
+        if op.get_bind().dialect.name == "sqlite":
+            with op.batch_alter_table("trend_following_snapshot") as batch_op:
+                batch_op.alter_column("intraday_confirmation", server_default=None)
+        else:
+            op.alter_column(
+                "trend_following_snapshot",
+                "intraday_confirmation",
+                server_default=None,
+            )
