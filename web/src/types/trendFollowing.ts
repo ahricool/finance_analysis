@@ -109,7 +109,7 @@ export interface TrendChange {
   alphaScoreChange: number | null;
 }
 
-export interface TrendTransition extends TrendChange {}
+export type TrendTransition = TrendChange;
 
 export interface TrendRankingChanges {
   previousTradeDate: string | null;

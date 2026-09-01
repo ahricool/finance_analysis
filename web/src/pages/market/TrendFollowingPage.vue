@@ -352,7 +352,9 @@ onMounted(() => void load(true));
             class="rounded border p-3"
           >
             <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
-              {{ group.label }} <Badge :variant="group.variant">{{ group.items.length }}</Badge>
+              {{ group.label }} <Badge :variant="group.variant">
+                {{ group.items.length }}
+              </Badge>
             </h3>
             <button
               v-for="change in group.items"
@@ -374,7 +376,9 @@ onMounted(() => void load(true));
           </section>
         </div>
         <section>
-          <h3 class="mb-2 text-sm font-semibold">State Transitions</h3>
+          <h3 class="mb-2 text-sm font-semibold">
+            State Transitions
+          </h3>
           <div class="flex flex-wrap gap-2">
             <button
               v-for="change in changes?.transitions ?? []"
@@ -394,7 +398,9 @@ onMounted(() => void load(true));
           </div>
         </section>
         <section>
-          <h3 class="mb-2 text-sm font-semibold">Rank / Score Movers</h3>
+          <h3 class="mb-2 text-sm font-semibold">
+            Rank / Score Movers
+          </h3>
           <div class="flex flex-wrap gap-2">
             <button
               v-for="change in changes?.movers ?? []"

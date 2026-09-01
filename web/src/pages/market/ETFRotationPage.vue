@@ -290,12 +290,18 @@ onMounted(() => void load(true));
           >
             <div class="flex items-center justify-between gap-2">
               <strong class="min-w-0 break-words">{{ item.name }}</strong>
-              <Badge variant="destructive">EXIT</Badge>
+              <Badge variant="destructive">
+                EXIT
+              </Badge>
             </div>
-            <p class="mt-1 truncate font-mono text-xs text-muted-foreground">{{ item.code }}</p>
+            <p class="mt-1 truncate font-mono text-xs text-muted-foreground">
+              {{ item.code }}
+            </p>
             <div class="mt-3 flex justify-between text-sm">
               <span>Composite {{ score(item.compositeScore) }}</span>
-              <Badge :variant="stateVariant(item.state)">{{ stateIcon(item.state) }} {{ item.state }}</Badge>
+              <Badge :variant="stateVariant(item.state)">
+                {{ stateIcon(item.state) }} {{ item.state }}
+              </Badge>
             </div>
           </button>
         </div>
@@ -323,7 +329,9 @@ onMounted(() => void load(true));
             class="rounded border p-3"
           >
             <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
-              {{ group.label }} <Badge :variant="group.variant">{{ group.items.length }}</Badge>
+              {{ group.label }} <Badge :variant="group.variant">
+                {{ group.items.length }}
+              </Badge>
             </h3>
             <div class="space-y-2">
               <button
@@ -347,7 +355,9 @@ onMounted(() => void load(true));
           </section>
         </div>
         <section>
-          <h3 class="mb-2 text-sm font-semibold">Rank Movers</h3>
+          <h3 class="mb-2 text-sm font-semibold">
+            Rank Movers
+          </h3>
           <div class="flex flex-wrap gap-2">
             <button
               v-for="change in changes?.rankMovers ?? []"
