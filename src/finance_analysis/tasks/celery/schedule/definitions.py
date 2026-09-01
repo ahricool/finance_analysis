@@ -278,7 +278,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_TREND_FOLLOWING_CN,
         name="A股趋势跟踪",
-        description="从数据库原始日线独立计算沪深300与中证500趋势跟踪快照",
+        description="从数据库前复权日线独立计算沪深300与中证500趋势跟踪快照",
         task_type="scheduled_trend_following_cn",
         celery_task_name=celery_task_name(JOB_TREND_FOLLOWING_CN),
         schedules=(CronSchedule(minute="40", hour="18", day_of_week="mon-fri"),),
@@ -291,7 +291,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_TREND_FOLLOWING_US,
         name="美股趋势跟踪",
-        description="从数据库原始日线独立计算标普500趋势跟踪快照",
+        description="从数据库前复权日线独立计算标普500趋势跟踪快照",
         task_type="scheduled_trend_following_us",
         celery_task_name=celery_task_name(JOB_TREND_FOLLOWING_US),
         schedules=(CronSchedule(minute="40", hour="18", day_of_week="mon-fri", timezone=US_TIMEZONE),),
