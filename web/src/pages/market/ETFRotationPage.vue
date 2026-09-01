@@ -56,10 +56,10 @@ const sortedItems = computed(() => [...items.value].sort((a, b) => {
   return right - left || a.code.localeCompare(b.code);
 }));
 const changeGroups = computed(() => [
-  { label: 'NEW BUY', items: changes.value?.newBuys ?? [], variant: 'success' as const },
-  { label: 'NEW EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const },
-  { label: 'NEW EMERGING', items: changes.value?.newEmerging ?? [], variant: 'info' as const },
-  { label: 'NEW COOLING', items: changes.value?.newCooling ?? [], variant: 'warning' as const },
+  { label: 'NEW BUY', items: changes.value?.newBuys ?? [], variant: 'success' as const, transition: 'action' as const },
+  { label: 'NEW EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const, transition: 'action' as const },
+  { label: 'NEW EMERGING', items: changes.value?.newEmerging ?? [], variant: 'info' as const, transition: 'state' as const },
+  { label: 'NEW COOLING', items: changes.value?.newCooling ?? [], variant: 'warning' as const, transition: 'state' as const },
 ]);
 function pct(value: number | null | undefined, sign = true) { return value == null ? '—' : `${sign && value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`; }
 function stopPct(value: number | null | undefined) { return value == null ? '—' : `-${(value * 100).toFixed(1)}%`; }
@@ -85,9 +85,9 @@ function correlationText(item: ETFMomentumSnapshot) {
   if (!value || value.status !== 'ready' || value.max_with_universe == null) return '相关性数据不足';
   return `最高相关性 ${(value.max_with_universe * 100).toFixed(0)}%`;
 }
-function changeTransition(change: ETFChange) {
-  const previous = change.previousState ?? change.previousAction ?? 'NEW';
-  return `${previous} → ${change.current.state}`;
+function changeTransition(change: ETFChange, transition: 'action' | 'state') {
+  if (transition === 'action') return `${change.previousAction ?? 'NEW'} → ${change.current.action}`;
+  return `${change.previousState ?? 'NEW'} → ${change.current.state}`;
 }
 async function load(refreshDates = false) {
   const current = ++generation; loading.value = true; error.value = null;
@@ -343,7 +343,7 @@ onMounted(() => void load(true));
               >
                 <strong>{{ change.current.name }}</strong>
                 <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
-                <span class="mt-1 block">{{ changeTransition(change) }} · Composite Δ {{ scoreChange(change.compositeScoreChange) }}</span>
+                <span class="mt-1 block">{{ changeTransition(change, group.transition) }} · Composite Δ {{ scoreChange(change.compositeScoreChange) }}</span>
               </button>
               <p
                 v-if="!group.items.length"

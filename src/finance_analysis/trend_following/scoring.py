@@ -41,7 +41,8 @@ def calculate_rs_score(row: dict[str, Any], config: TrendFollowingConfig = DEFAU
 
 def calculate_breakout_score(row: dict[str, Any]) -> tuple[float, dict]:
     distance_atr = row["breakout_distance"] * row["reference_price"] / max(row["atr20"], 1e-12)
-    distance_quality = clamp(100.0 - abs(distance_atr - 0.75) * 55.0) if row["valid_setup"] else 0.0
+    has_breakout = bool(row["breakout_10d"] or row["breakout_20d"] or row["compression_breakout"])
+    distance_quality = clamp(100.0 - abs(distance_atr - 0.75) * 55.0) if has_breakout else 0.0
     extension = max(0.0, row["distance_from_ma20"])
     extension_quality = clamp(100.0 - max(0.0, extension - 0.08) * 800.0)
     volume_quality = clamp((row["volume_ratio"] - 0.5) * 80.0)
