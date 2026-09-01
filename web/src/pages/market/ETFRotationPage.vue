@@ -57,9 +57,9 @@ const sortedItems = computed(() => [...items.value].sort((a, b) => {
 }));
 const changeGroups = computed(() => [
   { label: 'NEW BUY', items: changes.value?.newBuys ?? [], variant: 'success' as const },
-  { label: 'EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const },
-  { label: 'EMERGING', items: changes.value?.newEmerging ?? [], variant: 'info' as const },
-  { label: 'COOLING', items: changes.value?.newCooling ?? [], variant: 'warning' as const },
+  { label: 'NEW EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const },
+  { label: 'NEW EMERGING', items: changes.value?.newEmerging ?? [], variant: 'info' as const },
+  { label: 'NEW COOLING', items: changes.value?.newCooling ?? [], variant: 'warning' as const },
 ]);
 function pct(value: number | null | undefined, sign = true) { return value == null ? '—' : `${sign && value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`; }
 function stopPct(value: number | null | undefined) { return value == null ? '—' : `-${(value * 100).toFixed(1)}%`; }

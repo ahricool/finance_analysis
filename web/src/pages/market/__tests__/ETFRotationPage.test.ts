@@ -260,7 +260,7 @@ describe('ETFRotationPage', () => {
   });
 
   it('separates current candidates from unlimited exits and renders today changes', async () => {
-    const current = snapshot();
+    const current = snapshot({ state: 'EMERGING' });
     const change = {
       current,
       previousState: 'NEUTRAL' as const,
@@ -288,7 +288,7 @@ describe('ETFRotationPage', () => {
     expect(wrapper.get('[data-testid="rotation-exit"]').text()).toContain('上证50ETF');
     expect(wrapper.get('[data-testid="etf-regime-change"]').text()).toContain('NEUTRAL → RISK_ON');
     expect(wrapper.get('[data-testid="etf-change-new-buy"]').text()).toContain('Composite Δ +7.2');
-    expect(wrapper.get('[data-testid="etf-change-emerging"]').text()).toContain('NEUTRAL → TRENDING');
+    expect(wrapper.get('[data-testid="etf-change-new-emerging"]').text()).toContain('NEUTRAL → EMERGING');
     expect(wrapper.get('[data-testid="etf-rank-mover"]').text()).toContain('#8 → #3 (+5)');
   });
 

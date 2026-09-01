@@ -76,8 +76,8 @@ const cards = computed(() => [
 const changeGroups = computed(() => [
   { label: 'New Candidates', items: changes.value?.newCandidates ?? [], variant: 'info' as const },
   { label: 'New Weakening', items: changes.value?.newWeakening ?? [], variant: 'warning' as const },
-  { label: 'REDUCE', items: changes.value?.newReduces ?? [], variant: 'destructive' as const },
-  { label: 'EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const },
+  { label: 'New REDUCE', items: changes.value?.newReduces ?? [], variant: 'destructive' as const },
+  { label: 'New EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const },
 ]);
 
 function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
