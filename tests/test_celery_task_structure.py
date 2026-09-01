@@ -135,4 +135,3 @@ def test_removed_legacy_modules_and_batch_business_references_are_absent():
     market_sync_root = source_root / "tasks" / "celery" / "jobs" / "market_data_sync"
     market_sync_text = "\n".join(path.read_text(encoding="utf-8") for path in market_sync_root.rglob("*.py"))
     assert "fetch_minute" not in market_sync_text
-    assert "StockMinute" not in market_sync_text

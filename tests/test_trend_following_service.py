@@ -266,7 +266,7 @@ class MissingActiveRepository(FakeRepository):
                 "initial_stop": 96.0, "trailing_stop": 105.0, "next_add_price": 111.0,
                 "exit_level": 105.0, "units": 1, "opened_at": trade_date - timedelta(days=5),
                 "suggested_initial_weight": 0.1, "suggested_max_weight": 0.1,
-                "reasons": ["holding"], "intraday_confirmation": "UNAVAILABLE",
+                "reasons": ["holding"],
                 "pending_action": self.pending_action,
                 "pending_since": trade_date - timedelta(days=1) if self.pending_action else None,
                 "pending_regime": "RISK_ON" if self.pending_action else None,

@@ -14,7 +14,6 @@ from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.schemas.quant import (
     DatasetBuildRequest,
-    IntradayRunRequest,
     ModelRunCreateRequest,
     PublishRequest,
 )
@@ -526,56 +525,3 @@ async def portfolio(
         raise HTTPException(404, "Portfolio recommendation not found")
     row, items = result
     return {**encoded(row), "universe": universe.key, "items": _encoded_with_names(repo, items)}
-
-
-@router.get("/intraday-confirmations")
-async def confirmations(
-    market: QuantMarket = "US",
-    trade_date: date | None = None,
-    recommendation_id: int | None = None,
-    _: User = Depends(require_current_user),
-):
-    repo = QuantRepository()
-    universe = _universe(repo, market, None)
-    if recommendation_id is not None and not repo.portfolio(
-        recommendation_id,
-        market,
-        universe.id,
-    ):
-        raise HTTPException(404, "Portfolio recommendation not found")
-    return _encoded_with_names(
-        repo,
-        repo.confirmations(
-            market,
-            trade_date,
-            universe_id=universe.id,
-            recommendation_id=recommendation_id,
-        )
-    )
-
-
-@router.get("/intraday-confirmations/{code}")
-async def confirmation(
-    code: str,
-    market: QuantMarket = "US",
-    _: User = Depends(require_current_user),
-):
-    repo = QuantRepository()
-    universe = _universe(repo, market, None)
-    return _encoded_with_names(
-        repo,
-        repo.confirmations(market, code=code, universe_id=universe.id),
-    )
-
-
-@router.post("/intraday-confirmations/run")
-async def run_confirmation(
-    body: IntradayRunRequest,
-    market: QuantMarket = "US",
-    _: User = Depends(require_admin),
-):
-    if market != "US":
-        raise HTTPException(409, "CN intraday confirmation is not available")
-    from finance_analysis.quant.intraday_confirmation.runner import IntradayConfirmationRunner
-
-    return IntradayConfirmationRunner().run(body.trade_date or date.today(), market=market)

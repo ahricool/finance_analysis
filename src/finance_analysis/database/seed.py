@@ -75,7 +75,6 @@ def seed_nasdaq100_market_data_symbols(db_manager=None) -> int:
             "name": name,
             "enabled": True,
             "sync_daily": True,
-            "sync_minute": True,
         }
         for ticker, name in NASDAQ100_STOCK_INDEX.items()
     )
@@ -99,7 +98,6 @@ def seed_market_data_reference_symbols(db_manager=None) -> dict[str, int]:
             "name": name,
             "enabled": True,
             "sync_daily": True,
-            "sync_minute": False,
         }
         for ticker, name in SP500_STOCK_INDEX.items()
     )
@@ -110,7 +108,6 @@ def seed_market_data_reference_symbols(db_manager=None) -> dict[str, int]:
             "name": name,
             "enabled": True,
             "sync_daily": True,
-            "sync_minute": False,
         }
         for code, name in {**CSI300_STOCK_INDEX, **CSI500_STOCK_INDEX}.items()
     )

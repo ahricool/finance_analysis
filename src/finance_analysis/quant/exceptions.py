@@ -47,7 +47,3 @@ class PredictionFailedError(QuantError):
 
 class PortfolioConstraintError(QuantError):
     pass
-
-
-class IntradayConfirmationDataMissingError(QuantError):
-    pass

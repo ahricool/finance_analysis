@@ -112,19 +112,6 @@ class FakeQuantRepository:
         self.calls.append(("portfolio", recommendation_id, market, universe_id))
         return SimpleNamespace(id=recommendation_id, market=market, universe_id=universe_id), []
 
-    def confirmations(
-        self,
-        market,
-        trade_date=None,
-        code=None,
-        universe_id=None,
-        recommendation_id=None,
-    ):
-        self.calls.append(
-            ("confirmations", market, trade_date, code, universe_id, recommendation_id)
-        )
-        return []
-
     def signal_history(self, market, code, universe_id=None, model_version=None):
         self.calls.append(("signal_history", market, code, universe_id, model_version))
         return []
@@ -297,16 +284,6 @@ def test_quant_delete_conflict_keeps_artifact(monkeypatch):
     assert response.status_code == 409
     assert response.json()["detail"] == "Dataset is referenced"
     assert repository.artifact_deletions == []
-
-
-def test_confirmation_list_is_scoped_to_the_displayed_recommendation(monkeypatch):
-    client, repository = _client(monkeypatch)
-
-    response = client.get("/quant/intraday-confirmations?market=US&recommendation_id=42")
-
-    assert response.status_code == 200
-    assert ("portfolio", 42, "US", 1) in repository.calls
-    assert ("confirmations", "US", None, None, 1, 42) in repository.calls
 
 
 def test_model_definitions_expose_only_worker_trainable_models(monkeypatch):

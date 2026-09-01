@@ -269,25 +269,3 @@ class MarketRegimeService:
                 position = (score - left_score) / (right_score - left_score)
                 return float(left_exposure + position * (right_exposure - left_exposure))
         return float(curve[-1][1])
-
-    @staticmethod
-    def intraday_features(primary: pd.DataFrame, risk: pd.DataFrame) -> dict:
-        def values(frame):
-            ordered = frame.sort_values("bar_time")
-            cumulative_volume = ordered["volume"].cumsum()
-            vwap = (ordered["close"] * ordered["volume"]).cumsum() / cumulative_volume.replace(0, np.nan)
-            return ordered, vwap
-
-        primary, primary_vwap = values(primary)
-        risk, _ = values(risk)
-        return {
-            "primary_price_vs_vwap": float(primary["close"].iloc[-1] / primary_vwap.iloc[-1] - 1),
-            "primary_opening_gap": None,
-            "primary_first_30m_return": float(
-                primary["close"].iloc[min(29, len(primary) - 1)] / primary["open"].iloc[0] - 1
-            ),
-            "risk_relative_primary": float(
-                (risk["close"].iloc[-1] / risk["open"].iloc[0])
-                - (primary["close"].iloc[-1] / primary["open"].iloc[0])
-            ),
-        }

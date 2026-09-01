@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Canonical market-data symbols and daily/minute OHLCV ORM models."""
+"""Canonical market-data symbols and persisted daily OHLCV ORM models."""
 
 from __future__ import annotations
 
@@ -57,12 +57,10 @@ class MarketDataSymbol(Base):
     name = Column(String(255), nullable=False)
     enabled = Column(Boolean, nullable=False, default=True)
     sync_daily = Column(Boolean, nullable=False, default=True)
-    sync_minute = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
     daily_bars = relationship("StockDaily", back_populates="symbol", cascade="all, delete-orphan")
-    minute_bars = relationship("StockMinute", back_populates="symbol", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint("code", name="uix_market_data_symbol_code"),
@@ -75,7 +73,7 @@ class MarketDataSymbol(Base):
             name="ck_market_data_symbol_code_suffix",
             # PostgreSQL regex syntax is not available in the SQLite migration test database.
         ).ddl_if(dialect="postgresql"),
-        Index("ix_market_data_symbol_sync", "market", "enabled", "sync_daily", "sync_minute"),
+        Index("ix_market_data_symbol_sync", "market", "enabled", "sync_daily"),
     )
 
     def __repr__(self) -> str:
@@ -139,63 +137,9 @@ class StockDaily(Base):
         }
 
 
-class StockMinute(Base):
-    """Unadjusted raw one-minute OHLCV; ``bar_time`` is the UTC bar start."""
-
-    __tablename__ = "stock_minute"
-
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
-    bar_time = Column(DateTime(timezone=True), nullable=False)
-    open = Column(Float, nullable=False)
-    high = Column(Float, nullable=False)
-    low = Column(Float, nullable=False)
-    close = Column(Float, nullable=False)
-    volume = Column(Float, nullable=False)
-    amount = Column(Float, nullable=True)
-    session_type = Column(String(16), nullable=False, default="regular")
-    data_source = Column(String(50), nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
-
-    symbol = relationship("MarketDataSymbol", back_populates="minute_bars", lazy="joined")
-
-    __table_args__ = (
-        UniqueConstraint("symbol_id", "bar_time", name="uix_stock_minute_symbol_time"),
-        CheckConstraint("volume >= 0", name="ck_stock_minute_volume_nonnegative"),
-        CheckConstraint("amount IS NULL OR amount >= 0", name="ck_stock_minute_amount_nonnegative"),
-        CheckConstraint("session_type = 'regular'", name="ck_stock_minute_regular_session"),
-        Index("ix_stock_minute_symbol_time", "symbol_id", "bar_time"),
-    )
-
-    @property
-    def code(self) -> str:
-        return self.symbol.code
-
-    @property
-    def market(self) -> str:
-        return self.symbol.market
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "code": self.code,
-            "market": self.market,
-            "bar_time": self.bar_time,
-            "open": self.open,
-            "high": self.high,
-            "low": self.low,
-            "close": self.close,
-            "volume": self.volume,
-            "amount": self.amount,
-            "session_type": self.session_type,
-            "data_source": self.data_source,
-        }
-
-
 __all__ = [
     "MarketDataSymbol",
     "StockDaily",
-    "StockMinute",
     "SUPPORTED_MARKETS",
     "validate_market_data_code",
 ]

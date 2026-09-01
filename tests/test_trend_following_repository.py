@@ -58,7 +58,6 @@ def _snapshot(*, snapshot_id, code, symbol_id, trade_date, state="HOLDING", unit
         units=units,
         opened_at=date(2026, 8, 25) if units else None,
         reasons=["seed"],
-        intraday_confirmation="UNAVAILABLE",
         generated_at=datetime(2026, 8, 28, tzinfo=timezone.utc),
     )
 

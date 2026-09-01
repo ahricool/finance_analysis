@@ -364,26 +364,8 @@ class PortfolioRecommendationItem(Base):
     )
 
 
-class IntradayConfirmation(Base):
-    __tablename__ = "intraday_confirmation"
-    id = Column(BigInteger, primary_key=True)
-    trade_date = Column(Date, nullable=False); symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="RESTRICT"), nullable=False)
-    code = Column(String(32), nullable=False)
-    recommendation_item_id = Column(BigInteger, ForeignKey("portfolio_recommendation_item.id", ondelete="CASCADE"), nullable=False)
-    evaluated_at = Column(DateTime(timezone=True), nullable=False); decision = Column(String(24), nullable=False); confidence = Column(Float, nullable=False)
-    price = Column(Float); vwap = Column(Float); price_vs_vwap = Column(Float); vwap_slope = Column(Float)
-    first_30m_return = Column(Float); intraday_high_drawdown = Column(Float); volume_ratio = Column(Float)
-    relative_strength_market = Column(Float); relative_strength_sector = Column(Float)
-    reasons = Column(JSONB, nullable=False, default=json_array); features = Column(JSONB, nullable=False, default=json_object)
-    generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    __table_args__ = (
-        CheckConstraint("decision IN ('confirm','wait','reject','expired','insufficient_data')", name="ck_intraday_decision"),
-        Index("ix_intraday_latest", "trade_date", "symbol_id", "evaluated_at"),
-    )
-
-
 QUANT_TABLES = (
     QuantUniverse, QuantUniverseMember, QuantDatasetSnapshot, MarketRegimeSnapshot, SectorRegimeSnapshot,
     MarketEvent, EventFeatureDaily, DailyFeatureSnapshot, ModelDefinition, ModelRun, ModelPublication,
-    ModelPrediction, ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem, IntradayConfirmation,
+    ModelPrediction, ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem,
 )

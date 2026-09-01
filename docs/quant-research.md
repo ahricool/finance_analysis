@@ -137,5 +137,4 @@ the committed result.
 
 Redis contains only latest-result caches (`quant:market_regime:*`,
 `quant:sector_ranking:*`, `quant:ranking:*`, `quant:portfolio:*`,
-`quant:signal:*`, and `quant:intraday_confirmation:*`). Cache failures are
-warnings; PostgreSQL rows remain authoritative.
+and `quant:signal:*`). Cache failures are warnings; PostgreSQL rows remain authoritative.

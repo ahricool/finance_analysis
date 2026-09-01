@@ -15,7 +15,7 @@ from finance_analysis.database.models.portfolio import (
     Position,
 )
 from finance_analysis.database.models.quant import (
-    DailyFeatureSnapshot, EventFeatureDaily, IntradayConfirmation, MarketEvent,
+    DailyFeatureSnapshot, EventFeatureDaily, MarketEvent,
     MarketRegimeSnapshot, ModelDefinition, ModelPrediction, ModelPublication, ModelRun,
     ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem, QuantDatasetSnapshot,
     QuantUniverse, QuantUniverseMember, SectorRegimeSnapshot,
@@ -24,7 +24,6 @@ from finance_analysis.database.models.signal import Signal
 from finance_analysis.database.models.stock import (
     MarketDataSymbol,
     StockDaily,
-    StockMinute,
 )
 from finance_analysis.database.models.task import TaskRecord
 from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary
@@ -50,10 +49,9 @@ __all__ = [
     "QuantUniverse", "QuantUniverseMember", "QuantDatasetSnapshot", "MarketRegimeSnapshot",
     "SectorRegimeSnapshot", "MarketEvent", "EventFeatureDaily", "DailyFeatureSnapshot",
     "ModelDefinition", "ModelRun", "ModelPublication", "ModelPrediction", "ModelSignal",
-    "PortfolioRecommendation", "PortfolioRecommendationItem", "IntradayConfirmation",
+    "PortfolioRecommendation", "PortfolioRecommendationItem",
     "Signal",
     "StockDaily",
-    "StockMinute",
     "TaskRecord",
     "TrendFollowingSnapshot",
     "TrendFollowingSummary",
