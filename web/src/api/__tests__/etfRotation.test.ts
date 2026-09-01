@@ -18,6 +18,22 @@ const rankingPayload = {
   rankable_coverage: 1,
   generated_at: '2026-08-25T10:40:00+00:00',
   warnings: [],
+  changes: {
+    previous_trade_date: '2026-08-22',
+    new_buys: [{
+      current: { code: '588000.SH', name: '科创50ETF', state: 'EMERGING', action: 'BUY' },
+      previous_state: 'NEUTRAL',
+      previous_action: null,
+      previous_rank: 8,
+      rank_change: 5,
+      composite_score_change: 7.25,
+    }],
+    new_exits: [],
+    new_emerging: [],
+    new_cooling: [],
+    regime_change: { from: 'NEUTRAL', to: 'RISK_ON' },
+    rank_movers: [],
+  },
   items: [
     {
       id: 1,
@@ -63,6 +79,11 @@ describe('etfRotation API key conversion', () => {
     const [item] = ranking.items;
 
     expect(ranking.tradeDate).toBe('2026-08-25');
+    expect(ranking.changes).toMatchObject({
+      previousTradeDate: '2026-08-22',
+      regimeChange: { from: 'NEUTRAL', to: 'RISK_ON' },
+      newBuys: [{ previousRank: 8, rankChange: 5, compositeScoreChange: 7.25 }],
+    });
     expect(item).toMatchObject({
       ret1D: 0.011,
       ret3D: 0.018,

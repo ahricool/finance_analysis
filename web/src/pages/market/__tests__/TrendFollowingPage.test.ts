@@ -20,7 +20,7 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
     id: 1, market, tradeDate: '2026-08-28', code: market === 'CN' ? '000001.SZ' : 'AAPL.US',
     name: market === 'CN' ? '平安银行' : 'Apple', universeKey: market === 'CN' ? 'cn_csi300_csi500' : 'us_sp500',
     marketRegime: 'RISK_ON', marketScore: 82, rank: 1, trendScore: 80, rsScore: 78,
-    breakoutScore: 76, alphaScore: 79, setup: 'BREAKOUT_55D', state: 'ENTRY', action: 'ENTRY',
+    breakoutScore: 76, alphaScore: 79, setup: 'BREAKOUT_20D', state: 'ENTRY', action: 'ENTRY',
     referencePrice: 110, atr: 2, signalDate: '2026-08-27', signalPrice: 108, openedAt: '2026-08-28',
     pendingAction: null, pendingSince: null, pendingRegime: null, pendingMaxExposure: null,
     lastAddPrice: 110, highestClose: 110, entryPrice: 110, initialStop: 106, trailingStop: 105,
@@ -28,12 +28,13 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
     suggestedMaxWeight: 0.1, reasons: ['candidate thresholds passed'],
     scoreBreakdown: { trend: { weightedR2: 90 } }, generatedAt: '2026-08-28T12:00:00Z',
     features: {
-      ma10: 108, ma20: 105, ma60: 100, ma20Slope: 0.01, trendCandidate: true,
+      ma10: 108, ma20: 105, ma10Slope: 0.012, ma20Slope: 0.01, trendCandidate: true,
       rawWeightedSlope: 0.01, weightedSlopePercentile: 95, weightedR2: 0.92,
-      return20D: 0.12, return60D: 0.25, return20DPercentile: 90, return60DPercentile: 88,
-      drawdown20D: -0.03, drawdown60D: -0.08, rs20D: 0.05, rs60D: 0.1,
-      breakout20D: true, breakout55D: true, breakoutDistance: 0.01, volumeRatio: 1.5,
-      distanceFromMa20: 0.04, priorCompression: true, compressionBreakout: true,
+      return5D: 0.04, return10D: 0.08, return20D: 0.12,
+      return10DPercentile: 92, return20DPercentile: 90,
+      drawdown20D: -0.03, rs5D: 0.02, rs10D: 0.04, rs20D: 0.05,
+      breakout10D: true, breakout20D: true, breakoutDistance: 0.01, volumeRatio: 1.5,
+      distanceFromMa20: 0.04, priorCompression: true, compressionBreakout: true, trendResume: false,
     },
   };
 }
@@ -46,6 +47,10 @@ function ranking(market: TrendMarket) {
     dataCoverage: market === 'CN' ? 0.9875 : 1, rankableCount: 480, candidateCount: 1,
     entryCount: 1, addCount: 0, holdCount: 0, reduceCount: 0, exitCount: 0, warnings: [],
     features: {}, scoreBreakdown: {}, generatedAt: '2026-08-28T12:00:00Z', items: [snapshot(market)],
+    changes: {
+      previousTradeDate: '2026-08-27', marketScoreChange: 2.5, breadthScoreChange: 4,
+      newCandidates: [], newWeakening: [], newReduces: [], newExits: [], transitions: [], movers: [],
+    },
   };
 }
 
@@ -74,14 +79,45 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.find('[aria-label="查看 Alpha 指标说明与计算公式"]').exists()).toBe(true);
   });
 
+  it('renders market, lifecycle, transition and significant mover changes', async () => {
+    const current = snapshot('CN');
+    apiMocks.ranking.mockResolvedValueOnce({
+      ...ranking('CN'),
+      changes: {
+        previousTradeDate: '2026-08-27',
+        marketScoreChange: 2.5,
+        breadthScoreChange: -1.5,
+        newCandidates: [{ current, previousState: 'WATCHING', previousAction: 'WATCH', previousRank: 4,
+          rankChange: 3, trendScoreChange: 4, rsScoreChange: 2, alphaScoreChange: 3 }],
+        newWeakening: [], newReduces: [], newExits: [],
+        transitions: [{ current, previousState: 'CANDIDATE', previousAction: 'PENDING_ENTRY', previousRank: 2,
+          rankChange: 1, trendScoreChange: 2, rsScoreChange: 1, alphaScoreChange: 2 }],
+        movers: [{ current, previousState: 'CANDIDATE', previousAction: 'WATCH', previousRank: 6,
+          rankChange: 5, trendScoreChange: 7, rsScoreChange: 6, alphaScoreChange: 8 }],
+      },
+    });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="trend-market-score-change"]').text()).toContain('+2.5');
+    expect(wrapper.get('[data-testid="trend-breadth-score-change"]').text()).toContain('-1.5');
+    expect(wrapper.get('[data-testid="trend-change-new-candidates"]').text()).toContain('WATCHING → ENTRY');
+    expect(wrapper.get('[data-testid="trend-transition"]').text()).toContain('CANDIDATE → ENTRY');
+    expect(wrapper.get('[data-testid="trend-mover"]').text()).toContain('Trend +7.0');
+    expect(wrapper.get('[data-testid="trend-mover"]').text()).toContain('RS +6.0');
+  });
+
   it('documents explanations and formulas for trend-following key indicators', () => {
     expect(trendIndicatorDescriptions.alpha).toContain('综合 Alpha 分');
     expect(trendIndicatorDescriptions.alpha).toContain('0.35×Trend');
     expect(trendIndicatorDescriptions.trend).toContain('趋势分');
-    expect(trendIndicatorDescriptions.trend).toContain('0.30×clamp(SlopePct)');
+    expect(trendIndicatorDescriptions.trend).toContain('0.30×SlopePercentile15');
     expect(trendIndicatorDescriptions.relativeStrength).toContain('RS =');
+    expect(trendIndicatorDescriptions.weightedSlope).toContain('15 个收盘价');
+    expect(trendIndicatorDescriptions.slopePercentile).toContain('独立横截面百分位');
     expect(trendIndicatorDescriptions.atr).toContain('ATR20 = Mean(TR, 20)');
     expect(trendIndicatorDescriptions.initialWeight).toContain('0.5%');
+    expect(trendIndicatorDescriptions.maxExposure).toContain('RISK_OFF = 20%');
   });
 
   it('keeps target-date data coverage separate from history coverage', () => {
@@ -93,19 +129,15 @@ describe('TrendFollowingPage', () => {
   });
 
   it('documents candidate state and lifecycle action counts exactly', () => {
-    expect(trendIndicatorDescriptions.candidate).toContain('Candidate = Count(State == "CANDIDATE")');
+    expect(trendIndicatorDescriptions.candidate).toContain('CANDIDATE 状态数');
     expect(trendIndicatorDescriptions.candidate).toContain('不包含观察或持有状态');
-    expect(trendIndicatorDescriptions.lifecycleCount).toContain('ENTRY = Count(Action == "ENTRY")');
-    expect(trendIndicatorDescriptions.lifecycleCount).toContain('ADD = Count(Action == "ADD")');
-    expect(trendIndicatorDescriptions.lifecycleCount).toContain('HOLD = Count(Action == "HOLD")');
-    expect(trendIndicatorDescriptions.lifecycleCount).toContain('REDUCE = Count(Action == "REDUCE")');
-    expect(trendIndicatorDescriptions.lifecycleCount).toContain('EXIT = Count(Action == "EXIT")');
+    expect(trendIndicatorDescriptions.lifecycleCount).toContain('ENTRY、ADD、HOLD、REDUCE、EXIT');
   });
 
   it('documents the ValidSetup branch in breakout distance quality', () => {
-    expect(trendIndicatorDescriptions.breakout).toContain('ValidSetup == false 时 DistanceQuality = 0');
-    expect(trendIndicatorDescriptions.breakout).toContain('ValidSetup == true 时 DistanceQuality = clamp');
-    expect(trendIndicatorDescriptions.breakout).toContain('BreakoutDistance×Close/max(ATR, 1e-12)−0.75');
+    expect(trendIndicatorDescriptions.breakout).toContain('ValidSetup 为 false 时 DistanceQuality = 0');
+    expect(trendIndicatorDescriptions.breakout).toContain('Breakout10Strength');
+    expect(trendIndicatorDescriptions.breakout).toContain('TrendResume');
   });
 
   it('preserves the exact exit comparison boundaries', () => {
@@ -136,6 +168,11 @@ describe('TrendFollowingPage', () => {
     expect(document.body.textContent).toContain('理论风险权重');
     expect(document.body.textContent).toContain('Signal Date / Price');
     expect(document.body.textContent).toContain('Entry Date / Price');
+    expect(document.body.textContent).toContain('Weighted slope 15D');
+    expect(document.body.textContent).toContain('Return 5D / 10D / 20D');
+    expect(document.body.textContent).toContain('10D / 20D Breakout');
+    expect(document.body.textContent).not.toContain('55D');
+    expect(document.body.textContent).not.toContain('60D');
     expect(document.body.querySelector('[data-testid="trend-history"]')).not.toBeNull();
   });
 

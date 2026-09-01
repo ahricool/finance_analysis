@@ -6,27 +6,29 @@ export type TrendAction = 'WATCH' | 'PENDING_ENTRY' | 'PENDING_ADD' | 'PENDING_R
 export interface TrendFeatures {
   ma10: number;
   ma20: number;
-  ma60: number;
+  ma10Slope: number;
   ma20Slope: number;
   trendCandidate: boolean;
   rawWeightedSlope: number;
   weightedSlopePercentile: number;
   weightedR2: number;
+  return5D: number;
+  return10D: number;
   return20D: number;
-  return60D: number;
+  return10DPercentile: number;
   return20DPercentile: number;
-  return60DPercentile: number;
   drawdown20D: number;
-  drawdown60D: number;
+  rs5D: number;
+  rs10D: number;
   rs20D: number;
-  rs60D: number;
+  breakout10D: boolean;
   breakout20D: boolean;
-  breakout55D: boolean;
   breakoutDistance: number;
   volumeRatio: number;
   distanceFromMa20: number;
   priorCompression: boolean;
   compressionBreakout: boolean;
+  trendResume: boolean;
   [key: string]: unknown;
 }
 
@@ -96,7 +98,35 @@ export interface TrendSummary {
   generatedAt: string;
 }
 
-export interface TrendRankingResponse extends TrendSummary { items: TrendSnapshot[] }
+export interface TrendChange {
+  current: TrendSnapshot;
+  previousState: TrendState | null;
+  previousAction: TrendAction | null;
+  previousRank: number | null;
+  rankChange: number | null;
+  trendScoreChange: number | null;
+  rsScoreChange: number | null;
+  alphaScoreChange: number | null;
+}
+
+export interface TrendTransition extends TrendChange {}
+
+export interface TrendRankingChanges {
+  previousTradeDate: string | null;
+  marketScoreChange: number | null;
+  breadthScoreChange: number | null;
+  newCandidates: TrendChange[];
+  newWeakening: TrendChange[];
+  newReduces: TrendChange[];
+  newExits: TrendChange[];
+  transitions: TrendTransition[];
+  movers: TrendChange[];
+}
+
+export interface TrendRankingResponse extends TrendSummary {
+  items: TrendSnapshot[];
+  changes?: TrendRankingChanges | null;
+}
 export interface TrendCandidatesResponse { market: TrendMarket; tradeDate: string; summary: TrendSummary | null; items: TrendSnapshot[] }
 export interface TrendDatesResponse { market: TrendMarket; latest: string | null; items: string[] }
 export interface TrendDetailResponse {
