@@ -10,6 +10,8 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 
 from finance_analysis.core.paths import PROJECT_ROOT
+from finance_analysis.database.base import Base
+from finance_analysis.database.models import stock as stock_models
 from finance_analysis.database.models.stock import MarketDataSymbol
 
 
@@ -43,7 +45,7 @@ class _SQLiteOperations:
         return None
 
 
-def test_migration_converts_ohlc_and_removes_legacy_daily_and_backtest_schema() -> None:
+def test_migration_clears_legacy_daily_and_removes_adjustment_and_backtest_schema() -> None:
     migration = _load_migration()
     engine = create_engine("sqlite://")
     with engine.begin() as connection:
@@ -62,6 +64,9 @@ def test_migration_converts_ohlc_and_removes_legacy_daily_and_backtest_schema() 
                 "CREATE TABLE stock_adjustment_factor (id INTEGER PRIMARY KEY, symbol_id INTEGER NOT NULL, "
                 "trade_date DATE NOT NULL, forward_adjustment_factor FLOAT)"
             )
+        )
+        connection.execute(
+            text("CREATE TABLE stock_corporate_action (id INTEGER PRIMARY KEY, symbol_id INTEGER NOT NULL)")
         )
         connection.execute(
             text("CREATE TABLE quant_dataset_snapshot (id INTEGER PRIMARY KEY, price_mode VARCHAR(24), status VARCHAR(16))")
@@ -94,12 +99,10 @@ def test_migration_converts_ohlc_and_removes_legacy_daily_and_backtest_schema() 
 
         migration.upgrade()
 
-        assert connection.execute(
-            text("SELECT open, high, low, close, volume, amount, data_source FROM stock_daily WHERE id = 1")
-        ).one() == (50.0, 51.0, 49.0, 50.0, 1000.0, 100000.0, "legacy")
-        assert connection.execute(text("SELECT count(*) FROM stock_daily")).scalar_one() == 1
+        assert connection.execute(text("SELECT count(*) FROM stock_daily")).scalar_one() == 0
         table_names = set(inspect(connection).get_table_names())
         assert "stock_adjustment_factor" not in table_names
+        assert "stock_corporate_action" not in table_names
         assert {"backtest_run", "backtest_trade", "backtest_equity"}.isdisjoint(table_names)
         assert {column["name"] for column in inspect(connection).get_columns("market_data_symbol")} == {"id"}
         assert {column["name"] for column in inspect(connection).get_columns("stock_daily")} == {
@@ -126,3 +129,10 @@ def test_current_symbol_model_has_no_execution_unit_metadata() -> None:
     assert "lot_size" not in MarketDataSymbol.__table__.columns
     constraint_names = {constraint.name for constraint in MarketDataSymbol.__table__.constraints}
     assert "ck_market_data_symbol_lot_size" not in constraint_names
+
+
+def test_current_orm_has_no_adjustment_storage_models() -> None:
+    assert not hasattr(stock_models, "StockAdjustmentFactor")
+    assert not hasattr(stock_models, "StockCorporateAction")
+    assert "stock_adjustment_factor" not in Base.metadata.tables
+    assert "stock_corporate_action" not in Base.metadata.tables

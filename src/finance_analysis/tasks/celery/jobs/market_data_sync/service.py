@@ -413,30 +413,30 @@ class MarketDataSyncService:
             min(requested_days),
             max(requested_days),
         ).intersection(expected_dates)
+        if existing_dates:
+            existing_coverage = len(returned_expected.intersection(existing_dates)) / len(existing_dates)
+            if existing_coverage >= FULL_REFRESH_MIN_COVERAGE:
+                return True, ""
+            return False, (
+                "full_refresh_coverage_insufficient "
+                f"returned={len(returned_expected)} expected={len(expected_dates)} "
+                f"existing_dates={len(existing_dates)} existing_coverage={existing_coverage:.3f} "
+                f"minimum={FULL_REFRESH_MIN_COVERAGE:.3f}"
+            )
+
         returned_span = {
             day
             for day in expected_dates
             if min(returned_expected) <= day <= max(returned_expected)
         }
         continuity = len(returned_expected) / len(returned_span) if returned_span else 0.0
-
-        if existing_dates:
-            existing_coverage = len(returned_expected.intersection(existing_dates)) / len(existing_dates)
-            retained_size = len(returned_expected) / len(existing_dates)
-            coverage = max(existing_coverage, min(retained_size, 1.0))
-            coverage_ok = coverage >= FULL_REFRESH_MIN_COVERAGE and continuity >= FULL_REFRESH_MIN_COVERAGE
-            basis = f"existing_dates={len(existing_dates)} existing_coverage={existing_coverage:.3f}"
-        else:
-            coverage = continuity
-            coverage_ok = coverage >= FULL_REFRESH_MIN_COVERAGE
-            basis = "existing_dates=0 new_symbol=true"
-
-        if coverage_ok:
+        if continuity >= FULL_REFRESH_MIN_COVERAGE:
             return True, ""
         return False, (
             "full_refresh_coverage_insufficient "
-            f"returned={len(returned_expected)} expected={len(expected_dates)} {basis} "
-            f"continuity={continuity:.3f} coverage={coverage:.3f} minimum={FULL_REFRESH_MIN_COVERAGE:.3f}"
+            f"returned={len(returned_expected)} expected={len(expected_dates)} "
+            f"existing_dates=0 new_symbol=true continuity={continuity:.3f} "
+            f"minimum={FULL_REFRESH_MIN_COVERAGE:.3f}"
         )
 
     def _summarize(

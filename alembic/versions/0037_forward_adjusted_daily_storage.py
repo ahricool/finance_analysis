@@ -1,4 +1,4 @@
-"""Store forward-adjusted daily prices and remove adjustment-factor indirection.
+"""Reset daily storage for provider-adjusted prices and remove legacy indirection.
 
 Revision ID: 0037_forward_adjusted_daily
 Revises: 0036_unified_task_mutex
@@ -42,31 +42,16 @@ def upgrade() -> None:
         if "lot_size" in _columns("market_data_symbol"):
             op.drop_column("market_data_symbol", "lot_size")
 
-    if {"stock_daily", "stock_adjustment_factor"}.issubset(tables):
-        factor = """
-            SELECT forward_adjustment_factor
-            FROM stock_adjustment_factor
-            WHERE stock_adjustment_factor.symbol_id = stock_daily.symbol_id
-              AND stock_adjustment_factor.trade_date = stock_daily.date
-              AND stock_adjustment_factor.forward_adjustment_factor > 0
-        """
-        op.execute(
-            sa.text(
-                f"""
-                UPDATE stock_daily
-                SET open = open * ({factor}),
-                    high = high * ({factor}),
-                    low = low * ({factor}),
-                    close = close * ({factor})
-                WHERE EXISTS ({factor})
-                """
-            )
-        )
-        # Rows without a trustworthy factor cannot remain because they would retain
-        # the old raw-price semantics alongside adjusted rows. A subsequent full sync
-        # repopulates them directly from adjusted providers.
-        op.execute(sa.text(f"DELETE FROM stock_daily WHERE NOT EXISTS ({factor})"))
+    if "stock_daily" in tables:
+        # Legacy rows have raw-price provenance and must not be relabelled by applying
+        # locally stored factors. The next full sync rebuilds them from provider APIs.
+        op.execute(sa.text("DELETE FROM stock_daily"))
+
+    if "stock_adjustment_factor" in tables:
         op.drop_table("stock_adjustment_factor")
+
+    if "stock_corporate_action" in tables:
+        op.drop_table("stock_corporate_action")
 
     if "stock_daily" in tables:
         checks = _checks("stock_daily")
@@ -90,6 +75,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     raise RuntimeError(
-        "Migration 0037_forward_adjusted_daily is irreversible: upgrade rewrites daily prices "
-        "and deletes legacy adjustment-factor data. Restore a database backup to downgrade."
+        "Migration 0037_forward_adjusted_daily is irreversible: upgrade deletes legacy daily prices "
+        "and adjustment storage. Restore a database backup to downgrade."
     )

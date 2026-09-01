@@ -23,7 +23,6 @@ from finance_analysis.database.models.quant import (
 from finance_analysis.database.models.signal import Signal
 from finance_analysis.database.models.stock import (
     MarketDataSymbol,
-    StockCorporateAction,
     StockDaily,
     StockMinute,
 )
@@ -53,7 +52,6 @@ __all__ = [
     "ModelDefinition", "ModelRun", "ModelPublication", "ModelPrediction", "ModelSignal",
     "PortfolioRecommendation", "PortfolioRecommendationItem", "IntradayConfirmation",
     "Signal",
-    "StockCorporateAction",
     "StockDaily",
     "StockMinute",
     "TaskRecord",

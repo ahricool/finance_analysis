@@ -611,6 +611,69 @@ def test_scheduled_full_severely_incomplete_fetch_preserves_existing_history():
     assert service.stock_repository.histories[symbol.id] == original_history
 
 
+def test_scheduled_full_accepts_existing_history_with_long_suspension_gaps():
+    symbol = SimpleNamespace(id=1, code="600000.SH")
+    full_days = [date(2024, 1, 1) + timedelta(days=offset) for offset in range(100)]
+    valid_days = [day for index, day in enumerate(full_days) if index % 10]
+    existing_history = {day: {"date": day} for day in valid_days}
+    routed = BatchBarResult(
+        data={symbol.code: [_bar_on(symbol.code, "tickflow", day) for day in valid_days]},
+        providers_used={symbol.code: "tickflow"},
+    )
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed))
+    service.sync_mode = "full"
+    service.stock_repository = _DailyUpsertRepository(histories={symbol.id: existing_history})
+
+    result = service._sync_daily_batch_groups(
+        [symbol],
+        {symbol.code: full_days},
+        full_days=full_days,
+    )[symbol.code]
+
+    assert result.status == "partial"
+    assert result.reason == "missing_trading_days=10"
+    assert service.stock_repository.replaced_symbol_ids == [symbol.id]
+    assert set(service.stock_repository.histories[symbol.id]) == set(valid_days)
+
+
+def test_automatic_full_accepts_existing_history_with_long_suspension_gaps():
+    symbol = SimpleNamespace(id=1, code="600000.SH")
+    full_days = [date(2024, 1, 1) + timedelta(days=offset) for offset in range(100)]
+    valid_days = [day for index, day in enumerate(full_days) if index % 10]
+    incremental_days = valid_days[-4:]
+    existing_history = {day: {"date": day} for day in valid_days}
+
+    def get_daily_bars(codes, start_date, end_date, *, adjustment):
+        days = valid_days if start_date == full_days[0] else incremental_days
+        return BatchBarResult(
+            data={
+                symbol.code: [
+                    replace(_bar_on(symbol.code, "tickflow", day), close=90.0)
+                    for day in days
+                ]
+            },
+            providers_used={symbol.code: "tickflow"},
+        )
+
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=get_daily_bars))
+    service.sync_mode = "incremental"
+    service.stock_repository = _DailyUpsertRepository(
+        {symbol.id: {day: 100.0 for day in incremental_days}},
+        {symbol.id: existing_history},
+    )
+
+    result = service._sync_daily_batch_groups(
+        [symbol],
+        {symbol.code: incremental_days},
+        full_days=full_days,
+    )[symbol.code]
+
+    assert result.status == "partial"
+    assert result.automatic_full_refresh is True
+    assert service.stock_repository.replaced_symbol_ids == [symbol.id]
+    assert set(service.stock_repository.histories[symbol.id]) == set(valid_days)
+
+
 def test_first_full_sync_accepts_contiguous_history_for_newly_listed_symbol():
     symbol = SimpleNamespace(id=1, code="NEW.US")
     full_days = [date(2024, 1, 1) + timedelta(days=offset) for offset in range(100)]
