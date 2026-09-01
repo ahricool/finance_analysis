@@ -28,6 +28,7 @@ REMOTE_INSTRUMENT_PROVIDERS = frozenset({"tickflow", "akshare"})
 ADJUSTMENT_SCALE_MIN_DATES = 3
 ADJUSTMENT_SCALE_MIN_CHANGE = 0.003
 ADJUSTMENT_SCALE_MAX_DRIFT = 0.005
+FULL_REFRESH_MIN_COVERAGE = 0.95
 
 
 class MarketDataSyncError(RuntimeError):
@@ -339,6 +340,33 @@ class MarketDataSyncService:
             provider = routed.providers_used.get(symbol.code)
             if not provider:
                 raise ValueError("daily provider attribution missing")
+            returned_dates = {bar.trade_date for bar in bars}
+            missing = sorted(set(requested_days).difference(returned_dates))
+            if replace_history:
+                coverage_ok, coverage_reason = self._validate_full_refresh_coverage(
+                    symbol,
+                    requested_days,
+                    returned_dates,
+                )
+                if not coverage_ok:
+                    logger.warning(
+                        "market=%s code=%s full refresh rejected: %s",
+                        self.market,
+                        symbol.code,
+                        coverage_reason,
+                    )
+                    return DailyResult(
+                        status="partial",
+                        providers=[provider],
+                        missing_amount=any(bar.amount is None for bar in bars),
+                        vwap_qualities={"missing"},
+                        reason=coverage_reason,
+                        fallback_reasons=(
+                            [routed.failed_symbols[symbol.code]]
+                            if symbol.code in routed.failed_symbols
+                            else []
+                        ),
+                    )
             rows = []
             for bar in bars:
                 rows.append(
@@ -361,7 +389,6 @@ class MarketDataSyncService:
                 stats = self.stock_repository.replace_daily_history(symbol.id, rows, provider)
             else:
                 stats = self.stock_repository.upsert_daily(symbol.id, rows, provider)
-            missing = sorted(set(requested_days).difference(bar.trade_date for bar in bars))
             return DailyResult(
                 status="partial" if missing else "success",
                 inserted_rows=stats.inserted_rows,
@@ -376,6 +403,49 @@ class MarketDataSyncService:
         except Exception as exc:
             logger.exception("market=%s code=%s daily persistence failed", self.market, symbol.code)
             return DailyResult("failed", reason=str(exc))
+
+    def _validate_full_refresh_coverage(
+        self,
+        symbol: Any,
+        requested_days: list[date],
+        returned_dates: set[date],
+    ) -> tuple[bool, str]:
+        """Reject a full replacement when fetched history is materially incomplete."""
+        expected_dates = set(requested_days)
+        returned_expected = returned_dates.intersection(expected_dates)
+        if not expected_dates or not returned_expected:
+            return False, "full_refresh_coverage_insufficient returned=0 coverage=0.000 minimum=0.950"
+
+        existing_dates = self.stock_repository.daily_dates(
+            symbol.id,
+            min(requested_days),
+            max(requested_days),
+        ).intersection(expected_dates)
+        returned_span = {
+            day
+            for day in expected_dates
+            if min(returned_expected) <= day <= max(returned_expected)
+        }
+        continuity = len(returned_expected) / len(returned_span) if returned_span else 0.0
+
+        if existing_dates:
+            existing_coverage = len(returned_expected.intersection(existing_dates)) / len(existing_dates)
+            retained_size = len(returned_expected) / len(existing_dates)
+            coverage = max(existing_coverage, min(retained_size, 1.0))
+            coverage_ok = coverage >= FULL_REFRESH_MIN_COVERAGE and continuity >= FULL_REFRESH_MIN_COVERAGE
+            basis = f"existing_dates={len(existing_dates)} existing_coverage={existing_coverage:.3f}"
+        else:
+            coverage = continuity
+            coverage_ok = coverage >= FULL_REFRESH_MIN_COVERAGE
+            basis = "existing_dates=0 new_symbol=true"
+
+        if coverage_ok:
+            return True, ""
+        return False, (
+            "full_refresh_coverage_insufficient "
+            f"returned={len(returned_expected)} expected={len(expected_dates)} {basis} "
+            f"continuity={continuity:.3f} coverage={coverage:.3f} minimum={FULL_REFRESH_MIN_COVERAGE:.3f}"
+        )
 
     def _summarize(
         self,

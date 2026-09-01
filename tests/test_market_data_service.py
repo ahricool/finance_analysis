@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pandas as pd
@@ -369,6 +369,13 @@ class _DailyUpsertRepository:
             if start_date <= day <= end_date
         }
 
+    def daily_dates(self, symbol_id, start_date, end_date):
+        return {
+            day
+            for day in self.histories.get(symbol_id, {})
+            if start_date <= day <= end_date
+        }
+
 
 def _batch_sync_service(market_data, market="CN"):
     service = MarketDataSyncService.__new__(MarketDataSyncService)
@@ -480,7 +487,7 @@ def test_incremental_scale_change_upgrades_only_affected_symbol_to_full_refresh(
     old_day = date(2019, 1, 2)
     service.stock_repository = _DailyUpsertRepository(
         {symbol.id: {day: 100.0 for day in incremental_days}},
-        {symbol.id: {old_day: {"date": old_day}}},
+        {symbol.id: {day: {"date": day} for day in [old_day, *full_days]}},
     )
 
     result = service._sync_daily_batch_groups(
@@ -539,12 +546,12 @@ def test_incremental_ordinary_price_correction_does_not_trigger_full_refresh():
     assert old_day in service.stock_repository.histories[symbol.id]
 
 
-def test_automatic_full_partial_fetch_replaces_history_without_leaving_old_dates():
+def test_automatic_full_severely_incomplete_fetch_preserves_existing_history():
     symbol = SimpleNamespace(id=1, code="600000.SH")
-    incremental_days = [date(2025, 1, day) for day in (2, 3, 6, 7)]
-    full_days = [date(2020, 1, 2), *incremental_days]
-    returned_full_days = [full_days[0], *incremental_days[:-1]]
-    stale_day = date(2022, 6, 1)
+    full_days = [date(2024, 1, 1) + timedelta(days=offset) for offset in range(100)]
+    incremental_days = full_days[-4:]
+    returned_full_days = full_days[:10]
+    original_history = {day: {"date": day} for day in full_days}
 
     def get_daily_bars(codes, start_date, end_date, *, adjustment):
         days = returned_full_days if start_date == full_days[0] else incremental_days
@@ -563,7 +570,7 @@ def test_automatic_full_partial_fetch_replaces_history_without_leaving_old_dates
     service.sync_mode = "incremental"
     service.stock_repository = _DailyUpsertRepository(
         {symbol.id: {day: 100.0 for day in incremental_days}},
-        {symbol.id: {stale_day: {"date": stale_day}}},
+        {symbol.id: original_history},
     )
 
     result = service._sync_daily_batch_groups(
@@ -574,8 +581,56 @@ def test_automatic_full_partial_fetch_replaces_history_without_leaving_old_dates
 
     assert result.status == "partial"
     assert result.automatic_full_refresh is True
-    assert set(service.stock_repository.histories[symbol.id]) == set(returned_full_days)
-    assert stale_day not in service.stock_repository.histories[symbol.id]
+    assert "full_refresh_coverage_insufficient" in result.reason
+    assert service.stock_repository.replaced_symbol_ids == []
+    assert service.stock_repository.histories[symbol.id] == original_history
+
+
+def test_scheduled_full_severely_incomplete_fetch_preserves_existing_history():
+    symbol = SimpleNamespace(id=1, code="AAPL.US")
+    full_days = [date(2024, 1, 1) + timedelta(days=offset) for offset in range(100)]
+    returned_days = full_days[:20]
+    original_history = {day: {"date": day} for day in full_days}
+    routed = BatchBarResult(
+        data={symbol.code: [_bar_on(symbol.code, "yfinance", day) for day in returned_days]},
+        providers_used={symbol.code: "yfinance"},
+    )
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed), market="US")
+    service.sync_mode = "full"
+    service.stock_repository = _DailyUpsertRepository(histories={symbol.id: original_history})
+
+    result = service._sync_daily_batch_groups(
+        [symbol],
+        {symbol.code: full_days},
+        full_days=full_days,
+    )[symbol.code]
+
+    assert result.status == "partial"
+    assert "full_refresh_coverage_insufficient" in result.reason
+    assert service.stock_repository.replaced_symbol_ids == []
+    assert service.stock_repository.histories[symbol.id] == original_history
+
+
+def test_first_full_sync_accepts_contiguous_history_for_newly_listed_symbol():
+    symbol = SimpleNamespace(id=1, code="NEW.US")
+    full_days = [date(2024, 1, 1) + timedelta(days=offset) for offset in range(100)]
+    listed_days = full_days[-20:]
+    routed = BatchBarResult(
+        data={symbol.code: [_bar_on(symbol.code, "yfinance", day) for day in listed_days]},
+        providers_used={symbol.code: "yfinance"},
+    )
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed), market="US")
+    service.sync_mode = "full"
+
+    result = service._sync_daily_batch_groups(
+        [symbol],
+        {symbol.code: full_days},
+        full_days=full_days,
+    )[symbol.code]
+
+    assert result.status == "partial"
+    assert service.stock_repository.replaced_symbol_ids == [symbol.id]
+    assert set(service.stock_repository.histories[symbol.id]) == set(listed_days)
 
 
 def test_full_replaces_successful_symbols_and_preserves_failed_symbol_history():
@@ -600,7 +655,10 @@ def test_full_replaces_successful_symbols_and_preserves_failed_symbol_history():
     service.sync_mode = "full"
     service.stock_repository = _DailyUpsertRepository(
         histories={
-            successful.id: {successful_old_day: {"date": successful_old_day}},
+            successful.id: {
+                successful_old_day: {"date": successful_old_day},
+                **{day: {"date": day} for day in full_days},
+            },
             failed.id: {failed_old_day: {"date": failed_old_day}},
         }
     )
