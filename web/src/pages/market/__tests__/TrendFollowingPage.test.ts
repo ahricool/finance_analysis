@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrendMarket, TrendSnapshot } from '@/types/trendFollowing';
+import { trendIndicatorDescriptions } from '@/components/trend-following/indicatorDescriptions';
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
 const apiMocks = vi.hoisted(() => ({ ranking: vi.fn(), candidates: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn() }));
@@ -69,6 +70,18 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.text()).toContain('平安银行');
     expect(wrapper.text()).toContain('建议入场');
     expect(wrapper.find('table').classes().join(' ')).toContain('min-w-');
+    expect(wrapper.find('[aria-label="查看 Market Score 指标说明与计算公式"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="查看 Alpha 指标说明与计算公式"]').exists()).toBe(true);
+  });
+
+  it('documents explanations and formulas for trend-following key indicators', () => {
+    expect(trendIndicatorDescriptions.alpha).toContain('综合 Alpha 分');
+    expect(trendIndicatorDescriptions.alpha).toContain('0.35×Trend');
+    expect(trendIndicatorDescriptions.trend).toContain('趋势分');
+    expect(trendIndicatorDescriptions.trend).toContain('0.30×SlopePct');
+    expect(trendIndicatorDescriptions.relativeStrength).toContain('RS =');
+    expect(trendIndicatorDescriptions.atr).toContain('ATR20 = Mean(TR, 20)');
+    expect(trendIndicatorDescriptions.initialWeight).toContain('0.5%');
   });
 
   it('switches to US S&P 500 snapshots', async () => {

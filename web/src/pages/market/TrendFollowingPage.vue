@@ -6,7 +6,9 @@ import { trendFollowingApi } from '@/api/trendFollowing';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
+import { trendIndicatorDescriptions as descriptions } from '@/components/trend-following/indicatorDescriptions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,12 +57,18 @@ const sortedItems = computed(() => [...items.value].sort((left, right) => {
   return right[sortKey.value] - left[sortKey.value] || left.code.localeCompare(right.code);
 }));
 const cards = computed(() => [
-  ['Market Regime', summary.value.marketRegime], ['Market Score', score(summary.value.marketScore)],
-  ['最大理论风险敞口', pct(summary.value.suggestedMaxExposure)], ['Universe Size', summary.value.universeSize],
-  ['Data Coverage', pct(summary.value.dataCoverage)], ['Rankable', summary.value.rankableCount],
-  ['Candidate', summary.value.candidateCount], ['ENTRY', summary.value.entryCount],
-  ['ADD', summary.value.addCount], ['HOLD', summary.value.holdCount],
-  ['REDUCE', summary.value.reduceCount], ['EXIT', summary.value.exitCount],
+  ['Market Regime', summary.value.marketRegime, descriptions.marketRegime],
+  ['Market Score', score(summary.value.marketScore), descriptions.marketScore],
+  ['最大理论风险敞口', pct(summary.value.suggestedMaxExposure), descriptions.maxExposure],
+  ['Universe Size', summary.value.universeSize, descriptions.universeSize],
+  ['Data Coverage', pct(summary.value.dataCoverage), descriptions.dataCoverage],
+  ['Rankable', summary.value.rankableCount, descriptions.rankable],
+  ['Candidate', summary.value.candidateCount, descriptions.candidate],
+  ['ENTRY', summary.value.entryCount, descriptions.lifecycleCount],
+  ['ADD', summary.value.addCount, descriptions.lifecycleCount],
+  ['HOLD', summary.value.holdCount, descriptions.lifecycleCount],
+  ['REDUCE', summary.value.reduceCount, descriptions.lifecycleCount],
+  ['EXIT', summary.value.exitCount, descriptions.lifecycleCount],
 ]);
 
 function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
@@ -240,7 +248,11 @@ onMounted(() => void load(true));
         :key="String(card[0])"
       >
         <CardContent class="p-3">
-          <span class="text-xs text-muted-foreground">{{ card[0] }}</span>
+          <IndicatorLabel
+            :label="String(card[0])"
+            :description="String(card[2])"
+            wrap
+          />
           <strong class="mt-1 block text-lg">{{ card[1] }}</strong>
         </CardContent>
       </Card>
@@ -276,7 +288,10 @@ onMounted(() => void load(true));
               {{ item.code }}
             </p>
             <div class="mt-3 flex items-center justify-between text-sm">
-              <span>Alpha {{ score(item.alphaScore) }}</span>
+              <span class="flex items-center gap-1"><IndicatorLabel
+                label="Alpha"
+                :description="descriptions.alpha"
+              /> {{ score(item.alphaScore) }}</span>
               <Badge :variant="badgeVariant(item.state)">
                 {{ stateText(item.state) }}
               </Badge>
@@ -322,12 +337,132 @@ onMounted(() => void load(true));
           <Table class="min-w-[2100px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Rank</TableHead><TableHead>股票</TableHead><TableHead>State</TableHead><TableHead>Action</TableHead>
-                <TableHead>Alpha</TableHead><TableHead>Trend</TableHead><TableHead>RS</TableHead><TableHead>Breakout</TableHead>
-                <TableHead>Setup</TableHead><TableHead>20D Return</TableHead><TableHead>60D Return</TableHead><TableHead>ATR</TableHead>
-                <TableHead>Reference</TableHead><TableHead>Signal Date</TableHead><TableHead>Signal Price</TableHead>
-                <TableHead>Entry Date</TableHead><TableHead>Entry Price</TableHead><TableHead>Stop</TableHead><TableHead>Next Add</TableHead>
-                <TableHead>Exit Level</TableHead><TableHead>理论初始权重</TableHead><TableHead>Reasons</TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Rank"
+                    :description="descriptions.rank"
+                  />
+                </TableHead><TableHead>股票</TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="State"
+                    :description="descriptions.state"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Action"
+                    :description="descriptions.action"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Alpha"
+                    :description="descriptions.alpha"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Trend"
+                    :description="descriptions.trend"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="RS"
+                    :description="descriptions.relativeStrength"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Breakout"
+                    :description="descriptions.breakout"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Setup"
+                    :description="descriptions.setup"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="20D Return"
+                    :description="descriptions.return"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="60D Return"
+                    :description="descriptions.return"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="ATR"
+                    :description="descriptions.atr"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Reference"
+                    :description="descriptions.reference"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Signal Date"
+                    :description="descriptions.signal"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Signal Price"
+                    :description="descriptions.signal"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Entry Date"
+                    :description="descriptions.entry"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Entry Price"
+                    :description="descriptions.entry"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Stop"
+                    :description="descriptions.initialStop"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Next Add"
+                    :description="descriptions.nextAdd"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Exit Level"
+                    :description="descriptions.exitLevel"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="理论初始权重"
+                    :description="descriptions.initialWeight"
+                  />
+                </TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="Reasons"
+                    :description="descriptions.reasons"
+                  />
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -411,29 +546,148 @@ onMounted(() => void load(true));
           </div>
           <section>
             <h3 class="mb-2 font-semibold">
-              Alpha Score Breakdown
+              <IndicatorLabel
+                label="Alpha Score Breakdown"
+                :description="descriptions.alpha"
+              />
             </h3><pre class="overflow-x-auto rounded bg-muted p-3 text-xs">{{ JSON.stringify(detail.latest.scoreBreakdown, null, 2) }}</pre>
           </section>
           <section>
             <h3 class="mb-2 font-semibold">
               Trend / RS / Breakout
             </h3><div class="grid grid-cols-2 gap-2 text-sm">
-              <div>Weighted slope<br><strong>{{ score(detail.latest.features.rawWeightedSlope) }}</strong></div><div>Slope percentile<br><strong>{{ score(detail.latest.features.weightedSlopePercentile) }}</strong></div>
-              <div>R²<br><strong>{{ score(detail.latest.features.weightedR2) }}</strong></div><div>20D / 60D<br><strong>{{ pct(detail.latest.features.return20D) }} / {{ pct(detail.latest.features.return60D) }}</strong></div>
-              <div>Drawdown 20D / 60D<br><strong>{{ pct(detail.latest.features.drawdown20D) }} / {{ pct(detail.latest.features.drawdown60D) }}</strong></div><div>MA10 / MA20 / MA60<br><strong>{{ score(detail.latest.features.ma10) }} / {{ score(detail.latest.features.ma20) }} / {{ score(detail.latest.features.ma60) }}</strong></div>
-              <div>RS 20D / 60D<br><strong>{{ pct(detail.latest.features.rs20D) }} / {{ pct(detail.latest.features.rs60D) }}</strong></div><div>RS Percentile<br><strong>{{ score(detail.latest.features.return20DPercentile) }} / {{ score(detail.latest.features.return60DPercentile) }}</strong></div>
-              <div>20D / 55D Breakout<br><strong>{{ detail.latest.features.breakout20D ? '是' : '否' }} / {{ detail.latest.features.breakout55D ? '是' : '否' }}</strong></div><div>Volume / Compression<br><strong>{{ score(detail.latest.features.volumeRatio) }} / {{ detail.latest.features.priorCompression ? '是' : '否' }}</strong></div>
+              <div>
+                <IndicatorLabel
+                  label="Weighted slope"
+                  :description="descriptions.weightedSlope"
+                  wrap
+                /><strong class="block">{{ score(detail.latest.features.rawWeightedSlope) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="Slope percentile"
+                  :description="descriptions.weightedSlope"
+                  wrap
+                /><strong class="block">{{ score(detail.latest.features.weightedSlopePercentile) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="R²"
+                  :description="descriptions.r2"
+                  wrap
+                /><strong class="block">{{ score(detail.latest.features.weightedR2) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="20D / 60D"
+                  :description="descriptions.return"
+                  wrap
+                /><strong class="block">{{ pct(detail.latest.features.return20D) }} / {{ pct(detail.latest.features.return60D) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="Drawdown 20D / 60D"
+                  :description="descriptions.drawdown"
+                  wrap
+                /><strong class="block">{{ pct(detail.latest.features.drawdown20D) }} / {{ pct(detail.latest.features.drawdown60D) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="MA10 / MA20 / MA60"
+                  :description="descriptions.movingAverage"
+                  wrap
+                /><strong class="block">{{ score(detail.latest.features.ma10) }} / {{ score(detail.latest.features.ma20) }} / {{ score(detail.latest.features.ma60) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="RS 20D / 60D"
+                  :description="descriptions.rawRelativeStrength"
+                  wrap
+                /><strong class="block">{{ pct(detail.latest.features.rs20D) }} / {{ pct(detail.latest.features.rs60D) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="RS Percentile"
+                  :description="descriptions.returnPercentile"
+                  wrap
+                /><strong class="block">{{ score(detail.latest.features.return20DPercentile) }} / {{ score(detail.latest.features.return60DPercentile) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="20D / 55D Breakout"
+                  :description="descriptions.breakoutFlags"
+                  wrap
+                /><strong class="block">{{ detail.latest.features.breakout20D ? '是' : '否' }} / {{ detail.latest.features.breakout55D ? '是' : '否' }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="Volume / Compression"
+                  :description="descriptions.volumeCompression"
+                  wrap
+                /><strong class="block">{{ score(detail.latest.features.volumeRatio) }} / {{ detail.latest.features.priorCompression ? '是' : '否' }}</strong>
+              </div>
             </div>
           </section>
           <section>
             <h3 class="mb-2 font-semibold">
               Risk（理论策略 NAV）
             </h3><div class="grid grid-cols-2 gap-2 text-sm">
-              <div>ATR<br><strong>{{ price(detail.latest.atr) }}</strong></div><div>Units<br><strong>{{ detail.latest.units }}</strong></div>
-              <div>Signal Date / Price<br><strong>{{ detail.latest.signalDate || '—' }} / {{ price(detail.latest.signalPrice) }}</strong></div>
-              <div>Entry Date / Price<br><strong>{{ detail.latest.openedAt || '—' }} / {{ price(detail.latest.entryPrice) }}</strong></div>
-              <div>Stop<br><strong>{{ price(detail.latest.initialStop) }}</strong></div><div>Trailing / Exit<br><strong>{{ price(detail.latest.trailingStop) }} / {{ price(detail.latest.exitLevel) }}</strong></div>
-              <div>Next Add<br><strong>{{ price(detail.latest.nextAddPrice) }}</strong></div><div>理论风险权重<br><strong>{{ pct(detail.latest.suggestedInitialWeight) }}</strong></div>
+              <div>
+                <IndicatorLabel
+                  label="ATR"
+                  :description="descriptions.atr"
+                  wrap
+                /><strong class="block">{{ price(detail.latest.atr) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="Units"
+                  :description="descriptions.units"
+                  wrap
+                /><strong class="block">{{ detail.latest.units }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="Signal Date / Price"
+                  :description="descriptions.signal"
+                  wrap
+                /><strong class="block">{{ detail.latest.signalDate || '—' }} / {{ price(detail.latest.signalPrice) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="Entry Date / Price"
+                  :description="descriptions.entry"
+                  wrap
+                /><strong class="block">{{ detail.latest.openedAt || '—' }} / {{ price(detail.latest.entryPrice) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="Stop"
+                  :description="descriptions.initialStop"
+                  wrap
+                /><strong class="block">{{ price(detail.latest.initialStop) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="Trailing / Exit"
+                  :description="`${descriptions.trailingStop} ${descriptions.exitLevel}`"
+                  wrap
+                /><strong class="block">{{ price(detail.latest.trailingStop) }} / {{ price(detail.latest.exitLevel) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="Next Add"
+                  :description="descriptions.nextAdd"
+                  wrap
+                /><strong class="block">{{ price(detail.latest.nextAddPrice) }}</strong>
+              </div>
+              <div>
+                <IndicatorLabel
+                  label="理论风险权重"
+                  :description="descriptions.initialWeight"
+                  wrap
+                /><strong class="block">{{ pct(detail.latest.suggestedInitialWeight) }}</strong>
+              </div>
             </div>
           </section>
           <section>

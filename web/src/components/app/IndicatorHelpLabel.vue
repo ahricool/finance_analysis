@@ -16,13 +16,13 @@ withDefaults(defineProps<{ label: string; description: string; wrap?: boolean }>
           <button
             type="button"
             class="shrink-0 text-muted-foreground hover:text-foreground"
-            :aria-label="`查看 ${label} 计算公式`"
+            :aria-label="`查看 ${label} 指标说明与计算公式`"
             @click.stop
           >
             <CircleHelp class="size-3.5" />
           </button>
         </TooltipTrigger>
-        <TooltipContent class="max-w-72 whitespace-normal text-left leading-5">
+        <TooltipContent class="max-w-sm whitespace-normal text-left leading-5">
           {{ description }}
         </TooltipContent>
       </Tooltip>

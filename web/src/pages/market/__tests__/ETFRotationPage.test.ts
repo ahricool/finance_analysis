@@ -217,16 +217,20 @@ describe('ETFRotationPage', () => {
     expect(wrapper.text()).toContain('#3');
     expect(wrapper.text()).toContain('+4');
     expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined);
-    expect(wrapper.find('[aria-label="查看 3D 计算公式"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="查看 Entry 计算公式"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="查看 3D 指标说明与计算公式"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="查看 Entry 指标说明与计算公式"]').exists()).toBe(true);
   });
 
-  it('documents the complete fast-rotation formulas in indicator hints', () => {
-    expect(indicatorDescriptions.momentum).toContain('0.30×Rank(Return3)');
+  it('documents both explanations and the complete fast-rotation formulas in indicator hints', () => {
+    expect(indicatorDescriptions.momentum).toContain('动量强度分');
+    expect(indicatorDescriptions.momentum).toContain('0.30×PctRank(Return3)');
+    expect(indicatorDescriptions.composite).toContain('当前强势越全面');
     expect(indicatorDescriptions.relativeStrength).toContain('RS_N = ETF Return_N − Benchmark Return_N');
     expect(indicatorDescriptions.acceleration).toContain('Acc3 =');
     expect(indicatorDescriptions.composite).toContain('0.25×Acceleration');
     expect(indicatorDescriptions.entry).toContain('BUY 阈值为 70');
+    expect(indicatorDescriptions.breadth).toContain('RankableCount');
+    expect(indicatorDescriptions.stop).toContain('RealizedVol20/√252');
   });
 
   it('loads the latest snapshot on mount and fills the date picker', async () => {
