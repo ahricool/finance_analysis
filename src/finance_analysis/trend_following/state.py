@@ -477,21 +477,44 @@ def apply_regime_exposure_reduction(
     trade_date: date,
     market_regime: str,
     max_exposure: float,
+    previous: Mapping[str, Mapping[str, Any] | None] | None = None,
 ) -> dict[str, StrategyDecision]:
     """Schedule one-unit reductions in the weakest holdings until the regime cap is approached."""
     adjusted = dict(decisions)
     if market_regime != "RISK_OFF":
         return adjusted
 
-    exposure = sum(
-        theoretical_position_weight(
-            decision.units,
+    exposure = 0.0
+    for decision in decisions.values():
+        projected_units = (
+            0
+            if decision.pending_action == "EXIT"
+            else max(decision.units - 1, 0)
+            if decision.pending_action == "REDUCE"
+            else decision.units
+        )
+        exposure += theoretical_position_weight(
+            projected_units,
             decision.suggested_initial_weight,
             decision.suggested_max_weight,
         )
-        for decision in decisions.values()
-        if decision.units > 0
-    )
+    for code, prior in (previous or {}).items():
+        if code in decisions or prior is None:
+            continue
+        if str(prior.get("state")) in ACTIVE_STATES and int(prior.get("units") or 0) > 0:
+            pending = str(prior.get("pending_action") or "")
+            projected_units = (
+                0
+                if pending == "EXIT"
+                else max(int(prior.get("units") or 0) - 1, 0)
+                if pending == "REDUCE"
+                else int(prior.get("units") or 0)
+            )
+            exposure += theoretical_position_weight(
+                projected_units,
+                prior.get("suggested_initial_weight"),
+                prior.get("suggested_max_weight"),
+            )
     if exposure <= max_exposure + 1e-12:
         return adjusted
 

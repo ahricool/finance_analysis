@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 class TrendFollowingConfig:
     history_bars: int = 60
     minimum_history_bars: int = 21
-    calendar_lookback_days: int = 120
+    calendar_lookback_days: int = 180
     minimum_data_coverage: float = 0.95
     benchmark_codes: dict[str, str] = field(
         default_factory=lambda: {"CN": "510300.SH", "US": "SPY.US"}

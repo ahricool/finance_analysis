@@ -113,7 +113,7 @@ describe('TrendFollowingPage', () => {
     expect(trendIndicatorDescriptions.trend).toContain('趋势分');
     expect(trendIndicatorDescriptions.trend).toContain('0.30×SlopePercentile15');
     expect(trendIndicatorDescriptions.relativeStrength).toContain('RS =');
-    expect(trendIndicatorDescriptions.weightedSlope).toContain('15 个收盘价');
+    expect(trendIndicatorDescriptions.weightedSlope).toContain('15 个交易日');
     expect(trendIndicatorDescriptions.slopePercentile).toContain('独立横截面百分位');
     expect(trendIndicatorDescriptions.atr).toContain('ATR20 = Mean(TR, 20)');
     expect(trendIndicatorDescriptions.initialWeight).toContain('0.5%');

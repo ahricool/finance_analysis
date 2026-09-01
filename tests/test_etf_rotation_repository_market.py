@@ -45,6 +45,7 @@ def _snapshot(snapshot_id: int, market: str, symbol_id: int, trade_date: date, r
         "momentum_score": 70.0,
         "entry_score": 75.0,
         "state": "TRENDING",
+        "action": "HOLD",
         "overheated": False,
         "candidate_rank": 1,
         "is_candidate": True,

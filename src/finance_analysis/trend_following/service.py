@@ -250,6 +250,7 @@ class TrendFollowingService:
             trade_date=effective_date,
             market_regime=regime["market_regime"],
             max_exposure=regime["suggested_max_exposure"],
+            previous=previous,
         )
         snapshots: list[dict[str, Any]] = []
         internal_keys = {"code", "is_candidate", "setup", "trend_score", "rs_score", "breakout_score",
