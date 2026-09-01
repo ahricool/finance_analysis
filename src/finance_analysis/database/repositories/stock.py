@@ -423,7 +423,7 @@ class StockRepository:
                 "date": row["date"],
                 "open": row["open"], "high": row["high"], "low": row["low"], "close": row["close"],
                 "volume": row["volume"], "amount": row.get("amount"),
-                "data_source": source,
+                "data_source": row.get("data_source", source),
                 "created_at": now, "updated_at": now,
             }
             for row in bars

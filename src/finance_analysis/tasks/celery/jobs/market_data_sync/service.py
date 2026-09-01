@@ -253,6 +253,11 @@ class MarketDataSyncService:
                     end_date,
                 )
                 routed = BatchBarResult(failed_symbols={code: str(exc) for code in codes})
+            if self.market == "US":
+                routed = self._recover_us_daily_gaps(
+                    routed,
+                    {symbol.code: daily_days_by_code[symbol.code] for symbol in grouped_symbols},
+                )
             for symbol in grouped_symbols:
                 bars = routed.data.get(symbol.code, [])
                 requested_days = daily_days_by_code[symbol.code]
@@ -292,11 +297,125 @@ class MarketDataSyncService:
                     len(codes),
                 )
                 routed = BatchBarResult(failed_symbols={code: str(exc) for code in codes})
+            if self.market == "US":
+                routed = self._recover_us_daily_gaps(
+                    routed,
+                    {symbol.code: full_days for symbol in automatic_full_symbols},
+                )
             for symbol in automatic_full_symbols:
                 result = self._persist_daily_result(symbol, full_days, routed, replace_history=True)
                 result.automatic_full_refresh = True
                 results[symbol.code] = result
         return results
+
+    @staticmethod
+    def _missing_daily_dates(
+        routed: BatchBarResult,
+        requested_days_by_code: dict[str, list[date]],
+        observed_dates: set[date],
+    ) -> dict[str, set[date]]:
+        missing_by_code: dict[str, set[date]] = {}
+        for code, requested_days in requested_days_by_code.items():
+            bars = routed.data.get(code, [])
+            if not bars:
+                continue
+            returned_dates = {bar.trade_date for bar in bars}
+            first_returned = min(returned_dates)
+            expected_dates = {
+                day for day in requested_days if day in observed_dates and day >= first_returned
+            }
+            missing = expected_dates.difference(returned_dates)
+            if missing:
+                missing_by_code[code] = missing
+        return missing_by_code
+
+    @staticmethod
+    def _merge_daily_gap_patch(
+        routed: BatchBarResult,
+        patch: BatchBarResult,
+        missing_by_code: dict[str, set[date]],
+    ) -> int:
+        added = 0
+        for code, missing_dates in missing_by_code.items():
+            existing = {bar.trade_date: bar for bar in routed.data.get(code, [])}
+            for bar in patch.data.get(code, []):
+                if bar.trade_date in missing_dates and bar.trade_date not in existing:
+                    existing[bar.trade_date] = bar
+                    added += 1
+            if not existing:
+                continue
+            routed.data[code] = [existing[trade_date] for trade_date in sorted(existing)]
+            providers = list(dict.fromkeys(bar.provider for bar in routed.data[code]))
+            routed.providers_used[code] = "+".join(providers)
+            routed.failed_symbols.pop(code, None)
+            if code in routed.missing_symbols:
+                routed.missing_symbols.remove(code)
+        return added
+
+    def _recover_us_daily_gaps(
+        self,
+        routed: BatchBarResult,
+        requested_days_by_code: dict[str, list[date]],
+    ) -> BatchBarResult:
+        """Retry cross-sectionally observable US daily gaps, then patch them with TickFlow."""
+        observed_dates = {
+            bar.trade_date
+            for code in requested_days_by_code
+            for bar in routed.data.get(code, [])
+        }
+        if not observed_dates:
+            return routed
+        max_retries = int(getattr(getattr(self, "config", None), "market_data_yfinance_max_retries", 2))
+        missing_by_code = self._missing_daily_dates(routed, requested_days_by_code, observed_dates)
+        for attempt in range(1, max_retries + 1):
+            if not missing_by_code:
+                break
+            missing_dates = set().union(*missing_by_code.values())
+            logger.warning(
+                "market=US data_type=daily action=retry_gaps provider=yfinance attempt=%s symbol_count=%s "
+                "missing_date_count=%s",
+                attempt,
+                len(missing_by_code),
+                len(missing_dates),
+            )
+            try:
+                patch = self.market_data.get_daily_bars(
+                    sorted(missing_by_code),
+                    min(missing_dates),
+                    max(missing_dates),
+                    adjustment="forward",
+                    providers=("yfinance",),
+                )
+            except Exception:
+                logger.exception(
+                    "market=US data_type=daily action=retry_gaps provider=yfinance attempt=%s failed",
+                    attempt,
+                )
+                continue
+            self._merge_daily_gap_patch(routed, patch, missing_by_code)
+            missing_by_code = self._missing_daily_dates(routed, requested_days_by_code, observed_dates)
+        if not missing_by_code:
+            return routed
+        missing_dates = set().union(*missing_by_code.values())
+        logger.warning(
+            "market=US data_type=daily action=fallback_gaps provider=tickflow symbol_count=%s "
+            "missing_date_count=%s",
+            len(missing_by_code),
+            len(missing_dates),
+        )
+        try:
+            patch = self.market_data.get_daily_bars(
+                sorted(missing_by_code),
+                min(missing_dates),
+                max(missing_dates),
+                adjustment="forward",
+                providers=("tickflow",),
+            )
+        except Exception:
+            logger.exception("market=US data_type=daily action=fallback_gaps provider=tickflow failed")
+            return routed
+        self._merge_daily_gap_patch(routed, patch, missing_by_code)
+        return routed
 
     def _has_adjustment_scale_change(self, symbol: Any, bars: list[Any]) -> bool:
         """Detect a coherent historical price-scale shift in the incremental overlap."""
@@ -338,6 +457,8 @@ class MarketDataSyncService:
             provider = routed.providers_used.get(symbol.code)
             if not provider:
                 raise ValueError("daily provider attribution missing")
+            providers = list(dict.fromkeys(bar.provider for bar in bars))
+            source = providers[0] if len(providers) == 1 else "mixed"
             returned_dates = {bar.trade_date for bar in bars}
             missing = sorted(set(requested_days).difference(returned_dates))
             if replace_history:
@@ -355,7 +476,7 @@ class MarketDataSyncService:
                     )
                     return DailyResult(
                         status="partial",
-                        providers=[provider],
+                        providers=providers,
                         missing_amount=any(bar.amount is None for bar in bars),
                         reason=coverage_reason,
                         fallback_reasons=(
@@ -375,18 +496,19 @@ class MarketDataSyncService:
                         "close": bar.close,
                         "volume": bar.volume,
                         "amount": bar.amount,
+                        "data_source": bar.provider,
                     }
                 )
             if replace_history:
-                stats = self.stock_repository.replace_daily_history(symbol.id, rows, provider)
+                stats = self.stock_repository.replace_daily_history(symbol.id, rows, source)
             else:
-                stats = self.stock_repository.upsert_daily(symbol.id, rows, provider)
+                stats = self.stock_repository.upsert_daily(symbol.id, rows, source)
             return DailyResult(
                 status="partial" if missing else "success",
                 inserted_rows=stats.inserted_rows,
                 updated_rows=stats.updated_rows,
                 deleted_rows=getattr(stats, "deleted_rows", 0),
-                providers=[provider],
+                providers=providers,
                 missing_amount=any(bar.amount is None for bar in bars),
                 reason=f"missing_trading_days={len(missing)}" if missing else "",
                 fallback_reasons=[routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else [],

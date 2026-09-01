@@ -217,7 +217,11 @@ def build_default_registry(
     )
     registry.register(
         "yfinance",
-        YFinanceProvider(),
+        YFinanceProvider(
+            batch_size=resolved_config.market_data_yfinance_batch_size,
+            max_workers=resolved_config.market_data_yfinance_max_concurrency,
+            max_retries=resolved_config.market_data_yfinance_max_retries,
+        ),
         capabilities={DAILY_BARS, MINUTE_BARS, REALTIME_QUOTES, MARKET_INDICES, INSTRUMENT_INFO},
     )
     if resolved_config.longbridge_configured:
