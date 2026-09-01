@@ -121,6 +121,32 @@ def test_snapshot_history_is_anchored_to_requested_trade_date():
     assert latest[0]["trade_date"] == date(2026, 6, 3)
 
 
+def test_positions_by_date_only_returns_active_states_with_positive_units():
+    database = _Database()
+    trade_date = date(2026, 8, 28)
+    states = ["ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE", "EXIT", "CANDIDATE", "HOLDING"]
+    with database.session_scope() as session:
+        for symbol_id, state in enumerate(states, 1):
+            code = f"POS{symbol_id}.US"
+            session.add(MarketDataSymbol(id=symbol_id, market="US", code=code, name=state))
+            session.add(_snapshot(
+                snapshot_id=symbol_id,
+                code=code,
+                symbol_id=symbol_id,
+                trade_date=trade_date,
+                state=state,
+                units=0 if symbol_id in {7, 8} else 1,
+            ))
+
+    positions = TrendFollowingRepository("US", database).positions_by_date(trade_date)
+
+    assert {row["state"] for row in positions} == {
+        "ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE",
+    }
+    assert all(row["units"] > 0 for row in positions)
+    assert all(row["name"] == row["state"] for row in positions)
+
+
 def test_replace_day_removes_stale_codes_and_replaces_summary_atomically():
     database = _Database()
     trade_date = date(2026, 8, 28)

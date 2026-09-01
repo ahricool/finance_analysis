@@ -4,7 +4,9 @@ import type { TrendMarket, TrendSnapshot } from '@/types/trendFollowing';
 import { trendIndicatorDescriptions } from '@/components/trend-following/indicatorDescriptions';
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
-const apiMocks = vi.hoisted(() => ({ ranking: vi.fn(), candidates: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn() }));
+const apiMocks = vi.hoisted(() => ({
+  ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn(),
+}));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-sonner', () => ({ toast: { success: vi.fn() } }));
 vi.mock('@/components/app/AppDatePicker.vue', () => ({
@@ -54,11 +56,26 @@ function ranking(market: TrendMarket) {
   };
 }
 
+function portfolio(market: TrendMarket) {
+  const item = snapshot(market);
+  return {
+    market, tradeDate: '2026-08-28', marketRegime: 'RISK_ON', maxExposure: 0.5,
+    currentExposure: 0.06, remainingExposure: 0.44, positionCount: 1,
+    positions: [{
+      code: item.code, name: item.name, state: 'HOLDING', action: 'HOLD', pendingAction: null,
+      units: 2, unitWeight: 0.03, positionWeight: 0.06, maxWeight: 0.1,
+      entryPrice: 100, referencePrice: 110, openedAt: '2026-08-20', initialStop: 96,
+      trailingStop: 104, nextAddPrice: 112, exitLevel: 104, alphaScore: 82.5,
+    }],
+  };
+}
+
 describe('TrendFollowingPage', () => {
   beforeEach(() => {
     apiMocks.dates.mockImplementation(async (market: TrendMarket) => ({ market, latest: '2026-08-28', items: ['2026-08-28'] }));
     apiMocks.ranking.mockImplementation(async (market: TrendMarket) => ranking(market));
     apiMocks.candidates.mockImplementation(async (market: TrendMarket) => ({ market, tradeDate: '2026-08-28', summary: ranking(market), items: [snapshot(market)] }));
+    apiMocks.portfolio.mockImplementation(async (market: TrendMarket) => portfolio(market));
     apiMocks.detail.mockImplementation(async (_code: string, market: TrendMarket) => ({ market,
       metadata: { market, code: snapshot(market).code, name: snapshot(market).name }, latest: snapshot(market),
       history: [snapshot(market)], marketContext: ranking(market),
@@ -75,6 +92,9 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.text()).toContain('平安银行');
     expect(wrapper.text()).toContain('建议入场');
     expect(wrapper.find('table').classes().join(' ')).toContain('min-w-');
+    const reasons = wrapper.get('[data-testid="trend-reasons"]');
+    expect(reasons.classes()).toEqual(expect.arrayContaining(['truncate', 'whitespace-nowrap']));
+    expect(reasons.attributes('title')).toBe('candidate thresholds passed');
     expect(wrapper.find('[aria-label="查看 Market Score 指标说明与计算公式"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="查看 Alpha 指标说明与计算公式"]').exists()).toBe(true);
   });
@@ -105,6 +125,37 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.get('[data-testid="trend-transition"]').text()).toContain('CANDIDATE → ENTRY');
     expect(wrapper.get('[data-testid="trend-mover"]').text()).toContain('Trend +7.0');
     expect(wrapper.get('[data-testid="trend-mover"]').text()).toContain('RS +6.0');
+    expect(wrapper.get('[data-testid="trend-changes-scroll"]').classes()).toEqual(
+      expect.arrayContaining(['max-h-[32rem]', 'overflow-y-auto']),
+    );
+  });
+
+  it('renders the historical theoretical portfolio between summary and lifecycle sections', async () => {
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+
+    expect(apiMocks.portfolio).toHaveBeenCalledWith('CN', '2026-08-28');
+    expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('当前理论持仓');
+    expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('当前理论仓位6.0%');
+    expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('最大允许敞口50.0%');
+    expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('剩余可用敞口44.0%');
+    expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('当前持仓1只');
+    expect(wrapper.get('[data-testid="trend-position-row"]').text()).toContain('平安银行');
+    expect(wrapper.get('[data-testid="trend-position-row"]').text()).toContain('6.0%');
+    const sectionTitles = wrapper.findAll('[data-slot="card-title"]').map(node => node.text());
+    expect(sectionTitles.indexOf('当前理论持仓')).toBeLessThan(sectionTitles.indexOf('策略生命周期'));
+  });
+
+  it('labels exposure-blocked actions as risk limits', async () => {
+    apiMocks.portfolio.mockResolvedValueOnce({
+      ...portfolio('CN'),
+      positions: [{ ...portfolio('CN').positions[0], action: 'EXPOSURE_BLOCKED' }],
+    });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="trend-position-row"]').text()).toContain('风险限制');
+    expect(wrapper.get('[data-testid="trend-position-row"]').text()).not.toContain('敞口已满');
   });
 
   it('documents explanations and formulas for trend-following key indicators', () => {

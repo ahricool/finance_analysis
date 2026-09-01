@@ -46,11 +46,15 @@ describe('trendFollowingApi', () => {
     vi.mocked(apiClient.post).mockResolvedValue({ data: { task_id: 'task-1', status: 'pending', market: 'CN' } });
     await trendFollowingApi.dates('CN');
     await trendFollowingApi.candidates('CN', '2026-08-28');
+    await trendFollowingApi.portfolio('CN', '2026-08-28');
     await trendFollowingApi.detail('000001.SZ', 'CN', 60, '2026-06-01');
     const result = await trendFollowingApi.run('CN', '2026-08-28');
     await trendFollowingApi.run('CN');
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/dates', { params: { market: 'CN' } });
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/candidates', {
+      params: { market: 'CN', trade_date: '2026-08-28' },
+    });
+    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/portfolio', {
       params: { market: 'CN', trade_date: '2026-08-28' },
     });
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/000001.SZ', {
@@ -63,5 +67,32 @@ describe('trendFollowingApi', () => {
       market: 'CN', trade_date: null,
     });
     expect(result.taskId).toBe('task-1');
+  });
+
+  it('converts portfolio exposure and nested position fields', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ data: {
+      market: 'US', trade_date: '2026-08-28', market_regime: 'NEUTRAL',
+      max_exposure: 0.5, current_exposure: 0.06, remaining_exposure: 0.44,
+      position_count: 1, positions: [{
+        code: 'NVDA.US', name: 'NVIDIA', state: 'HOLDING', action: 'HOLD', pending_action: null,
+        units: 2, unit_weight: 0.03, position_weight: 0.06, max_weight: 0.1,
+        entry_price: 180, reference_price: 195, opened_at: '2026-08-20',
+        initial_stop: 172, trailing_stop: 188, next_add_price: 198, exit_level: 188,
+        alpha_score: 82.5,
+      }],
+    } });
+
+    const result = await trendFollowingApi.portfolio('US', '2026-08-28');
+
+    expect(result).toMatchObject({
+      tradeDate: '2026-08-28', marketRegime: 'NEUTRAL', maxExposure: 0.5,
+      currentExposure: 0.06, remainingExposure: 0.44, positionCount: 1,
+      positions: [{
+        pendingAction: null, unitWeight: 0.03, positionWeight: 0.06, maxWeight: 0.1,
+        entryPrice: 180, referencePrice: 195, openedAt: '2026-08-20',
+        initialStop: 172, trailingStop: 188, nextAddPrice: 198, exitLevel: 188,
+        alphaScore: 82.5,
+      }],
+    });
   });
 });

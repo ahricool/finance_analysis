@@ -21,6 +21,7 @@ SORT_FIELDS = {
     "rank": TrendFollowingSnapshot.rank,
 }
 MEANINGFUL_STATES = {"CANDIDATE", "ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE", "EXIT"}
+ACTIVE_POSITION_STATES = {"ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE"}
 
 
 class TrendFollowingRepository:
@@ -319,6 +320,22 @@ class TrendFollowingRepository:
                 )
                 .order_by(TrendFollowingSnapshot.rank, TrendFollowingSnapshot.code)
                 .limit(limit)
+            ).all()
+            return [self._snapshot_payload(row, str(name)) for row, name in rows]
+
+    def positions_by_date(self, trade_date: date) -> list[dict]:
+        """Return the strategy's active theoretical positions for one exact market date."""
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(TrendFollowingSnapshot, MarketDataSymbol.name)
+                .join(MarketDataSymbol, MarketDataSymbol.id == TrendFollowingSnapshot.symbol_id)
+                .where(
+                    TrendFollowingSnapshot.market == self.market,
+                    TrendFollowingSnapshot.trade_date == trade_date,
+                    TrendFollowingSnapshot.state.in_(ACTIVE_POSITION_STATES),
+                    TrendFollowingSnapshot.units > 0,
+                )
+                .order_by(desc(TrendFollowingSnapshot.alpha_score), TrendFollowingSnapshot.code)
             ).all()
             return [self._snapshot_payload(row, str(name)) for row, name in rows]
 
