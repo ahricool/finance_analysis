@@ -3,7 +3,6 @@
 
 __all__ = [
     "AnalysisRepository",
-    "AdjustmentWriteStats",
     "BacktestRepository",
     "MarketDataSymbolRepository",
     "PortfolioAccountRepository",
@@ -12,23 +11,12 @@ __all__ = [
     "PositionRepository",
     "QuantRepository",
     "StockRepository",
-    "StockAdjustmentRepository",
     "TaskRecordRepository",
     "UpsertStats",
 ]
 
 
 def __getattr__(name: str):
-    if name in {"AdjustmentWriteStats", "StockAdjustmentRepository"}:
-        from finance_analysis.database.repositories.adjustment import (
-            AdjustmentWriteStats,
-            StockAdjustmentRepository,
-        )
-
-        return {
-            "AdjustmentWriteStats": AdjustmentWriteStats,
-            "StockAdjustmentRepository": StockAdjustmentRepository,
-        }[name]
     if name == "AnalysisRepository":
         from finance_analysis.database.repositories.analysis import AnalysisRepository
 

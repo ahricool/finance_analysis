@@ -1,4 +1,4 @@
-"""Batch database access for Trend Following raw data and snapshots."""
+"""Batch database access for Trend Following daily data and snapshots."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ class TrendFollowingRepository:
         *,
         calendar_lookback_days: int,
     ) -> list[Mapping[str, Any]]:
-        """Load all required raw OHLCV in one query; never returns future bars."""
+        """Load all required forward-adjusted OHLCV in one query; never returns future bars."""
         selected = sorted(set(codes))
         if not selected:
             return []

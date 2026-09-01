@@ -59,12 +59,6 @@ function statusVariant(
   return 'default';
 }
 
-function priceModeLabel(value: string): string {
-  if (value === 'forward_adjusted') return '前复权';
-  if (value === 'raw') return '不复权';
-  return value;
-}
-
 function formatCount(value: number): string {
   return value.toLocaleString('zh-CN');
 }
@@ -280,10 +274,10 @@ watch(
               </div>
               <div>
                 <dt class="text-muted-foreground">
-                  价格模式
+                  日线价格
                 </dt>
                 <dd class="mt-1 font-medium">
-                  {{ priceModeLabel(item.priceMode) }}
+                  前复权
                 </dd>
               </div>
             </dl><p class="mt-3 line-clamp-2 break-all text-xs text-muted-foreground">
@@ -413,7 +407,7 @@ watch(
                   {{ formatCount(item.rowCount) }}
                 </TableCell>
                 <TableCell class="whitespace-nowrap px-3 py-4">
-                  {{ priceModeLabel(item.priceMode) }}
+                  前复权
                 </TableCell>
                 <TableCell class="whitespace-nowrap px-3 py-4 font-mono text-xs">
                   {{ item.featureVersion }}

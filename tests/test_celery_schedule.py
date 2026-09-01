@@ -204,13 +204,17 @@ def test_market_data_sync_schedules_and_queue():
     assert cn_hk.allow_manual_run is us.allow_manual_run is True
     assert cn_hk.sync_modes == us.sync_modes == ("incremental", "full")
     beat = build_beat_schedule()
-    assert beat["market_data_sync_cn_hk"]["kwargs"]["sync_mode"] == "incremental"
-    assert beat["market_data_sync_us"]["kwargs"]["sync_mode"] == "incremental"
-    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in cn_hk.schedules} == {
-        ("18", "0", "mon-fri", "Asia/Shanghai")
+    assert beat["market_data_sync_cn_hk__0"]["kwargs"]["sync_mode"] == "incremental"
+    assert beat["market_data_sync_cn_hk__1"]["kwargs"]["sync_mode"] == "full"
+    assert beat["market_data_sync_us__0"]["kwargs"]["sync_mode"] == "incremental"
+    assert beat["market_data_sync_us__1"]["kwargs"]["sync_mode"] == "full"
+    assert {(item.hour, item.minute, item.day_of_week, item.timezone, item.sync_mode) for item in cn_hk.schedules} == {
+        ("18", "0", "mon-fri", "Asia/Shanghai", "incremental"),
+        ("10", "0", "sat", "Asia/Shanghai", "full"),
     }
-    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in us.schedules} == {
-        ("20", "0", "mon-fri", "America/New_York")
+    assert {(item.hour, item.minute, item.day_of_week, item.timezone, item.sync_mode) for item in us.schedules} == {
+        ("20", "0", "mon-fri", "America/New_York", "incremental"),
+        ("10", "0", "sat", "America/New_York", "full"),
     }
 
 

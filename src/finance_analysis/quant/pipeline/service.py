@@ -30,7 +30,6 @@ from finance_analysis.quant.markets import (
     validate_universe_for_market,
 )
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
-from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
 from finance_analysis.quant.signals.fusion import SignalFusion
 from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 
@@ -62,11 +61,6 @@ class QuantTrainingPipeline:
             raise QuantDatasetMissingError("A ready dataset snapshot with an artifact is required")
         if dataset.market != run.market or dataset.universe_id != run.universe_id:
             raise QuantDatasetMissingError("Model run and dataset must use the same market and universe")
-        if dataset.price_mode != DEFAULT_QUANT_PRICE_MODE.value:
-            raise QuantDatasetMissingError(
-                f"Production training requires price_mode={DEFAULT_QUANT_PRICE_MODE.value}; "
-                f"dataset uses {dataset.price_mode}"
-            )
         universe_members = len(get_quant_universe_codes(run.market))
         dataset_symbols = int(dataset.symbol_count or 0)
         coverage_ratio = dataset_symbols / universe_members if universe_members else 0.0
@@ -198,7 +192,6 @@ class QuantDailyPipeline:
             trade_date - timedelta(days=500),
             trade_date,
             candidate_codes=eligible_codes,
-            price_mode=DEFAULT_QUANT_PRICE_MODE.value,
         )
         if prediction_dataset is None or not prediction_dataset.artifact_uri:
             raise QuantDatasetMissingError(

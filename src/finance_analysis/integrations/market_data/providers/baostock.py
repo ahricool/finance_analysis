@@ -1,4 +1,4 @@
-"""BaoStock raw daily provider with one reused authenticated session."""
+"""BaoStock forward-adjusted daily provider with one reused authenticated session."""
 
 from __future__ import annotations
 
@@ -77,8 +77,8 @@ class BaoStockProvider:
         return f"{exchange.lower()}.{code}"
 
     def fetch_daily_bars(self, request: DailyBarsRequest) -> BatchBarResult:
-        if request.adjustment is not Adjustment.RAW:
-            raise ValueError("BaoStock storage reads must use adjustment='raw'")
+        if request.adjustment is not Adjustment.FORWARD:
+            raise ValueError("BaoStock daily storage reads require adjustment='forward'")
         result = BatchBarResult()
         for value in request.symbols:
             symbol = canonical_symbol(value, Market.CN)
@@ -90,7 +90,7 @@ class BaoStockProvider:
                         start_date=request.start_date.isoformat(),
                         end_date=request.end_date.isoformat(),
                         frequency="d",
-                        adjustflag="3",
+                        adjustflag="2",
                     )
                     frame = _result_to_dataframe(cursor)
                 bars = bars_from_frame(
@@ -98,7 +98,7 @@ class BaoStockProvider:
                     symbol=symbol,
                     provider=self.name,
                     interval="1d",
-                    adjustment=Adjustment.RAW,
+                    adjustment=Adjustment.FORWARD,
                 )
                 if bars:
                     result.data[symbol] = bars

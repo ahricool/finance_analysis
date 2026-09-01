@@ -94,12 +94,6 @@ function formatCount(value: number): string {
   return value.toLocaleString('zh-CN');
 }
 
-function priceModeLabel(value: string): string {
-  if (value === 'forward_adjusted') return '前复权';
-  if (value === 'raw') return '不复权';
-  return value;
-}
-
 async function loadOptions(): Promise<void> {
   const version = ++requestVersion;
   loadingOptions.value = true;
@@ -302,7 +296,7 @@ watch(modelKey, () => {
                     {{ formatCount(item.symbolCount) }} /
                     {{ formatCount(item.universeMemberCount) }} 只股票 · 覆盖率
                     {{ (item.universeCoverageRatio * 100).toFixed(1) }}% ·
-                    {{ formatCount(item.rowCount) }} 行 · {{ priceModeLabel(item.priceMode) }} ·
+                    {{ formatCount(item.rowCount) }} 行 · 前复权 ·
                     {{ item.featureVersion }}
                   </p>
                   <p class="mt-0.5 text-xs text-muted-foreground">

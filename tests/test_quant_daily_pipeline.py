@@ -61,7 +61,7 @@ def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
             ],
             ignore_index=True,
         ),
-        adjustment_coverage={"coverage_ratio": 1.0},
+        vwap={"valid_rows": len(dates) * 3},
     )
     repository = MagicMock()
     repository.get_universe.return_value = SimpleNamespace(
@@ -537,7 +537,6 @@ def test_training_rejects_missing_dataset_artifact_before_marking_training() -> 
         universe_id=9,
         status="ready",
         artifact_uri="quant://datasets/missing",
-        price_mode="forward_adjusted",
         symbol_count=len(get_quant_universe_codes("CN")),
     )
     artifact_store = MagicMock()

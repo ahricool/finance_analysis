@@ -56,8 +56,12 @@ class ASharePreCloseDataSource:
     def get_daily_history(self, code: str, *, days: int) -> tuple[pd.DataFrame, str]:
         normalized = normalize_stock_code(code)
         end = date.today()
-        result = self.market_data.get_daily_bars([normalized], end - timedelta(days=max(days * 2, 30)), end,
-                                                 adjustment="raw")
+        result = self.market_data.get_daily_bars(
+            [normalized],
+            end - timedelta(days=max(days * 2, 30)),
+            end,
+            adjustment="forward",
+        )
         bars = next(iter(result.data.values()), [])
         if not bars:
             return pd.DataFrame(), ""

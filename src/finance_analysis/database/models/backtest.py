@@ -43,7 +43,6 @@ class BacktestRun(Base):
     initial_cash = Column(Float, nullable=False)
     benchmark_code = Column(String(32), nullable=True)
     parameters = Column(JSONB, nullable=False, default=dict)
-    price_mode = Column(String(16), nullable=False, default="raw")
     market_rule_version = Column(String(32), nullable=False)
     status = Column(String(24), nullable=False, default="pending")
     progress = Column(Integer, nullable=False, default=0)

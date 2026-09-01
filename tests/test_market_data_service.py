@@ -1,7 +1,6 @@
 from dataclasses import replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -9,30 +8,23 @@ import pytest
 from finance_analysis.integrations.market_data.config import DataProviderConfig, provider_order
 from finance_analysis.integrations.market_data.models import (
     Adjustment,
-    AdjustmentFactor,
-    AdjustmentRequest,
-    AdjustmentResult,
     BatchBarResult,
     BatchInstrumentResult,
-    BatchQuoteResult,
     DailyBarsRequest,
     InstrumentInfo,
     Market,
     MarketBar,
-    MarketQuote,
 )
 from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
 from finance_analysis.integrations.market_data.registry import (
-    ADJUSTMENT_FACTORS,
     DAILY_BARS,
-    LATEST_MARKET_SNAPSHOT,
     MINUTE_BARS,
     ProviderConfigurationError,
     ProviderRegistry,
 )
 from finance_analysis.integrations.market_data.service import MarketDataService, build_default_registry
-from finance_analysis.tasks.celery.jobs.market_data_sync.models import AdjustmentResult as SyncAdjustmentResult
 from finance_analysis.tasks.celery.jobs.market_data_sync.models import SymbolResult
+from finance_analysis.tasks.celery.jobs.market_data_sync.models import DailyResult
 from finance_analysis.tasks.celery.jobs.market_data_sync.service import MarketDataSyncService
 
 
@@ -50,7 +42,7 @@ def _bar(symbol: str, provider: str, *, amount=None) -> MarketBar:
         volume=100,
         amount=amount,
         currency="CNY",
-        adjustment=Adjustment.RAW,
+        adjustment=Adjustment.FORWARD,
         provider=provider,
     )
 
@@ -98,7 +90,7 @@ def test_router_falls_back_per_symbol_in_declared_order():
         ["600000.SH", "000001.SZ"],
         date(2025, 1, 1),
         date(2025, 1, 3),
-        adjustment="raw",
+        adjustment="forward",
         providers=["first", "second"],
     )
 
@@ -111,11 +103,44 @@ def test_amount_is_not_estimated_when_provider_omits_it():
     registry = ProviderRegistry()
     registry.register("daily", provider, capabilities={DAILY_BARS})
     result = MarketDataService(registry).get_daily_bars(
-        ["600000.SH"], date(2025, 1, 1), date(2025, 1, 3), adjustment="raw", providers=["daily"]
+        ["600000.SH"], date(2025, 1, 1), date(2025, 1, 3), adjustment="forward", providers=["daily"]
     )
     bar = result.data["600000.SH"][0]
     assert bar.amount is None
     assert bar.amount_estimated is False
+
+
+def test_daily_service_rejects_raw_prices_before_provider_io():
+    provider = _DailyProvider("daily", {"600000.SH": [_bar("600000.SH", "daily")]})
+    registry = ProviderRegistry()
+    registry.register("daily", provider, capabilities={DAILY_BARS})
+
+    with pytest.raises(ValueError, match="only as forward-adjusted"):
+        MarketDataService(registry).get_daily_bars(
+            ["600000.SH"], date(2025, 1, 1), date(2025, 1, 3), adjustment="raw", providers=["daily"]
+        )
+
+    assert provider.requests == []
+
+
+def test_router_rejects_raw_provider_output_and_falls_back_to_adjusted_provider():
+    raw_bar = replace(_bar("600000.SH", "raw"), adjustment=Adjustment.RAW)
+    raw = _DailyProvider("raw", {"600000.SH": [raw_bar]})
+    adjusted = _DailyProvider("adjusted", {"600000.SH": [_bar("600000.SH", "adjusted")]})
+    registry = ProviderRegistry()
+    registry.register("raw", raw, capabilities={DAILY_BARS})
+    registry.register("adjusted", adjusted, capabilities={DAILY_BARS})
+
+    result = MarketDataService(registry).get_daily_bars(
+        ["600000.SH"],
+        date(2025, 1, 1),
+        date(2025, 1, 3),
+        adjustment="forward",
+        providers=["raw", "adjusted"],
+    )
+
+    assert result.providers_used == {"600000.SH": "adjusted"}
+    assert result.data["600000.SH"][0].adjustment is Adjustment.FORWARD
 
 
 def test_default_orders_are_explicit_and_not_integer_priorities():
@@ -126,16 +151,14 @@ def test_default_orders_are_explicit_and_not_integer_priorities():
     assert provider_order(Market.US, DAILY_BARS)[0] == "yfinance"
     assert "longbridge" not in provider_order(Market.US, DAILY_BARS)
     assert provider_order(Market.CN, MINUTE_BARS) == ("streaming", "longbridge", "efinance", "pytdx", "akshare")
-    assert provider_order(Market.CN, ADJUSTMENT_FACTORS) == ("akshare", "tickflow", "yfinance")
 
 
-def test_default_registry_excludes_unsupported_efinance_daily_and_includes_tickflow_factors():
+def test_default_registry_excludes_unsupported_efinance_daily():
     registry = build_default_registry()
     assert DAILY_BARS not in registry.capabilities("efinance")
-    assert ADJUSTMENT_FACTORS in registry.capabilities("tickflow")
 
 
-def test_tickflow_free_uses_maximum_history_count_native_batch_raw_and_cn_lots_become_shares():
+def test_tickflow_free_uses_maximum_history_count_native_batch_forward_and_cn_lots_become_shares():
     calls = []
 
     class _Klines:
@@ -159,15 +182,15 @@ def test_tickflow_free_uses_maximum_history_count_native_batch_raw_and_cn_lots_b
 
     provider = TickFlowFreeProvider(client=SimpleNamespace(klines=_Klines()))
     result = provider.fetch_daily_bars(
-        DailyBarsRequest(("600519.SH",), date(2025, 1, 1), date(2025, 1, 3), Adjustment.RAW)
+        DailyBarsRequest(("600519.SH",), date(2025, 1, 1), date(2025, 1, 3), Adjustment.FORWARD)
     )
 
     assert calls[0][0] == ["600519.SH"]
-    assert calls[0][1]["adjust"] == "none"
+    assert calls[0][1]["adjust"] == "forward"
     assert calls[0][1]["count"] == 10_000
     assert result.data["600519.SH"][0].volume == 12300
     assert result.data["600519.SH"][0].amount == 129150
-    assert result.data["600519.SH"][0].adjustment is Adjustment.RAW
+    assert result.data["600519.SH"][0].adjustment is Adjustment.FORWARD
 
 
 def test_tickflow_daily_uses_one_sdk_batch_call_for_multiple_symbols_with_explicit_limits():
@@ -199,7 +222,9 @@ def test_tickflow_daily_uses_one_sdk_batch_call_for_multiple_symbols_with_explic
         batch_size=80,
         max_workers=3,
     )
-    result = provider.fetch_daily_bars(DailyBarsRequest(symbols, date(2025, 1, 1), date(2025, 1, 3), Adjustment.RAW))
+    result = provider.fetch_daily_bars(
+        DailyBarsRequest(symbols, date(2025, 1, 1), date(2025, 1, 3), Adjustment.FORWARD)
+    )
 
     assert len(calls) == 1
     assert calls[0][0] == list(symbols)
@@ -230,87 +255,7 @@ def test_tickflow_batch_configuration_defaults_and_validation():
         TickFlowFreeProvider(max_workers=0)
 
 
-def test_tickflow_derives_daily_factors_from_consistent_raw_and_forward_ohlc():
-    calls = []
-
-    class _Klines:
-        def batch(self, symbols, **kwargs):
-            calls.append(kwargs)
-            multiplier = 0.8 if kwargs["adjust"] == "forward" else 1.0
-            return {
-                "510300.SH": pd.DataFrame(
-                    [
-                        {
-                            "date": "2025-01-02",
-                            "open": 10 * multiplier,
-                            "high": 11 * multiplier,
-                            "low": 9 * multiplier,
-                            "close": 10.5 * multiplier,
-                            "volume": 123,
-                            "amount": 129150,
-                        }
-                    ]
-                )
-            }
-
-    provider = TickFlowFreeProvider(client=SimpleNamespace(klines=_Klines()))
-    result = provider.get_adjustment_factors(AdjustmentRequest(("510300.SH",), date(2025, 1, 1), date(2025, 1, 3)))
-
-    assert [call["adjust"] for call in calls] == ["none", "forward"]
-    assert result.providers_used == {"510300.SH": "tickflow"}
-    assert result.factors["510300.SH"][0].trade_date == date(2025, 1, 2)
-    assert result.factors["510300.SH"][0].factor == pytest.approx(0.8)
-
-
-def test_tickflow_rejects_inconsistent_ohlc_adjustment_ratios():
-    class _Klines:
-        def batch(self, symbols, **kwargs):
-            values = {"open": 10, "high": 11, "low": 9, "close": 10.5}
-            if kwargs["adjust"] == "forward":
-                values = {"open": 8, "high": 9.9, "low": 7.2, "close": 8.4}
-            return {"510300.SH": pd.DataFrame([{"date": "2025-01-02", **values, "volume": 123, "amount": 129150}])}
-
-    provider = TickFlowFreeProvider(client=SimpleNamespace(klines=_Klines()))
-    result = provider.get_adjustment_factors(AdjustmentRequest(("510300.SH",), date(2025, 1, 1), date(2025, 1, 3)))
-
-    assert "inconsistent OHLC adjustment ratios" in result.failed_symbols["510300.SH"]
-
-
-def test_adjustment_router_falls_back_to_tickflow_after_akshare_failure():
-    trade_date = date(2025, 1, 2)
-
-    class _AdjustmentProvider:
-        def __init__(self, result):
-            self.result = result
-            self.requests = []
-
-        def get_adjustment_factors(self, request):
-            self.requests.append(request)
-            return self.result
-
-    akshare = _AdjustmentProvider(
-        AdjustmentResult(failed_symbols={"510300.SH": "ETF factor response has four columns"})
-    )
-    tickflow = _AdjustmentProvider(
-        AdjustmentResult(
-            factors={"510300.SH": [AdjustmentFactor("510300.SH", trade_date, 0.8, "tickflow")]},
-            providers_used={"510300.SH": "tickflow"},
-        )
-    )
-    registry = ProviderRegistry()
-    registry.register("akshare", akshare, capabilities={ADJUSTMENT_FACTORS})
-    registry.register("tickflow", tickflow, capabilities={ADJUSTMENT_FACTORS})
-
-    result = MarketDataService(registry).get_adjustment_factors(
-        ["510300.SH"], date(2025, 1, 1), date(2025, 1, 3), providers=["akshare", "tickflow"]
-    )
-
-    assert result.providers_used == {"510300.SH": "tickflow"}
-    assert result.factors["510300.SH"][0].factor == pytest.approx(0.8)
-    assert tickflow.requests[0].symbols == ("510300.SH",)
-
-
-def test_sync_persists_raw_bars_without_priority_or_estimated_amount():
+def test_sync_persists_forward_adjusted_bars_without_priority_or_estimated_amount():
     bar = _bar("600000.SH", "tickflow", amount=None)
     routed = BatchBarResult(data={"600000.SH": [bar]}, providers_used={"600000.SH": "tickflow"})
     market_data = SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed)
@@ -424,41 +369,6 @@ def test_us_daily_batches_ten_symbols_with_same_window_in_one_service_call():
     assert len(service.stock_repository.persisted) == 10
 
 
-def test_us_adjustments_batch_ten_symbols_with_same_window_in_one_service_call():
-    symbols = [SimpleNamespace(id=index, code=f"US{index}.US") for index in range(10)]
-    requested_days = [date(2025, 1, 2), date(2025, 1, 3)]
-    calls = []
-    routed = AdjustmentResult()
-
-    def get_adjustment_factors(codes, start_date, end_date):
-        calls.append((list(codes), start_date, end_date))
-        return routed
-
-    service = _batch_sync_service(
-        SimpleNamespace(get_adjustment_factors=get_adjustment_factors),
-        market="US",
-    )
-    received = []
-
-    def sync_adjustment(symbol, days, full_days, *, force_full_factor_window, routed):
-        received.append((symbol.code, list(days), force_full_factor_window, routed))
-        return SyncAdjustmentResult("success", provider="yfinance")
-
-    service._sync_adjustment = sync_adjustment
-    results = service._sync_adjustment_batch_groups(
-        symbols,
-        {symbol.code: requested_days for symbol in symbols},
-        requested_days,
-        {symbol.code: True for symbol in symbols},
-    )
-
-    assert len(calls) == 1
-    assert calls[0][0] == [symbol.code for symbol in symbols]
-    assert [item[0] for item in received] == [symbol.code for symbol in symbols]
-    assert all(item[3] is routed for item in received)
-    assert all(result.provider == "yfinance" for result in results.values())
-
-
 def test_cn_daily_groups_initial_and_incremental_windows_into_two_calls():
     symbols = [SimpleNamespace(id=index, code=f"000{index:03d}.SZ") for index in range(10)]
     refresh_days = [date(2025, 1, 2), date(2025, 1, 3)]
@@ -480,6 +390,45 @@ def test_cn_daily_groups_initial_and_incremental_windows_into_two_calls():
     assert len(calls) == 2
     assert sorted(len(call[0]) for call in calls) == [2, 8]
     assert all(result.status == "success" for result in results.values())
+
+
+@pytest.mark.parametrize(
+    ("sync_mode", "expected_windows"),
+    [("incremental", [5 * 365, 60]), ("full", [5 * 365, 5 * 365])],
+)
+def test_sync_mode_preserves_sixty_day_incremental_and_five_year_full_windows(sync_mode, expected_windows):
+    symbol = SimpleNamespace(id=1, code="600000.SH")
+    service = MarketDataSyncService.__new__(MarketDataSyncService)
+    service.market = "CN"
+    service.sync_mode = sync_mode
+    service.config = SimpleNamespace(
+        market_data_initial_daily_days=5 * 365,
+        market_data_refresh_daily_days=60,
+        market_data_retention_daily_days=10 * 365,
+    )
+    service.unsupported_symbols = []
+    service.instrument_names_refreshed = 0
+    service.instrument_name_failures = {}
+    service.load_scope = lambda: [symbol]
+    requested_windows = []
+
+    def refresh_days(natural_days):
+        requested_windows.append(natural_days)
+        return [date(2025, 1, 2), date(2025, 1, 3)]
+
+    service._refresh_days = refresh_days
+    service.stock_repository = SimpleNamespace(
+        has_daily_data=lambda _symbol_id: True,
+        delete_daily_before_symbols=lambda *_args: 0,
+    )
+    service._sync_daily_batch_groups = lambda _symbols, _days: {
+        symbol.code: DailyResult("success", providers=["tickflow"])
+    }
+
+    summary = service.run()
+
+    assert requested_windows == expected_windows
+    assert summary["sync_mode"] == sync_mode
 
 
 def test_cn_daily_batch_preserves_per_symbol_router_fallback_and_provider_attribution():
@@ -529,7 +478,7 @@ def test_cn_daily_batch_preserves_per_symbol_router_fallback_and_provider_attrib
     service.sync_mode = "incremental"
     service.unsupported_symbols = []
     summary = service._summarize(
-        [SymbolResult(symbol.code, results[symbol.code], SyncAdjustmentResult("success")) for symbol in symbols],
+        [SymbolResult(symbol.code, results[symbol.code]) for symbol in symbols],
         len(symbols),
     )
     assert summary["success_symbols"] == 3
@@ -669,49 +618,3 @@ def test_us_sync_instrument_name_refresh_does_not_route_to_longbridge():
 
     assert calls == [(["AAPL.US"], ("tickflow", "akshare"))]
     assert "longbridge" not in calls[0][1]
-
-
-def test_cn_daily_default_chain_uses_efinance_snapshot_for_latest_day():
-    today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
-    tickflow = _DailyProvider("tickflow", {"600000.SH": [_bar("600000.SH", "tickflow")]})
-    tickflow.values["600000.SH"][0] = MarketBar(
-        **{
-            **tickflow.values["600000.SH"][0].to_dict(),
-            "trade_date": today - timedelta(days=1),
-            "market": Market.CN,
-            "adjustment": Adjustment.RAW,
-        }
-    )
-    empty_akshare = _DailyProvider("akshare", {})
-    empty_pytdx = _DailyProvider("pytdx", {})
-
-    class _Snapshot:
-        def fetch_market_snapshot(self, market):
-            quote = MarketQuote(
-                symbol="600000.SH",
-                market=Market.CN,
-                provider="efinance",
-                currency="CNY",
-                price=10.8,
-                open_price=10.1,
-                high=11,
-                low=10,
-                volume=1000,
-                amount=10800,
-                quote_time=datetime.now(ZoneInfo("Asia/Shanghai")),
-            )
-            return BatchQuoteResult(data={"600000.SH": quote})
-
-    registry = ProviderRegistry()
-    registry.register("tickflow", tickflow, capabilities={DAILY_BARS})
-    registry.register("akshare", empty_akshare, capabilities={DAILY_BARS})
-    registry.register("pytdx", empty_pytdx, capabilities={DAILY_BARS})
-    registry.register("efinance", _Snapshot(), capabilities={LATEST_MARKET_SNAPSHOT})
-
-    result = MarketDataService(registry).get_daily_bars(
-        ["600000.SH"], today - timedelta(days=2), today, adjustment="raw"
-    )
-
-    assert [bar.trade_date for bar in result.data["600000.SH"]] == [today - timedelta(days=1), today]
-    assert result.data["600000.SH"][-1].provider == "efinance"
-    assert result.providers_used["600000.SH"] == "efinance"

@@ -254,15 +254,6 @@ class EfinanceProvider:
     def random_sleep(min_seconds: float, max_seconds: float) -> None:
         time.sleep(random.uniform(min_seconds, max_seconds))
 
-    @staticmethod
-    def _historical_symbol(code: str) -> str:
-        canonical = str(code or "").strip().upper()
-        if canonical.endswith((".SH", ".SZ")):
-            return canonical[:-3]
-        if canonical.endswith(".HK"):
-            return f"HK{int(canonical[:-3]):05d}"
-        raise ValueError(f"Efinance daily history supports canonical CN/HK symbols only: {code}")
-
     def fetch_minute_bars(self, request: MinuteBarsRequest) -> BatchBarResult:
         result = BatchBarResult()
         interval = int(request.interval.removesuffix("m"))
@@ -340,49 +331,6 @@ class EfinanceProvider:
             except Exception as exc:
                 result.failed_symbols[symbol] = str(exc)
         return result
-
-    def _fetch_daily_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
-        """Fetch unadjusted Eastmoney daily bars (``fqt=0``)."""
-        return self._fetch_canonical_daily(symbol, start_date, end_date, fqt=0)
-
-    def fetch_forward_adjusted_validation_bars(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:
-        """Fetch forward-adjusted bars for validation only; never persist them as raw bars."""
-        return self._fetch_canonical_daily(symbol, start_date, end_date, fqt=1)
-
-    def _fetch_canonical_daily(self, symbol, start_date: date, end_date: date, *, fqt: int) -> pd.DataFrame:
-        import efinance as ef
-
-        provider_symbol = self._historical_symbol(symbol.code)
-        start = start_date.strftime("%Y%m%d")
-        end = end_date.strftime("%Y%m%d")
-        try:
-            raw = _ef_call_with_timeout(
-                ef.stock.get_quote_history,
-                stock_codes=provider_symbol,
-                beg=start,
-                end=end,
-                klt=101,
-                fqt=fqt,
-                timeout=60,
-            )
-            frame = self._normalize_data(raw, provider_symbol)
-        except Exception as exc:
-            reason = str(exc)
-            retryable = any(token in reason.lower() for token in ("timeout", "connection", "429", "rate"))
-            raise RuntimeError(
-                f"provider={self.name} market={symbol.market} code={symbol.code} "
-                f"data_type={'daily_forward_adjusted_validation' if fqt else 'daily'} "
-                f"requested_range={start_date}..{end_date} retryable={retryable} reason={reason}"
-            ) from exc
-        if frame is None or frame.empty:
-            return pd.DataFrame()
-        frame = frame.copy()
-        frame["date"] = pd.to_datetime(frame["date"]).dt.date
-        if symbol.market == "CN":
-            # Eastmoney reports A-share historical volume in lots (手).
-            frame["volume"] = pd.to_numeric(frame["volume"], errors="coerce") * 100.0
-        columns = ["date", "open", "high", "low", "close", "volume", "amount"]
-        return frame[columns].sort_values("date").reset_index(drop=True)
 
     @staticmethod
     def _build_history_failure_message(

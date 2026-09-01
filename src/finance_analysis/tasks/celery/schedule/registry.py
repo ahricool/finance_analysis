@@ -37,26 +37,25 @@ def get_definition_by_task_name(task_name: str) -> Optional[ScheduledTaskDefinit
 
 
 def build_beat_schedule() -> dict[str, dict[str, Any]]:
-    schedule: dict[str, dict[str, Any]] = {}
+    beat_schedule: dict[str, dict[str, Any]] = {}
     for definition in SCHEDULED_TASK_DEFINITIONS:
         if not definition.enabled:
             continue
-        crontabs = definition.crontabs()
-        for index, cron in enumerate(crontabs):
-            entry_key = definition.job_id if len(crontabs) == 1 else f"{definition.job_id}__{index}"
+        for index, cron_schedule in enumerate(definition.schedules):
+            entry_key = definition.job_id if len(definition.schedules) == 1 else f"{definition.job_id}__{index}"
             kwargs = {
                 "scheduler_job_id": definition.job_id,
                 "_trigger_source": "scheduler",
             }
             if definition.sync_modes:
-                kwargs["sync_mode"] = "incremental"
-            schedule[entry_key] = {
+                kwargs["sync_mode"] = cron_schedule.sync_mode or "incremental"
+            beat_schedule[entry_key] = {
                 "task": definition.celery_task_name,
-                "schedule": cron,
+                "schedule": cron_schedule.to_crontab(),
                 "options": {"queue": definition.queue, "expires": definition.expires},
                 "kwargs": kwargs,
             }
-    return schedule
+    return beat_schedule
 
 
 def build_task_routes() -> dict[str, dict[str, str]]:

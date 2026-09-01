@@ -115,7 +115,6 @@ class BacktestRunResponse(BaseModel):
     benchmark_code: str | None
     benchmark_name: str | None = None
     parameters: dict[str, Any]
-    price_mode: str
     market_rule_version: str
     status: str
     progress: int

@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import type { BacktestEquity, BacktestRun, BacktestTrade } from '@/types/backtests';
 import { engineLabels, formatMoney, marketLabels, statusLabels } from '@/utils/backtests';
 import { formatSecurityLabel } from '@/utils/security';
-import { ArrowLeft, TriangleAlert } from 'lucide-vue-next';
+import { ArrowLeft } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 
@@ -152,12 +152,6 @@ onBeforeUnmount(() => {
           {{ run.error }}
         </p>
       </section>
-      <div
-        v-if="run.priceMode === 'raw'"
-        class="flex gap-2 rounded-xl border border-warning/25 bg-warning/10 p-4 text-sm text-warning"
-      >
-        <TriangleAlert class="h-5 w-5 shrink-0" /><span>当前结果使用未复权价格，拆股、分红或除权可能影响策略信号和收益。</span>
-      </div>
       <BacktestSummaryCards :summary="run.summary" />
       <BacktestEquityChart
         :equity="equity"
@@ -186,7 +180,7 @@ onBeforeUnmount(() => {
                 {
                   parameters: run.parameters,
                   marketRuleVersion: run.marketRuleVersion,
-                  priceMode: run.priceMode,
+                  dailyPriceSemantics: 'forward_adjusted',
                 },
                 null,
                 2,

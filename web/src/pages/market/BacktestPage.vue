@@ -387,7 +387,7 @@ onBeforeUnmount(() => {
             高级设置（只读）
           </summary>
           <dl class="mt-3 grid gap-2 sm:grid-cols-2">
-            <div>价格口径：未复权原始价格</div>
+            <div>价格口径：前复权日线</div>
             <div>目标仓位：100% / 0%</div>
             <div>信号：收盘后计算</div>
             <div>成交：下一交易日开盘</div>

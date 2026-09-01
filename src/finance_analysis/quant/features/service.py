@@ -18,7 +18,6 @@ from finance_analysis.quant.markets import (
     get_quant_universe_codes,
     validate_universe_for_market,
 )
-from finance_analysis.quant.price_modes import DEFAULT_QUANT_PRICE_MODE
 from finance_analysis.quant.regime.service import MarketRegimeService
 
 
@@ -50,7 +49,6 @@ class DailyResearchService:
             universe_codes | required_benchmarks,
             trade_date - timedelta(days=500),
             trade_date,
-            DEFAULT_QUANT_PRICE_MODE,
         )
         frames = {
             code: group.rename(columns={"datetime": "date"}).drop(columns="instrument").reset_index(drop=True)
@@ -148,7 +146,7 @@ class DailyResearchService:
                         "sector_key": None,
                         "sector_benchmark_code": None,
                         "sector_proxy_code": market_config.primary_benchmark,
-                        "price_mode": DEFAULT_QUANT_PRICE_MODE.value,
+                        "daily_price_semantics": "forward_adjusted",
                         **portfolio_metadata,
                     },
                 }
@@ -177,7 +175,6 @@ class DailyResearchService:
                 "coverage_ratio": coverage_ratio,
                 "minimum_coverage_ratio": self.config.minimum_universe_coverage,
                 "skipped_codes": skipped_codes,
-                "adjustment": loaded.adjustment_coverage,
             },
             "warnings": warnings,
         }

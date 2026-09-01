@@ -38,7 +38,6 @@ class BacktestRequest:
     commission_rate: float = 0.0008
     stamp_tax_rate: float = 0.001
     transfer_fee_rate: float = 0.00001
-    price_mode: str = "raw"
 
 
 @dataclass

@@ -65,7 +65,7 @@ def test_preflight_ready_for_complete_us_postgresql_data():
     assert result.ready
     assert result.coverage_ratio == 1
     assert result.warmup_days == 21
-    assert result.warnings
+    assert result.warnings == []
 
 
 def test_preflight_rejects_unsupported_market_and_missing_cn_limits():

@@ -19,7 +19,6 @@ from finance_analysis.database.repositories.stock import MarketDataSymbolReposit
 
 logger = logging.getLogger(__name__)
 
-RAW_PRICE_WARNING = "当前行情未进行公司行动调整，拆股、分红或除权可能影响结果。"
 CALENDAR_BY_MARKET = {"US": "XNYS", "CN": "XSHG", "HK": "XHKG"}
 
 
@@ -66,7 +65,7 @@ class BacktestService:
         start_date = values["start_date"]
         end_date = values["end_date"]
         errors: list[str] = []
-        warnings = [RAW_PRICE_WARNING]
+        warnings: list[str] = []
         definition = get_engine_definition(engine_key)
         strategy = get_strategy(strategy_key)
         parameters = strategy.validate_parameters(values.get("parameters"))
@@ -182,7 +181,6 @@ class BacktestService:
                 "initial_cash": float(values.get("initial_cash", 100000)),
                 "benchmark_code": values.get("benchmark_code") or None,
                 "parameters": parameters,
-                "price_mode": "raw",
                 "market_rule_version": rules.version,
                 "status": "pending",
                 "progress": 0,
@@ -250,7 +248,6 @@ class BacktestService:
             commission_rate=float(config.get("commission_rate", 0.0008)),
             stamp_tax_rate=float(config.get("stamp_tax_rate", 0.0)),
             transfer_fee_rate=float(config.get("transfer_fee_rate", 0.0)),
-            price_mode=run.price_mode,
         )
 
     def execute_run(self, run_id: int) -> dict[str, Any]:
@@ -285,4 +282,4 @@ class BacktestService:
             raise
 
 
-__all__ = ["BacktestPreflightResult", "BacktestService", "RAW_PRICE_WARNING"]
+__all__ = ["BacktestPreflightResult", "BacktestService"]

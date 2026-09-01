@@ -14,7 +14,7 @@ from finance_analysis.database.models.quant import (
     ModelRun, ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem,
     QuantDatasetSnapshot, QuantUniverse, SectorRegimeSnapshot,
 )
-from finance_analysis.database.models.stock import MarketDataSymbol, StockAdjustmentFactor, StockDaily
+from finance_analysis.database.models.stock import MarketDataSymbol, StockDaily
 from finance_analysis.quant.markets import DEFAULT_QUANT_UNIVERSES, validate_universe_for_market
 
 
@@ -104,7 +104,7 @@ class QuantRepository:
         start: date,
         end: date,
     ) -> list[Any]:
-        """Load raw bars and same-session adjustment metadata through one canonical join."""
+        """Load canonical forward-adjusted daily bars."""
         if not codes:
             return []
         with self.db.get_session() as session:
@@ -123,16 +123,8 @@ class QuantRepository:
                         StockDaily.vwap_source,
                         StockDaily.vwap_quality,
                         StockDaily.data_source.label("daily_data_source"),
-                        StockAdjustmentFactor.forward_adjustment_factor,
-                        StockAdjustmentFactor.data_source.label("adjustment_source"),
-                        StockAdjustmentFactor.source_hash.label("adjustment_source_hash"),
                     )
                     .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
-                    .outerjoin(
-                        StockAdjustmentFactor,
-                        (StockAdjustmentFactor.symbol_id == StockDaily.symbol_id)
-                        & (StockAdjustmentFactor.trade_date == StockDaily.date),
-                    )
                     .where(
                         MarketDataSymbol.market == market.upper(),
                         MarketDataSymbol.code.in_(codes),

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Canonical market-data symbols and raw OHLCV ORM models."""
+"""Canonical market-data symbols and daily/minute OHLCV ORM models."""
 
 from __future__ import annotations
 
@@ -68,9 +68,6 @@ class MarketDataSymbol(Base):
     corporate_actions = relationship(
         "StockCorporateAction", back_populates="symbol", cascade="all, delete-orphan"
     )
-    adjustment_factors = relationship(
-        "StockAdjustmentFactor", back_populates="symbol", cascade="all, delete-orphan"
-    )
 
     __table_args__ = (
         UniqueConstraint("code", name="uix_market_data_symbol_code"),
@@ -99,7 +96,7 @@ def _validate_symbol(_mapper: Any, _connection: Any, target: MarketDataSymbol) -
 
 
 class StockDaily(Base):
-    """Unadjusted raw daily OHLCV plus explicitly sourced VWAP metadata."""
+    """Forward-adjusted daily OHLC with unadjusted volume/amount and sourced VWAP metadata."""
 
     __tablename__ = "stock_daily"
 
@@ -253,39 +250,8 @@ class StockCorporateAction(Base):
     )
 
 
-class StockAdjustmentFactor(Base):
-    """Per-session price factors where forward-adjusted price equals raw price times factor."""
-
-    __tablename__ = "stock_adjustment_factor"
-
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
-    trade_date = Column(Date, nullable=False)
-    forward_adjustment_factor = Column(Float, nullable=True)
-    hfq_factor = Column(Float, nullable=True)
-    hfq_cash = Column(Float, nullable=True)
-    adj_close = Column(Float, nullable=True)
-    data_source = Column(String(50), nullable=False)
-    source_hash = Column(String(64), nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
-
-    symbol = relationship("MarketDataSymbol", back_populates="adjustment_factors", lazy="joined")
-
-    __table_args__ = (
-        UniqueConstraint("symbol_id", "trade_date", name="uix_stock_adjustment_factor_symbol_date"),
-        CheckConstraint(
-            "forward_adjustment_factor IS NULL OR forward_adjustment_factor > 0",
-            name="ck_stock_adjustment_forward_factor_positive",
-        ),
-        CheckConstraint("hfq_factor IS NULL OR hfq_factor > 0", name="ck_stock_adjustment_hfq_positive"),
-        Index("ix_stock_adjustment_factor_symbol_date", "symbol_id", "trade_date"),
-    )
-
-
 __all__ = [
     "MarketDataSymbol",
-    "StockAdjustmentFactor",
     "StockCorporateAction",
     "StockDaily",
     "StockMinute",

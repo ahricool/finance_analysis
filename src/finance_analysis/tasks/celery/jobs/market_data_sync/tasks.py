@@ -39,12 +39,6 @@ def _run_markets(markets: tuple[str, ...], sync_mode: str = "incremental") -> di
     fallbacks = [item for summary in summaries for item in summary["fallback_reasons"]]
     fallbacks.extend(errors)
     unsupported = [item for summary in summaries for item in summary["unsupported_symbols"]]
-    factor_repair_codes = sorted(
-        {code for summary in summaries for code in summary.get("factor_repair_codes", [])}
-    )
-    unresolved_factor_gaps = [
-        gap for summary in summaries for gap in summary.get("unresolved_factor_gaps", [])
-    ]
     return {
         "sync_status": "partial" if errors or any(s["sync_status"] == "partial" for s in summaries) else "success",
         "sync_mode": sync_mode,
@@ -63,20 +57,6 @@ def _run_markets(markets: tuple[str, ...], sync_mode: str = "incremental") -> di
         "missing_vwap_symbols": sorted(code for summary in summaries for code in summary["missing_vwap_symbols"]),
         "unsupported_symbol_count": len(unsupported),
         "unsupported_symbols": unsupported,
-        "factor_repair_symbols": sum(
-            summary.get("factor_repair_symbols", 0) for summary in summaries
-        ),
-        "factor_repair_codes": factor_repair_codes,
-        "missing_factor_rows_before": sum(
-            summary.get("missing_factor_rows_before", 0) for summary in summaries
-        ),
-        "missing_factor_rows_after": sum(
-            summary.get("missing_factor_rows_after", 0) for summary in summaries
-        ),
-        "unresolved_factor_gaps": unresolved_factor_gaps,
-        "unresolved_factor_gaps_truncated": any(
-            summary.get("unresolved_factor_gaps_truncated", False) for summary in summaries
-        ),
         "fallback_reasons": fallbacks[:20],
         "per_market": {summary["market"]: summary for summary in summaries},
         "market_errors": errors,

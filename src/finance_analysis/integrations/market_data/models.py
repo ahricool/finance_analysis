@@ -92,18 +92,6 @@ class InstrumentRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class AdjustmentRequest:
-    symbols: tuple[str, ...]
-    start_date: date
-    end_date: date
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "symbols", _symbols(self.symbols))
-        if self.start_date > self.end_date:
-            raise ValueError("start_date must not be after end_date")
-
-
-@dataclass(frozen=True, slots=True)
 class MarketBar:
     symbol: str
     market: Market
@@ -254,32 +242,6 @@ class InstrumentInfo:
 @dataclass(slots=True)
 class BatchInstrumentResult:
     data: dict[str, InstrumentInfo] = field(default_factory=dict)
-    missing_symbols: list[str] = field(default_factory=list)
-    failed_symbols: dict[str, str] = field(default_factory=dict)
-    providers_used: dict[str, str] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
-class CorporateAction:
-    symbol: str
-    action_date: date
-    action_type: str
-    value: float
-    provider: str
-
-
-@dataclass(frozen=True, slots=True)
-class AdjustmentFactor:
-    symbol: str
-    trade_date: date
-    factor: float
-    provider: str
-
-
-@dataclass(slots=True)
-class AdjustmentResult:
-    factors: dict[str, list[AdjustmentFactor]] = field(default_factory=dict)
-    corporate_actions: dict[str, list[CorporateAction]] = field(default_factory=dict)
     missing_symbols: list[str] = field(default_factory=list)
     failed_symbols: dict[str, str] = field(default_factory=dict)
     providers_used: dict[str, str] = field(default_factory=dict)

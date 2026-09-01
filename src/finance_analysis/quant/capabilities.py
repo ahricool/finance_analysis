@@ -9,7 +9,6 @@ import sys
 def get_quant_capabilities(market: str = "US", repository=None) -> dict:
     from finance_analysis.database.repositories.quant import QuantRepository
     from finance_analysis.quant.markets import get_quant_market_config
-    from finance_analysis.quant.price_modes import PriceMode
 
     market_config = get_quant_market_config(market)
     repository = repository or QuantRepository()
@@ -34,17 +33,12 @@ def get_quant_capabilities(market: str = "US", repository=None) -> dict:
         "status": "available" if broker_configured and models_ready else "degraded",
         "market": market_config.market,
         "python_version": ".".join(map(str, sys.version_info[:3])),
-        "price_modes": [PriceMode.FORWARD_ADJUSTED.value, PriceMode.RAW.value],
+        "daily_price_semantics": "forward_adjusted",
         "markets": {"US": "available", "CN": "available"},
         "models": {"status": "available" if models_ready else "unavailable", "required": model_status},
         "qlib": qlib,
         "lightgbm": "isolated_in_qlib_worker",
         "sklearn": "isolated_in_qlib_worker",
-        "forward_adjusted_prices": {
-            "status": "available",
-            "formula": "forward_adjusted_price = raw_price * forward_adjustment_factor",
-            "volume_amount_mode": "raw",
-        },
         "event_providers": {"manual_json_csv": "available", "llm_extraction": "disabled"},
         "warnings": warnings,
     }

@@ -13,7 +13,7 @@ Backtrader 当前声明 US、CN；RQAlpha 当前只声明 CN。RQAlpha 6.2.0 的
 
 ## 数据和市场限制
 
-`stock_daily` 保存原始未复权价格。`backtest_run.price_mode` 固定记录为 `raw`，结果和页面会提示拆股、分红和除权风险。A 股回测要求日线包含 `limit_up`、`limit_down` 和 `suspended`；缺失时 preflight 会阻止任务创建。A 股使用 100 股整数手、T+1、涨跌停限制和项目统一费用模型。港股不会在缺少逐标的 lot size 时默认使用 100 股。
+`stock_daily` 直接保存前复权日线，回测原样读取且不会再次应用复权因子。A 股回测要求日线包含 `limit_up`、`limit_down` 和 `suspended`；缺失时 preflight 会阻止任务创建。A 股使用 100 股整数手、T+1、涨跌停限制和项目统一费用模型。港股不会在缺少逐标的 lot size 时默认使用 100 股。
 
 ## 引擎适配
 

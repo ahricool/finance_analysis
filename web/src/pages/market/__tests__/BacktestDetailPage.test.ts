@@ -7,12 +7,12 @@ const api = vi.hoisted(() => ({ run: vi.fn(), trades: vi.fn(), equity: vi.fn() }
 vi.mock('@/api/backtests', () => ({ backtestsApi: api }));
 
 describe('BacktestDetailPage', () => {
-  it('prominently displays the engine/version and raw-price warning', async () => {
+  it('prominently displays the engine/version without a raw-price warning', async () => {
     api.run.mockResolvedValue({
       id: 12, uid: 1, taskId: 'task', engine: 'rqalpha', engineVersion: '6.2.0', engineConfig: {},
       strategyKey: 'sma_cross', strategyName: '双均线策略', strategyVersion: '1.0.0', market: 'CN', symbolId: 1,
       code: '600519.SH', startDate: '2025-01-01', endDate: '2025-02-01', initialCash: 100000, benchmarkCode: null,
-      parameters: { fastWindow: 5, slowWindow: 20 }, priceMode: 'raw', marketRuleVersion: '1.0.0', status: 'completed',
+      parameters: { fastWindow: 5, slowWindow: 20 }, marketRuleVersion: '1.0.0', status: 'completed',
       progress: 100, summary: {}, warnings: [], error: null, createdAt: '2025-01-01T00:00:00Z', startedAt: null, finishedAt: null,
     });
     api.trades.mockResolvedValue([]); api.equity.mockResolvedValue([]);
@@ -21,6 +21,6 @@ describe('BacktestDetailPage', () => {
     const wrapper = mount(BacktestDetailPage, { global: { plugins: [router], stubs: { BacktestEquityChart: true, BacktestSummaryCards: true, BacktestTradeTable: true } } });
     await flushPromises();
     expect(wrapper.text()).toContain('RQAlpha · v6.2.0');
-    expect(wrapper.text()).toContain('当前结果使用未复权价格');
+    expect(wrapper.text()).not.toContain('未复权');
   });
 });

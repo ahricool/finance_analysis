@@ -23,11 +23,6 @@ from finance_analysis.quant.markets import (
     get_quant_universe_codes,
     validate_universe_for_market,
 )
-from finance_analysis.quant.price_modes import (
-    ADJUSTMENT_MODE_FORWARD,
-    DEFAULT_QUANT_PRICE_MODE,
-    normalize_price_mode,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +48,11 @@ class QlibDatasetExporter:
         date_from: date,
         date_to: date,
         frequency: str = "day",
-        price_mode: str = DEFAULT_QUANT_PRICE_MODE.value,
         feature_version: str | None = None,
         candidate_codes: set[str] | None = None,
     ):
         if frequency != "day":
             raise ValueError("First release supports daily Qlib datasets only")
-        price_mode = normalize_price_mode(price_mode)
         market_config = get_quant_market_config(market)
         universe = validate_universe_for_market(market_config.market, universe)
         definition = self.repository.get_universe(universe)
@@ -79,7 +72,6 @@ class QlibDatasetExporter:
             candidate_codes | benchmark_codes,
             date_from,
             date_to,
-            price_mode,
         )
         source_revision = loaded.source_revision
         feature_version = feature_version or get_quant_config().feature_version
@@ -90,7 +82,6 @@ class QlibDatasetExporter:
             date_from,
             date_to,
             frequency,
-            price_mode.value,
             feature_version,
             source_revision,
         )
@@ -102,7 +93,6 @@ class QlibDatasetExporter:
             "frequency": frequency,
             "date_from": date_from,
             "date_to": date_to,
-            "price_mode": price_mode.value,
             "feature_version": feature_version,
             "source_revision": source_revision,
             "code_commit": _git_commit(),
@@ -132,7 +122,6 @@ class QlibDatasetExporter:
                 frame,
                 candidate_codes,
                 benchmark_codes,
-                price_mode=price_mode.value,
             )
             minimum_coverage = get_quant_config().minimum_universe_coverage
             universe_coverage = len(candidate_codes) / len(universe_codes) if universe_codes else 0.0
@@ -143,8 +132,6 @@ class QlibDatasetExporter:
                 "minimum_coverage_ratio": minimum_coverage,
                 "meets_minimum": universe_coverage >= minimum_coverage,
             }
-            report["adjustment_coverage"] = loaded.adjustment_coverage
-            report["adjustment_sources"] = loaded.adjustment_sources
             if not report["valid"]:
                 raise QuantDatasetValidationError("; ".join(report["errors"]))
             vwap_report = loaded.vwap
@@ -171,10 +158,7 @@ class QlibDatasetExporter:
                 "frequency": frequency,
                 "date_from": str(date_from),
                 "date_to": str(date_to),
-                "price_mode": price_mode.value,
-                "adjustment_mode": ADJUSTMENT_MODE_FORWARD,
-                "adjustment_coverage": loaded.adjustment_coverage,
-                "adjustment_sources": loaded.adjustment_sources,
+                "daily_price_semantics": "forward_adjusted",
                 "symbols": sorted(candidate_codes),
                 "benchmark_codes": sorted(benchmark_codes),
                 "feature_version": feature_version,
@@ -232,10 +216,12 @@ class QlibDatasetExporter:
             length = max(positions) + 1
             for field in self.FIELDS:
                 values = np.full(length, np.nan, dtype="<f4")
-                # Qlib's external binary field is named ``factor`` and defines
-                # adjusted_price / raw_price, matching our canonical factor.
-                source_field = "forward_adjustment_factor" if field == "factor" else field
-                values[positions] = group[source_field].to_numpy(dtype="<f4")
+                if field == "factor":
+                    # ``stock_daily`` is already forward-adjusted; a neutral Qlib factor
+                    # prevents downstream readers from applying a second adjustment.
+                    values[positions] = 1.0
+                else:
+                    values[positions] = group[field].to_numpy(dtype="<f4")
                 np.concatenate((np.array([start_index], dtype="<f4"), values)).tofile(directory / f"{field}.day.bin")
         (instruments / "all.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
         frame.to_csv(source / "daily.csv", index=False)

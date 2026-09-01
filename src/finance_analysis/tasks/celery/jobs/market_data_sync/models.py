@@ -30,26 +30,12 @@ class DailyResult:
 
 
 @dataclass
-class AdjustmentResult:
-    status: Literal["success", "partial", "failed", "skipped"]
-    changed: bool = False
-    corporate_action_rows: int = 0
-    adjustment_factor_rows: int = 0
-    deleted_rows: int = 0
-    provider: str | None = None
-    reason: str = ""
-    fallback_reasons: list[str] = field(default_factory=list)
-
-
-@dataclass
 class SymbolResult:
     code: str
     daily: DailyResult
-    adjustment: AdjustmentResult
 
 
 __all__ = [
-    "AdjustmentResult",
     "DailyResult",
     "SYNC_MODES",
     "SyncMode",

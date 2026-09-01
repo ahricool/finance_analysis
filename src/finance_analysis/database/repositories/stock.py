@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Repositories for canonical symbols and raw historical market data."""
+"""Repositories for canonical symbols and historical market data."""
 
 from __future__ import annotations
 
@@ -461,7 +461,7 @@ class StockRepository:
         ]
 
     def delete_daily_before(self, symbol_id: int, cutoff_date: date) -> int:
-        """Delete expired raw bars for one symbol."""
+        """Delete expired daily bars for one symbol."""
         from sqlalchemy import delete
 
         with self.db.session_scope() as session:
@@ -474,7 +474,7 @@ class StockRepository:
             return int(result.rowcount or 0)
 
     def delete_daily_before_symbols(self, symbol_ids: Sequence[int], cutoff_date: date) -> int:
-        """Delete expired raw bars for the task scope before synchronization."""
+        """Delete expired daily bars for the task scope before synchronization."""
         from sqlalchemy import delete
 
         ids = list(symbol_ids)

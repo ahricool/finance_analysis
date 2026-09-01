@@ -108,7 +108,6 @@ export type BacktestRun = {
   benchmarkCode: string | null;
   benchmarkName: string | null;
   parameters: Record<string, number>;
-  priceMode: string;
   marketRuleVersion: string;
   status: BacktestStatus;
   progress: number;

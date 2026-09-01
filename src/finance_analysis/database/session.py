@@ -843,7 +843,7 @@ class DatabaseManager(ConversationUsageMixin):
         # 因此若未来需要支持“按历史某天复盘/重算”的可解释性，这里需要调整。
         # 该行为目前保留（按需求不改逻辑）。
 
-        # Read enough complete raw history to derive indicators in memory.
+        # Read enough complete forward-adjusted history to derive indicators in memory.
         recent_data = self.get_latest_data(code, days=21)
 
         if not recent_data:

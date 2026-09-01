@@ -15,7 +15,6 @@ MARKET_INDICES = "market_indices"
 MARKET_STATS = "market_stats"
 SECTOR_RANKINGS = "sector_rankings"
 INSTRUMENT_INFO = "instrument_info"
-ADJUSTMENT_FACTORS = "adjustment_factors"
 
 CAPABILITY_METHODS: Mapping[str, str] = MappingProxyType(
     {
@@ -27,7 +26,6 @@ CAPABILITY_METHODS: Mapping[str, str] = MappingProxyType(
         MARKET_STATS: "get_market_stats",
         SECTOR_RANKINGS: "get_sector_rankings",
         INSTRUMENT_INFO: "get_instrument_info",
-        ADJUSTMENT_FACTORS: "get_adjustment_factors",
     }
 )
 
