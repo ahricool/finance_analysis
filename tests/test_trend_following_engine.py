@@ -14,12 +14,25 @@ from finance_analysis.stocks.reference_data.stock_index import (
     SP500_STOCK_INDEX,
 )
 from finance_analysis.trend_following.config import DEFAULT_CONFIG
-from finance_analysis.trend_following.features import calculate_atr, calculate_features, weighted_log_regression
+from finance_analysis.trend_following.features import (  # pragma: allowlist secret
+    absolute_trend_passes,
+    calculate_atr,
+    calculate_features,
+    weighted_log_regression,
+)
 from finance_analysis.trend_following.models import DailyBar
 from finance_analysis.trend_following.ranking import rank_candidates
 from finance_analysis.trend_following.regime import calculate_market_regime, realized_volatility_20d  # pragma: allowlist secret
 from finance_analysis.trend_following.risk import initial_risk_levels, next_add_price, trailing_stop
-from finance_analysis.trend_following.state import apply_exposure_gate, transition_state  # pragma: allowlist secret
+from finance_analysis.trend_following.scoring import (  # pragma: allowlist secret
+    calculate_rs_score,
+    calculate_trend_score,
+)
+from finance_analysis.trend_following.state import (  # pragma: allowlist secret
+    apply_exposure_gate,
+    apply_regime_exposure_reduction,
+    transition_state,
+)
 from finance_analysis.trend_following.universe import get_universe
 
 TRADE_DATE = date(2026, 8, 28)
@@ -53,10 +66,13 @@ def test_weighted_slope_r_squared_returns_drawdown_and_atr():
     assert slope > 0
     assert r_squared > 0.99
     assert features is not None
+    assert features["return_5d"] == pytest.approx(series[-1].close / series[-6].close - 1)
+    assert features["return_10d"] == pytest.approx(series[-1].close / series[-11].close - 1)
     assert features["return_20d"] == pytest.approx(series[-1].close / series[-21].close - 1)
-    assert features["return_60d"] == pytest.approx(series[-1].close / series[-61].close - 1)
     assert features["drawdown_20d"] == 0
-    assert features["drawdown_60d"] == 0
+    assert "return_60d" not in features
+    assert "drawdown_60d" not in features
+    assert "ma60" not in features
     assert calculate_atr(series) == pytest.approx(2.0)
 
 
@@ -65,13 +81,14 @@ def test_breakouts_exclude_the_current_bar():
     result = calculate_features(series)
     assert result is not None
     assert result["previous_high_20"] == 101  # previous close 100 plus the raw high offset
+    assert result["breakout_10d"] is False
     assert result["breakout_20d"] is False
-    assert result["breakout_55d"] is False
     series[-1] = DailyBar(series[-1].trade_date, 101, 103, 100, 102, 3_000)
     result = calculate_features(series)
     assert result is not None
+    assert result["breakout_10d"] is True
     assert result["breakout_20d"] is True
-    assert result["breakout_55d"] is True
+    assert "breakout_55d" not in result
 
 
 def test_cross_section_scores_and_rs_vs_market():
@@ -80,7 +97,12 @@ def test_cross_section_scores_and_rs_vs_market():
     assert first and second
     rows = []
     for code, item in (("AAA.US", first), ("BBB.US", second)):
-        item.update(code=code, rs_20d=item["return_20d"] - 0.02, rs_60d=item["return_60d"] - 0.05)
+        item.update(
+            code=code,
+            rs_5d=item["return_5d"] - 0.005,
+            rs_10d=item["return_10d"] - 0.01,
+            rs_20d=item["return_20d"] - 0.02,
+        )
         item["valid_setup"] = True
         rows.append(item)
     ranked = rank_candidates(rows)
@@ -93,6 +115,58 @@ def test_cross_section_scores_and_rs_vs_market():
         assert 0 <= row["alpha_score"] <= 100
 
 
+def test_short_horizon_score_weights_and_absolute_trend_three_of_four():
+    trend, trend_components = calculate_trend_score({
+        "weighted_slope_percentile": 80.0,
+        "weighted_r2": 0.9,
+        "return_10d": 0.04,
+        "return_20d": 0.08,
+        "drawdown_20d": -0.04,
+    })
+    assert trend == pytest.approx(77.0)
+    assert set(trend_components) == {
+        "weighted_slope_percentile", "weighted_r2", "return_10d", "return_20d", "drawdown_quality",
+    }
+    rs, rs_components = calculate_rs_score({
+        "rs_5d": 0.02,
+        "rs_10d": 0.03,
+        "rs_20d": 0.04,
+        "return_10d_percentile": 70.0,
+        "return_20d_percentile": 80.0,
+    })
+    assert rs == pytest.approx(63.075)
+    assert set(rs_components) == {"rs_5d", "rs_10d", "rs_20d", "percentile_10d", "percentile_20d"}
+    assert absolute_trend_passes([True, True, True, False]) is True
+    assert absolute_trend_passes([True, True, False, False]) is False
+
+
+def test_short_breakout_and_trend_resume_setups():
+    breakout_10 = calculate_features(bars(start=100, step=0))
+    assert breakout_10 is not None
+    breakout_10.update(
+        code="BREAKOUT.US", rs_5d=0.01, rs_10d=0.02, rs_20d=0.03,
+    )
+    breakout_10["breakout_10d"] = True
+    breakout_10["breakout_20d"] = False
+    breakout_10["compression_breakout"] = False
+    breakout_10["setup"] = "BREAKOUT_10D"
+    breakout_10["valid_setup"] = True
+
+    resumed = calculate_features(bars(step=0.5))
+    assert resumed is not None
+    resumed.update(
+        code="RESUME.US", rs_5d=0.01, rs_10d=0.02, rs_20d=0.03,
+        breakout_10d=False, breakout_20d=False, compression_breakout=False,
+        valid_setup=False, setup="NONE", trend_resume_base=True,
+    )
+    ranked = rank_candidates([breakout_10, resumed])
+    by_code = {row["code"]: row for row in ranked}
+    assert by_code["BREAKOUT.US"]["setup"] == "BREAKOUT_10D"
+    assert by_code["RESUME.US"]["setup"] == "TREND_RESUME"
+    assert by_code["RESUME.US"]["valid_setup"] is True
+    assert all(row["setup"] != "BREAKOUT_55D" for row in ranked)
+
+
 def test_market_regime_uses_raw_bars_and_own_breadth_universe():
     benchmark = bars(step=1.0)
     result = calculate_market_regime(
@@ -102,7 +176,10 @@ def test_market_regime_uses_raw_bars_and_own_breadth_universe():
     )
     assert result["market_regime"] in {"RISK_ON", "NEUTRAL", "RISK_OFF"}
     assert result["features"]["breadth_ready_count"] == 2
+    assert result["features"]["above_ma10_ratio"] == pytest.approx(0.5)
     assert result["features"]["above_ma20_ratio"] == pytest.approx(0.5)
+    assert "above_ma60_ratio" not in result["features"]
+    assert "max_drawdown_60d" not in result["features"]
     assert 0 <= result["market_score"] <= 100
 
 
@@ -321,6 +398,33 @@ def test_risk_off_blocks_entry_and_add_but_allows_exit():
         trade_date=TRADE_DATE, market_regime="RISK_OFF",
     )
     assert (executed.state, executed.action, executed.units) == ("EXIT", "EXIT", 0)
+
+
+def test_risk_off_reduces_excess_exposure_without_forcing_immediate_exit():
+    rows = [
+        _row(code="WEAK.US", rank=20, alpha_score=60.0),
+        _row(code="STRONG.US", rank=1, alpha_score=90.0),
+    ]
+    decisions = {
+        row["code"]: transition_state(
+            row,
+            _previous(units=2, suggested_initial_weight=0.1, suggested_max_weight=0.2),
+            trade_date=TRADE_DATE,
+            market_regime="RISK_OFF",
+        )
+        for row in rows
+    }
+    reduced = apply_regime_exposure_reduction(
+        rows,
+        decisions,
+        trade_date=TRADE_DATE,
+        market_regime="RISK_OFF",
+        max_exposure=DEFAULT_CONFIG.regime_max_exposure["RISK_OFF"],
+    )
+    assert DEFAULT_CONFIG.regime_max_exposure["RISK_OFF"] == 0.2
+    assert reduced["WEAK.US"].pending_action == "REDUCE"
+    assert reduced["STRONG.US"].pending_action == "REDUCE"
+    assert all(item.action != "EXIT" and item.units == 2 for item in reduced.values())
 
 
 def test_entry_allocation_uses_signal_day_alpha_not_execution_day_close_alpha():

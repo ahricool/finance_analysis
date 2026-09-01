@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import delete, desc, func, or_, select
+from sqlalchemy import delete, desc, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
@@ -300,10 +300,7 @@ class ETFRotationRepository:
                     ETFMomentumSnapshot.market == self.market,
                     MarketDataSymbol.market == self.market,
                     ETFMomentumSnapshot.trade_date == trade_date,
-                    or_(
-                        ETFMomentumSnapshot.action.in_(("BUY", "HOLD", "EXIT")),
-                        ETFMomentumSnapshot.is_candidate.is_(True),
-                    ),
+                    ETFMomentumSnapshot.action.in_(("BUY", "HOLD")),
                 )
                 .order_by(
                     ETFMomentumSnapshot.candidate_rank.asc().nulls_last(),
@@ -313,6 +310,35 @@ class ETFRotationRepository:
                 .limit(limit)
             ).all()
             return [self._payload(snapshot, str(code)) for snapshot, code in rows]
+
+    def exits_by_date(self, trade_date: date) -> list[dict[str, Any]]:
+        """Return every exit for the day; candidate display limits must never hide exits."""
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(ETFMomentumSnapshot, MarketDataSymbol.code)
+                .join(MarketDataSymbol, MarketDataSymbol.id == ETFMomentumSnapshot.symbol_id)
+                .where(
+                    ETFMomentumSnapshot.market == self.market,
+                    MarketDataSymbol.market == self.market,
+                    ETFMomentumSnapshot.trade_date == trade_date,
+                    ETFMomentumSnapshot.action == "EXIT",
+                )
+                .order_by(
+                    ETFMomentumSnapshot.candidate_rank.asc().nulls_last(),
+                    desc(ETFMomentumSnapshot.composite_score),
+                    MarketDataSymbol.code,
+                )
+            ).all()
+            return [self._payload(snapshot, str(code)) for snapshot, code in rows]
+
+    def previous_trade_date(self, trade_date: date) -> date | None:
+        with self.db.get_session() as session:
+            return session.execute(
+                select(func.max(ETFMomentumSnapshot.trade_date)).where(
+                    ETFMomentumSnapshot.market == self.market,
+                    ETFMomentumSnapshot.trade_date < trade_date,
+                )
+            ).scalar_one()
 
     def snapshot_history(self, code: str, *, limit: int = 60) -> list[dict[str, Any]]:
         canonical = str(code).strip().upper()

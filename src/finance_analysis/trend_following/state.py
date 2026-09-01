@@ -470,9 +470,78 @@ def apply_exposure_gate(
     return approved
 
 
+def apply_regime_exposure_reduction(
+    ranked: list[Mapping[str, Any]],
+    decisions: Mapping[str, StrategyDecision],
+    *,
+    trade_date: date,
+    market_regime: str,
+    max_exposure: float,
+) -> dict[str, StrategyDecision]:
+    """Schedule one-unit reductions in the weakest holdings until the regime cap is approached."""
+    adjusted = dict(decisions)
+    if market_regime != "RISK_OFF":
+        return adjusted
+
+    exposure = sum(
+        theoretical_position_weight(
+            decision.units,
+            decision.suggested_initial_weight,
+            decision.suggested_max_weight,
+        )
+        for decision in decisions.values()
+        if decision.units > 0
+    )
+    if exposure <= max_exposure + 1e-12:
+        return adjusted
+
+    row_by_code = {str(row["code"]): row for row in ranked}
+    reducible = [
+        (code, decision)
+        for code, decision in decisions.items()
+        if decision.units > 0 and decision.pending_action not in {"EXIT", "REDUCE"}
+    ]
+    reducible.sort(
+        key=lambda item: (
+            float(row_by_code.get(item[0], {}).get("alpha_score") or 0.0),
+            -int(row_by_code.get(item[0], {}).get("rank") or 0),
+            item[0],
+        )
+    )
+    for code, decision in reducible:
+        if exposure <= max_exposure + 1e-12:
+            break
+        current_weight = theoretical_position_weight(
+            decision.units,
+            decision.suggested_initial_weight,
+            decision.suggested_max_weight,
+        )
+        reduced_weight = theoretical_position_weight(
+            max(decision.units - 1, 0),
+            decision.suggested_initial_weight,
+            decision.suggested_max_weight,
+        )
+        exposure -= current_weight - reduced_weight
+        adjusted[code] = _replace(
+            decision,
+            **_signal_context(
+                "REDUCE",
+                trade_date=trade_date,
+                market_regime=market_regime,
+                max_exposure=max_exposure,
+            ),
+            reasons=[
+                *decision.reasons,
+                "RISK_OFF exposure exceeds 20%; scheduled a one-unit next-open reduction",
+            ],
+        )
+    return adjusted
+
+
 __all__ = [
     "ACTIVE_STATES",
     "apply_exposure_gate",
+    "apply_regime_exposure_reduction",
     "evaluate_close",
     "execute_pending_at_open",
     "transition_state",

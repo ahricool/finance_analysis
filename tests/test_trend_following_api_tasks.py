@@ -74,8 +74,8 @@ def test_tasks_and_schedules_are_registered():
     us = require_scheduled_task_definition(JOB_TREND_FOLLOWING_US)
     assert cn.celery_task_name == "scheduled.trend_following_cn"
     assert us.celery_task_name == "scheduled.trend_following_us"
-    assert cn.schedule_text.startswith("周一至周五 19:30")
-    assert us.schedule_text.startswith("周一至周五 22:00")
+    assert cn.schedule_text.startswith("周一至周五 18:40")
+    assert us.schedule_text.startswith("周一至周五 18:40")
     assert build_beat_schedule()[JOB_TREND_FOLLOWING_CN]["options"]["queue"] == "analysis"
     assert build_beat_schedule()[JOB_TREND_FOLLOWING_US]["options"]["queue"] == "analysis"
     assert "finance_analysis.tasks.celery.jobs.trend_following.tasks" in TASK_MODULES

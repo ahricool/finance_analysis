@@ -75,6 +75,84 @@ def _summary(repository: ETFRotationRepository, market: Market, trade_date: date
     }
 
 
+def _changes(
+    repository: ETFRotationRepository,
+    market: Market,
+    trade_date: date,
+    current_rows: list[dict],
+) -> dict:
+    previous_date_loader = getattr(repository, "previous_trade_date", None)
+    previous_date = previous_date_loader(trade_date) if previous_date_loader is not None else None
+    previous_rows = (
+        repository.snapshots_by_date(previous_date)
+        if previous_date is not None
+        else []
+    )
+    previous_by_code = {str(row["code"]): row for row in previous_rows}
+
+    def changed(row: dict) -> dict:
+        previous = previous_by_code.get(str(row["code"]), {})
+        current_rank = row.get("rank")
+        previous_rank = previous.get("rank")
+        rank_change = (
+            int(previous_rank) - int(current_rank)
+            if previous_rank is not None and current_rank is not None
+            else row.get("rank_change_1d")
+        )
+        previous_score = previous.get("composite_score")
+        current_score = row.get("composite_score")
+        return {
+            "current": _enrich([row], market)[0],
+            "previous_state": previous.get("state"),
+            "previous_action": previous.get("action"),
+            "previous_rank": previous_rank,
+            "rank_change": rank_change,
+            "composite_score_change": (
+                float(current_score) - float(previous_score)
+                if current_score is not None and previous_score is not None
+                else None
+            ),
+        }
+
+    changes = [changed(row) for row in current_rows]
+    current_market = _market_snapshot(repository, trade_date)
+    previous_market = _market_snapshot(repository, previous_date) if previous_date is not None else None
+    regime_change = None
+    if (
+        current_market is not None
+        and previous_market is not None
+        and current_market.get("regime") != previous_market.get("regime")
+    ):
+        regime_change = {
+            "from": previous_market.get("regime"),
+            "to": current_market.get("regime"),
+        }
+    return {
+        "previous_trade_date": previous_date,
+        "new_buys": [
+            item for item in changes
+            if item["current"].get("action") == "BUY" and item["previous_action"] != "BUY"
+        ],
+        "new_exits": [
+            item for item in changes
+            if item["current"].get("action") == "EXIT" and item["previous_action"] != "EXIT"
+        ],
+        "new_emerging": [
+            item for item in changes
+            if item["current"].get("state") == "EMERGING" and item["previous_state"] != "EMERGING"
+        ],
+        "new_cooling": [
+            item for item in changes
+            if item["current"].get("state") == "COOLING" and item["previous_state"] != "COOLING"
+        ],
+        "regime_change": regime_change,
+        "rank_movers": sorted(
+            [item for item in changes if item["rank_change"] not in {None, 0}],
+            key=lambda item: -abs(int(item["rank_change"])),
+        )[:10],
+    }
+
+
 @router.get("/ranking")
 async def ranking(
     trade_date: date | None = None,
@@ -92,6 +170,7 @@ async def ranking(
     return {
         **jsonable_encoder(_summary(repository, market, resolved, all_rows)),
         "market_snapshot": jsonable_encoder(_market_snapshot(repository, resolved)),
+        "changes": jsonable_encoder(_changes(repository, market, resolved, all_rows)),
         "items": _enrich(payload_rows, market),
     }
 
@@ -105,11 +184,15 @@ async def candidates(
 ):
     repository = ETFRotationRepository(market)
     resolved = _resolve_date(repository, trade_date)
-    rows = repository.candidates_by_date(resolved, limit=limit)
+    current = repository.candidates_by_date(resolved, limit=limit)
+    exit_loader = getattr(repository, "exits_by_date", None)
+    exits = exit_loader(resolved) if exit_loader is not None else []
     return {
         "market": market, "trade_date": resolved,
         "market_snapshot": jsonable_encoder(_market_snapshot(repository, resolved)),
-        "items": _enrich(rows, market),
+        "candidates": _enrich(current, market),
+        "exits": _enrich(exits, market),
+        "items": _enrich(current, market),
     }
 
 
