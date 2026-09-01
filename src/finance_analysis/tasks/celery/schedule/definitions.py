@@ -173,14 +173,20 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_MARKET_DATA_SYNC_CN_HK,
         name="A股日线行情同步",
-        description="同步沪深300及自选A股的前复权日线与VWAP；工作日增量刷新，周末全量刷新约五年",
+        description="同步沪深300及自选A股的前复权日线与VWAP；工作日增量刷新，每月全量刷新约五年",
         task_type="scheduled_market_data_sync_cn_hk",
         celery_task_name=celery_task_name(JOB_MARKET_DATA_SYNC_CN_HK),
         schedules=(
             CronSchedule(minute="0", hour="18", day_of_week="mon-fri", sync_mode="incremental"),
-            CronSchedule(minute="0", hour="10", day_of_week="sat", sync_mode="full"),
+            CronSchedule(
+                minute="0",
+                hour="10",
+                day_of_week="sun",
+                day_of_month="1-7",
+                sync_mode="full",
+            ),
         ),
-        schedule_text="周一至周五 18:00 增量；周六 10:00 全量（Asia/Shanghai）",
+        schedule_text="周一至周五 18:00 增量；每月第一个周日 10:00 全量（Asia/Shanghai）",
         timezone=SCHEDULE_TIMEZONE,
         queue=QUEUE_INGESTION,
         expires=EXPIRES_MARKET_DATA_SYNC,
@@ -190,7 +196,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_MARKET_DATA_SYNC_US,
         name="美股日线行情同步",
-        description="同步标普500及自选美股的前复权日线；工作日增量刷新，周末全量刷新约五年",
+        description="同步标普500及自选美股的前复权日线；工作日增量刷新，每月全量刷新约五年",
         task_type="scheduled_market_data_sync_us",
         celery_task_name=celery_task_name(JOB_MARKET_DATA_SYNC_US),
         schedules=(
@@ -204,12 +210,13 @@ SCHEDULED_TASK_DEFINITIONS = (
             CronSchedule(
                 minute="0",
                 hour="10",
-                day_of_week="sat",
+                day_of_week="sun",
+                day_of_month="1-7",
                 timezone=US_TIMEZONE,
                 sync_mode="full",
             ),
         ),
-        schedule_text="周一至周五 20:00 增量；周六 10:00 全量（America/New_York）",
+        schedule_text="周一至周五 20:00 增量；每月第一个周日 10:00 全量（America/New_York）",
         timezone=US_TIMEZONE,
         queue=QUEUE_INGESTION,
         expires=EXPIRES_MARKET_DATA_SYNC,
