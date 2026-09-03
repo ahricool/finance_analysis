@@ -141,7 +141,14 @@ test.describe('web smoke', () => {
     await expect(page.getByText('Finance Analysis')).toBeVisible();
     await expect(page.getByTestId('login-email')).toBeVisible();
     await expect(page.getByTestId('login-password')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: '继续' })).toBeVisible();
+    const submitButton = page.getByRole('button', { name: '继续' });
+    await expect(submitButton).toBeVisible();
+
+    const emailBox = await page.getByTestId('login-email').boundingBox();
+    const submitBox = await submitButton.boundingBox();
+    expect(emailBox).not.toBeNull();
+    expect(submitBox).not.toBeNull();
+    expect(submitBox!.y - (emailBox!.y + emailBox!.height)).toBeGreaterThanOrEqual(20);
   });
 
   test('login password visibility toggle works without controlled state', async ({ page }) => {
