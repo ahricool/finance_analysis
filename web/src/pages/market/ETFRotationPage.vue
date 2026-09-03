@@ -134,7 +134,7 @@ onMounted(() => void load(true));
       <div class="flex flex-wrap items-end gap-2">
         <NativeSelect
           v-model="market"
-          size="sm"
+          class="h-10"
           aria-label="市场"
         >
           <NativeSelectOption value="CN">
@@ -155,14 +155,16 @@ onMounted(() => void load(true));
         />
         <Button
           variant="outline"
-          size="sm"
+          class="h-10"
+          data-testid="etf-rotation-refresh"
           :disabled="loading"
           @click="load(true)"
         >
           <RefreshCcw class="size-4" />刷新
         </Button>
         <LoadingButton
-          size="sm"
+          class="h-10"
+          data-testid="etf-rotation-run"
           :loading="runLoading"
           loading-text="提交中…"
           @click="runRotation"

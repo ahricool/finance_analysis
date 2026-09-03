@@ -214,7 +214,7 @@ onMounted(() => void load(true));
       <div class="flex flex-wrap items-end gap-2">
         <NativeSelect
           v-model="market"
-          size="sm"
+          class="h-10"
           aria-label="市场"
           data-testid="trend-market"
         >
@@ -237,14 +237,15 @@ onMounted(() => void load(true));
         />
         <Button
           variant="outline"
-          size="sm"
+          class="h-10"
+          data-testid="trend-refresh"
           :disabled="loading"
           @click="load(true)"
         >
           <RefreshCcw class="size-4" />刷新
         </Button>
         <LoadingButton
-          size="sm"
+          class="h-10"
           :loading="running"
           loading-text="提交中…"
           data-testid="trend-run-latest"
