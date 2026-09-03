@@ -15,7 +15,7 @@ LongbridgeProvider - 长桥市场数据能力
 4. static_info 进程内短缓存，减少重复请求（默认 24h，可调；见 LONGBRIDGE_STATIC_INFO_TTL_SECONDS）
 
 凭证：`LONGBRIDGE_APP_KEY` / `LONGBRIDGE_APP_SECRET` / `LONGBRIDGE_ACCESS_TOKEN`。
-可选：`LONGBRIDGE_STATIC_INFO_TTL_SECONDS`；SDK `language` 取自 `REPORT_LANGUAGE`，`log_path` 为 `data/logs/app/longbridge_sdk.log`；
+可选：`LONGBRIDGE_STATIC_INFO_TTL_SECONDS`；SDK `language` 取自 `REPORT_LANGUAGE`；SDK 文件日志默认关闭；
 `LONGBRIDGE_HTTP_URL` / `LONGBRIDGE_QUOTE_WS_URL` / `LONGBRIDGE_TRADE_WS_URL` / `LONGBRIDGE_REGION` （见官方文档默认值）。
 """
 
@@ -24,7 +24,6 @@ import os
 import time
 import threading
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional, Dict, Any, List
 from zoneinfo import ZoneInfo
@@ -138,17 +137,10 @@ def _sanitize_longbridge_env() -> None:
     if "LONGBRIDGE_PRINT_QUOTE_PACKAGES" not in os.environ:
         os.environ["LONGBRIDGE_PRINT_QUOTE_PACKAGES"] = "false"
 
-    if not os.environ.get("LONGBRIDGE_LOG_PATH"):
-        try:
-            from finance_analysis.core.paths import get_log_app_dir
-
-            p = get_log_app_dir()
-            p.mkdir(parents=True, exist_ok=True)
-            os.environ["LONGBRIDGE_LOG_PATH"] = str(p / "longbridge_sdk.log")
-            logger.debug("[Longbridge] 设置 LONGBRIDGE_LOG_PATH=%s",
-                         os.environ["LONGBRIDGE_LOG_PATH"])
-        except Exception:
-            pass
+    # Do not set LONGBRIDGE_LOG_PATH automatically. The SDK writes every
+    # real-time quote/candlestick push at INFO and does not enforce retention,
+    # which can consume several GiB per trading day. Operators may still set
+    # the environment variable explicitly for short-lived diagnostics.
 
     region = (os.getenv("LONGBRIDGE_REGION") or "").strip().lower()
     if region:
@@ -229,16 +221,6 @@ def _longbridge_config_kwargs() -> Dict[str, Any]:
             logger.warning(
                 "Unknown LONGBRIDGE_PUSH_CANDLESTICK_MODE=%r; use realtime or confirmed", cm
             )
-
-    if "log_path" in params:
-        try:
-            from finance_analysis.core.paths import get_log_app_dir
-
-            p = get_log_app_dir()
-            p.mkdir(parents=True, exist_ok=True)
-            kw["log_path"] = str(p / "longbridge_sdk.log")
-        except Exception as e:
-            logger.debug("Longbridge log_path from data/logs/app skipped: %s", e)
 
     return kw
 
