@@ -747,14 +747,14 @@ onBeforeUnmount(() => {
               <div class="flex flex-wrap items-center gap-2">
                 <Button
                   variant="secondary"
-                  size="sm"
+                  class="h-10"
                   @click="submitFilters"
                 >
                   查询
                 </Button>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  class="h-10"
                   @click="resetFilters"
                 >
                   重置

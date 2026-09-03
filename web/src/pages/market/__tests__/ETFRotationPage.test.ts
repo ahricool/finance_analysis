@@ -259,6 +259,18 @@ describe('ETFRotationPage', () => {
     expect(wrapper.text()).toContain('科创50ETF');
   });
 
+  it('keeps every control in the snapshot action bar the same height', async () => {
+    const wrapper = mount(ETFRotationPage);
+    await flushPromises();
+
+    const controls = [
+      wrapper.get('[aria-label="市场"]'),
+      wrapper.get('[data-testid="etf-rotation-refresh"]'),
+      wrapper.get('[data-testid="etf-rotation-run"]'),
+    ];
+    controls.forEach(control => expect(control.classes()).toContain('h-10'));
+  });
+
   it('separates current candidates from unlimited exits and renders today changes', async () => {
     const current = snapshot({ state: 'EMERGING' });
     const change = {
