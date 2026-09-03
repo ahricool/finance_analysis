@@ -76,33 +76,32 @@ const tooltip = computed(() => {
     <Tooltip>
       <TooltipTrigger as-child>
         <span
-          v-if="result"
           tabindex="0"
-          class="inline-flex min-w-0 flex-col items-start gap-0.5"
+          :class="result
+            ? 'inline-flex min-w-0 flex-col items-start gap-0.5'
+            : 'text-xs text-muted-foreground'"
         >
-          <span
-            class="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-1 text-xs font-semibold leading-none"
-            :class="appearance.className"
-          >
-            <component
-              :is="appearance.icon"
-              class="h-3.5 w-3.5 shrink-0"
-              aria-hidden="true"
-            />
-            {{ result.status }}
-          </span>
-          <span
-            v-if="helper"
-            class="whitespace-nowrap text-xs text-muted-foreground"
-          >{{
-            helper
-          }}</span>
+          <template v-if="result">
+            <span
+              class="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-1 text-xs font-semibold leading-none"
+              :class="appearance.className"
+            >
+              <component
+                :is="appearance.icon"
+                class="h-3.5 w-3.5 shrink-0"
+                aria-hidden="true"
+              />
+              {{ result.status }}
+            </span>
+            <span
+              v-if="helper"
+              class="whitespace-nowrap text-xs text-muted-foreground"
+            >{{
+              helper
+            }}</span>
+          </template>
+          <template v-else>—</template>
         </span>
-        <span
-          v-else
-          tabindex="0"
-          class="text-xs text-muted-foreground"
-        >—</span>
       </TooltipTrigger>
       <TooltipContent class="whitespace-pre-line">
         {{ tooltip }}
