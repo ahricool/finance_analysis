@@ -109,10 +109,18 @@ test.describe('web smoke', () => {
     const headerContent = page.getByTestId('shell-header-content');
     const initialBox = await headerContent.boundingBox();
     expect(initialBox).not.toBeNull();
+    const dropdownItems: Record<string, string[]> = {
+      '市场': ['自选股', '投资组合', '信号评估'],
+      '研究': ['量化研究', 'ETF动量轮动', '趋势跟踪'],
+    };
 
     for (const label of ['市场', '研究', '切换展示时区', '打开用户菜单']) {
       await page.getByRole('button', { name: label, exact: true }).click();
-      await expect(page.getByRole('menu')).toBeVisible();
+      const menu = page.getByRole('menu');
+      await expect(menu).toBeVisible();
+      for (const itemLabel of dropdownItems[label] ?? []) {
+        await expect(menu.getByRole('menuitem', { name: itemLabel })).toBeVisible();
+      }
 
       expect(await headerContent.boundingBox()).toEqual(initialBox);
       expect(
@@ -236,7 +244,7 @@ test.describe('web smoke', () => {
     await expect(composer).not.toHaveAttribute('title', /.+/);
   });
 
-  test('mobile shell exposes the navigation sheet and market navigation', async ({
+  test('mobile shell exposes every grouped destination and market navigation', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -248,7 +256,18 @@ test.describe('web smoke', () => {
     await navigationTrigger.click();
     const navigationSheet = page.getByTestId('mobile-menu');
     await expect(navigationSheet).toBeVisible();
-    for (const label of ['分析', '自选股', '投资组合', '量化研究', '日历', '问股', '任务']) {
+    for (const label of [
+      '分析',
+      '自选股',
+      '投资组合',
+      '信号评估',
+      '量化研究',
+      'ETF动量轮动',
+      '趋势跟踪',
+      '日历',
+      '问股',
+      '任务',
+    ]) {
       await expect(navigationSheet.getByRole('link', { name: label })).toBeVisible();
     }
     await navigationSheet.getByRole('link', { name: '量化研究' }).click();

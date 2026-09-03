@@ -7,8 +7,10 @@ import {
   ChartNoAxesCombined,
   ClipboardList,
   MessageSquareQuote,
+  RefreshCcw,
   Sigma,
   Star,
+  TrendingUp,
   Wallet,
 } from 'lucide-vue-next';
 
@@ -26,6 +28,34 @@ export type MainNavItem = NavDestination & {
   children?: NavDestination[];
 };
 
+export const marketNavItems: NavDestination[] = [
+  { key: 'watch-list', label: '自选股', to: '/market/watch-list', icon: Star },
+  { key: 'holdings', label: '投资组合', to: '/market/holdings', icon: Wallet },
+  { key: 'signals', label: '信号评估', to: '/market/signals', icon: Activity },
+];
+
+export const researchNavItems: NavDestination[] = [
+  {
+    key: 'quant',
+    label: '量化研究',
+    to: '/market/quant',
+    icon: Sigma,
+    activePathPrefix: '/market/quant',
+  },
+  {
+    key: 'etf-rotation',
+    label: 'ETF动量轮动',
+    to: '/market/etf-rotation',
+    icon: RefreshCcw,
+  },
+  {
+    key: 'trend-following',
+    label: '趋势跟踪',
+    to: '/market/trend-following',
+    icon: TrendingUp,
+  },
+];
+
 export const mainNavItems: MainNavItem[] = [
   {
     key: 'analysis',
@@ -40,26 +70,14 @@ export const mainNavItems: MainNavItem[] = [
     to: '/market/watch-list',
     icon: ChartNoAxesCombined,
     activePathPrefix: '/market/',
-    children: [
-      { key: 'watch-list', label: '自选股', to: '/market/watch-list', icon: Star },
-      { key: 'holdings', label: '投资组合', to: '/market/holdings', icon: Wallet },
-      { key: 'signals', label: '信号评估', to: '/market/signals', icon: Activity },
-    ],
+    children: marketNavItems,
   },
   {
     key: 'research',
     label: '研究',
     to: '/market/quant',
     icon: BarChart3,
-    children: [
-      {
-        key: 'quant',
-        label: '量化研究',
-        to: '/market/quant',
-        icon: Sigma,
-        activePathPrefix: '/market/quant',
-      },
-    ],
+    children: researchNavItems,
   },
   { key: 'calendar', label: '日历', to: '/calendar', icon: CalendarDays },
   {
