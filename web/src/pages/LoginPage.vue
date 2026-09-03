@@ -145,6 +145,7 @@ async function handleSubmit(e: Event) {
           </CardHeader>
 
           <form
+            class="flex flex-col gap-6"
             @submit="handleSubmit"
           >
             <CardContent class="space-y-5">

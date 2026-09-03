@@ -62,6 +62,7 @@ describe('ZeroDteStatus', () => {
       attachTo: document.body,
       props: { quote: quote(), marketType: 'US', now: NOW },
     });
+    expect(wrapper.findAll('[data-slot="tooltip-trigger"]')).toHaveLength(1);
     await wrapper.get('[tabindex="0"]').trigger('focus');
     const content = document.body.querySelector('[role="tooltip"]')?.textContent ?? '';
     expect(content).toContain('不宜直接追高');

@@ -22,7 +22,7 @@ withDefaults(defineProps<{ label: string; description: string; wrap?: boolean }>
             <CircleHelp class="size-3.5" />
           </button>
         </TooltipTrigger>
-        <TooltipContent class="max-w-sm whitespace-normal text-left leading-5">
+        <TooltipContent class="max-w-[min(24rem,calc(100vw-1rem))] whitespace-normal text-left leading-5">
           {{ description }}
         </TooltipContent>
       </Tooltip>

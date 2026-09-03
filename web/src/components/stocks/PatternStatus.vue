@@ -238,7 +238,10 @@ const tooltip = computed(() => {
           }}</span>
         </span>
       </TooltipTrigger>
-      <TooltipContent class="max-h-80 max-w-sm whitespace-pre-line overflow-y-auto">
+      <TooltipContent
+        side="left"
+        class="max-w-[min(32rem,calc(100vw-1rem))] whitespace-pre-line"
+      >
         {{ tooltip }}
       </TooltipContent>
     </Tooltip>

@@ -198,7 +198,10 @@ describe('PatternStatus', () => {
       props: { pattern: withPreview(), now: NOW },
     });
     await wrapper.get('[tabindex="0"]').trigger('focus');
-    const content = document.body.querySelector('[role="tooltip"]')?.textContent ?? '';
+    const tooltipElement = document.body.querySelector('[data-slot="tooltip-content"]');
+    const content = tooltipElement?.textContent ?? '';
+    expect(tooltipElement?.classList.contains('overflow-y-auto')).toBe(false);
+    expect(tooltipElement?.classList.contains('max-h-80')).toBe(false);
     expect(content).toContain('【正式形态】');
     expect(content).toContain('【实时预览 · 当前一分钟K线未收盘】');
     expect(content).toContain('当前预览价格：133.25');
