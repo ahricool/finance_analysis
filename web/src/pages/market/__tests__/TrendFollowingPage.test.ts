@@ -236,6 +236,18 @@ describe('TrendFollowingPage', () => {
     expect(apiMocks.run).toHaveBeenCalledWith('CN');
   });
 
+  it('keeps every control in the snapshot action bar the same height', async () => {
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+
+    const controls = [
+      wrapper.get('[data-testid="trend-market"]'),
+      wrapper.get('[data-testid="trend-refresh"]'),
+      wrapper.get('[data-testid="trend-run-latest"]'),
+    ];
+    controls.forEach(control => expect(control.classes()).toContain('h-10'));
+  });
+
   it('renders empty and error states', async () => {
     apiMocks.ranking.mockRejectedValueOnce(new Error('snapshot missing'));
     const errored = mount(TrendFollowingPage);
