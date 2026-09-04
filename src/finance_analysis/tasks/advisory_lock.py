@@ -25,6 +25,7 @@ class TaskAdvisoryLockId(IntEnum):
     CN_INTRADAY_ANALYSIS = 3
     US_INTRADAY_ANALYSIS = 4
     STOCK_ANALYSIS = 5
+    REFERENCE_DATA_SYNC = 6
 
 
 @dataclass

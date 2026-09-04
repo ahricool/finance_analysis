@@ -24,7 +24,6 @@ from finance_analysis.quant.markets import (
 )
 from finance_analysis.quant.pipeline.service import QuantDailyPipeline
 from finance_analysis.quant.sectors.service import build_synthetic_sector_benchmark
-from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 from finance_analysis.tasks.celery.jobs.quant_daily import tasks as quant_daily_tasks
 
 TRADE_DATE = date(2026, 7, 17)
@@ -36,39 +35,6 @@ def _db_universe(monkeypatch):
         "finance_analysis.quant.pipeline.service.get_universe_codes",
         lambda market: {"600519.SH"} if str(market).upper() == "CN" else {"AAPL.US"},
     )
-
-
-def test_market_data_scope_is_market_isolated_normalized_and_deduplicated():
-    db_universe = SimpleNamespace(
-        resolve_universe=lambda key: {
-            "us_quant": [
-                SimpleNamespace(code="AAPL.US"),
-                SimpleNamespace(code="QQQ.US"),
-                SimpleNamespace(code="SPY.US"),
-            ],
-            "cn_quant": [
-                SimpleNamespace(code="600519.SH"),
-                SimpleNamespace(code="159915.SZ"),
-                SimpleNamespace(code="510300.SH"),
-            ],
-            "us_trend": [],
-            "cn_trend": [],
-            "us_etf_rotation": [],
-            "cn_etf_rotation": [],
-        }[key]
-    )
-    resolver = MarketDataScopeResolver(db_universe)
-
-    us = resolver.resolve("US")
-    cn = resolver.resolve("CN")
-
-    assert "AAPL.US" in us.universe_codes
-    assert "600519.SH" not in us.universe_codes
-    assert "600519.SH" in cn.universe_codes
-    assert "AAPL.US" not in cn.universe_codes
-    assert len([code for code in us.universe_codes if code == "AAPL.US"]) == 1
-    assert us.universe_codes & us.benchmark_dependency_codes == {"QQQ.US", "SPY.US"}
-    assert cn.universe_codes & cn.benchmark_dependency_codes == {"159915.SZ", "510300.SH"}
 
 
 def test_quant_market_configuration_selects_cn_close_and_defaults():
@@ -137,6 +103,9 @@ def test_quant_seed_initializes_unified_universe_definitions():
         "cn_csi500",
         "cn_csi1000",
         "us_sp500",
+        "us_nasdaq100",
+        "cn_daily_sync",
+        "us_daily_sync",
         "cn_trend",
         "us_trend",
         "cn_etf_rotation",

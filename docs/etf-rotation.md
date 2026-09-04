@@ -8,13 +8,13 @@ ETF Rotation 是独立、规则驱动且可解释的 A 股/美股 ETF 快速轮�
 
 ## 数据来源与日线同步
 
-计算只读取 PostgreSQL 的 `market_data_symbol` 和 `stock_daily`，不会直接调用 AkShare、EFinance、YFinance 或其它公网 Provider。日线 OHLC 是同步任务直接写入的前复权价格，策略原样读取，不再依赖或重复应用复权因子；volume/amount 保持 Provider 原始单位。
+计算只读取 PostgreSQL 的 `instrument`、`universe_member` 和 `stock_daily`，不会直接调用 AkShare、EFinance、YFinance 或其它公网 Provider。正式任务使用数据库中的前复权日线，策略原样读取，不再依赖或重复应用复权因子；volume/amount 保持 Provider 原始单位。
 
-静态 Universe 同时也是 `MarketDataScopeResolver` 的 strategy dependency 来源。执行 `MarketDataSyncService("CN")` 时，同步范围为现有 CSI300/自选股/benchmark dependencies，再加 enabled ETF members 和趋势跟踪 Universe。ETF 不需要进入用户 watchlist，也不会加入 Quant fixed universe。
+ETF Rotation 通过 `UniverseResolver` 读取 `cn_etf_rotation` / `us_etf_rotation`。它不会扩大每日持久化范围；日线任务只解析独立的 `cn_daily_sync` / `us_daily_sync` Universe。临时缺失数据必须经 `MarketDataService` 获取，正式策略任务不会现场全量远程补数。
 
 ## 固定 Universe
 
-唯一配置位于 `src/finance_analysis/etf_rotation/universe.py`。V1 共 40 只：
+成员保存在 `universe_member`，分类、主题与风险组位于 member metadata。以下为初始参考清单：
 
 | Code | Name | Category | Theme | Risk Group |
 | --- | --- | --- | --- | --- |
@@ -59,7 +59,7 @@ ETF Rotation 是独立、规则驱动且可解释的 A 股/美股 ETF 快速轮�
 | 563380.SH | 航空航天ETF | DEFENSE_SPACE | AEROSPACE | DEFENSE_SPACE |
 | 563320.SH | 通用航空ETF | DEFENSE_SPACE | LOW_ALTITUDE_ECONOMY | DEFENSE_SPACE |
 
-新增 ETF 时在同一 tuple 中增加 `ETFUniverseMember`；临时停用时设置 `enabled=False`。启动导入时会验证 canonical CN symbol、code 唯一性，以及所有 enabled member 的 category/theme/risk_group 完整性。disabled member 不进入同步 strategy dependencies 或策略计算。
+新增或删除 ETF 时更新 `cn_etf_rotation` / `us_etf_rotation` 的数据库成员；它们不会自动进入 Daily Sync Universe。
 
 ## Features
 

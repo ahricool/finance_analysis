@@ -30,8 +30,9 @@ from .constants import (
     JOB_TREND_FOLLOWING_CN,
     JOB_TREND_FOLLOWING_US,
     JOB_MARKET_CALENDAR,
-    JOB_MARKET_DATA_SYNC_CN_HK,
+    JOB_MARKET_DATA_SYNC_CN,
     JOB_MARKET_DATA_SYNC_US,
+    JOB_REFERENCE_DATA_SYNC,
     JOB_QUANT_DAILY_PIPELINE_CN,
     JOB_QUANT_DAILY_PIPELINE_US,
     JOB_SIGNAL_EVALUATION_CN,
@@ -95,6 +96,19 @@ class ScheduledTaskDefinition:
 
 
 SCHEDULED_TASK_DEFINITIONS = (
+    ScheduledTaskDefinition(
+        job_id=JOB_REFERENCE_DATA_SYNC,
+        name="证券主数据与指数成分同步",
+        description="每周同步 CN/US/HK 证券目录及 CSI300/500/1000、S&P 500、Nasdaq 100 当前成分",
+        task_type="scheduled_reference_data_sync",
+        celery_task_name=celery_task_name(JOB_REFERENCE_DATA_SYNC),
+        schedules=(CronSchedule(minute="0", hour="8", day_of_week="sun"),),
+        schedule_text="每周日 08:00 Asia/Shanghai",
+        timezone=SCHEDULE_TIMEZONE,
+        queue=QUEUE_INGESTION,
+        expires=EXPIRES_MARKET_DATA_SYNC,
+        allow_manual_run=True,
+    ),
     ScheduledTaskDefinition(
         job_id=JOB_DAILY_ANALYSIS,
         name="每日全量分析",
@@ -171,11 +185,11 @@ SCHEDULED_TASK_DEFINITIONS = (
         expires=EXPIRES_POSTMARKET_REVIEW,
     ),
     ScheduledTaskDefinition(
-        job_id=JOB_MARKET_DATA_SYNC_CN_HK,
+        job_id=JOB_MARKET_DATA_SYNC_CN,
         name="A股日线行情同步",
-        description="同步沪深300及自选A股的前复权日线；工作日增量刷新，每月全量刷新约五年",
-        task_type="scheduled_market_data_sync_cn_hk",
-        celery_task_name=celery_task_name(JOB_MARKET_DATA_SYNC_CN_HK),
+        description="同步 CSI300、CSI500、CSI1000 并集的前复权日线；工作日增量刷新，每月全量刷新约五年",
+        task_type="scheduled_market_data_sync_cn",
+        celery_task_name=celery_task_name(JOB_MARKET_DATA_SYNC_CN),
         schedules=(
             CronSchedule(minute="0", hour="18", day_of_week="mon-fri", sync_mode="incremental"),
             CronSchedule(
@@ -196,7 +210,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_MARKET_DATA_SYNC_US,
         name="美股日线行情同步",
-        description="同步标普500及自选美股的前复权日线；工作日增量刷新，每月全量刷新约五年",
+        description="同步 S&P 500 当前成分的前复权日线；工作日增量刷新，每月全量刷新约五年",
         task_type="scheduled_market_data_sync_us",
         celery_task_name=celery_task_name(JOB_MARKET_DATA_SYNC_US),
         schedules=(

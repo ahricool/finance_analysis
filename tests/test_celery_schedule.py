@@ -24,7 +24,8 @@ EXPECTED_JOBS = {
     "analysis_us_premarket": ("scheduled_us_premarket", "America/New_York"),
     "analysis_us_intraday": ("scheduled_us_intraday", "America/New_York"),
     "analysis_us_postmarket_review": ("scheduled_us_postmarket_review", "America/New_York"),
-    "market_data_sync_cn_hk": ("scheduled_market_data_sync_cn_hk", "Asia/Shanghai"),
+    "reference_data_sync": ("scheduled_reference_data_sync", "Asia/Shanghai"),
+    "market_data_sync_cn": ("scheduled_market_data_sync_cn", "Asia/Shanghai"),
     "market_data_sync_us": ("scheduled_market_data_sync_us", "America/New_York"),
     "analysis_a_share_intraday": ("scheduled_a_share_intraday", "Asia/Shanghai"),
     "analysis_a_share_pre_close_review": ("scheduled_a_share_pre_close_review", "Asia/Shanghai"),
@@ -198,14 +199,14 @@ def test_us_postmarket_review_follows_new_york_dst():
 
 
 def test_market_data_sync_schedules_and_queue():
-    cn_hk = get_scheduled_task_definition("market_data_sync_cn_hk")
+    cn_hk = get_scheduled_task_definition("market_data_sync_cn")
     us = get_scheduled_task_definition("market_data_sync_us")
     assert cn_hk.queue == us.queue == "ingestion"
     assert cn_hk.allow_manual_run is us.allow_manual_run is True
     assert cn_hk.sync_modes == us.sync_modes == ("incremental", "full")
     beat = build_beat_schedule()
-    assert beat["market_data_sync_cn_hk__0"]["kwargs"]["sync_mode"] == "incremental"
-    assert beat["market_data_sync_cn_hk__1"]["kwargs"]["sync_mode"] == "full"
+    assert beat["market_data_sync_cn__0"]["kwargs"]["sync_mode"] == "incremental"
+    assert beat["market_data_sync_cn__1"]["kwargs"]["sync_mode"] == "full"
     assert beat["market_data_sync_us__0"]["kwargs"]["sync_mode"] == "incremental"
     assert beat["market_data_sync_us__1"]["kwargs"]["sync_mode"] == "full"
     assert {
@@ -228,7 +229,7 @@ def test_market_data_sync_schedules_and_queue():
 
 def test_market_data_full_beat_crons_fire_only_on_the_first_sunday_of_each_month():
     beat = build_beat_schedule()
-    cn_full = beat["market_data_sync_cn_hk__1"]["schedule"]
+    cn_full = beat["market_data_sync_cn__1"]["schedule"]
     us_full = beat["market_data_sync_us__1"]["schedule"]
 
     for schedule, timezone_name in ((cn_full, "Asia/Shanghai"), (us_full, "America/New_York")):
@@ -251,7 +252,7 @@ def test_market_data_full_beat_crons_fire_only_on_the_first_sunday_of_each_month
 
 
 def test_cn_quant_runs_one_hour_after_cn_daily_sync_on_analysis_queue():
-    sync = get_scheduled_task_definition("market_data_sync_cn_hk")
+    sync = get_scheduled_task_definition("market_data_sync_cn")
     quant = get_scheduled_task_definition("quant_daily_pipeline_cn")
 
     assert sync.queue == "ingestion"

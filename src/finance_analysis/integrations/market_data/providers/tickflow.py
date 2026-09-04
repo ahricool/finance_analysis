@@ -143,6 +143,8 @@ class TickFlowFreeProvider:
         records: dict[str, dict[str, Any]] = {}
         for exchange in exchanges:
             items = self._get_client().exchanges.get_instruments(exchange) or []
+            if not items:
+                raise ValueError(f"TickFlow returned an empty instrument directory for exchange={exchange}")
             for item in items:
                 provider_type = str(item.get("type") or "").lower()
                 if provider_type not in {"stock", "etf", "index"}:

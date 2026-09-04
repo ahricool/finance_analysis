@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from datetime import date, datetime
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 import pandas as pd
 
-from finance_analysis.database.repositories.stock import InstrumentRepository
+from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository
+from finance_analysis.market_review.trading_calendar import get_trading_days_between
 
 from .config import DataProviderConfig, get_data_provider_config
+from .errors import MarketDataIncompleteError
 from .models import (
     Adjustment,
     BatchBarResult,
@@ -20,6 +23,7 @@ from .models import (
     InstrumentInfo,
     InstrumentRequest,
     Market,
+    MarketBar,
     MarketIndex,
     MarketStats,
     MinuteBarsRequest,
@@ -41,6 +45,8 @@ from .registry import (
     ProviderRegistry,
 )
 from .router import MarketDataRouter
+
+logger = logging.getLogger(__name__)
 
 
 class _DatabaseInstrumentProvider:
@@ -242,6 +248,7 @@ class MarketDataService:
         *,
         config: DataProviderConfig | None = None,
         instrument_repository: InstrumentRepository | None = None,
+        stock_repository: StockRepository | None = None,
         streaming_source: Any = None,
     ) -> None:
         self.config = config or get_data_provider_config()
@@ -251,6 +258,8 @@ class MarketDataService:
             streaming_source=streaming_source,
         )
         self.router = MarketDataRouter(self.registry)
+        self.instrument_repository = instrument_repository
+        self.stock_repository = stock_repository
 
     @staticmethod
     def _canonical_symbols(symbols: Iterable[str]) -> tuple[str, ...]:
@@ -264,15 +273,149 @@ class MarketDataService:
         *,
         adjustment: Adjustment | str,
         providers: Iterable[str] | None = None,
+        source_policy: Literal["db_only", "db_first", "remote_only"] = "db_first",
+        persist: bool = True,
     ) -> BatchBarResult:
         canonical = self._canonical_symbols(symbols)
         requested_adjustment = adjustment_from_value(adjustment)
         if requested_adjustment is not Adjustment.FORWARD:
             raise ValueError("Daily bars are stored and served only as forward-adjusted prices")
-        return self.router.route_daily(
-            DailyBarsRequest(canonical, start_date, end_date, Adjustment.FORWARD),
-            providers,
+        if source_policy not in {"db_only", "db_first", "remote_only"}:
+            raise ValueError("source_policy must be db_only, db_first, or remote_only")
+        request = DailyBarsRequest(canonical, start_date, end_date, Adjustment.FORWARD)
+        if source_policy == "remote_only":
+            remote = self.router.route_daily(request, providers)
+            if persist:
+                self._persist_remote_daily(remote)
+            return remote
+        try:
+            persisted, missing = self._load_persisted_daily(request)
+        except Exception:
+            if source_policy == "db_only":
+                raise
+            remote = self.router.route_daily(request, providers)
+            self._persist_remote_daily(remote)
+            return remote
+        if not missing:
+            return persisted
+        if source_policy == "db_only":
+            raise MarketDataIncompleteError({code: sorted(days) for code, days in missing.items()})
+        self._fill_missing_daily(persisted, missing, providers)
+        return persisted
+
+    def _repositories(self) -> tuple[InstrumentRepository, StockRepository]:
+        if self.instrument_repository is None:
+            self.instrument_repository = InstrumentRepository()
+        if self.stock_repository is None:
+            self.stock_repository = StockRepository()
+        return self.instrument_repository, self.stock_repository
+
+    @staticmethod
+    def _stored_bar(row: Any) -> MarketBar:
+        market = market_from_value(row.instrument.market)
+        return MarketBar(
+            symbol=row.instrument.code,
+            market=market,
+            interval="1d",
+            trade_date=row.date,
+            bar_time=None,
+            open=float(row.open),
+            high=float(row.high),
+            low=float(row.low),
+            close=float(row.close),
+            volume=int(row.volume),
+            amount=None if row.amount is None else float(row.amount),
+            currency=currency_for_market(market),
+            adjustment=Adjustment.FORWARD,
+            provider="database",
         )
+
+    def _load_persisted_daily(
+        self, request: DailyBarsRequest
+    ) -> tuple[BatchBarResult, dict[str, set[date]]]:
+        _, stocks = self._repositories()
+        expected = set(
+            get_trading_days_between(
+                infer_market(request.symbols[0]).value.lower(), request.start_date, request.end_date
+            )
+        )
+        result = BatchBarResult()
+        missing: dict[str, set[date]] = {}
+        for code in request.symbols:
+            rows = stocks.get_range(code, request.start_date, request.end_date)
+            bars = [self._stored_bar(row) for row in rows]
+            dates = {bar.trade_date for bar in bars}
+            if bars:
+                result.data[code] = bars
+                result.providers_used[code] = "database"
+            absent = expected - dates
+            if absent:
+                missing[code] = absent
+        return result, missing
+
+    def _fill_missing_daily(
+        self,
+        result: BatchBarResult,
+        missing: dict[str, set[date]],
+        providers: Iterable[str] | None,
+    ) -> None:
+        groups: dict[tuple[date, date], list[str]] = {}
+        for code, dates in missing.items():
+            groups.setdefault((min(dates), max(dates)), []).append(code)
+        for (start_date, end_date), codes in groups.items():
+            remote = self.router.route_daily(
+                DailyBarsRequest(tuple(codes), start_date, end_date, Adjustment.FORWARD), providers
+            )
+            self._persist_remote_daily(remote)
+            for code in codes:
+                merged = {bar.trade_date: bar for bar in result.data.get(code, [])}
+                merged.update({bar.trade_date: bar for bar in remote.data.get(code, [])})
+                if merged:
+                    result.data[code] = [merged[day] for day in sorted(merged)]
+                    result.providers_used[code] = remote.providers_used.get(code, "database")
+                remaining = missing[code] - set(merged)
+                if remaining:
+                    reason = remote.failed_symbols.get(code) or f"missing {len(remaining)} trading days"
+                    result.failed_symbols[code] = reason
+                else:
+                    result.failed_symbols.pop(code, None)
+
+    def _persist_remote_daily(self, result: BatchBarResult) -> None:
+        try:
+            instruments, stocks = self._repositories()
+        except Exception as exc:
+            logger.warning("daily bars fetched but persistence is unavailable: %s", exc)
+            return
+        for code, bars in result.data.items():
+            if not bars:
+                continue
+            instrument = instruments.get_by_code(code)
+            if instrument is None:
+                info = self.router.route_instruments(InstrumentRequest((code,))).data.get(code)
+                if info is None:
+                    result.failed_symbols[code] = "instrument metadata unavailable; daily bars were not persisted"
+                    continue
+                instruments.upsert_symbols(
+                    [{"market": info.market.value, "code": code, "name": info.name, "source": info.provider}]
+                )
+                instrument = instruments.get_by_code(code)
+            if instrument is None:
+                result.failed_symbols[code] = "instrument could not be persisted"
+                continue
+            rows = [
+                {
+                    "date": bar.trade_date,
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume,
+                    "amount": bar.amount,
+                    "data_source": bar.provider,
+                }
+                for bar in bars
+            ]
+            stocks.upsert_daily(instrument.id, rows, result.providers_used.get(code, bars[0].provider))
 
     def get_minute_bars(
         self,

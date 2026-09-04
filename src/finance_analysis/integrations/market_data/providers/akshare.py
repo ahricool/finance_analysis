@@ -371,7 +371,21 @@ class AkShareProvider:
         records = []
         for row in frame.to_dict("records"):
             native = str(row.get("成分券代码") or row.get("品种代码") or row.get("code") or "").zfill(6)
-            records.append({"code": canonical_symbol(native, "CN"), "metadata": {}})
+            code = canonical_symbol(native, "CN")
+            name = str(row.get("成分券名称") or row.get("品种名称") or row.get("name") or code).strip()
+            records.append(
+                {
+                    "market": "CN",
+                    "code": code,
+                    "native_code": native,
+                    "name": name,
+                    "instrument_type": "STOCK",
+                    "currency": "CNY",
+                    "listing_status": "ACTIVE",
+                    "source": "AKSHARE",
+                    "metadata": {},
+                }
+            )
         return records
 
     def _fetch_daily_frame(self, symbol, start_date: date, end_date: date) -> pd.DataFrame:

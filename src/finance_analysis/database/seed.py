@@ -7,10 +7,11 @@ from finance_analysis.core.time import utc_now
 
 def seed_quant_reference_data(db_manager=None) -> dict:
     """Idempotently seed model definitions and unified universe definitions."""
+    from sqlalchemy import select
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     from finance_analysis.database.models.quant import ModelDefinition
-    from finance_analysis.database.models.universe import Universe
+    from finance_analysis.database.models.universe import Universe, UniverseInclude
     from finance_analysis.database.session import DatabaseManager
     from finance_analysis.quant.markets import DEFAULT_QUANT_UNIVERSES
 
@@ -50,6 +51,9 @@ def seed_quant_reference_data(db_manager=None) -> dict:
             ("cn_csi500", "中证500", "CN", "INDEX"),
             ("cn_csi1000", "中证1000", "CN", "INDEX"),
             ("us_sp500", "S&P 500", "US", "INDEX"),
+            ("us_nasdaq100", "Nasdaq 100", "US", "INDEX"),
+            ("cn_daily_sync", "A股日线同步", "CN", "STRATEGY"),
+            ("us_daily_sync", "美股日线同步", "US", "STRATEGY"),
             ("cn_trend", "A股趋势跟踪", "CN", "STRATEGY"),
             ("us_trend", "美股趋势跟踪", "US", "STRATEGY"),
             ("cn_etf_rotation", "A股ETF轮动", "CN", "STRATEGY"),
@@ -72,6 +76,27 @@ def seed_quant_reference_data(db_manager=None) -> dict:
                 .on_conflict_do_update(
                     index_elements=[Universe.key],
                     set_={key: value for key, value in values.items() if key != "key"},
+                )
+            )
+        universe_ids = dict(
+            session.execute(
+                select(Universe.key, Universe.id).where(
+                    Universe.key.in_([key for key, *_ in universe_values])
+                )
+            ).all()
+        )
+
+        for parent, child in (
+            ("cn_daily_sync", "cn_csi300"),
+            ("cn_daily_sync", "cn_csi500"),
+            ("cn_daily_sync", "cn_csi1000"),
+            ("us_daily_sync", "us_sp500"),
+        ):
+            session.execute(
+                pg_insert(UniverseInclude)
+                .values(universe_id=universe_ids[parent], included_universe_id=universe_ids[child])
+                .on_conflict_do_nothing(
+                    index_elements=[UniverseInclude.universe_id, UniverseInclude.included_universe_id]
                 )
             )
     return {

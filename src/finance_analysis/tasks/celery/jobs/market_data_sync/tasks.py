@@ -5,19 +5,19 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Optional
 
+from finance_analysis.tasks.advisory_lock import TaskAdvisoryLockId
 from finance_analysis.tasks.celery.app import celery_app
 from finance_analysis.tasks.celery.schedule import (
-    JOB_MARKET_DATA_SYNC_CN_HK,
+    JOB_MARKET_DATA_SYNC_CN,
     JOB_MARKET_DATA_SYNC_US,
     require_scheduled_task_definition,
 )
 from finance_analysis.tasks.lifecycle import track_task
-from finance_analysis.tasks.advisory_lock import TaskAdvisoryLockId
 
 from .models import normalize_sync_mode
 from .service import MarketDataSyncError, MarketDataSyncService
 
-CN_HK_DEFINITION = require_scheduled_task_definition(JOB_MARKET_DATA_SYNC_CN_HK)
+CN_DEFINITION = require_scheduled_task_definition(JOB_MARKET_DATA_SYNC_CN)
 US_DEFINITION = require_scheduled_task_definition(JOB_MARKET_DATA_SYNC_US)
 
 
@@ -56,18 +56,18 @@ def _run_markets(markets: tuple[str, ...], sync_mode: str = "incremental") -> di
     }
 
 
-@celery_app.task(name=CN_HK_DEFINITION.celery_task_name)
+@celery_app.task(name=CN_DEFINITION.celery_task_name)
 @track_task(
-    task_type=CN_HK_DEFINITION.task_type,
-    task_name=CN_HK_DEFINITION.name,
+    task_type=CN_DEFINITION.task_type,
+    task_name=CN_DEFINITION.name,
     source="celery",
     trigger_source="scheduler",
-    scheduler_job_id=CN_HK_DEFINITION.job_id,
+    scheduler_job_id=CN_DEFINITION.job_id,
     record_result=True,
     strip_lifecycle_kwargs=True,
     advisory_lock_id=TaskAdvisoryLockId.CN_DAILY_MARKET_DATA_SYNC,
 )
-def sync_cn_hk_market_data(
+def sync_cn_market_data(
     scheduler_job_id: Optional[str] = None,
     sync_mode: str = "incremental",
     **_: Any,
@@ -96,4 +96,4 @@ def sync_us_market_data(
     return MarketDataSyncService(market="US", sync_mode=sync_mode).run()
 
 
-__all__ = ["sync_cn_hk_market_data", "sync_us_market_data"]
+__all__ = ["sync_cn_market_data", "sync_us_market_data"]

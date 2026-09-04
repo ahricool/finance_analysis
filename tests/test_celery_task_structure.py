@@ -21,7 +21,8 @@ EXPECTED_CUSTOM_TASKS = {
     "scheduled.analysis_us_premarket",
     "scheduled.analysis_us_intraday",
     "scheduled.analysis_us_postmarket_review",
-    "scheduled.market_data_sync_cn_hk",
+    "scheduled.reference_data_sync",
+    "scheduled.market_data_sync_cn",
     "scheduled.market_data_sync_us",
     "scheduled.analysis_a_share_intraday",
     "scheduled.analysis_a_share_pre_close_review",
@@ -57,8 +58,8 @@ def test_worker_registers_exactly_the_expected_custom_tasks():
 
 
 def test_each_task_package_has_one_explicit_tasks_module_and_expected_tasks():
-    assert len(TASK_PACKAGES) == 20
-    assert len(TASK_MODULES) == 20
+    assert len(TASK_PACKAGES) == 21
+    assert len(TASK_MODULES) == 21
     for package, module_name in zip(TASK_PACKAGES, TASK_MODULES):
         assert module_name == f"{package}.tasks"
         module = importlib.import_module(module_name)
@@ -80,7 +81,7 @@ def test_all_custom_task_names_and_job_ids_are_unique():
     celery_names.extend(item.celery_task_name for item in scheduled)
     job_ids = [item.job_id for item in scheduled]
 
-    assert len(celery_names) == len(set(celery_names)) == 24
+    assert len(celery_names) == len(set(celery_names)) == 25
     assert len(job_ids) == len(set(job_ids))
 
 
