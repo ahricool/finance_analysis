@@ -18,17 +18,25 @@ from finance_analysis.quant.exceptions import (
 )
 from finance_analysis.quant.features.service import DailyResearchService
 from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
-from finance_analysis.quant.markets import get_quant_universe_codes
+from finance_analysis.quant.markets import get_universe_codes
 from finance_analysis.quant.pipeline.service import PROTOCOL_VERSION, QuantDailyPipeline, QuantTrainingPipeline
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
 
 TRADE_DATE = date(2026, 7, 16)
 
 
-def _member(code: str, symbol_id: int):
+@pytest.fixture(autouse=True)
+def _db_universe(monkeypatch):
+    monkeypatch.setattr(
+        "finance_analysis.quant.pipeline.service.get_universe_codes",
+        lambda market: {"600519.SH"} if str(market).upper() == "CN" else {"AAPL.US", "NVDA.US"},
+    )
+
+
+def _member(code: str, instrument_id: int):
     return (
         SimpleNamespace(sector_key="semiconductor", sector_benchmark_code="SOXX.US"),
-        SimpleNamespace(id=symbol_id, code=code),
+        SimpleNamespace(id=instrument_id, code=code),
     )
 
 
@@ -64,14 +72,10 @@ def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
         vwap={"valid_rows": len(dates) * 3},
     )
     repository = MagicMock()
-    repository.get_universe.return_value = SimpleNamespace(
-        id=1, key="cn_csi300", market="CN", enabled=True
-    )
+    repository.get_universe.return_value = SimpleNamespace(id=1, key="cn_quant", market="CN", enabled=True)
     repository.save_market_regime.return_value = SimpleNamespace(id=7, regime="neutral")
     symbol_repository = MagicMock()
-    symbol_repository.list_enabled_daily_by_codes.return_value = [
-        SimpleNamespace(id=1, code="600519.SH")
-    ]
+    symbol_repository.list_enabled_daily_by_codes.return_value = [SimpleNamespace(id=1, code="600519.SH")]
     captured = {}
 
     class MarketRegimeServiceStub:
@@ -106,7 +110,7 @@ def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
             )
 
     monkeypatch.setattr(
-        "finance_analysis.quant.features.service.get_quant_universe_codes",
+        "finance_analysis.quant.features.service.get_universe_codes",
         lambda _market: {"600519.SH", "000001.SZ"},
     )
     monkeypatch.setattr(
@@ -120,11 +124,11 @@ def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
 
     service = DailyResearchService(repository, symbol_repository)
     with pytest.raises(FeatureDataMissingError, match="coverage below minimum"):
-        service.run("CN", "cn_csi300", TRADE_DATE)
+        service.run("CN", "cn_quant", TRADE_DATE)
     repository.save_market_regime.assert_not_called()
 
     service.config = replace(service.config, minimum_universe_coverage=0.5)
-    result = service.run("CN", "cn_csi300", TRADE_DATE)
+    result = service.run("CN", "cn_quant", TRADE_DATE)
 
     assert captured["benchmark_labels"] == ("510300.SH", "510300.SH")
     assert captured["style_label"] == "159915.SZ"
@@ -139,18 +143,14 @@ def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
 
 def test_prepare_rejects_research_symbol_without_target_daily_bar(monkeypatch) -> None:
     repository = MagicMock()
-    repository.get_universe.return_value = SimpleNamespace(
-        id=3, key="us_sp500", market="US", enabled=True
-    )
+    repository.get_universe.return_value = SimpleNamespace(id=3, key="us_quant", market="US", enabled=True)
     repository.daily_bar_codes.return_value = {"AAPL.US"}
     pipeline = QuantDailyPipeline(
         repository=repository,
         cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
-        holding_repository=MagicMock(),
         artifact_store=MagicMock(),
-        owner_uid=7,
     )
     repository.production_model.side_effect = [
         SimpleNamespace(artifact_uri="quant://us/cs"),
@@ -161,9 +161,7 @@ def test_prepare_rejects_research_symbol_without_target_daily_bar(monkeypatch) -
         lambda _repository, **_kwargs: SimpleNamespace(
             run=lambda *_args: {
                 "eligible_codes": ["AAPL.US", "NVDA.US"],
-                "market_regime": SimpleNamespace(
-                    id=1, regime="neutral", market_score=0.5, max_equity_exposure=0.4
-                ),
+                "market_regime": SimpleNamespace(id=1, regime="neutral", market_score=0.5, max_equity_exposure=0.4),
             }
         ),
     )
@@ -175,9 +173,7 @@ def test_prepare_rejects_research_symbol_without_target_daily_bar(monkeypatch) -
 
 
 def test_prepare_does_not_require_universe_member_repository_methods(monkeypatch) -> None:
-    repository = MagicMock(
-        spec_set=["production_model", "get_universe", "daily_bar_codes"]
-    )
+    repository = MagicMock(spec_set=["production_model", "get_universe", "daily_bar_codes"])
     repository.production_model.side_effect = [
         SimpleNamespace(
             id=11,
@@ -192,9 +188,7 @@ def test_prepare_does_not_require_universe_member_repository_methods(monkeypatch
             artifact_uri="quant://us/ts",
         ),
     ]
-    repository.get_universe.return_value = SimpleNamespace(
-        id=3, key="us_sp500", market="US", enabled=True
-    )
+    repository.get_universe.return_value = SimpleNamespace(id=3, key="us_quant", market="US", enabled=True)
     repository.daily_bar_codes.return_value = {"AAPL.US"}
     exporter = MagicMock()
     exporter.export.return_value = SimpleNamespace(artifact_uri="quant://us/dataset")
@@ -218,9 +212,7 @@ def test_prepare_does_not_require_universe_member_repository_methods(monkeypatch
         cache=MagicMock(),
         exporter=exporter,
         symbol_repository=MagicMock(),
-        holding_repository=MagicMock(),
         artifact_store=MagicMock(),
-        owner_uid=7,
     ).prepare(market="US", trade_date=TRADE_DATE)
 
     assert len(requests) == 2
@@ -245,9 +237,7 @@ def test_prepare_rejects_missing_model_before_universe_lookup(
         cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
-        holding_repository=MagicMock(),
         artifact_store=artifact_store,
-        owner_uid=7,
     )
 
     with pytest.raises(ModelNotPublishedError, match=rf"US {missing_model}"):
@@ -264,17 +254,13 @@ def test_prepare_rejects_missing_model_artifact_before_universe_lookup() -> None
         SimpleNamespace(artifact_uri="quant://us/ts"),
     ]
     artifact_store = MagicMock()
-    artifact_store.resolve_uri.side_effect = ModelArtifactMissingError(
-        "Artifact does not exist: quant://us/cs"
-    )
+    artifact_store.resolve_uri.side_effect = ModelArtifactMissingError("Artifact does not exist: quant://us/cs")
     pipeline = QuantDailyPipeline(
         repository=repository,
         cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
-        holding_repository=MagicMock(),
         artifact_store=artifact_store,
-        owner_uid=7,
     )
 
     with pytest.raises(ModelArtifactMissingError, match="quant://us/cs"):
@@ -295,9 +281,7 @@ def test_prepare_rejects_legacy_production_model_before_universe_lookup() -> Non
         cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
-        holding_repository=MagicMock(),
         artifact_store=artifact_store,
-        owner_uid=7,
     )
 
     with pytest.raises(ModelNotPublishedError, match="retrain and publish an Alpha158-only model"):
@@ -313,13 +297,10 @@ def test_prepare_rejects_unsupported_universe_before_lookup() -> None:
         cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
-        holding_repository=MagicMock(),
-        owner_uid=7,
     )
 
-    with pytest.raises(ValueError, match=r"only supported universe is us_sp500"):
+    with pytest.raises(ValueError, match=r"only supported universe is us_quant"):
         pipeline.prepare(universe_key="us_ai_semiconductor", trade_date=TRADE_DATE)
-
 
 
 def test_prediction_coverage_lists_missing_symbols() -> None:
@@ -336,7 +317,7 @@ def test_prediction_coverage_lists_missing_symbols() -> None:
     assert "missing=['NVDA.US']" in message
 
 
-def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) -> None:
+def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -> None:
     members = [_member("AAPL.US", 1), _member("NVDA.US", 2)]
 
     class Repository:
@@ -345,9 +326,7 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
             self.portfolio_values = None
 
         def get_universe(self, key):
-            return SimpleNamespace(
-                id=3, key="us_sp500", market="US", enabled=True
-            )
+            return SimpleNamespace(id=3, key="us_quant", market="US", enabled=True)
 
         def feature_context(self, trade_date, feature_version):
             common = {
@@ -374,15 +353,6 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
         def get_by_code(code):
             return {"AAPL.US": members[0][1], "NVDA.US": members[1][1]}.get(code)
 
-    holdings = MagicMock()
-    holdings.list_open_by_uid_and_market.return_value = [
-        SimpleNamespace(
-            instrument=SimpleNamespace(canonical_symbol="AAPL.US"), quantity=10
-        ),
-        SimpleNamespace(
-            instrument=SimpleNamespace(canonical_symbol="NVDA.US"), quantity=5
-        ),
-    ]
     captured = {}
 
     class CapturingPortfolioBuilder:
@@ -409,14 +379,12 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
         cache=cache,
         exporter=MagicMock(),
         symbol_repository=Symbols(),
-        holding_repository=holdings,
-        owner_uid=7,
     )
     context = {
         "schema_version": PROTOCOL_VERSION,
         "trade_date": str(TRADE_DATE),
         "market": "US",
-        "universe_key": "us_sp500",
+        "universe_key": "us_quant",
         "universe_id": 3,
         "cross_section_model_version": "v1",
         "cross_section_model_run_id": 11,
@@ -455,11 +423,10 @@ def test_finalize_passes_valued_real_holdings_to_portfolio_builder(monkeypatch) 
     result = pipeline.finalize(responses, context)
 
     assert result["signal_count"] == 2
-    assert captured["current_weights"] == pytest.approx({"AAPL.US": 0.5, "NVDA.US": 0.5})
+    assert captured["current_weights"] == {}
     assert all(item["risk_penalty"] == 0.04 for item in captured["signals"])
     assert repository.portfolio_values["warnings"] == ["行情覆盖 2/3；已跳过缺失数据标的"]
     assert repository.portfolio_values["summary"]["coverage"]["skipped_members"] == 1
-    holdings.list_open_by_uid_and_market.assert_called_once_with(7, "US", ("STOCK", "ETF"))
 
 
 def test_finalize_rejects_unsupported_callback_context_before_writes() -> None:
@@ -469,8 +436,6 @@ def test_finalize_rejects_unsupported_callback_context_before_writes() -> None:
         cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
-        holding_repository=MagicMock(),
-        owner_uid=7,
     )
     context = {
         "schema_version": PROTOCOL_VERSION,
@@ -503,9 +468,9 @@ def test_training_and_dataset_export_reject_unsupported_universe() -> None:
         enabled=False,
     )
 
-    with pytest.raises(ValueError, match=r"only supported universe is us_sp500"):
+    with pytest.raises(ValueError, match=r"only supported universe is us_quant"):
         QuantTrainingPipeline(repository).prepare(5)
-    with pytest.raises(ValueError, match=r"only supported universe is us_sp500"):
+    with pytest.raises(ValueError, match=r"only supported universe is us_quant"):
         QlibDatasetExporter(repository=repository, artifact_store=MagicMock()).export(
             "US",
             "us_ai_semiconductor",
@@ -527,7 +492,7 @@ def test_training_rejects_missing_dataset_artifact_before_marking_training() -> 
     )
     repository.get_universe.return_value = SimpleNamespace(
         id=9,
-        key="cn_csi300",
+        key="cn_quant",
         market="CN",
         enabled=True,
     )
@@ -537,7 +502,7 @@ def test_training_rejects_missing_dataset_artifact_before_marking_training() -> 
         universe_id=9,
         status="ready",
         artifact_uri="quant://datasets/missing",
-        symbol_count=len(get_quant_universe_codes("CN")),
+        symbol_count=1,
     )
     artifact_store = MagicMock()
     artifact_store.resolve_uri.side_effect = ModelArtifactMissingError(
@@ -581,7 +546,7 @@ def test_portfolio_filters_low_liquidity_without_default_pass_through() -> None:
     signals = [
         {
             "code": "LIQUID.US",
-            "symbol_id": 1,
+            "instrument_id": 1,
             "final_score": 0.9,
             "sector_key": "one",
             "signal": "buy",
@@ -592,7 +557,7 @@ def test_portfolio_filters_low_liquidity_without_default_pass_through() -> None:
         },
         {
             "code": "THIN.US",
-            "symbol_id": 2,
+            "instrument_id": 2,
             "final_score": 0.8,
             "sector_key": "two",
             "signal": "buy",
@@ -615,7 +580,7 @@ def test_portfolio_never_buys_reduce_signals() -> None:
     signals = [
         {
             "code": f"S{i}.SZ",
-            "symbol_id": i,
+            "instrument_id": i,
             "final_score": 0.3 - i * 0.01,
             "sector_key": None,
             "signal": "reduce",
@@ -638,7 +603,7 @@ def test_portfolio_uses_current_weights_for_actions_and_daily_limits() -> None:
     signals = [
         {
             "code": f"S{i}.US",
-            "symbol_id": i,
+            "instrument_id": i,
             "final_score": 1 - i * 0.02,
             "sector_key": f"sector-{i}",
             "signal": "buy",

@@ -10,11 +10,19 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.quant import (
-    DailyFeatureSnapshot, MarketRegimeSnapshot, ModelDefinition, ModelPublication,
-    ModelRun, ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem,
-    QuantDatasetSnapshot, QuantUniverse, SectorRegimeSnapshot,
+    DailyFeatureSnapshot,
+    MarketRegimeSnapshot,
+    ModelDefinition,
+    ModelPublication,
+    ModelRun,
+    ModelSignal,
+    PortfolioRecommendation,
+    PortfolioRecommendationItem,
+    QuantDatasetSnapshot,
+    SectorRegimeSnapshot,
 )
-from finance_analysis.database.models.stock import MarketDataSymbol, StockDaily
+from finance_analysis.database.models.stock import Instrument, StockDaily
+from finance_analysis.database.models.universe import Universe
 from finance_analysis.quant.markets import DEFAULT_QUANT_UNIVERSES, validate_universe_for_market
 
 
@@ -22,6 +30,7 @@ class QuantRepository:
     def __init__(self, db_manager=None):
         if db_manager is None:
             from finance_analysis.database.session import DatabaseManager
+
             db_manager = DatabaseManager.get_instance()
         self.db = db_manager
 
@@ -33,38 +42,34 @@ class QuantRepository:
 
     def names_by_codes(self, codes: Iterable[str]) -> dict[str, str]:
         """Read persisted instrument names in one query for API payload enrichment."""
-        canonical_codes = sorted(
-            {str(code or "").strip().upper() for code in codes if str(code or "").strip()}
-        )
+        canonical_codes = sorted({str(code or "").strip().upper() for code in codes if str(code or "").strip()})
         if not canonical_codes:
             return {}
         with self.db.get_session() as session:
             rows = session.execute(
-                select(MarketDataSymbol.code, MarketDataSymbol.name).where(
-                    MarketDataSymbol.code.in_(canonical_codes)
-                )
+                select(Instrument.code, Instrument.name).where(Instrument.code.in_(canonical_codes))
             ).all()
         return {str(code): str(name).strip() for code, name in rows if str(name or "").strip()}
 
-    def list_universes(self, market: str | None = None, enabled: bool | None = True) -> list[QuantUniverse]:
-        clauses = [QuantUniverse.key.in_(tuple(DEFAULT_QUANT_UNIVERSES.values()))]
+    def list_universes(self, market: str | None = None, enabled: bool | None = True) -> list[Universe]:
+        clauses = [Universe.key.in_(tuple(DEFAULT_QUANT_UNIVERSES.values()))]
         if market:
-            clauses.append(QuantUniverse.market == market.upper())
+            clauses.append(Universe.market == market.upper())
         if enabled is not None:
-            clauses.append(QuantUniverse.enabled.is_(enabled))
+            clauses.append(Universe.enabled.is_(enabled))
         with self.db.get_session() as session:
-            rows = list(session.execute(select(QuantUniverse).where(*clauses).order_by(QuantUniverse.key)).scalars())
+            rows = list(session.execute(select(Universe).where(*clauses).order_by(Universe.key)).scalars())
             return self._detach(session, rows)
 
-    def get_universe(self, key_or_id: str | int) -> QuantUniverse | None:
-        clause = QuantUniverse.id == key_or_id if isinstance(key_or_id, int) else QuantUniverse.key == key_or_id
+    def get_universe(self, key_or_id: str | int) -> Universe | None:
+        clause = Universe.id == key_or_id if isinstance(key_or_id, int) else Universe.key == key_or_id
         with self.db.get_session() as session:
-            row = session.execute(select(QuantUniverse).where(clause)).scalar_one_or_none()
+            row = session.execute(select(Universe).where(clause)).scalar_one_or_none()
             if row:
                 session.expunge(row)
             return row
 
-    def supported_universe(self, market: str, universe_key: str | None = None) -> QuantUniverse:
+    def supported_universe(self, market: str, universe_key: str | None = None) -> Universe:
         """Return the market's single enabled universe or reject the requested key."""
         normalized_market = str(market).upper()
         key = validate_universe_for_market(normalized_market, universe_key)
@@ -74,9 +79,9 @@ class QuantRepository:
         return row
 
     @staticmethod
-    def _require_supported_universe_row(session, market: str, universe_id: int) -> QuantUniverse:
+    def _require_supported_universe_row(session, market: str, universe_id: int) -> Universe:
         normalized_market = str(market).upper()
-        row = session.get(QuantUniverse, universe_id)
+        row = session.get(Universe, universe_id)
         if not row or row.market != normalized_market:
             raise ValueError(f"Universe id={universe_id} is not enabled for market={normalized_market}")
         validate_universe_for_market(normalized_market, row.key)
@@ -91,9 +96,9 @@ class QuantRepository:
         with self.db.get_session() as session:
             return set(
                 session.execute(
-                    select(MarketDataSymbol.code)
-                    .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
-                    .where(MarketDataSymbol.code.in_(codes), StockDaily.date == trade_date)
+                    select(Instrument.code)
+                    .join(StockDaily, StockDaily.instrument_id == Instrument.id)
+                    .where(Instrument.code.in_(codes), StockDaily.date == trade_date)
                 ).scalars()
             )
 
@@ -111,7 +116,7 @@ class QuantRepository:
             return list(
                 session.execute(
                     select(
-                        MarketDataSymbol.code.label("instrument"),
+                        Instrument.code.label("instrument"),
                         StockDaily.date.label("datetime"),
                         StockDaily.open,
                         StockDaily.high,
@@ -121,20 +126,24 @@ class QuantRepository:
                         StockDaily.amount,
                         StockDaily.data_source.label("daily_data_source"),
                     )
-                    .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
+                    .join(StockDaily, StockDaily.instrument_id == Instrument.id)
                     .where(
-                        MarketDataSymbol.market == market.upper(),
-                        MarketDataSymbol.code.in_(codes),
+                        Instrument.market == market.upper(),
+                        Instrument.code.in_(codes),
                         StockDaily.date.between(start, end),
                     )
-                    .order_by(MarketDataSymbol.code, StockDaily.date)
+                    .order_by(Instrument.code, StockDaily.date)
                 ).mappings()
             )
 
     def create_dataset(self, values: dict[str, Any]) -> QuantDatasetSnapshot:
         with self.db.session_scope() as session:
             self._require_supported_universe_row(session, values["market"], values["universe_id"])
-            row = QuantDatasetSnapshot(**values); session.add(row); session.flush(); session.refresh(row); session.expunge(row)
+            row = QuantDatasetSnapshot(**values)
+            session.add(row)
+            session.flush()
+            session.refresh(row)
+            session.expunge(row)
             return row
 
     def update_dataset(self, snapshot_id: int, **values: Any) -> None:
@@ -151,13 +160,21 @@ class QuantRepository:
         if universe_id is not None:
             clauses.append(QuantDatasetSnapshot.universe_id == universe_id)
         with self.db.get_session() as session:
-            rows = list(session.execute(select(QuantDatasetSnapshot).where(*clauses).order_by(desc(QuantDatasetSnapshot.created_at)).limit(limit)).scalars())
+            rows = list(
+                session.execute(
+                    select(QuantDatasetSnapshot)
+                    .where(*clauses)
+                    .order_by(desc(QuantDatasetSnapshot.created_at))
+                    .limit(limit)
+                ).scalars()
+            )
             return self._detach(session, rows)
 
     def get_dataset(self, snapshot_id: int) -> QuantDatasetSnapshot | None:
         with self.db.get_session() as session:
             row = session.get(QuantDatasetSnapshot, snapshot_id)
-            if row: session.expunge(row)
+            if row:
+                session.expunge(row)
             return row
 
     def get_dataset_by_key(self, dataset_key: str) -> QuantDatasetSnapshot | None:
@@ -189,9 +206,7 @@ class QuantRepository:
                 select(ModelRun.id).where(ModelRun.dataset_snapshot_id == snapshot_id).limit(1)
             ).scalar_one_or_none()
             if referenced_run_id is not None:
-                raise ValueError(
-                    f"Dataset is referenced by model run {referenced_run_id}; delete its model runs first"
-                )
+                raise ValueError(f"Dataset is referenced by model run {referenced_run_id}; delete its model runs first")
             result = {"id": row.id, "artifact_uri": row.artifact_uri}
             session.delete(row)
             session.flush()
@@ -200,12 +215,21 @@ class QuantRepository:
     def upsert_daily_features(self, model, constraint: str, values: list[dict[str, Any]], key_fields: set[str]) -> None:
         with self.db.session_scope() as session:
             for value in values:
-                session.execute(pg_insert(model).values(**value).on_conflict_do_update(
-                    constraint=constraint, set_={key: val for key, val in value.items() if key not in key_fields}
-                ))
+                session.execute(
+                    pg_insert(model)
+                    .values(**value)
+                    .on_conflict_do_update(
+                        constraint=constraint, set_={key: val for key, val in value.items() if key not in key_fields}
+                    )
+                )
 
     def save_daily_features(self, values: list[dict[str, Any]]) -> None:
-        self.upsert_daily_features(DailyFeatureSnapshot, "uix_daily_feature_snapshot", values, {"trade_date", "symbol_id", "feature_version"})
+        self.upsert_daily_features(
+            DailyFeatureSnapshot,
+            "uix_daily_feature_snapshot",
+            values,
+            {"trade_date", "instrument_id", "feature_version"},
+        )
 
     def feature_context(self, trade_date: date, feature_version: str) -> dict[int, dict[str, Any]]:
         with self.db.get_session() as session:
@@ -218,7 +242,7 @@ class QuantRepository:
             result = {}
             for daily in rows:
                 features = daily.features or {}
-                result[daily.symbol_id] = {
+                result[daily.instrument_id] = {
                     "sector_score": daily.sector_score,
                     "sector_key": features.get("sector_key"),
                     "has_sufficient_data": features.get("has_sufficient_data"),
@@ -230,10 +254,22 @@ class QuantRepository:
 
     def save_market_regime(self, values: dict[str, Any]) -> MarketRegimeSnapshot:
         with self.db.session_scope() as session:
-            stmt = pg_insert(MarketRegimeSnapshot).values(**values).on_conflict_do_update(
-                constraint="uix_market_regime_version", set_={key: value for key, value in values.items() if key not in {"market", "trade_date", "model_version"}}
-            ).returning(MarketRegimeSnapshot)
-            row = session.execute(stmt).scalar_one(); session.expunge(row); return row
+            stmt = (
+                pg_insert(MarketRegimeSnapshot)
+                .values(**values)
+                .on_conflict_do_update(
+                    constraint="uix_market_regime_version",
+                    set_={
+                        key: value
+                        for key, value in values.items()
+                        if key not in {"market", "trade_date", "model_version"}
+                    },
+                )
+                .returning(MarketRegimeSnapshot)
+            )
+            row = session.execute(stmt).scalar_one()
+            session.expunge(row)
+            return row
 
     def market_regimes(
         self,
@@ -244,20 +280,29 @@ class QuantRepository:
         model_version: str | None = None,
     ) -> list[MarketRegimeSnapshot]:
         clauses = [MarketRegimeSnapshot.market == market]
-        if date_from: clauses.append(MarketRegimeSnapshot.trade_date >= date_from)
-        if date_to: clauses.append(MarketRegimeSnapshot.trade_date <= date_to)
-        if model_version: clauses.append(MarketRegimeSnapshot.model_version == model_version)
+        if date_from:
+            clauses.append(MarketRegimeSnapshot.trade_date >= date_from)
+        if date_to:
+            clauses.append(MarketRegimeSnapshot.trade_date <= date_to)
+        if model_version:
+            clauses.append(MarketRegimeSnapshot.model_version == model_version)
         with self.db.get_session() as session:
-            ranked = select(
-                MarketRegimeSnapshot.id.label("snapshot_id"),
-                func.row_number().over(
-                    partition_by=MarketRegimeSnapshot.trade_date,
-                    order_by=(
-                        desc(MarketRegimeSnapshot.generated_at),
-                        desc(MarketRegimeSnapshot.id),
-                    ),
-                ).label("version_rank"),
-            ).where(*clauses).subquery()
+            ranked = (
+                select(
+                    MarketRegimeSnapshot.id.label("snapshot_id"),
+                    func.row_number()
+                    .over(
+                        partition_by=MarketRegimeSnapshot.trade_date,
+                        order_by=(
+                            desc(MarketRegimeSnapshot.generated_at),
+                            desc(MarketRegimeSnapshot.id),
+                        ),
+                    )
+                    .label("version_rank"),
+                )
+                .where(*clauses)
+                .subquery()
+            )
             rows = list(
                 session.execute(
                     select(MarketRegimeSnapshot)
@@ -272,9 +317,18 @@ class QuantRepository:
     def save_sector_regimes(self, values: Iterable[dict[str, Any]]) -> None:
         with self.db.session_scope() as session:
             for value in values:
-                session.execute(pg_insert(SectorRegimeSnapshot).values(**value).on_conflict_do_update(
-                    constraint="uix_sector_regime_version", set_={k: v for k, v in value.items() if k not in {"market", "trade_date", "sector_key", "model_version"}}
-                ))
+                session.execute(
+                    pg_insert(SectorRegimeSnapshot)
+                    .values(**value)
+                    .on_conflict_do_update(
+                        constraint="uix_sector_regime_version",
+                        set_={
+                            k: v
+                            for k, v in value.items()
+                            if k not in {"market", "trade_date", "sector_key", "model_version"}
+                        },
+                    )
+                )
 
     def sector_regimes(
         self,
@@ -284,8 +338,10 @@ class QuantRepository:
         model_version: str | None = None,
     ) -> list[SectorRegimeSnapshot]:
         clauses = [SectorRegimeSnapshot.market == market]
-        if sector_key: clauses.append(SectorRegimeSnapshot.sector_key == sector_key)
-        if model_version: clauses.append(SectorRegimeSnapshot.model_version == model_version)
+        if sector_key:
+            clauses.append(SectorRegimeSnapshot.sector_key == sector_key)
+        if model_version:
+            clauses.append(SectorRegimeSnapshot.model_version == model_version)
         with self.db.get_session() as session:
             selection_clauses = list(clauses)
             if trade_date:
@@ -326,13 +382,19 @@ class QuantRepository:
     def get_model_definition(self, key: str) -> ModelDefinition | None:
         with self.db.get_session() as session:
             row = session.execute(select(ModelDefinition).where(ModelDefinition.key == key)).scalar_one_or_none()
-            if row: session.expunge(row)
+            if row:
+                session.expunge(row)
             return row
 
     def create_model_run(self, values: dict[str, Any]) -> ModelRun:
         with self.db.session_scope() as session:
             self._require_supported_universe_row(session, values["market"], values["universe_id"])
-            row = ModelRun(**values); session.add(row); session.flush(); session.refresh(row); session.expunge(row); return row
+            row = ModelRun(**values)
+            session.add(row)
+            session.flush()
+            session.refresh(row)
+            session.expunge(row)
+            return row
 
     def update_model_run(self, run_id: int, **values: Any) -> None:
         with self.db.session_scope() as session:
@@ -345,7 +407,8 @@ class QuantRepository:
     def get_model_run(self, run_id: int) -> ModelRun | None:
         with self.db.get_session() as session:
             row = session.get(ModelRun, run_id)
-            if row: session.expunge(row)
+            if row:
+                session.expunge(row)
             return row
 
     def list_model_runs(
@@ -358,7 +421,11 @@ class QuantRepository:
         if universe_id is not None:
             clauses.append(ModelRun.universe_id == universe_id)
         with self.db.get_session() as session:
-            rows = list(session.execute(select(ModelRun).where(*clauses).order_by(desc(ModelRun.created_at)).limit(limit)).scalars())
+            rows = list(
+                session.execute(
+                    select(ModelRun).where(*clauses).order_by(desc(ModelRun.created_at)).limit(limit)
+                ).scalars()
+            )
             return self._detach(session, rows)
 
     def delete_model_run(self, run_id: int, market: str, universe_id: int) -> dict[str, Any] | None:
@@ -389,59 +456,95 @@ class QuantRepository:
         with self.db.session_scope() as session:
             run = session.execute(select(ModelRun).where(ModelRun.id == run_id).with_for_update()).scalar_one()
             self._require_supported_universe_row(session, run.market, run.universe_id)
-            if run.status != "candidate": raise ValueError("Only candidate models can be published")
-            previous = session.execute(select(ModelRun).where(
-                ModelRun.market == run.market, ModelRun.model_key == run.model_key, ModelRun.status == "production"
-            ).with_for_update()).scalar_one_or_none()
-            if previous: previous.status = "retired"
+            if run.status != "candidate":
+                raise ValueError("Only candidate models can be published")
+            previous = session.execute(
+                select(ModelRun)
+                .where(
+                    ModelRun.market == run.market, ModelRun.model_key == run.model_key, ModelRun.status == "production"
+                )
+                .with_for_update()
+            ).scalar_one_or_none()
+            if previous:
+                previous.status = "retired"
             run.status = "production"
-            session.add(ModelPublication(model_run_id=run.id, previous_model_run_id=previous.id if previous else None, published_by=user_id, reason=reason))
-            session.flush(); session.refresh(run); session.expunge(run); return run
+            session.add(
+                ModelPublication(
+                    model_run_id=run.id,
+                    previous_model_run_id=previous.id if previous else None,
+                    published_by=user_id,
+                    reason=reason,
+                )
+            )
+            session.flush()
+            session.refresh(run)
+            session.expunge(run)
+            return run
 
     def production_model(self, market: str, model_key: str) -> ModelRun | None:
         expected_universe = validate_universe_for_market(market)
         with self.db.get_session() as session:
             row = session.execute(
                 select(ModelRun)
-                .join(QuantUniverse, QuantUniverse.id == ModelRun.universe_id)
+                .join(Universe, Universe.id == ModelRun.universe_id)
                 .where(
                     ModelRun.market == market.upper(),
                     ModelRun.model_key == model_key,
                     ModelRun.status == "production",
-                    QuantUniverse.market == market.upper(),
-                    QuantUniverse.key == expected_universe,
-                    QuantUniverse.enabled.is_(True),
+                    Universe.market == market.upper(),
+                    Universe.key == expected_universe,
+                    Universe.enabled.is_(True),
                 )
                 .order_by(desc(ModelRun.finished_at))
             ).scalar_one_or_none()
-            if row: session.expunge(row)
+            if row:
+                session.expunge(row)
             return row
 
-    def replace_signals(self, market: str, universe_id: int, trade_date: date, model_version: str, values: list[dict[str, Any]]) -> None:
+    def replace_signals(
+        self, market: str, universe_id: int, trade_date: date, model_version: str, values: list[dict[str, Any]]
+    ) -> None:
         with self.db.session_scope() as session:
             self._require_supported_universe_row(session, market, universe_id)
-            session.execute(delete(ModelSignal).where(
-                ModelSignal.market == market,
-                ModelSignal.universe_id == universe_id,
-                ModelSignal.trade_date == trade_date,
-                ModelSignal.model_version == model_version,
-            ))
-            if values: session.add_all(ModelSignal(**value) for value in values)
+            session.execute(
+                delete(ModelSignal).where(
+                    ModelSignal.market == market,
+                    ModelSignal.universe_id == universe_id,
+                    ModelSignal.trade_date == trade_date,
+                    ModelSignal.model_version == model_version,
+                )
+            )
+            if values:
+                session.add_all(ModelSignal(**value) for value in values)
 
     def save_portfolio(self, values: dict[str, Any], items: list[dict[str, Any]]) -> PortfolioRecommendation:
         with self.db.session_scope() as session:
             self._require_supported_universe_row(session, values["market"], values["universe_id"])
-            existing = session.execute(select(PortfolioRecommendation).where(
-                PortfolioRecommendation.trade_date == values["trade_date"], PortfolioRecommendation.universe_id == values["universe_id"],
-                PortfolioRecommendation.model_version == values["model_version"])).scalar_one_or_none()
+            existing = session.execute(
+                select(PortfolioRecommendation).where(
+                    PortfolioRecommendation.trade_date == values["trade_date"],
+                    PortfolioRecommendation.universe_id == values["universe_id"],
+                    PortfolioRecommendation.model_version == values["model_version"],
+                )
+            ).scalar_one_or_none()
             if existing:
-                session.execute(delete(PortfolioRecommendationItem).where(PortfolioRecommendationItem.recommendation_id == existing.id))
-                for key, value in values.items(): setattr(existing, key, value)
+                session.execute(
+                    delete(PortfolioRecommendationItem).where(
+                        PortfolioRecommendationItem.recommendation_id == existing.id
+                    )
+                )
+                for key, value in values.items():
+                    setattr(existing, key, value)
                 row = existing
             else:
-                row = PortfolioRecommendation(**values); session.add(row); session.flush()
+                row = PortfolioRecommendation(**values)
+                session.add(row)
+                session.flush()
             session.add_all(PortfolioRecommendationItem(recommendation_id=row.id, **item) for item in items)
-            session.flush(); session.refresh(row); session.expunge(row); return row
+            session.flush()
+            session.refresh(row)
+            session.expunge(row)
+            return row
 
     def replace_signals_and_save_portfolio(
         self,
@@ -493,10 +596,7 @@ class QuantRepository:
                 row = PortfolioRecommendation(**portfolio_values)
                 session.add(row)
                 session.flush()
-            session.add_all(
-                PortfolioRecommendationItem(recommendation_id=row.id, **item)
-                for item in portfolio_items
-            )
+            session.add_all(PortfolioRecommendationItem(recommendation_id=row.id, **item) for item in portfolio_items)
             session.flush()
             session.refresh(row)
             session.expunge(row)
@@ -558,13 +658,19 @@ class QuantRepository:
         if model_version:
             clauses.append(ModelSignal.model_version == model_version)
         with self.db.get_session() as session:
-            ranked = select(
-                ModelSignal.id.label("signal_id"),
-                func.row_number().over(
-                    partition_by=ModelSignal.trade_date,
-                    order_by=(desc(ModelSignal.generated_at), desc(ModelSignal.id)),
-                ).label("version_rank"),
-            ).where(*clauses).subquery()
+            ranked = (
+                select(
+                    ModelSignal.id.label("signal_id"),
+                    func.row_number()
+                    .over(
+                        partition_by=ModelSignal.trade_date,
+                        order_by=(desc(ModelSignal.generated_at), desc(ModelSignal.id)),
+                    )
+                    .label("version_rank"),
+                )
+                .where(*clauses)
+                .subquery()
+            )
             rows = list(
                 session.execute(
                     select(ModelSignal)
@@ -584,19 +690,27 @@ class QuantRepository:
         model_version: str | None = None,
     ) -> list[PortfolioRecommendation]:
         clauses = [PortfolioRecommendation.market == market]
-        if universe_id: clauses.append(PortfolioRecommendation.universe_id == universe_id)
-        if model_version: clauses.append(PortfolioRecommendation.model_version == model_version)
+        if universe_id:
+            clauses.append(PortfolioRecommendation.universe_id == universe_id)
+        if model_version:
+            clauses.append(PortfolioRecommendation.model_version == model_version)
         with self.db.get_session() as session:
-            ranked = select(
-                PortfolioRecommendation.id.label("recommendation_id"),
-                func.row_number().over(
-                    partition_by=PortfolioRecommendation.trade_date,
-                    order_by=(
-                        desc(PortfolioRecommendation.generated_at),
-                        desc(PortfolioRecommendation.id),
-                    ),
-                ).label("version_rank"),
-            ).where(*clauses).subquery()
+            ranked = (
+                select(
+                    PortfolioRecommendation.id.label("recommendation_id"),
+                    func.row_number()
+                    .over(
+                        partition_by=PortfolioRecommendation.trade_date,
+                        order_by=(
+                            desc(PortfolioRecommendation.generated_at),
+                            desc(PortfolioRecommendation.id),
+                        ),
+                    )
+                    .label("version_rank"),
+                )
+                .where(*clauses)
+                .subquery()
+            )
             rows = list(
                 session.execute(
                     select(PortfolioRecommendation)
@@ -622,7 +736,16 @@ class QuantRepository:
                 or (universe_id is not None and row.universe_id != universe_id)
             ):
                 return None
-            items = list(session.execute(select(PortfolioRecommendationItem).where(PortfolioRecommendationItem.recommendation_id == row.id).order_by(PortfolioRecommendationItem.rank)).scalars())
-            session.expunge(row); self._detach(session, items); return row, items
+            items = list(
+                session.execute(
+                    select(PortfolioRecommendationItem)
+                    .where(PortfolioRecommendationItem.recommendation_id == row.id)
+                    .order_by(PortfolioRecommendationItem.rank)
+                ).scalars()
+            )
+            session.expunge(row)
+            self._detach(session, items)
+            return row, items
+
 
 __all__ = ["QuantRepository"]

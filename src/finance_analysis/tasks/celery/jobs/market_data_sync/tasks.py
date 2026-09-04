@@ -38,7 +38,6 @@ def _run_markets(markets: tuple[str, ...], sync_mode: str = "incremental") -> di
         providers.update(summary["provider_counts"])
     fallbacks = [item for summary in summaries for item in summary["fallback_reasons"]]
     fallbacks.extend(errors)
-    unsupported = [item for summary in summaries for item in summary["unsupported_symbols"]]
     return {
         "sync_status": "partial" if errors or any(s["sync_status"] == "partial" for s in summaries) else "success",
         "sync_mode": sync_mode,
@@ -51,8 +50,6 @@ def _run_markets(markets: tuple[str, ...], sync_mode: str = "incremental") -> di
         "updated_rows": sum(summary["updated_rows"] for summary in summaries),
         "provider_counts": dict(providers),
         "missing_amount_symbols": sorted(code for summary in summaries for code in summary["missing_amount_symbols"]),
-        "unsupported_symbol_count": len(unsupported),
-        "unsupported_symbols": unsupported,
         "fallback_reasons": fallbacks[:20],
         "per_market": {summary["market"]: summary for summary in summaries},
         "market_errors": errors,

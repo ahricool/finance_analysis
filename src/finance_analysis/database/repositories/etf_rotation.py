@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.etf_rotation import ETFMarketRotationSnapshot, ETFMomentumSnapshot
-from finance_analysis.database.models.stock import MarketDataSymbol, StockDaily
+from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.etf_rotation.universe import normalize_etf_market
 
 SORT_FIELDS = {
@@ -47,10 +47,10 @@ class ETFRotationRepository:
             return {}
         with self.db.get_session() as session:
             rows = session.execute(
-                select(MarketDataSymbol.code, func.max(StockDaily.date))
-                .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
-                .where(MarketDataSymbol.market == self.market, MarketDataSymbol.code.in_(selected))
-                .group_by(MarketDataSymbol.code)
+                select(Instrument.code, func.max(StockDaily.date))
+                .join(StockDaily, StockDaily.instrument_id == Instrument.id)
+                .where(Instrument.market == self.market, Instrument.code.in_(selected))
+                .group_by(Instrument.code)
             ).all()
         return {str(code): latest for code, latest in rows if latest is not None}
 
@@ -61,11 +61,11 @@ class ETFRotationRepository:
         with self.db.get_session() as session:
             return set(
                 session.execute(
-                    select(MarketDataSymbol.code)
-                    .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
+                    select(Instrument.code)
+                    .join(StockDaily, StockDaily.instrument_id == Instrument.id)
                     .where(
-                        MarketDataSymbol.market == self.market,
-                        MarketDataSymbol.code.in_(selected),
+                        Instrument.market == self.market,
+                        Instrument.code.in_(selected),
                         StockDaily.date == trade_date,
                     )
                 ).scalars()
@@ -86,20 +86,20 @@ class ETFRotationRepository:
             return list(
                 session.execute(
                     select(
-                        MarketDataSymbol.id.label("symbol_id"),
-                        MarketDataSymbol.code,
+                        Instrument.id.label("instrument_id"),
+                        Instrument.code,
                         StockDaily.date.label("trade_date"),
                         StockDaily.close,
                         StockDaily.volume,
                         StockDaily.amount,
                     )
-                    .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
+                    .join(StockDaily, StockDaily.instrument_id == Instrument.id)
                     .where(
-                        MarketDataSymbol.market == self.market,
-                        MarketDataSymbol.code.in_(selected),
+                        Instrument.market == self.market,
+                        Instrument.code.in_(selected),
                         StockDaily.date.between(start, trade_date),
                     )
-                    .order_by(MarketDataSymbol.code, StockDaily.date)
+                    .order_by(Instrument.code, StockDaily.date)
                 ).mappings()
             )
 
@@ -123,12 +123,12 @@ class ETFRotationRepository:
             if not dates:
                 return {}
             rows = session.execute(
-                select(MarketDataSymbol.code, ETFMomentumSnapshot.trade_date, ETFMomentumSnapshot.rank)
-                .join(MarketDataSymbol, MarketDataSymbol.id == ETFMomentumSnapshot.symbol_id)
+                select(Instrument.code, ETFMomentumSnapshot.trade_date, ETFMomentumSnapshot.rank)
+                .join(Instrument, Instrument.id == ETFMomentumSnapshot.instrument_id)
                 .where(
                     ETFMomentumSnapshot.market == self.market,
-                    MarketDataSymbol.market == self.market,
-                    MarketDataSymbol.code.in_(selected),
+                    Instrument.market == self.market,
+                    Instrument.code.in_(selected),
                     ETFMomentumSnapshot.trade_date.in_(dates),
                     ETFMomentumSnapshot.rank.is_not(None),
                 )
@@ -151,15 +151,17 @@ class ETFRotationRepository:
             ).scalar_one()
             if previous_date is None:
                 return set()
-            return set(session.execute(
-                select(MarketDataSymbol.code)
-                .join(ETFMomentumSnapshot, ETFMomentumSnapshot.symbol_id == MarketDataSymbol.id)
-                .where(
-                    ETFMomentumSnapshot.market == self.market,
-                    ETFMomentumSnapshot.trade_date == previous_date,
-                    ETFMomentumSnapshot.is_candidate.is_(True),
-                )
-            ).scalars())
+            return set(
+                session.execute(
+                    select(Instrument.code)
+                    .join(ETFMomentumSnapshot, ETFMomentumSnapshot.instrument_id == Instrument.id)
+                    .where(
+                        ETFMomentumSnapshot.market == self.market,
+                        ETFMomentumSnapshot.trade_date == previous_date,
+                        ETFMomentumSnapshot.is_candidate.is_(True),
+                    )
+                ).scalars()
+            )
 
     def upsert_market_snapshot(self, snapshot: Mapping[str, Any]) -> None:
         record = {**snapshot, "generated_at": utc_now()}
@@ -167,21 +169,25 @@ class ETFRotationRepository:
         with self.db.session_scope() as session:
             stmt = pg_insert(ETFMarketRotationSnapshot).values(record)
             excluded = stmt.excluded
-            session.execute(stmt.on_conflict_do_update(
-                constraint="uix_etf_market_rotation_date_market",
-                set_={
-                    column.name: getattr(excluded, column.name)
-                    for column in ETFMarketRotationSnapshot.__table__.columns
-                    if column.name not in {"id", "trade_date", "market"}
-                },
-            ))
+            session.execute(
+                stmt.on_conflict_do_update(
+                    constraint="uix_etf_market_rotation_date_market",
+                    set_={
+                        column.name: getattr(excluded, column.name)
+                        for column in ETFMarketRotationSnapshot.__table__.columns
+                        if column.name not in {"id", "trade_date", "market"}
+                    },
+                )
+            )
 
     def market_snapshot_by_date(self, trade_date: date) -> dict[str, Any] | None:
         with self.db.get_session() as session:
-            snapshot = session.execute(select(ETFMarketRotationSnapshot).where(
-                ETFMarketRotationSnapshot.market == self.market,
-                ETFMarketRotationSnapshot.trade_date == trade_date,
-            )).scalar_one_or_none()
+            snapshot = session.execute(
+                select(ETFMarketRotationSnapshot).where(
+                    ETFMarketRotationSnapshot.market == self.market,
+                    ETFMarketRotationSnapshot.trade_date == trade_date,
+                )
+            ).scalar_one_or_none()
         if snapshot is None:
             return None
         return {column.name: getattr(snapshot, column.name) for column in ETFMarketRotationSnapshot.__table__.columns}
@@ -193,9 +199,9 @@ class ETFRotationRepository:
         with self.db.session_scope() as session:
             symbol_ids = dict(
                 session.execute(
-                    select(MarketDataSymbol.code, MarketDataSymbol.id).where(
-                        MarketDataSymbol.market == self.market,
-                        MarketDataSymbol.code.in_(codes),
+                    select(Instrument.code, Instrument.id).where(
+                        Instrument.market == self.market,
+                        Instrument.code.in_(codes),
                     )
                 ).all()
             )
@@ -209,14 +215,14 @@ class ETFRotationRepository:
                 {
                     **{key: value for key, value in item.items() if key not in metadata_keys and key in column_names},
                     "market": self.market,
-                    "symbol_id": symbol_ids[str(item["code"])],
+                    "instrument_id": symbol_ids[str(item["code"])],
                     "generated_at": generated_at,
                 }
                 for item in snapshots
             ]
             stmt = pg_insert(ETFMomentumSnapshot).values(records)
             excluded = stmt.excluded
-            immutable = {"id", "trade_date", "symbol_id"}
+            immutable = {"id", "trade_date", "instrument_id"}
             updates = {
                 column.name: getattr(excluded, column.name)
                 for column in ETFMomentumSnapshot.__table__.columns
@@ -232,7 +238,7 @@ class ETFRotationRepository:
                 delete(ETFMomentumSnapshot).where(
                     ETFMomentumSnapshot.market == self.market,
                     ETFMomentumSnapshot.trade_date == records[0]["trade_date"],
-                    ETFMomentumSnapshot.symbol_id.not_in(set(symbol_ids[code] for code in codes)),
+                    ETFMomentumSnapshot.instrument_id.not_in(set(symbol_ids[code] for code in codes)),
                 )
             )
         return len(records)
@@ -272,14 +278,14 @@ class ETFRotationRepository:
         if sort_column is None:
             raise ValueError(f"Unsupported ETF Rotation sort field: {sort_by}")
         query = (
-            select(ETFMomentumSnapshot, MarketDataSymbol.code)
-            .join(MarketDataSymbol, MarketDataSymbol.id == ETFMomentumSnapshot.symbol_id)
+            select(ETFMomentumSnapshot, Instrument.code)
+            .join(Instrument, Instrument.id == ETFMomentumSnapshot.instrument_id)
             .where(
                 ETFMomentumSnapshot.market == self.market,
-                MarketDataSymbol.market == self.market,
+                Instrument.market == self.market,
                 ETFMomentumSnapshot.trade_date == trade_date,
             )
-            .order_by(desc(sort_column).nulls_last(), desc(ETFMomentumSnapshot.momentum_score), MarketDataSymbol.code)
+            .order_by(desc(sort_column).nulls_last(), desc(ETFMomentumSnapshot.momentum_score), Instrument.code)
         )
         if limit is not None:
             query = query.limit(limit)
@@ -294,18 +300,18 @@ class ETFRotationRepository:
     def candidates_by_date(self, trade_date: date, *, limit: int = 5) -> list[dict[str, Any]]:
         with self.db.get_session() as session:
             rows = session.execute(
-                select(ETFMomentumSnapshot, MarketDataSymbol.code)
-                .join(MarketDataSymbol, MarketDataSymbol.id == ETFMomentumSnapshot.symbol_id)
+                select(ETFMomentumSnapshot, Instrument.code)
+                .join(Instrument, Instrument.id == ETFMomentumSnapshot.instrument_id)
                 .where(
                     ETFMomentumSnapshot.market == self.market,
-                    MarketDataSymbol.market == self.market,
+                    Instrument.market == self.market,
                     ETFMomentumSnapshot.trade_date == trade_date,
                     ETFMomentumSnapshot.action.in_(("BUY", "HOLD")),
                 )
                 .order_by(
                     ETFMomentumSnapshot.candidate_rank.asc().nulls_last(),
                     desc(ETFMomentumSnapshot.composite_score),
-                    MarketDataSymbol.code,
+                    Instrument.code,
                 )
                 .limit(limit)
             ).all()
@@ -315,18 +321,18 @@ class ETFRotationRepository:
         """Return every exit for the day; candidate display limits must never hide exits."""
         with self.db.get_session() as session:
             rows = session.execute(
-                select(ETFMomentumSnapshot, MarketDataSymbol.code)
-                .join(MarketDataSymbol, MarketDataSymbol.id == ETFMomentumSnapshot.symbol_id)
+                select(ETFMomentumSnapshot, Instrument.code)
+                .join(Instrument, Instrument.id == ETFMomentumSnapshot.instrument_id)
                 .where(
                     ETFMomentumSnapshot.market == self.market,
-                    MarketDataSymbol.market == self.market,
+                    Instrument.market == self.market,
                     ETFMomentumSnapshot.trade_date == trade_date,
                     ETFMomentumSnapshot.action == "EXIT",
                 )
                 .order_by(
                     ETFMomentumSnapshot.candidate_rank.asc().nulls_last(),
                     desc(ETFMomentumSnapshot.composite_score),
-                    MarketDataSymbol.code,
+                    Instrument.code,
                 )
             ).all()
             return [self._payload(snapshot, str(code)) for snapshot, code in rows]
@@ -344,12 +350,12 @@ class ETFRotationRepository:
         canonical = str(code).strip().upper()
         with self.db.get_session() as session:
             rows = session.execute(
-                select(ETFMomentumSnapshot, MarketDataSymbol.code)
-                .join(MarketDataSymbol, MarketDataSymbol.id == ETFMomentumSnapshot.symbol_id)
+                select(ETFMomentumSnapshot, Instrument.code)
+                .join(Instrument, Instrument.id == ETFMomentumSnapshot.instrument_id)
                 .where(
                     ETFMomentumSnapshot.market == self.market,
-                    MarketDataSymbol.market == self.market,
-                    MarketDataSymbol.code == canonical,
+                    Instrument.market == self.market,
+                    Instrument.code == canonical,
                 )
                 .order_by(desc(ETFMomentumSnapshot.trade_date))
                 .limit(limit)

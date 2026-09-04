@@ -9,9 +9,7 @@ from typing import Any
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.repositories.quant import QuantRepository
-from finance_analysis.database.repositories.portfolio import PositionRepository
-from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
-from finance_analysis.database.repositories.user import DEFAULT_ADMIN_EMAIL, UserRepository
+from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.market_review.trading_calendar import get_effective_trading_date
 from finance_analysis.quant.cache import QuantLatestCache, cache_keys
 from finance_analysis.quant.config import get_quant_config
@@ -26,12 +24,11 @@ from finance_analysis.quant.exceptions import (
 from finance_analysis.quant.features.service import DailyResearchService
 from finance_analysis.quant.markets import (
     get_quant_market_config,
-    get_quant_universe_codes,
+    get_universe_codes,
     validate_universe_for_market,
 )
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
 from finance_analysis.quant.signals.fusion import SignalFusion
-from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 
 PROTOCOL_VERSION = 1
 SUPPORTED_QLIB_FEATURE_CONFIG = {"base": "Alpha158"}
@@ -61,7 +58,7 @@ class QuantTrainingPipeline:
             raise QuantDatasetMissingError("A ready dataset snapshot with an artifact is required")
         if dataset.market != run.market or dataset.universe_id != run.universe_id:
             raise QuantDatasetMissingError("Model run and dataset must use the same market and universe")
-        universe_members = len(get_quant_universe_codes(run.market))
+        universe_members = len(get_universe_codes(run.market))
         dataset_symbols = int(dataset.symbol_count or 0)
         coverage_ratio = dataset_symbols / universe_members if universe_members else 0.0
         minimum_coverage = get_quant_config().minimum_universe_coverage
@@ -144,17 +141,13 @@ class QuantDailyPipeline:
         cache: Any = None,
         exporter: Any = None,
         symbol_repository: Any = None,
-        holding_repository: Any = None,
         artifact_store: Any = None,
-        owner_uid: int | None = None,
     ):
         self.repository = repository or QuantRepository()
         self.cache = cache or QuantLatestCache()
         self.exporter = exporter or QlibDatasetExporter(self.repository)
-        self.symbol_repository = symbol_repository or MarketDataSymbolRepository()
-        self.holding_repository = holding_repository or PositionRepository()
+        self.symbol_repository = symbol_repository or InstrumentRepository()
         self.artifact_store = artifact_store
-        self.owner_uid = owner_uid
 
     def prepare(
         self,
@@ -171,7 +164,7 @@ class QuantDailyPipeline:
         universe = self.repository.get_universe(universe_key)
         if not universe or universe.market != market or not getattr(universe, "enabled", True):
             raise ValueError(f"Supported {market} universe {universe_key} is not available")
-        universe_codes = get_quant_universe_codes(market)
+        universe_codes = get_universe_codes(market)
         research = DailyResearchService(
             self.repository,
             symbol_repository=self.symbol_repository,
@@ -194,9 +187,7 @@ class QuantDailyPipeline:
             candidate_codes=eligible_codes,
         )
         if prediction_dataset is None or not prediction_dataset.artifact_uri:
-            raise QuantDatasetMissingError(
-                f"Prediction dataset artifact is unavailable for {trade_date}"
-            )
+            raise QuantDatasetMissingError(f"Prediction dataset artifact is unavailable for {trade_date}")
         common = {
             "schema_version": PROTOCOL_VERSION,
             "dataset_uri": prediction_dataset.artifact_uri,
@@ -264,11 +255,14 @@ class QuantDailyPipeline:
             "time_series_lgbm": context["time_series_model_run_id"],
         }
         for model_key, item in by_model.items():
-            if model_key in expected_model_runs and item.get("model_run_id") not in (None, expected_model_runs[model_key]):
+            if model_key in expected_model_runs and item.get("model_run_id") not in (
+                None,
+                expected_model_runs[model_key],
+            ):
                 raise ValueError(f"Qlib prediction result model_run_id mismatch for {model_key}")
         config = get_quant_config()
         feature_context = self.repository.feature_context(trade_date, config.feature_version)
-        universe_codes = get_quant_universe_codes(market)
+        universe_codes = get_universe_codes(market)
         expected_codes = set(context.get("expected_codes") or universe_codes)
         if not expected_codes.issubset(universe_codes):
             raise ValueError(
@@ -277,10 +271,7 @@ class QuantDailyPipeline:
             )
         self._validate_prediction_coverage(response, expected_codes, trade_date)
         self._validate_prediction_coverage(time_series_response, expected_codes, trade_date)
-        time_series_by_code = {
-            item["code"]: item["normalized_score"]
-            for item in time_series_response["predictions"]
-        }
+        time_series_by_code = {item["code"]: item["normalized_score"] for item in time_series_response["predictions"]}
         regime = context["regime"]
         fusion = SignalFusion()
         signal_values: list[dict[str, Any]] = []
@@ -288,15 +279,11 @@ class QuantDailyPipeline:
         for prediction in response.get("predictions", []):
             symbol = self.symbol_repository.get_by_code(prediction["code"])
             if symbol is None:
-                raise FeatureDataMissingError(
-                    f"Prediction code has no canonical symbol: {prediction['code']}"
-                )
-            prediction["symbol_id"] = symbol.id
+                raise FeatureDataMissingError(f"Prediction code has no canonical symbol: {prediction['code']}")
+            prediction["instrument_id"] = symbol.id
             feature = feature_context.get(symbol.id)
             if feature is None:
-                raise FeatureDataMissingError(
-                    f"Daily feature context missing for {prediction['code']} on {trade_date}"
-                )
+                raise FeatureDataMissingError(f"Daily feature context missing for {prediction['code']} on {trade_date}")
             required_metadata = (
                 "has_sufficient_data",
                 "liquidity",
@@ -306,8 +293,7 @@ class QuantDailyPipeline:
             missing_metadata = [key for key in required_metadata if feature.get(key) is None]
             if missing_metadata:
                 raise FeatureDataMissingError(
-                    f"Daily feature metadata missing for {prediction['code']} on {trade_date}: "
-                    f"{missing_metadata}"
+                    f"Daily feature metadata missing for {prediction['code']} on {trade_date}: " f"{missing_metadata}"
                 )
             prediction.update(
                 {
@@ -335,7 +321,7 @@ class QuantDailyPipeline:
             signal_values.append(
                 {
                     "trade_date": trade_date,
-                    "symbol_id": prediction["symbol_id"],
+                    "instrument_id": prediction["instrument_id"],
                     "code": prediction["code"],
                     "market": market,
                     "universe_id": universe.id,
@@ -384,7 +370,7 @@ class QuantDailyPipeline:
         }
         portfolio_items = [
             {
-                "symbol_id": item["symbol_id"],
+                "instrument_id": item["instrument_id"],
                 "code": item["code"],
                 "sector_key": item.get("sector_key"),
                 "rank": item["rank"],
@@ -451,9 +437,7 @@ class QuantDailyPipeline:
         return models
 
     @staticmethod
-    def _validate_prediction_coverage(
-        response: dict[str, Any], expected_codes: set[str], trade_date: date
-    ) -> None:
+    def _validate_prediction_coverage(response: dict[str, Any], expected_codes: set[str], trade_date: date) -> None:
         predictions = response.get("predictions")
         model_key = response.get("model_key") or "unknown_model"
         if not isinstance(predictions, list):
@@ -468,13 +452,7 @@ class QuantDailyPipeline:
         actual_codes = set(valid_codes)
         missing = sorted(expected_codes - actual_codes)
         unexpected = sorted(actual_codes - expected_codes)
-        if (
-            len(predictions) != len(expected_codes)
-            or missing
-            or unexpected
-            or duplicates
-            or invalid_count
-        ):
+        if len(predictions) != len(expected_codes) or missing or unexpected or duplicates or invalid_count:
             raise PredictionFailedError(
                 f"Prediction coverage mismatch for {model_key} on {trade_date}: "
                 f"expected={len(expected_codes)} actual={len(predictions)} "
@@ -483,49 +461,5 @@ class QuantDailyPipeline:
             )
 
     def _current_weights(self, signals: list[dict[str, Any]], market: str) -> dict[str, float]:
-        if self.owner_uid is None:
-            owner = UserRepository().get_by_email(DEFAULT_ADMIN_EMAIL)
-            if owner is None:
-                raise FeatureDataMissingError(
-                    "Cannot load quant holdings because the default admin user is unavailable"
-                )
-            owner_uid = owner.id
-        else:
-            owner_uid = self.owner_uid
-        holdings = self.holding_repository.list_open_by_uid_and_market(
-            owner_uid,
-            market,
-            ("STOCK", "ETF"),
-        )
-        member_codes = {item["code"] for item in signals}
-        closes = {item["code"]: float(item["close"]) for item in signals}
-        market_values: dict[str, float] = {}
-        for holding in holdings:
-            quantity = float(holding.quantity or 0)
-            if quantity <= 0:
-                continue
-            instrument = holding.instrument
-            raw_code = str(instrument.canonical_symbol or "").strip().upper()
-            candidates = [raw_code]
-            if market == "US" and not raw_code.endswith(".US"):
-                candidates.append(f"{raw_code}.US")
-            elif market == "CN":
-                try:
-                    candidates.append(MarketDataScopeResolver.canonical_code(raw_code, "CN"))
-                except ValueError:
-                    pass
-            code = next((candidate for candidate in candidates if candidate in member_codes), None)
-            if code is None:
-                continue
-            close = closes.get(code)
-            if close is None or close <= 0:
-                raise FeatureDataMissingError(
-                    f"Cannot value current holding {code}: daily close is unavailable"
-                )
-            market_values[code] = market_values.get(code, 0.0) + quantity * close
-        total_value = sum(market_values.values())
-        if total_value <= 0:
-            return {}
-        # These are weights within priced STOCK/ETF holdings only. Cash is
-        # intentionally excluded, so this is not total-account asset weight.
-        return {code: value / total_value for code, value in market_values.items()}
+        del signals, market
+        return {}

@@ -29,13 +29,17 @@ def test_normalize_us_symbol_strips_us_suffix_and_preserves_share_class():
 
 
 def test_build_premarket_symbol_universe_merges_watch_list_and_nasdaq_top_20():
-    symbols = build_premarket_symbol_universe(["aapl.us", "TSLA", "CUSTOM"])
+    resolver = MagicMock()
+    resolver.resolve_universe.return_value = [
+        MagicMock(native_code=code) for code in ["AAPL", "NVDA", "GOOGL", *[f"S{n}" for n in range(17)]]
+    ]
+    symbols = build_premarket_symbol_universe(["aapl.us", "TSLA", "CUSTOM"], resolver)
 
     assert symbols[0:3] == ["AAPL", "TSLA", "CUSTOM"]
     assert "NVDA" in symbols
     assert "GOOGL" in symbols
     assert symbols.count("AAPL") == 1
-    assert len(symbols) == 21
+    assert len(symbols) == 22
 
 
 def test_premarket_news_window_uses_yesterday_midnight_beijing_to_run_time():
@@ -156,6 +160,7 @@ def test_service_run_continues_when_single_symbol_fetch_fails():
     service.llm_analyzer.judge_impact.return_value = []
     service.reporter.record_to_calendar.return_value = 123
     service.reporter.send_notification.return_value = True
+
     def _fake_fetch(symbol, *, query_id):
         del query_id
         if symbol == "BROKEN":

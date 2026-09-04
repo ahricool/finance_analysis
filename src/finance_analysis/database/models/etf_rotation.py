@@ -17,7 +17,7 @@ class ETFMomentumSnapshot(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     market = Column(String(8), nullable=False)
     trade_date = Column(Date, nullable=False)
-    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
+    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="CASCADE"), nullable=False)
     ret_1d = Column(Float, nullable=False)
     ret_3d = Column(Float)
     ret_5d = Column(Float, nullable=False)
@@ -84,10 +84,10 @@ class ETFMomentumSnapshot(Base):
     diagnostics = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
-    symbol = relationship("MarketDataSymbol", lazy="joined")
+    instrument = relationship("Instrument", lazy="joined")
 
     __table_args__ = (
-        UniqueConstraint("trade_date", "symbol_id", name="uix_etf_momentum_snapshot_date_symbol"),
+        UniqueConstraint("trade_date", "instrument_id", name="uix_etf_momentum_snapshot_date_symbol"),
         CheckConstraint("market IN ('CN', 'US')", name="ck_etf_momentum_snapshot_market"),
         CheckConstraint("momentum_score BETWEEN 0 AND 100", name="ck_etf_momentum_score_range"),
         CheckConstraint("entry_score BETWEEN 0 AND 100", name="ck_etf_entry_score_range"),
@@ -107,8 +107,7 @@ class ETFMomentumSnapshot(Base):
             name="ck_etf_stop_loss_metadata_complete",
         ),
         CheckConstraint(
-            "rank_1d > 0 AND (rank_3d IS NULL OR rank_3d > 0) "
-            "AND rank_5d > 0 AND rank_10d > 0 AND rank_20d > 0",
+            "rank_1d > 0 AND (rank_3d IS NULL OR rank_3d > 0) " "AND rank_5d > 0 AND rank_10d > 0 AND rank_20d > 0",
             name="ck_etf_momentum_ranks_positive",
         ),
         CheckConstraint(
@@ -124,7 +123,7 @@ class ETFMomentumSnapshot(Base):
         ),
         CheckConstraint("candidate_rank IS NULL OR candidate_rank > 0", name="ck_etf_candidate_rank_positive"),
         Index("ix_etf_momentum_snapshot_market_date_entry", "market", "trade_date", "entry_score"),
-        Index("ix_etf_momentum_snapshot_symbol_date", "symbol_id", "trade_date"),
+        Index("ix_etf_momentum_snapshot_instrument_date", "instrument_id", "trade_date"),
         Index("ix_etf_momentum_snapshot_market_date_composite", "market", "trade_date", "composite_score"),
         Index(
             "ix_etf_momentum_snapshot_market_date_candidate",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from finance_analysis.database.base import Base
-from finance_analysis.database.models import MarketDataSymbol
+from finance_analysis.database.models import Instrument
 from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.interfaces.api.v1.endpoints.quant import router as quant_router
 
@@ -13,7 +13,7 @@ def test_persisted_schema_excludes_legacy_minute_objects() -> None:
 
     assert table_name not in Base.metadata.tables
     assert confirmation_table not in Base.metadata.tables
-    assert obsolete_flag not in MarketDataSymbol.__table__.columns
+    assert obsolete_flag not in Instrument.__table__.columns
 
 
 def test_quant_router_excludes_legacy_confirmation_endpoints() -> None:

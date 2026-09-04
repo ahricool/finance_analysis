@@ -255,62 +255,10 @@ def _service(*, data=None, client=None, reporter=None, limits=None, recent_resul
     )
 
 
-def test_default_holdings_source_uses_cn_open_stock_and_etf_positions(monkeypatch):
+def test_default_holdings_source_is_empty_after_portfolio_sunset(monkeypatch):
     service = _service()
     service.holdings_provider = None
-    calls = []
-    positions = [
-        SimpleNamespace(
-            quantity=Decimal("12.5"),
-            avg_cost=Decimal("9.50"),
-            instrument=SimpleNamespace(
-                display_symbol="600001",
-                name="持仓一",
-                market="CN",
-                asset_type="STOCK",
-            ),
-        ),
-        SimpleNamespace(
-            quantity=Decimal("20"),
-            avg_cost=Decimal("4.20"),
-            instrument=SimpleNamespace(
-                display_symbol="510300",
-                name="沪深300ETF",
-                market="CN",
-                asset_type="ETF",
-            ),
-        ),
-    ]
-
-    monkeypatch.setattr(
-        "finance_analysis.database.repositories.user.UserRepository.ensure_default_admin",
-        lambda _self: 7,
-    )
-    monkeypatch.setattr(
-        "finance_analysis.database.repositories.user.UserRepository.__init__",
-        lambda _self: None,
-    )
-
-    def list_positions(_self, uid, market, asset_types):
-        calls.append((uid, market, tuple(asset_types)))
-        return positions
-
-    monkeypatch.setattr(
-        "finance_analysis.database.repositories.portfolio.PositionRepository.list_open_by_uid_and_market",
-        list_positions,
-    )
-    monkeypatch.setattr(
-        "finance_analysis.database.repositories.portfolio.PositionRepository.__init__",
-        lambda _self: None,
-    )
-
-    loaded = service._load_holdings()
-
-    assert calls == [(7, "CN", ("STOCK", "ETF"))]
-    assert [(item.code, item.quantity) for item in loaded] == [
-        ("600001", Decimal("12.5")),
-        ("510300", Decimal("20")),
-    ]
+    assert service._load_holdings() == []
 
 
 @pytest.fixture(autouse=True)

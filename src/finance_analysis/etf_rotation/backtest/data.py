@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-from finance_analysis.database.models.stock import MarketDataSymbol, StockDaily
+from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.etf_rotation.backtest.types import OhlcvBar
 
 _PLACEHOLDER = re.compile(r"\$\{([^}]+)\}")
@@ -51,7 +51,7 @@ def load_ohlcv(
         return {}
     rows = session.execute(
         select(
-            MarketDataSymbol.code,
+            Instrument.code,
             StockDaily.date,
             StockDaily.open,
             StockDaily.high,
@@ -60,13 +60,13 @@ def load_ohlcv(
             StockDaily.volume,
             StockDaily.amount,
         )
-        .join(StockDaily, StockDaily.symbol_id == MarketDataSymbol.id)
+        .join(StockDaily, StockDaily.instrument_id == Instrument.id)
         .where(
-            MarketDataSymbol.market == market,
-            MarketDataSymbol.code.in_(selected),
+            Instrument.market == market,
+            Instrument.code.in_(selected),
             StockDaily.date.between(start, end),
         )
-        .order_by(MarketDataSymbol.code, StockDaily.date)
+        .order_by(Instrument.code, StockDaily.date)
     ).all()
     bars: dict[str, list[OhlcvBar]] = defaultdict(list)
     for code, trade_date, open_, high, low, close, volume, amount in rows:

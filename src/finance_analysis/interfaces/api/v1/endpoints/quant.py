@@ -20,7 +20,7 @@ from finance_analysis.interfaces.api.v1.schemas.quant import (
 from finance_analysis.quant.capabilities import get_quant_capabilities
 from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore
-from finance_analysis.quant.markets import get_quant_universe_codes
+from finance_analysis.quant.markets import get_universe_codes
 from finance_analysis.quant.models import QLIB_TRAINABLE_MODEL_KEYS
 from finance_analysis.tasks.celery.schedule import QUEUE_ANALYSIS
 
@@ -68,7 +68,7 @@ def _universe(repo: QuantRepository, market: str, key: str | None):
 
 
 def _dataset_payload(row) -> dict:
-    universe_members = len(get_quant_universe_codes(row.market))
+    universe_members = len(get_universe_codes(row.market))
     dataset_symbols = int(row.symbol_count or 0)
     coverage_ratio = dataset_symbols / universe_members if universe_members else 0.0
     minimum_coverage = get_quant_config().minimum_universe_coverage
@@ -77,11 +77,7 @@ def _dataset_payload(row) -> dict:
         "universe_member_count": universe_members,
         "universe_coverage_ratio": coverage_ratio,
         "minimum_universe_coverage": minimum_coverage,
-        "trainable": (
-            row.status == "ready"
-            and bool(row.artifact_uri)
-            and coverage_ratio >= minimum_coverage
-        ),
+        "trainable": (row.status == "ready" and bool(row.artifact_uri) and coverage_ratio >= minimum_coverage),
     }
 
 
@@ -89,9 +85,7 @@ def _market_regime_payload(row) -> dict:
     """Expose the persisted v2 score explanation while preserving legacy snapshots."""
     payload = encoded(row)
     features = payload.get("features") if isinstance(payload, dict) else None
-    payload["score_breakdown"] = (
-        features.get("score_breakdown") if isinstance(features, dict) else None
-    )
+    payload["score_breakdown"] = features.get("score_breakdown") if isinstance(features, dict) else None
     return payload
 
 
@@ -117,7 +111,7 @@ async def capabilities(market: QuantMarket = "US", _: User = Depends(require_cur
 async def universes(market: QuantMarket = "US", _: User = Depends(require_current_user)):
     repo = QuantRepository()
     item = _universe(repo, market, None)
-    codes = sorted(get_quant_universe_codes(market))
+    codes = sorted(get_universe_codes(market))
     names_by_codes = getattr(repo, "names_by_codes", None)
     names = names_by_codes(codes) if callable(names_by_codes) else {}
     return [
@@ -145,9 +139,7 @@ async def model_definitions(market: QuantMarket = "US", _: User = Depends(requir
         [
             row
             for row in QuantRepository().list_model_definitions()
-            if row.enabled
-            and row.key in QLIB_TRAINABLE_MODEL_KEYS
-            and market in (row.supported_markets or [])
+            if row.enabled and row.key in QLIB_TRAINABLE_MODEL_KEYS and market in (row.supported_markets or [])
         ]
     )
 
@@ -294,12 +286,7 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
     universe = _universe(repo, market, body.universe)
     definition = repo.get_model_definition(body.model_key)
     dataset = repo.get_dataset(body.dataset_snapshot_id)
-    if (
-        not definition
-        or not definition.enabled
-        or definition.key not in QLIB_TRAINABLE_MODEL_KEYS
-        or not dataset
-    ):
+    if not definition or not definition.enabled or definition.key not in QLIB_TRAINABLE_MODEL_KEYS or not dataset:
         raise HTTPException(400, "Unknown model or dataset")
     if market not in (definition.supported_markets or []):
         raise HTTPException(400, f"Model {body.model_key} does not support {market}")
@@ -307,14 +294,13 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
         raise HTTPException(409, "Model run, universe, and dataset market must match")
     if dataset.status != "ready":
         raise HTTPException(409, "Dataset is not ready")
-    universe_members = len(get_quant_universe_codes(market))
+    universe_members = len(get_universe_codes(market))
     coverage_ratio = int(dataset.symbol_count or 0) / universe_members if universe_members else 0.0
     minimum_coverage = get_quant_config().minimum_universe_coverage
     if coverage_ratio < minimum_coverage:
         raise HTTPException(
             409,
-            f"Dataset universe coverage {coverage_ratio:.2%} is below the "
-            f"{minimum_coverage:.2%} minimum",
+            f"Dataset universe coverage {coverage_ratio:.2%} is below the " f"{minimum_coverage:.2%} minimum",
         )
     values = body.model_dump(exclude={"universe"})
     values.update(
@@ -416,9 +402,7 @@ async def signals(
     definition = _universe(repo, market, universe)
     rows = repo.latest_signals(market, definition.id, model_version=model_version)
     regimes = (
-        repo.market_regimes(market, date_from=rows[0].trade_date, date_to=rows[0].trade_date, limit=1)
-        if rows
-        else []
+        repo.market_regimes(market, date_from=rows[0].trade_date, date_to=rows[0].trade_date, limit=1) if rows else []
     )
     return {
         "trade_date": rows[0].trade_date if rows else None,
@@ -467,7 +451,7 @@ async def signal_history(
             code,
             universe.id,
             model_version=model_version,
-        )
+        ),
     )
 
 

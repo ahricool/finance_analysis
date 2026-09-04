@@ -7,14 +7,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot
-from finance_analysis.database.models.stock import MarketDataSymbol
+from finance_analysis.database.models.stock import Instrument
 from finance_analysis.database.repositories.etf_rotation import ETFRotationRepository
 
 
 class _Database:
     def __init__(self):
         self.engine = create_engine("sqlite://")
-        MarketDataSymbol.__table__.create(self.engine)
+        Instrument.__table__.create(self.engine)
         ETFMomentumSnapshot.__table__.create(self.engine)
 
     @contextmanager
@@ -29,12 +29,12 @@ class _Database:
                 yield session
 
 
-def _snapshot(snapshot_id: int, market: str, symbol_id: int, trade_date: date, rank: int):
+def _snapshot(snapshot_id: int, market: str, instrument_id: int, trade_date: date, rank: int):
     values = {
         "id": snapshot_id,
         "market": market,
         "trade_date": trade_date,
-        "symbol_id": symbol_id,
+        "instrument_id": instrument_id,
         "rank": rank,
         "previous_5d_return": 0.01,
         "ma20_ratio": 0.01,
@@ -64,8 +64,8 @@ def test_snapshot_queries_and_historical_dates_are_isolated_by_market() -> None:
     with database.session_scope() as session:
         session.add_all(
             [
-                MarketDataSymbol(id=1, market="CN", code="588000.SH", name="CN ETF"),
-                MarketDataSymbol(id=2, market="US", code="SPY.US", name="US ETF"),
+                Instrument(id=1, market="CN", code="588000.SH", name="CN ETF"),
+                Instrument(id=2, market="US", code="SPY.US", name="US ETF"),
             ]
         )
         snapshot_id = 1

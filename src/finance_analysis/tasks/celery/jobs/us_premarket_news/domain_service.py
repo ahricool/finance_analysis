@@ -12,8 +12,12 @@ from sqlalchemy import and_, desc, func, or_, select
 
 from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
-from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsFetcher, LongbridgeNewsRecord
-from finance_analysis.stocks.reference_data.stock_index import NASDAQ100_STOCK_INDEX
+from finance_analysis.integrations.market_data.providers.longbridge.news import (
+    LongbridgeNewsFetcher,
+    LongbridgeNewsRecord,
+)
+from finance_analysis.database.repositories.stock import InstrumentRepository
+from finance_analysis.database.repositories.universe import UniverseResolver
 from finance_analysis.database.models import NewsIntel
 from finance_analysis.database import DatabaseManager, ensure_aware_datetime
 
@@ -47,10 +51,11 @@ def normalize_symbols(symbols: Sequence[str]) -> List[str]:
     return [symbol for symbol in dict.fromkeys(normalized) if symbol]
 
 
-def build_premarket_symbol_universe(watch_symbols: Sequence[str]) -> List[str]:
-    """Return watch-list US symbols plus the top Nasdaq-100 symbols by market cap."""
-    nasdaq_top = list(NASDAQ100_STOCK_INDEX.keys())[:NASDAQ100_SYMBOL_LIMIT]
-    return normalize_symbols([*watch_symbols, *nasdaq_top])
+def build_premarket_symbol_universe(watch_symbols: Sequence[str], resolver=None) -> List[str]:
+    """Return watch-list symbols plus a bounded DB-backed US strategy universe."""
+    instruments = (resolver or UniverseResolver()).resolve_universe("us_quant")
+    selected = [item.native_code for item in instruments[:NASDAQ100_SYMBOL_LIMIT]]
+    return normalize_symbols([*watch_symbols, *selected])
 
 
 def premarket_news_window(now: datetime) -> tuple[datetime, datetime]:
@@ -149,8 +154,9 @@ class USPremarketNewsService:
         )
 
     def _get_stock_name(self, symbol: str) -> str:
-        if symbol in NASDAQ100_STOCK_INDEX:
-            return NASDAQ100_STOCK_INDEX[symbol]
+        persisted = InstrumentRepository(self.db).get_by_code(f"{symbol}.US")
+        if persisted is not None:
+            return persisted.name
         try:
             canonical = f"{symbol}.US" if not symbol.endswith(".US") else symbol
             info = self.market_data.get_instrument_info([canonical]).data.get(canonical)

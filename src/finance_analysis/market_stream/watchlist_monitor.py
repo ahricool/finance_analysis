@@ -20,24 +20,17 @@ def _symbol_matches_market(symbol: str, market_type: MarketType) -> bool:
         return symbol.endswith(".US")
     if market_type == "HK":
         return symbol.endswith(".HK")
-    return symbol.endswith((".SH", ".SZ"))
+    return symbol.endswith((".SH", ".SZ", ".BJ"))
 
 
 def load_watchlist_targets(
     repo: Any | None = None,
-    holdings_repo: Any | None = None,
 ) -> dict[str, SubscriptionTarget]:
-    """Load the union of all users' watch-list and holding entries.
-
-    Passing an explicit ``repo`` without ``holdings_repo`` retains the original
-    single-repository behavior for callers that inject a custom source.
-    """
-    if repo is None and holdings_repo is None:
-        from finance_analysis.database.repositories.portfolio import PositionRepository
+    """Load all users' watch-list entries."""
+    if repo is None:
         from finance_analysis.database.repositories.watch_list import WatchListRepo
 
         repo = WatchListRepo()
-        holdings_repo = PositionRepository()
 
     targets: dict[str, SubscriptionTarget] = {}
     watch_items = list(repo.list_all()) if repo is not None else []
@@ -58,23 +51,6 @@ def load_watchlist_targets(
                 raw_market,
                 exc,
             )
-    if holdings_repo is not None:
-        positions = holdings_repo.list_all_open_equities()
-        for position in positions:
-            instrument = getattr(position, "instrument", None)
-            if instrument is None or getattr(instrument, "asset_type", None) not in {"STOCK", "ETF"}:
-                continue
-            code = str(getattr(instrument, "canonical_symbol", "") or "").strip()
-            raw_market = getattr(instrument, "market", None)
-            try:
-                market_type = normalize_market_type(raw_market, code)
-                symbol = _to_longbridge_symbol(code)
-                if not symbol or not _symbol_matches_market(symbol, market_type):
-                    logger.warning("跳过无法转换的持仓标的: code=%r market=%r", code, raw_market)
-                    continue
-                targets[symbol] = SubscriptionTarget(symbol=symbol, market_type=market_type)
-            except Exception as exc:
-                logger.warning("跳过无效持仓标的: code=%r market=%r error=%s", code, raw_market, exc)
     return targets
 
 
@@ -95,16 +71,8 @@ class WatchListMonitor:
 
     async def poll(self) -> WatchListSnapshot:
         targets = dict(await asyncio.to_thread(self.loader))
-        added = {
-            symbol: target
-            for symbol, target in targets.items()
-            if self.last_targets.get(symbol) != target
-        }
-        removed = {
-            symbol: target
-            for symbol, target in self.last_targets.items()
-            if targets.get(symbol) != target
-        }
+        added = {symbol: target for symbol, target in targets.items() if self.last_targets.get(symbol) != target}
+        removed = {symbol: target for symbol, target in self.last_targets.items() if targets.get(symbol) != target}
         self.last_targets = targets
         if added or removed:
             logger.info("WatchList 变化: added=%s removed=%s", sorted(added), sorted(removed))

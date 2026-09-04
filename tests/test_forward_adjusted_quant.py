@@ -20,9 +20,15 @@ from qlib_worker.price_modes import require_forward_adjusted_manifest
 def _row(code: str, day: date, close: float, *, open_price: float | None = None) -> dict:
     open_price = close if open_price is None else open_price
     return {
-        "instrument": code, "datetime": day, "open": open_price,
-        "high": max(open_price, close) + 1.0, "low": min(open_price, close) - 1.0,
-        "close": close, "volume": 100.0, "amount": 9_800.0, "daily_data_source": "fixture",
+        "instrument": code,
+        "datetime": day,
+        "open": open_price,
+        "high": max(open_price, close) + 1.0,
+        "low": min(open_price, close) - 1.0,
+        "close": close,
+        "volume": 100.0,
+        "amount": 9_800.0,
+        "daily_data_source": "fixture",
     }
 
 
@@ -36,12 +42,14 @@ class BarRepository:
 
 def test_loader_returns_stored_forward_adjusted_prices_without_second_adjustment() -> None:
     day = date(2026, 7, 17)
-    result = DailyBarLoader(BarRepository([_row("AAPL.US", day, 50.0)])).load(
-        "US", {"AAPL.US"}, day, day
-    )
+    result = DailyBarLoader(BarRepository([_row("AAPL.US", day, 50.0)])).load("US", {"AAPL.US"}, day, day)
 
     assert result.frame.iloc[0][["open", "high", "low", "close", "vwap"]].to_dict() == {
-        "open": 50.0, "high": 51.0, "low": 49.0, "close": 50.0, "vwap": 50.0,
+        "open": 50.0,
+        "high": 51.0,
+        "low": 49.0,
+        "close": 50.0,
+        "vwap": 50.0,
     }
     assert result.frame.iloc[0]["volume"] == 100.0
     assert "forward_adjustment_factor" not in result.frame.columns
@@ -49,9 +57,11 @@ def test_loader_returns_stored_forward_adjusted_prices_without_second_adjustment
 
 def test_forward_adjusted_company_action_series_does_not_create_false_returns() -> None:
     days = [date(2026, 7, 15), date(2026, 7, 16), date(2026, 7, 17)]
-    frame = DailyBarLoader(BarRepository([_row("AAPL.US", day, 50.0) for day in days])).load(
-        "US", {"AAPL.US"}, days[0], days[-1]
-    ).frame
+    frame = (
+        DailyBarLoader(BarRepository([_row("AAPL.US", day, 50.0) for day in days]))
+        .load("US", {"AAPL.US"}, days[0], days[-1])
+        .frame
+    )
     features = build_daily_features(frame.rename(columns={"datetime": "date"}))
 
     assert features.iloc[-1]["ret_1d"] == 0.0
@@ -64,7 +74,7 @@ class ExportRepository(BarRepository):
         self.next_id = 1
 
     def get_universe(self, _key):
-        return SimpleNamespace(id=1, key="us_sp500", market="US", enabled=True, benchmark_code="QQQ.US")
+        return SimpleNamespace(id=1, key="us_quant", market="US", enabled=True, benchmark_code="QQQ.US")
 
     def create_dataset(self, values):
         snapshot = SimpleNamespace(id=self.next_id, **values, artifact_uri=None, row_count=0, symbol_count=0)
@@ -87,9 +97,10 @@ def test_dataset_export_uses_stored_prices_and_neutral_qlib_factor(tmp_path: Pat
     day = date(2026, 7, 17)
     codes = ("AAPL.US", "QQQ.US", "SPY.US", "SOXX.US")
     repository = ExportRepository([_row(code, day, 50.0) for code in codes])
-    snapshot = QlibDatasetExporter(repository, ArtifactStore(tmp_path)).export(
-        "US", "us_sp500", day, day, candidate_codes={"AAPL.US"}
-    )
+    with patch("finance_analysis.quant.datasets.exporter.get_universe_codes", return_value=set(codes)):
+        snapshot = QlibDatasetExporter(repository, ArtifactStore(tmp_path)).export(
+            "US", "us_quant", day, day, candidate_codes={"AAPL.US"}
+        )
     root = tmp_path / snapshot.artifact_uri.removeprefix("quant://")
     manifest = json.loads((root / "manifest.json").read_text())
     daily = pd.read_csv(root / "source" / "daily.csv")
@@ -108,8 +119,9 @@ def test_dataset_export_reuses_ready_snapshot_for_same_source_revision(tmp_path:
     codes = ("AAPL.US", "QQQ.US", "SPY.US")
     repository = ExportRepository([_row(code, day, 50.0) for code in codes])
     exporter = QlibDatasetExporter(repository, ArtifactStore(tmp_path))
-    first = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
-    second = exporter.export("US", "us_sp500", day, day, candidate_codes={"AAPL.US"})
+    with patch("finance_analysis.quant.datasets.exporter.get_universe_codes", return_value=set(codes)):
+        first = exporter.export("US", "us_quant", day, day, candidate_codes={"AAPL.US"})
+        second = exporter.export("US", "us_quant", day, day, candidate_codes={"AAPL.US"})
 
     assert first.id == second.id
     assert repository.next_id == 2
@@ -120,7 +132,7 @@ def test_quant_dataset_task_has_no_price_mode_contract() -> None:
     with patch.object(dataset_tasks, "QlibDatasetExporter") as exporter_class:
         exporter_class.return_value.export.return_value = snapshot
         result = dataset_tasks.build_quant_dataset.run(
-            market="US", universe="us_sp500", date_from="2025-01-01", date_to="2026-01-01"
+            market="US", universe="us_quant", date_from="2025-01-01", date_to="2026-01-01"
         )
 
     assert "price_mode" not in exporter_class.return_value.export.call_args.kwargs

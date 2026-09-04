@@ -16,9 +16,9 @@ from finance_analysis.database.models.quant import (
     ModelPublication,
     ModelRun,
     QuantDatasetSnapshot,
-    QuantUniverse,
 )
-from finance_analysis.database.models.stock import MarketDataSymbol
+from finance_analysis.database.models.stock import Instrument
+from finance_analysis.database.models.universe import Universe
 from finance_analysis.database.models.user import User
 from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore
@@ -54,8 +54,8 @@ def _database() -> SqliteManager:
     database = SqliteManager()
     for table in (
         User.__table__,
-        MarketDataSymbol.__table__,
-        QuantUniverse.__table__,
+        Instrument.__table__,
+        Universe.__table__,
         QuantDatasetSnapshot.__table__,
         ModelDefinition.__table__,
         ModelRun.__table__,
@@ -67,8 +67,8 @@ def _database() -> SqliteManager:
         session.add_all(
             [
                 User(id=1, username="admin", email="admin@example.com", role="admin"),
-                MarketDataSymbol(id=1, market="US", code="AAPL.US", name="Apple"),
-                QuantUniverse(id=1, key="us_sp500", name="S&P 500", market="US", enabled=True),
+                Instrument(id=1, market="US", code="AAPL.US", name="Apple"),
+                Universe(id=1, key="us_sp500", name="S&P 500", market="US", enabled=True),
                 ModelDefinition(
                     id=1,
                     key="cross_section_lgbm",
@@ -150,7 +150,7 @@ def test_model_run_deletion_removes_publication_predictions_and_then_allows_data
                     id=1,
                     model_run_id=10,
                     trade_date=date(2026, 1, 2),
-                    symbol_id=1,
+                    instrument_id=1,
                     code="AAPL.US",
                     raw_prediction=0.1,
                     normalized_score=0.2,

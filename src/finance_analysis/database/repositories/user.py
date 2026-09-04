@@ -100,18 +100,14 @@ class UserRepository:
         if not key:
             return None
         with self.db.get_session() as session:
-            return session.execute(
-                select(User).where(func.lower(User.username) == key).limit(1)
-            ).scalars().first()
+            return session.execute(select(User).where(func.lower(User.username) == key).limit(1)).scalars().first()
 
     def get_by_email(self, email: str) -> Optional[User]:
         key = (email or "").strip().lower()
         if not key:
             return None
         with self.db.get_session() as session:
-            return session.execute(
-                select(User).where(func.lower(User.email) == key).limit(1)
-            ).scalars().first()
+            return session.execute(select(User).where(func.lower(User.email) == key).limit(1)).scalars().first()
 
     def verify_plain_for_uid(self, uid: int, plain: str) -> bool:
         user = self.get_by_uid(uid)
@@ -240,9 +236,6 @@ class UserRepository:
         created = self.get_by_uid(uid)
         if created is None:
             raise RuntimeError("failed to load user after create")
-        from finance_analysis.portfolio.service import ensure_fixed_portfolio_accounts
-
-        ensure_fixed_portfolio_accounts(uid, self.db)
         return created
 
     def user_needs_password_setup(self, email: str) -> Optional[bool]:
@@ -259,11 +252,11 @@ class UserRepository:
         Password is left unset until the user completes first-time setup on the login page.
         """
         with self.db.get_session() as session:
-            existing = session.execute(
-                select(User)
-                .where(func.lower(User.email) == DEFAULT_ADMIN_EMAIL.lower())
-                .limit(1)
-            ).scalars().first()
+            existing = (
+                session.execute(select(User).where(func.lower(User.email) == DEFAULT_ADMIN_EMAIL.lower()).limit(1))
+                .scalars()
+                .first()
+            )
             if existing:
                 uid = existing.id
             else:
@@ -284,9 +277,6 @@ class UserRepository:
                     DEFAULT_ADMIN_USERNAME,
                     DEFAULT_ADMIN_EMAIL,
                 )
-        from finance_analysis.portfolio.service import ensure_fixed_portfolio_accounts
-
-        ensure_fixed_portfolio_accounts(uid, self.db)
         return uid
 
     def to_public_dict(self, user: User) -> Dict[str, Any]:

@@ -3,14 +3,13 @@
 
 __all__ = [
     "AnalysisRepository",
-    "MarketDataSymbolRepository",
-    "PortfolioAccountRepository",
-    "AccountCashBalanceRepository",
     "InstrumentRepository",
-    "PositionRepository",
     "QuantRepository",
     "StockRepository",
     "TaskRecordRepository",
+    "UniverseCycleError",
+    "UniverseRepository",
+    "UniverseResolver",
     "UpsertStats",
 ]
 
@@ -24,34 +23,15 @@ def __getattr__(name: str):
         from finance_analysis.database.repositories.quant import QuantRepository
 
         return QuantRepository
-    if name in {
-        "PortfolioAccountRepository",
-        "AccountCashBalanceRepository",
-        "InstrumentRepository",
-        "PositionRepository",
-    }:
-        from finance_analysis.database.repositories.portfolio import (
-            AccountCashBalanceRepository,
-            InstrumentRepository,
-            PortfolioAccountRepository,
-            PositionRepository,
-        )
-
-        return {
-            "PortfolioAccountRepository": PortfolioAccountRepository,
-            "AccountCashBalanceRepository": AccountCashBalanceRepository,
-            "InstrumentRepository": InstrumentRepository,
-            "PositionRepository": PositionRepository,
-        }[name]
-    if name in {"MarketDataSymbolRepository", "StockRepository", "UpsertStats"}:
+    if name in {"InstrumentRepository", "StockRepository", "UpsertStats"}:
         from finance_analysis.database.repositories.stock import (
-            MarketDataSymbolRepository,
+            InstrumentRepository,
             StockRepository,
             UpsertStats,
         )
 
         return {
-            "MarketDataSymbolRepository": MarketDataSymbolRepository,
+            "InstrumentRepository": InstrumentRepository,
             "StockRepository": StockRepository,
             "UpsertStats": UpsertStats,
         }[name]
@@ -59,4 +39,16 @@ def __getattr__(name: str):
         from finance_analysis.database.repositories.task_record import TaskRecordRepository
 
         return TaskRecordRepository
+    if name in {"UniverseCycleError", "UniverseRepository", "UniverseResolver"}:
+        from finance_analysis.database.repositories.universe import (
+            UniverseCycleError,
+            UniverseRepository,
+            UniverseResolver,
+        )
+
+        return {
+            "UniverseCycleError": UniverseCycleError,
+            "UniverseRepository": UniverseRepository,
+            "UniverseResolver": UniverseResolver,
+        }[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

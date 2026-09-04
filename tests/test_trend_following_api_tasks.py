@@ -22,27 +22,53 @@ TRADE_DATE = date(2026, 8, 28)
 
 
 class FakeRepository:
-    def __init__(self, market): self.market = market
-    def latest_trade_date(self): return date(2026, 8, 29)
-    def available_trade_dates(self): return [date(2026, 8, 29), TRADE_DATE]
+    def __init__(self, market):
+        self.market = market
+
+    def latest_trade_date(self):
+        return date(2026, 8, 29)
+
+    def available_trade_dates(self):
+        return [date(2026, 8, 29), TRADE_DATE]
+
     def summary_by_date(self, trade_date):
         return {
-            "market": self.market, "trade_date": trade_date, "market_regime": "RISK_ON",
-            "market_score": 80, "suggested_max_exposure": 0.5,
+            "market": self.market,
+            "trade_date": trade_date,
+            "market_regime": "RISK_ON",
+            "market_score": 80,
+            "suggested_max_exposure": 0.5,
         }
+
     def snapshots_by_date(self, trade_date, *, sort_by, limit):
         return [{"code": "AAPL.US", "trade_date": trade_date, "alpha_score": 80}]
+
     def candidates_by_date(self, trade_date, *, limit):
         return [{"code": "AAPL.US", "trade_date": trade_date, "state": "ENTRY"}]
+
     def positions_by_date(self, trade_date):
-        return [{
-            "code": "AAPL.US", "name": "Apple", "trade_date": trade_date,
-            "state": "HOLDING", "action": "HOLD", "pending_action": None,
-            "units": 2, "suggested_initial_weight": 0.03, "suggested_max_weight": 0.1,
-            "entry_price": 180.0, "reference_price": 195.0, "opened_at": date(2026, 8, 20),
-            "initial_stop": 172.0, "trailing_stop": 188.0, "next_add_price": 198.0,
-            "exit_level": 188.0, "alpha_score": 82.5,
-        }]
+        return [
+            {
+                "code": "AAPL.US",
+                "name": "Apple",
+                "trade_date": trade_date,
+                "state": "HOLDING",
+                "action": "HOLD",
+                "pending_action": None,
+                "units": 2,
+                "suggested_initial_weight": 0.03,
+                "suggested_max_weight": 0.1,
+                "entry_price": 180.0,
+                "reference_price": 195.0,
+                "opened_at": date(2026, 8, 20),
+                "initial_stop": 172.0,
+                "trailing_stop": 188.0,
+                "next_add_price": 198.0,
+                "exit_level": 188.0,
+                "alpha_score": 82.5,
+            }
+        ]
+
     def snapshot_history(self, code, *, limit, as_of=None):
         rows = [
             {"code": code, "name": "Apple", "trade_date": date(2026, 8, 29), "state": "HOLDING"},
@@ -55,6 +81,15 @@ class FakeRepository:
 
 def test_snapshot_api_contracts(monkeypatch):
     monkeypatch.setattr(trend_following, "TrendFollowingRepository", FakeRepository)
+    monkeypatch.setattr(
+        trend_following,
+        "universe_by_code",
+        lambda market: {
+            "AAPL.US": SimpleNamespace(
+                code="AAPL.US", name="Apple", to_dict=lambda: {"code": "AAPL.US", "name": "Apple"}
+            )
+        },
+    )
     user = SimpleNamespace(id=1)
     ranking = asyncio.run(trend_following.ranking(None, "alpha_score", None, user, "US"))
     candidates = asyncio.run(trend_following.candidates(None, 100, user, "US"))
@@ -113,21 +148,35 @@ def test_ranking_reuses_previous_snapshots_for_daily_changes(monkeypatch):
         def snapshots_by_date(self, trade_date, *, sort_by, limit):
             assert sort_by in {"alpha_score", "rank"}
             if trade_date == previous_date:
-                return [{
-                    "code": "AAPL.US", "trade_date": trade_date, "rank": 12,
-                    "state": "WATCHING", "action": "WATCH", "pending_action": None,
-                    "trend_score": 60, "rs_score": 58, "alpha_score": 62,
-                }]
-            return [{
-                "code": "AAPL.US", "trade_date": trade_date, "rank": 3,
-                "state": "CANDIDATE", "action": "WATCH", "pending_action": "ENTRY",
-                "trend_score": 69, "rs_score": 66, "alpha_score": 70,
-            }]
+                return [
+                    {
+                        "code": "AAPL.US",
+                        "trade_date": trade_date,
+                        "rank": 12,
+                        "state": "WATCHING",
+                        "action": "WATCH",
+                        "pending_action": None,
+                        "trend_score": 60,
+                        "rs_score": 58,
+                        "alpha_score": 62,
+                    }
+                ]
+            return [
+                {
+                    "code": "AAPL.US",
+                    "trade_date": trade_date,
+                    "rank": 3,
+                    "state": "CANDIDATE",
+                    "action": "WATCH",
+                    "pending_action": "ENTRY",
+                    "trend_score": 69,
+                    "rs_score": 66,
+                    "alpha_score": 70,
+                }
+            ]
 
     monkeypatch.setattr(trend_following, "TrendFollowingRepository", ChangesRepository)
-    payload = asyncio.run(
-        trend_following.ranking(TRADE_DATE, "alpha_score", None, SimpleNamespace(id=1), "US")
-    )
+    payload = asyncio.run(trend_following.ranking(TRADE_DATE, "alpha_score", None, SimpleNamespace(id=1), "US"))
     changes = payload["changes"]
     assert changes["market_score_change"] == 5
     assert changes["breadth_score_change"] == 5
@@ -141,7 +190,11 @@ def test_historical_detail_requires_an_exact_snapshot_date(monkeypatch):
     with pytest.raises(HTTPException) as error:
         asyncio.run(
             trend_following.detail(
-                "AAPL.US", 60, date(2026, 8, 27), SimpleNamespace(id=1), "US",
+                "AAPL.US",
+                60,
+                date(2026, 8, 27),
+                SimpleNamespace(id=1),
+                "US",
             )
         )
     assert error.value.status_code == 404
@@ -168,17 +221,22 @@ def test_manual_run_submits_celery(monkeypatch):
         return fake_result
 
     from finance_analysis.tasks.celery.jobs.trend_following import tasks
+
     monkeypatch.setattr(tasks.run_trend_following_us, "apply_async", submit)
-    result = asyncio.run(trend_following.run_trend_following(
-        TrendFollowingRunRequest(market="US", trade_date=TRADE_DATE), SimpleNamespace(id=7)
-    ))
+    result = asyncio.run(
+        trend_following.run_trend_following(
+            TrendFollowingRunRequest(market="US", trade_date=TRADE_DATE), SimpleNamespace(id=7)
+        )
+    )
     assert result["task_id"] == "trend-task"
     assert submitted["kwargs"]["trade_date"] == "2026-08-28"
     assert submitted["queue"] == "analysis"
     submitted.clear()
-    latest = asyncio.run(trend_following.run_trend_following(
-        TrendFollowingRunRequest(market="US", trade_date=None), SimpleNamespace(id=7)
-    ))
+    latest = asyncio.run(
+        trend_following.run_trend_following(
+            TrendFollowingRunRequest(market="US", trade_date=None), SimpleNamespace(id=7)
+        )
+    )
     assert latest["task_id"] == "trend-task"
     assert submitted["kwargs"]["trade_date"] is None
 
@@ -195,16 +253,16 @@ def test_migration_and_snapshot_have_no_user_columns():
     assert "signal_date" in signal
     assert "signal_price" in signal
     assert "0031_trend_following" in migration
-    pending = (
-        Path(PROJECT_ROOT) / "alembic/versions/0033_trend_following_pending_action.py"
-    ).read_text(encoding="utf-8")
+    pending = (Path(PROJECT_ROOT) / "alembic/versions/0033_trend_following_pending_action.py").read_text(
+        encoding="utf-8"
+    )
     assert 'revision: str = "0033_trend_pending_action"' in pending
     assert 'down_revision: Union[str, Sequence[str], None] = "0032_trend_following_signal"' in pending
     assert "pending_action" in pending
     assert "pending_since" in pending
-    execution = (
-        Path(PROJECT_ROOT) / "alembic/versions/0034_trend_following_execution_context.py"
-    ).read_text(encoding="utf-8")
+    execution = (Path(PROJECT_ROOT) / "alembic/versions/0034_trend_following_execution_context.py").read_text(
+        encoding="utf-8"
+    )
     assert 'revision: str = "0034_trend_execution_context"' in execution
     assert 'down_revision: Union[str, Sequence[str], None] = "0033_trend_pending_action"' in execution
     assert "pending_regime" in execution

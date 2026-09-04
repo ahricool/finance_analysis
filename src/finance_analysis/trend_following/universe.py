@@ -1,12 +1,7 @@
-"""Fixed, versioned trading universes for Trend Following only."""
+"""Database-backed Trend Following universe access."""
 
-from __future__ import annotations
-
-from finance_analysis.stocks.reference_data.stock_index import (
-    CSI300_STOCK_INDEX,
-    CSI500_STOCK_INDEX,
-    SP500_STOCK_INDEX,
-)
+from finance_analysis.database.repositories.universe import UniverseResolver
+from finance_analysis.trend_following.config import TREND_UNIVERSE_KEYS
 from finance_analysis.trend_following.models import UniverseMember
 
 
@@ -17,17 +12,14 @@ def normalize_market(market: str) -> str:
     return normalized
 
 
-def get_universe(market: str) -> tuple[UniverseMember, ...]:
+def get_universe(market: str, resolver: UniverseResolver | None = None) -> tuple[UniverseMember, ...]:
     normalized = normalize_market(market)
-    if normalized == "US":
-        source = {f"{code}.US": name for code, name in SP500_STOCK_INDEX.items()}
-    else:
-        source = {**CSI300_STOCK_INDEX, **CSI500_STOCK_INDEX}
-    return tuple(UniverseMember(normalized, code, name) for code, name in sorted(source.items()))
+    instruments = (resolver or UniverseResolver()).resolve_universe(TREND_UNIVERSE_KEYS[normalized])
+    return tuple(UniverseMember(normalized, item.code, item.name) for item in instruments)
 
 
-def universe_by_code(market: str) -> dict[str, UniverseMember]:
-    return {member.code: member for member in get_universe(market)}
+def universe_by_code(market: str, resolver: UniverseResolver | None = None) -> dict[str, UniverseMember]:
+    return {member.code: member for member in get_universe(market, resolver)}
 
 
 __all__ = ["get_universe", "normalize_market", "universe_by_code"]

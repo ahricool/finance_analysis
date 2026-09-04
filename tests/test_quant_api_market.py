@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.endpoints import quant as quant_endpoint
 from finance_analysis.interfaces.api.v1.schemas.quant import ModelRunCreateRequest
-from finance_analysis.quant.markets import get_quant_universe_codes, validate_universe_for_market
+from finance_analysis.quant.markets import get_universe_codes, validate_universe_for_market
 
 
 class FakeQuantRepository:
@@ -38,7 +38,7 @@ class FakeQuantRepository:
                 market="US",
                 enabled=False,
             )
-        market = "CN" if key == "cn_csi300" else "US"
+        market = "CN" if key == "cn_quant" else "US"
         return SimpleNamespace(id=2 if market == "CN" else 1, key=key, market=market, enabled=True)
 
     def supported_universe(self, market, key=None):
@@ -71,7 +71,7 @@ class FakeQuantRepository:
             universe_id=1,
             status="ready",
             artifact_uri="quant://datasets/us-ready",
-            symbol_count=len(get_quant_universe_codes("US")),
+            symbol_count=2,
         )
 
     def create_model_run(self, values):
@@ -124,12 +124,11 @@ class FakeQuantRepository:
 def _client(monkeypatch):
     repository = FakeQuantRepository()
     monkeypatch.setattr(quant_endpoint, "QuantRepository", lambda: repository)
+    monkeypatch.setattr(quant_endpoint, "get_universe_codes", lambda market: {"AAPL.US", "NVDA.US"})
     monkeypatch.setattr(
         quant_endpoint,
         "ArtifactStore",
-        lambda: SimpleNamespace(
-            delete_uri=lambda uri: repository.artifact_deletions.append(uri) or True
-        ),
+        lambda: SimpleNamespace(delete_uri=lambda uri: repository.artifact_deletions.append(uri) or True),
     )
     app = FastAPI()
     app.include_router(quant_endpoint.router, prefix="/quant")
@@ -145,7 +144,7 @@ def test_signal_ranking_uses_cn_default_universe_and_market_filter(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["market"] == "CN"
-    assert response.json()["universe"] == "cn_csi300"
+    assert response.json()["universe"] == "cn_quant"
     assert ("latest_signals", "CN", 2, None, None) in repository.calls
 
 
@@ -210,17 +209,13 @@ def test_sector_ranking_without_date_delegates_latest_market_only_query(monkeypa
 def test_quant_api_rejects_unsupported_and_cross_market_universes(monkeypatch):
     client, _ = _client(monkeypatch)
 
-    unsupported = client.get(
-        "/quant/signals/ranking?market=US&universe=us_ai_semiconductor"
-    )
-    cross_market = client.get(
-        "/quant/signals/ranking?market=CN&universe=us_sp500"
-    )
+    unsupported = client.get("/quant/signals/ranking?market=US&universe=us_ai_semiconductor")
+    cross_market = client.get("/quant/signals/ranking?market=CN&universe=us_quant")
 
     assert unsupported.status_code == 409
-    assert "only supported universe is us_sp500" in unsupported.json()["detail"]
+    assert "only supported universe is us_quant" in unsupported.json()["detail"]
     assert cross_market.status_code == 409
-    assert "cn_csi300" in cross_market.json()["detail"]
+    assert "cn_quant" in cross_market.json()["detail"]
 
 
 def test_universe_list_exposes_only_the_market_supported_universe(monkeypatch):
@@ -230,9 +225,9 @@ def test_universe_list_exposes_only_the_market_supported_universe(monkeypatch):
     cn = client.get("/quant/universes?market=CN")
 
     assert us.status_code == 200
-    assert [item["key"] for item in us.json()] == ["us_sp500"]
+    assert [item["key"] for item in us.json()] == ["us_quant"]
     assert cn.status_code == 200
-    assert [item["key"] for item in cn.json()] == ["cn_csi300"]
+    assert [item["key"] for item in cn.json()] == ["cn_quant"]
 
 
 def test_normal_model_dataset_and_portfolio_lists_filter_the_supported_universe(monkeypatch):
@@ -254,7 +249,7 @@ def test_dataset_contract_exposes_coverage_and_trainability(monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["universe_member_count"] == len(get_quant_universe_codes("US"))
+    assert payload["universe_member_count"] == 2
     assert payload["universe_coverage_ratio"] == 1
     assert payload["minimum_universe_coverage"] == pytest.approx(0.9)
     assert payload["trainable"] is True

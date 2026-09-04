@@ -8,14 +8,14 @@ from datetime import date, timedelta
 import pandas as pd
 
 from finance_analysis.database.repositories.quant import QuantRepository
-from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
+from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.quant.exceptions import BenchmarkDataMissingError, FeatureDataMissingError
 from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
 from finance_analysis.quant.markets import (
     get_quant_market_config,
-    get_quant_universe_codes,
+    get_universe_codes,
     validate_universe_for_market,
 )
 from finance_analysis.quant.regime.service import MarketRegimeService
@@ -24,20 +24,16 @@ from finance_analysis.quant.regime.service import MarketRegimeService
 class DailyResearchService:
     def __init__(self, repository=None, symbol_repository=None):
         self.repository = repository or QuantRepository()
-        self.symbol_repository = symbol_repository or MarketDataSymbolRepository()
+        self.symbol_repository = symbol_repository or InstrumentRepository()
         self.config = get_quant_config()
 
     def run(self, market: str, universe_key: str, trade_date: date) -> dict:
         market_config = get_quant_market_config(market)
         universe_key = validate_universe_for_market(market_config.market, universe_key)
         universe = self.repository.get_universe(universe_key)
-        if (
-            not universe
-            or universe.market != market_config.market
-            or not getattr(universe, "enabled", True)
-        ):
+        if not universe or universe.market != market_config.market or not getattr(universe, "enabled", True):
             raise ValueError(f"Supported {market_config.market} universe {universe_key} is not available")
-        universe_codes = get_quant_universe_codes(market_config.market)
+        universe_codes = get_universe_codes(market_config.market)
         symbols = self.symbol_repository.list_enabled_daily_by_codes(
             market_config.market,
             universe_codes,
@@ -54,17 +50,13 @@ class DailyResearchService:
             code: group.rename(columns={"datetime": "date"}).drop(columns="instrument").reset_index(drop=True)
             for code, group in loaded.frame.groupby("instrument")
         }
-        missing_benchmarks = {
-            code for code in required_benchmarks if code not in frames or len(frames[code]) < 61
-        }
+        missing_benchmarks = {code for code in required_benchmarks if code not in frames or len(frames[code]) < 61}
         if missing_benchmarks:
             raise BenchmarkDataMissingError(
                 f"Missing {market_config.market} benchmark history: {sorted(missing_benchmarks)}"
             )
         stale_benchmarks = {
-            code
-            for code in required_benchmarks
-            if pd.Timestamp(frames[code]["date"].iloc[-1]).date() != trade_date
+            code for code in required_benchmarks if pd.Timestamp(frames[code]["date"].iloc[-1]).date() != trade_date
         }
         if stale_benchmarks:
             raise BenchmarkDataMissingError(
@@ -127,16 +119,28 @@ class DailyResearchService:
             explicit = {
                 key: None if pd.isna(features.get(key)) else float(features[key])
                 for key in (
-                    "ret_1d", "ret_5d", "ret_20d", "ret_60d", "price_ma20_ratio",
-                    "price_ma60_ratio", "volume_ratio_5d", "atr_14", "realized_vol_20d",
-                    "distance_from_20d_high", "gap_return", "rsi_14", "relative_5d_to_market",
-                    "relative_20d_to_market", "relative_5d_to_sector", "relative_20d_to_sector",
+                    "ret_1d",
+                    "ret_5d",
+                    "ret_20d",
+                    "ret_60d",
+                    "price_ma20_ratio",
+                    "price_ma60_ratio",
+                    "volume_ratio_5d",
+                    "atr_14",
+                    "realized_vol_20d",
+                    "distance_from_20d_high",
+                    "gap_return",
+                    "rsi_14",
+                    "relative_5d_to_market",
+                    "relative_20d_to_market",
+                    "relative_5d_to_sector",
+                    "relative_20d_to_sector",
                 )
             }
             daily_values.append(
                 {
                     "trade_date": trade_date,
-                    "symbol_id": symbol.id,
+                    "instrument_id": symbol.id,
                     "feature_version": self.config.feature_version,
                     **explicit,
                     "market_score": market_result.market_score,
@@ -195,14 +199,13 @@ class DailyResearchService:
         realized_volatility = features.get("realized_vol_20d")
         if pd.isna(realized_volatility):
             realized_volatility = close.pct_change().tail(20).std(ddof=1) * math.sqrt(252)
-        risk_penalty = (
-            0.15
-            if pd.isna(realized_volatility)
-            else min(0.15, max(0.0, float(realized_volatility)) * 0.10)
-        )
+        risk_penalty = 0.15 if pd.isna(realized_volatility) else min(0.15, max(0.0, float(realized_volatility)) * 0.10)
         required_features = (
-            "ret_60d", "price_ma60_ratio", "realized_vol_20d",
-            "relative_20d_to_market", "relative_20d_to_sector",
+            "ret_60d",
+            "price_ma60_ratio",
+            "realized_vol_20d",
+            "relative_20d_to_market",
+            "relative_20d_to_sector",
         )
         latest_date = pd.Timestamp(ordered["date"].iloc[-1]).date()
         has_sufficient_data = (

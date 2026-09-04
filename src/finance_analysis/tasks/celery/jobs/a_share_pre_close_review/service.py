@@ -250,27 +250,7 @@ class ASharePreCloseReviewService:
         if self.holdings_provider is not None:
             raw = self.holdings_provider()
         else:
-            from types import SimpleNamespace
-
-            from finance_analysis.database.repositories.portfolio import PositionRepository
-            from finance_analysis.database.repositories.user import UserRepository
-
-            uid = int(UserRepository().ensure_default_admin())
-            positions = PositionRepository().list_open_by_uid_and_market(
-                uid,
-                "CN",
-                ("STOCK", "ETF"),
-            )
-            raw = [
-                SimpleNamespace(
-                    code=position.instrument.display_symbol,
-                    name=position.instrument.name,
-                    avg_cost=position.avg_cost,
-                    quantity=position.quantity,
-                    market_type=position.instrument.market,
-                )
-                for position in positions
-            ]
+            raw = []
         output = []
         for item in raw or []:
             market = str(self._field(item, "market_type") or "").upper()

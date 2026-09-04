@@ -22,7 +22,7 @@ from finance_analysis.interfaces.api.v1.schemas.watch_list import (
     WatchListResponse,
 )
 from finance_analysis.database.repositories.watch_list import WatchListRepo
-from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
+from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.integrations.market_data.normalizer import canonical_symbol
 
@@ -37,14 +37,12 @@ def _repo() -> WatchListRepo:
 def _responses(repository: WatchListRepo, items) -> list[WatchListItemResponse]:
     canonical_codes = [canonical_symbol(item.code, item.market_type) for item in items]
     names = (
-        MarketDataSymbolRepository(repository.db).names_by_codes(canonical_codes)
+        InstrumentRepository(repository.db).names_by_codes(canonical_codes)
         if getattr(repository, "db", None) is not None
         else {}
     )
     return [
-        WatchListItemResponse.model_validate(item).model_copy(
-            update={"name": names.get(code) or item.name}
-        )
+        WatchListItemResponse.model_validate(item).model_copy(update={"name": names.get(code) or item.name})
         for item, code in zip(items, canonical_codes)
     ]
 
