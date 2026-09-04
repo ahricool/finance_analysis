@@ -13,7 +13,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from finance_analysis.core.time import utc_isoformat, utc_now
 from finance_analysis.database.config import get_database_config
-from finance_analysis.database.repositories.portfolio import PositionRepository
 from finance_analysis.database.repositories.user import UserRepository
 from finance_analysis.database.repositories.watch_list import WatchListRepo
 from finance_analysis.integrations.market_data.providers.longbridge.market import _to_longbridge_symbol
@@ -31,7 +30,6 @@ from finance_analysis.market_stream.patterns.config import PatternConfig
 from finance_analysis.market_stream.patterns.models import PatternSignal, PatternState
 from finance_analysis.stocks.markets import MarketType
 from finance_analysis.users.auth import COOKIE_NAME, parse_session_uid
-
 
 PATTERN_CONFIG = PatternConfig()
 
@@ -59,27 +57,6 @@ def _load_tracked_stocks(uid: int) -> list[TrackedStock]:
             continue
         if symbol:
             tracked[symbol.upper()] = TrackedStock(code=code, market_type=market_type, symbol=symbol)
-    position_repo = PositionRepository()
-    positions = []
-    for market in ("CN", "HK", "US"):
-        positions.extend(position_repo.list_open_by_uid_and_market(uid, market))
-    for position in positions:
-        instrument = position.instrument
-        if instrument.asset_type not in {"STOCK", "ETF"}:
-            continue
-        code = str(instrument.canonical_symbol).strip().upper()
-        market_type = str(instrument.market).strip().upper()
-        try:
-            symbol = _to_longbridge_symbol(code)
-        except Exception as exc:
-            logger.warning("无法转换持仓行情代码: code=%s market=%s error=%s", code, market_type, exc)
-            continue
-        if symbol:
-            tracked[symbol.upper()] = TrackedStock(
-                code=instrument.display_symbol,
-                market_type=market_type,
-                symbol=symbol,
-            )
     return list(tracked.values())
 
 
@@ -213,10 +190,9 @@ def _quote_payload(
     try:
         pattern_is_current = pattern is not None and pattern.trading_date == display_date
         if pattern_is_current and pattern is not None and pattern.bar_time is not None:
-            pattern_is_current = (
-                market_trading_date(pattern.bar_time, cast(MarketType, stock.market_type)) == display_date
-                and is_regular_session_minute(pattern.bar_time, cast(MarketType, stock.market_type))
-            )
+            pattern_is_current = market_trading_date(
+                pattern.bar_time, cast(MarketType, stock.market_type)
+            ) == display_date and is_regular_session_minute(pattern.bar_time, cast(MarketType, stock.market_type))
         if pattern_is_current and pattern is not None and pattern.signal is not None:
             effective_at = pattern.signal.confirmed_at or pattern.signal.occurred_at
             pattern_is_current = (

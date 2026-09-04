@@ -67,7 +67,7 @@ class FakeRepository:
             for index in range(self.history_bars):
                 rows.append(
                     {
-                        "symbol_id": code_index + 1,
+                        "instrument_id": code_index + 1,
                         "code": code,
                         "trade_date": start + timedelta(days=index),
                         "close": 100 + index * (1 + code_index / 100),
@@ -108,8 +108,7 @@ def test_service_generates_complete_snapshot_and_same_date_rerun_is_idempotent()
     assert all(snapshot["reference_price"] > 0 for snapshot in repository.saved.values())
     assert all(0.03 <= snapshot["stop_loss_pct"] <= 0.08 for snapshot in repository.saved.values())
     assert all(
-        snapshot["suggested_stop_price"]
-        == pytest.approx(snapshot["reference_price"] * (1 - snapshot["stop_loss_pct"]))
+        snapshot["suggested_stop_price"] == pytest.approx(snapshot["reference_price"] * (1 - snapshot["stop_loss_pct"]))
         for snapshot in repository.saved.values()
     )
 

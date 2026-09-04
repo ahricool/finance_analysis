@@ -4,24 +4,33 @@ import pytest
 from sqlalchemy import text
 
 from finance_analysis.database import DatabaseManager
-from finance_analysis.database.repositories.stock import MarketDataSymbolRepository, StockRepository
+from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository
 
 
 @pytest.fixture()
 def repository():
     db = DatabaseManager.get_instance()
-    symbols = MarketDataSymbolRepository(db)
+    symbols = InstrumentRepository(db)
+    symbols.upsert_symbols([{"market": "US", "code": "AAPL.US", "name": "Apple"}])
     symbol = symbols.get_by_code("AAPL.US")
+    assert symbol is not None
     with db._engine.begin() as connection:
-        connection.execute(text("DELETE FROM stock_daily WHERE symbol_id=:id"), {"id": symbol.id})
+        connection.execute(text("DELETE FROM stock_daily WHERE instrument_id=:id"), {"id": symbol.id})
     yield StockRepository(db), symbol
     with db._engine.begin() as connection:
-        connection.execute(text("DELETE FROM stock_daily WHERE symbol_id=:id"), {"id": symbol.id})
+        connection.execute(text("DELETE FROM stock_daily WHERE instrument_id=:id"), {"id": symbol.id})
 
 
 def _bar(day, close):
-    return {"date": day, "open": close, "high": close + 1, "low": close - 1,
-            "close": close, "volume": 100, "amount": None}
+    return {
+        "date": day,
+        "open": close,
+        "high": close + 1,
+        "low": close - 1,
+        "close": close,
+        "volume": 100,
+        "amount": None,
+    }
 
 
 def test_get_latest_returns_count_and_descending_dates(repository):

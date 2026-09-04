@@ -20,7 +20,7 @@ class TrendFollowingSnapshot(Base):
     market = Column(String(8), nullable=False)
     trade_date = Column(Date, nullable=False)
     code = Column(String(32), nullable=False)
-    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
+    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="CASCADE"), nullable=False)
     universe_key = Column(String(64), nullable=False)
     market_regime = Column(String(16), nullable=False)
     market_score = Column(Float, nullable=False)
@@ -56,7 +56,7 @@ class TrendFollowingSnapshot(Base):
     reasons = Column(JSON_TYPE, nullable=False, default=list)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
-    symbol = relationship("MarketDataSymbol", lazy="joined")
+    instrument = relationship("Instrument", lazy="joined")
 
     __table_args__ = (
         UniqueConstraint("market", "trade_date", "code", name="uix_trend_following_market_date_code"),
@@ -69,7 +69,7 @@ class TrendFollowingSnapshot(Base):
         CheckConstraint("alpha_score BETWEEN 0 AND 100", name="ck_trend_following_alpha_score"),
         CheckConstraint("units BETWEEN 0 AND 4", name="ck_trend_following_units"),
         Index("ix_trend_following_market_date_alpha", "market", "trade_date", "alpha_score"),
-        Index("ix_trend_following_symbol_date", "symbol_id", "trade_date"),
+        Index("ix_trend_following_instrument_date", "instrument_id", "trade_date"),
         Index("ix_trend_following_market_date_state", "market", "trade_date", "state"),
     )
 

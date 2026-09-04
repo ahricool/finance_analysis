@@ -32,8 +32,14 @@ logger = logging.getLogger(__name__)
 
 
 class ETFRotationService:
-    def __init__(self, market: str = "CN", repository: ETFRotationRepository | None = None, *,
-                 config: ETFRotationConfig = DEFAULT_CONFIG, now: datetime | None = None) -> None:
+    def __init__(
+        self,
+        market: str = "CN",
+        repository: ETFRotationRepository | None = None,
+        *,
+        config: ETFRotationConfig = DEFAULT_CONFIG,
+        now: datetime | None = None,
+    ) -> None:
         self.market = normalize_etf_market(market)
         repository_market = getattr(repository, "market", self.market)
         if normalize_etf_market(repository_market) != self.market:
@@ -119,11 +125,15 @@ class ETFRotationService:
         symbol_ids: dict[str, int] = {}
         for item in history_rows:
             code = str(item["code"])
-            symbol_ids[code] = int(item["symbol_id"])
-            histories[code].append(DailyBar(
-                trade_date=item["trade_date"], close=float(item["close"]), volume=float(item["volume"]),
-                amount=None if item["amount"] is None else float(item["amount"]),
-            ))
+            symbol_ids[code] = int(item["instrument_id"])
+            histories[code].append(
+                DailyBar(
+                    trade_date=item["trade_date"],
+                    close=float(item["close"]),
+                    volume=float(item["volume"]),
+                    amount=None if item["amount"] is None else float(item["amount"]),
+                )
+            )
         benchmark_features = (
             calculate_features(histories.get(benchmark_code, ()), self.config) if benchmark_ready else None
         )
@@ -150,19 +160,26 @@ class ETFRotationService:
             payload = features.to_dict()
             if benchmark_ready and benchmark_features is not None:
                 for window in self.config.relative_strength_windows:
-                    payload[f"rs_{window}d"] = (
-                        payload[f"ret_{window}d"] - getattr(benchmark_features, f"ret_{window}d")
-                    )
+                    payload[f"rs_{window}d"] = payload[f"ret_{window}d"] - getattr(benchmark_features, f"ret_{window}d")
             else:
                 for window in self.config.relative_strength_windows:
                     payload[f"rs_{window}d"] = None
             member = member_by_code[code]
-            feature_rows.append({
-                "trade_date": effective_date, "market": self.market, "symbol_id": symbol_ids[code],
-                "code": code, "name": member.name, "category": member.category, "theme": member.theme,
-                "risk_group": member.risk_group, "relative_strength_ready": benchmark_ready,
-                "diagnostics": {"relative_strength": "ready" if benchmark_ready else "benchmark_missing"}, **payload,
-            })
+            feature_rows.append(
+                {
+                    "trade_date": effective_date,
+                    "market": self.market,
+                    "instrument_id": symbol_ids[code],
+                    "code": code,
+                    "name": member.name,
+                    "category": member.category,
+                    "theme": member.theme,
+                    "risk_group": member.risk_group,
+                    "relative_strength_ready": benchmark_ready,
+                    "diagnostics": {"relative_strength": "ready" if benchmark_ready else "benchmark_missing"},
+                    **payload,
+                }
+            )
 
         rankable_count = len(feature_rows)
         rankable_coverage, warning = require_minimum_coverage(
@@ -191,9 +208,14 @@ class ETFRotationService:
             composite = float(row["composite_score"] or 0.0)
             entry_score, entry_components = calculate_entry_score(row, composite, self.config)
             factor_components = {
-                key.removesuffix("_score"): row.get(key) for key in (
-                    "momentum_strength_score", "trend_quality_score", "relative_strength_score",
-                    "acceleration_score", "efficiency_score", "composite_score",
+                key.removesuffix("_score"): row.get(key)
+                for key in (
+                    "momentum_strength_score",
+                    "trend_quality_score",
+                    "relative_strength_score",
+                    "acceleration_score",
+                    "efficiency_score",
+                    "composite_score",
                 )
             }
             row["entry_score"] = entry_score
@@ -210,8 +232,12 @@ class ETFRotationService:
         regime = "NEUTRAL"
         if benchmark_ready and benchmark_features is not None:
             market_snapshot = calculate_market_regime(
-                ranked_composite, benchmark_features.to_dict(), market=self.market, trade_date=effective_date,
-                benchmark_code=benchmark_code, config=self.config,
+                ranked_composite,
+                benchmark_features.to_dict(),
+                market=self.market,
+                trade_date=effective_date,
+                benchmark_code=benchmark_code,
+                config=self.config,
             )
             regime = str(market_snapshot["regime"])
             self.repository.upsert_market_snapshot(market_snapshot)
@@ -243,14 +269,29 @@ class ETFRotationService:
 
         snapshot_count = self.repository.upsert_snapshots(ranked_composite)
         summary = {
-            "status": "completed", "market": self.market, "trade_date": effective_date.isoformat(),
-            "universe_size": len(codes), "data_ready_count": len(ready_codes), "data_coverage": data_coverage,
-            "rankable_count": rankable_count, "rankable_coverage": rankable_coverage,
-            "snapshot_count": snapshot_count, "candidate_count": len(candidate_codes),
-            "candidate_codes": candidate_codes, "regime": regime, "warnings": warnings,
+            "status": "completed",
+            "market": self.market,
+            "trade_date": effective_date.isoformat(),
+            "universe_size": len(codes),
+            "data_ready_count": len(ready_codes),
+            "data_coverage": data_coverage,
+            "rankable_count": rankable_count,
+            "rankable_coverage": rankable_coverage,
+            "snapshot_count": snapshot_count,
+            "candidate_count": len(candidate_codes),
+            "candidate_codes": candidate_codes,
+            "regime": regime,
+            "warnings": warnings,
         }
-        logger.info("market=%s job=etf_rotation_v2 trade_date=%s regime=%s snapshots=%s candidates=%s warnings=%s",
-                    self.market, effective_date, regime, snapshot_count, candidate_codes, warnings)
+        logger.info(
+            "market=%s job=etf_rotation_v2 trade_date=%s regime=%s snapshots=%s candidates=%s warnings=%s",
+            self.market,
+            effective_date,
+            regime,
+            snapshot_count,
+            candidate_codes,
+            warnings,
+        )
         return summary
 
 

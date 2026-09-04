@@ -7,24 +7,27 @@ from finance_analysis.database.models.conversation import ConversationMessage, L
 from finance_analysis.database.models.etf_rotation import ETFMarketRotationSnapshot, ETFMomentumSnapshot
 from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.news import FundamentalSnapshot, NewsIntel
-from finance_analysis.database.models.portfolio import (
-    AccountCashBalance,
-    Instrument,
-    OptionContract,
-    PortfolioAccount,
-    Position,
-)
 from finance_analysis.database.models.quant import (
-    DailyFeatureSnapshot, EventFeatureDaily, MarketEvent,
-    MarketRegimeSnapshot, ModelDefinition, ModelPrediction, ModelPublication, ModelRun,
-    ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem, QuantDatasetSnapshot,
-    QuantUniverse, QuantUniverseMember, SectorRegimeSnapshot,
+    DailyFeatureSnapshot,
+    EventFeatureDaily,
+    MarketEvent,
+    MarketRegimeSnapshot,
+    ModelDefinition,
+    ModelPrediction,
+    ModelPublication,
+    ModelRun,
+    ModelSignal,
+    PortfolioRecommendation,
+    PortfolioRecommendationItem,
+    QuantDatasetSnapshot,
+    SectorRegimeSnapshot,
 )
 from finance_analysis.database.models.signal import Signal
 from finance_analysis.database.models.stock import (
-    MarketDataSymbol,
+    Instrument,
     StockDaily,
 )
+from finance_analysis.database.models.universe import Universe, UniverseInclude, UniverseMember
 from finance_analysis.database.models.task import TaskRecord
 from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary
 from finance_analysis.database.models.user import User
@@ -32,7 +35,6 @@ from finance_analysis.database.models.watch_list import WatchListItem
 
 __all__ = [
     "AnalysisHistory",
-    "AccountCashBalance",
     "CalendarEntry",
     "ConversationMessage",
     "ETFMomentumSnapshot",
@@ -41,15 +43,23 @@ __all__ = [
     "FundamentalSnapshot",
     "LLMUsage",
     "Instrument",
-    "MarketDataSymbol",
     "NewsIntel",
-    "OptionContract",
-    "PortfolioAccount",
-    "Position",
-    "QuantUniverse", "QuantUniverseMember", "QuantDatasetSnapshot", "MarketRegimeSnapshot",
-    "SectorRegimeSnapshot", "MarketEvent", "EventFeatureDaily", "DailyFeatureSnapshot",
-    "ModelDefinition", "ModelRun", "ModelPublication", "ModelPrediction", "ModelSignal",
-    "PortfolioRecommendation", "PortfolioRecommendationItem",
+    "Universe",
+    "UniverseInclude",
+    "UniverseMember",
+    "QuantDatasetSnapshot",
+    "MarketRegimeSnapshot",
+    "SectorRegimeSnapshot",
+    "MarketEvent",
+    "EventFeatureDaily",
+    "DailyFeatureSnapshot",
+    "ModelDefinition",
+    "ModelRun",
+    "ModelPublication",
+    "ModelPrediction",
+    "ModelSignal",
+    "PortfolioRecommendation",
+    "PortfolioRecommendationItem",
     "Signal",
     "StockDaily",
     "TaskRecord",

@@ -36,7 +36,7 @@ def _signal(identifier: int, code: str, model_version: str, generated_at: dateti
     return ModelSignal(
         id=identifier,
         trade_date=date(2026, 7, 22),
-        symbol_id=identifier,
+        instrument_id=identifier,
         code=code,
         market="US",
         universe_id=1,
@@ -153,6 +153,4 @@ def test_latest_quant_reads_do_not_mix_model_versions_on_the_same_trade_date() -
     assert [row.model_version for row in regimes] == ["regime-v2"]
     assert {row.model_version for row in sectors} == {"sector-v2"}
     assert [row.model_version for row in portfolios] == ["model-v2"]
-    assert {row.model_version for row in repository.latest_signals("US", 1, model_version="model-v1")} == {
-        "model-v1"
-    }
+    assert {row.model_version for row in repository.latest_signals("US", 1, model_version="model-v1")} == {"model-v1"}

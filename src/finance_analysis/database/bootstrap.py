@@ -23,9 +23,6 @@ def bootstrap_database(manager: "DatabaseManager") -> None:
     manager._initialized = True
     try:
         UserRepository(manager).ensure_default_admin()
-        from finance_analysis.database.seed import seed_market_data_reference_symbols
-
-        seed_market_data_reference_symbols(manager)
         from finance_analysis.database.seed import seed_quant_reference_data
 
         seed_quant_reference_data(manager)

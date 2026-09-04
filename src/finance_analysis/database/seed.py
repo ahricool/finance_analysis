@@ -6,10 +6,12 @@ from finance_analysis.core.time import utc_now
 
 
 def seed_quant_reference_data(db_manager=None) -> dict:
-    """Idempotently seed model definitions and the two supported fixed universes."""
+    """Idempotently seed model definitions and unified universe definitions."""
+    from sqlalchemy import select
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-    from finance_analysis.database.models.quant import ModelDefinition, QuantUniverse
+    from finance_analysis.database.models.quant import ModelDefinition
+    from finance_analysis.database.models.universe import Universe, UniverseInclude
     from finance_analysis.database.session import DatabaseManager
     from finance_analysis.quant.markets import DEFAULT_QUANT_UNIVERSES
 
@@ -25,92 +27,66 @@ def seed_quant_reference_data(db_manager=None) -> dict:
         ]
         for key, name, model_type, task_type in definitions:
             values = dict(
-                key=key, name=name, model_type=model_type, task_type=task_type, frequency="day", enabled=True,
+                key=key,
+                name=name,
+                model_type=model_type,
+                task_type=task_type,
+                frequency="day",
+                enabled=True,
                 target_definition={"entry": "T+1 open", "exit": "T+5 close", "unit": "percentage_points"},
-                default_config={}, supported_markets=["US", "CN"],
+                default_config={},
+                supported_markets=["US", "CN"],
             )
-            session.execute(pg_insert(ModelDefinition).values(**values).on_conflict_do_update(
-                index_elements=[ModelDefinition.key],
-                set_={"supported_markets": values["supported_markets"], "updated_at": utc_now()},
-            ))
-        for values in (
-            {
-                "key": DEFAULT_QUANT_UNIVERSES["US"], "name": "S&P 500", "market": "US",
-                "description": "Fixed S&P 500 constituents from SP500_STOCK_INDEX.",
-                "enabled": True, "is_dynamic": False, "benchmark_code": "QQQ.US",
-                "sector_benchmark_mode": "market_dependencies",
-                "config": {"constituent_source": "SP500_STOCK_INDEX"},
-            },
-            {
-                "key": DEFAULT_QUANT_UNIVERSES["CN"], "name": "沪深300", "market": "CN",
-                "description": "Fixed CSI 300 constituents from CSI300_STOCK_INDEX.",
-                "enabled": True, "is_dynamic": False, "benchmark_code": "510300.SH",
-                "sector_benchmark_mode": "market_dependencies",
-                "config": {"constituent_source": "CSI300_STOCK_INDEX"},
-            },
+            session.execute(
+                pg_insert(ModelDefinition)
+                .values(**values)
+                .on_conflict_do_update(
+                    index_elements=[ModelDefinition.key],
+                    set_={"supported_markets": values["supported_markets"], "updated_at": utc_now()},
+                )
+            )
+        universe_values = (
+            ("cn_all_a", "全部A股", "CN", "MARKET"),
+            ("cn_csi300", "沪深300", "CN", "INDEX"),
+            ("cn_csi500", "中证500", "CN", "INDEX"),
+            ("cn_csi1000", "中证1000", "CN", "INDEX"),
+            ("us_sp500", "S&P 500", "US", "INDEX"),
+            ("cn_trend", "A股趋势跟踪", "CN", "STRATEGY"),
+            ("us_trend", "美股趋势跟踪", "US", "STRATEGY"),
+            ("cn_etf_rotation", "A股ETF轮动", "CN", "STRATEGY"),
+            ("us_etf_rotation", "美股ETF轮动", "US", "STRATEGY"),
+            (DEFAULT_QUANT_UNIVERSES["CN"], "A股量化", "CN", "STRATEGY"),
+            (DEFAULT_QUANT_UNIVERSES["US"], "美股量化", "US", "STRATEGY"),
+        )
+        for key, name, market, universe_type in universe_values:
+            values = {
+                "key": key,
+                "name": name,
+                "market": market,
+                "universe_type": universe_type,
+                "enabled": True,
+                "config": {},
+            }
+            session.execute(
+                pg_insert(Universe)
+                .values(**values)
+                .on_conflict_do_update(
+                    index_elements=[Universe.key],
+                    set_={key: value for key, value in values.items() if key != "key"},
+                )
+            )
+        universe_ids = dict(session.execute(select(Universe.key, Universe.id)).all())
+        for parent, child in (
+            ("cn_trend", "cn_all_a"),
+            (DEFAULT_QUANT_UNIVERSES["CN"], "cn_csi300"),
+            (DEFAULT_QUANT_UNIVERSES["US"], "us_sp500"),
         ):
-            session.execute(pg_insert(QuantUniverse).values(**values).on_conflict_do_update(
-                index_elements=[QuantUniverse.key],
-                set_={key: value for key, value in values.items() if key != "key"},
-            ))
+            session.execute(
+                pg_insert(UniverseInclude)
+                .values(universe_id=universe_ids[parent], included_universe_id=universe_ids[child])
+                .on_conflict_do_nothing(constraint="uix_universe_include")
+            )
     return {
-        "universes": [DEFAULT_QUANT_UNIVERSES["US"], DEFAULT_QUANT_UNIVERSES["CN"]],
+        "universes": [key for key, *_ in universe_values],
         "model_definitions": [key for key, *_ in definitions],
     }
-
-
-def seed_nasdaq100_market_data_symbols(db_manager=None) -> int:
-    """Idempotently seed Nasdaq-100 symbols using canonical ``.US`` codes.
-
-    Runtime synchronization never reads the Python constituent constant; only
-    this initialization boundary does.
-    """
-    from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
-    from finance_analysis.stocks.reference_data.stock_index import NASDAQ100_STOCK_INDEX
-
-    return MarketDataSymbolRepository(db_manager).upsert_symbols(
-        {
-            "market": "US",
-            "code": f"{ticker}.US",
-            "name": name,
-            "enabled": True,
-            "sync_daily": True,
-        }
-        for ticker, name in NASDAQ100_STOCK_INDEX.items()
-    )
-
-
-def seed_market_data_reference_symbols(db_manager=None) -> dict[str, int]:
-    """Idempotently seed S&P 500 and CSI 300/500 daily synchronization symbols."""
-    from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
-    from finance_analysis.stocks.reference_data.stock_index import (
-        CSI300_STOCK_INDEX,
-        CSI500_STOCK_INDEX,
-        SP500_STOCK_INDEX,
-    )
-    from finance_analysis.stocks.market_scope import MarketDataScopeResolver
-
-    repository = MarketDataSymbolRepository(db_manager)
-    us_count = repository.upsert_symbols(
-        {
-            "market": "US",
-            "code": f"{ticker}.US",
-            "name": name,
-            "enabled": True,
-            "sync_daily": True,
-        }
-        for ticker, name in SP500_STOCK_INDEX.items()
-    )
-    cn_count = repository.upsert_symbols(
-        {
-            "market": "CN",
-            "code": code,
-            "name": name,
-            "enabled": True,
-            "sync_daily": True,
-        }
-        for code, name in {**CSI300_STOCK_INDEX, **CSI500_STOCK_INDEX}.items()
-    )
-    repository.upsert_symbols(MarketDataScopeResolver.dependency_records("US"))
-    repository.upsert_symbols(MarketDataScopeResolver.dependency_records("CN"))
-    return {"US": us_count, "CN": cn_count}

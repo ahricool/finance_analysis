@@ -142,24 +142,9 @@ def assert_preview_cleared(payload: dict) -> None:
     assert payload["preview_updated_at"] is None
 
 
-def test_tracked_stocks_deduplicate_watchlist_and_holdings_by_symbol(monkeypatch) -> None:
+def test_tracked_stocks_uses_watchlist_only(monkeypatch) -> None:
     item = SimpleNamespace(code="aapl", market_type="us")
-    position = SimpleNamespace(
-        instrument=SimpleNamespace(
-            asset_type="STOCK",
-            canonical_symbol="AAPL.US",
-            display_symbol="AAPL",
-            market="US",
-        )
-    )
     monkeypatch.setattr(market_data, "WatchListRepo", lambda: SimpleNamespace(list_all=lambda uid: [item]))
-    monkeypatch.setattr(
-        market_data,
-        "PositionRepository",
-        lambda: SimpleNamespace(
-            list_open_by_uid_and_market=lambda uid, market: [position] if market == "US" else []
-        ),
-    )
 
     stocks = market_data._load_tracked_stocks(7)
 
@@ -191,9 +176,7 @@ async def test_snapshot_calculates_change_and_keeps_missing_quotes(monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_snapshot_hides_quote_from_previous_trading_date(monkeypatch) -> None:
-    repository = FakeQuoteRepository(
-        {"AAPL.US": quote("AAPL.US", "102", "100", trading_date=date(2026, 7, 15))}
-    )
+    repository = FakeQuoteRepository({"AAPL.US": quote("AAPL.US", "102", "100", trading_date=date(2026, 7, 15))})
     monkeypatch.setattr(
         market_data,
         "_load_tracked_stocks",
@@ -211,9 +194,7 @@ async def test_snapshot_hides_quote_from_previous_trading_date(monkeypatch) -> N
 
 @pytest.mark.asyncio
 async def test_cn_after_close_snapshot_uses_same_day_previous_close(monkeypatch) -> None:
-    repository = FakeQuoteRepository(
-        {"600519.SH": quote("600519.SH", "1515", "1500", trading_date=date(2026, 7, 16))}
-    )
+    repository = FakeQuoteRepository({"600519.SH": quote("600519.SH", "1515", "1500", trading_date=date(2026, 7, 16))})
     monkeypatch.setattr(
         market_data,
         "_load_tracked_stocks",
@@ -471,9 +452,7 @@ async def test_weekend_keeps_latest_completed_trading_session(monkeypatch) -> No
         "_load_tracked_stocks",
         lambda uid: [market_data.TrackedStock("AAPL", "US", "AAPL.US")],
     )
-    monkeypatch.setattr(
-        market_data, "utc_now", lambda: datetime(2026, 7, 18, 15, 0, tzinfo=timezone.utc)
-    )
+    monkeypatch.setattr(market_data, "utc_now", lambda: datetime(2026, 7, 18, 15, 0, tzinfo=timezone.utc))
 
     snapshot = await market_data._build_snapshot(7, repository)
 

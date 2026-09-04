@@ -293,7 +293,7 @@ def test_sync_persists_only_provider_daily_fields_with_nullable_amount():
     market_data = SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed)
     persisted = []
     stock_repository = SimpleNamespace(
-        upsert_daily=lambda symbol_id, rows, source: (
+        upsert_daily=lambda instrument_id, rows, source: (
             persisted.extend(rows) or SimpleNamespace(inserted_rows=1, updated_rows=0)
         )
     )
@@ -308,7 +308,14 @@ def test_sync_persists_only_provider_daily_fields_with_nullable_amount():
     assert result.missing_amount is True
     assert result.providers == ["tickflow"]
     assert set(persisted[0]) == {
-        "date", "open", "high", "low", "close", "volume", "amount", "data_source",
+        "date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "amount",
+        "data_source",
     }
     assert persisted[0]["date"] == date(2025, 1, 2)
     assert persisted[0]["open"] == 10
@@ -348,7 +355,7 @@ def test_sync_preserves_provider_amount_without_persisting_derived_price_metadat
     service = MarketDataSyncService.__new__(MarketDataSyncService)
     service.market = "US"
     service.stock_repository = SimpleNamespace(
-        upsert_daily=lambda symbol_id, rows, source: (
+        upsert_daily=lambda instrument_id, rows, source: (
             persisted.extend(rows) or SimpleNamespace(inserted_rows=1, updated_rows=0)
         )
     )
@@ -366,7 +373,7 @@ def test_sync_preserves_zero_provider_amount_without_derived_metadata():
     persisted = []
     market_data = SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed)
     stock_repository = SimpleNamespace(
-        upsert_daily=lambda symbol_id, rows, source: (
+        upsert_daily=lambda instrument_id, rows, source: (
             persisted.extend(rows) or SimpleNamespace(inserted_rows=1, updated_rows=0)
         )
     )
@@ -386,37 +393,33 @@ class _DailyUpsertRepository:
     def __init__(self, stored_closes=None, histories=None) -> None:
         self.persisted: dict[int, tuple[list[dict], str]] = {}
         self.stored_closes = stored_closes or {}
-        self.histories = {symbol_id: dict(rows) for symbol_id, rows in (histories or {}).items()}
+        self.histories = {instrument_id: dict(rows) for instrument_id, rows in (histories or {}).items()}
         self.upserted_symbol_ids = []
         self.replaced_symbol_ids = []
 
-    def upsert_daily(self, symbol_id, rows, source):
-        self.upserted_symbol_ids.append(symbol_id)
-        self.persisted[symbol_id] = (rows, source)
-        history = self.histories.setdefault(symbol_id, {})
+    def upsert_daily(self, instrument_id, rows, source):
+        self.upserted_symbol_ids.append(instrument_id)
+        self.persisted[instrument_id] = (rows, source)
+        history = self.histories.setdefault(instrument_id, {})
         history.update({row["date"]: row for row in rows})
         return SimpleNamespace(inserted_rows=len(rows), updated_rows=0)
 
-    def replace_daily_history(self, symbol_id, rows, source):
-        self.replaced_symbol_ids.append(symbol_id)
-        self.persisted[symbol_id] = (rows, source)
-        deleted_rows = len(self.histories.get(symbol_id, {}))
-        self.histories[symbol_id] = {row["date"]: row for row in rows}
+    def replace_daily_history(self, instrument_id, rows, source):
+        self.replaced_symbol_ids.append(instrument_id)
+        self.persisted[instrument_id] = (rows, source)
+        deleted_rows = len(self.histories.get(instrument_id, {}))
+        self.histories[instrument_id] = {row["date"]: row for row in rows}
         return SimpleNamespace(inserted_rows=len(rows), updated_rows=0, deleted_rows=deleted_rows)
 
-    def daily_closes(self, symbol_id, start_date, end_date):
+    def daily_closes(self, instrument_id, start_date, end_date):
         return {
             day: close
-            for day, close in self.stored_closes.get(symbol_id, {}).items()
+            for day, close in self.stored_closes.get(instrument_id, {}).items()
             if start_date <= day <= end_date
         }
 
-    def daily_dates(self, symbol_id, start_date, end_date):
-        return {
-            day
-            for day in self.histories.get(symbol_id, {})
-            if start_date <= day <= end_date
-        }
+    def daily_dates(self, instrument_id, start_date, end_date):
+        return {day for day in self.histories.get(instrument_id, {}) if start_date <= day <= end_date}
 
 
 def _batch_sync_service(market_data, market="CN"):
@@ -436,10 +439,7 @@ def test_cn_daily_batches_ten_symbols_with_same_window_in_one_service_call():
     requested_days = [date(2025, 1, 2), date(2025, 1, 3)]
     tickflow = _DailyProvider(
         "tickflow",
-        {
-            symbol.code: [_bar_on(symbol.code, "tickflow", day) for day in requested_days]
-            for symbol in symbols
-        },
+        {symbol.code: [_bar_on(symbol.code, "tickflow", day) for day in requested_days] for symbol in symbols},
     )
     registry = ProviderRegistry()
     registry.register("tickflow", tickflow, capabilities={DAILY_BARS})
@@ -565,8 +565,7 @@ def test_incremental_scale_change_upgrades_only_affected_symbol_to_full_refresh(
         return BatchBarResult(
             data={
                 symbol.code: [
-                    replace(_bar_on(symbol.code, "tickflow", day), close=close)
-                    for day, close in zip(days, closes)
+                    replace(_bar_on(symbol.code, "tickflow", day), close=close) for day, close in zip(days, closes)
                 ]
             },
             providers_used={symbol.code: "tickflow"},
@@ -649,8 +648,7 @@ def test_automatic_full_severely_incomplete_fetch_preserves_existing_history():
         return BatchBarResult(
             data={
                 symbol.code: [
-                    replace(_bar_on(symbol.code, "tickflow", day), close=close)
-                    for day, close in zip(days, closes)
+                    replace(_bar_on(symbol.code, "tickflow", day), close=close) for day, close in zip(days, closes)
                 ]
             },
             providers_used={symbol.code: "tickflow"},
@@ -736,12 +734,7 @@ def test_automatic_full_accepts_existing_history_with_long_suspension_gaps():
     def get_daily_bars(codes, start_date, end_date, *, adjustment):
         days = valid_days if start_date == full_days[0] else incremental_days
         return BatchBarResult(
-            data={
-                symbol.code: [
-                    replace(_bar_on(symbol.code, "tickflow", day), close=90.0)
-                    for day in days
-                ]
-            },
+            data={symbol.code: [replace(_bar_on(symbol.code, "tickflow", day), close=90.0) for day in days]},
             providers_used={symbol.code: "tickflow"},
         )
 
@@ -795,12 +788,7 @@ def test_full_replaces_successful_symbols_and_preserves_failed_symbol_history():
     failed_old_day = date(2019, 1, 2)
 
     routed = BatchBarResult(
-        data={
-            successful.code: [
-                _bar_on(successful.code, "tickflow", day)
-                for day in full_days
-            ]
-        },
+        data={successful.code: [_bar_on(successful.code, "tickflow", day) for day in full_days]},
         providers_used={successful.code: "tickflow"},
         failed_symbols={failed.code: "tickflow: timeout"},
     )
@@ -1043,9 +1031,7 @@ def test_sync_refreshes_instrument_names_in_one_remote_batch():
         registry=SimpleNamespace(names=lambda: ("database", "tickflow", "longbridge", "akshare")),
         get_instrument_info=get_instrument_info,
     )
-    service.symbol_repository = SimpleNamespace(
-        upsert_symbols=lambda records, overwrite_runtime_flags: upserts.append((records, overwrite_runtime_flags))
-    )
+    service.symbol_repository = SimpleNamespace(upsert_symbols=lambda records: upserts.append(records))
     service.instrument_names_refreshed = 0
     service.instrument_name_failures = {}
 
@@ -1057,8 +1043,7 @@ def test_sync_refreshes_instrument_names_in_one_remote_batch():
             ("tickflow", "akshare"),
         )
     ]
-    assert [record["name"] for record in upserts[0][0]] == ["浦发银行", "平安银行"]
-    assert upserts[0][1] is False
+    assert [record["name"] for record in upserts[0]] == ["浦发银行", "平安银行"]
     assert service.instrument_names_refreshed == 2
 
 

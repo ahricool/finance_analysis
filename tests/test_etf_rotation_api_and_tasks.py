@@ -23,7 +23,7 @@ def _snapshot(code="588000.SH"):
         "id": 1,
         "market": "CN" if code.endswith((".SH", ".SZ")) else "US",
         "trade_date": date(2026, 8, 25),
-        "symbol_id": 1,
+        "instrument_id": 1,
         "code": code,
         "entry_score": 88.0,
         "momentum_score": 80.0,
@@ -137,14 +137,12 @@ def test_candidate_limit_never_hides_exits(monkeypatch) -> None:
     class SplitRepository(FakeRepository):
         def candidates_by_date(self, trade_date, *, limit=5):
             return [
-                {**_snapshot(f"51030{index}.SH"), "action": "HOLD", "candidate_rank": index}
-                for index in range(1, 8)
+                {**_snapshot(f"51030{index}.SH"), "action": "HOLD", "candidate_rank": index} for index in range(1, 8)
             ][:limit]
 
         def exits_by_date(self, trade_date):
             return [
-                {**_snapshot(f"15990{index}.SZ"), "action": "EXIT", "candidate_rank": None}
-                for index in range(1, 5)
+                {**_snapshot(f"15990{index}.SZ"), "action": "EXIT", "candidate_rank": None} for index in range(1, 5)
             ]
 
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", SplitRepository)
@@ -165,22 +163,26 @@ def test_ranking_builds_daily_changes_from_previous_snapshot(monkeypatch) -> Non
 
         def snapshots_by_date(self, trade_date, *, sort_by="composite_score"):
             if trade_date == previous_date:
-                return [{
+                return [
+                    {
+                        **_snapshot(),
+                        "trade_date": previous_date,
+                        "rank": 12,
+                        "state": "STRONG",
+                        "action": "HOLD",
+                        "composite_score": 72.0,
+                    }
+                ]
+            return [
+                {
                     **_snapshot(),
-                    "trade_date": previous_date,
-                    "rank": 12,
-                    "state": "STRONG",
-                    "action": "HOLD",
-                    "composite_score": 72.0,
-                }]
-            return [{
-                **_snapshot(),
-                "trade_date": trade_date,
-                "rank": 3,
-                "state": "COOLING",
-                "action": "EXIT",
-                "composite_score": 79.5,
-            }]
+                    "trade_date": trade_date,
+                    "rank": 3,
+                    "state": "COOLING",
+                    "action": "EXIT",
+                    "composite_score": 79.5,
+                }
+            ]
 
         def market_snapshot_by_date(self, trade_date):
             return {
@@ -189,9 +191,7 @@ def test_ranking_builds_daily_changes_from_previous_snapshot(monkeypatch) -> Non
             }
 
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", ChangesRepository)
-    payload = asyncio.run(
-        etf_rotation.ranking(None, "composite_score", None, SimpleNamespace(id=1))
-    )
+    payload = asyncio.run(etf_rotation.ranking(None, "composite_score", None, SimpleNamespace(id=1)))
     changes = payload["changes"]
     assert changes["new_exits"][0]["current"]["code"] == "588000.SH"
     assert changes["new_cooling"][0]["previous_state"] == "STRONG"

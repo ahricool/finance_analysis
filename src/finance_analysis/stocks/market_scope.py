@@ -8,7 +8,7 @@ from typing import Any, Iterable
 
 from finance_analysis.database.repositories.watch_list import WatchListRepo
 from finance_analysis.stocks.markets import normalize_market_type
-from finance_analysis.stocks.reference_data.stock_index import CSI300_STOCK_INDEX, SP500_STOCK_INDEX
+from finance_analysis.database.repositories.universe import UniverseResolver
 
 logger = logging.getLogger(__name__)
 
@@ -60,19 +60,20 @@ MARKET_BENCHMARK_DEPENDENCIES: dict[str, dict[str, str]] = {
 class MarketDataScopeResolver:
     """Resolve the canonical US/CN daily synchronization scope.
 
-    Quant membership intentionally does not consume ``resolve``; Quant reads
-    the fixed index constituent variables directly.
+    Strategy membership is resolved from PostgreSQL universes.
     """
 
-    def __init__(self, watchlist_repository: WatchListRepo | None = None):
+    def __init__(self, watchlist_repository: WatchListRepo | None = None, universe_resolver=None):
         self.watchlist_repository = watchlist_repository or WatchListRepo()
+        self.universe_resolver = universe_resolver or UniverseResolver()
 
     def resolve(self, market: str) -> MarketScope:
         normalized_market = str(market or "").strip().upper()
         if normalized_market not in {"US", "CN"}:
             raise ValueError(f"Unsupported market={market}; expected US or CN")
-        reference = SP500_STOCK_INDEX if normalized_market == "US" else CSI300_STOCK_INDEX
-        universe_codes = {f"{ticker}.US" if normalized_market == "US" else ticker for ticker in reference}
+        universe_codes = {
+            item.code for item in self.universe_resolver.resolve_universe(f"{normalized_market.lower()}_quant")
+        }
         watchlist_records: dict[str, dict[str, Any]] = {}
         unsupported: dict[tuple[str, str], dict[str, str]] = {}
         for item in self.watchlist_repository.list_all():
@@ -114,38 +115,30 @@ class MarketDataScopeResolver:
             unsupported_symbols=tuple(unsupported[key] for key in sorted(unsupported)),
         )
 
-    @staticmethod
-    def strategy_dependency_codes(market: str) -> set[str]:
+    def strategy_dependency_codes(self, market: str) -> set[str]:
         normalized_market = str(market).strip().upper()
         if normalized_market not in {"CN", "US"}:
             return set()
-        from finance_analysis.etf_rotation.universe import enabled_etfs
-        from finance_analysis.trend_following.universe import get_universe
+        keys = (f"{normalized_market.lower()}_trend", f"{normalized_market.lower()}_etf_rotation")
+        return {item.code for key in keys for item in self.universe_resolver.resolve_universe(key)}
 
-        return {
-            member.code
-            for member in (*enabled_etfs(normalized_market), *get_universe(normalized_market))
-        }
-
-    @staticmethod
-    def strategy_dependency_records(market: str) -> list[dict[str, Any]]:
+    def strategy_dependency_records(self, market: str) -> list[dict[str, Any]]:
         normalized_market = str(market).strip().upper()
         if normalized_market not in {"CN", "US"}:
             return []
-        from finance_analysis.etf_rotation.universe import enabled_etfs
-        from finance_analysis.trend_following.universe import get_universe
-
+        keys = (f"{normalized_market.lower()}_trend", f"{normalized_market.lower()}_etf_rotation")
         members_by_code = {
-            member.code: member
-            for member in (*get_universe(normalized_market), *enabled_etfs(normalized_market))
+            member.code: member for key in keys for member in self.universe_resolver.resolve_universe(key)
         }
         return [
             {
                 "market": normalized_market,
                 "code": member.code,
                 "name": member.name,
-                "enabled": True,
-                "sync_daily": True,
+                "instrument_type": member.instrument_type,
+                "currency": member.currency,
+                "listing_status": member.listing_status,
+                "source": member.source,
             }
             for member in members_by_code.values()
         ]
@@ -160,8 +153,8 @@ class MarketDataScopeResolver:
                 "market": normalized_market,
                 "code": code,
                 "name": dependencies[code],
-                "enabled": True,
-                "sync_daily": True,
+                "instrument_type": "ETF",
+                "source": "SEED",
             }
             for code in sorted(selected)
             if code in dependencies
@@ -182,9 +175,9 @@ class MarketDataScopeResolver:
             if not base.isdigit() or int(base) <= 0:
                 raise ValueError("invalid HK ticker")
             return f"{int(base)}.HK"
-        base = text.removeprefix("SH").removeprefix("SZ")
+        base = text.removeprefix("SH").removeprefix("SZ").removeprefix("BJ")
         suffix = ""
-        if base.endswith((".SH", ".SS", ".SZ")):
+        if base.endswith((".SH", ".SS", ".SZ", ".BJ")):
             suffix = base[-3:]
             base = base[:-3]
         if not base.isdigit() or len(base) != 6:
@@ -193,6 +186,8 @@ class MarketDataScopeResolver:
             exchange = ".SH"
         elif suffix == ".SZ":
             exchange = ".SZ"
+        elif suffix == ".BJ" or base.startswith(("4", "8")):
+            exchange = ".BJ"
         elif base.startswith(("5", "6", "9")):
             exchange = ".SH"
         else:

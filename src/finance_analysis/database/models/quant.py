@@ -36,52 +36,12 @@ def json_array():
     return []
 
 
-class QuantUniverse(Base):
-    __tablename__ = "quant_universe"
-    id = Column(Integer, primary_key=True)
-    key = Column(String(64), nullable=False, unique=True)
-    name = Column(String(128), nullable=False)
-    market = Column(String(8), nullable=False)
-    description = Column(Text)
-    enabled = Column(Boolean, nullable=False, default=True)
-    is_dynamic = Column(Boolean, nullable=False, default=False)
-    benchmark_code = Column(String(32))
-    sector_benchmark_mode = Column(String(32), nullable=False, default="member")
-    config = Column(JSONB, nullable=False, default=json_object)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
-    members = relationship("QuantUniverseMember", cascade="all, delete-orphan", back_populates="universe")
-    __table_args__ = (CheckConstraint("market IN ('US','HK','CN')", name="ck_quant_universe_market"),)
-
-
-class QuantUniverseMember(Base):
-    __tablename__ = "quant_universe_member"
-    id = Column(BigInteger, primary_key=True)
-    universe_id = Column(Integer, ForeignKey("quant_universe.id", ondelete="CASCADE"), nullable=False)
-    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="RESTRICT"), nullable=False)
-    effective_from = Column(Date, nullable=False)
-    effective_to = Column(Date)
-    sector_key = Column(String(64))
-    sector_benchmark_code = Column(String(32))
-    weight = Column(Float)
-    enabled = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
-    universe = relationship("QuantUniverse", back_populates="members")
-    symbol = relationship("MarketDataSymbol")
-    __table_args__ = (
-        UniqueConstraint("universe_id", "symbol_id", "effective_from", name="uix_quant_member_period"),
-        CheckConstraint("effective_to IS NULL OR effective_to >= effective_from", name="ck_quant_member_dates"),
-        Index("ix_quant_member_active", "universe_id", "enabled", "effective_from", "effective_to"),
-    )
-
-
 class QuantDatasetSnapshot(Base):
     __tablename__ = "quant_dataset_snapshot"
     id = Column(BigInteger, primary_key=True)
     dataset_key = Column(String(128), nullable=False, unique=True)
     market = Column(String(8), nullable=False)
-    universe_id = Column(Integer, ForeignKey("quant_universe.id", ondelete="RESTRICT"), nullable=False)
+    universe_id = Column(Integer, ForeignKey("universe.id", ondelete="RESTRICT"), nullable=False)
     frequency = Column(String(16), nullable=False)
     date_from = Column(Date, nullable=False)
     date_to = Column(Date, nullable=False)
@@ -145,7 +105,7 @@ class SectorRegimeSnapshot(Base):
 class MarketEvent(Base):
     __tablename__ = "market_event"
     id = Column(BigInteger, primary_key=True)
-    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="RESTRICT"))
+    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="RESTRICT"))
     code = Column(String(32))
     market = Column(String(8), nullable=False)
     event_type = Column(String(40), nullable=False)
@@ -167,14 +127,14 @@ class MarketEvent(Base):
     extractor_model = Column(String(128))
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
-    symbol = relationship("MarketDataSymbol")
+    instrument = relationship("Instrument")
     __table_args__ = (
         UniqueConstraint("source", "source_event_id", name="uix_market_event_source_id"),
         CheckConstraint("direction IN ('positive','negative','neutral')", name="ck_market_event_direction"),
         CheckConstraint("importance BETWEEN 0 AND 1", name="ck_market_event_importance"),
         CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_market_event_confidence"),
         Index("ix_market_event_available", "market", "available_at"),
-        Index("ix_market_event_symbol_published", "symbol_id", "published_at"),
+        Index("ix_market_event_symbol_published", "instrument_id", "published_at"),
     )
 
 
@@ -182,7 +142,7 @@ class EventFeatureDaily(Base):
     __tablename__ = "event_feature_daily"
     id = Column(BigInteger, primary_key=True)
     trade_date = Column(Date, nullable=False)
-    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
+    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="CASCADE"), nullable=False)
     feature_version = Column(String(64), nullable=False)
     earnings_surprise = Column(Float)
     revenue_surprise = Column(Float)
@@ -199,26 +159,40 @@ class EventFeatureDaily(Base):
     negative_event_veto = Column(Boolean, nullable=False, default=False)
     feature_payload = Column(JSONB, nullable=False, default=json_object)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    __table_args__ = (UniqueConstraint("trade_date", "symbol_id", "feature_version", name="uix_event_feature_daily"),)
+    __table_args__ = (
+        UniqueConstraint("trade_date", "instrument_id", "feature_version", name="uix_event_feature_daily"),
+    )
 
 
 class DailyFeatureSnapshot(Base):
     __tablename__ = "daily_feature_snapshot"
     id = Column(BigInteger, primary_key=True)
     trade_date = Column(Date, nullable=False)
-    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="CASCADE"), nullable=False)
+    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="CASCADE"), nullable=False)
     feature_version = Column(String(64), nullable=False)
-    ret_1d = Column(Float); ret_5d = Column(Float); ret_20d = Column(Float); ret_60d = Column(Float)
-    price_ma20_ratio = Column(Float); price_ma60_ratio = Column(Float); volume_ratio_5d = Column(Float)
-    atr_14 = Column(Float); realized_vol_20d = Column(Float); distance_from_20d_high = Column(Float)
-    gap_return = Column(Float); rsi_14 = Column(Float)
-    relative_5d_to_market = Column(Float); relative_20d_to_market = Column(Float)
-    relative_5d_to_sector = Column(Float); relative_20d_to_sector = Column(Float)
-    market_score = Column(Float); sector_score = Column(Float); event_score = Column(Float)
+    ret_1d = Column(Float)
+    ret_5d = Column(Float)
+    ret_20d = Column(Float)
+    ret_60d = Column(Float)
+    price_ma20_ratio = Column(Float)
+    price_ma60_ratio = Column(Float)
+    volume_ratio_5d = Column(Float)
+    atr_14 = Column(Float)
+    realized_vol_20d = Column(Float)
+    distance_from_20d_high = Column(Float)
+    gap_return = Column(Float)
+    rsi_14 = Column(Float)
+    relative_5d_to_market = Column(Float)
+    relative_20d_to_market = Column(Float)
+    relative_5d_to_sector = Column(Float)
+    relative_20d_to_sector = Column(Float)
+    market_score = Column(Float)
+    sector_score = Column(Float)
+    event_score = Column(Float)
     features = Column(JSONB, nullable=False, default=json_object)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     __table_args__ = (
-        UniqueConstraint("trade_date", "symbol_id", "feature_version", name="uix_daily_feature_snapshot"),
+        UniqueConstraint("trade_date", "instrument_id", "feature_version", name="uix_daily_feature_snapshot"),
         Index("ix_daily_feature_date", "trade_date", "feature_version"),
     )
 
@@ -237,7 +211,11 @@ class ModelDefinition(Base):
     supported_markets = Column(JSONB, nullable=False, default=json_array)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
-    __table_args__ = (CheckConstraint("model_type IN ('market_regime','time_series','cross_section','fusion')", name="ck_model_definition_type"),)
+    __table_args__ = (
+        CheckConstraint(
+            "model_type IN ('market_regime','time_series','cross_section','fusion')", name="ck_model_definition_type"
+        ),
+    )
 
 
 class ModelRun(Base):
@@ -250,10 +228,15 @@ class ModelRun(Base):
     model_version = Column(String(96), nullable=False)
     run_type = Column(String(24), nullable=False)
     market = Column(String(8), nullable=False)
-    universe_id = Column(Integer, ForeignKey("quant_universe.id", ondelete="RESTRICT"), nullable=False)
+    universe_id = Column(Integer, ForeignKey("universe.id", ondelete="RESTRICT"), nullable=False)
     dataset_snapshot_id = Column(BigInteger, ForeignKey("quant_dataset_snapshot.id", ondelete="RESTRICT"))
-    train_start = Column(Date); train_end = Column(Date); valid_start = Column(Date); valid_end = Column(Date)
-    test_start = Column(Date); test_end = Column(Date); prediction_date = Column(Date)
+    train_start = Column(Date)
+    train_end = Column(Date)
+    valid_start = Column(Date)
+    valid_end = Column(Date)
+    test_start = Column(Date)
+    test_end = Column(Date)
+    prediction_date = Column(Date)
     status = Column(String(20), nullable=False, default="draft")
     progress = Column(Integer, nullable=False, default=0)
     parameters = Column(JSONB, nullable=False, default=json_object)
@@ -263,13 +246,19 @@ class ModelRun(Base):
     metrics = Column(JSONB, nullable=False, default=json_object)
     feature_importance = Column(JSONB, nullable=False, default=json_object)
     artifact_uri = Column(Text)
-    artifact_digest = Column(String(64)); artifact_size = Column(BigInteger)
-    code_commit = Column(String(64)); warnings = Column(JSONB, nullable=False, default=json_array); error = Column(Text)
+    artifact_digest = Column(String(64))
+    artifact_size = Column(BigInteger)
+    code_commit = Column(String(64))
+    warnings = Column(JSONB, nullable=False, default=json_array)
+    error = Column(Text)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    started_at = Column(DateTime(timezone=True)); finished_at = Column(DateTime(timezone=True))
+    started_at = Column(DateTime(timezone=True))
+    finished_at = Column(DateTime(timezone=True))
     __table_args__ = (
         CheckConstraint("run_type IN ('train','backtest','predict','walk_forward')", name="ck_model_run_type"),
-        CheckConstraint("status IN ('draft','training','candidate','production','retired','failed')", name="ck_model_run_status"),
+        CheckConstraint(
+            "status IN ('draft','training','candidate','production','retired','failed')", name="ck_model_run_status"
+        ),
         CheckConstraint("progress BETWEEN 0 AND 100", name="ck_model_run_progress"),
         Index("ix_model_run_lookup", "market", "model_key", "status", "created_at"),
         Index(
@@ -297,35 +286,57 @@ class ModelPrediction(Base):
     id = Column(BigInteger, primary_key=True)
     model_run_id = Column(BigInteger, ForeignKey("model_run.id", ondelete="CASCADE"), nullable=False)
     trade_date = Column(Date, nullable=False)
-    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="RESTRICT"), nullable=False)
+    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="RESTRICT"), nullable=False)
     code = Column(String(32), nullable=False)
-    raw_prediction = Column(Float, nullable=False); normalized_score = Column(Float, nullable=False)
-    predicted_return = Column(Float); universe_rank = Column(Integer); sector_rank = Column(Integer)
-    actual_return = Column(Float); actual_excess_return = Column(Float); evaluation_status = Column(String(20))
-    features_digest = Column(String(64)); explanation = Column(JSONB, nullable=False, default=json_object)
+    raw_prediction = Column(Float, nullable=False)
+    normalized_score = Column(Float, nullable=False)
+    predicted_return = Column(Float)
+    universe_rank = Column(Integer)
+    sector_rank = Column(Integer)
+    actual_return = Column(Float)
+    actual_excess_return = Column(Float)
+    evaluation_status = Column(String(20))
+    features_digest = Column(String(64))
+    explanation = Column(JSONB, nullable=False, default=json_object)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    __table_args__ = (UniqueConstraint("model_run_id", "trade_date", "symbol_id", name="uix_model_prediction"),)
+    __table_args__ = (UniqueConstraint("model_run_id", "trade_date", "instrument_id", name="uix_model_prediction"),)
 
 
 class ModelSignal(Base):
     __tablename__ = "model_signal"
     id = Column(BigInteger, primary_key=True)
     trade_date = Column(Date, nullable=False)
-    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="RESTRICT"), nullable=False)
-    code = Column(String(32), nullable=False); market = Column(String(8), nullable=False)
-    universe_id = Column(Integer, ForeignKey("quant_universe.id", ondelete="RESTRICT"), nullable=False)
+    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="RESTRICT"), nullable=False)
+    code = Column(String(32), nullable=False)
+    market = Column(String(8), nullable=False)
+    universe_id = Column(Integer, ForeignKey("universe.id", ondelete="RESTRICT"), nullable=False)
     model_version = Column(String(96), nullable=False)
-    market_score = Column(Float); sector_score = Column(Float); event_score = Column(Float)
-    time_series_score = Column(Float); cross_section_score = Column(Float); risk_penalty = Column(Float, nullable=False, default=0)
-    raw_final_score = Column(Float, nullable=False); gated_final_score = Column(Float, nullable=False)
-    final_score = Column(Float, nullable=False); universe_rank = Column(Integer); sector_rank = Column(Integer)
-    predicted_return = Column(Float); signal = Column(String(16), nullable=False); target_position = Column(Float, nullable=False, default=0)
-    vetoed = Column(Boolean, nullable=False, default=False); veto_reason = Column(Text)
-    reasons = Column(JSONB, nullable=False, default=json_array); score_components = Column(JSONB, nullable=False, default=json_object)
+    market_score = Column(Float)
+    sector_score = Column(Float)
+    event_score = Column(Float)
+    time_series_score = Column(Float)
+    cross_section_score = Column(Float)
+    risk_penalty = Column(Float, nullable=False, default=0)
+    raw_final_score = Column(Float, nullable=False)
+    gated_final_score = Column(Float, nullable=False)
+    final_score = Column(Float, nullable=False)
+    universe_rank = Column(Integer)
+    sector_rank = Column(Integer)
+    predicted_return = Column(Float)
+    signal = Column(String(16), nullable=False)
+    target_position = Column(Float, nullable=False, default=0)
+    vetoed = Column(Boolean, nullable=False, default=False)
+    veto_reason = Column(Text)
+    reasons = Column(JSONB, nullable=False, default=json_array)
+    score_components = Column(JSONB, nullable=False, default=json_object)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     __table_args__ = (
         UniqueConstraint(
-            "market", "universe_id", "trade_date", "symbol_id", "model_version",
+            "market",
+            "universe_id",
+            "trade_date",
+            "instrument_id",
+            "model_version",
             name="uix_model_signal_market_universe",
         ),
         Index("ix_model_signal_ranking", "market", "universe_id", "trade_date", "universe_rank"),
@@ -335,37 +346,65 @@ class ModelSignal(Base):
 class PortfolioRecommendation(Base):
     __tablename__ = "portfolio_recommendation"
     id = Column(BigInteger, primary_key=True)
-    trade_date = Column(Date, nullable=False); market = Column(String(8), nullable=False)
-    universe_id = Column(Integer, ForeignKey("quant_universe.id", ondelete="RESTRICT"), nullable=False)
+    trade_date = Column(Date, nullable=False)
+    market = Column(String(8), nullable=False)
+    universe_id = Column(Integer, ForeignKey("universe.id", ondelete="RESTRICT"), nullable=False)
     model_version = Column(String(96), nullable=False)
     market_regime_id = Column(BigInteger, ForeignKey("market_regime_snapshot.id", ondelete="RESTRICT"), nullable=False)
     status = Column(String(20), nullable=False, default="ready")
-    max_equity_exposure = Column(Float, nullable=False); target_equity_exposure = Column(Float, nullable=False)
-    config = Column(JSONB, nullable=False, default=json_object); summary = Column(JSONB, nullable=False, default=json_object)
-    warnings = Column(JSONB, nullable=False, default=json_array); generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    max_equity_exposure = Column(Float, nullable=False)
+    target_equity_exposure = Column(Float, nullable=False)
+    config = Column(JSONB, nullable=False, default=json_object)
+    summary = Column(JSONB, nullable=False, default=json_object)
+    warnings = Column(JSONB, nullable=False, default=json_array)
+    generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     items = relationship("PortfolioRecommendationItem", cascade="all, delete-orphan", back_populates="recommendation")
-    __table_args__ = (UniqueConstraint("trade_date", "universe_id", "model_version", name="uix_portfolio_recommendation"),)
+    __table_args__ = (
+        UniqueConstraint("trade_date", "universe_id", "model_version", name="uix_portfolio_recommendation"),
+    )
 
 
 class PortfolioRecommendationItem(Base):
     __tablename__ = "portfolio_recommendation_item"
     id = Column(BigInteger, primary_key=True)
-    recommendation_id = Column(BigInteger, ForeignKey("portfolio_recommendation.id", ondelete="CASCADE"), nullable=False)
-    symbol_id = Column(Integer, ForeignKey("market_data_symbol.id", ondelete="RESTRICT"), nullable=False)
-    code = Column(String(32), nullable=False); sector_key = Column(String(64)); rank = Column(Integer, nullable=False); previous_rank = Column(Integer)
-    action = Column(String(16), nullable=False); current_weight = Column(Float, nullable=False, default=0)
-    target_weight = Column(Float, nullable=False, default=0); weight_change = Column(Float, nullable=False, default=0)
-    final_score = Column(Float, nullable=False); predicted_return = Column(Float); signal = Column(String(16), nullable=False)
-    reasons = Column(JSONB, nullable=False, default=json_array); constraints = Column(JSONB, nullable=False, default=json_object)
+    recommendation_id = Column(
+        BigInteger, ForeignKey("portfolio_recommendation.id", ondelete="CASCADE"), nullable=False
+    )
+    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="RESTRICT"), nullable=False)
+    code = Column(String(32), nullable=False)
+    sector_key = Column(String(64))
+    rank = Column(Integer, nullable=False)
+    previous_rank = Column(Integer)
+    action = Column(String(16), nullable=False)
+    current_weight = Column(Float, nullable=False, default=0)
+    target_weight = Column(Float, nullable=False, default=0)
+    weight_change = Column(Float, nullable=False, default=0)
+    final_score = Column(Float, nullable=False)
+    predicted_return = Column(Float)
+    signal = Column(String(16), nullable=False)
+    reasons = Column(JSONB, nullable=False, default=json_array)
+    constraints = Column(JSONB, nullable=False, default=json_object)
     recommendation = relationship("PortfolioRecommendation", back_populates="items")
     __table_args__ = (
-        UniqueConstraint("recommendation_id", "symbol_id", name="uix_portfolio_item"),
-        CheckConstraint("action IN ('buy','increase','hold','reduce','sell','watch','blocked')", name="ck_portfolio_item_action"),
+        UniqueConstraint("recommendation_id", "instrument_id", name="uix_portfolio_item"),
+        CheckConstraint(
+            "action IN ('buy','increase','hold','reduce','sell','watch','blocked')", name="ck_portfolio_item_action"
+        ),
     )
 
 
 QUANT_TABLES = (
-    QuantUniverse, QuantUniverseMember, QuantDatasetSnapshot, MarketRegimeSnapshot, SectorRegimeSnapshot,
-    MarketEvent, EventFeatureDaily, DailyFeatureSnapshot, ModelDefinition, ModelRun, ModelPublication,
-    ModelPrediction, ModelSignal, PortfolioRecommendation, PortfolioRecommendationItem,
+    QuantDatasetSnapshot,
+    MarketRegimeSnapshot,
+    SectorRegimeSnapshot,
+    MarketEvent,
+    EventFeatureDaily,
+    DailyFeatureSnapshot,
+    ModelDefinition,
+    ModelRun,
+    ModelPublication,
+    ModelPrediction,
+    ModelSignal,
+    PortfolioRecommendation,
+    PortfolioRecommendationItem,
 )

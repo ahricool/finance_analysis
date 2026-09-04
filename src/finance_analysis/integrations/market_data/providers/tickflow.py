@@ -134,5 +134,37 @@ class TickFlowFreeProvider:
             result.providers_used[symbol] = self.name
         return result
 
+    def fetch_instruments(self, market: str) -> list[dict[str, Any]]:
+        """Fetch the current security directory, excluding unsupported products."""
+        normalized = str(getattr(market, "value", market)).upper()
+        exchanges = {"CN": ("SH", "SZ", "BJ"), "HK": ("HK",), "US": ("US",)}.get(normalized)
+        if exchanges is None:
+            raise ValueError(f"Unsupported instrument market: {market}")
+        records: dict[str, dict[str, Any]] = {}
+        for exchange in exchanges:
+            items = self._get_client().exchanges.get_instruments(exchange) or []
+            for item in items:
+                provider_type = str(item.get("type") or "").lower()
+                if provider_type not in {"stock", "etf", "index"}:
+                    continue
+                raw = str(item.get("symbol") or item.get("code") or "").upper()
+                native = raw.rsplit(".", 1)[0]
+                code = canonical_symbol(raw or native, normalized)
+                ext = item.get("ext") if isinstance(item.get("ext"), Mapping) else {}
+                listing_date = pd.to_datetime(ext.get("listing_date"), errors="coerce")
+                records[code] = {
+                    "market": normalized,
+                    "code": code,
+                    "native_code": native,
+                    "name": str(item.get("name") or code),
+                    "instrument_type": provider_type.upper(),
+                    "currency": currency_for_market(normalized),
+                    "listing_date": None if pd.isna(listing_date) else listing_date.date(),
+                    "listing_status": "ACTIVE",
+                    "source": "TICKFLOW",
+                    "metadata": {"exchange": exchange, "provider_type": provider_type, "ext": dict(ext)},
+                }
+        return list(records.values())
+
 
 __all__ = ["TickFlowFreeProvider"]

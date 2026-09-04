@@ -156,8 +156,7 @@ def _sanitize_longbridge_env() -> None:
         ):
             if default_url and not os.environ.get(env_name):
                 os.environ[env_name] = default_url
-                logger.debug("[Longbridge] 根据 REGION=%s 设置 %s=%s",
-                             region, env_name, default_url)
+                logger.debug("[Longbridge] 根据 REGION=%s 设置 %s=%s", region, env_name, default_url)
 
 
 def _longbridge_config_kwargs() -> Dict[str, Any]:
@@ -218,9 +217,7 @@ def _longbridge_config_kwargs() -> Dict[str, Any]:
         elif cm == "confirmed":
             kw["push_candlestick_mode"] = PushCandlestickMode.Confirmed
         elif cm:
-            logger.warning(
-                "Unknown LONGBRIDGE_PUSH_CANDLESTICK_MODE=%r; use realtime or confirmed", cm
-            )
+            logger.warning("Unknown LONGBRIDGE_PUSH_CANDLESTICK_MODE=%r; use realtime or confirmed", cm)
 
     return kw
 
@@ -343,7 +340,7 @@ def _to_longbridge_symbol(stock_code: str) -> Optional[str]:
 
 def to_longbridge_symbol(code: str) -> str:
     """Longbridge already uses the application's canonical symbol format."""
-    from finance_analysis.database.models.stock import validate_market_data_code
+    from finance_analysis.database.models.stock import validate_instrument_code
 
     canonical = str(code or "").strip().upper()
     if canonical.endswith(".US"):
@@ -354,7 +351,7 @@ def to_longbridge_symbol(code: str) -> str:
         market = "CN"
     else:
         raise ValueError(f"Canonical market suffix required for Longbridge: {code}")
-    return validate_market_data_code(market, canonical)
+    return validate_instrument_code(market, canonical)
 
 
 class LongbridgeProvider:
@@ -465,8 +462,9 @@ class LongbridgeProvider:
             try:
                 info = self._get_static_info(self.to_longbridge_symbol(symbol))
                 name = (
-                    str(getattr(info, "name_cn", "") or getattr(info, "name_zh", "") or getattr(info, "name_en", ""))
-                    .strip()
+                    str(
+                        getattr(info, "name_cn", "") or getattr(info, "name_zh", "") or getattr(info, "name_en", "")
+                    ).strip()
                     if info is not None
                     else ""
                 )
@@ -493,7 +491,9 @@ class LongbridgeProvider:
             Market.US: (("SPX.US", "标普500指数"), ("DJI.US", "道琼斯工业指数"), ("IXIC.US", "纳斯达克综合指数")),
             Market.HK: (("HSI.HK", "恒生指数"), ("HSCEI.HK", "恒生中国企业指数"), ("HSTECH.HK", "恒生科技指数")),
         }.get(market, ())
-        quotes = self.fetch_quotes(QuoteRequest(tuple(symbol for symbol, _ in symbols))) if symbols else BatchQuoteResult()
+        quotes = (
+            self.fetch_quotes(QuoteRequest(tuple(symbol for symbol, _ in symbols))) if symbols else BatchQuoteResult()
+        )
         result: list[MarketIndex] = []
         for symbol, name in symbols:
             quote = quotes.data.get(symbol)
@@ -570,7 +570,9 @@ class LongbridgeProvider:
             frame = frame.drop_duplicates("bar_time", keep="last").sort_values("bar_time").reset_index(drop=True)
         return frame
 
-    def _fetch_history_pages(self, *, symbol, period_name: str, start_time: datetime, end_time: datetime, data_type: str):
+    def _fetch_history_pages(
+        self, *, symbol, period_name: str, start_time: datetime, end_time: datetime, data_type: str
+    ):
         from longbridge.openapi import AdjustType, Period, TradeSessions
 
         ctx = self._get_ctx()
@@ -618,8 +620,12 @@ class LongbridgeProvider:
         except Exception as exc:
             reason = str(exc)
             error_code = getattr(exc, "code", None)
-            retryable = error_code in (301602, 301606) or self._is_connection_error(exc) or any(
-                token in reason.lower() for token in ("timeout", "429", "rate limit", "tempor", "context dropped")
+            retryable = (
+                error_code in (301602, 301606)
+                or self._is_connection_error(exc)
+                or any(
+                    token in reason.lower() for token in ("timeout", "429", "rate limit", "tempor", "context dropped")
+                )
             )
             if error_code in (301600, 301604, 301607):
                 retryable = False
@@ -712,11 +718,10 @@ class LongbridgeProvider:
             return self._available
         try:
             from finance_analysis.integrations.market_data.config import get_data_provider_config
+
             config = get_data_provider_config()
             has_creds = bool(
-                config.longbridge_app_key
-                and config.longbridge_app_secret
-                and config.longbridge_access_token
+                config.longbridge_app_key and config.longbridge_app_secret and config.longbridge_access_token
             )
         except Exception:
             has_creds = bool(
@@ -1161,10 +1166,10 @@ class LongbridgeProvider:
         )
 
         logger.info(
-            f"[Longbridge] {symbol} 行情获取成功: "
-            f"价格={price}, 量比={volume_ratio}, 换手率={turnover_rate}"
+            f"[Longbridge] {symbol} 行情获取成功: " f"价格={price}, 量比={volume_ratio}, 换手率={turnover_rate}"
         )
         return quote
+
 
 __all__ = [
     "LongbridgeProvider",

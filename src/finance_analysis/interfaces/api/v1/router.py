@@ -20,7 +20,6 @@ from finance_analysis.interfaces.api.v1.endpoints import (
     etf_rotation,
     history,
     market_data,
-    portfolio,
     quant,
     signals,
     stocks,
@@ -33,35 +32,15 @@ from finance_analysis.interfaces.api.v1.endpoints import (
 # 创建 v1 版本主路由
 router = APIRouter(prefix="/api/v1")
 
-router.include_router(
-    auth.router,
-    prefix="/auth",
-    tags=["Auth"]
-)
+router.include_router(auth.router, prefix="/auth", tags=["Auth"])
 
-router.include_router(
-    agent.router,
-    prefix="/agent",
-    tags=["Agent"]
-)
+router.include_router(agent.router, prefix="/agent", tags=["Agent"])
 
-router.include_router(
-    analysis.router,
-    prefix="/analysis",
-    tags=["Analysis"]
-)
+router.include_router(analysis.router, prefix="/analysis", tags=["Analysis"])
 
-router.include_router(
-    history.router,
-    prefix="/history",
-    tags=["History"]
-)
+router.include_router(history.router, prefix="/history", tags=["History"])
 
-router.include_router(
-    stocks.router,
-    prefix="/stocks",
-    tags=["Stocks"]
-)
+router.include_router(stocks.router, prefix="/stocks", tags=["Stocks"])
 
 router.include_router(
     market_data.router,
@@ -69,19 +48,13 @@ router.include_router(
     tags=["MarketData"],
 )
 
-router.include_router(
-    usage.router,
-    prefix="/usage",
-    tags=["Usage"]
-)
+router.include_router(usage.router, prefix="/usage", tags=["Usage"])
 
 router.include_router(
     watch_list.router,
     prefix="/watch-list",
     tags=["WatchList"],
 )
-
-router.include_router(portfolio.router, prefix="/portfolio", tags=["Portfolio"])
 
 router.include_router(
     calendar.router,

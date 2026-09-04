@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, inspect, text
 from finance_analysis.core.paths import PROJECT_ROOT
 from finance_analysis.database.base import Base
 from finance_analysis.database.models import stock as stock_models
-from finance_analysis.database.models.stock import MarketDataSymbol
+from finance_analysis.database.models.stock import Instrument
 
 
 def _load_migration() -> ModuleType:
@@ -69,7 +69,9 @@ def test_migration_clears_legacy_daily_and_removes_adjustment_and_backtest_schem
             text("CREATE TABLE stock_corporate_action (id INTEGER PRIMARY KEY, symbol_id INTEGER NOT NULL)")
         )
         connection.execute(
-            text("CREATE TABLE quant_dataset_snapshot (id INTEGER PRIMARY KEY, price_mode VARCHAR(24), status VARCHAR(16))")
+            text(
+                "CREATE TABLE quant_dataset_snapshot (id INTEGER PRIMARY KEY, price_mode VARCHAR(24), status VARCHAR(16))"
+            )
         )
         connection.execute(
             text("CREATE TABLE backtest_run (id INTEGER PRIMARY KEY, price_mode VARCHAR(16), status VARCHAR(16))")
@@ -125,9 +127,9 @@ def test_migration_clears_legacy_daily_and_removes_adjustment_and_backtest_schem
             migration.downgrade()
 
 
-def test_current_symbol_model_has_no_execution_unit_metadata() -> None:
-    assert "lot_size" not in MarketDataSymbol.__table__.columns
-    constraint_names = {constraint.name for constraint in MarketDataSymbol.__table__.constraints}
+def test_current_instrument_model_has_no_execution_unit_metadata() -> None:
+    assert "lot_size" not in Instrument.__table__.columns
+    constraint_names = {constraint.name for constraint in Instrument.__table__.constraints}
     assert "ck_market_data_symbol_lot_size" not in constraint_names
 
 

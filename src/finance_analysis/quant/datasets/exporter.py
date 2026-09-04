@@ -20,7 +20,7 @@ from finance_analysis.quant.datasets.validator import validate_daily_bars
 from finance_analysis.quant.exceptions import ModelArtifactMissingError, QuantDatasetValidationError
 from finance_analysis.quant.markets import (
     get_quant_market_config,
-    get_quant_universe_codes,
+    get_universe_codes,
     validate_universe_for_market,
 )
 
@@ -56,13 +56,9 @@ class QlibDatasetExporter:
         market_config = get_quant_market_config(market)
         universe = validate_universe_for_market(market_config.market, universe)
         definition = self.repository.get_universe(universe)
-        if (
-            not definition
-            or definition.market != market_config.market
-            or not getattr(definition, "enabled", True)
-        ):
+        if not definition or definition.market != market_config.market or not getattr(definition, "enabled", True):
             raise ValueError(f"Supported {market_config.market} universe {universe} is not available")
-        universe_codes = get_quant_universe_codes(market_config.market)
+        universe_codes = get_universe_codes(market_config.market)
         candidate_codes = set(candidate_codes or universe_codes)
         if not candidate_codes.issubset(universe_codes):
             raise ValueError("Candidate codes must belong to the fixed Quant Universe")
@@ -139,9 +135,7 @@ class QlibDatasetExporter:
             if vwap_report["valid_rows"] == 0:
                 raise QuantDatasetValidationError("Dataset has no valid VWAP observations")
             if vwap_report["estimated_rows"]:
-                report["warnings"].append(
-                    f"VWAP used HLC3 estimates for {vwap_report['estimated_rows']} rows"
-                )
+                report["warnings"].append(f"VWAP used HLC3 estimates for {vwap_report['estimated_rows']} rows")
             logger.info(
                 "Qlib consumer-derived VWAP quality estimated=%.2f%% missing=%.2f%%",
                 vwap_report["estimated_ratio"] * 100,

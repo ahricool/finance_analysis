@@ -5,15 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import time
 
-from finance_analysis.quant.exceptions import UnsupportedQuantUniverseError
-from finance_analysis.stocks.market_scope import MarketDataScopeResolver
-from finance_analysis.stocks.reference_data.stock_index import CSI300_STOCK_INDEX, SP500_STOCK_INDEX
+from finance_analysis.database.repositories.universe import UniverseResolver
+from finance_analysis.quant.exceptions import UnsupportedUniverseError
 
-
-DEFAULT_QUANT_UNIVERSES = {
-    "US": "us_sp500",
-    "CN": "cn_csi300",
-}
+DEFAULT_QUANT_UNIVERSES = {"US": "us_quant", "CN": "cn_quant"}
 
 
 @dataclass(frozen=True)
@@ -34,38 +29,19 @@ class QuantMarketConfig:
 
     @property
     def regime_benchmarks(self) -> tuple[str, str]:
-        """Compatibility view for callers that still consume the benchmark pair."""
         return self.primary_benchmark, self.broad_benchmark
 
     @property
     def benchmark_dependencies(self) -> frozenset[str]:
-        return frozenset(
-            (self.primary_benchmark, self.broad_benchmark, self.label_benchmark, self.style_benchmark)
-        )
+        return frozenset((self.primary_benchmark, self.broad_benchmark, self.label_benchmark, self.style_benchmark))
 
 
 QUANT_MARKETS = {
     "US": QuantMarketConfig(
-        market="US",
-        timezone="America/New_York",
-        market_close_time=time(16, 0),
-        market_open_time=time(9, 30),
-        default_universe=DEFAULT_QUANT_UNIVERSES["US"],
-        label_benchmark="SPY.US",
-        primary_benchmark="QQQ.US",
-        broad_benchmark="SPY.US",
-        style_benchmark="QQQ.US",
+        "US", "America/New_York", time(16), time(9, 30), "us_quant", "SPY.US", "QQQ.US", "SPY.US", "QQQ.US"
     ),
     "CN": QuantMarketConfig(
-        market="CN",
-        timezone="Asia/Shanghai",
-        market_close_time=time(15, 0),
-        market_open_time=time(9, 30),
-        default_universe=DEFAULT_QUANT_UNIVERSES["CN"],
-        label_benchmark="510300.SH",
-        primary_benchmark="510300.SH",
-        broad_benchmark="510300.SH",
-        style_benchmark="159915.SZ",
+        "CN", "Asia/Shanghai", time(15), time(9, 30), "cn_quant", "510300.SH", "510300.SH", "510300.SH", "159915.SZ"
     ),
 }
 
@@ -82,31 +58,20 @@ def default_universe_for_market(market: str) -> str:
     return get_quant_market_config(market).default_universe
 
 
-def get_quant_universe_codes(market: str) -> set[str]:
-    """Return the canonical codes for the market's single fixed Quant Universe."""
+def get_universe_codes(market: str, resolver: UniverseResolver | None = None) -> set[str]:
     config = get_quant_market_config(market)
-    normalized_market = config.market
-    reference = SP500_STOCK_INDEX if normalized_market == "US" else CSI300_STOCK_INDEX
-    codes = {
-        MarketDataScopeResolver.canonical_code(code, normalized_market)
-        for code in reference
-    }
-    # The reference lists also carry benchmark ETFs so market-data sync can
-    # fetch them.  Benchmarks are model dependencies, not rankable members.
-    return codes - set(config.benchmark_dependencies)
+    return {item.code for item in (resolver or UniverseResolver()).resolve_universe(config.default_universe)}
 
 
 def validate_universe_for_market(market: str, universe_key: str | None = None) -> str:
-    """Resolve and validate the single fixed universe for a quant market."""
     config = get_quant_market_config(market)
-    expected = config.default_universe
-    requested = str(universe_key or expected).strip()
-    if requested != expected:
-        raise UnsupportedQuantUniverseError(
+    requested = str(universe_key or config.default_universe).strip()
+    if requested != config.default_universe:
+        raise UnsupportedUniverseError(
             f"Unsupported universe {requested} for market={config.market}; "
-            f"the only supported universe is {expected}"
+            f"the only supported universe is {config.default_universe}"
         )
-    return expected
+    return requested
 
 
 __all__ = [
@@ -114,7 +79,7 @@ __all__ = [
     "QUANT_MARKETS",
     "QuantMarketConfig",
     "default_universe_for_market",
-    "get_quant_universe_codes",
+    "get_universe_codes",
     "get_quant_market_config",
     "validate_universe_for_market",
 ]

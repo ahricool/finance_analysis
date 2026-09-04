@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from finance_analysis.database.models.user import User
 from finance_analysis.database.repositories.signal import SignalRepository
-from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
+from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.integrations.market_data.normalizer import canonical_symbol
 from finance_analysis.interfaces.api.deps import require_current_user
 from finance_analysis.interfaces.api.v1.schemas.signals import (
@@ -34,14 +34,12 @@ def _validate_aware(value: datetime | None, field_name: str) -> None:
 def _signal_responses(repository: SignalRepository, items) -> list[SignalResponse]:
     canonical_codes = [canonical_symbol(item.code, item.market) for item in items]
     names = (
-        MarketDataSymbolRepository(repository.db).names_by_codes(canonical_codes)
+        InstrumentRepository(repository.db).names_by_codes(canonical_codes)
         if getattr(repository, "db", None) is not None
         else {}
     )
     return [
-        SignalResponse.model_validate(item).model_copy(
-            update={"name": names.get(code) or item.name}
-        )
+        SignalResponse.model_validate(item).model_copy(update={"name": names.get(code) or item.name})
         for item, code in zip(items, canonical_codes)
     ]
 

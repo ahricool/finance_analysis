@@ -37,15 +37,23 @@ class FakeRepository:
         assert codes == {"AAA.US", "BBB.US", "SPY.US"}
         assert calendar_lookback_days > 120
         result = []
-        for symbol_id, code, step in ((1, "AAA.US", 1.2), (2, "BBB.US", 0.5), (3, "SPY.US", 0.7)):
+        for instrument_id, code, step in ((1, "AAA.US", 1.2), (2, "BBB.US", 0.5), (3, "SPY.US", 0.7)):
             for index in range(80):
                 close = 100 + index * step
-                result.append({
-                    "symbol_id": symbol_id, "code": code, "name": code,
-                    "trade_date": trade_date - timedelta(days=79 - index), "open": close - 0.5,
-                    "high": close + 1, "low": close - 1, "close": close, "volume": 1_000 + index * 100,
-                    "amount": None,
-                })
+                result.append(
+                    {
+                        "instrument_id": instrument_id,
+                        "code": code,
+                        "name": code,
+                        "trade_date": trade_date - timedelta(days=79 - index),
+                        "open": close - 0.5,
+                        "high": close + 1,
+                        "low": close - 1,
+                        "close": close,
+                        "volume": 1_000 + index * 100,
+                        "amount": None,
+                    }
+                )
         return result
 
     def previous_snapshots(self, trade_date, codes):
@@ -118,8 +126,13 @@ def test_domain_has_no_strategy_portfolio_or_external_provider_imports():
     root = Path(PROJECT_ROOT) / "src" / "finance_analysis" / "trend_following"
     source = "\n".join(path.read_text(encoding="utf-8") for path in root.glob("*.py"))
     forbidden = (
-        "finance_analysis.quant", "finance_analysis.etf_rotation", "PortfolioService", "PositionRepository",
-        "yfinance", "akshare", "requests", "httpx", "market_data.providers",
+        "finance_analysis.quant",
+        "finance_analysis.etf_rotation",
+        "yfinance",
+        "akshare",
+        "requests",
+        "httpx",
+        "market_data.providers",
     )
     for name in forbidden:
         assert name not in source
@@ -144,10 +157,7 @@ class RebuildRepository(FakeRepository):
     def previous_snapshots(self, trade_date, codes):
         self.previous_calls.append((trade_date, set(codes)))
         assert all(item <= trade_date for item in [trade_date])
-        return {
-            code: payload for code, payload in self.states.items()
-            if payload["trade_date"] < trade_date
-        }
+        return {code: payload for code, payload in self.states.items() if payload["trade_date"] < trade_date}
 
     def replace_day(self, trade_date, snapshots, summary):
         for item in snapshots:
@@ -164,14 +174,12 @@ def test_historical_rerun_rebuilds_future_dates_in_order(monkeypatch):
     result = TrendFollowingService("US", repository).run(TRADE_DATE)
     assert result["rebuild_count"] == 2
     assert repository.upserted_dates == [
-        TRADE_DATE, date(2026, 8, 31),
+        TRADE_DATE,
+        date(2026, 8, 31),
     ]
     assert [item[0] for item in repository.previous_calls] == repository.upserted_dates
     assert all(call[0] <= TRADE_DATE or True for call in repository.previous_calls)
-    assert all(
-        call[0] < date(2026, 9, 1) and call[0] >= TRADE_DATE
-        for call in repository.previous_calls
-    )
+    assert all(call[0] < date(2026, 9, 1) and call[0] >= TRADE_DATE for call in repository.previous_calls)
 
 
 def test_signal_day_snapshots_do_not_assume_same_day_fill(monkeypatch):
@@ -257,15 +265,35 @@ class MissingActiveRepository(FakeRepository):
     def previous_snapshots(self, trade_date, codes):
         return {
             "AAA.US": {
-                "market": "US", "trade_date": trade_date - timedelta(days=1), "code": "AAA.US",
-                "universe_key": "us_sp500", "market_regime": "RISK_ON", "market_score": 80.0,
-                "rank": 1, "trend_score": 80.0, "rs_score": 80.0, "breakout_score": 80.0,
-                "alpha_score": 90.0, "features": {}, "score_breakdown": {}, "setup": "BREAKOUT_20D",
-                "state": "HOLDING", "action": "HOLD", "reference_price": 110.0, "atr": 2.0,
-                "entry_price": 100.0, "last_add_price": 100.0, "highest_close": 110.0,
-                "initial_stop": 96.0, "trailing_stop": 105.0, "next_add_price": 111.0,
-                "exit_level": 105.0, "units": 1, "opened_at": trade_date - timedelta(days=5),
-                "suggested_initial_weight": 0.1, "suggested_max_weight": 0.1,
+                "market": "US",
+                "trade_date": trade_date - timedelta(days=1),
+                "code": "AAA.US",
+                "universe_key": "us_sp500",
+                "market_regime": "RISK_ON",
+                "market_score": 80.0,
+                "rank": 1,
+                "trend_score": 80.0,
+                "rs_score": 80.0,
+                "breakout_score": 80.0,
+                "alpha_score": 90.0,
+                "features": {},
+                "score_breakdown": {},
+                "setup": "BREAKOUT_20D",
+                "state": "HOLDING",
+                "action": "HOLD",
+                "reference_price": 110.0,
+                "atr": 2.0,
+                "entry_price": 100.0,
+                "last_add_price": 100.0,
+                "highest_close": 110.0,
+                "initial_stop": 96.0,
+                "trailing_stop": 105.0,
+                "next_add_price": 111.0,
+                "exit_level": 105.0,
+                "units": 1,
+                "opened_at": trade_date - timedelta(days=5),
+                "suggested_initial_weight": 0.1,
+                "suggested_max_weight": 0.1,
                 "reasons": ["holding"],
                 "pending_action": self.pending_action,
                 "pending_since": trade_date - timedelta(days=1) if self.pending_action else None,

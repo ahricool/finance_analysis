@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from statistics import median
 from typing import Any
 
-from finance_analysis.database.repositories.stock import MarketDataSymbolRepository, StockRepository
+from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository
 from finance_analysis.integrations.market_data.config import (
     DataProviderConfig,
     get_data_provider_config,
@@ -40,7 +40,7 @@ class MarketDataSyncService:
         self,
         market: str,
         *,
-        symbol_repository: MarketDataSymbolRepository | None = None,
+        symbol_repository: InstrumentRepository | None = None,
         stock_repository: StockRepository | None = None,
         watchlist_repository: Any = None,
         scope_resolver: MarketDataScopeResolver | None = None,
@@ -53,7 +53,7 @@ class MarketDataSyncService:
         if self.market not in {"CN", "US"}:
             raise ValueError(f"Unsupported market={market}; market_data_sync currently supports CN or US")
         self.config = config or get_data_provider_config()
-        self.symbol_repository = symbol_repository or MarketDataSymbolRepository()
+        self.symbol_repository = symbol_repository or InstrumentRepository()
         self.stock_repository = stock_repository or StockRepository()
         self.scope_resolver = scope_resolver or MarketDataScopeResolver(watchlist_repository)
         self.market_data = market_data_service or MarketDataService(config=self.config)
@@ -116,17 +116,17 @@ class MarketDataSyncService:
         self.unsupported_symbols = list(scope.unsupported_symbols)
         strategy_records = self.scope_resolver.strategy_dependency_records(self.market)
         if strategy_records:
-            # Strategy configuration owns daily readiness but must preserve a
-            # watched ETF's independent minute-sync preference.
-            self.symbol_repository.upsert_symbols(strategy_records, force_daily_sync=True)
-        # A watched benchmark remains a watchlist symbol, so let the watchlist
-        # record win while still inserting each canonical code only once.
+            self.symbol_repository.upsert_symbols(strategy_records)
         records_by_code = {record["code"]: record for record in self.scope_resolver.dependency_records(self.market)}
         records_by_code.update({record["code"]: record for record in strategy_records})
-        records_by_code.update({record["code"]: record for record in scope.watchlist_records})
+        for record in scope.watchlist_records:
+            records_by_code[record["code"]] = {
+                **records_by_code.get(record["code"], {}),
+                **record,
+            }
         records = [records_by_code[code] for code in sorted(records_by_code)]
         if records:
-            self.symbol_repository.upsert_symbols(records, overwrite_runtime_flags=False)
+            self.symbol_repository.upsert_symbols(records)
         symbols = self.symbol_repository.list_enabled_daily_by_codes(
             self.market,
             scope.synchronization_codes,
@@ -168,12 +168,15 @@ class MarketDataSyncService:
                     "market": self.market,
                     "code": code,
                     "name": info.name,
-                    "enabled": current.enabled,
-                    "sync_daily": current.sync_daily,
+                    "instrument_type": getattr(current, "instrument_type", "STOCK"),
+                    "currency": getattr(current, "currency", None),
+                    "listing_date": getattr(current, "listing_date", None),
+                    "listing_status": getattr(current, "listing_status", "ACTIVE"),
+                    "source": info.provider,
                 }
             )
         if records:
-            self.symbol_repository.upsert_symbols(records, overwrite_runtime_flags=False)
+            self.symbol_repository.upsert_symbols(records)
         self.instrument_names_refreshed = len(records)
         self.instrument_name_failures = {
             **{code: "instrument name not found" for code in result.missing_symbols},
@@ -321,9 +324,7 @@ class MarketDataSyncService:
                 continue
             returned_dates = {bar.trade_date for bar in bars}
             first_returned = min(returned_dates)
-            expected_dates = {
-                day for day in requested_days if day in observed_dates and day >= first_returned
-            }
+            expected_dates = {day for day in requested_days if day in observed_dates and day >= first_returned}
             missing = expected_dates.difference(returned_dates)
             if missing:
                 missing_by_code[code] = missing
@@ -358,11 +359,7 @@ class MarketDataSyncService:
         requested_days_by_code: dict[str, list[date]],
     ) -> BatchBarResult:
         """Retry cross-sectionally observable US daily gaps, then patch them with TickFlow."""
-        observed_dates = {
-            bar.trade_date
-            for code in requested_days_by_code
-            for bar in routed.data.get(code, [])
-        }
+        observed_dates = {bar.trade_date for code in requested_days_by_code for bar in routed.data.get(code, [])}
         if not observed_dates:
             return routed
         max_retries = int(getattr(getattr(self, "config", None), "market_data_yfinance_max_retries", 2))
@@ -398,8 +395,7 @@ class MarketDataSyncService:
             return routed
         missing_dates = set().union(*missing_by_code.values())
         logger.warning(
-            "market=US data_type=daily action=fallback_gaps provider=tickflow symbol_count=%s "
-            "missing_date_count=%s",
+            "market=US data_type=daily action=fallback_gaps provider=tickflow symbol_count=%s " "missing_date_count=%s",
             len(missing_by_code),
             len(missing_dates),
         )
@@ -480,9 +476,7 @@ class MarketDataSyncService:
                         missing_amount=any(bar.amount is None for bar in bars),
                         reason=coverage_reason,
                         fallback_reasons=(
-                            [routed.failed_symbols[symbol.code]]
-                            if symbol.code in routed.failed_symbols
-                            else []
+                            [routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else []
                         ),
                     )
             rows = []
@@ -545,11 +539,7 @@ class MarketDataSyncService:
                 f"minimum={FULL_REFRESH_MIN_COVERAGE:.3f}"
             )
 
-        returned_span = {
-            day
-            for day in expected_dates
-            if min(returned_expected) <= day <= max(returned_expected)
-        }
+        returned_span = {day for day in expected_dates if min(returned_expected) <= day <= max(returned_expected)}
         continuity = len(returned_expected) / len(returned_span) if returned_span else 0.0
         if continuity >= FULL_REFRESH_MIN_COVERAGE:
             return True, ""
@@ -567,9 +557,7 @@ class MarketDataSyncService:
     ) -> dict[str, Any]:
         statuses = {result.code: result.daily.status for result in results}
         fallback_reasons = [
-            {"code": result.code, "reason": reason}
-            for result in results
-            for reason in result.daily.fallback_reasons
+            {"code": result.code, "reason": reason} for result in results for reason in result.daily.fallback_reasons
         ]
         failures = [
             {

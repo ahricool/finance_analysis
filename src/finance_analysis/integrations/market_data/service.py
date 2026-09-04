@@ -8,7 +8,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-from finance_analysis.database.repositories.stock import MarketDataSymbolRepository
+from finance_analysis.database.repositories.stock import InstrumentRepository
 
 from .config import DataProviderConfig, get_data_provider_config
 from .models import (
@@ -46,13 +46,13 @@ from .router import MarketDataRouter
 class _DatabaseInstrumentProvider:
     name = "database"
 
-    def __init__(self, repository: MarketDataSymbolRepository | None = None) -> None:
+    def __init__(self, repository: InstrumentRepository | None = None) -> None:
         self.repository = repository
 
     def get_instrument_info(self, request: InstrumentRequest) -> BatchInstrumentResult:
         if self.repository is None:
             try:
-                self.repository = MarketDataSymbolRepository()
+                self.repository = InstrumentRepository()
             except Exception as exc:
                 return BatchInstrumentResult(failed_symbols={symbol: str(exc) for symbol in request.symbols})
         result = BatchInstrumentResult()
@@ -149,7 +149,7 @@ class _StreamingStateProvider:
 def build_default_registry(
     config: DataProviderConfig | None = None,
     *,
-    instrument_repository: MarketDataSymbolRepository | None = None,
+    instrument_repository: InstrumentRepository | None = None,
     streaming_source: Any = None,
 ) -> ProviderRegistry:
     from .providers.akshare import AkShareProvider
@@ -241,7 +241,7 @@ class MarketDataService:
         registry: ProviderRegistry | None = None,
         *,
         config: DataProviderConfig | None = None,
-        instrument_repository: MarketDataSymbolRepository | None = None,
+        instrument_repository: InstrumentRepository | None = None,
         streaming_source: Any = None,
     ) -> None:
         self.config = config or get_data_provider_config()
