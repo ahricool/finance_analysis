@@ -6,9 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
+from finance_analysis.etf_rotation.universe import ETFUniverseMember
 from finance_analysis.interfaces.api.v1.endpoints import etf_rotation
 from finance_analysis.interfaces.api.v1.schemas.etf_rotation import ETFRotationRunRequest
-from finance_analysis.etf_rotation.universe import enabled_etfs
 from finance_analysis.tasks.celery.jobs import TASK_MODULES
 from finance_analysis.tasks.celery.schedule import (
     JOB_ETF_ROTATION_CN,
@@ -16,6 +18,31 @@ from finance_analysis.tasks.celery.schedule import (
     build_beat_schedule,
     require_scheduled_task_definition,
 )
+
+TEST_ETFS = {
+    "CN": (
+        ETFUniverseMember("588000.SH", "科创50ETF", "BROAD_INDEX", "STAR50", "GROWTH", market="CN"),
+    ),
+    "US": tuple(
+        ETFUniverseMember(code, code, "TEST", "TEST", "TEST", market="US")
+        for code in ("SPY.US", "QQQ.US", "IWM.US", *(f"TEST{index}.US" for index in range(46)))
+    ),
+}
+
+
+def enabled_etfs(market: str = "CN"):
+    return TEST_ETFS[market]
+
+
+@pytest.fixture(autouse=True)
+def _database_universe(monkeypatch):
+    monkeypatch.setattr(etf_rotation, "enabled_etfs", enabled_etfs)
+    monkeypatch.setattr(etf_rotation, "get_etf_universe", enabled_etfs)
+    monkeypatch.setattr(
+        etf_rotation,
+        "universe_by_code",
+        lambda market="CN": {member.code: member for member in enabled_etfs(market)},
+    )
 
 
 def _snapshot(code="588000.SH"):

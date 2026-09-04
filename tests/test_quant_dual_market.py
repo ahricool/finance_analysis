@@ -38,19 +38,7 @@ def _db_universe(monkeypatch):
     )
 
 
-def _watch(code: str, market: str, name: str = "watch"):
-    return SimpleNamespace(code=code, market_type=market, name=name)
-
-
 def test_market_data_scope_is_market_isolated_normalized_and_deduplicated():
-    watchlist = MagicMock()
-    watchlist.list_all.return_value = [
-        _watch("aapl", "US"),
-        _watch("AAPL.US", "US"),
-        _watch("600519", "CN"),
-        _watch("SH600519", "CN"),
-        _watch("00700", "HK"),
-    ]
     db_universe = SimpleNamespace(
         resolve_universe=lambda key: {
             "us_quant": [
@@ -69,7 +57,7 @@ def test_market_data_scope_is_market_isolated_normalized_and_deduplicated():
             "cn_etf_rotation": [],
         }[key]
     )
-    resolver = MarketDataScopeResolver(watchlist, db_universe)
+    resolver = MarketDataScopeResolver(db_universe)
 
     us = resolver.resolve("US")
     cn = resolver.resolve("CN")
@@ -78,9 +66,7 @@ def test_market_data_scope_is_market_isolated_normalized_and_deduplicated():
     assert "600519.SH" not in us.universe_codes
     assert "600519.SH" in cn.universe_codes
     assert "AAPL.US" not in cn.universe_codes
-    assert "700.HK" not in cn.universe_codes
     assert len([code for code in us.universe_codes if code == "AAPL.US"]) == 1
-    assert cn.unsupported_symbols[0]["market"] == "HK"
     assert us.universe_codes & us.benchmark_dependency_codes == {"QQQ.US", "SPY.US"}
     assert cn.universe_codes & cn.benchmark_dependency_codes == {"159915.SZ", "510300.SH"}
 

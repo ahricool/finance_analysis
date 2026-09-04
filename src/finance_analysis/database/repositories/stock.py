@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Iterable, Optional, Sequence
 
-from sqlalchemy import delete, desc, func, literal_column, or_, select
+from sqlalchemy import and_, case, delete, desc, func, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -133,37 +133,64 @@ class InstrumentRepository:
             return 0
         with self.db.session_scope() as session:
             sqlite = session.bind.dialect.name == "sqlite"
-            stmt = (sqlite_insert if sqlite else pg_insert)(Instrument).values(records)
-            update_values = {
-                "market": stmt.excluded.market,
-                "native_code": stmt.excluded.native_code,
-                "name": stmt.excluded.name,
-                "instrument_type": stmt.excluded.instrument_type,
-                "currency": stmt.excluded.currency,
-                "listing_date": stmt.excluded.listing_date,
-                "listing_status": stmt.excluded.listing_status,
-                "source": stmt.excluded.source,
-                "metadata": stmt.excluded.metadata,
-                "updated_at": stmt.excluded.updated_at,
-            }
-            conflict = {"index_elements": [Instrument.code]} if sqlite else {"constraint": "uix_instrument_code"}
-            session.execute(stmt.on_conflict_do_update(**conflict, set_=update_values))
+            grouped: dict[frozenset[str], list[dict[str, Any]]] = {}
+            for values, explicit_fields in records:
+                grouped.setdefault(explicit_fields, []).append(values)
+            for explicit_fields, values in grouped.items():
+                stmt = (sqlite_insert if sqlite else pg_insert)(Instrument).values(values)
+                update_values = {"updated_at": stmt.excluded.updated_at}
+                for field in explicit_fields:
+                    column_name = "metadata" if field == "instrument_metadata" else field
+                    excluded = getattr(stmt.excluded, column_name)
+                    if field == "source":
+                        excluded = case(
+                            (
+                                and_(Instrument.source == "TICKFLOW", stmt.excluded.source == "AKSHARE"),
+                                Instrument.source,
+                            ),
+                            else_=stmt.excluded.source,
+                        )
+                    update_values[column_name] = excluded
+                conflict = (
+                    {"index_elements": [Instrument.code]}
+                    if sqlite
+                    else {"constraint": "uix_instrument_code"}
+                )
+                session.execute(stmt.on_conflict_do_update(**conflict, set_=update_values))
         return len(records)
+
+    def mark_missing_delisted(self, market: str, active_codes: Iterable[str]) -> int:
+        """Mark missing listings only after a complete primary-provider directory fetch."""
+        normalized = str(market).strip().upper()
+        codes = {validate_instrument_code(normalized, code) for code in active_codes}
+        if not codes:
+            raise ValueError("A complete instrument directory must not be empty")
+        with self.db.session_scope() as session:
+            result = session.execute(
+                update(Instrument)
+                .where(
+                    Instrument.market == normalized,
+                    Instrument.listing_status == "ACTIVE",
+                    Instrument.code.not_in(codes),
+                )
+                .values(listing_status="DELISTED", updated_at=utc_now())
+            )
+            return int(result.rowcount or 0)
 
     @staticmethod
     def _normalize_upsert_records(
         symbols: Iterable[dict[str, Any]],
         now: datetime,
-    ) -> list[dict[str, Any]]:
-        records_by_code: dict[str, dict[str, Any]] = {}
+    ) -> list[tuple[dict[str, Any], frozenset[str]]]:
+        records_by_code: dict[str, tuple[dict[str, Any], frozenset[str]]] = {}
         for item in symbols:
             market = str(item["market"]).upper()
             code = validate_instrument_code(market, item["code"])
-            records_by_code[code] = {
+            values = {
                 "market": market,
                 "code": code,
                 "native_code": str(item.get("native_code") or code.rsplit(".", 1)[0]),
-                "name": _normalize_security_name(item["name"]),
+                "name": _normalize_security_name(item.get("name")) or code,
                 "instrument_type": str(item.get("instrument_type") or "STOCK").upper(),
                 "currency": str(item.get("currency") or {"CN": "CNY", "US": "USD", "HK": "HKD"}[market]),
                 "listing_date": item.get("listing_date"),
@@ -173,6 +200,22 @@ class InstrumentRepository:
                 "created_at": now,
                 "updated_at": now,
             }
+            explicit_fields = {
+                field
+                for field in (
+                    "native_code",
+                    "name",
+                    "instrument_type",
+                    "currency",
+                    "listing_date",
+                    "listing_status",
+                    "source",
+                )
+                if field in item and item[field] is not None
+            }
+            if item.get("metadata"):
+                explicit_fields.add("instrument_metadata")
+            records_by_code[code] = (values, frozenset(explicit_fields))
         return list(records_by_code.values())
 
 

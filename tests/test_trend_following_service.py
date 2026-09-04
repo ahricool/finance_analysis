@@ -268,7 +268,7 @@ class MissingActiveRepository(FakeRepository):
                 "market": "US",
                 "trade_date": trade_date - timedelta(days=1),
                 "code": "AAA.US",
-                "universe_key": "us_sp500",
+                "universe_key": "us_trend",
                 "market_regime": "RISK_ON",
                 "market_score": 80.0,
                 "rank": 1,

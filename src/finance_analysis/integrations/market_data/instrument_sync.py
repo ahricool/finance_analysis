@@ -18,16 +18,23 @@ class InstrumentSyncService:
         self.universes = universe_repository or UniverseRepository()
 
     def sync_instruments(self, market: str) -> int:
-        """Upsert a successful provider response; never clear rows on failure."""
+        """Reconcile a complete primary directory; fallback responses only upsert."""
+        primary_complete = False
         try:
             records = self.primary.fetch_instruments(market)
+            if not records:
+                raise ValueError(f"Primary instrument provider returned no {market} securities")
+            primary_complete = True
         except Exception:
             if self.fallback is None:
                 raise
             records = self.fallback.fetch_instruments(market)
         if not records:
             raise ValueError(f"Instrument provider returned no {market} securities")
-        return self.instruments.upsert_symbols(records)
+        upserted = self.instruments.upsert_symbols(records)
+        if primary_complete:
+            self.instruments.mark_missing_delisted(market, (record["code"] for record in records))
+        return upserted
 
     def sync_csi_members(self, provider) -> dict[str, int]:
         fetched = {}

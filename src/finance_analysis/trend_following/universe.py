@@ -1,6 +1,7 @@
 """Database-backed Trend Following universe access."""
 
 from finance_analysis.database.repositories.universe import UniverseResolver
+from finance_analysis.trend_following.config import TREND_UNIVERSE_KEYS
 from finance_analysis.trend_following.models import UniverseMember
 
 
@@ -13,7 +14,7 @@ def normalize_market(market: str) -> str:
 
 def get_universe(market: str, resolver: UniverseResolver | None = None) -> tuple[UniverseMember, ...]:
     normalized = normalize_market(market)
-    instruments = (resolver or UniverseResolver()).resolve_universe(f"{normalized.lower()}_trend")
+    instruments = (resolver or UniverseResolver()).resolve_universe(TREND_UNIVERSE_KEYS[normalized])
     return tuple(UniverseMember(normalized, item.code, item.name) for item in instruments)
 
 

@@ -7,11 +7,10 @@ from finance_analysis.core.time import utc_now
 
 def seed_quant_reference_data(db_manager=None) -> dict:
     """Idempotently seed model definitions and unified universe definitions."""
-    from sqlalchemy import select
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     from finance_analysis.database.models.quant import ModelDefinition
-    from finance_analysis.database.models.universe import Universe, UniverseInclude
+    from finance_analysis.database.models.universe import Universe
     from finance_analysis.database.session import DatabaseManager
     from finance_analysis.quant.markets import DEFAULT_QUANT_UNIVERSES
 
@@ -74,17 +73,6 @@ def seed_quant_reference_data(db_manager=None) -> dict:
                     index_elements=[Universe.key],
                     set_={key: value for key, value in values.items() if key != "key"},
                 )
-            )
-        universe_ids = dict(session.execute(select(Universe.key, Universe.id)).all())
-        for parent, child in (
-            ("cn_trend", "cn_all_a"),
-            (DEFAULT_QUANT_UNIVERSES["CN"], "cn_csi300"),
-            (DEFAULT_QUANT_UNIVERSES["US"], "us_sp500"),
-        ):
-            session.execute(
-                pg_insert(UniverseInclude)
-                .values(universe_id=universe_ids[parent], included_universe_id=universe_ids[child])
-                .on_conflict_do_nothing(constraint="uix_universe_include")
             )
     return {
         "universes": [key for key, *_ in universe_values],

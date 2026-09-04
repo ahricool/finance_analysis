@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from datetime import date
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -9,7 +10,9 @@ from finance_analysis.database.models.universe import Universe, UniverseInclude,
 from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.database.repositories.universe import UniverseCycleError, UniverseRepository, UniverseResolver
 from finance_analysis.integrations.market_data.instrument_sync import InstrumentSyncService
+from finance_analysis.integrations.market_data.models import InstrumentRequest
 from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
+from finance_analysis.integrations.market_data.service import _DatabaseInstrumentProvider
 from finance_analysis.interfaces.api.v1.router import router as api_router
 
 
@@ -76,8 +79,28 @@ def test_instrument_validation_and_upsert_support_all_canonical_markets():
                              ("US", "AAPL.US"), ("HK", "700.HK"))
     ]
     assert repository.upsert_symbols(records) == 5
-    assert repository.upsert_symbols([{**records[0], "name": "贵州茅台"}]) == 1
-    assert repository.get_by_code("600519.SH").name == "贵州茅台"
+    assert repository.upsert_symbols(
+        [
+            {
+                **records[0],
+                "name": "贵州茅台",
+                "instrument_type": "ETF",
+                "listing_date": date(2001, 8, 27),
+                "metadata": {"exchange": "SH"},
+            }
+        ]
+    ) == 1
+    assert repository.upsert_symbols(
+        [{"market": "CN", "code": "600519.SH", "name": "贵州茅台股份", "source": "AKSHARE"}]
+    ) == 1
+    migrated = repository.get_by_code("600519.SH")
+    assert migrated.name == "贵州茅台股份"
+    assert migrated.instrument_type == "ETF"
+    assert migrated.listing_date == date(2001, 8, 27)
+    assert migrated.instrument_metadata == {"exchange": "SH"}
+    assert migrated.source == "TICKFLOW"
+    info = _DatabaseInstrumentProvider(repository).get_instrument_info(InstrumentRequest(symbols=("600519.SH",)))
+    assert info.data["600519.SH"].instrument_type == "etf"
     for item in records:
         assert validate_instrument_code(item["market"], item["code"]) == item["code"]
 
@@ -134,10 +157,14 @@ def test_instrument_sync_uses_fallback_without_deleting_existing_rows():
     class Instruments:
         def __init__(self):
             self.records = None
+            self.delisted = []
 
         def upsert_symbols(self, records):
             self.records = records
             return len(records)
+
+        def mark_missing_delisted(self, market, active_codes):
+            self.delisted.append((market, set(active_codes)))
 
     instruments = Instruments()
     service = InstrumentSyncService(
@@ -145,6 +172,13 @@ def test_instrument_sync_uses_fallback_without_deleting_existing_rows():
     )
     assert service.sync_instruments("CN") == 1
     assert instruments.records[0]["code"] == "600519.SH"
+    assert instruments.delisted == []
+
+    service = InstrumentSyncService(
+        Fallback(), instrument_repository=instruments, universe_repository=object()
+    )
+    assert service.sync_instruments("CN") == 1
+    assert instruments.delisted == [("CN", {"600519.SH"})]
 
 
 def test_csi300_500_1000_sync_replaces_current_members_only_after_all_fetches_succeed():

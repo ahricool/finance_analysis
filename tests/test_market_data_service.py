@@ -870,7 +870,6 @@ def test_sync_mode_preserves_sixty_day_incremental_and_five_year_full_windows(sy
         market_data_refresh_daily_days=60,
         market_data_retention_daily_days=10 * 365,
     )
-    service.unsupported_symbols = []
     service.instrument_names_refreshed = 0
     service.instrument_name_failures = {}
     service.load_scope = lambda: [symbol]
@@ -939,7 +938,6 @@ def test_cn_daily_batch_preserves_per_symbol_router_fallback_and_provider_attrib
     assert results["000002.SZ"].providers == ["akshare"]
     assert all(result.status == "success" for result in results.values())
     service.sync_mode = "incremental"
-    service.unsupported_symbols = []
     summary = service._summarize(
         [SymbolResult(symbol.code, results[symbol.code]) for symbol in symbols],
         len(symbols),

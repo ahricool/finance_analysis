@@ -12,7 +12,6 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 from finance_analysis.stocks.reference_data.stock_index import CSI300_STOCK_INDEX, SP500_STOCK_INDEX
 
 revision: str = "0023_fixed_quant_universes"
@@ -46,12 +45,21 @@ _UNIVERSES = (
 
 
 def _canonical_codes(item: dict) -> tuple[str, ...]:
-    return tuple(
-        sorted(
-            MarketDataScopeResolver.canonical_code(code, item["market"])
-            for code in item["reference"]
+    def canonical_code(code: str) -> str:
+        text = str(code or "").strip().upper()
+        if item["market"] == "US":
+            return text if text.endswith(".US") else f"{text}.US"
+        base = text.removeprefix("SH").removeprefix("SZ")
+        suffix = ""
+        if base.endswith((".SH", ".SS", ".SZ")):
+            suffix, base = base[-3:], base[:-3]
+        is_shanghai = suffix in (".SH", ".SS") or (
+            not suffix and base.startswith(("5", "6", "9"))
         )
-    )
+        exchange = ".SH" if is_shanghai else ".SZ"
+        return f"{base}{exchange}"
+
+    return tuple(sorted(canonical_code(code) for code in item["reference"]))
 
 
 def upgrade() -> None:

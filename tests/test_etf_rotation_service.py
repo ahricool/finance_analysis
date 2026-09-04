@@ -14,9 +14,44 @@ from finance_analysis.database.repositories.etf_rotation import ETFRotationRepos
 from finance_analysis.etf_rotation.readiness import ETFRotationReadinessError
 from finance_analysis.etf_rotation.service import ETFRotationService
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG
-from finance_analysis.etf_rotation.universe import enabled_etfs
+from finance_analysis.etf_rotation.universe import ETFUniverseMember
 
 TRADE_DATE = date(2026, 8, 25)
+
+TEST_ETFS = {
+    "CN": tuple(
+        ETFUniverseMember(
+            f"51{index:04d}.SH",
+            f"测试ETF {index}",
+            "TEST",
+            "TEST",
+            "TEST",
+            market="CN",
+        )
+        for index in range(40)
+    ),
+    "US": tuple(
+        ETFUniverseMember(
+            f"AAA{index}.US",
+            f"Test ETF {index}",
+            "TEST",
+            "TEST",
+            "TEST",
+            market="US",
+        )
+        for index in range(48)
+    )
+    + (ETFUniverseMember("SPY.US", "S&P 500 ETF", "TEST", "TEST", "TEST", market="US"),),
+}
+
+
+def enabled_etfs(market: str = "CN"):
+    return TEST_ETFS[market]
+
+
+@pytest.fixture(autouse=True)
+def _database_universe(monkeypatch):
+    monkeypatch.setattr("finance_analysis.etf_rotation.service.enabled_etfs", enabled_etfs)
 
 
 class FakeRepository:
@@ -57,6 +92,8 @@ class FakeRepository:
             self.coverage_codes = set(_codes)
         selected = set(self.codes[: self.ready_count])
         benchmark = DEFAULT_CONFIG.benchmark_codes[self.market]
+        if not self.benchmark_ready:
+            selected.discard(benchmark)
         return ({benchmark} if self.benchmark_ready and benchmark in set(_codes) else set()) | (selected & set(_codes))
 
     def load_daily_history(self, codes, trade_date):

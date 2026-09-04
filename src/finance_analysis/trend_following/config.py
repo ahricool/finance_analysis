@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+TREND_UNIVERSE_KEYS = {"CN": "cn_trend", "US": "us_trend"}
+
 
 @dataclass(frozen=True)
 class TrendFollowingConfig:
@@ -15,7 +17,7 @@ class TrendFollowingConfig:
         default_factory=lambda: {"CN": "510300.SH", "US": "SPY.US"}
     )
     universe_keys: dict[str, str] = field(
-        default_factory=lambda: {"CN": "cn_csi300_csi500", "US": "us_sp500"}
+        default_factory=lambda: dict(TREND_UNIVERSE_KEYS)
     )
     risk_on_threshold: float = 65.0
     risk_off_threshold: float = 40.0
@@ -70,4 +72,4 @@ class TrendFollowingConfig:
 
 DEFAULT_CONFIG = TrendFollowingConfig()
 
-__all__ = ["DEFAULT_CONFIG", "TrendFollowingConfig"]
+__all__ = ["DEFAULT_CONFIG", "TREND_UNIVERSE_KEYS", "TrendFollowingConfig"]

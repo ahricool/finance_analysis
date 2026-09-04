@@ -42,7 +42,6 @@ class MarketDataSyncService:
         *,
         symbol_repository: InstrumentRepository | None = None,
         stock_repository: StockRepository | None = None,
-        watchlist_repository: Any = None,
         scope_resolver: MarketDataScopeResolver | None = None,
         market_data_service: MarketDataService | None = None,
         config: DataProviderConfig | None = None,
@@ -55,19 +54,16 @@ class MarketDataSyncService:
         self.config = config or get_data_provider_config()
         self.symbol_repository = symbol_repository or InstrumentRepository()
         self.stock_repository = stock_repository or StockRepository()
-        self.scope_resolver = scope_resolver or MarketDataScopeResolver(watchlist_repository)
+        self.scope_resolver = scope_resolver or MarketDataScopeResolver()
         self.market_data = market_data_service or MarketDataService(config=self.config)
         self.now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         self.sync_mode = normalize_sync_mode(sync_mode)
-        self.unsupported_symbols: list[dict[str, str]] = []
         self.instrument_names_refreshed = 0
         self.instrument_name_failures: dict[str, str] = {}
 
     def run(self) -> dict[str, Any]:
         symbols = self.load_scope()
         if not symbols:
-            if self.unsupported_symbols:
-                return self._summarize([], 0)
             raise MarketDataSyncError(f"No enabled daily symbols in the {self.market} synchronization scope")
         full_days = self._refresh_days(self.config.market_data_initial_daily_days)
         daily_days_by_code: dict[str, list[date]] = {}
@@ -113,17 +109,7 @@ class MarketDataSyncService:
     def load_scope(self) -> list[Any]:
         """Return the public shared scope, including calculation dependencies."""
         scope = self.scope_resolver.resolve(self.market)
-        self.unsupported_symbols = list(scope.unsupported_symbols)
-        strategy_records = self.scope_resolver.strategy_dependency_records(self.market)
-        if strategy_records:
-            self.symbol_repository.upsert_symbols(strategy_records)
         records_by_code = {record["code"]: record for record in self.scope_resolver.dependency_records(self.market)}
-        records_by_code.update({record["code"]: record for record in strategy_records})
-        for record in scope.watchlist_records:
-            records_by_code[record["code"]] = {
-                **records_by_code.get(record["code"], {}),
-                **record,
-            }
         records = [records_by_code[code] for code in sorted(records_by_code)]
         if records:
             self.symbol_repository.upsert_symbols(records)
@@ -585,8 +571,6 @@ class MarketDataSyncService:
             "automatic_full_refresh_symbols": sorted(
                 result.code for result in results if result.daily.automatic_full_refresh
             ),
-            "unsupported_symbol_count": len(self.unsupported_symbols),
-            "unsupported_symbols": self.unsupported_symbols,
             "deleted_daily_rows": sum(result.daily.deleted_rows for result in results),
             "failure_count": len(failures),
             "failures": failures[:MAX_RESULT_ITEMS],
