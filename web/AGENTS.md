@@ -10,7 +10,7 @@
 | 构建 | Vite 7，路径别名 `@/` → `src/` |
 | 路由 | `vue-router` 4，`createWebHistory`，页面懒加载 |
 | 状态 | Pinia（会话级）+ `vue-zustand`（跨页业务态） |
-| UI | Tailwind CSS 4 + shadcn-vue（`reka-vega` / Reka UI）+ Lucide |
+| UI | Tailwind CSS 4 + shadcn-vue（preset `reka-vega`，底层 Reka UI）+ Lucide |
 | HTTP | Axios（Cookie 会话）+ 少量 `fetch`（SSE）/ WebSocket |
 | 图表 | ECharts + `vue-echarts` |
 | 包管理 | `pnpm@11.1.3`（以 `package.json` 的 `packageManager` 为准） |
@@ -44,6 +44,7 @@ web/
     components/
       ui/           # shadcn-vue 原子组件（Button、Dialog、Table…）
       app/          # 产品级封装（日期选择、确认框、API 错误条）
+      forms/        # FieldInput / FieldSelect 等表单字段封装
       layout/       # Shell、PageHeader、ModuleTabs
       */            # 业务块：chat、report、stocks、quant、history…
     composables/    # 可复用组合式逻辑
@@ -103,11 +104,15 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 
 要点：
 
+- `/market/holdings`、`StockListPage.vue` 和 `src/api/portfolio.ts` 是前端遗留：当前后端已移除
+  `/api/v1/portfolio/*` 路由及对应表，所以该页面不能完成真实读写。修改此功能前先确认产品方向，
+  不要假设后端契约仍存在。
 - `meta.public === true` 才是公开页（目前只有登录）。
 - `meta.title` 用于 `document.title`（`「页面名 - Finance Analysis」`）。嵌套路由取最近一层有 title 的记录。
 - 市场与研究是**两套并列的 `/market` 子树**，分别由 `MarketPage` 和 `ResearchPage` 提供 `ModuleTabs`。量化、ETF、趋势跟踪走研究树，不要塞进市场 tab。
 - 量化范围用 query `?market=US|CN`。在量化子路由之间跳转时，守卫会保留已有 `market`。读写市场用 `useQuantMarket()`，不要手写丢 query 的 `router.push`。
 - 顶栏菜单数据在 `src/config/mainNav.ts`，和路由表分开维护。加入口时两处都要改，并补 `src/config/__tests__/mainNav.test.ts` 一类断言。
+- `/tasks` 由 `TasksPage` 按角色转到子页：管理员进入 `/tasks/scheduled`，普通用户进入 `/tasks/runs`。
 
 ## 鉴权
 
@@ -133,7 +138,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 页面展示错误用 `getParsedApiError` + `AppApiErrorAlert`，不要把原始 `error.message` 直接丢给用户。分类逻辑在 `src/api/error.ts`（LLM 未配置、本机连不上、上游超时等）。
 
-领域模块：`auth`、`analysis`、`history`、`agent`、`watchList`、`portfolio`、`stocks`、`quant`、`etfRotation`、`trendFollowing`、`calendar`、`tasks`、`realtimeMarket`。
+领域模块：`auth`、`analysis`、`history`、`agent`、`watchList`、`stocks`、`quant`、`etfRotation`、`trendFollowing`、`calendar`、`tasks`、`realtimeMarket`。`portfolio.ts` 仍在源码中，但其后端路由已移除，属于已知前端遗留，不应作为可用 API 范例。
 
 约定：
 
@@ -142,6 +147,12 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 少数接口（如部分 auth JSON）后端已是 camelCase，保持原样，不要双重转换。
 - 问股流式接口 `agentApi.chatStream` 用 `fetch` + `credentials: 'include'`，因为要读 SSE，不走 Axios。
 - 行情推送：`useRealtimeQuotes()` 连 WebSocket，指数退避重连；`4401`/`4403` 视为未授权，停止重连。
+
+## 语言边界
+
+当前没有 `vue-i18n` 或应用级国际化框架，WebUI 文案主要直接写中文。`utils/reportLanguage.ts`
+只处理分析报告内容的中英文展示，不代表全站 i18n；新增普通 UI 文案时不要自行引入另一套翻译机制。
+`index.html` 当前仍为 `lang="en"`，这是已知的文档/可访问性差距，不应据此判断界面主语言。
 
 ## 状态：Pinia 还是 zustand
 
@@ -172,13 +183,14 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 | `useStockIndex` / `useAutocomplete` | 本地股票索引与搜索建议 |
 | `useCurrentTime` | 随展示时区走的当前时间 |
 
-股票代码补全读 `/stocks.index.json`（`public/`，构建后由后端/静态服务器提供），不要为自动完成再打搜索 API。
+股票代码补全读 `/stocks.index.json`：源码位于 `public/stocks.index.json`，构建后也会出现在
+仓库根 `static/stocks.index.json` 并由后端/静态服务器提供。不要为自动完成再打搜索 API。
 
 ## UI 与样式
 
 - 设计令牌在 `src/index.css`：shadcn **neutral** 底，品牌粉 `--brand` 只给 Logo、主 CTA、焦点环和少量选中态。涨跌用 `--market-up`（红）/ `--market-down`（绿），A 股习惯，不要改成绿涨红跌。
 - 原子组件从 `@/components/ui/<name>` 按 `index.ts` 具名导入。变体用 `class-variance-authority`；主按钮默认即 brand。
-- 产品级控件优先复用：`LoadingButton`、`AppConfirmDialog`、`AppDatePicker` / `AppDateTimePicker` / `AppTimePicker`、`AppCombobox`、`AppPagination`、`AppApiErrorAlert`、`FieldInput` / `FieldSelect`。
+- 产品级控件优先复用：`components/app/` 下的 `LoadingButton`、`AppConfirmDialog`、`AppDatePicker` / `AppDateTimePicker` / `AppTimePicker`、`AppCombobox`、`AppPagination`、`AppApiErrorAlert`，以及 `components/forms/` 下的 `FieldInput` / `FieldSelect`。
 - 类名合并用 `cn()`（`@/utils/cn`）。`components.json` 的 `utils` 别名指向这里。
 - 图标用 `lucide-vue-next`。
 - **禁止**给常见可交互元素加原生 `title=`（改用 `Tooltip` 或 `aria-label`）。`tests/ui_governance.test.ts` 会扫全仓。
@@ -206,12 +218,17 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 冒烟测试：
 
-- Playwright 会自己拉后端（`main.py --webui-only`）和前端（`:4173`）。
+- Playwright 会按 `playwright.config.ts` 启动后端和前端（`:4173`）。配置中的
+  `main.py --webui-only --host ... --port ...` 参数目前由兼容入口忽略，后端实际仍读取
+  `SERVER_HOST` / `SERVER_PORT`（默认 `0.0.0.0:8000`）；不要把这些 CLI 参数当作受支持的运行时配置。
+- Playwright 的 webServer 当前用 `npm run dev` 启前端；运行 smoke 时除 pnpm 外也要确保 npm 可用。
 - 需要真登录的用例依赖 `FA_WEB_SMOKE_PASSWORD`（可选 `FA_WEB_SMOKE_EMAIL`）。
+- `FA_WEB_SMOKE_BACKEND_CMD` 可覆盖 Playwright 后端启动命令；`VITE_API_URL` 只覆盖浏览器 API base URL。
 - 布局/控件可用性用例用 `mockAuthenticatedSession` 拦 `/api/v1/**`，不依赖真实数据。
 - 无障碍：关键按钮用可访问名字，不要靠 `title`。
 
-`vite.config.ts` 和 `vitest.config.ts` 都配了测试。日常 `pnpm run test` 走 Vitest 自己的 config（`src/setupTests.ts`）。不要为了本地方便去改代理目标或把测试改成连外网。
+日常 `pnpm run test` 以 `vitest.config.ts` 和 `src/setupTests.ts` 为准；不要依赖
+`vite.config.ts` 中使用 `tests/setup.ts` 的内嵌 test 块。不要为了本地方便去改代理目标或把测试改成连外网。
 
 ## 改功能时的检查清单
 
