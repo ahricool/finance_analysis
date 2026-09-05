@@ -1,6 +1,5 @@
 import type { Component } from 'vue';
 import {
-  Activity,
   BarChart3,
   BrainCircuit,
   CalendarDays,
@@ -31,7 +30,6 @@ export type MainNavItem = NavDestination & {
 export const marketNavItems: NavDestination[] = [
   { key: 'watch-list', label: '自选股', to: '/market/watch-list', icon: Star },
   { key: 'holdings', label: '投资组合', to: '/market/holdings', icon: Wallet },
-  { key: 'signals', label: '信号评估', to: '/market/signals', icon: Activity },
 ];
 
 export const researchNavItems: NavDestination[] = [

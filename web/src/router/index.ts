@@ -16,7 +16,6 @@ const MarketPage = () => import('@/pages/MarketPage.vue');
 const ResearchPage = () => import('@/pages/ResearchPage.vue');
 const MarketWatchListPage = () => import('@/pages/WatchListPage.vue');
 const MarketHoldingsPage = () => import('@/pages/StockListPage.vue');
-const SignalEvaluationPage = () => import('@/pages/market/SignalEvaluationPage.vue');
 const QuantPage = () => import('@/pages/market/QuantPage.vue');
 const QuantDashboardPage = () => import('@/pages/market/quant/QuantDashboardPage.vue');
 const QuantSignalsPage = () => import('@/pages/market/quant/QuantSignalsPage.vue');
@@ -60,12 +59,6 @@ const router = createRouter({
               name: 'market-holdings',
               component: MarketHoldingsPage,
               meta: { title: '投资组合' },
-            },
-            {
-              path: 'signals',
-              name: 'market-signals',
-              component: SignalEvaluationPage,
-              meta: { title: '信号评估' },
             },
           ],
         },

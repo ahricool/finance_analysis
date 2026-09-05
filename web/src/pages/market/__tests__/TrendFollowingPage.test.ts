@@ -94,7 +94,8 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.find('table').classes().join(' ')).toContain('min-w-');
     const reasons = wrapper.get('[data-testid="trend-reasons"]');
     expect(reasons.classes()).toEqual(expect.arrayContaining(['truncate', 'whitespace-nowrap']));
-    expect(reasons.attributes('title')).toBe('candidate thresholds passed');
+    expect(reasons.text()).toBe('candidate thresholds passed');
+    expect(reasons.attributes('tabindex')).toBe('0');
     expect(wrapper.find('[aria-label="查看 Market Score 指标说明与计算公式"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="查看 Alpha 指标说明与计算公式"]').exists()).toBe(true);
   });

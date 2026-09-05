@@ -110,7 +110,7 @@ test.describe('web smoke', () => {
     const initialBox = await headerContent.boundingBox();
     expect(initialBox).not.toBeNull();
     const dropdownItems: Record<string, string[]> = {
-      '市场': ['自选股', '投资组合', '信号评估'],
+      '市场': ['自选股', '投资组合'],
       '研究': ['量化研究', 'ETF动量轮动', '趋势跟踪'],
     };
 
@@ -260,7 +260,6 @@ test.describe('web smoke', () => {
       '分析',
       '自选股',
       '投资组合',
-      '信号评估',
       '量化研究',
       'ETF动量轮动',
       '趋势跟踪',
@@ -291,7 +290,7 @@ test.describe('web smoke', () => {
 
     const marketNav = page.getByTestId('module-tabs');
     await expect(marketNav).toBeVisible();
-    await expect(marketNav.getByRole('tab')).toHaveCount(3);
+    await expect(marketNav.getByRole('tab')).toHaveCount(2);
     await expect(marketNav.locator('[data-reka-scroll-area-viewport]')).toBeVisible();
 
     await page.setViewportSize({ width: 360, height: 800 });

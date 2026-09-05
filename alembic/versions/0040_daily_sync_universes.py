@@ -17,7 +17,6 @@ branch_labels = None
 depends_on = None
 
 UNIVERSES = (
-    ("cn_csi2000", "中证2000", "CN", "INDEX"),
     ("us_nasdaq100", "Nasdaq 100", "US", "INDEX"),
     ("cn_daily_sync", "A股日线同步", "CN", "STRATEGY"),
     ("us_daily_sync", "美股日线同步", "US", "STRATEGY"),
@@ -27,27 +26,12 @@ INCLUDES = (
     ("cn_daily_sync", "cn_csi300"),
     ("cn_daily_sync", "cn_csi500"),
     ("cn_daily_sync", "cn_csi1000"),
-    ("cn_daily_sync", "cn_index_etf"),
     ("us_daily_sync", "us_sp500"),
-    ("us_daily_sync", "us_index_etf"),
-    ("cn_trend", "cn_csi300"),
-    ("cn_trend", "cn_csi500"),
-    ("cn_trend", "cn_csi1000"),
-    ("cn_trend", "cn_csi2000"),
-    ("us_trend", "us_sp500"),
 )
 
 
 def upgrade() -> None:
-    from finance_analysis.database.index_etf import seed_index_etf_universes
-
     connection = op.get_bind()
-    seed_index_etf_universes(connection)
-    connection.execute(sa.text("""
-        DELETE FROM universe_include WHERE universe_id IN (
-            SELECT id FROM universe WHERE key IN ('cn_trend', 'us_trend', 'cn_daily_sync', 'us_daily_sync')
-        )
-    """))
     for key, name, market, universe_type in UNIVERSES:
         connection.execute(
             sa.text("""
@@ -75,4 +59,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    raise NotImplementedError("Retired ETF universes and rebuilt strategy data cannot be restored")
+    connection = op.get_bind()
+    connection.execute(sa.text("""
+        DELETE FROM universe_include
+        WHERE universe_id IN (SELECT id FROM universe WHERE key IN ('cn_daily_sync', 'us_daily_sync'))
+    """))
+    connection.execute(sa.text("""
+        DELETE FROM universe WHERE key IN ('us_nasdaq100', 'cn_daily_sync', 'us_daily_sync')
+    """))

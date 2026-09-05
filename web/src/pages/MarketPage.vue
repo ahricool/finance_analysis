@@ -6,13 +6,12 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { Separator } from '@/components/ui/separator';
 import { marketNavItems } from '@/config/mainNav';
 
-type MarketTab = 'watch-list' | 'holdings' | 'signals';
+type MarketTab = 'watch-list' | 'holdings';
 
 const route = useRoute();
 
 const activeTab = computed<MarketTab>(() => {
   if (route.path.endsWith('/holdings')) return 'holdings';
-  if (route.path.endsWith('/signals')) return 'signals';
   return 'watch-list';
 });
 </script>
@@ -21,7 +20,7 @@ const activeTab = computed<MarketTab>(() => {
   <div class="space-y-6 py-4 sm:py-6">
     <PageHeader
       title="市场"
-      description="管理自选股、投资组合并查看历史信号。"
+      description="管理自选股和投资组合。"
     />
     <ModuleTabs
       :items="marketNavItems"

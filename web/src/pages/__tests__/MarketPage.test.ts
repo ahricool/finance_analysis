@@ -9,7 +9,6 @@ async function mountMarket(path: string) {
     routes: [
       { path: '/market/watch-list', component: { template: '<div>自选内容</div>' } },
       { path: '/market/holdings', component: { template: '<div>持仓内容</div>' } },
-      { path: '/market/signals', component: { template: '<div>信号内容</div>' } },
     ],
   });
   await router.push(path);
@@ -19,16 +18,16 @@ async function mountMarket(path: string) {
 
 describe('MarketPage', () => {
   it('renders market tabs with the current tab selected', async () => {
-    const wrapper = await mountMarket('/market/signals');
+    const wrapper = await mountMarket('/market/holdings');
 
-    expect(wrapper.text()).toContain('管理自选股、投资组合并查看历史信号。');
+    expect(wrapper.text()).toContain('管理自选股和投资组合。');
     expect(wrapper.get('[data-testid="module-tabs"]').attributes('aria-label')).toBe('市场页面导航');
+    expect(wrapper.get('[data-testid="module-tabs"]').findAll('a')).toHaveLength(2);
     expect(wrapper.findAll('a[href="/market/watch-list"]')).toHaveLength(1);
-    expect(wrapper.findAll('a[href="/market/holdings"]')).toHaveLength(1);
-    const signalLinks = wrapper.findAll('a[href="/market/signals"]');
-    expect(signalLinks).toHaveLength(1);
-    expect(signalLinks[0]?.attributes('data-state')).toBe('active');
-    expect(wrapper.text()).toContain('信号内容');
+    const holdingLinks = wrapper.findAll('a[href="/market/holdings"]');
+    expect(holdingLinks).toHaveLength(1);
+    expect(holdingLinks[0]?.attributes('data-state')).toBe('active');
+    expect(wrapper.text()).toContain('持仓内容');
     expect(wrapper.text()).not.toContain('策略回测');
     expect(wrapper.text()).not.toContain('量化研究');
   });

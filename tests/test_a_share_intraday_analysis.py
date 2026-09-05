@@ -678,7 +678,8 @@ def test_summary_and_signal_calendar_written_and_json_serializable():
             "summary": "接近跌停",
         }
     }
-    reporter = _make_reporter(FakeNotifier())
+    notifier = FakeNotifier()
+    reporter = _make_reporter(notifier)
     service = _make_service(data, FakeLLM(verdicts), reporter, ["600519"])
     with patch(f"{SERVICE_MODULE}.is_a_share_trading_day", return_value=True):
         summary = service.run(now=_run_now())
@@ -686,6 +687,9 @@ def test_summary_and_signal_calendar_written_and_json_serializable():
     types = {e["type"] for e in reporter.calendar_entries}  # type: ignore[attr-defined]
     assert "scheduled_a_share_intraday" in types
     assert "a_share_intraday_signal" in types
+    assert summary.notification_count == 1
+    assert len(notifier.calls) == 1
+    assert summary.signal_results[0].notification_sent is True
     # TaskRecord.result must be JSON serializable.
     json.dumps(summary.to_dict())
 

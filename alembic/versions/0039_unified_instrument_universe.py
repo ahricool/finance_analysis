@@ -48,6 +48,8 @@ UNIVERSES = (
     ("us_sp500", "S&P 500", "US", "INDEX"),
     ("cn_trend", "A股趋势跟踪", "CN", "STRATEGY"),
     ("us_trend", "美股趋势跟踪", "US", "STRATEGY"),
+    ("cn_etf_rotation", "A股ETF轮动", "CN", "STRATEGY"),
+    ("us_etf_rotation", "美股ETF轮动", "US", "STRATEGY"),
     ("cn_quant", "A股量化", "CN", "STRATEGY"),
     ("us_quant", "美股量化", "US", "STRATEGY"),
 )

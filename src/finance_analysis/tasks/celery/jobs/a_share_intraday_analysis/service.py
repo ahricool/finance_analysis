@@ -7,7 +7,7 @@ from typing import Any
 
 from finance_analysis.tasks.lifecycle import TaskSkipped
 
-from ..scheduled_support import scheduled_now, sleep_random_start_delay
+from ..scheduled_support import scheduled_now
 
 logger = logging.getLogger(__name__)
 

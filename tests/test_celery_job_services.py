@@ -157,11 +157,10 @@ def test_us_intraday_service_sleeps_and_runs_domain_service():
     assert result["processed_symbols"] == 2
 
 
-def test_a_share_intraday_service_sleeps_and_returns_summary():
+def test_a_share_intraday_service_returns_summary_with_notifications_enabled():
     domain_service = MagicMock()
     domain_service.run.return_value.to_dict.return_value = {"market_regime": "divergent"}
     with (
-        patch.object(a_share_module, "sleep_random_start_delay") as delay,
         patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
         patch(
             "finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.domain_service.AShareIntradayAnalysisService",
@@ -170,7 +169,6 @@ def test_a_share_intraday_service_sleeps_and_returns_summary():
     ):
         result = a_share_module.AShareIntradayAnalysisTaskService().run()
 
-    delay.assert_called_once_with(task_name="A股盘中分析任务")
     domain_service.run.assert_called_once_with(send_notification=True)
     assert result["market_regime"] == "divergent"
 
