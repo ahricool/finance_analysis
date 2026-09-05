@@ -47,7 +47,7 @@ describe('Shell navigation', () => {
     expect(wrapper.get('header').text()).not.toContain('退出登录');
   });
 
-  it.each(['/market/watch-list', '/market/holdings', '/market/signals', '/market/signals/123'])(
+  it.each(['/market/watch-list', '/market/holdings'])(
     'marks market navigation active on %s',
     async (path) => {
       const { wrapper } = await mountShell(path);

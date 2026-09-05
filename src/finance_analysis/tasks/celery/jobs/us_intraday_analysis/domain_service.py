@@ -301,9 +301,6 @@ class USIntradayAnalysisService:
             },
         )
         now = self._run_time or datetime.now(US_EASTERN)
-        persist_signal = getattr(self.reporter, "persist_signal", None)
-        if callable(persist_signal):
-            persist_signal(signal, now)
         signal.calendar_id = self.reporter.record_to_calendar(signal)
         if need_notification:
             severity = _notification_severity(candidate)

@@ -27,7 +27,6 @@ describe('main navigation', () => {
       'analysis',
       'watch-list',
       'holdings',
-      'signals',
       'quant',
       'etf-rotation',
       'trend-following',

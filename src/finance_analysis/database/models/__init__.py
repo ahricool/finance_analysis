@@ -22,7 +22,6 @@ from finance_analysis.database.models.quant import (
     QuantDatasetSnapshot,
     SectorRegimeSnapshot,
 )
-from finance_analysis.database.models.signal import Signal
 from finance_analysis.database.models.stock import (
     Instrument,
     StockDaily,
@@ -60,7 +59,6 @@ __all__ = [
     "ModelSignal",
     "PortfolioRecommendation",
     "PortfolioRecommendationItem",
-    "Signal",
     "StockDaily",
     "TaskRecord",
     "TrendFollowingSnapshot",

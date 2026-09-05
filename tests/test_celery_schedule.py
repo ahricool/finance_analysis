@@ -29,8 +29,6 @@ EXPECTED_JOBS = {
     "market_data_sync_us": ("scheduled_market_data_sync_us", "America/New_York"),
     "analysis_a_share_intraday": ("scheduled_a_share_intraday", "Asia/Shanghai"),
     "analysis_a_share_pre_close_review": ("scheduled_a_share_pre_close_review", "Asia/Shanghai"),
-    "signal_evaluation_cn": ("scheduled_signal_evaluation_cn", "Asia/Shanghai"),
-    "signal_evaluation_us": ("scheduled_signal_evaluation_us", "America/New_York"),
     "quant_daily_pipeline_us": ("scheduled_quant_daily_us", "America/New_York"),
     "quant_daily_pipeline_cn": ("scheduled_quant_daily_cn", "Asia/Shanghai"),
     "etf_rotation_cn": ("scheduled_etf_rotation_cn", "Asia/Shanghai"),
@@ -107,20 +105,6 @@ def test_a_share_pre_close_review_runs_once_at_1430():
         ("14", "30", "mon-fri", "Asia/Shanghai")
     }
     assert "14:30" in definition.schedule_text
-
-
-def test_signal_evaluation_jobs_are_market_scoped_and_independently_scheduled():
-    cn = get_scheduled_task_definition("signal_evaluation_cn")
-    us = get_scheduled_task_definition("signal_evaluation_us")
-
-    assert cn.allow_manual_run is True
-    assert us.allow_manual_run is True
-    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in cn.schedules} == {
-        ("18", "30", "mon-fri", "Asia/Shanghai")
-    }
-    assert {(item.hour, item.minute, item.day_of_week, item.timezone) for item in us.schedules} == {
-        ("18", "30", "mon-fri", "America/New_York")
-    }
 
 
 def test_all_scheduled_celery_tasks_are_registered():

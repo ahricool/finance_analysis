@@ -135,32 +135,6 @@ class AShareIntradayReporter:
             calendar_type=A_SHARE_INTRADAY_SIGNAL_CALENDAR_TYPE,
         )
 
-    def persist_signal(self, signal: AShareSignalResult, snapshot_time: datetime) -> Optional[int]:
-        """Store an intraday signal with minute evaluation enabled."""
-        try:
-            from finance_analysis.analysis.signal_evaluation import build_initial_evaluation
-            from finance_analysis.database.repositories.signal import SignalRepository
-
-            price = float(signal.metrics.get("price") or 0)
-            if price <= 0:
-                raise ValueError("signal price is missing")
-            llm_result = getattr(signal, "llm_result", {}) or {}
-            row = SignalRepository().create(
-                market="CN",
-                code=signal.code,
-                name=signal.name,
-                signal_type=signal.signal_type,
-                signal_version=str(signal.metrics.get("rule_version") or "v1"),
-                direction=str(llm_result.get("direction") or "neutral"),
-                price=price,
-                signal_at=snapshot_time,
-                evaluation=build_initial_evaluation(supports_intraday=True),
-            )
-            return int(row.id)
-        except Exception as exc:
-            logger.warning("写入 A 股 Signal 失败: %s", exc)
-            return None
-
     def _write_calendar(
         self,
         *,

@@ -169,14 +169,12 @@ def test_calendar_categories_cover_known_market_and_news_types():
     assert A_SHARE_CALENDAR_TYPES == {
         "scheduled_a_share_intraday",
         "a_share_intraday_signal",
-        "scheduled_signal_evaluation_cn",
     }
     assert US_CALENDAR_TYPES == {
         "scheduled_us_premarket",
         "scheduled_us_intraday",
         "us_intraday_signal",
         "scheduled_us_postmarket_review",
-        "scheduled_signal_evaluation_us",
     }
     assert NEWS_CALENDAR_TYPES == {"scheduled_us_premarket_news"}
     assert "calendar.type IS NULL" in str(calendar_category_condition("other"))

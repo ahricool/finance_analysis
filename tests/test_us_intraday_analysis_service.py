@@ -777,6 +777,7 @@ def test_service_notification_eligibility_uses_new_final_decisions(decision, exp
     assert signal is not None
     assert signal.need_notification is expected
     assert signal.notification_sent is expected
+    assert signal.calendar_id == 1
 
 
 def test_service_processes_0946_with_15_complete_bars():
