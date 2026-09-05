@@ -30,7 +30,6 @@ A_SHARE_CALENDAR_TYPES = frozenset(
     {
         "scheduled_a_share_intraday",
         "a_share_intraday_signal",
-        "scheduled_signal_evaluation_cn",
     }
 )
 US_CALENDAR_TYPES = frozenset(
@@ -39,7 +38,6 @@ US_CALENDAR_TYPES = frozenset(
         "scheduled_us_intraday",
         "us_intraday_signal",
         "scheduled_us_postmarket_review",
-        "scheduled_signal_evaluation_us",
     }
 )
 NEWS_CALENDAR_TYPES = frozenset({"scheduled_us_premarket_news"})

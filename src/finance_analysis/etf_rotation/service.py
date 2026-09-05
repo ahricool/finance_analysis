@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from finance_analysis.database.repositories.etf_rotation import ETFRotationRepository
+from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.etf_rotation.classifier import classify_state, is_overheated
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG, ETFRotationConfig
 from finance_analysis.etf_rotation.correlation import rolling_correlations
@@ -39,6 +39,7 @@ class ETFRotationService:
         *,
         config: ETFRotationConfig = DEFAULT_CONFIG,
         now: datetime | None = None,
+        market_data: MarketDataService | None = None,
     ) -> None:
         self.market = normalize_etf_market(market)
         repository_market = getattr(repository, "market", self.market)
@@ -49,6 +50,7 @@ class ETFRotationService:
         self.repository = repository or ETFRotationRepository(self.market)
         self.config = config
         self.now = now or datetime.now(timezone.utc)
+        self.market_data = market_data or MarketDataService()
 
     def resolve_trade_date(self, requested: date | None = None) -> date:
         return requested or get_completed_trading_days(self.market.lower(), 1, self.now)[-1]
@@ -93,13 +95,28 @@ class ETFRotationService:
         codes = set(member_by_code)
         benchmark_code = self.config.benchmark_codes[self.market]
         warnings: list[str] = []
-        latest_dates = self.repository.latest_daily_dates(codes | {benchmark_code})
-        if trade_date is None:
-            ready_codes = {code for code in codes if latest_dates.get(code) == effective_date}
-            benchmark_ready = latest_dates.get(benchmark_code) == effective_date
-        else:
-            ready_codes = self.repository.daily_codes_on_date(codes, effective_date)
-            benchmark_ready = benchmark_code in self.repository.daily_codes_on_date({benchmark_code}, effective_date)
+        # A finite ETF universe is independent of the scheduled daily universe.
+        # Remote fallback is calculation-only and never writes stock_daily.
+        fetched = self.market_data.get_daily_bars(
+            sorted(codes | {benchmark_code}),
+            effective_date - timedelta(days=500),
+            effective_date,
+            adjustment="forward",
+            source_policy="remote_only",
+        )
+        histories = {
+            code: [
+                DailyBar(trade_date=bar.trade_date, close=bar.close, volume=bar.volume, amount=bar.amount)
+                for bar in sorted(bars, key=lambda bar: bar.trade_date)
+            ]
+            for code, bars in fetched.data.items()
+        }
+        ready_codes = {
+            code for code in codes if histories.get(code) and histories[code][-1].trade_date == effective_date
+        }
+        benchmark_ready = bool(
+            histories.get(benchmark_code) and histories[benchmark_code][-1].trade_date == effective_date
+        )
         data_coverage, warning = require_minimum_coverage(
             label="daily data",
             available=len(ready_codes),
@@ -119,21 +136,6 @@ class ETFRotationService:
                     warnings=warnings,
                 )
 
-        requested_codes = ready_codes | ({benchmark_code} if benchmark_ready else set())
-        history_rows = self.repository.load_daily_history(requested_codes, effective_date)
-        histories: dict[str, list[DailyBar]] = defaultdict(list)
-        symbol_ids: dict[str, int] = {}
-        for item in history_rows:
-            code = str(item["code"])
-            symbol_ids[code] = int(item["instrument_id"])
-            histories[code].append(
-                DailyBar(
-                    trade_date=item["trade_date"],
-                    close=float(item["close"]),
-                    volume=float(item["volume"]),
-                    amount=None if item["amount"] is None else float(item["amount"]),
-                )
-            )
         benchmark_features = (
             calculate_features(histories.get(benchmark_code, ()), self.config) if benchmark_ready else None
         )
@@ -169,7 +171,6 @@ class ETFRotationService:
                 {
                     "trade_date": effective_date,
                     "market": self.market,
-                    "instrument_id": symbol_ids[code],
                     "code": code,
                     "name": member.name,
                     "category": member.category,

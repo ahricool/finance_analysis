@@ -1,13 +1,15 @@
-"""Database-only orchestration for the independent Trend Following strategy."""
+"""DB-backed stock analysis with a bounded, read-only benchmark fallback."""
 
 from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from ..database.repositories.trend_following import TrendFollowingRepository
+from ..integrations.market_data.service import MarketDataService
+from ..market_review.trading_calendar import get_completed_trading_days, get_trading_days_between
 from .config import DEFAULT_CONFIG, TrendFollowingConfig
 from .features import calculate_features
 from .models import DailyBar
@@ -33,41 +35,40 @@ class TrendFollowingService:
         repository: TrendFollowingRepository | None = None,
         *,
         config: TrendFollowingConfig = DEFAULT_CONFIG,
+        market_data: MarketDataService | None = None,
     ) -> None:
         self.market = normalize_market(market)
         self.repository = repository or TrendFollowingRepository(self.market)
         if normalize_market(getattr(self.repository, "market", self.market)) != self.market:
             raise ValueError("Trend Following repository market does not match service market")
         self.config = config
+        self.market_data = market_data or MarketDataService()
 
     def resolve_trade_date(self, requested: date | None = None) -> date:
         if requested is not None:
             return requested
-        benchmark = self.config.benchmark_codes[self.market]
-        latest = self.repository.latest_daily_date(benchmark)
-        if latest is None:
-            raise ValueError(f"No DB daily data is available for benchmark {benchmark}")
-        return latest
+        return get_completed_trading_days(self.market.lower(), 1)[-1]
 
     def _rebuild_dates(self, requested: date | None) -> list[date]:
-        benchmark = self.config.benchmark_codes[self.market]
         latest_available = self.resolve_trade_date(requested)
         latest_snapshot = self.repository.latest_snapshot_date()
         if requested is None:
             if latest_snapshot is None or latest_snapshot >= latest_available:
                 return [latest_available]
             return [
-                item for item in self.repository.daily_dates_between(benchmark, latest_snapshot, latest_available)
+                item
+                for item in get_trading_days_between(self.market.lower(), latest_snapshot, latest_available)
                 if item > latest_snapshot
             ]
         if latest_snapshot is None or latest_snapshot <= requested:
             if latest_snapshot is None or latest_snapshot == requested:
                 return [requested]
             return [
-                item for item in self.repository.daily_dates_between(benchmark, latest_snapshot, requested)
+                item
+                for item in get_trading_days_between(self.market.lower(), latest_snapshot, requested)
                 if item > latest_snapshot
             ]
-        dates = self.repository.daily_dates_between(benchmark, requested, latest_snapshot)
+        dates = get_trading_days_between(self.market.lower(), requested, latest_snapshot)
         return sorted(set([requested, *dates]))
 
     def run(self, trade_date: date | None = None) -> dict[str, Any]:
@@ -125,23 +126,47 @@ class TrendFollowingService:
         universe_codes = set(member_by_code)
         benchmark_code = self.config.benchmark_codes[self.market]
         universe_key = self.config.universe_keys[self.market]
-        requested_codes = universe_codes | {benchmark_code}
+        requested_codes = universe_codes
         ready_codes = self.repository.daily_codes_on_date(universe_codes, effective_date)
-        benchmark_ready = benchmark_code in self.repository.daily_codes_on_date({benchmark_code}, effective_date)
+        # Never send the all-A stock universe to a remote-fallback query.
+        benchmark_result = self.market_data.get_daily_bars(
+            [benchmark_code],
+            effective_date - timedelta(days=self.config.calendar_lookback_days),
+            effective_date,
+            adjustment="forward",
+            source_policy="remote_only",
+        )
+        benchmark_bars = [
+            DailyBar(
+                trade_date=bar.trade_date,
+                open=bar.open,
+                high=bar.high,
+                low=bar.low,
+                close=bar.close,
+                volume=bar.volume,
+                amount=bar.amount,
+            )
+            for bar in sorted(benchmark_result.data.get(benchmark_code, []), key=lambda bar: bar.trade_date)
+        ]
+        benchmark_ready = bool(benchmark_bars and benchmark_bars[-1].trade_date == effective_date)
         data_coverage = len(ready_codes) / len(universe_codes) if universe_codes else 0.0
         warnings: list[str] = []
         if data_coverage < self.config.minimum_data_coverage:
-            warnings.append(
-                f"daily data coverage {data_coverage:.1%} is below {self.config.minimum_data_coverage:.1%}"
-            )
+            warnings.append(f"daily data coverage {data_coverage:.1%} is below {self.config.minimum_data_coverage:.1%}")
         if not benchmark_ready:
-            warning = f"benchmark {benchmark_code} has no DB daily bar on {effective_date}"
+            warning = f"benchmark {benchmark_code} has no daily bar on {effective_date}"
             logger.warning("market=%s job=trend_following status=incomplete warning=%s", self.market, warning)
             return {
-                "status": "incomplete", "market": self.market, "trade_date": effective_date.isoformat(),
-                "universe_size": len(universe_codes), "data_ready_count": len(ready_codes),
-                "data_coverage": data_coverage, "rankable_count": 0, "snapshot_count": 0,
-                "candidate_count": 0, "warnings": [*warnings, warning],
+                "status": "incomplete",
+                "market": self.market,
+                "trade_date": effective_date.isoformat(),
+                "universe_size": len(universe_codes),
+                "data_ready_count": len(ready_codes),
+                "data_coverage": data_coverage,
+                "rankable_count": 0,
+                "snapshot_count": 0,
+                "candidate_count": 0,
+                "warnings": [*warnings, warning],
             }
         if data_coverage < self.config.minimum_data_coverage:
             logger.warning(
@@ -150,10 +175,16 @@ class TrendFollowingService:
                 data_coverage,
             )
             return {
-                "status": "incomplete", "market": self.market, "trade_date": effective_date.isoformat(),
-                "universe_size": len(universe_codes), "data_ready_count": len(ready_codes),
-                "data_coverage": data_coverage, "rankable_count": 0, "snapshot_count": 0,
-                "candidate_count": 0, "warnings": warnings,
+                "status": "incomplete",
+                "market": self.market,
+                "trade_date": effective_date.isoformat(),
+                "universe_size": len(universe_codes),
+                "data_ready_count": len(ready_codes),
+                "data_coverage": data_coverage,
+                "rankable_count": 0,
+                "snapshot_count": 0,
+                "candidate_count": 0,
+                "warnings": warnings,
             }
 
         rows = self.repository.load_daily_history(
@@ -163,20 +194,32 @@ class TrendFollowingService:
         for item in rows:
             if item["trade_date"] > effective_date:
                 continue
-            histories[str(item["code"])].append(DailyBar(
-                trade_date=item["trade_date"], open=float(item["open"]), high=float(item["high"]),
-                low=float(item["low"]), close=float(item["close"]), volume=float(item["volume"]),
-                amount=None if item["amount"] is None else float(item["amount"]),
-            ))
-        benchmark_bars = histories.get(benchmark_code, [])[-self.config.history_bars :]
+            histories[str(item["code"])].append(
+                DailyBar(
+                    trade_date=item["trade_date"],
+                    open=float(item["open"]),
+                    high=float(item["high"]),
+                    low=float(item["low"]),
+                    close=float(item["close"]),
+                    volume=float(item["volume"]),
+                    amount=None if item["amount"] is None else float(item["amount"]),
+                )
+            )
+        benchmark_bars = benchmark_bars[-self.config.history_bars :]
         if len(benchmark_bars) < self.config.minimum_history_bars:
             warning = f"benchmark {benchmark_code} has insufficient history: {len(benchmark_bars)} bars"
             logger.warning("market=%s job=trend_following status=incomplete warning=%s", self.market, warning)
             return {
-                "status": "incomplete", "market": self.market, "trade_date": effective_date.isoformat(),
-                "universe_size": len(universe_codes), "data_ready_count": len(ready_codes),
-                "data_coverage": data_coverage, "rankable_count": 0, "snapshot_count": 0,
-                "candidate_count": 0, "warnings": [*warnings, warning],
+                "status": "incomplete",
+                "market": self.market,
+                "trade_date": effective_date.isoformat(),
+                "universe_size": len(universe_codes),
+                "data_ready_count": len(ready_codes),
+                "data_coverage": data_coverage,
+                "rankable_count": 0,
+                "snapshot_count": 0,
+                "candidate_count": 0,
+                "warnings": [*warnings, warning],
             }
         benchmark_close = [bar.close for bar in benchmark_bars]
         benchmark_return_5d = benchmark_close[-1] / benchmark_close[-6] - 1.0
@@ -206,15 +249,25 @@ class TrendFollowingService:
                 warning,
             )
             return {
-                "status": "incomplete", "market": self.market, "trade_date": effective_date.isoformat(),
-                "universe_size": len(universe_codes), "data_ready_count": len(ready_codes),
-                "data_coverage": data_coverage, "rankable_count": len(features), "snapshot_count": 0,
-                "candidate_count": 0, "warnings": [*warnings, warning],
+                "status": "incomplete",
+                "market": self.market,
+                "trade_date": effective_date.isoformat(),
+                "universe_size": len(universe_codes),
+                "data_ready_count": len(ready_codes),
+                "data_coverage": data_coverage,
+                "rankable_count": len(features),
+                "snapshot_count": 0,
+                "candidate_count": 0,
+                "warnings": [*warnings, warning],
             }
 
         regime = calculate_market_regime(
-            benchmark_bars, sufficient_histories, market=self.market, trade_date=effective_date,
-            benchmark_code=benchmark_code, config=self.config,
+            benchmark_bars,
+            sufficient_histories,
+            market=self.market,
+            trade_date=effective_date,
+            benchmark_code=benchmark_code,
+            config=self.config,
         )
         ranked = rank_candidates(features, self.config)
         previous = self.repository.previous_snapshots(effective_date, universe_codes)
@@ -253,29 +306,40 @@ class TrendFollowingService:
             previous=previous,
         )
         snapshots: list[dict[str, Any]] = []
-        internal_keys = {"code", "is_candidate", "setup", "trend_score", "rs_score", "breakout_score",
-                         "alpha_score", "score_breakdown", "rank"}
+        internal_keys = {
+            "code",
+            "is_candidate",
+            "setup",
+            "trend_score",
+            "rs_score",
+            "breakout_score",
+            "alpha_score",
+            "score_breakdown",
+            "rank",
+        }
         for row in ranked:
             decision = decisions[row["code"]]
-            snapshots.append({
-                "market": self.market,
-                "trade_date": effective_date,
-                "code": row["code"],
-                "universe_key": universe_key,
-                "market_regime": regime["market_regime"],
-                "market_score": regime["market_score"],
-                "rank": row["rank"],
-                "trend_score": row["trend_score"],
-                "rs_score": row["rs_score"],
-                "breakout_score": row["breakout_score"],
-                "alpha_score": row["alpha_score"],
-                "features": {key: value for key, value in row.items() if key not in internal_keys},
-                "score_breakdown": row["score_breakdown"],
-                "setup": row["setup"],
-                "reference_price": row["reference_price"],
-                "atr": row["atr20"],
-                **decision.to_dict(),
-            })
+            snapshots.append(
+                {
+                    "market": self.market,
+                    "trade_date": effective_date,
+                    "code": row["code"],
+                    "universe_key": universe_key,
+                    "market_regime": regime["market_regime"],
+                    "market_score": regime["market_score"],
+                    "rank": row["rank"],
+                    "trend_score": row["trend_score"],
+                    "rs_score": row["rs_score"],
+                    "breakout_score": row["breakout_score"],
+                    "alpha_score": row["alpha_score"],
+                    "features": {key: value for key, value in row.items() if key not in internal_keys},
+                    "score_breakdown": row["score_breakdown"],
+                    "setup": row["setup"],
+                    "reference_price": row["reference_price"],
+                    "atr": row["atr20"],
+                    **decision.to_dict(),
+                }
+            )
 
         ranked_codes = {str(row["code"]) for row in ranked}
         for code, prior in previous.items():
@@ -287,13 +351,36 @@ class TrendFollowingService:
                 carried = {
                     key: prior.get(key)
                     for key in (
-                        "code", "universe_key", "rank", "trend_score", "rs_score", "breakout_score",
-                        "alpha_score", "features", "score_breakdown", "setup", "state",
-                        "reference_price", "atr", "entry_price", "signal_date", "signal_price",
-                        "last_add_price", "highest_close", "initial_stop", "trailing_stop",
-                        "next_add_price", "exit_level", "units", "opened_at",
-                        "suggested_initial_weight", "suggested_max_weight",
-                        "pending_action", "pending_since", "pending_regime", "pending_max_exposure",
+                        "code",
+                        "universe_key",
+                        "rank",
+                        "trend_score",
+                        "rs_score",
+                        "breakout_score",
+                        "alpha_score",
+                        "features",
+                        "score_breakdown",
+                        "setup",
+                        "state",
+                        "reference_price",
+                        "atr",
+                        "entry_price",
+                        "signal_date",
+                        "signal_price",
+                        "last_add_price",
+                        "highest_close",
+                        "initial_stop",
+                        "trailing_stop",
+                        "next_add_price",
+                        "exit_level",
+                        "units",
+                        "opened_at",
+                        "suggested_initial_weight",
+                        "suggested_max_weight",
+                        "pending_action",
+                        "pending_since",
+                        "pending_regime",
+                        "pending_max_exposure",
                     )
                 }
                 pending = str(prior.get("pending_action") or "")
@@ -311,7 +398,9 @@ class TrendFollowingService:
                         *(
                             [f"pending {pending} preserved until the next executable open"]
                             if preserve_pending
-                            else ([f"pending {pending} expired because execution data was unavailable"] if pending else [])
+                            else (
+                                [f"pending {pending} expired because execution data was unavailable"] if pending else []
+                            )
                         ),
                     ],
                 )
@@ -327,9 +416,18 @@ class TrendFollowingService:
                 expired = {
                     key: prior.get(key)
                     for key in (
-                        "code", "universe_key", "rank", "trend_score", "rs_score", "breakout_score",
-                        "alpha_score", "features", "score_breakdown", "setup",
-                        "reference_price", "atr",
+                        "code",
+                        "universe_key",
+                        "rank",
+                        "trend_score",
+                        "rs_score",
+                        "breakout_score",
+                        "alpha_score",
+                        "features",
+                        "score_breakdown",
+                        "setup",
+                        "reference_price",
+                        "atr",
                     )
                 }
                 expired.update(
@@ -349,9 +447,10 @@ class TrendFollowingService:
                 )
                 snapshots.append(expired)
 
-        counts = {action: sum(item["action"] == action for item in snapshots) for action in (
-            "ENTRY", "ADD", "HOLD", "REDUCE", "EXIT"
-        )}
+        counts = {
+            action: sum(item["action"] == action for item in snapshots)
+            for action in ("ENTRY", "ADD", "HOLD", "REDUCE", "EXIT")
+        }
         summary = {
             "market": self.market,
             "trade_date": effective_date,
@@ -376,12 +475,18 @@ class TrendFollowingService:
         }
         snapshot_count = self.repository.replace_day(effective_date, snapshots, summary)
         result = {
-            "status": "completed", **summary, "trade_date": effective_date.isoformat(),
+            "status": "completed",
+            **summary,
+            "trade_date": effective_date.isoformat(),
             "snapshot_count": snapshot_count,
         }
         logger.info(
             "market=%s job=trend_following trade_date=%s regime=%s snapshots=%s warnings=%s",
-            self.market, effective_date, regime["market_regime"], snapshot_count, warnings,
+            self.market,
+            effective_date,
+            regime["market_regime"],
+            snapshot_count,
+            warnings,
         )
         return result
 

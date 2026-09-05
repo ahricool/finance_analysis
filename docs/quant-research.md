@@ -1,7 +1,7 @@
 # Qlib quant research
 
 The quant module keeps PostgreSQL as its source of truth. It reads canonical
-`market_data_symbol` and canonical forward-adjusted `stock_daily` rows, exports immutable
+`instrument` and canonical forward-adjusted `stock_daily` rows, exports immutable
 snapshots below `QUANT_ARTIFACT_ROOT`, and sends only artifact URIs and versioned
 configuration to the Qlib worker.
 
@@ -49,11 +49,10 @@ and PostgreSQL persistence. Main workers never wait synchronously for Qlib.
 
 ## Business workflow
 
-1. Ensure the market scope and benchmark dependencies have daily bars in
-   PostgreSQL. US uses the fixed `SP500_STOCK_INDEX` constituents; CN uses the
-   fixed `CSI300_STOCK_INDEX` constituents. Watchlists and user-defined pools
-   do not change Quant membership. Benchmark dependencies are synchronized
-   separately and never enter stock ranking.
+1. Ensure the resolved Quant stock universe has daily bars in PostgreSQL. The small
+   benchmark set uses MarketDataService `db_first` without persisting remote bars.
+   Index constituents come from `universe_member`; static Python
+   constituent constants and WatchList do not change Quant or Daily Sync membership.
 2. An administrator opens **量化研究 → 模型运行 → 创建训练任务** and builds or selects an immutable dataset.
    Failed validation prevents training, and dataset progress remains visible in the task center.
 3. The administrator selects one of the two Qlib worker models and creates a model run. Training is asynchronous
@@ -67,7 +66,7 @@ Model training is intentionally on demand rather than a periodic task: every run
 model type, and version. It therefore appears in the Quant model UI and task history, not in the scheduled-task list.
 
 Each market has exactly one supported quant universe. Clients select only the
-market: `US` resolves to `us_sp500` and `CN` resolves to `cn_csi300`. These are
+market: `US` resolves to `us_quant` and `CN` resolves to `cn_quant`. These are
 the only supported Quant universes; Universe CRUD, custom universes, and
 Watchlist merging are not supported. Their codes are resolved directly from
 the checked-in index variables at runtime through `get_quant_universe_codes()`.

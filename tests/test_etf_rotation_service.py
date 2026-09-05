@@ -12,11 +12,28 @@ from sqlalchemy.dialects import postgresql
 
 from finance_analysis.database.repositories.etf_rotation import ETFRotationRepository
 from finance_analysis.etf_rotation.readiness import ETFRotationReadinessError
-from finance_analysis.etf_rotation.service import ETFRotationService
+from finance_analysis.etf_rotation.service import ETFRotationService as RealETFRotationService
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG
 from finance_analysis.etf_rotation.universe import ETFUniverseMember
 
 TRADE_DATE = date(2026, 8, 25)
+
+
+def ETFRotationService(*args, **kwargs):
+    repository = kwargs.get("repository")
+
+    class MarketData:
+        def get_daily_bars(self, codes, start, end, **options):
+            assert options == {"adjustment": "forward", "source_policy": "remote_only"}
+            ready = repository.daily_codes_on_date(set(codes), end)
+            rows = repository.load_daily_history(ready, end)
+            return SimpleNamespace(
+                data={code: [SimpleNamespace(**row) for row in rows if row["code"] == code] for code in ready}
+            )
+
+    kwargs.setdefault("market_data", MarketData())
+    return RealETFRotationService(*args, **kwargs)
+
 
 TEST_ETFS = {
     "CN": tuple(
@@ -289,7 +306,7 @@ def test_us_service_uses_us_calendar_and_shared_engine_functions() -> None:
 def test_cn_service_coverage_scope_excludes_us_etfs() -> None:
     repository = FakeRepository(market="CN")
     ETFRotationService(repository=repository).run(TRADE_DATE)
-    assert repository.coverage_codes == {member.code for member in enabled_etfs("CN")}
+    assert repository.coverage_codes == {member.code for member in enabled_etfs("CN")} | {"510300.SH"}
     assert not any(code.endswith(".US") for code in repository.coverage_codes)
 
 

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import ast
+import logging
+import threading
 from typing import Any
 
 import pandas as pd
@@ -84,16 +87,45 @@ class YFinanceProvider:
     def _download(self, symbols: list[str], *, auto_adjust: bool = False, **kwargs: Any) -> pd.DataFrame:
         import yfinance as yf
 
-        return yf.download(
-            tickers=symbols,
-            progress=False,
-            auto_adjust=auto_adjust,
-            prepost=False,
-            group_by="ticker",
-            multi_level_index=True,
-            threads=self.max_workers,
-            **kwargs,
-        )
+        # yf.download logs per-ticker exceptions instead of raising them. Capture
+        # its per-call summary without losing the existing threaded batch path.
+        errors = {}
+        caller = threading.get_ident()
+
+        class DownloadErrors(logging.Handler):
+            def emit(self, record):
+                message = record.getMessage()
+                if record.thread != caller or record.levelno < logging.ERROR or "]: " not in message:
+                    return
+                tickers, reason = message.split("]: ", 1)
+                try:
+                    failed = ast.literal_eval(tickers + "]")
+                except (ValueError, SyntaxError):
+                    return
+                for ticker in failed:
+                    if ticker in symbols:
+                        errors[ticker] = reason
+
+        logger = logging.getLogger("yfinance")
+        handler = DownloadErrors()
+        logger.addHandler(handler)
+        try:
+            frame = yf.download(
+                tickers=symbols,
+                progress=False,
+                auto_adjust=auto_adjust,
+                prepost=False,
+                group_by="ticker",
+                multi_level_index=True,
+                threads=self.max_workers,
+                **kwargs,
+            )
+        finally:
+            logger.removeHandler(handler)
+        if frame is None:
+            frame = pd.DataFrame()
+        frame.attrs["request_errors"] = errors
+        return frame
 
     def _batches(self, values: list[tuple[str, str]]) -> list[list[tuple[str, str]]]:
         return [values[index : index + self.batch_size] for index in range(0, len(values), self.batch_size)]
@@ -120,10 +152,16 @@ class YFinanceProvider:
                         auto_adjust=True,
                     )
                 except Exception as exc:
-                    errors.update({symbol: str(exc) for symbol, _ in pending})
+                    reason = str(exc) or type(exc).__name__
+                    errors.update({symbol: reason for symbol, _ in pending})
+                    result.request_errors.update({symbol: reason for symbol, _ in pending})
                     continue
                 next_pending: list[tuple[str, str]] = []
                 for symbol, provider_symbol in pending:
+                    error = raw.attrs.get("request_errors", {}).get(provider_symbol)
+                    if error:
+                        result.request_errors[symbol] = error
+                        errors[symbol] = error
                     frame = self._ticker_frame(raw, provider_symbol).reset_index()
                     bars = bars_from_frame(
                         frame,

@@ -55,8 +55,8 @@ const entrySectionDefinitions: ReadonlyArray<{
   title: string;
   description: string;
 }> = [
-  { category: 'a_share', title: 'A股日历', description: 'A股盘中分析、异动信号和信号评价' },
-  { category: 'us', title: '美股日历', description: '美股盘前、盘中信号、收盘复盘和信号评价' },
+  { category: 'a_share', title: 'A股日历', description: 'A股盘中分析、异动信号' },
+  { category: 'us', title: '美股日历', description: '美股盘前、盘中信号、收盘复盘' },
   { category: 'news', title: '新闻日历', description: '盘前新闻抓取、筛选和影响判断' },
   { category: 'other', title: '其他日历', description: '每日全量、财经同步、手动记录及未分类记录' },
 ];
@@ -391,12 +391,10 @@ function entryTypeLabel(type: string | null): string {
   if (type === 'scheduled_market_calendar') return '财经日历同步';
   if (type === 'scheduled_a_share_intraday') return 'A股盘中分析';
   if (type === 'a_share_intraday_signal') return 'A股盘中信号';
-  if (type === 'scheduled_signal_evaluation_cn') return 'A股信号评价';
   if (type === 'scheduled_us_premarket') return '美股盘前';
   if (type === 'scheduled_us_intraday') return '美股盘中分析';
   if (type === 'us_intraday_signal') return '美股盘中信号';
   if (type === 'scheduled_us_postmarket_review') return '美股收盘复盘';
-  if (type === 'scheduled_signal_evaluation_us') return '美股信号评价';
   if (type === 'scheduled_us_premarket_news') return '盘前新闻';
   if (type === 'manual_note') return '手动记录';
   return type || '日历记录';

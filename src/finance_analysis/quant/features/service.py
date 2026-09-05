@@ -9,6 +9,7 @@ import pandas as pd
 
 from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.database.repositories.stock import InstrumentRepository
+from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.quant.exceptions import BenchmarkDataMissingError, FeatureDataMissingError
@@ -22,10 +23,11 @@ from finance_analysis.quant.regime.service import MarketRegimeService
 
 
 class DailyResearchService:
-    def __init__(self, repository=None, symbol_repository=None):
+    def __init__(self, repository=None, symbol_repository=None, market_data=None):
         self.repository = repository or QuantRepository()
         self.symbol_repository = symbol_repository or InstrumentRepository()
         self.config = get_quant_config()
+        self.market_data = market_data or MarketDataService()
 
     def run(self, market: str, universe_key: str, trade_date: date) -> dict:
         market_config = get_quant_market_config(market)
@@ -42,7 +44,7 @@ class DailyResearchService:
         required_benchmarks = set(market_config.benchmark_dependencies)
         loaded = DailyBarLoader(self.repository).load(
             market_config.market,
-            universe_codes | required_benchmarks,
+            universe_codes,
             trade_date - timedelta(days=500),
             trade_date,
         )
@@ -50,6 +52,35 @@ class DailyResearchService:
             code: group.rename(columns={"datetime": "date"}).drop(columns="instrument").reset_index(drop=True)
             for code, group in loaded.frame.groupby("instrument")
         }
+        # Only the small, explicit benchmark set is fetched remotely. Main
+        # universe readiness remains DB-only; these bars are never persisted.
+        benchmarks = self.market_data.get_daily_bars(
+            sorted(required_benchmarks),
+            trade_date - timedelta(days=500),
+            trade_date,
+            adjustment="forward",
+            source_policy="remote_only",
+        )
+        for code, bars in benchmarks.data.items():
+            if bars:
+                frames[code] = (
+                    pd.DataFrame(
+                        [
+                            {
+                                "date": bar.trade_date,
+                                "open": bar.open,
+                                "high": bar.high,
+                                "low": bar.low,
+                                "close": bar.close,
+                                "volume": bar.volume,
+                                "amount": bar.amount,
+                            }
+                            for bar in bars
+                        ]
+                    )
+                    .sort_values("date")
+                    .reset_index(drop=True)
+                )
         missing_benchmarks = {code for code in required_benchmarks if code not in frames or len(frames[code]) < 61}
         if missing_benchmarks:
             raise BenchmarkDataMissingError(

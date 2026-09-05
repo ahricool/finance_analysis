@@ -11,9 +11,7 @@ from finance_analysis.integrations.market_data.config import DataProviderConfig,
 from finance_analysis.integrations.market_data.models import (
     Adjustment,
     BatchBarResult,
-    BatchInstrumentResult,
     DailyBarsRequest,
-    InstrumentInfo,
     Market,
     MarketBar,
 )
@@ -94,6 +92,7 @@ def test_router_falls_back_per_symbol_in_declared_order():
         date(2025, 1, 3),
         adjustment="forward",
         providers=["first", "second"],
+        source_policy="remote_only",
     )
 
     assert result.providers_used == {"600000.SH": "first", "000001.SZ": "second"}
@@ -105,7 +104,12 @@ def test_amount_is_not_estimated_when_provider_omits_it():
     registry = ProviderRegistry()
     registry.register("daily", provider, capabilities={DAILY_BARS})
     result = MarketDataService(registry).get_daily_bars(
-        ["600000.SH"], date(2025, 1, 1), date(2025, 1, 3), adjustment="forward", providers=["daily"]
+        ["600000.SH"],
+        date(2025, 1, 1),
+        date(2025, 1, 3),
+        adjustment="forward",
+        providers=["daily"],
+        source_policy="remote_only",
     )
     bar = result.data["600000.SH"][0]
     assert bar.amount is None
@@ -139,10 +143,79 @@ def test_router_rejects_raw_provider_output_and_falls_back_to_adjusted_provider(
         date(2025, 1, 3),
         adjustment="forward",
         providers=["raw", "adjusted"],
+        source_policy="remote_only",
     )
 
     assert result.providers_used == {"600000.SH": "adjusted"}
     assert result.data["600000.SH"][0].adjustment is Adjustment.FORWARD
+
+
+class _PolicyInstrumentRepository:
+    def __init__(self, code="600000.SH"):
+        self.instrument = SimpleNamespace(id=7, code=code, market="CN")
+
+    def get_by_code(self, code):
+        return self.instrument if code == self.instrument.code else None
+
+
+class _PolicyStockRepository:
+    def __init__(self, rows=()):
+        self.rows = {row.date: row for row in rows}
+        self.upserts = []
+
+    def has_daily_data(self, instrument_id):
+        return bool(self.rows)
+
+    def get_range(self, code, start_date, end_date):
+        del code
+        return [self.rows[day] for day in sorted(self.rows) if start_date <= day <= end_date]
+
+    def upsert_daily(self, instrument_id, rows, source):
+        self.upserts.append((instrument_id, rows, source))
+        return SimpleNamespace(inserted_rows=len(rows), updated_rows=0)
+
+
+def _stored_policy_row(day):
+    instrument = SimpleNamespace(id=7, code="600000.SH", market="CN")
+    return SimpleNamespace(
+        instrument=instrument,
+        date=day,
+        open=10,
+        high=11,
+        low=9,
+        close=10.5,
+        volume=100,
+        amount=1000,
+    )
+
+
+@pytest.mark.parametrize(
+    "local_days",
+    [
+        [date(2025, 1, 2), date(2025, 1, 6)],  # suspension gap
+        [date(2025, 1, 6)],  # newly listed
+        [date(2019, 1, 2)],  # any history, even outside the requested range
+        [],
+    ],
+)
+def test_daily_source_policies_are_read_only_and_use_any_local_history(local_days):
+    provider = _DailyProvider("daily", {"600000.SH": [_bar_on("600000.SH", "daily", date(2025, 1, 6))]})
+    registry = ProviderRegistry()
+    registry.register("daily", provider, capabilities={DAILY_BARS})
+    stocks = _PolicyStockRepository([_stored_policy_row(day) for day in local_days])
+    service = MarketDataService(registry, instrument_repository=_PolicyInstrumentRepository(), stock_repository=stocks)
+    args = (["600000.SH"], date(2020, 1, 1), date(2025, 1, 6))
+    result = service.get_daily_bars(*args, adjustment="forward", providers=["daily"])
+    assert len(provider.requests) == (0 if local_days else 1)
+    assert stocks.upserts == []
+    before = len(provider.requests)
+    service.get_daily_bars(*args, adjustment="forward", source_policy="db_only")
+    assert len(provider.requests) == before
+    service.get_daily_bars(*args, adjustment="forward", providers=["daily"], source_policy="remote_only")
+    assert len(provider.requests) == before + 1
+    assert stocks.upserts == []
+    if local_days == [date(2019, 1, 2)]:
+        assert result.data == {}
 
 
 def test_default_orders_are_explicit_and_not_integer_priorities():
@@ -267,6 +340,72 @@ def test_tickflow_batch_configuration_defaults_and_validation():
         TickFlowFreeProvider(batch_size=101)
     with pytest.raises(ValueError, match="at least 1"):
         TickFlowFreeProvider(max_workers=0)
+
+
+def test_full_batch_keeps_failed_symbol_history_and_distinguishes_normal_empty():
+    day = date(2025, 1, 2)
+    symbols = [SimpleNamespace(id=i, code=code) for i, code in enumerate(("600000.SH", "600001.SH", "600002.SH"), 1)]
+
+    class Klines:
+        def batch(self, codes, **kwargs):
+            assert len(codes) == 1  # still an HTTP-sized batch, isolated on failure
+            if codes == ["600000.SH"]:
+                raise TimeoutError("chunk failed")
+            if codes == ["600002.SH"]:
+                return {codes[0]: pd.DataFrame()}
+            return {
+                codes[0]: pd.DataFrame(
+                    [
+                        {
+                            "date": day,
+                            "open": 10,
+                            "high": 11,
+                            "low": 9,
+                            "close": 10,
+                            "volume": 100,
+                        }
+                    ]
+                )
+            }
+
+    provider = TickFlowFreeProvider(client=SimpleNamespace(klines=Klines()), batch_size=1)
+    fetched = provider.fetch_daily_bars(
+        DailyBarsRequest(tuple(symbol.code for symbol in symbols), day, day, Adjustment.FORWARD)
+    )
+    assert set(fetched.request_errors) == {"600000.SH"}
+    assert fetched.missing_symbols == ["600002.SH"]
+    original = {day: {"date": day, "close": 20}}
+    sync = _batch_sync_service(SimpleNamespace(get_daily_bars=lambda *args, **kwargs: fetched))
+    sync.sync_mode = "full"
+    sync.stock_repository = _DailyUpsertRepository(histories={symbol.id: dict(original) for symbol in symbols})
+    results = sync._sync_daily_batch_groups(symbols, {symbol.code: [day] for symbol in symbols}, full_days=[day])
+    assert results["600000.SH"].status == "failed"
+    assert results["600001.SH"].status == results["600002.SH"].status == "success"
+    assert sync.stock_repository.replaced_symbol_ids == [2]
+    assert sync.stock_repository.upserted_symbol_ids == []
+    assert sync.stock_repository.histories[1] == sync.stock_repository.histories[3] == original
+
+
+def test_yfinance_logged_symbol_exception_survives_retry(monkeypatch):
+    import logging
+    import yfinance
+    from finance_analysis.integrations.market_data.providers.yfinance import YFinanceProvider
+
+    calls = []
+
+    def download(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            logging.getLogger("yfinance").error("['AAPL']: TimeoutError('request failed')")
+            return pd.DataFrame()
+        return pd.DataFrame([{"Date": date(2025, 1, 2), "Open": 10, "High": 11, "Low": 9, "Close": 10, "Volume": 100}])
+
+    monkeypatch.setattr(yfinance, "download", download)
+    result = YFinanceProvider(max_retries=1).fetch_daily_bars(
+        DailyBarsRequest(("AAPL.US",), date(2025, 1, 1), date(2025, 1, 3), Adjustment.FORWARD)
+    )
+    assert "AAPL.US" in result.data
+    assert "TimeoutError" in result.request_errors["AAPL.US"]
 
 
 def test_yfinance_batch_and_retry_configuration_reaches_default_registry():
@@ -461,7 +600,7 @@ def test_us_daily_batches_ten_symbols_with_same_window_in_one_service_call():
     requested_days = [date(2025, 1, 2), date(2025, 1, 3)]
     calls = []
 
-    def get_daily_bars(codes, start_date, end_date, *, adjustment):
+    def get_daily_bars(codes, start_date, end_date, *, adjustment, source_policy=None):
         calls.append((list(codes), start_date, end_date, adjustment))
         return BatchBarResult(
             data={code: [_bar_on(code, "yfinance", day) for day in requested_days] for code in codes},
@@ -487,7 +626,7 @@ def test_us_daily_retries_observed_date_gaps_then_patches_with_tickflow():
     symbols = [SimpleNamespace(id=1, code="AAPL.US"), SimpleNamespace(id=2, code="MSFT.US")]
     calls = []
 
-    def get_daily_bars(codes, start_date, end_date, *, adjustment, providers=None):
+    def get_daily_bars(codes, start_date, end_date, *, adjustment, providers=None, source_policy=None):
         calls.append((tuple(codes), start_date, end_date, providers))
         if providers == ("tickflow",):
             return BatchBarResult(
@@ -536,7 +675,7 @@ def test_cn_daily_groups_initial_and_incremental_windows_into_two_calls():
     days_by_code = {symbol.code: refresh_days if index < 8 else initial_days for index, symbol in enumerate(symbols)}
     calls = []
 
-    def get_daily_bars(codes, start_date, end_date, *, adjustment):
+    def get_daily_bars(codes, start_date, end_date, *, adjustment, source_policy=None):
         calls.append((tuple(codes), start_date, end_date))
         requested = refresh_days if start_date == refresh_days[0] else initial_days
         return BatchBarResult(
@@ -558,7 +697,7 @@ def test_incremental_scale_change_upgrades_only_affected_symbol_to_full_refresh(
     full_days = [date(2020, 1, 2), *incremental_days]
     calls = []
 
-    def get_daily_bars(codes, start_date, end_date, *, adjustment):
+    def get_daily_bars(codes, start_date, end_date, *, adjustment, source_policy=None):
         calls.append((list(codes), start_date, end_date, adjustment))
         days = full_days if start_date == full_days[0] else incremental_days
         closes = [90.0, 90.0, 90.0, 100.0] if days is incremental_days else [90.0] * len(days)
@@ -601,7 +740,7 @@ def test_incremental_ordinary_price_correction_does_not_trigger_full_refresh():
     calls = []
     corrected_closes = [99.0, 100.0, 100.0, 100.0]
 
-    def get_daily_bars(codes, start_date, end_date, *, adjustment):
+    def get_daily_bars(codes, start_date, end_date, *, adjustment, source_policy=None):
         calls.append((list(codes), start_date, end_date, adjustment))
         return BatchBarResult(
             data={
@@ -635,14 +774,14 @@ def test_incremental_ordinary_price_correction_does_not_trigger_full_refresh():
     assert old_day in service.stock_repository.histories[symbol.id]
 
 
-def test_automatic_full_severely_incomplete_fetch_preserves_existing_history():
+def test_automatic_full_request_error_preserves_existing_history():
     symbol = SimpleNamespace(id=1, code="600000.SH")
     full_days = [date(2024, 1, 1) + timedelta(days=offset) for offset in range(100)]
     incremental_days = full_days[-4:]
     returned_full_days = full_days[:10]
     original_history = {day: {"date": day} for day in full_days}
 
-    def get_daily_bars(codes, start_date, end_date, *, adjustment):
+    def get_daily_bars(codes, start_date, end_date, *, adjustment, source_policy=None):
         days = returned_full_days if start_date == full_days[0] else incremental_days
         closes = [90.0] * len(days)
         return BatchBarResult(
@@ -652,6 +791,7 @@ def test_automatic_full_severely_incomplete_fetch_preserves_existing_history():
                 ]
             },
             providers_used={symbol.code: "tickflow"},
+            request_errors={symbol.code: "HTTP 500"} if start_date == full_days[0] else {},
         )
 
     service = _batch_sync_service(SimpleNamespace(get_daily_bars=get_daily_bars))
@@ -667,14 +807,15 @@ def test_automatic_full_severely_incomplete_fetch_preserves_existing_history():
         full_days=full_days,
     )[symbol.code]
 
-    assert result.status == "partial"
+    assert result.status == "failed"
     assert result.automatic_full_refresh is True
-    assert "full_refresh_coverage_insufficient" in result.reason
+    assert "full_fetch_failed" in result.reason
     assert service.stock_repository.replaced_symbol_ids == []
     assert service.stock_repository.histories[symbol.id] == original_history
 
 
-def test_scheduled_full_severely_incomplete_fetch_preserves_existing_history():
+@pytest.mark.parametrize("failure", ["HTTP 400", "HTTP 404", "HTTP 429", "HTTP 500", "timeout", "SDK exception"])
+def test_scheduled_full_request_error_preserves_existing_history(failure):
     symbol = SimpleNamespace(id=1, code="AAPL.US")
     full_days = [date(2024, 1, 1) + timedelta(days=offset) for offset in range(100)]
     returned_days = full_days[:20]
@@ -682,6 +823,7 @@ def test_scheduled_full_severely_incomplete_fetch_preserves_existing_history():
     routed = BatchBarResult(
         data={symbol.code: [_bar_on(symbol.code, "yfinance", day) for day in returned_days]},
         providers_used={symbol.code: "yfinance"},
+        request_errors={symbol.code: failure},
     )
     service = _batch_sync_service(SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed), market="US")
     service.sync_mode = "full"
@@ -693,8 +835,8 @@ def test_scheduled_full_severely_incomplete_fetch_preserves_existing_history():
         full_days=full_days,
     )[symbol.code]
 
-    assert result.status == "partial"
-    assert "full_refresh_coverage_insufficient" in result.reason
+    assert result.status == "failed"
+    assert "full_fetch_failed" in result.reason
     assert service.stock_repository.replaced_symbol_ids == []
     assert service.stock_repository.histories[symbol.id] == original_history
 
@@ -718,8 +860,8 @@ def test_scheduled_full_accepts_existing_history_with_long_suspension_gaps():
         full_days=full_days,
     )[symbol.code]
 
-    assert result.status == "partial"
-    assert result.reason == "missing_trading_days=10"
+    assert result.status == "success"
+    assert result.reason == ""
     assert service.stock_repository.replaced_symbol_ids == [symbol.id]
     assert set(service.stock_repository.histories[symbol.id]) == set(valid_days)
 
@@ -731,7 +873,7 @@ def test_automatic_full_accepts_existing_history_with_long_suspension_gaps():
     incremental_days = valid_days[-4:]
     existing_history = {day: {"date": day} for day in valid_days}
 
-    def get_daily_bars(codes, start_date, end_date, *, adjustment):
+    def get_daily_bars(codes, start_date, end_date, *, adjustment, source_policy=None):
         days = valid_days if start_date == full_days[0] else incremental_days
         return BatchBarResult(
             data={symbol.code: [replace(_bar_on(symbol.code, "tickflow", day), close=90.0) for day in days]},
@@ -751,7 +893,7 @@ def test_automatic_full_accepts_existing_history_with_long_suspension_gaps():
         full_days=full_days,
     )[symbol.code]
 
-    assert result.status == "partial"
+    assert result.status == "success"
     assert result.automatic_full_refresh is True
     assert service.stock_repository.replaced_symbol_ids == [symbol.id]
     assert set(service.stock_repository.histories[symbol.id]) == set(valid_days)
@@ -774,7 +916,7 @@ def test_first_full_sync_accepts_contiguous_history_for_newly_listed_symbol():
         full_days=full_days,
     )[symbol.code]
 
-    assert result.status == "partial"
+    assert result.status == "success"
     assert service.stock_repository.replaced_symbol_ids == [symbol.id]
     assert set(service.stock_repository.histories[symbol.id]) == set(listed_days)
 
@@ -870,8 +1012,6 @@ def test_sync_mode_preserves_sixty_day_incremental_and_five_year_full_windows(sy
         market_data_refresh_daily_days=60,
         market_data_retention_daily_days=10 * 365,
     )
-    service.instrument_names_refreshed = 0
-    service.instrument_name_failures = {}
     service.load_scope = lambda: [symbol]
     requested_windows = []
 
@@ -891,6 +1031,24 @@ def test_sync_mode_preserves_sixty_day_incremental_and_five_year_full_windows(sy
 
     assert requested_windows == expected_windows
     assert summary["sync_mode"] == sync_mode
+
+
+@pytest.mark.parametrize(("market", "key"), [("CN", "cn_daily_sync"), ("US", "us_daily_sync")])
+def test_scheduled_daily_scope_reads_only_the_explicit_daily_sync_universe(market, key):
+    calls = []
+    expected = SimpleNamespace(
+        code="600000.SH" if market == "CN" else "AAPL.US",
+        market=market,
+        listing_status="ACTIVE",
+    )
+    service = MarketDataSyncService.__new__(MarketDataSyncService)
+    service.market = market
+    service.universe_resolver = SimpleNamespace(
+        resolve_universe=lambda requested: calls.append(requested) or (expected,)
+    )
+
+    assert service.load_scope() == [expected]
+    assert calls == [key]
 
 
 def test_cn_daily_batch_preserves_per_symbol_router_fallback_and_provider_attribution():
@@ -980,94 +1138,3 @@ def test_cn_daily_batch_computes_missing_days_and_isolates_symbol_errors():
     assert results["000001.SZ"].fallback_reasons == []
     assert results["000002.SZ"].status == "failed"
     assert results["000002.SZ"].fallback_reasons == ["tickflow: timeout; akshare: empty"]
-
-
-def test_sync_refreshes_instrument_names_in_one_remote_batch():
-    calls = []
-    upserts = []
-    symbols = [
-        SimpleNamespace(
-            code="600000.SH",
-            enabled=True,
-            sync_daily=True,
-        ),
-        SimpleNamespace(
-            code="000001.SZ",
-            enabled=True,
-            sync_daily=True,
-        ),
-    ]
-
-    def get_instrument_info(codes, *, providers):
-        calls.append((list(codes), tuple(providers)))
-        return BatchInstrumentResult(
-            data={
-                "600000.SH": InstrumentInfo(
-                    symbol="600000.SH",
-                    market=Market.CN,
-                    name="浦发银行",
-                    provider="tickflow",
-                    currency="CNY",
-                    exchange="SH",
-                    instrument_type="stock",
-                ),
-                "000001.SZ": InstrumentInfo(
-                    symbol="000001.SZ",
-                    market=Market.CN,
-                    name="平安银行",
-                    provider="tickflow",
-                    currency="CNY",
-                    exchange="SZ",
-                    instrument_type="stock",
-                ),
-            }
-        )
-
-    service = MarketDataSyncService.__new__(MarketDataSyncService)
-    service.market = "CN"
-    service.market_data = SimpleNamespace(
-        registry=SimpleNamespace(names=lambda: ("database", "tickflow", "longbridge", "akshare")),
-        get_instrument_info=get_instrument_info,
-    )
-    service.symbol_repository = SimpleNamespace(upsert_symbols=lambda records: upserts.append(records))
-    service.instrument_names_refreshed = 0
-    service.instrument_name_failures = {}
-
-    service._refresh_instrument_names(symbols)
-
-    assert calls == [
-        (
-            ["600000.SH", "000001.SZ"],
-            ("tickflow", "akshare"),
-        )
-    ]
-    assert [record["name"] for record in upserts[0]] == ["浦发银行", "平安银行"]
-    assert service.instrument_names_refreshed == 2
-
-
-def test_us_sync_instrument_name_refresh_does_not_route_to_longbridge():
-    calls = []
-    symbol = SimpleNamespace(
-        code="AAPL.US",
-        enabled=True,
-        sync_daily=True,
-    )
-
-    def get_instrument_info(codes, *, providers):
-        calls.append((list(codes), tuple(providers)))
-        return BatchInstrumentResult(missing_symbols=list(codes))
-
-    service = MarketDataSyncService.__new__(MarketDataSyncService)
-    service.market = "US"
-    service.market_data = SimpleNamespace(
-        registry=SimpleNamespace(names=lambda: ("database", "tickflow", "longbridge", "yfinance", "akshare")),
-        get_instrument_info=get_instrument_info,
-    )
-    service.symbol_repository = SimpleNamespace(upsert_symbols=lambda *args, **kwargs: None)
-    service.instrument_names_refreshed = 0
-    service.instrument_name_failures = {}
-
-    service._refresh_instrument_names([symbol])
-
-    assert calls == [(["AAPL.US"], ("tickflow", "akshare"))]
-    assert "longbridge" not in calls[0][1]

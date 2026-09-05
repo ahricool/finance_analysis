@@ -9,6 +9,7 @@ import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import { trendIndicatorDescriptions as descriptions } from '@/components/trend-following/indicatorDescriptions';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -772,13 +773,22 @@ onMounted(() => void load(true));
                 <TableCell>{{ price(item.initialStop) }}</TableCell>
                 <TableCell>{{ price(item.nextAddPrice) }}</TableCell><TableCell>{{ price(item.exitLevel) }}</TableCell><TableCell>{{ pct(item.suggestedInitialWeight) }}</TableCell>
                 <TableCell class="w-[480px] min-w-[420px] max-w-[520px]">
-                  <div
-                    class="truncate whitespace-nowrap"
-                    data-testid="trend-reasons"
-                    :title="item.reasons.join('；')"
-                  >
-                    {{ item.reasons.join('；') || '—' }}
-                  </div>
+                  <TooltipProvider :delay-duration="150">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <div
+                          class="truncate whitespace-nowrap"
+                          data-testid="trend-reasons"
+                          tabindex="0"
+                        >
+                          {{ item.reasons.join('；') || '—' }}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent class="max-w-sm whitespace-normal">
+                        {{ item.reasons.join('；') || '—' }}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </TableCell>
               </TableRow>
             </TableBody>

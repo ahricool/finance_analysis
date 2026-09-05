@@ -1,25 +1,67 @@
-"""Security-master and current index-membership synchronization."""
+"""Security-master synchronization with safe primary-directory reconciliation."""
+
+from dataclasses import dataclass
 
 from finance_analysis.database.repositories.stock import InstrumentRepository
-from finance_analysis.database.repositories.universe import UniverseRepository
 
 
 class InstrumentSyncService:
-    def __init__(self, primary=None, fallback=None, instrument_repository=None, universe_repository=None):
+    def __init__(self, primary=None, fallback=None, instrument_repository=None):
         if primary is None:
-            from finance_analysis.integrations.market_data.providers.akshare import AkShareProvider
+            from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
             from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
 
             primary = TickFlowFreeProvider()
-            fallback = fallback or AkShareProvider()
+            # Security Master only. CN daily remains TickFlow; US daily remains
+            # yfinance -> TickFlow. Never wire Longbridge into daily history.
+            fallback = fallback or LongbridgeProvider()
         self.primary = primary
         self.fallback = fallback
         self.instruments = instrument_repository or InstrumentRepository()
-        self.universes = universe_repository or UniverseRepository()
+
+    def ensure_instruments(self, codes: set[str]) -> None:
+        """Resolve missing identities from security providers, never index records."""
+        from finance_analysis.integrations.market_data.models import InstrumentRequest
+
+        missing = codes - self.instruments.existing_codes(codes)
+        for provider in (self.primary, self.fallback):
+            if not missing or provider is None:
+                continue
+            try:
+                result = provider.get_instrument_info(InstrumentRequest(tuple(sorted(missing))))
+            except Exception:
+                continue
+            records = []
+            for code in missing:
+                info = result.data.get(code)
+                kind = str(info.instrument_type or "").upper() if info else ""
+                if kind not in {"STOCK", "ETF", "INDEX"}:
+                    continue
+                records.append(
+                    {
+                        "market": info.market.value,
+                        "code": code,
+                        "native_code": code.rsplit(".", 1)[0],
+                        "name": info.name,
+                        "instrument_type": kind,
+                        "currency": info.currency,
+                        "source": info.provider.upper(),
+                    }
+                )
+            if records:
+                self.instruments.upsert_symbols(records)
+                missing -= {record["code"] for record in records}
+        if missing:
+            raise ValueError(f"Security Master metadata unavailable: {sorted(missing)}")
 
     def sync_instruments(self, market: str) -> int:
-        """Reconcile a complete primary directory; fallback responses only upsert."""
+        return self.sync_instruments_detailed(market).fetched
+
+    def sync_instruments_detailed(self, market: str) -> "InstrumentSyncResult":
+        """Reconcile a complete primary directory; fallback responses only insert missing securities."""
         primary_complete = False
+        provider = str(getattr(self.primary, "name", "primary")).upper()
+        fallback_used = False
         try:
             records = self.primary.fetch_instruments(market)
             if not records:
@@ -29,24 +71,36 @@ class InstrumentSyncService:
             if self.fallback is None:
                 raise
             records = self.fallback.fetch_instruments(market)
+            provider = str(getattr(self.fallback, "name", "fallback")).upper()
+            fallback_used = True
         if not records:
             raise ValueError(f"Instrument provider returned no {market} securities")
-        upserted = self.instruments.upsert_symbols(records)
+        codes = {record["code"] for record in records}
+        existing = self.instruments.existing_codes(codes)
+        writable_records = [record for record in records if record["code"] not in existing] if fallback_used else records
+        if writable_records:
+            self.instruments.upsert_symbols(writable_records)
+        delisted = 0
         if primary_complete:
-            self.instruments.mark_missing_delisted(market, (record["code"] for record in records))
-        return upserted
-
-    def sync_csi_members(self, provider) -> dict[str, int]:
-        fetched = {}
-        for index_code, universe_key in (("000300", "cn_csi300"), ("000905", "cn_csi500"), ("000852", "cn_csi1000")):
-            members = provider.fetch_index_members(index_code)
-            if not members:
-                raise ValueError(f"Index provider returned no members for {index_code}")
-            fetched[universe_key] = members
-        return {
-            key: self.universes.replace_members(key, members, "AKSHARE")
-            for key, members in fetched.items()
-        }
+            delisted = self.instruments.mark_missing_delisted(market, codes)
+        return InstrumentSyncResult(
+            fetched=len(records),
+            inserted=len(codes - existing),
+            updated=0 if fallback_used else len(codes & existing),
+            delisted=delisted,
+            provider=provider,
+            fallback_used=fallback_used,
+        )
 
 
-__all__ = ["InstrumentSyncService"]
+@dataclass(frozen=True)
+class InstrumentSyncResult:
+    fetched: int
+    inserted: int
+    updated: int
+    delisted: int
+    provider: str
+    fallback_used: bool
+
+
+__all__ = ["InstrumentSyncResult", "InstrumentSyncService"]

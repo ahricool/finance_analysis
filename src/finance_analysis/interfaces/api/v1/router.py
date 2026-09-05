@@ -21,7 +21,6 @@ from finance_analysis.interfaces.api.v1.endpoints import (
     history,
     market_data,
     quant,
-    signals,
     stocks,
     tasks,
     trend_following,
@@ -72,12 +71,6 @@ router.include_router(
     tasks.router,
     prefix="/tasks",
     tags=["Tasks"],
-)
-
-router.include_router(
-    signals.router,
-    prefix="/signals",
-    tags=["Signals"],
 )
 
 router.include_router(quant.router, prefix="/quant", tags=["Quant"])

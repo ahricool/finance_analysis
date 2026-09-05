@@ -254,10 +254,11 @@ def test_lock_ids_are_stable_and_readable() -> None:
         "CN_INTRADAY_ANALYSIS": 3,
         "US_INTRADAY_ANALYSIS": 4,
         "STOCK_ANALYSIS": 5,
+        "REFERENCE_DATA_SYNC": 6,
     }
 
 
-def test_lock_declarations_are_exactly_four_nonblocking_scheduled_and_one_blocking_stock() -> None:
+def test_lock_declarations_are_exactly_five_nonblocking_scheduled_and_one_blocking_stock() -> None:
     from finance_analysis.tasks.celery.app import celery_app
     from finance_analysis.tasks.celery.metadata import STOCK_ANALYSIS_TASK
     from finance_analysis.tasks.celery.schedule import get_scheduled_task_definitions
@@ -274,7 +275,8 @@ def test_lock_declarations_are_exactly_four_nonblocking_scheduled_and_one_blocki
             )
 
     assert locked == {
-        "market_data_sync_cn_hk": (TaskAdvisoryLockId.CN_DAILY_MARKET_DATA_SYNC, False),
+        "reference_data_sync": (TaskAdvisoryLockId.REFERENCE_DATA_SYNC, False),
+        "market_data_sync_cn": (TaskAdvisoryLockId.CN_DAILY_MARKET_DATA_SYNC, False),
         "market_data_sync_us": (TaskAdvisoryLockId.US_DAILY_MARKET_DATA_SYNC, False),
         "analysis_a_share_intraday": (TaskAdvisoryLockId.CN_INTRADAY_ANALYSIS, False),
         "analysis_us_intraday": (TaskAdvisoryLockId.US_INTRADAY_ANALYSIS, False),

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from datetime import date, datetime
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 import pandas as pd
 
-from finance_analysis.database.repositories.stock import InstrumentRepository
+from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository
 
 from .config import DataProviderConfig, get_data_provider_config
 from .models import (
@@ -20,6 +21,7 @@ from .models import (
     InstrumentInfo,
     InstrumentRequest,
     Market,
+    MarketBar,
     MarketIndex,
     MarketStats,
     MinuteBarsRequest,
@@ -41,6 +43,8 @@ from .registry import (
     ProviderRegistry,
 )
 from .router import MarketDataRouter
+
+logger = logging.getLogger(__name__)
 
 
 class _DatabaseInstrumentProvider:
@@ -242,6 +246,7 @@ class MarketDataService:
         *,
         config: DataProviderConfig | None = None,
         instrument_repository: InstrumentRepository | None = None,
+        stock_repository: StockRepository | None = None,
         streaming_source: Any = None,
     ) -> None:
         self.config = config or get_data_provider_config()
@@ -251,6 +256,8 @@ class MarketDataService:
             streaming_source=streaming_source,
         )
         self.router = MarketDataRouter(self.registry)
+        self.instrument_repository = instrument_repository
+        self.stock_repository = stock_repository
 
     @staticmethod
     def _canonical_symbols(symbols: Iterable[str]) -> tuple[str, ...]:
@@ -264,15 +271,81 @@ class MarketDataService:
         *,
         adjustment: Adjustment | str,
         providers: Iterable[str] | None = None,
+        source_policy: Literal["db_only", "db_first", "remote_only"] = "db_first",
     ) -> BatchBarResult:
+        """Prefer existing local history, otherwise return remote bars without writes.
+
+        This is DB preferred / remote fallback, not a read-through cache. Only
+        explicit maintenance jobs persist daily history. Local existence is not
+        a trading-calendar completeness claim (suspensions and IPOs have gaps).
+        """
         canonical = self._canonical_symbols(symbols)
         requested_adjustment = adjustment_from_value(adjustment)
         if requested_adjustment is not Adjustment.FORWARD:
             raise ValueError("Daily bars are stored and served only as forward-adjusted prices")
-        return self.router.route_daily(
-            DailyBarsRequest(canonical, start_date, end_date, Adjustment.FORWARD),
-            providers,
+        if source_policy not in {"db_only", "db_first", "remote_only"}:
+            raise ValueError("source_policy must be db_only, db_first, or remote_only")
+        if not canonical:
+            return BatchBarResult()
+        request = DailyBarsRequest(canonical, start_date, end_date, Adjustment.FORWARD)
+        if source_policy == "remote_only":
+            return self.router.route_daily(request, providers)
+        result, missing = self._load_persisted_daily(request)
+        if missing and source_policy == "db_first":
+            remote = self.router.route_daily(replace(request, symbols=tuple(missing)), providers)
+            result.data.update(remote.data)
+            result.providers_used.update(remote.providers_used)
+            result.failed_symbols.update(remote.failed_symbols)
+            result.request_errors.update(remote.request_errors)
+            result.missing_symbols.extend(remote.missing_symbols)
+        elif missing:
+            result.missing_symbols.extend(missing)
+        return result
+
+    def _repositories(self) -> tuple[InstrumentRepository, StockRepository]:
+        if self.instrument_repository is None:
+            self.instrument_repository = InstrumentRepository()
+        if self.stock_repository is None:
+            self.stock_repository = StockRepository()
+        return self.instrument_repository, self.stock_repository
+
+    @staticmethod
+    def _stored_bar(row: Any) -> MarketBar:
+        market = market_from_value(row.instrument.market)
+        return MarketBar(
+            symbol=row.instrument.code,
+            market=market,
+            interval="1d",
+            trade_date=row.date,
+            bar_time=None,
+            open=float(row.open),
+            high=float(row.high),
+            low=float(row.low),
+            close=float(row.close),
+            volume=int(row.volume),
+            amount=None if row.amount is None else float(row.amount),
+            currency=currency_for_market(market),
+            adjustment=Adjustment.FORWARD,
+            provider="database",
         )
+
+    def _load_persisted_daily(self, request: DailyBarsRequest) -> tuple[BatchBarResult, list[str]]:
+        instruments, stocks = self._repositories()
+        result = BatchBarResult()
+        missing: list[str] = []
+        for code in request.symbols:
+            instrument = instruments.get_by_code(code)
+            if instrument is None or not stocks.has_daily_data(instrument.id):
+                missing.append(code)
+                continue
+            rows = stocks.get_range(code, request.start_date, request.end_date)
+            bars = [self._stored_bar(row) for row in rows]
+            if bars:
+                result.data[code] = bars
+                result.providers_used[code] = "database"
+            else:
+                result.missing_symbols.append(code)
+        return result, missing
 
     def get_minute_bars(
         self,

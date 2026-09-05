@@ -94,7 +94,6 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 | `/chat` | `chat` | 问股 Agent |
 | `/market/watch-list` | `market-watch-list` | 自选股 |
 | `/market/holdings` | `market-holdings` | 投资组合 |
-| `/market/signals` | `market-signals` | 信号评估 |
 | `/market/quant` 及子路径 | `market-quant*` | 量化研究（总览 / 选股 / 数据集 / 模型 / 组合） |
 | `/market/etf-rotation` | `market-etf-rotation` | ETF 动量轮动 |
 | `/market/trend-following` | `market-trend-following` | 趋势跟踪 |
@@ -134,7 +133,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 页面展示错误用 `getParsedApiError` + `AppApiErrorAlert`，不要把原始 `error.message` 直接丢给用户。分类逻辑在 `src/api/error.ts`（LLM 未配置、本机连不上、上游超时等）。
 
-领域模块：`auth`、`analysis`、`history`、`agent`、`watchList`、`portfolio`、`stocks`、`signals`、`quant`、`etfRotation`、`trendFollowing`、`calendar`、`tasks`、`realtimeMarket`。
+领域模块：`auth`、`analysis`、`history`、`agent`、`watchList`、`portfolio`、`stocks`、`quant`、`etfRotation`、`trendFollowing`、`calendar`、`tasks`、`realtimeMarket`。
 
 约定：
 

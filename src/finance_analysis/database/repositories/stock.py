@@ -68,6 +68,13 @@ class InstrumentRepository:
             ).all()
         return {str(code): normalized for code, name in rows if (normalized := _normalize_security_name(name))}
 
+    def existing_codes(self, codes: Iterable[str]) -> set[str]:
+        canonical_codes = sorted({str(code).strip().upper() for code in codes if str(code).strip()})
+        if not canonical_codes:
+            return set()
+        with self.db.get_session() as session:
+            return set(session.execute(select(Instrument.code).where(Instrument.code.in_(canonical_codes))).scalars())
+
     def list_enabled_daily_symbols(self, market: str) -> list[Instrument]:
         return self.list_enabled_symbols(market)
 

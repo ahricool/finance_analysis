@@ -8,27 +8,23 @@ from datetime import date, datetime, timedelta, timezone
 from statistics import median
 from typing import Any
 
-from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository
+from finance_analysis.database.repositories.stock import StockRepository
+from finance_analysis.database.repositories.universe import UniverseResolver
 from finance_analysis.integrations.market_data.config import (
     DataProviderConfig,
     get_data_provider_config,
-    provider_order,
 )
 from finance_analysis.integrations.market_data.models import BatchBarResult
-from finance_analysis.integrations.market_data.registry import INSTRUMENT_INFO
 from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, get_trading_days_between
-from finance_analysis.stocks.market_scope import MarketDataScopeResolver
 
 from .models import DailyResult, SymbolResult, normalize_sync_mode
 
 logger = logging.getLogger(__name__)
 MAX_RESULT_ITEMS = 20
-REMOTE_INSTRUMENT_PROVIDERS = frozenset({"tickflow", "akshare"})
 ADJUSTMENT_SCALE_MIN_DATES = 3
 ADJUSTMENT_SCALE_MIN_CHANGE = 0.003
 ADJUSTMENT_SCALE_MAX_DRIFT = 0.005
-FULL_REFRESH_MIN_COVERAGE = 0.95
 
 
 class MarketDataSyncError(RuntimeError):
@@ -40,9 +36,8 @@ class MarketDataSyncService:
         self,
         market: str,
         *,
-        symbol_repository: InstrumentRepository | None = None,
         stock_repository: StockRepository | None = None,
-        scope_resolver: MarketDataScopeResolver | None = None,
+        universe_resolver: UniverseResolver | None = None,
         market_data_service: MarketDataService | None = None,
         config: DataProviderConfig | None = None,
         now: datetime | None = None,
@@ -52,14 +47,11 @@ class MarketDataSyncService:
         if self.market not in {"CN", "US"}:
             raise ValueError(f"Unsupported market={market}; market_data_sync currently supports CN or US")
         self.config = config or get_data_provider_config()
-        self.symbol_repository = symbol_repository or InstrumentRepository()
         self.stock_repository = stock_repository or StockRepository()
-        self.scope_resolver = scope_resolver or MarketDataScopeResolver()
+        self.universe_resolver = universe_resolver or UniverseResolver()
         self.market_data = market_data_service or MarketDataService(config=self.config)
         self.now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         self.sync_mode = normalize_sync_mode(sync_mode)
-        self.instrument_names_refreshed = 0
-        self.instrument_name_failures: dict[str, str] = {}
 
     def run(self) -> dict[str, Any]:
         symbols = self.load_scope()
@@ -96,86 +88,18 @@ class MarketDataSyncService:
             results,
             len(symbols),
         )
-        summary.update(
-            {
-                "instrument_names_refreshed": self.instrument_names_refreshed,
-                "instrument_name_failure_count": len(self.instrument_name_failures),
-            }
-        )
         if summary["success_symbols"] + summary["partial_symbols"] == 0:
             raise MarketDataSyncError(f"All {len(symbols)} {self.market} symbols failed; see task log")
         return summary
 
     def load_scope(self) -> list[Any]:
-        """Return the public shared scope, including calculation dependencies."""
-        scope = self.scope_resolver.resolve(self.market)
-        records_by_code = {record["code"]: record for record in self.scope_resolver.dependency_records(self.market)}
-        records = [records_by_code[code] for code in sorted(records_by_code)]
-        if records:
-            self.symbol_repository.upsert_symbols(records)
-        symbols = self.symbol_repository.list_enabled_daily_by_codes(
-            self.market,
-            scope.synchronization_codes,
-        )
-        self._refresh_instrument_names(symbols)
-        return self.symbol_repository.list_enabled_daily_by_codes(
-            self.market,
-            scope.synchronization_codes,
-        )
-
-    def _refresh_instrument_names(self, symbols: list[Any]) -> None:
-        """Refresh persisted names from remote instrument metadata in one routed batch."""
-        fetch = getattr(self.market_data, "get_instrument_info", None)
-        registry = getattr(self.market_data, "registry", None)
-        if not symbols or not callable(fetch) or registry is None:
-            return
-        available = set(registry.names())
-        providers = tuple(
-            name
-            for name in provider_order(self.market, INSTRUMENT_INFO)
-            if name in REMOTE_INSTRUMENT_PROVIDERS and name in available
-        )
-        if not providers:
-            return
-        try:
-            result = fetch([symbol.code for symbol in symbols], providers=providers)
-        except Exception as exc:
-            logger.warning("market=%s instrument name refresh failed: %s", self.market, exc)
-            self.instrument_name_failures = {symbol.code: str(exc) for symbol in symbols}
-            return
-        by_code = {symbol.code: symbol for symbol in symbols}
-        records = []
-        for code, info in result.data.items():
-            current = by_code.get(code)
-            if current is None or not str(info.name or "").strip():
-                continue
-            records.append(
-                {
-                    "market": self.market,
-                    "code": code,
-                    "name": info.name,
-                    "instrument_type": getattr(current, "instrument_type", "STOCK"),
-                    "currency": getattr(current, "currency", None),
-                    "listing_date": getattr(current, "listing_date", None),
-                    "listing_status": getattr(current, "listing_status", "ACTIVE"),
-                    "source": info.provider,
-                }
-            )
-        if records:
-            self.symbol_repository.upsert_symbols(records)
-        self.instrument_names_refreshed = len(records)
-        self.instrument_name_failures = {
-            **{code: "instrument name not found" for code in result.missing_symbols},
-            **result.failed_symbols,
-        }
-        if result.missing_symbols or result.failed_symbols:
-            logger.warning(
-                "market=%s instrument name refresh partial refreshed=%s missing=%s failed=%s",
-                self.market,
-                len(records),
-                len(result.missing_symbols),
-                len(result.failed_symbols),
-            )
+        """Resolve the explicit system-owned daily synchronization universe."""
+        key = "cn_daily_sync" if self.market == "CN" else "us_daily_sync"
+        return [
+            instrument
+            for instrument in self.universe_resolver.resolve_universe(key)
+            if instrument.market == self.market and instrument.listing_status == "ACTIVE"
+        ]
 
     def _refresh_days(self, natural_days: int) -> list[date]:
         end = get_completed_trading_days(self.market.lower(), 1, self.now)[-1]
@@ -189,11 +113,14 @@ class MarketDataSyncService:
                 min(requested_days),
                 max(requested_days),
                 adjustment="forward",
+                source_policy="remote_only",
             )
         except Exception as exc:
             logger.exception("market=%s code=%s daily fetch failed", self.market, symbol.code)
             return DailyResult("failed", reason=str(exc))
-        return self._persist_daily_result(symbol, requested_days, routed)
+        return self._persist_daily_result(
+            symbol, requested_days, routed, replace_history=getattr(self, "sync_mode", "incremental") == "full"
+        )
 
     def _sync_daily_batch_groups(
         self,
@@ -232,6 +159,7 @@ class MarketDataSyncService:
                     start_date,
                     end_date,
                     adjustment="forward",
+                    source_policy="remote_only",
                 )
             except Exception as exc:
                 logger.exception(
@@ -241,8 +169,8 @@ class MarketDataSyncService:
                     start_date,
                     end_date,
                 )
-                routed = BatchBarResult(failed_symbols={code: str(exc) for code in codes})
-            if self.market == "US":
+                routed = BatchBarResult(failed_symbols={code: str(exc) or type(exc).__name__ for code in codes})
+            if self.market == "US" and not replace_fetched_history:
                 routed = self._recover_us_daily_gaps(
                     routed,
                     {symbol.code: daily_days_by_code[symbol.code] for symbol in grouped_symbols},
@@ -278,6 +206,7 @@ class MarketDataSyncService:
                     min(full_days),
                     max(full_days),
                     adjustment="forward",
+                    source_policy="remote_only",
                 )
             except Exception as exc:
                 logger.exception(
@@ -285,12 +214,7 @@ class MarketDataSyncService:
                     self.market,
                     len(codes),
                 )
-                routed = BatchBarResult(failed_symbols={code: str(exc) for code in codes})
-            if self.market == "US":
-                routed = self._recover_us_daily_gaps(
-                    routed,
-                    {symbol.code: full_days for symbol in automatic_full_symbols},
-                )
+                routed = BatchBarResult(failed_symbols={code: str(exc) or type(exc).__name__ for code in codes})
             for symbol in automatic_full_symbols:
                 result = self._persist_daily_result(symbol, full_days, routed, replace_history=True)
                 result.automatic_full_refresh = True
@@ -323,6 +247,8 @@ class MarketDataSyncService:
         missing_by_code: dict[str, set[date]],
     ) -> int:
         added = 0
+        routed.request_errors.update(patch.request_errors)
+        routed.request_errors.update(patch.failed_symbols)
         for code, missing_dates in missing_by_code.items():
             existing = {bar.trade_date: bar for bar in routed.data.get(code, [])}
             for bar in patch.data.get(code, []):
@@ -368,6 +294,7 @@ class MarketDataSyncService:
                     max(missing_dates),
                     adjustment="forward",
                     providers=("yfinance",),
+                    source_policy="remote_only",
                 )
             except Exception:
                 logger.exception(
@@ -392,6 +319,7 @@ class MarketDataSyncService:
                 max(missing_dates),
                 adjustment="forward",
                 providers=("tickflow",),
+                source_policy="remote_only",
             )
         except Exception:
             logger.exception("market=US data_type=daily action=fallback_gaps provider=tickflow failed")
@@ -428,12 +356,15 @@ class MarketDataSyncService:
         replace_history: bool = False,
     ) -> DailyResult:
         try:
+            failure = routed.request_errors.get(symbol.code) or routed.failed_symbols.get(symbol.code)
+            if replace_history and failure:
+                return DailyResult("failed", reason=f"full_fetch_failed: {failure}", fallback_reasons=[failure])
             bars = routed.data.get(symbol.code, [])
             if not bars:
                 failure = routed.failed_symbols.get(symbol.code)
                 return DailyResult(
-                    "failed",
-                    reason="all daily providers failed",
+                    "failed" if failure else "success",
+                    reason="all daily providers failed" if failure else "provider returned empty history; unchanged",
                     fallback_reasons=[failure] if failure else [],
                 )
             provider = routed.providers_used.get(symbol.code)
@@ -443,28 +374,6 @@ class MarketDataSyncService:
             source = providers[0] if len(providers) == 1 else "mixed"
             returned_dates = {bar.trade_date for bar in bars}
             missing = sorted(set(requested_days).difference(returned_dates))
-            if replace_history:
-                coverage_ok, coverage_reason = self._validate_full_refresh_coverage(
-                    symbol,
-                    requested_days,
-                    returned_dates,
-                )
-                if not coverage_ok:
-                    logger.warning(
-                        "market=%s code=%s full refresh rejected: %s",
-                        self.market,
-                        symbol.code,
-                        coverage_reason,
-                    )
-                    return DailyResult(
-                        status="partial",
-                        providers=providers,
-                        missing_amount=any(bar.amount is None for bar in bars),
-                        reason=coverage_reason,
-                        fallback_reasons=(
-                            [routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else []
-                        ),
-                    )
             rows = []
             for bar in bars:
                 rows.append(
@@ -484,57 +393,18 @@ class MarketDataSyncService:
             else:
                 stats = self.stock_repository.upsert_daily(symbol.id, rows, source)
             return DailyResult(
-                status="partial" if missing else "success",
+                status="partial" if missing and not replace_history else "success",
                 inserted_rows=stats.inserted_rows,
                 updated_rows=stats.updated_rows,
                 deleted_rows=getattr(stats, "deleted_rows", 0),
                 providers=providers,
                 missing_amount=any(bar.amount is None for bar in bars),
-                reason=f"missing_trading_days={len(missing)}" if missing else "",
+                reason=f"missing_trading_days={len(missing)}" if missing and not replace_history else "",
                 fallback_reasons=[routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else [],
             )
         except Exception as exc:
             logger.exception("market=%s code=%s daily persistence failed", self.market, symbol.code)
             return DailyResult("failed", reason=str(exc))
-
-    def _validate_full_refresh_coverage(
-        self,
-        symbol: Any,
-        requested_days: list[date],
-        returned_dates: set[date],
-    ) -> tuple[bool, str]:
-        """Reject a full replacement when fetched history is materially incomplete."""
-        expected_dates = set(requested_days)
-        returned_expected = returned_dates.intersection(expected_dates)
-        if not expected_dates or not returned_expected:
-            return False, "full_refresh_coverage_insufficient returned=0 coverage=0.000 minimum=0.950"
-
-        existing_dates = self.stock_repository.daily_dates(
-            symbol.id,
-            min(requested_days),
-            max(requested_days),
-        ).intersection(expected_dates)
-        if existing_dates:
-            existing_coverage = len(returned_expected.intersection(existing_dates)) / len(existing_dates)
-            if existing_coverage >= FULL_REFRESH_MIN_COVERAGE:
-                return True, ""
-            return False, (
-                "full_refresh_coverage_insufficient "
-                f"returned={len(returned_expected)} expected={len(expected_dates)} "
-                f"existing_dates={len(existing_dates)} existing_coverage={existing_coverage:.3f} "
-                f"minimum={FULL_REFRESH_MIN_COVERAGE:.3f}"
-            )
-
-        returned_span = {day for day in expected_dates if min(returned_expected) <= day <= max(returned_expected)}
-        continuity = len(returned_expected) / len(returned_span) if returned_span else 0.0
-        if continuity >= FULL_REFRESH_MIN_COVERAGE:
-            return True, ""
-        return False, (
-            "full_refresh_coverage_insufficient "
-            f"returned={len(returned_expected)} expected={len(expected_dates)} "
-            f"existing_dates=0 new_symbol=true continuity={continuity:.3f} "
-            f"minimum={FULL_REFRESH_MIN_COVERAGE:.3f}"
-        )
 
     def _summarize(
         self,

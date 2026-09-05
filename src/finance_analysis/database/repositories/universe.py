@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import delete, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import delete, select, update
 
 from finance_analysis.database.models.stock import Instrument
 from finance_analysis.database.models.universe import Universe, UniverseInclude, UniverseMember
@@ -14,6 +14,13 @@ from finance_analysis.database.models.universe import Universe, UniverseInclude,
 
 class UniverseCycleError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class MembershipSyncStats:
+    inserted: int = 0
+    deleted: int = 0
+    total: int = 0
 
 
 class UniverseRepository:
@@ -64,6 +71,11 @@ class UniverseRepository:
             return rows
 
     def replace_members(self, key: str, instruments: Iterable[dict[str, Any]], source: str) -> int:
+        return self.replace_members_with_stats(key, instruments, source).total
+
+    def replace_members_with_stats(
+        self, key: str, instruments: Iterable[dict[str, Any]], source: str
+    ) -> MembershipSyncStats:
         records = list(instruments)
         with self.db.session_scope() as session:
             universe = session.execute(select(Universe).where(Universe.key == key)).scalar_one()
@@ -72,15 +84,40 @@ class UniverseRepository:
             missing = sorted(codes - set(ids))
             if missing:
                 raise ValueError(f"Universe instruments are not registered: {', '.join(missing[:10])}")
-            session.execute(delete(UniverseMember).where(UniverseMember.universe_id == universe.id))
+            existing = dict(
+                session.execute(
+                    select(Instrument.code, UniverseMember.id)
+                    .join(UniverseMember, UniverseMember.instrument_id == Instrument.id)
+                    .where(UniverseMember.universe_id == universe.id)
+                ).all()
+            )
+            stale_codes = set(existing) - codes
+            if stale_codes:
+                session.execute(
+                    delete(UniverseMember).where(
+                        UniverseMember.id.in_([existing[code] for code in stale_codes])
+                    )
+                )
+            inserted = 0
             for item in records:
-                session.add(UniverseMember(
-                    universe_id=universe.id,
-                    instrument_id=ids[str(item["code"]).upper()],
-                    source=source,
-                    member_metadata=item.get("metadata", {}),
-                ))
-        return len(records)
+                code = str(item["code"]).upper()
+                if code in existing:
+                    session.execute(
+                        update(UniverseMember)
+                        .where(UniverseMember.id == existing[code])
+                        .values(source=source, member_metadata=item.get("metadata", {}))
+                    )
+                    continue
+                session.add(
+                    UniverseMember(
+                        universe_id=universe.id,
+                        instrument_id=ids[code],
+                        source=source,
+                        member_metadata=item.get("metadata", {}),
+                    )
+                )
+                inserted += 1
+        return MembershipSyncStats(inserted=inserted, deleted=len(stale_codes), total=len(codes))
 
 
 class UniverseResolver:
@@ -107,4 +144,4 @@ class UniverseResolver:
         return resolved
 
 
-__all__ = ["UniverseCycleError", "UniverseRepository", "UniverseResolver"]
+__all__ = ["MembershipSyncStats", "UniverseCycleError", "UniverseRepository", "UniverseResolver"]

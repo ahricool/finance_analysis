@@ -10,7 +10,6 @@ describe('router document titles', () => {
     ['/calendar', '日历记录 - Finance Analysis'],
     ['/market/watch-list', '自选股 - Finance Analysis'],
     ['/market/holdings', '投资组合 - Finance Analysis'],
-    ['/market/signals', '信号评估 - Finance Analysis'],
     ['/market/quant', '量化研究 - Finance Analysis'],
     ['/market/quant/signals', '模型选股 - Finance Analysis'],
     ['/market/quant/signals/NVDA.US', '选股详情 - Finance Analysis'],
