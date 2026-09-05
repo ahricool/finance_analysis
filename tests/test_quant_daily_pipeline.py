@@ -148,7 +148,7 @@ def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
     service.config = replace(service.config, minimum_universe_coverage=0.5)
     result = service.run("CN", "cn_quant", TRADE_DATE)
     assert set(market_data.get_daily_bars.call_args.args[0]) == {"159915.SZ", "510300.SH"}
-    assert market_data.get_daily_bars.call_args.kwargs["source_policy"] == "remote_only"
+    assert market_data.get_daily_bars.call_args.kwargs["source_policy"] == "db_fresh"
 
     assert captured["benchmark_labels"] == ("510300.SH", "510300.SH")
     assert captured["style_label"] == "159915.SZ"

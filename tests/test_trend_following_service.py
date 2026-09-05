@@ -19,7 +19,7 @@ def TrendFollowingService(market, repository, **kwargs):
     class MarketData:
         def get_daily_bars(self, codes, start, end, **options):
             assert codes == ["SPY.US"]  # the main universe must never fall back
-            assert options == {"adjustment": "forward", "source_policy": "remote_only"}
+            assert options == {"adjustment": "forward", "source_policy": "db_fresh"}
             if not repository.benchmark_ready or end == getattr(repository, "incomplete_date", None):
                 return SimpleNamespace(data={})
             rows = repository.load_daily_history({"AAA.US", "BBB.US"}, end, calendar_lookback_days=500)
@@ -426,3 +426,58 @@ def test_missing_data_expires_pending_add(monkeypatch):
     carried = next(item for item in repository.snapshots if item["code"] == "AAA.US")
     assert carried["pending_action"] is None
     assert "expired" in carried["reasons"][-1]
+
+
+def test_cn_trend_batches_csi2000_history_before_readiness_without_daily_writes(monkeypatch):
+    codes = {"600001.SH", "600002.SH", "600003.SH"}
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",
+        lambda market: [UniverseMember(market, code, code) for code in sorted(codes)],
+    )
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.UniverseResolver",
+        lambda: SimpleNamespace(
+            resolve_universe=lambda key: [SimpleNamespace(code=code) for code in sorted(codes - {"600001.SH"})]
+        ),
+    )
+    calls = []
+
+    def bars(code):
+        return [
+            SimpleNamespace(
+                trade_date=TRADE_DATE - timedelta(days=79 - i),
+                open=100 + i,
+                high=102 + i,
+                low=99 + i,
+                close=101 + i,
+                volume=1000 + i,
+                amount=None,
+            )
+            for i in range(80)
+        ]
+
+    def fetch(requested, start, end, **options):
+        calls.append((requested, start, end, options))
+        return SimpleNamespace(data={code: bars(code) for code in requested})
+
+    class Repository(FakeRepository):
+        market = "CN"
+
+        def daily_codes_on_date(self, requested, day):
+            assert requested == {"600001.SH"}
+            return set(requested)
+
+        def load_daily_history(self, requested, day, **kwargs):
+            assert requested == {"600001.SH"}
+            return [dict(code="600001.SH", **vars(bar)) for bar in bars("600001.SH")]
+
+    repository = Repository()
+    result = RealTrendFollowingService("CN", repository, market_data=SimpleNamespace(get_daily_bars=fetch)).run(
+        TRADE_DATE
+    )
+    assert result["status"] == "completed"
+    assert result["data_ready_count"] == 3
+    assert calls[0][0] == ["600002.SH", "600003.SH"]
+    assert calls[1][0] == ["510300.SH"]
+    assert all(call[3] == {"adjustment": "forward", "source_policy": "db_fresh"} for call in calls)
+    assert calls[0][1] == TRADE_DATE - timedelta(days=DEFAULT_CONFIG.calendar_lookback_days)

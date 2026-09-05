@@ -8,9 +8,13 @@ ETF Rotation 是独立、规则驱动且可解释的 A 股/美股 ETF 快速轮�
 
 ## 数据来源与日线同步
 
-证券与成员读取 PostgreSQL；有限的 ETF 和 benchmark 日线通过 MarketDataService 的 `db_first` 读取，不直接调用具体 Provider。证券有任何本地历史时只返回 DB 请求区间；完全无历史才远程读取，返回结果只用于本次计算、不写 stock_daily。价格始终使用前复权语义，不重复复权。
+证券与成员读取 PostgreSQL；有限的 ETF 和 benchmark 日线通过 MarketDataService 的 `db_fresh` 读取，不直接调用具体 Provider。
+DB 的最新日线达到请求结束日期时直接返回本地区间；落后时读取 DB 历史并批量补最近约 10 个自然日的重叠尾部，按交易日合并，Remote 覆盖同日 DB。
+完全没有历史时远程获取本次请求窗口。远程结果仅用于本次计算，不写 `stock_daily`；不检查历史中间缺口、停牌或上市前日期。价格始终使用前复权语义，不重复复权。
 
-ETF Rotation 通过 `UniverseResolver` 读取 `cn_etf_rotation` / `us_etf_rotation`。它不会扩大每日持久化范围；日线任务只解析独立的 `cn_daily_sync` / `us_daily_sync` Universe。临时缺失数据必须经 `MarketDataService` 获取，正式策略任务不会现场全量远程补数。
+ETF Rotation 通过 `get_etf_universe()` / `UniverseRepository` 读取 `cn_index_etf` / `us_index_etf`。
+这两个单市场 STRATEGY Universe 是唯一的 curated ETF 成员池，分别被 `cn_daily_sync` / `us_daily_sync` include，日线任务会主动维护其 `stock_daily`。
+每周 `reference_data_sync` 不会自动替换 curated ETF membership。池外 benchmark 不会扩大 Daily Sync 范围。
 
 ## 固定 Universe
 
@@ -59,7 +63,7 @@ ETF Rotation 通过 `UniverseResolver` 读取 `cn_etf_rotation` / `us_etf_rotati
 | 563380.SH | 航空航天ETF | DEFENSE_SPACE | AEROSPACE | DEFENSE_SPACE |
 | 563320.SH | 通用航空ETF | DEFENSE_SPACE | LOW_ALTITUDE_ECONOMY | DEFENSE_SPACE |
 
-新增或删除 ETF 时更新 `cn_etf_rotation` / `us_etf_rotation` 的数据库成员；它们不会自动进入 Daily Sync Universe。
+新增或删除 ETF 时更新 `cn_index_etf` / `us_index_etf` 的数据库成员；ETF Rotation 和对应 Daily Sync 都读取同一池，不维护第二套 ETF list。
 
 ## Features
 

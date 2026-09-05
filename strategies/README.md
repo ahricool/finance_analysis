@@ -95,3 +95,13 @@ AGENT_SKILL_DIR=./my_skills
 系统会同时加载内置策略和自定义策略。如果名称冲突，自定义策略覆盖内置策略。
 
 环境变量名仍然是 `AGENT_SKILL_DIR`，这是内部统一命名后的配置入口；在产品语义上，它依然表示“自定义策略目录”。
+
+
+## 内置策略的数据范围
+
+ETF Rotation 从 `cn_index_etf` / `us_index_etf` 读取唯一 ETF 成员池及其分类 metadata。
+CN Trend 使用 CSI300、CSI500、CSI1000、CSI2000 四个当前成分池；US Trend 使用 S&P500。
+ETF、Trend/Quant benchmark 和 CN Trend 的 CSI2000 成员使用 `db_fresh`：DB 提供历史，
+末尾落后时批量补远程尾部，仅用于本次计算。其余主股票数据保持 DB-only。
+CSI2000 每周维护 membership，但不加入 Daily Sync；Daily Sync 只维护 CN 300/500/1000
+加 CN Index ETF，以及 US S&P500 加 US Index ETF。

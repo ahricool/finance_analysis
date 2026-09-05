@@ -1,4 +1,4 @@
-"""DB-backed stock analysis with a bounded, read-only benchmark fallback."""
+"""DB-backed stock analysis with read-only CSI2000 and benchmark tail refresh."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from ..database.repositories.trend_following import TrendFollowingRepository
+from ..database.repositories.universe import UniverseResolver
 from ..integrations.market_data.service import MarketDataService
 from ..market_review.trading_calendar import get_completed_trading_days, get_trading_days_between
 from .config import DEFAULT_CONFIG, TrendFollowingConfig
@@ -126,15 +127,34 @@ class TrendFollowingService:
         universe_codes = set(member_by_code)
         benchmark_code = self.config.benchmark_codes[self.market]
         universe_key = self.config.universe_keys[self.market]
-        requested_codes = universe_codes
-        ready_codes = self.repository.daily_codes_on_date(universe_codes, effective_date)
-        # Never send the all-A stock universe to a remote-fallback query.
+        csi2000_codes = (
+            {item.code for item in UniverseResolver().resolve_universe("cn_csi2000")} & universe_codes
+            if self.market == "CN"
+            else set()
+        )
+        requested_codes = universe_codes - csi2000_codes
+        ready_codes = self.repository.daily_codes_on_date(requested_codes, effective_date)
+        supplemental = {}
+        if csi2000_codes:
+            supplemental = self.market_data.get_daily_bars(
+                sorted(csi2000_codes),
+                effective_date - timedelta(days=self.config.calendar_lookback_days),
+                effective_date,
+                adjustment="forward",
+                source_policy="db_fresh",
+            ).data
+            ready_codes.update(
+                code
+                for code in csi2000_codes
+                if any(bar.trade_date == effective_date for bar in supplemental.get(code, []))
+            )
+        # All other main-universe stocks remain DB-only.
         benchmark_result = self.market_data.get_daily_bars(
             [benchmark_code],
             effective_date - timedelta(days=self.config.calendar_lookback_days),
             effective_date,
             adjustment="forward",
-            source_policy="remote_only",
+            source_policy="db_fresh",
         )
         benchmark_bars = [
             DailyBar(
@@ -205,6 +225,12 @@ class TrendFollowingService:
                     amount=None if item["amount"] is None else float(item["amount"]),
                 )
             )
+        for code, bars in supplemental.items():
+            histories[code] = [
+                DailyBar(bar.trade_date, bar.open, bar.high, bar.low, bar.close, bar.volume, bar.amount)
+                for bar in sorted(bars, key=lambda bar: bar.trade_date)
+                if bar.trade_date <= effective_date
+            ]
         benchmark_bars = benchmark_bars[-self.config.history_bars :]
         if len(benchmark_bars) < self.config.minimum_history_bars:
             warning = f"benchmark {benchmark_code} has insufficient history: {len(benchmark_bars)} bars"

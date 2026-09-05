@@ -34,7 +34,7 @@ def get_etf_universe(
 ) -> tuple[ETFUniverseMember, ...]:
     normalized = normalize_etf_market(market)
     repo = repository or UniverseRepository()
-    universe = repo.get_by_key(f"{normalized.lower()}_etf_rotation")
+    universe = repo.get_by_key(f"{normalized.lower()}_index_etf")
     if universe is None or not universe.enabled:
         raise ValueError(f"Enabled ETF Rotation universe not found for {normalized}")
     result = []

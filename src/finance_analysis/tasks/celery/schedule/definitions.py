@@ -96,7 +96,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_REFERENCE_DATA_SYNC,
         name="证券主数据与指数成分同步",
-        description="每周同步 CN/US/HK 证券目录及 CSI300/500/1000、S&P 500、Nasdaq 100 当前成分",
+        description="每周同步 CN/US/HK 证券目录及 CSI300/500/1000/2000、S&P 500、Nasdaq 100 当前成分",
         task_type="scheduled_reference_data_sync",
         celery_task_name=celery_task_name(JOB_REFERENCE_DATA_SYNC),
         schedules=(CronSchedule(minute="0", hour="8", day_of_week="sun"),),
@@ -184,7 +184,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_MARKET_DATA_SYNC_CN,
         name="A股日线行情同步",
-        description="同步 CSI300、CSI500、CSI1000 并集的前复权日线；工作日增量刷新，每月全量刷新约五年",
+        description="同步 CSI300、CSI500、CSI1000 与 CN Index ETF Universe 并集的前复权日线；工作日增量刷新，每月全量刷新约五年",
         task_type="scheduled_market_data_sync_cn",
         celery_task_name=celery_task_name(JOB_MARKET_DATA_SYNC_CN),
         schedules=(
@@ -207,7 +207,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_MARKET_DATA_SYNC_US,
         name="美股日线行情同步",
-        description="同步 S&P 500 当前成分的前复权日线；工作日增量刷新，每月全量刷新约五年",
+        description="同步 S&P 500 与 US Index ETF Universe 的前复权日线；工作日增量刷新，每月全量刷新约五年",
         task_type="scheduled_market_data_sync_us",
         celery_task_name=celery_task_name(JOB_MARKET_DATA_SYNC_US),
         schedules=(
@@ -289,7 +289,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_TREND_FOLLOWING_CN,
         name="A股趋势跟踪",
-        description="从数据库前复权日线独立计算沪深300与中证500趋势跟踪快照",
+        description="沪深300、中证500、中证1000、中证2000趋势跟踪；DB 历史加中证2000只读远程尾部",
         task_type="scheduled_trend_following_cn",
         celery_task_name=celery_task_name(JOB_TREND_FOLLOWING_CN),
         schedules=(CronSchedule(minute="40", hour="18", day_of_week="mon-fri"),),
