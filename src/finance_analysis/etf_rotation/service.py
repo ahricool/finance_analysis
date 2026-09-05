@@ -95,14 +95,14 @@ class ETFRotationService:
         codes = set(member_by_code)
         benchmark_code = self.config.benchmark_codes[self.market]
         warnings: list[str] = []
-        # A finite ETF universe is independent of the scheduled daily universe.
+        # Daily sync maintains the Index ETF pool; refresh only stale tails.
         # Remote fallback is calculation-only and never writes stock_daily.
         fetched = self.market_data.get_daily_bars(
             sorted(codes | {benchmark_code}),
             effective_date - timedelta(days=500),
             effective_date,
             adjustment="forward",
-            source_policy="remote_only",
+            source_policy="db_fresh",
         )
         histories = {
             code: [

@@ -230,7 +230,7 @@ def test_index_membership_refresh_preserves_current_and_deletes_stale():
     assert stats == MembershipSyncStats(inserted=0, deleted=1, total=1)
 
 
-def test_reference_data_sync_updates_three_markets_and_five_index_universes():
+def test_reference_data_sync_updates_three_markets_and_six_index_universes():
     class Instruments:
         def upsert_symbols(self, members):
             raise AssertionError("Index membership must not overwrite Instrument Master")
@@ -246,8 +246,11 @@ def test_reference_data_sync_updates_three_markets_and_five_index_universes():
             self.keys.append((key, source))
             return MembershipSyncStats(inserted=len(members), total=len(members))
 
+    requested_indices = []
+
     class Provider:
         def fetch_index_members(self, index_code):
+            requested_indices.append(index_code)
             market = "CN" if index_code.isdigit() else "US"
             suffix = ".SH" if market == "CN" else ".US"
             return [{"market": market, "code": f"{index_code}{suffix}", "name": index_code}]
@@ -267,8 +270,16 @@ def test_reference_data_sync_updates_three_markets_and_five_index_universes():
     result = service.run()
 
     assert result["instrument_fetched"] == 30
-    assert result["universe_count"] == 5
-    assert {key for key, _ in universes.keys} == {"cn_csi300", "cn_csi500", "cn_csi1000", "us_sp500", "us_nasdaq100"}
+    assert result["universe_count"] == 6
+    assert "932000" in requested_indices
+    assert {key for key, _ in universes.keys} == {
+        "cn_csi300",
+        "cn_csi500",
+        "cn_csi1000",
+        "cn_csi2000",
+        "us_sp500",
+        "us_nasdaq100",
+    }
 
 
 def test_instrument_sync_uses_fallback_without_deleting_existing_rows():
@@ -367,3 +378,105 @@ def test_tickflow_directory_filters_products_and_supports_beijing_exchange():
     bj = next(item for item in records if item["code"] == "920001.BJ")
     assert bj["listing_date"].isoformat() == "2024-01-02"
     assert bj["source"] == "TICKFLOW"
+
+
+@pytest.mark.parametrize("existing_pool", [False, True])
+def test_index_etf_migration_preserves_members_fk_metadata_and_final_includes(existing_pool, monkeypatch):
+    import importlib.util
+    from finance_analysis.core.paths import PROJECT_ROOT
+    from finance_analysis.database.index_etf import INDEX_ETF_MEMBERS, seed_index_etf_universes
+    from finance_analysis.etf_rotation.universe import get_etf_universe
+    from sqlalchemy import select, text
+
+    database = Database()
+    spec = importlib.util.spec_from_file_location(
+        "daily_migration", PROJECT_ROOT / "alembic/versions/0040_daily_sync_universes.py"
+    )
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    expected = {}
+    with database.session_scope() as session:
+        for key in ("cn_all_a", "cn_csi300", "cn_csi500", "cn_csi1000", "cn_trend", "us_trend", "us_sp500"):
+            session.add(Universe(key=key, name=key, market=key[:2].upper(), universe_type="STRATEGY"))
+        session.flush()
+        ids = dict(session.execute(select(Universe.key, Universe.id)).all())
+        session.add(UniverseInclude(universe_id=ids["cn_trend"], included_universe_id=ids["cn_all_a"]))
+        for i, key in enumerate(("cn_csi300", "cn_csi500", "cn_csi1000")):
+            instrument = Instrument(market="CN", code=f"60000{i}.SH", name=key)
+            session.add(instrument)
+            session.flush()
+            session.add(UniverseMember(universe_id=ids[key], instrument_id=instrument.id, source="TEST"))
+        if not existing_pool:
+            session.add(Instrument(market="CN", code="588000.SH", name="Existing name", source="TICKFLOW"))
+        if existing_pool:
+            for market, members in INDEX_ETF_MEMBERS.items():
+                universe = Universe(
+                    key=f"{market.lower()}_etf_rotation", name=market, market=market, universe_type="STRATEGY"
+                )
+                session.add(universe)
+                session.flush()
+                expected[market] = {}
+                for code, name, category, theme, risk_group in members:
+                    instrument = Instrument(market=market, code=code, name=name, instrument_type="ETF")
+                    session.add(instrument)
+                    session.flush()
+                    metadata = dict(category=category, theme=theme, risk_group=risk_group, custom="preserve")
+                    session.add(
+                        UniverseMember(
+                            universe_id=universe.id,
+                            instrument_id=instrument.id,
+                            source="OLD_POOL",
+                            member_metadata=metadata,
+                        )
+                    )
+                    expected[market][code] = (instrument.id, metadata)
+    with database.engine.begin() as connection:
+        monkeypatch.setattr(migration.op, "get_bind", lambda: connection)
+        migration.upgrade()
+        seed_index_etf_universes(connection)  # idempotent after migration
+        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+        pairs = set(connection.execute(text("""
+            SELECT p.key, c.key FROM universe_include i
+            JOIN universe p ON p.id=i.universe_id JOIN universe c ON c.id=i.included_universe_id
+        """)).all())
+        assert pairs == set(migration.INCLUDES)
+    repository = UniverseRepository(database)
+    for market, members in INDEX_ETF_MEMBERS.items():
+        assert repository.get_by_key(f"{market.lower()}_etf_rotation") is None
+        universe = repository.get_by_key(f"{market.lower()}_index_etf")
+        assert universe.market == market and universe.universe_type == "STRATEGY"
+        actual = {member.code: member for member in get_etf_universe(market, repository)}
+        assert set(actual) == {item[0] for item in members}
+        for code, _, category, theme, risk_group in members:
+            assert (actual[code].category, actual[code].theme, actual[code].risk_group) == (category, theme, risk_group)
+        assert all(member.instrument.instrument_type == "ETF" for member in repository.list_members(universe.id))
+        if not existing_pool and market == "CN":
+            existing = next(member.instrument for member in repository.list_members(universe.id)
+                            if member.instrument.code == "588000.SH")
+            assert (existing.name, existing.source) == ("Existing name", "TICKFLOW")
+        if existing_pool:
+            for member in repository.list_members(universe.id):
+                assert (member.instrument_id, member.member_metadata) == expected[market][member.instrument.code]
+                assert member.source == "OLD_POOL"
+    csi2000_id = repository.get_by_key("cn_csi2000").id
+    with database.session_scope() as session:
+        instrument = Instrument(market="CN", code="600009.SH", name="CSI2000 only")
+        session.add(instrument)
+        session.flush()
+        session.add(UniverseMember(universe_id=csi2000_id, instrument_id=instrument.id, source="AKSHARE"))
+    resolver = UniverseResolver(repository)
+    assert {item.code for item in resolver.resolve_universe("cn_trend")} == {
+        "600000.SH",
+        "600001.SH",
+        "600002.SH",
+        "600009.SH",
+    }
+    assert {item.code for item in resolver.resolve_universe("cn_daily_sync")} == {
+        "600000.SH",
+        "600001.SH",
+        "600002.SH",
+        *[item[0] for item in INDEX_ETF_MEMBERS["CN"]],
+    }
+    assert {item.code for item in resolver.resolve_universe("us_daily_sync")} == {
+        item[0] for item in INDEX_ETF_MEMBERS["US"]
+    }

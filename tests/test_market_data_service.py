@@ -166,6 +166,9 @@ class _PolicyStockRepository:
     def has_daily_data(self, instrument_id):
         return bool(self.rows)
 
+    def latest_daily_date(self, instrument_id):
+        return max(self.rows, default=None)
+
     def get_range(self, code, start_date, end_date):
         del code
         return [self.rows[day] for day in sorted(self.rows) if start_date <= day <= end_date]
@@ -1138,3 +1141,47 @@ def test_cn_daily_batch_computes_missing_days_and_isolates_symbol_errors():
     assert results["000001.SZ"].fallback_reasons == []
     assert results["000002.SZ"].status == "failed"
     assert results["000002.SZ"].fallback_reasons == ["tickflow: timeout; akshare: empty"]
+
+
+@pytest.mark.parametrize(
+    "local_days",
+    [
+        [date(2025, 1, 2), date(2025, 2, 6)],
+        [date(2025, 1, 2), date(2025, 2, 5)],
+        [],
+        [date(2019, 1, 2)],
+    ],
+)
+def test_db_fresh_batches_tail_merges_remote_over_db_without_writes(local_days):
+    codes = ["600000.SH", "000001.SZ"]
+    end = date(2025, 2, 6)
+    remote_days = [date(2025, 2, 5), end]
+    provider = _DailyProvider(
+        "daily",
+        {code: [replace(_bar_on(code, "daily", day), close=42, high=43) for day in remote_days] for code in codes},
+    )
+    registry = ProviderRegistry()
+    registry.register("daily", provider, capabilities={DAILY_BARS})
+    stocks = _PolicyStockRepository([_stored_policy_row(day) for day in local_days])
+    service = MarketDataService(
+        registry,
+        instrument_repository=SimpleNamespace(get_by_code=lambda code: SimpleNamespace(id=7, code=code, market="CN")),
+        stock_repository=stocks,
+    )
+    result = service.get_daily_bars(
+        codes, date(2020, 1, 1), end, adjustment="forward", providers=["daily"], source_policy="db_fresh"
+    )
+    fresh = bool(local_days and max(local_days) == end)
+    assert len(provider.requests) == (0 if fresh else 1)
+    if not fresh:
+        request = provider.requests[0]
+        assert request.symbols == tuple(codes)
+        assert request.start_date == (
+            max(date(2020, 1, 1), max(local_days) - timedelta(days=10)) if local_days else date(2020, 1, 1)
+        )
+        assert result.data[codes[0]][-1].close == 42
+        assert result.data[codes[0]][-2].close == 42
+    if local_days and local_days[0] == date(2025, 1, 2):
+        assert result.data[codes[0]][0].trade_date == local_days[0]
+    assert len({bar.trade_date for bar in result.data[codes[0]]}) == len(result.data[codes[0]])
+    assert stocks.upserts == []

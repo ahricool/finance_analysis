@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Iterable, Literal
 
 import pandas as pd
@@ -271,25 +271,27 @@ class MarketDataService:
         *,
         adjustment: Adjustment | str,
         providers: Iterable[str] | None = None,
-        source_policy: Literal["db_only", "db_first", "remote_only"] = "db_first",
+        source_policy: Literal["db_only", "db_first", "db_fresh", "remote_only"] = "db_first",
     ) -> BatchBarResult:
         """Prefer existing local history, otherwise return remote bars without writes.
 
-        This is DB preferred / remote fallback, not a read-through cache. Only
-        explicit maintenance jobs persist daily history. Local existence is not
-        a trading-calendar completeness claim (suspensions and IPOs have gaps).
+        db_first trusts any local history; db_fresh refreshes only stale tails.
+        Only explicit maintenance jobs persist daily history. Local existence is
+        not a trading-calendar completeness claim (suspensions and IPOs have gaps).
         """
         canonical = self._canonical_symbols(symbols)
         requested_adjustment = adjustment_from_value(adjustment)
         if requested_adjustment is not Adjustment.FORWARD:
             raise ValueError("Daily bars are stored and served only as forward-adjusted prices")
-        if source_policy not in {"db_only", "db_first", "remote_only"}:
-            raise ValueError("source_policy must be db_only, db_first, or remote_only")
+        if source_policy not in {"db_only", "db_first", "db_fresh", "remote_only"}:
+            raise ValueError("source_policy must be db_only, db_first, db_fresh, or remote_only")
         if not canonical:
             return BatchBarResult()
         request = DailyBarsRequest(canonical, start_date, end_date, Adjustment.FORWARD)
         if source_policy == "remote_only":
             return self.router.route_daily(request, providers)
+        if source_policy == "db_fresh":
+            return self._get_fresh_daily(request, providers)
         result, missing = self._load_persisted_daily(request)
         if missing and source_policy == "db_first":
             remote = self.router.route_daily(replace(request, symbols=tuple(missing)), providers)
@@ -300,6 +302,48 @@ class MarketDataService:
             result.missing_symbols.extend(remote.missing_symbols)
         elif missing:
             result.missing_symbols.extend(missing)
+        return result
+
+    def _get_fresh_daily(self, request: DailyBarsRequest, providers: Iterable[str] | None) -> BatchBarResult:
+        """Read history and batch-refresh stale tails, without gap checks or writes."""
+        instruments, stocks = self._repositories()
+        result = BatchBarResult()
+        missing = []
+        stale = []
+        tail_start = request.end_date
+        for code in request.symbols:
+            instrument = instruments.get_by_code(code)
+            latest = stocks.latest_daily_date(instrument.id) if instrument is not None else None
+            if latest is None:
+                missing.append(code)
+                continue
+            bars = [self._stored_bar(row) for row in stocks.get_range(code, request.start_date, request.end_date)]
+            if bars:
+                result.data[code] = bars
+                result.providers_used[code] = "database"
+            if latest < request.end_date:
+                stale.append(code)
+                tail_start = min(tail_start, max(request.start_date, latest - timedelta(days=10)))
+        # Two batches at most: new histories and stale tails. A shared tail start
+        # preserves provider batching even when local latest dates differ.
+        selected_providers = tuple(providers) if providers is not None else None
+        for codes, start in ((missing, request.start_date), (stale, tail_start)):
+            if not codes:
+                continue
+            remote = self.router.route_daily(
+                replace(request, symbols=tuple(codes), start_date=start), selected_providers
+            )
+            for code, bars in remote.data.items():
+                merged = {bar.trade_date: bar for bar in result.data.get(code, [])}
+                merged.update(
+                    {bar.trade_date: bar for bar in bars if request.start_date <= bar.trade_date <= request.end_date}
+                )
+                if merged:
+                    result.data[code] = [merged[day] for day in sorted(merged)]
+            result.providers_used.update(remote.providers_used)
+            result.failed_symbols.update(remote.failed_symbols)
+            result.request_errors.update(remote.request_errors)
+        result.missing_symbols = [code for code in request.symbols if not result.data.get(code)]
         return result
 
     def _repositories(self) -> tuple[InstrumentRepository, StockRepository]:

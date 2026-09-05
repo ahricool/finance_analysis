@@ -24,7 +24,7 @@ def ETFRotationService(*args, **kwargs):
 
     class MarketData:
         def get_daily_bars(self, codes, start, end, **options):
-            assert options == {"adjustment": "forward", "source_policy": "remote_only"}
+            assert options == {"adjustment": "forward", "source_policy": "db_fresh"}
             ready = repository.daily_codes_on_date(set(codes), end)
             rows = repository.load_daily_history(ready, end)
             return SimpleNamespace(

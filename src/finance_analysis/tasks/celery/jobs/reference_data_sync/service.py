@@ -25,6 +25,7 @@ INDEX_UNIVERSE_SYNC_CONFIG = {
     "cn_csi300": IndexUniverseSyncConfig("AKSHARE", "000300"),
     "cn_csi500": IndexUniverseSyncConfig("AKSHARE", "000905"),
     "cn_csi1000": IndexUniverseSyncConfig("AKSHARE", "000852"),
+    "cn_csi2000": IndexUniverseSyncConfig("AKSHARE", "932000"),
     "us_sp500": IndexUniverseSyncConfig("WIKIPEDIA", "SP500"),
     "us_nasdaq100": IndexUniverseSyncConfig("WIKIPEDIA", "NASDAQ100"),
 }
