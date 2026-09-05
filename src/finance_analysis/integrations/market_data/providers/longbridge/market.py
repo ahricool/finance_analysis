@@ -479,12 +479,64 @@ class LongbridgeProvider:
                     provider=self.name,
                     currency=currency,
                     exchange=str(getattr(info, "exchange", "") or "") or None,
-                    instrument_type="stock",
+                    instrument_type=self._security_type(info),
                 )
                 result.providers_used[symbol] = self.name
             except Exception as exc:
                 result.failed_symbols[symbol] = str(exc)
         return result
+
+    @staticmethod
+    def _security_type(info) -> str | None:
+        # Do not infer STOCK from a broad equity board: it can also contain ETFs.
+        kind = str(getattr(info, "instrument_type", "") or getattr(info, "type", "")).lower()
+        if kind in {"stock", "etf", "index"}:
+            return kind
+        board = getattr(info, "board", None)
+        board_name = getattr(board, "__name__", str(board)).rsplit(".", 1)[-1]
+        if board_name in {"USDJI", "USNSDQ", "HKHS", "CNIX", "SPXIndex", "VIXIndex"}:
+            return "index"
+        return None
+
+    def fetch_instruments(self, market: str) -> list[dict[str, Any]]:
+        """Security Master fallback only, never scheduled Daily Bar fallback.
+
+        SDK/server versions differ in directory support. Unsupported markets or
+        unavailable security types fail closed; never turn untyped ETFs into STOCK.
+        Fallback results are never sufficient for mass DELISTED reconciliation.
+        """
+        from longbridge.openapi import Market as SDKMarket
+
+        normalized = str(getattr(market, "value", market)).upper()
+        if normalized not in {"CN", "US", "HK"}:
+            raise ValueError(f"Unsupported instrument market: {market}")
+        ctx = self._get_ctx()
+        if ctx is None:
+            raise RuntimeError("Longbridge context unavailable")
+        securities = ctx.security_list(getattr(SDKMarket, normalized))
+        if not securities:
+            raise ValueError(f"Longbridge returned no {normalized} directory")
+        records = []
+        for offset in range(0, len(securities), 100):
+            batch = securities[offset : offset + 100]
+            infos = ctx.static_info([item.symbol for item in batch])
+            for info in infos:
+                kind = self._security_type(info)
+                if kind is None:
+                    raise ValueError(f"Longbridge directory lacks reliable security type for {info.symbol}")
+                code = canonical_symbol(info.symbol)
+                records.append(
+                    {
+                        "market": normalized,
+                        "code": code,
+                        "native_code": code.rsplit(".", 1)[0],
+                        "name": info.name_cn or info.name_en,
+                        "instrument_type": kind.upper(),
+                        "currency": info.currency,
+                        "source": "LONGBRIDGE",
+                    }
+                )
+        return records
 
     def get_indices(self, market: Market) -> list[MarketIndex]:
         symbols = {

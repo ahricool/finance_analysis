@@ -25,7 +25,6 @@ MAX_RESULT_ITEMS = 20
 ADJUSTMENT_SCALE_MIN_DATES = 3
 ADJUSTMENT_SCALE_MIN_CHANGE = 0.003
 ADJUSTMENT_SCALE_MAX_DRIFT = 0.005
-FULL_REFRESH_MIN_COVERAGE = 0.95
 
 
 class MarketDataSyncError(RuntimeError):
@@ -115,12 +114,13 @@ class MarketDataSyncService:
                 max(requested_days),
                 adjustment="forward",
                 source_policy="remote_only",
-                persist=False,
             )
         except Exception as exc:
             logger.exception("market=%s code=%s daily fetch failed", self.market, symbol.code)
             return DailyResult("failed", reason=str(exc))
-        return self._persist_daily_result(symbol, requested_days, routed)
+        return self._persist_daily_result(
+            symbol, requested_days, routed, replace_history=getattr(self, "sync_mode", "incremental") == "full"
+        )
 
     def _sync_daily_batch_groups(
         self,
@@ -160,7 +160,6 @@ class MarketDataSyncService:
                     end_date,
                     adjustment="forward",
                     source_policy="remote_only",
-                    persist=False,
                 )
             except Exception as exc:
                 logger.exception(
@@ -170,8 +169,8 @@ class MarketDataSyncService:
                     start_date,
                     end_date,
                 )
-                routed = BatchBarResult(failed_symbols={code: str(exc) for code in codes})
-            if self.market == "US":
+                routed = BatchBarResult(failed_symbols={code: str(exc) or type(exc).__name__ for code in codes})
+            if self.market == "US" and not replace_fetched_history:
                 routed = self._recover_us_daily_gaps(
                     routed,
                     {symbol.code: daily_days_by_code[symbol.code] for symbol in grouped_symbols},
@@ -208,7 +207,6 @@ class MarketDataSyncService:
                     max(full_days),
                     adjustment="forward",
                     source_policy="remote_only",
-                    persist=False,
                 )
             except Exception as exc:
                 logger.exception(
@@ -216,12 +214,7 @@ class MarketDataSyncService:
                     self.market,
                     len(codes),
                 )
-                routed = BatchBarResult(failed_symbols={code: str(exc) for code in codes})
-            if self.market == "US":
-                routed = self._recover_us_daily_gaps(
-                    routed,
-                    {symbol.code: full_days for symbol in automatic_full_symbols},
-                )
+                routed = BatchBarResult(failed_symbols={code: str(exc) or type(exc).__name__ for code in codes})
             for symbol in automatic_full_symbols:
                 result = self._persist_daily_result(symbol, full_days, routed, replace_history=True)
                 result.automatic_full_refresh = True
@@ -254,6 +247,8 @@ class MarketDataSyncService:
         missing_by_code: dict[str, set[date]],
     ) -> int:
         added = 0
+        routed.request_errors.update(patch.request_errors)
+        routed.request_errors.update(patch.failed_symbols)
         for code, missing_dates in missing_by_code.items():
             existing = {bar.trade_date: bar for bar in routed.data.get(code, [])}
             for bar in patch.data.get(code, []):
@@ -300,7 +295,6 @@ class MarketDataSyncService:
                     adjustment="forward",
                     providers=("yfinance",),
                     source_policy="remote_only",
-                    persist=False,
                 )
             except Exception:
                 logger.exception(
@@ -326,7 +320,6 @@ class MarketDataSyncService:
                 adjustment="forward",
                 providers=("tickflow",),
                 source_policy="remote_only",
-                persist=False,
             )
         except Exception:
             logger.exception("market=US data_type=daily action=fallback_gaps provider=tickflow failed")
@@ -363,12 +356,15 @@ class MarketDataSyncService:
         replace_history: bool = False,
     ) -> DailyResult:
         try:
+            failure = routed.request_errors.get(symbol.code) or routed.failed_symbols.get(symbol.code)
+            if replace_history and failure:
+                return DailyResult("failed", reason=f"full_fetch_failed: {failure}", fallback_reasons=[failure])
             bars = routed.data.get(symbol.code, [])
             if not bars:
                 failure = routed.failed_symbols.get(symbol.code)
                 return DailyResult(
-                    "failed",
-                    reason="all daily providers failed",
+                    "failed" if failure else "success",
+                    reason="all daily providers failed" if failure else "provider returned empty history; unchanged",
                     fallback_reasons=[failure] if failure else [],
                 )
             provider = routed.providers_used.get(symbol.code)
@@ -378,28 +374,6 @@ class MarketDataSyncService:
             source = providers[0] if len(providers) == 1 else "mixed"
             returned_dates = {bar.trade_date for bar in bars}
             missing = sorted(set(requested_days).difference(returned_dates))
-            if replace_history:
-                coverage_ok, coverage_reason = self._validate_full_refresh_coverage(
-                    symbol,
-                    requested_days,
-                    returned_dates,
-                )
-                if not coverage_ok:
-                    logger.warning(
-                        "market=%s code=%s full refresh rejected: %s",
-                        self.market,
-                        symbol.code,
-                        coverage_reason,
-                    )
-                    return DailyResult(
-                        status="partial",
-                        providers=providers,
-                        missing_amount=any(bar.amount is None for bar in bars),
-                        reason=coverage_reason,
-                        fallback_reasons=(
-                            [routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else []
-                        ),
-                    )
             rows = []
             for bar in bars:
                 rows.append(
@@ -419,57 +393,18 @@ class MarketDataSyncService:
             else:
                 stats = self.stock_repository.upsert_daily(symbol.id, rows, source)
             return DailyResult(
-                status="partial" if missing else "success",
+                status="partial" if missing and not replace_history else "success",
                 inserted_rows=stats.inserted_rows,
                 updated_rows=stats.updated_rows,
                 deleted_rows=getattr(stats, "deleted_rows", 0),
                 providers=providers,
                 missing_amount=any(bar.amount is None for bar in bars),
-                reason=f"missing_trading_days={len(missing)}" if missing else "",
+                reason=f"missing_trading_days={len(missing)}" if missing and not replace_history else "",
                 fallback_reasons=[routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else [],
             )
         except Exception as exc:
             logger.exception("market=%s code=%s daily persistence failed", self.market, symbol.code)
             return DailyResult("failed", reason=str(exc))
-
-    def _validate_full_refresh_coverage(
-        self,
-        symbol: Any,
-        requested_days: list[date],
-        returned_dates: set[date],
-    ) -> tuple[bool, str]:
-        """Reject a full replacement when fetched history is materially incomplete."""
-        expected_dates = set(requested_days)
-        returned_expected = returned_dates.intersection(expected_dates)
-        if not expected_dates or not returned_expected:
-            return False, "full_refresh_coverage_insufficient returned=0 coverage=0.000 minimum=0.950"
-
-        existing_dates = self.stock_repository.daily_dates(
-            symbol.id,
-            min(requested_days),
-            max(requested_days),
-        ).intersection(expected_dates)
-        if existing_dates:
-            existing_coverage = len(returned_expected.intersection(existing_dates)) / len(existing_dates)
-            if existing_coverage >= FULL_REFRESH_MIN_COVERAGE:
-                return True, ""
-            return False, (
-                "full_refresh_coverage_insufficient "
-                f"returned={len(returned_expected)} expected={len(expected_dates)} "
-                f"existing_dates={len(existing_dates)} existing_coverage={existing_coverage:.3f} "
-                f"minimum={FULL_REFRESH_MIN_COVERAGE:.3f}"
-            )
-
-        returned_span = {day for day in expected_dates if min(returned_expected) <= day <= max(returned_expected)}
-        continuity = len(returned_expected) / len(returned_span) if returned_span else 0.0
-        if continuity >= FULL_REFRESH_MIN_COVERAGE:
-            return True, ""
-        return False, (
-            "full_refresh_coverage_insufficient "
-            f"returned={len(returned_expected)} expected={len(expected_dates)} "
-            f"existing_dates=0 new_symbol=true continuity={continuity:.3f} "
-            f"minimum={FULL_REFRESH_MIN_COVERAGE:.3f}"
-        )
 
     def _summarize(
         self,

@@ -4,14 +4,37 @@ import json
 from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
 from finance_analysis.core.paths import PROJECT_ROOT
 from finance_analysis.trend_following.models import UniverseMember
-from finance_analysis.trend_following.service import TrendFollowingService
+from finance_analysis.trend_following.service import TrendFollowingService as RealTrendFollowingService
 
-TRADE_DATE = date(2026, 8, 28)
+TRADE_DATE = date(2026, 8, 24)
+
+
+def TrendFollowingService(market, repository, **kwargs):
+    class MarketData:
+        def get_daily_bars(self, codes, start, end, **options):
+            assert codes == ["SPY.US"]  # the main universe must never fall back
+            assert options == {"adjustment": "forward", "source_policy": "db_first"}
+            if not repository.benchmark_ready or end == getattr(repository, "incomplete_date", None):
+                return SimpleNamespace(data={})
+            rows = repository.load_daily_history({"AAA.US", "BBB.US"}, end, calendar_lookback_days=500)
+            return SimpleNamespace(data={"SPY.US": [SimpleNamespace(**row) for row in rows if row["code"] == "SPY.US"]})
+
+    kwargs.setdefault("market_data", MarketData())
+    return RealTrendFollowingService(market, repository, **kwargs)
+
+
+@pytest.fixture(autouse=True)
+def _completed_day(monkeypatch):
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_completed_trading_days",
+        lambda *_args: [TRADE_DATE + timedelta(days=3)],
+    )
 
 
 class FakeRepository:
@@ -34,7 +57,7 @@ class FakeRepository:
         return set(codes) if self.benchmark_ready or "SPY.US" not in codes else set()
 
     def load_daily_history(self, codes, trade_date, *, calendar_lookback_days):
-        assert codes == {"AAA.US", "BBB.US", "SPY.US"}
+        assert codes == {"AAA.US", "BBB.US"}
         assert calendar_lookback_days > 120
         result = []
         for instrument_id, code, step in ((1, "AAA.US", 1.2), (2, "BBB.US", 0.5), (3, "SPY.US", 0.7)):
@@ -172,9 +195,13 @@ def test_historical_rerun_rebuilds_future_dates_in_order(monkeypatch):
         lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
     )
     result = TrendFollowingService("US", repository).run(TRADE_DATE)
-    assert result["rebuild_count"] == 2
+    assert result["rebuild_count"] == 6
     assert repository.upserted_dates == [
         TRADE_DATE,
+        date(2026, 8, 25),
+        date(2026, 8, 26),
+        date(2026, 8, 27),
+        date(2026, 8, 28),
         date(2026, 8, 31),
     ]
     assert [item[0] for item in repository.previous_calls] == repository.upserted_dates

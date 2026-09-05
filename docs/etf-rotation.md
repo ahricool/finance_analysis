@@ -8,7 +8,7 @@ ETF Rotation 是独立、规则驱动且可解释的 A 股/美股 ETF 快速轮�
 
 ## 数据来源与日线同步
 
-计算只读取 PostgreSQL 的 `instrument`、`universe_member` 和 `stock_daily`，不会直接调用 AkShare、EFinance、YFinance 或其它公网 Provider。正式任务使用数据库中的前复权日线，策略原样读取，不再依赖或重复应用复权因子；volume/amount 保持 Provider 原始单位。
+证券与成员读取 PostgreSQL；有限的 ETF 和 benchmark 日线通过 MarketDataService 的 `db_first` 读取，不直接调用具体 Provider。证券有任何本地历史时只返回 DB 请求区间；完全无历史才远程读取，返回结果只用于本次计算、不写 stock_daily。价格始终使用前复权语义，不重复复权。
 
 ETF Rotation 通过 `UniverseResolver` 读取 `cn_etf_rotation` / `us_etf_rotation`。它不会扩大每日持久化范围；日线任务只解析独立的 `cn_daily_sync` / `us_daily_sync` Universe。临时缺失数据必须经 `MarketDataService` 获取，正式策略任务不会现场全量远程补数。
 

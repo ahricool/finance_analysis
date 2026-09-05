@@ -8,14 +8,51 @@ from finance_analysis.database.repositories.stock import InstrumentRepository
 class InstrumentSyncService:
     def __init__(self, primary=None, fallback=None, instrument_repository=None):
         if primary is None:
-            from finance_analysis.integrations.market_data.providers.akshare import AkShareProvider
+            from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
             from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
 
             primary = TickFlowFreeProvider()
-            fallback = fallback or AkShareProvider()
+            # Security Master only. CN daily remains TickFlow; US daily remains
+            # yfinance -> TickFlow. Never wire Longbridge into daily history.
+            fallback = fallback or LongbridgeProvider()
         self.primary = primary
         self.fallback = fallback
         self.instruments = instrument_repository or InstrumentRepository()
+
+    def ensure_instruments(self, codes: set[str]) -> None:
+        """Resolve missing identities from security providers, never index records."""
+        from finance_analysis.integrations.market_data.models import InstrumentRequest
+
+        missing = codes - self.instruments.existing_codes(codes)
+        for provider in (self.primary, self.fallback):
+            if not missing or provider is None:
+                continue
+            try:
+                result = provider.get_instrument_info(InstrumentRequest(tuple(sorted(missing))))
+            except Exception:
+                continue
+            records = []
+            for code in missing:
+                info = result.data.get(code)
+                kind = str(info.instrument_type or "").upper() if info else ""
+                if kind not in {"STOCK", "ETF", "INDEX"}:
+                    continue
+                records.append(
+                    {
+                        "market": info.market.value,
+                        "code": code,
+                        "native_code": code.rsplit(".", 1)[0],
+                        "name": info.name,
+                        "instrument_type": kind,
+                        "currency": info.currency,
+                        "source": info.provider.upper(),
+                    }
+                )
+            if records:
+                self.instruments.upsert_symbols(records)
+                missing -= {record["code"] for record in records}
+        if missing:
+            raise ValueError(f"Security Master metadata unavailable: {sorted(missing)}")
 
     def sync_instruments(self, market: str) -> int:
         return self.sync_instruments_detailed(market).fetched

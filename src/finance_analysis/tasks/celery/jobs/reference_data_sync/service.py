@@ -10,6 +10,7 @@ from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.database.repositories.universe import UniverseRepository
 from finance_analysis.integrations.market_data.instrument_sync import InstrumentSyncService
 from finance_analysis.integrations.market_data.providers.akshare import AkShareProvider
+from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
 from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
 from finance_analysis.integrations.market_data.providers.us_index_constituents import USIndexConstituentProvider
 
@@ -43,7 +44,9 @@ class ReferenceDataSyncService:
         self.universes = universe_repository or UniverseRepository()
         self.instrument_sync = InstrumentSyncService(
             instrument_primary or TickFlowFreeProvider(),
-            instrument_fallback or AkShareProvider(),
+            # Longbridge is an Instrument Directory fallback, not a Daily Bar
+            # fallback. Keep CN TickFlow and US yfinance -> TickFlow unchanged.
+            instrument_fallback or LongbridgeProvider(),
             instrument_repository=self.instruments,
         )
         self.index_providers = index_providers or {
@@ -76,7 +79,7 @@ class ReferenceDataSyncService:
                 members = provider.fetch_index_members(config.index_code)
                 if not members:
                     raise ValueError(f"Provider returned no members for {key}")
-                self.instruments.upsert_symbols(members)
+                self.instrument_sync.ensure_instruments({member["code"] for member in members})
                 stats = self.universes.replace_members_with_stats(key, members, config.provider)
                 successful_universes += 1
                 member_inserted += stats.inserted

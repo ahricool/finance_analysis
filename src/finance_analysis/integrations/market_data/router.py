@@ -96,9 +96,13 @@ class MarketDataRouter:
                 logger.warning("provider=%s capability=%s failed: %s", registration.name, capability, exc)
                 for symbol in pending:
                     errors[symbol].append(f"{registration.name}: {exc}")
+                    result.request_errors[symbol] = f"{registration.name}: {exc}"
                 continue
             next_pending: list[str] = []
             for symbol in pending:
+                failure = provider_result.request_errors.get(symbol) or provider_result.failed_symbols.get(symbol)
+                if failure:
+                    result.request_errors[symbol] = f"{registration.name}: {failure}"
                 try:
                     bars = validate_bars(provider_result.data.get(symbol, []))
                     if capability == DAILY_BARS and any(bar.adjustment is not request.adjustment for bar in bars):
@@ -192,9 +196,7 @@ class MarketDataRouter:
     def route_market_stats(self, market: Market, providers: Iterable[str] | None = None) -> MarketStats | None:
         return self._route_overview(market, MARKET_STATS, "get_market_stats", providers)
 
-    def route_sector_rankings(
-        self, market: Market, providers: Iterable[str] | None = None
-    ) -> SectorRankings | None:
+    def route_sector_rankings(self, market: Market, providers: Iterable[str] | None = None) -> SectorRankings | None:
         return self._route_overview(market, SECTOR_RANKINGS, "get_sector_rankings", providers)
 
     def _route_overview(self, market: Market, capability: str, method_name: str, providers):

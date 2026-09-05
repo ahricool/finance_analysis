@@ -15,7 +15,6 @@ from .models import (
 from .registry import ProviderConfigurationError, ProviderRegistry
 from .router import MarketDataRouter
 from .service import MarketDataService
-from .errors import MarketDataIncompleteError
 
 __all__ = [
     "Adjustment",
@@ -28,7 +27,6 @@ __all__ = [
     "MarketBar",
     "MarketDataRouter",
     "MarketDataService",
-    "MarketDataIncompleteError",
     "MarketQuote",
     "MinuteBarsRequest",
     "ProviderConfigurationError",

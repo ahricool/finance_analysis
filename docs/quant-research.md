@@ -1,7 +1,7 @@
 # Qlib quant research
 
 The quant module keeps PostgreSQL as its source of truth. It reads canonical
-`market_data_symbol` and canonical forward-adjusted `stock_daily` rows, exports immutable
+`instrument` and canonical forward-adjusted `stock_daily` rows, exports immutable
 snapshots below `QUANT_ARTIFACT_ROOT`, and sends only artifact URIs and versioned
 configuration to the Qlib worker.
 
@@ -49,8 +49,9 @@ and PostgreSQL persistence. Main workers never wait synchronously for Qlib.
 
 ## Business workflow
 
-1. Ensure the resolved Quant universe and benchmark dependencies have daily bars in
-   PostgreSQL. Index constituents come from `universe_member`; static Python
+1. Ensure the resolved Quant stock universe has daily bars in PostgreSQL. The small
+   benchmark set uses MarketDataService `db_first` without persisting remote bars.
+   Index constituents come from `universe_member`; static Python
    constituent constants and WatchList do not change Quant or Daily Sync membership.
 2. An administrator opens **量化研究 → 模型运行 → 创建训练任务** and builds or selects an immutable dataset.
    Failed validation prevents training, and dataset progress remains visible in the task center.

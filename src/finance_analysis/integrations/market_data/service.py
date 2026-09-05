@@ -10,10 +10,8 @@ from typing import Any, Iterable, Literal
 import pandas as pd
 
 from finance_analysis.database.repositories.stock import InstrumentRepository, StockRepository
-from finance_analysis.market_review.trading_calendar import get_trading_days_between
 
 from .config import DataProviderConfig, get_data_provider_config
-from .errors import MarketDataIncompleteError
 from .models import (
     Adjustment,
     BatchBarResult,
@@ -274,34 +272,35 @@ class MarketDataService:
         adjustment: Adjustment | str,
         providers: Iterable[str] | None = None,
         source_policy: Literal["db_only", "db_first", "remote_only"] = "db_first",
-        persist: bool = True,
     ) -> BatchBarResult:
+        """Prefer existing local history, otherwise return remote bars without writes.
+
+        This is DB preferred / remote fallback, not a read-through cache. Only
+        explicit maintenance jobs persist daily history. Local existence is not
+        a trading-calendar completeness claim (suspensions and IPOs have gaps).
+        """
         canonical = self._canonical_symbols(symbols)
         requested_adjustment = adjustment_from_value(adjustment)
         if requested_adjustment is not Adjustment.FORWARD:
             raise ValueError("Daily bars are stored and served only as forward-adjusted prices")
         if source_policy not in {"db_only", "db_first", "remote_only"}:
             raise ValueError("source_policy must be db_only, db_first, or remote_only")
+        if not canonical:
+            return BatchBarResult()
         request = DailyBarsRequest(canonical, start_date, end_date, Adjustment.FORWARD)
         if source_policy == "remote_only":
-            remote = self.router.route_daily(request, providers)
-            if persist:
-                self._persist_remote_daily(remote)
-            return remote
-        try:
-            persisted, missing = self._load_persisted_daily(request)
-        except Exception:
-            if source_policy == "db_only":
-                raise
-            remote = self.router.route_daily(request, providers)
-            self._persist_remote_daily(remote)
-            return remote
-        if not missing:
-            return persisted
-        if source_policy == "db_only":
-            raise MarketDataIncompleteError({code: sorted(days) for code, days in missing.items()})
-        self._fill_missing_daily(persisted, missing, providers)
-        return persisted
+            return self.router.route_daily(request, providers)
+        result, missing = self._load_persisted_daily(request)
+        if missing and source_policy == "db_first":
+            remote = self.router.route_daily(replace(request, symbols=tuple(missing)), providers)
+            result.data.update(remote.data)
+            result.providers_used.update(remote.providers_used)
+            result.failed_symbols.update(remote.failed_symbols)
+            result.request_errors.update(remote.request_errors)
+            result.missing_symbols.extend(remote.missing_symbols)
+        elif missing:
+            result.missing_symbols.extend(missing)
+        return result
 
     def _repositories(self) -> tuple[InstrumentRepository, StockRepository]:
         if self.instrument_repository is None:
@@ -330,92 +329,23 @@ class MarketDataService:
             provider="database",
         )
 
-    def _load_persisted_daily(
-        self, request: DailyBarsRequest
-    ) -> tuple[BatchBarResult, dict[str, set[date]]]:
-        _, stocks = self._repositories()
-        expected = set(
-            get_trading_days_between(
-                infer_market(request.symbols[0]).value.lower(), request.start_date, request.end_date
-            )
-        )
+    def _load_persisted_daily(self, request: DailyBarsRequest) -> tuple[BatchBarResult, list[str]]:
+        instruments, stocks = self._repositories()
         result = BatchBarResult()
-        missing: dict[str, set[date]] = {}
+        missing: list[str] = []
         for code in request.symbols:
+            instrument = instruments.get_by_code(code)
+            if instrument is None or not stocks.has_daily_data(instrument.id):
+                missing.append(code)
+                continue
             rows = stocks.get_range(code, request.start_date, request.end_date)
             bars = [self._stored_bar(row) for row in rows]
-            dates = {bar.trade_date for bar in bars}
             if bars:
                 result.data[code] = bars
                 result.providers_used[code] = "database"
-            absent = expected - dates
-            if absent:
-                missing[code] = absent
+            else:
+                result.missing_symbols.append(code)
         return result, missing
-
-    def _fill_missing_daily(
-        self,
-        result: BatchBarResult,
-        missing: dict[str, set[date]],
-        providers: Iterable[str] | None,
-    ) -> None:
-        groups: dict[tuple[date, date], list[str]] = {}
-        for code, dates in missing.items():
-            groups.setdefault((min(dates), max(dates)), []).append(code)
-        for (start_date, end_date), codes in groups.items():
-            remote = self.router.route_daily(
-                DailyBarsRequest(tuple(codes), start_date, end_date, Adjustment.FORWARD), providers
-            )
-            self._persist_remote_daily(remote)
-            for code in codes:
-                merged = {bar.trade_date: bar for bar in result.data.get(code, [])}
-                merged.update({bar.trade_date: bar for bar in remote.data.get(code, [])})
-                if merged:
-                    result.data[code] = [merged[day] for day in sorted(merged)]
-                    result.providers_used[code] = remote.providers_used.get(code, "database")
-                remaining = missing[code] - set(merged)
-                if remaining:
-                    reason = remote.failed_symbols.get(code) or f"missing {len(remaining)} trading days"
-                    result.failed_symbols[code] = reason
-                else:
-                    result.failed_symbols.pop(code, None)
-
-    def _persist_remote_daily(self, result: BatchBarResult) -> None:
-        try:
-            instruments, stocks = self._repositories()
-        except Exception as exc:
-            logger.warning("daily bars fetched but persistence is unavailable: %s", exc)
-            return
-        for code, bars in result.data.items():
-            if not bars:
-                continue
-            instrument = instruments.get_by_code(code)
-            if instrument is None:
-                info = self.router.route_instruments(InstrumentRequest((code,))).data.get(code)
-                if info is None:
-                    result.failed_symbols[code] = "instrument metadata unavailable; daily bars were not persisted"
-                    continue
-                instruments.upsert_symbols(
-                    [{"market": info.market.value, "code": code, "name": info.name, "source": info.provider}]
-                )
-                instrument = instruments.get_by_code(code)
-            if instrument is None:
-                result.failed_symbols[code] = "instrument could not be persisted"
-                continue
-            rows = [
-                {
-                    "date": bar.trade_date,
-                    "open": bar.open,
-                    "high": bar.high,
-                    "low": bar.low,
-                    "close": bar.close,
-                    "volume": bar.volume,
-                    "amount": bar.amount,
-                    "data_source": bar.provider,
-                }
-                for bar in bars
-            ]
-            stocks.upsert_daily(instrument.id, rows, result.providers_used.get(code, bars[0].provider))
 
     def get_minute_bars(
         self,

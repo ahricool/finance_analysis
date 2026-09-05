@@ -27,23 +27,17 @@ def summarize_exception(exc: Exception) -> tuple[str, str]:
 
 class DataFetchError(Exception):
     """数据获取异常基类"""
+
     pass
 
 
 class RateLimitError(DataFetchError):
     """API 速率限制异常"""
+
     pass
 
 
 class DataSourceUnavailableError(DataFetchError):
     """数据源不可用异常"""
+
     pass
-
-
-class MarketDataIncompleteError(DataFetchError):
-    """The requested persisted market-data range is incomplete."""
-
-    def __init__(self, missing_dates: dict[str, list]) -> None:
-        self.missing_dates = missing_dates
-        detail = ", ".join(f"{code}({len(days)})" for code, days in sorted(missing_dates.items()))
-        super().__init__(f"Persisted daily bars are incomplete: {detail}")

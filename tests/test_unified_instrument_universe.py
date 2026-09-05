@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -17,6 +18,7 @@ from finance_analysis.database.repositories.universe import (
 from finance_analysis.integrations.market_data.instrument_sync import InstrumentSyncResult, InstrumentSyncService
 from finance_analysis.integrations.market_data.models import InstrumentRequest
 from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
+from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
 from finance_analysis.integrations.market_data.service import _DatabaseInstrumentProvider
 from finance_analysis.interfaces.api.v1.router import router as api_router
 from finance_analysis.tasks.celery.jobs.reference_data_sync.service import ReferenceDataSyncService
@@ -81,24 +83,33 @@ def test_instrument_validation_and_upsert_support_all_canonical_markets():
     repository = InstrumentRepository(database)
     records = [
         {"market": market, "code": code, "name": code, "source": "TICKFLOW"}
-        for market, code in (("CN", "600519.SH"), ("CN", "300750.SZ"), ("CN", "920001.BJ"),
-                             ("US", "AAPL.US"), ("HK", "700.HK"))
+        for market, code in (
+            ("CN", "600519.SH"),
+            ("CN", "300750.SZ"),
+            ("CN", "920001.BJ"),
+            ("US", "AAPL.US"),
+            ("HK", "700.HK"),
+        )
     ]
     assert repository.upsert_symbols(records) == 5
-    assert repository.upsert_symbols(
-        [
-            {
-                **records[0],
-                "name": "贵州茅台",
-                "instrument_type": "ETF",
-                "listing_date": date(2001, 8, 27),
-                "metadata": {"exchange": "SH"},
-            }
-        ]
-    ) == 1
-    assert repository.upsert_symbols(
-        [{"market": "CN", "code": "600519.SH", "name": "贵州茅台股份", "source": "AKSHARE"}]
-    ) == 1
+    assert (
+        repository.upsert_symbols(
+            [
+                {
+                    **records[0],
+                    "name": "贵州茅台",
+                    "instrument_type": "ETF",
+                    "listing_date": date(2001, 8, 27),
+                    "metadata": {"exchange": "SH"},
+                }
+            ]
+        )
+        == 1
+    )
+    assert (
+        repository.upsert_symbols([{"market": "CN", "code": "600519.SH", "name": "贵州茅台股份", "source": "AKSHARE"}])
+        == 1
+    )
     migrated = repository.get_by_code("600519.SH")
     assert migrated.name == "贵州茅台股份"
     assert migrated.instrument_type == "ETF"
@@ -126,10 +137,12 @@ def test_resolver_market_index_strategy_include_dedup_and_manual_member():
         session.flush()
         session.add(UniverseMember(universe_id=index.id, instrument_id=active.id, source="AKSHARE"))
         session.add(UniverseMember(universe_id=strategy.id, instrument_id=manual.id, source="MANUAL"))
-        session.add_all([
-            UniverseInclude(universe_id=strategy.id, included_universe_id=market.id),
-            UniverseInclude(universe_id=strategy.id, included_universe_id=index.id),
-        ])
+        session.add_all(
+            [
+                UniverseInclude(universe_id=strategy.id, included_universe_id=market.id),
+                UniverseInclude(universe_id=strategy.id, included_universe_id=index.id),
+            ]
+        )
     resolver = UniverseResolver(UniverseRepository(database))
     assert [item.code for item in resolver.resolve_universe("cn_all_a")] == ["600519.SH", "920001.BJ"]
     assert [item.code for item in resolver.resolve_universe("cn_csi300")] == ["600519.SH"]
@@ -143,10 +156,12 @@ def test_resolver_rejects_include_cycles():
         b = Universe(key="b", name="B", market="US", universe_type="STRATEGY")
         session.add_all([a, b])
         session.flush()
-        session.add_all([
-            UniverseInclude(universe_id=a.id, included_universe_id=b.id),
-            UniverseInclude(universe_id=b.id, included_universe_id=a.id),
-        ])
+        session.add_all(
+            [
+                UniverseInclude(universe_id=a.id, included_universe_id=b.id),
+                UniverseInclude(universe_id=b.id, included_universe_id=a.id),
+            ]
+        )
     with pytest.raises(UniverseCycleError, match="a -> b -> a"):
         UniverseResolver(UniverseRepository(database)).resolve_universe("a")
 
@@ -163,27 +178,33 @@ def test_daily_sync_universes_are_explicit_unions_and_exclude_nasdaq100():
         universes = {
             key: Universe(key=key, name=key, market=market, universe_type="STRATEGY" if "daily" in key else "INDEX")
             for key, market in (
-                ("cn_csi300", "CN"), ("cn_csi500", "CN"), ("cn_csi1000", "CN"),
-                ("us_sp500", "US"), ("us_nasdaq100", "US"),
-                ("cn_daily_sync", "CN"), ("us_daily_sync", "US"),
+                ("cn_csi300", "CN"),
+                ("cn_csi500", "CN"),
+                ("cn_csi1000", "CN"),
+                ("us_sp500", "US"),
+                ("us_nasdaq100", "US"),
+                ("cn_daily_sync", "CN"),
+                ("us_daily_sync", "US"),
             )
         }
         session.add_all(universes.values())
         session.flush()
-        session.add_all([
-            UniverseMember(universe_id=universes["cn_csi300"].id, instrument_id=cn_a.id, source="TEST"),
-            UniverseMember(universe_id=universes["cn_csi500"].id, instrument_id=cn_b.id, source="TEST"),
-            UniverseMember(universe_id=universes["cn_csi1000"].id, instrument_id=cn_a.id, source="TEST"),
-            UniverseMember(universe_id=universes["us_sp500"].id, instrument_id=us_sp.id, source="TEST"),
-            UniverseMember(universe_id=universes["us_nasdaq100"].id, instrument_id=us_ndx.id, source="TEST"),
-        ])
+        session.add_all(
+            [
+                UniverseMember(universe_id=universes["cn_csi300"].id, instrument_id=cn_a.id, source="TEST"),
+                UniverseMember(universe_id=universes["cn_csi500"].id, instrument_id=cn_b.id, source="TEST"),
+                UniverseMember(universe_id=universes["cn_csi1000"].id, instrument_id=cn_a.id, source="TEST"),
+                UniverseMember(universe_id=universes["us_sp500"].id, instrument_id=us_sp.id, source="TEST"),
+                UniverseMember(universe_id=universes["us_nasdaq100"].id, instrument_id=us_ndx.id, source="TEST"),
+            ]
+        )
         for child in ("cn_csi300", "cn_csi500", "cn_csi1000"):
-            session.add(UniverseInclude(
-                universe_id=universes["cn_daily_sync"].id, included_universe_id=universes[child].id
-            ))
-        session.add(UniverseInclude(
-            universe_id=universes["us_daily_sync"].id, included_universe_id=universes["us_sp500"].id
-        ))
+            session.add(
+                UniverseInclude(universe_id=universes["cn_daily_sync"].id, included_universe_id=universes[child].id)
+            )
+        session.add(
+            UniverseInclude(universe_id=universes["us_daily_sync"].id, included_universe_id=universes["us_sp500"].id)
+        )
     resolver = UniverseResolver(UniverseRepository(database))
     assert {item.code for item in resolver.resolve_universe("cn_daily_sync")} == {"600001.SH", "000002.SZ"}
     assert {item.code for item in resolver.resolve_universe("us_daily_sync")} == {"AAPL.US"}
@@ -197,10 +218,12 @@ def test_index_membership_refresh_preserves_current_and_deletes_stale():
         universe = Universe(key="us_sp500", name="S&P 500", market="US", universe_type="INDEX")
         session.add_all([first, stale, universe])
         session.flush()
-        session.add_all([
-            UniverseMember(universe_id=universe.id, instrument_id=first.id, source="OLD"),
-            UniverseMember(universe_id=universe.id, instrument_id=stale.id, source="OLD"),
-        ])
+        session.add_all(
+            [
+                UniverseMember(universe_id=universe.id, instrument_id=first.id, source="OLD"),
+                UniverseMember(universe_id=universe.id, instrument_id=stale.id, source="OLD"),
+            ]
+        )
     stats = UniverseRepository(database).replace_members_with_stats(
         "us_sp500", [{"code": "AAPL.US", "metadata": {}}], "WIKIPEDIA"
     )
@@ -210,7 +233,10 @@ def test_index_membership_refresh_preserves_current_and_deletes_stale():
 def test_reference_data_sync_updates_three_markets_and_five_index_universes():
     class Instruments:
         def upsert_symbols(self, members):
-            return len(members)
+            raise AssertionError("Index membership must not overwrite Instrument Master")
+
+        def existing_codes(self, codes):
+            return set(codes)
 
     class Universes:
         def __init__(self):
@@ -234,17 +260,15 @@ def test_reference_data_sync_updates_three_markets_and_five_index_universes():
         instrument_fallback=object(),
         index_providers={"AKSHARE": Provider(), "WIKIPEDIA": Provider()},
     )
-    service.instrument_sync = type("Sync", (), {"sync_instruments_detailed": lambda _, market: InstrumentSyncResult(
+    service.instrument_sync.sync_instruments_detailed = lambda market: InstrumentSyncResult(
         fetched=10, inserted=2, updated=8, delisted=0, provider="TICKFLOW", fallback_used=False
-    )})()
+    )
 
     result = service.run()
 
     assert result["instrument_fetched"] == 30
     assert result["universe_count"] == 5
-    assert {key for key, _ in universes.keys} == {
-        "cn_csi300", "cn_csi500", "cn_csi1000", "us_sp500", "us_nasdaq100"
-    }
+    assert {key for key, _ in universes.keys} == {"cn_csi300", "cn_csi500", "cn_csi1000", "us_sp500", "us_nasdaq100"}
 
 
 def test_instrument_sync_uses_fallback_without_deleting_existing_rows():
@@ -272,18 +296,47 @@ def test_instrument_sync_uses_fallback_without_deleting_existing_rows():
             self.delisted.append((market, set(active_codes)))
 
     instruments = Instruments()
-    service = InstrumentSyncService(
-        Primary(), Fallback(), instrument_repository=instruments
-    )
+    service = InstrumentSyncService(Primary(), Fallback(), instrument_repository=instruments)
     assert service.sync_instruments("CN") == 1
     assert instruments.records[0]["code"] == "600519.SH"
     assert instruments.delisted == []
 
-    service = InstrumentSyncService(
-        Fallback(), instrument_repository=instruments
-    )
+    service = InstrumentSyncService(Fallback(), instrument_repository=instruments)
     assert service.sync_instruments("CN") == 1
     assert instruments.delisted == [("CN", {"600519.SH"})]
+
+
+@pytest.mark.parametrize("kind", ["ETF", "INDEX"])
+def test_missing_members_use_typed_security_metadata_without_overwriting_existing(kind):
+    writes = []
+    instruments = SimpleNamespace(
+        existing_codes=lambda codes: {"AAPL.US"},
+        upsert_symbols=lambda records: writes.extend(records),
+    )
+    info = SimpleNamespace(
+        instrument_type=kind,
+        market=SimpleNamespace(value="US"),
+        name="Provider name",
+        currency="USD",
+        provider="tickflow",
+    )
+    primary = SimpleNamespace(get_instrument_info=lambda request: SimpleNamespace(data={"SPY.US": info}))
+    service = InstrumentSyncService(primary, instrument_repository=instruments)
+    service.ensure_instruments({"AAPL.US", "SPY.US"})
+    assert writes == [
+        {
+            "market": "US",
+            "code": "SPY.US",
+            "native_code": "SPY",
+            "name": "Provider name",
+            "instrument_type": kind,
+            "currency": "USD",
+            "source": "TICKFLOW",
+        }
+    ]
+    default = InstrumentSyncService(instrument_repository=instruments)
+    assert isinstance(default.fallback, LongbridgeProvider)
+    assert LongbridgeProvider._security_type(SimpleNamespace()) is None
 
 
 def test_tickflow_directory_filters_products_and_supports_beijing_exchange():

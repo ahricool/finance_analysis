@@ -122,13 +122,33 @@ def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
         MarketRegimeServiceStub,
     )
 
-    service = DailyResearchService(repository, symbol_repository)
+    market_data = MagicMock()
+    market_data.get_daily_bars.return_value = SimpleNamespace(
+        data={
+            code: [
+                SimpleNamespace(
+                    trade_date=row.datetime,
+                    open=row.open,
+                    high=row.high,
+                    low=row.low,
+                    close=row.close,
+                    volume=row.volume,
+                    amount=row.amount,
+                )
+                for row in loaded.frame[loaded.frame.instrument == code].itertuples()
+            ]
+            for code in ("159915.SZ", "510300.SH")
+        }
+    )
+    service = DailyResearchService(repository, symbol_repository, market_data=market_data)
     with pytest.raises(FeatureDataMissingError, match="coverage below minimum"):
         service.run("CN", "cn_quant", TRADE_DATE)
     repository.save_market_regime.assert_not_called()
 
     service.config = replace(service.config, minimum_universe_coverage=0.5)
     result = service.run("CN", "cn_quant", TRADE_DATE)
+    assert set(market_data.get_daily_bars.call_args.args[0]) == {"159915.SZ", "510300.SH"}
+    assert market_data.get_daily_bars.call_args.kwargs["source_policy"] == "db_first"
 
     assert captured["benchmark_labels"] == ("510300.SH", "510300.SH")
     assert captured["style_label"] == "159915.SZ"

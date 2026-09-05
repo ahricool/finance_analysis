@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import RLock
 from typing import Any, Mapping
 
@@ -69,13 +70,30 @@ class TickFlowFreeProvider:
             raise ValueError("TickFlow daily storage reads require adjustment='forward'")
         symbols = tuple(canonical_symbol(symbol) for symbol in request.symbols)
         result = BatchBarResult()
-        try:
-            frames = self._fetch_frames(symbols, request.start_date, request.end_date, adjust="forward")
-        except Exception as exc:
-            return BatchBarResult(failed_symbols={symbol: str(exc) for symbol in symbols})
-        if not isinstance(frames, Mapping):
-            return BatchBarResult(failed_symbols={symbol: "unexpected TickFlow batch response" for symbol in symbols})
+        frames = {}
+        # The SDK's multi-chunk helper swallows exceptions. Keep its actual
+        # batch download, but submit single HTTP-sized chunks ourselves so a
+        # failed chunk cannot masquerade as a normal empty response.
+        chunks = [symbols[i : i + self.batch_size] for i in range(0, len(symbols), self.batch_size)]
+        with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            pending = {
+                pool.submit(self._fetch_frames, chunk, request.start_date, request.end_date, adjust="forward"): chunk
+                for chunk in chunks
+            }
+            for future in as_completed(pending):
+                chunk = pending[future]
+                try:
+                    fetched = future.result()
+                    if not isinstance(fetched, Mapping):
+                        raise ValueError("unexpected TickFlow batch response")
+                    frames.update(fetched)
+                except Exception as exc:
+                    reason = str(exc) or type(exc).__name__
+                    result.failed_symbols.update({symbol: reason for symbol in chunk})
+                    result.request_errors.update({symbol: reason for symbol in chunk})
         for symbol in symbols:
+            if symbol in result.failed_symbols:
+                continue
             frame = frames.get(symbol, pd.DataFrame())
             multiplier = 100 if infer_market(symbol).value == "CN" else 1
             bars = bars_from_frame(

@@ -122,6 +122,9 @@ class BatchBarResult:
     missing_symbols: list[str] = field(default_factory=list)
     failed_symbols: dict[str, str] = field(default_factory=dict)
     providers_used: dict[str, str] = field(default_factory=dict)
+    # Sticky request failures survive retries/fallbacks. Full-history writers
+    # must reject these symbols, even when some bars were recovered later.
+    request_errors: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
