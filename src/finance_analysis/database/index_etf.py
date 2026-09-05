@@ -188,6 +188,15 @@ def seed_index_etf_universes(connection) -> None:
             ).scalar_one()
             if missing:
                 raise ValueError(f"Index ETF member copy incomplete: {old_key}")
+            # Membership in the curated ETF pool confirms ETF identity, including
+            # legacy Instruments classified as STOCK by 0039.
+            connection.execute(
+                sa.text("""
+                UPDATE instrument SET instrument_type = 'ETF'
+                WHERE id IN (SELECT instrument_id FROM universe_member WHERE universe_id = :old_id)
+            """),
+                {"old_id": old_id},
+            )
             _delete_old_pool(connection, old_id)
         if initialize:
             for code, _, category, theme, risk_group in members:

@@ -381,7 +381,7 @@ def test_tickflow_directory_filters_products_and_supports_beijing_exchange():
 
 
 @pytest.mark.parametrize("existing_pool", [False, True])
-def test_index_etf_migration_preserves_members_fk_metadata_and_final_includes(existing_pool, monkeypatch):
+def test_index_etf_migration_preserves_members_fk_metadata_and_final_includes(existing_pool):
     import importlib.util
     from finance_analysis.core.paths import PROJECT_ROOT
     from finance_analysis.database.index_etf import INDEX_ETF_MEMBERS, seed_index_etf_universes
@@ -390,13 +390,25 @@ def test_index_etf_migration_preserves_members_fk_metadata_and_final_includes(ex
 
     database = Database()
     spec = importlib.util.spec_from_file_location(
-        "daily_migration", PROJECT_ROOT / "alembic/versions/0040_daily_sync_universes.py"
+        "daily_migration", PROJECT_ROOT / "alembic/versions/0041_index_etf_csi2000.py"
     )
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
+    assert migration.revision == "0041_index_etf_csi2000"
+    assert migration.down_revision == "0040_daily_sync_universes"
     expected = {}
     with database.session_scope() as session:
-        for key in ("cn_all_a", "cn_csi300", "cn_csi500", "cn_csi1000", "cn_trend", "us_trend", "us_sp500"):
+        for key in (
+            "cn_all_a",
+            "cn_csi300",
+            "cn_csi500",
+            "cn_csi1000",
+            "cn_trend",
+            "us_trend",
+            "us_sp500",
+            "cn_daily_sync",
+            "us_daily_sync",
+        ):
             session.add(Universe(key=key, name=key, market=key[:2].upper(), universe_type="STRATEGY"))
         session.flush()
         ids = dict(session.execute(select(Universe.key, Universe.id)).all())
@@ -408,6 +420,10 @@ def test_index_etf_migration_preserves_members_fk_metadata_and_final_includes(ex
             session.add(UniverseMember(universe_id=ids[key], instrument_id=instrument.id, source="TEST"))
         if not existing_pool:
             session.add(Instrument(market="CN", code="588000.SH", name="Existing name", source="TICKFLOW"))
+            for market in ("CN", "US"):
+                session.add(
+                    Universe(key=f"{market.lower()}_etf_rotation", name=market, market=market, universe_type="STRATEGY")
+                )
         if existing_pool:
             for market, members in INDEX_ETF_MEMBERS.items():
                 universe = Universe(
@@ -417,7 +433,7 @@ def test_index_etf_migration_preserves_members_fk_metadata_and_final_includes(ex
                 session.flush()
                 expected[market] = {}
                 for code, name, category, theme, risk_group in members:
-                    instrument = Instrument(market=market, code=code, name=name, instrument_type="ETF")
+                    instrument = Instrument(market=market, code=code, name=name, instrument_type="STOCK")
                     session.add(instrument)
                     session.flush()
                     metadata = dict(category=category, theme=theme, risk_group=risk_group, custom="preserve")
@@ -430,9 +446,25 @@ def test_index_etf_migration_preserves_members_fk_metadata_and_final_includes(ex
                         )
                     )
                     expected[market][code] = (instrument.id, metadata)
+    from alembic import command
+    from alembic.config import Config
+
     with database.engine.begin() as connection:
-        monkeypatch.setattr(migration.op, "get_bind", lambda: connection)
-        migration.upgrade()
+        connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
+        connection.execute(text("INSERT INTO alembic_version VALUES ('0040_daily_sync_universes')"))
+        connection.execute(text("CREATE TABLE signal (id INTEGER PRIMARY KEY)"))
+    config = Config()
+    config.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
+    config.attributes["connection"] = database.engine
+    command.upgrade(config, "head")
+    with database.engine.begin() as connection:
+        assert (
+            connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            == "0042_merge_reference_heads"
+        )
+        from sqlalchemy import inspect
+
+        assert "signal" not in inspect(connection).get_table_names()
         seed_index_etf_universes(connection)  # idempotent after migration
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
         pairs = set(connection.execute(text("""

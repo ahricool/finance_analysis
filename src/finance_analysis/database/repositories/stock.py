@@ -57,6 +57,17 @@ class InstrumentRepository:
                 session.expunge(row)
             return row
 
+    def get_by_codes(self, codes: Iterable[str]) -> dict[str, Instrument]:
+        """Resolve a batch of canonical identities in one query."""
+        canonical_codes = sorted({str(code).strip().upper() for code in codes if str(code).strip()})
+        if not canonical_codes:
+            return {}
+        with self.db.get_session() as session:
+            rows = session.execute(select(Instrument).where(Instrument.code.in_(canonical_codes))).scalars().all()
+            for row in rows:
+                session.expunge(row)
+            return {row.code: row for row in rows}
+
     def names_by_codes(self, codes: Iterable[str]) -> dict[str, str]:
         """Return persisted names for canonical codes in one bounded query."""
         canonical_codes = sorted({str(code or "").strip().upper() for code in codes if str(code or "").strip()})
@@ -304,6 +315,32 @@ class StockRepository:
                 .all()
             )
 
+    def get_daily_ranges(self, codes: Iterable[str], start_date: date, end_date: date) -> dict[str, list[StockDaily]]:
+        """Read requested histories together, including their eagerly loaded Instrument."""
+        canonical_codes = sorted({self._canonical_code(code) for code in codes})
+        if not canonical_codes:
+            return {}
+        with self.db.get_session() as session:
+            rows = (
+                session.execute(
+                    select(StockDaily)
+                    .join(Instrument)
+                    .where(
+                        Instrument.code.in_(canonical_codes),
+                        StockDaily.date >= start_date,
+                        StockDaily.date <= end_date,
+                    )
+                    .order_by(StockDaily.instrument_id, StockDaily.date)
+                )
+                .scalars()
+                .unique()
+                .all()
+            )
+            histories: dict[str, list[StockDaily]] = {}
+            for row in rows:
+                histories.setdefault(row.instrument.code, []).append(row)
+            return histories
+
     def get_with_warmup(self, code: str, start_date: date, end_date: date, warmup_days: int) -> list[StockDaily]:
         canonical = self._canonical_code(code)
         with self.db.get_session() as session:
@@ -401,6 +438,20 @@ class StockRepository:
             return session.execute(
                 select(func.max(StockDaily.date)).where(StockDaily.instrument_id == instrument_id)
             ).scalar_one()
+
+    def latest_daily_dates(self, instrument_ids: Iterable[int]) -> dict[int, date]:
+        """Read the latest stored date for every requested identity in one query."""
+        ids = sorted(set(instrument_ids))
+        if not ids:
+            return {}
+        with self.db.get_session() as session:
+            return dict(
+                session.execute(
+                    select(StockDaily.instrument_id, func.max(StockDaily.date))
+                    .where(StockDaily.instrument_id.in_(ids))
+                    .group_by(StockDaily.instrument_id)
+                ).all()
+            )
 
     def daily_dates(self, instrument_id: int, start_date: date, end_date: date) -> set[date]:
         with self.db.get_session() as session:

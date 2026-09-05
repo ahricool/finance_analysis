@@ -307,17 +307,20 @@ class MarketDataService:
     def _get_fresh_daily(self, request: DailyBarsRequest, providers: Iterable[str] | None) -> BatchBarResult:
         """Read history and batch-refresh stale tails, without gap checks or writes."""
         instruments, stocks = self._repositories()
+        identities = instruments.get_by_codes(request.symbols)
+        latest_dates = stocks.latest_daily_dates(instrument.id for instrument in identities.values())
+        histories = stocks.get_daily_ranges(request.symbols, request.start_date, request.end_date)
         result = BatchBarResult()
         missing = []
         stale = []
         tail_start = request.end_date
         for code in request.symbols:
-            instrument = instruments.get_by_code(code)
-            latest = stocks.latest_daily_date(instrument.id) if instrument is not None else None
+            instrument = identities.get(code)
+            latest = latest_dates.get(instrument.id) if instrument is not None else None
             if latest is None:
                 missing.append(code)
                 continue
-            bars = [self._stored_bar(row) for row in stocks.get_range(code, request.start_date, request.end_date)]
+            bars = [self._stored_bar(row) for row in histories.get(code, [])]
             if bars:
                 result.data[code] = bars
                 result.providers_used[code] = "database"

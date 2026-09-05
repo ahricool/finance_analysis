@@ -1,0 +1,73 @@
+"""Migrate curated Index ETFs and add CSI2000 Trend coverage.
+
+Revision ID: 0041_index_etf_csi2000
+Revises: 0040_daily_sync_universes
+"""
+
+from __future__ import annotations
+
+from typing import Sequence, Union
+
+import sqlalchemy as sa
+from alembic import op
+
+revision: str = "0041_index_etf_csi2000"
+down_revision: Union[str, Sequence[str], None] = "0040_daily_sync_universes"
+branch_labels = None
+depends_on = None
+
+UNIVERSES = (("cn_csi2000", "中证2000", "CN", "INDEX"),)
+
+INCLUDES = (
+    ("cn_daily_sync", "cn_csi300"),
+    ("cn_daily_sync", "cn_csi500"),
+    ("cn_daily_sync", "cn_csi1000"),
+    ("cn_daily_sync", "cn_index_etf"),
+    ("us_daily_sync", "us_sp500"),
+    ("us_daily_sync", "us_index_etf"),
+    ("cn_trend", "cn_csi300"),
+    ("cn_trend", "cn_csi500"),
+    ("cn_trend", "cn_csi1000"),
+    ("cn_trend", "cn_csi2000"),
+    ("us_trend", "us_sp500"),
+)
+
+
+def upgrade() -> None:
+    from finance_analysis.database.index_etf import seed_index_etf_universes
+
+    connection = op.get_bind()
+    seed_index_etf_universes(connection)
+    connection.execute(sa.text("""
+        DELETE FROM universe_include WHERE universe_id IN (
+            SELECT id FROM universe WHERE key IN ('cn_trend', 'us_trend', 'cn_daily_sync', 'us_daily_sync')
+        )
+    """))
+    for key, name, market, universe_type in UNIVERSES:
+        connection.execute(
+            sa.text("""
+                INSERT INTO universe (key, name, market, universe_type, enabled, config, created_at, updated_at)
+                VALUES (:key, :name, :market, :universe_type, true, '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (key) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    market = EXCLUDED.market,
+                    universe_type = EXCLUDED.universe_type,
+                    enabled = true
+            """),
+            {"key": key, "name": name, "market": market, "universe_type": universe_type},
+        )
+    for parent, child in INCLUDES:
+        connection.execute(
+            sa.text("""
+                INSERT INTO universe_include (universe_id, included_universe_id, created_at)
+                SELECT parent.id, child.id, CURRENT_TIMESTAMP
+                FROM universe parent, universe child
+                WHERE parent.key = :parent AND child.key = :child
+                ON CONFLICT (universe_id, included_universe_id) DO NOTHING
+            """),
+            {"parent": parent, "child": child},
+        )
+
+
+def downgrade() -> None:
+    raise NotImplementedError("Retired ETF universes and rebuilt strategy data cannot be restored")

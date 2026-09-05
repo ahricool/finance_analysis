@@ -166,8 +166,11 @@ class _PolicyStockRepository:
     def has_daily_data(self, instrument_id):
         return bool(self.rows)
 
-    def latest_daily_date(self, instrument_id):
-        return max(self.rows, default=None)
+    def latest_daily_dates(self, instrument_ids):
+        return {instrument_id: max(self.rows) for instrument_id in instrument_ids} if self.rows else {}
+
+    def get_daily_ranges(self, codes, start_date, end_date):
+        return {code: [self.rows[day] for day in sorted(self.rows) if start_date <= day <= end_date] for code in codes}
 
     def get_range(self, code, start_date, end_date):
         del code
@@ -1165,7 +1168,9 @@ def test_db_fresh_batches_tail_merges_remote_over_db_without_writes(local_days):
     stocks = _PolicyStockRepository([_stored_policy_row(day) for day in local_days])
     service = MarketDataService(
         registry,
-        instrument_repository=SimpleNamespace(get_by_code=lambda code: SimpleNamespace(id=7, code=code, market="CN")),
+        instrument_repository=SimpleNamespace(
+            get_by_codes=lambda codes: {code: SimpleNamespace(id=7, code=code, market="CN") for code in codes}
+        ),
         stock_repository=stocks,
     )
     result = service.get_daily_bars(
@@ -1185,3 +1190,76 @@ def test_db_fresh_batches_tail_merges_remote_over_db_without_writes(local_days):
         assert result.data[codes[0]][0].trade_date == local_days[0]
     assert len({bar.trade_date for bar in result.data[codes[0]]}) == len(result.data[codes[0]])
     assert stocks.upserts == []
+
+
+def test_db_fresh_two_thousand_symbols_use_three_db_queries_and_two_remote_batches():
+    from sqlalchemy import create_engine, event, func, select
+    from sqlalchemy.orm import Session
+    from finance_analysis.database.models.stock import Instrument, StockDaily
+    from finance_analysis.database.repositories.stock import InstrumentRepository
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Instrument.__table__.create(engine)
+    StockDaily.__table__.create(engine)
+    codes = [f"{600000 + index}.SH" for index in range(2000)]
+    end = date(2026, 9, 4)
+    fresh = set(codes[:700])
+    stale = set(codes[700:1400])
+    missing = set(codes[1400:])
+    with Session(engine) as session:
+        session.add_all(
+            Instrument(id=index + 1, code=code, market="CN", name=code) for index, code in enumerate(codes[:-1])
+        )  # also cover an unknown Instrument
+        session.flush()
+        session.add_all(
+            StockDaily(
+                id=index + 1,
+                instrument_id=index + 1,
+                date=end if code in fresh else end - timedelta(days=1),
+                open=10,
+                high=11,
+                low=9,
+                close=10.5,
+                volume=100,
+                data_source="TEST",
+            )
+            for index, code in enumerate(codes[:1400])
+        )
+        session.commit()
+
+    class Database:
+        @contextmanager
+        def get_session(self):
+            with Session(engine) as session:
+                yield session
+
+    provider = _DailyProvider("daily", {code: [_bar_on(code, "daily", end)] for code in codes})
+    registry = ProviderRegistry()
+    registry.register("daily", provider, capabilities={DAILY_BARS})
+    database = Database()
+    service = MarketDataService(
+        registry, instrument_repository=InstrumentRepository(database), stock_repository=StockRepository(database)
+    )
+    statements = []
+
+    def record_query(_conn, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record_query)
+    result = service.get_daily_bars(
+        codes, end - timedelta(days=500), end, adjustment="forward", providers=["daily"], source_policy="db_fresh"
+    )
+    event.remove(engine, "before_cursor_execute", record_query)
+    assert len(statements) == 3
+    assert all(statement.lstrip().upper().startswith("SELECT") for statement in statements)
+    assert len(provider.requests) == 2
+    assert set(provider.requests[0].symbols) == missing
+    assert provider.requests[0].start_date == end - timedelta(days=500)
+    assert set(provider.requests[1].symbols) == stale
+    assert provider.requests[1].start_date == end - timedelta(days=11)
+    assert set(result.data) == set(codes)
+    assert all(bars[-1].trade_date == end for bars in result.data.values())
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(StockDaily)) == 1400
+        assert session.scalar(select(func.count()).select_from(Instrument)) == 1999
+    engine.dispose()

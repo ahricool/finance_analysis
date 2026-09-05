@@ -7,6 +7,10 @@ Center before running daily data or strategy tasks. Alembic seeds Universe
 definitions/includes and the curated Index ETF pool; it never downloads index members and startup does not fetch
 reference data. Inspect `failed_markets` / `failed_universes` before proceeding.
 Thereafter reference sync runs Sundays at 08:00 Asia/Shanghai.
+Published migrations 0039/0040 remain unchanged; `0041_index_etf_csi2000`
+upgrades existing 0040 databases to the Index ETF pools and final includes.
+An empty `0042_merge_reference_heads` joins it with main's published
+`0041_drop_signal`, keeping a single upgrade head and Signal Evaluation removed.
 
 - Instrument Master: TickFlow primary, Longbridge fallback using the existing
   `LONGBRIDGE_APP_KEY`, `LONGBRIDGE_APP_SECRET`, `LONGBRIDGE_ACCESS_TOKEN` configuration.
@@ -34,7 +38,8 @@ Thereafter reference sync runs Sundays at 08:00 Asia/Shanghai.
 - MarketDataService queries never create Instruments or write daily bars.
   `db_first` uses any existing local history; `db_only` reads available DB rows;
   `remote_only` bypasses DB. `db_fresh` uses DB history and checks only the latest
-  local date against the requested end. Fresh means zero remote requests. Stale
+  local date against the requested end. Instruments, latest dates and requested
+  history use three batch DB queries, independent of symbol count. Fresh means zero remote requests. Stale
   histories get a batched tail starting ten natural days before the oldest stale
   latest date (bounded by the requested start); securities without any history
   get the requested window in a separate batch. Remote dates override DB dates
