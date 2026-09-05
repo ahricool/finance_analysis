@@ -112,6 +112,7 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 - 市场与研究是**两套并列的 `/market` 子树**，分别由 `MarketPage` 和 `ResearchPage` 提供 `ModuleTabs`。量化、ETF、趋势跟踪走研究树，不要塞进市场 tab。
 - 量化范围用 query `?market=US|CN`。在量化子路由之间跳转时，守卫会保留已有 `market`。读写市场用 `useQuantMarket()`，不要手写丢 query 的 `router.push`。
 - 顶栏菜单数据在 `src/config/mainNav.ts`，和路由表分开维护。加入口时两处都要改，并补 `src/config/__tests__/mainNav.test.ts` 一类断言。
+- `/tasks` 由 `TasksPage` 按角色转到子页：管理员进入 `/tasks/scheduled`，普通用户进入 `/tasks/runs`。
 
 ## 鉴权
 
@@ -146,6 +147,12 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 少数接口（如部分 auth JSON）后端已是 camelCase，保持原样，不要双重转换。
 - 问股流式接口 `agentApi.chatStream` 用 `fetch` + `credentials: 'include'`，因为要读 SSE，不走 Axios。
 - 行情推送：`useRealtimeQuotes()` 连 WebSocket，指数退避重连；`4401`/`4403` 视为未授权，停止重连。
+
+## 语言边界
+
+当前没有 `vue-i18n` 或应用级国际化框架，WebUI 文案主要直接写中文。`utils/reportLanguage.ts`
+只处理分析报告内容的中英文展示，不代表全站 i18n；新增普通 UI 文案时不要自行引入另一套翻译机制。
+`index.html` 当前仍为 `lang="en"`，这是已知的文档/可访问性差距，不应据此判断界面主语言。
 
 ## 状态：Pinia 还是 zustand
 
@@ -216,6 +223,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
   `SERVER_HOST` / `SERVER_PORT`（默认 `0.0.0.0:8000`）；不要把这些 CLI 参数当作受支持的运行时配置。
 - Playwright 的 webServer 当前用 `npm run dev` 启前端；运行 smoke 时除 pnpm 外也要确保 npm 可用。
 - 需要真登录的用例依赖 `FA_WEB_SMOKE_PASSWORD`（可选 `FA_WEB_SMOKE_EMAIL`）。
+- `FA_WEB_SMOKE_BACKEND_CMD` 可覆盖 Playwright 后端启动命令；`VITE_API_URL` 只覆盖浏览器 API base URL。
 - 布局/控件可用性用例用 `mockAuthenticatedSession` 拦 `/api/v1/**`，不依赖真实数据。
 - 无障碍：关键按钮用可访问名字，不要靠 `title`。
 

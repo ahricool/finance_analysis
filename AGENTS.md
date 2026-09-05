@@ -6,6 +6,10 @@
 - WebUI：`web/AGENTS.md`
 - 隔离 Qlib Worker：`qlib_worker/AGENTS.md`
 
+现有 `README.md` 主要是 reference data / daily sync 升级运维备忘，不是完整快速开始。
+专题细节见 `docs/market-streamer.md`、`docs/quant-research.md` 和
+`docs/etf-rotation.md`；其中时间表和迁移步骤可能落后，易变事实仍以代码为准。
+
 ## 系统概览
 
 Finance Analysis 是一个多市场证券研究与任务自动化系统。Instrument、WatchList 和实时 Streamer 支持 CN/HK/US；定时前复权日线同步与 Quant 只覆盖 CN/US，港股没有独立 daily sync 任务。当前部署不是单体进程，而是以下协作组件：
@@ -237,6 +241,8 @@ Qlib Worker 使用独立环境：
 uv sync --project qlib_worker
 uv run --project qlib_worker pytest qlib_worker/tests -q
 ```
+
+Qlib Worker 测试当前不在根 `scripts/ci_gate.sh` 或 PR workflow 中，修改该目录时必须单独执行。
 
 Web：
 
