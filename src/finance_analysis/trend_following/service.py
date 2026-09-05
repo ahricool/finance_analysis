@@ -134,7 +134,7 @@ class TrendFollowingService:
             effective_date - timedelta(days=self.config.calendar_lookback_days),
             effective_date,
             adjustment="forward",
-            source_policy="db_first",
+            source_policy="remote_only",
         )
         benchmark_bars = [
             DailyBar(

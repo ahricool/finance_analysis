@@ -58,7 +58,7 @@ class InstrumentSyncService:
         return self.sync_instruments_detailed(market).fetched
 
     def sync_instruments_detailed(self, market: str) -> "InstrumentSyncResult":
-        """Reconcile a complete primary directory; fallback responses only upsert."""
+        """Reconcile a complete primary directory; fallback responses only insert missing securities."""
         primary_complete = False
         provider = str(getattr(self.primary, "name", "primary")).upper()
         fallback_used = False
@@ -77,14 +77,16 @@ class InstrumentSyncService:
             raise ValueError(f"Instrument provider returned no {market} securities")
         codes = {record["code"] for record in records}
         existing = self.instruments.existing_codes(codes)
-        self.instruments.upsert_symbols(records)
+        writable_records = [record for record in records if record["code"] not in existing] if fallback_used else records
+        if writable_records:
+            self.instruments.upsert_symbols(writable_records)
         delisted = 0
         if primary_complete:
             delisted = self.instruments.mark_missing_delisted(market, codes)
         return InstrumentSyncResult(
             fetched=len(records),
             inserted=len(codes - existing),
-            updated=len(codes & existing),
+            updated=0 if fallback_used else len(codes & existing),
             delisted=delisted,
             provider=provider,
             fallback_used=fallback_used,

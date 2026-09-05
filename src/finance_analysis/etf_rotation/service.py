@@ -102,7 +102,7 @@ class ETFRotationService:
             effective_date - timedelta(days=500),
             effective_date,
             adjustment="forward",
-            source_policy="db_first",
+            source_policy="remote_only",
         )
         histories = {
             code: [

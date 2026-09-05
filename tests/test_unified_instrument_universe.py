@@ -278,7 +278,10 @@ def test_instrument_sync_uses_fallback_without_deleting_existing_rows():
 
     class Fallback:
         def fetch_instruments(self, market):
-            return [{"market": market, "code": "600519.SH", "name": "贵州茅台"}]
+            return [
+                {"market": market, "code": "600519.SH", "name": "贵州茅台"},
+                {"market": market, "code": "000001.SZ", "name": "Fallback name", "source": "LONGBRIDGE"},
+            ]
 
     class Instruments:
         def __init__(self):
@@ -290,20 +293,22 @@ def test_instrument_sync_uses_fallback_without_deleting_existing_rows():
             return len(records)
 
         def existing_codes(self, codes):
-            return set()
+            return {"000001.SZ"}
 
         def mark_missing_delisted(self, market, active_codes):
             self.delisted.append((market, set(active_codes)))
 
     instruments = Instruments()
     service = InstrumentSyncService(Primary(), Fallback(), instrument_repository=instruments)
-    assert service.sync_instruments("CN") == 1
-    assert instruments.records[0]["code"] == "600519.SH"
+    result = service.sync_instruments_detailed("CN")
+    assert (result.fetched, result.inserted, result.updated, result.delisted) == (2, 1, 0, 0)
+    assert result.fallback_used is True
+    assert instruments.records == [{"market": "CN", "code": "600519.SH", "name": "贵州茅台"}]
     assert instruments.delisted == []
 
     service = InstrumentSyncService(Fallback(), instrument_repository=instruments)
-    assert service.sync_instruments("CN") == 1
-    assert instruments.delisted == [("CN", {"600519.SH"})]
+    assert service.sync_instruments("CN") == 2
+    assert instruments.delisted == [("CN", {"600519.SH", "000001.SZ"})]
 
 
 @pytest.mark.parametrize("kind", ["ETF", "INDEX"])

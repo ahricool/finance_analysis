@@ -19,7 +19,7 @@ def TrendFollowingService(market, repository, **kwargs):
     class MarketData:
         def get_daily_bars(self, codes, start, end, **options):
             assert codes == ["SPY.US"]  # the main universe must never fall back
-            assert options == {"adjustment": "forward", "source_policy": "db_first"}
+            assert options == {"adjustment": "forward", "source_policy": "remote_only"}
             if not repository.benchmark_ready or end == getattr(repository, "incomplete_date", None):
                 return SimpleNamespace(data={})
             rows = repository.load_daily_history({"AAA.US", "BBB.US"}, end, calendar_lookback_days=500)

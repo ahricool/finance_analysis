@@ -52,14 +52,14 @@ class DailyResearchService:
             code: group.rename(columns={"datetime": "date"}).drop(columns="instrument").reset_index(drop=True)
             for code, group in loaded.frame.groupby("instrument")
         }
-        # Only the small, explicit benchmark set may fall back remotely. Main
+        # Only the small, explicit benchmark set is fetched remotely. Main
         # universe readiness remains DB-only; these bars are never persisted.
         benchmarks = self.market_data.get_daily_bars(
             sorted(required_benchmarks),
             trade_date - timedelta(days=500),
             trade_date,
             adjustment="forward",
-            source_policy="db_first",
+            source_policy="remote_only",
         )
         for code, bars in benchmarks.data.items():
             if bars:
