@@ -74,7 +74,6 @@ class AShareSignalResult:
     metrics: Dict[str, Any]
     llm_result: Dict[str, Any]
     notification_sent: bool = False
-    calendar_id: Optional[int] = None
     fallback_used: bool = False
     severity: str = "info"
 
@@ -87,7 +86,6 @@ class AShareSignalResult:
             "need_notification": self.need_notification,
             "final_decision": self.final_decision,
             "notification_sent": self.notification_sent,
-            "calendar_id": self.calendar_id,
             "fallback_used": self.fallback_used,
             "severity": self.severity,
             "summary": str(self.llm_result.get("summary", "") or "")[:300],
@@ -121,7 +119,6 @@ class AShareIntradayTaskSummary:
     signal_results: List[AShareSignalResult] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
-    calendar_id: Optional[int] = None
     timings: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -146,6 +143,5 @@ class AShareIntradayTaskSummary:
             "signal_results": [item.to_dict() for item in self.signal_results],
             "errors": self.errors[:50],
             "warnings": self.warnings[:50],
-            "calendar_id": self.calendar_id,
             "timings": self.timings,
         }

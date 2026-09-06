@@ -24,7 +24,6 @@ from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.market_calenda
 from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.models import AShareSignalResult
 from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.notifications import (
     AShareIntradayReporter,
-    render_signal_content,
     reset_cooldown_store,
 )
 from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.domain_service import (
@@ -149,18 +148,9 @@ class FakeNotifier:
 
 
 def _make_reporter(notifier=None):
-    calendar_entries: List[Dict[str, Any]] = []
-
-    def _writer(*, time, title, content, calendar_type):
-        calendar_entries.append({"title": title, "type": calendar_type, "content": content})
-        return len(calendar_entries)
-
-    reporter = AShareIntradayReporter(
+    return AShareIntradayReporter(
         notification_factory=(lambda: notifier) if notifier is not None else None,
-        calendar_writer=_writer,
     )
-    reporter.calendar_entries = calendar_entries  # type: ignore[attr-defined]
-    return reporter
 
 
 def _make_service(data_source, llm, reporter, watchlist):
@@ -552,13 +542,6 @@ def test_notification_eligibility_uses_new_final_decisions(decision, expected):
     assert signal.need_notification is expected
 
 
-def test_calendar_renders_new_final_decision_value():
-    signal = _signal()
-    signal.llm_result["final_decision"] = "accept"
-
-    assert "最终决策：accept" in render_signal_content(signal)
-
-
 # ---------------------------------------------------------------------------
 # Notification dedup / cooldown (req 56-63)
 # ---------------------------------------------------------------------------
@@ -666,7 +649,7 @@ def test_aggregated_notification_failure_does_not_raise():
     assert summary.market_open is True
 
 
-def test_summary_and_signal_calendar_written_and_json_serializable():
+def test_notification_only_summary_is_json_serializable():
     import json
 
     rows, bars_by_code = _scenario_with_watchlist_signal()
@@ -684,9 +667,6 @@ def test_summary_and_signal_calendar_written_and_json_serializable():
     with patch(f"{SERVICE_MODULE}.is_a_share_trading_day", return_value=True):
         summary = service.run(now=_run_now())
 
-    types = {e["type"] for e in reporter.calendar_entries}  # type: ignore[attr-defined]
-    assert "scheduled_a_share_intraday" in types
-    assert "a_share_intraday_signal" in types
     assert summary.notification_count == 1
     assert len(notifier.calls) == 1
     assert summary.signal_results[0].notification_sent is True

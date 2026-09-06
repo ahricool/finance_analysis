@@ -27,7 +27,7 @@ DEFINITION = require_scheduled_task_definition(JOB_US_PREMARKET_ANALYSIS)
     success_message="定时任务执行完成",
     strip_lifecycle_kwargs=True,
 )
-def analysis_us_premarket(scheduler_job_id: Optional[str] = None, **_: Any) -> None:
+def analysis_us_premarket(scheduler_job_id: Optional[str] = None, **_: Any) -> dict[str, Any]:
     return USPremarketAnalysisTaskService().run()
 
 

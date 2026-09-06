@@ -35,7 +35,6 @@ from finance_analysis.tasks.celery.jobs.us_intraday_analysis.models import (
 )
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.notifications import (
     SignalReporter,
-    render_calendar_content,
     render_notification,
 )
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.rules import (
@@ -560,7 +559,7 @@ def test_us_intraday_prompts_use_only_new_final_decisions():
         assert "strong_to_weak_failure：强转弱" in prompt
 
 
-def test_us_calendar_and_notification_render_new_final_decision_value():
+def test_us_notification_renders_final_decision_value():
     signal = IntradaySignalResult(
         symbol="NVDA",
         signal_type="relative_strength_breakout",
@@ -569,7 +568,6 @@ def test_us_calendar_and_notification_render_new_final_decision_value():
         metrics={},
     )
 
-    assert "最终决策：observe" in render_calendar_content(signal)
     assert "决策：observe" in render_notification(signal)
 
 
@@ -626,9 +624,6 @@ class _UnavailableJudge:
 
 
 class _FakeReporter:
-    def record_to_calendar(self, signal):
-        return 1
-
     def send_notification(self, signal):
         return True
 
@@ -777,7 +772,6 @@ def test_service_notification_eligibility_uses_new_final_decisions(decision, exp
     assert signal is not None
     assert signal.need_notification is expected
     assert signal.notification_sent is expected
-    assert signal.calendar_id == 1
 
 
 def test_service_processes_0946_with_15_complete_bars():
@@ -821,3 +815,20 @@ def test_service_marks_llm_unavailable_warning_and_summary_json():
     assert summary.warnings
     assert summary.degraded is True
     json.dumps(summary.to_dict(), ensure_ascii=False)
+
+
+def test_intraday_news_fetch_is_read_only():
+    from unittest.mock import MagicMock
+
+    fetcher = MagicMock()
+    fetcher.is_available.return_value = True
+    fetcher.fetch_news.return_value = []
+    service = USIntradayAnalysisService(
+        config=object(),
+        longbridge_fetcher=_FakeLongbridge({}),
+        news_fetcher=fetcher,
+        signal_state_store=IntradaySignalStateStore(redis_client=False),
+    )
+    assert service._get_symbol_news("NVDA") == []
+    fetcher.fetch_news.assert_called_once()
+    fetcher.fetch_and_save_news.assert_not_called()

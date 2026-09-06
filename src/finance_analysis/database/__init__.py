@@ -5,7 +5,7 @@ from finance_analysis.database.base import Base, ensure_aware_datetime
 from finance_analysis.database.session import DatabaseManager, get_db, persist_llm_usage
 from finance_analysis.database.models import (
     AnalysisHistory,
-    CalendarEntry,
+    TimelineEntry,
     ConversationMessage,
     FinanceEvent,
     FundamentalSnapshot,
@@ -22,7 +22,7 @@ from finance_analysis.core.time import date_range_bounds_utc, utc_isoformat, utc
 __all__ = [
     "AnalysisHistory",
     "Base",
-    "CalendarEntry",
+    "TimelineEntry",
     "ConversationMessage",
     "DatabaseManager",
     "FinanceEvent",

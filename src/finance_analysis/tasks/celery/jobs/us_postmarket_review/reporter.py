@@ -8,10 +8,10 @@ import os
 from typing import Optional
 
 from .models import (
-    US_POSTMARKET_TASK_TYPE,
-    US_POSTMARKET_TIMEZONE,
     USPostmarketReviewSummary,
 )
+
+from finance_analysis.tasks.lifecycle import get_current_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +26,17 @@ def market_regime_title(regime: str) -> str:
 
 
 class USPostmarketReviewReporter:
-    """Saves the Markdown report, records calendar content, and sends notifications."""
+    """Saves the Markdown report, records investment analysis, and sends notifications."""
 
     def __init__(
         self,
         *,
         notifier: Optional[object] = None,
-        calendar_repo: Optional[object] = None,
+        timeline_repo: Optional[object] = None,
         user_repo: Optional[object] = None,
     ) -> None:
         self.notifier = notifier
-        self.calendar_repo = calendar_repo
+        self.timeline_repo = timeline_repo
         self.user_repo = user_repo
         self._notifier_provided = notifier is not None
 
@@ -50,43 +50,21 @@ class USPostmarketReviewReporter:
             summary.warnings.append(f"报告文件保存失败: {exc}")
             return None
 
-    def record_to_calendar(self, summary: USPostmarketReviewSummary) -> Optional[int]:
-        try:
-            repo = self._get_calendar_repo()
-            uid = int(self._get_user_repo().ensure_default_admin())
-            title = (
-                f"美股收盘复盘 {summary.trading_date.isoformat()}："
-                f"{market_regime_title(summary.market_regime)}"
+    def record_report(self, summary) -> int:
+        entry = self._get_timeline_repo().create(
+            uid=int(self._get_user_repo().ensure_default_admin()),
+            entry_type="us_postmarket",
+            market="US",
+            event_time=summary.finished_at,
+            title=f"美股收盘复盘 {summary.trading_date.isoformat()}",
+            summary=f"市场状态：{market_regime_title(summary.market_regime)}。复核收盘表现、持仓风险与下一交易日观察重点。",
+            content=summary.report,
+            importance="high",
+            actionability="watch",
+            source_run_id=get_current_task_id(),
+            source_task="analysis_us_postmarket_review",
             )
-            existing = None
-            if hasattr(repo, "get_by_type_and_date"):
-                existing = repo.get_by_type_and_date(
-                    type=US_POSTMARKET_TASK_TYPE,
-                    day=summary.trading_date,
-                    timezone_name=US_POSTMARKET_TIMEZONE,
-                    uid=uid,
-                )
-            if existing is not None:
-                updated = repo.update(
-                    int(getattr(existing, "id")),
-                    uid=uid,
-                    title=title[:120],
-                    content=summary.report,
-                    type=US_POSTMARKET_TASK_TYPE,
-                )
-                entry = updated or existing
-            else:
-                entry = repo.create(
-                    uid=uid,
-                    time=summary.finished_at,
-                    title=title[:120],
-                    content=summary.report,
-                    type=US_POSTMARKET_TASK_TYPE,
-                )
-            return int(getattr(entry, "id", 0) or 0)
-        except Exception:
-            logger.exception("写入美股收盘复盘日历失败")
-            raise
+        return entry.id
 
     def send_notification(
         self,
@@ -127,12 +105,12 @@ class USPostmarketReviewReporter:
             self.notifier = NotificationService()
         return self.notifier
 
-    def _get_calendar_repo(self) -> object:
-        if self.calendar_repo is None:
-            from finance_analysis.database.repositories.calendar import CalendarRepo
+    def _get_timeline_repo(self) -> object:
+        if self.timeline_repo is None:
+            from finance_analysis.database.repositories.timeline import TimelineEntryRepo
 
-            self.calendar_repo = CalendarRepo()
-        return self.calendar_repo
+            self.timeline_repo = TimelineEntryRepo()
+        return self.timeline_repo
 
     def _get_user_repo(self) -> object:
         if self.user_repo is None:

@@ -27,13 +27,11 @@ def test_daily_task_service_invokes_pipeline_and_records_result():
         patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()) as config,
         patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline) as pipeline_class,
         patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes", return_value=["600519"]),
-        patch.object(daily_module, "safe_record_scheduled_task_result") as recorder,
     ):
         daily_module.DailyAnalysisTaskService().run()
 
     pipeline_class.assert_called_once_with(config=config.return_value)
     pipeline.run.assert_called_once_with(stock_codes=["600519"])
-    recorder.assert_called_once()
 
 
 def test_daily_task_service_records_then_reraises_pipeline_failure():
@@ -43,12 +41,10 @@ def test_daily_task_service_records_then_reraises_pipeline_failure():
         patch("finance_analysis.analysis.pipeline_config.get_pipeline_config", return_value=MagicMock()),
         patch("finance_analysis.analysis.pipeline.StockAnalysisPipeline", return_value=pipeline),
         patch("finance_analysis.database.repositories.watch_list.get_watch_list_codes", return_value=["600519"]),
-        patch.object(daily_module, "safe_record_scheduled_task_result") as recorder,
         pytest.raises(RuntimeError, match="boom"),
     ):
         daily_module.DailyAnalysisTaskService().run()
 
-    recorder.assert_called_once()
 
 
 def test_us_premarket_service_runs_pipeline_for_us_watch_list():
@@ -61,7 +57,6 @@ def test_us_premarket_service_runs_pipeline_for_us_watch_list():
             "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market",
             return_value=["AAPL", "TSLA"],
         ) as watchlist,
-        patch.object(premarket_module, "safe_record_scheduled_task_result"),
     ):
         premarket_module.USPremarketAnalysisTaskService().run()
 
@@ -75,12 +70,10 @@ def test_us_premarket_service_skips_empty_watch_list():
             "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market",
             return_value=[],
         ),
-        patch.object(premarket_module, "safe_record_scheduled_task_result") as recorder,
         pytest.raises(TaskSkipped),
     ):
         premarket_module.USPremarketAnalysisTaskService().run()
 
-    recorder.assert_called_once()
 
 
 def test_us_premarket_news_service_runs_domain_service():

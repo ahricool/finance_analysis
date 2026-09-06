@@ -1,13 +1,15 @@
-"""Calendar persistence and one aggregated notification for pre-close reviews."""
+"""Report persistence and one aggregated notification for pre-close reviews."""
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional, Sequence
+from typing import Any, Optional
 
-from .config import ACTION_LABELS, CALENDAR_TYPE, SECTOR_CONTINUITY_LABELS
+from .config import ACTION_LABELS, SECTOR_CONTINUITY_LABELS
 from .models import PreCloseReviewSummary
+
+from finance_analysis.tasks.lifecycle import get_current_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -21,56 +23,34 @@ _ACTION_PRIORITY = {
 
 
 class ASharePreCloseReporter:
+
     def __init__(
         self,
         *,
         notifier: Optional[Any] = None,
-        calendar_repo: Optional[Any] = None,
+        timeline_repo: Optional[Any] = None,
         user_repo: Optional[Any] = None,
     ) -> None:
         self.notifier = notifier
-        self.calendar_repo = calendar_repo
+        self.timeline_repo = timeline_repo
         self.user_repo = user_repo
         self._notifier_provided = notifier is not None
 
-    def record_to_calendar(self, summary: PreCloseReviewSummary) -> Optional[int]:
-        try:
-            repo = self._get_calendar_repo()
-            uid = int(self._get_user_repo().ensure_default_admin())
-            title = f"A股收盘前复核 {summary.trading_date.isoformat()}：{summary.market_state}"
-            report = render_report(summary)
-            existing = None
-            if hasattr(repo, "get_by_type_and_date"):
-                existing = repo.get_by_type_and_date(
-                    type=CALENDAR_TYPE,
-                    day=summary.trading_date,
-                    timezone_name="Asia/Shanghai",
-                    uid=uid,
+    def record_report(self, summary) -> int:
+        entry = self._get_timeline_repo().create(
+            uid=int(self._get_user_repo().ensure_default_admin()),
+            entry_type="a_share_pre_close",
+            market="CN",
+            event_time=summary.finished_at,
+            title=f"A股收盘前复核 {summary.trading_date.isoformat()}",
+            summary=f"市场：{summary.market_state}；风险：{summary.risk_state}；成交：{summary.turnover_state}",
+            content=render_report(summary),
+            importance="high",
+            actionability="consider",
+            source_run_id=get_current_task_id(),
+            source_task="analysis_a_share_pre_close_review",
                 )
-            if existing is not None:
-                entry = (
-                    repo.update(
-                        int(getattr(existing, "id")),
-                        uid=uid,
-                        title=title[:120],
-                        content=report,
-                        type=CALENDAR_TYPE,
-                    )
-                    or existing
-                )
-            else:
-                entry = repo.create(
-                    uid=uid,
-                    time=summary.finished_at,
-                    title=title[:120],
-                    content=report,
-                    type=CALENDAR_TYPE,
-                )
-            return int(getattr(entry, "id", 0) or 0)
-        except Exception as exc:
-            logger.warning("写入 A 股收盘前复核日历失败: %s", exc, exc_info=True)
-            summary.warnings.append(f"日历写入失败: {str(exc)[:160]}")
-            return None
+        return entry.id
 
     def send_notification(
         self,
@@ -111,12 +91,12 @@ class ASharePreCloseReporter:
             self.notifier = NotificationService()
         return self.notifier
 
-    def _get_calendar_repo(self) -> Any:
-        if self.calendar_repo is None:
-            from finance_analysis.database.repositories.calendar import CalendarRepo
+    def _get_timeline_repo(self) -> Any:
+        if self.timeline_repo is None:
+            from finance_analysis.database.repositories.timeline import TimelineEntryRepo
 
-            self.calendar_repo = CalendarRepo()
-        return self.calendar_repo
+            self.timeline_repo = TimelineEntryRepo()
+        return self.timeline_repo
 
     def _get_user_repo(self) -> Any:
         if self.user_repo is None:

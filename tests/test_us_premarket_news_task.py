@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsRecord
@@ -12,7 +12,6 @@ from finance_analysis.tasks.celery.jobs.us_premarket_news.llm import (
     normalize_impact_results,
     normalize_importance_results,
 )
-from finance_analysis.tasks.celery.jobs.us_premarket_news.notifications import render_calendar_content
 from finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service import (
     build_premarket_symbol_universe,
     normalize_us_symbol,
@@ -106,45 +105,6 @@ def test_normalize_impact_results_clamps_score_and_unknown_impact():
     ]
 
 
-def test_render_calendar_content_includes_counts_and_impact_details():
-    started_at = datetime(2026, 6, 18, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
-    summary = PremarketNewsSummary(
-        started_at=started_at,
-        finished_at=started_at,
-        symbols=["NVDA"],
-        fetched_news_count=2,
-        inserted_news_count=1,
-        candidates_count=2,
-        important_news=[
-            {
-                "news_id_or_url": "https://longbridge.com/news/1",
-                "title": "NVIDIA raises guidance",
-                "related_symbols": ["NVDA"],
-                "importance_score": 9,
-                "importance_reason": "Directly changes guidance.",
-                "event_type": "guidance",
-            }
-        ],
-        impact_results=[
-            {
-                "news_id_or_url": "https://longbridge.com/news/1",
-                "impact": "bullish",
-                "impact_score": 4,
-                "confidence": 0.8,
-                "reason": "Short-term sentiment positive; fundamentals depend on execution.",
-            }
-        ],
-    )
-
-    content = render_calendar_content(summary)
-
-    assert "symbols 数量：1" in content
-    assert "抓取新闻数量：2" in content
-    assert "新增入库数量：1" in content
-    assert "impact_score" in content
-    assert "Short-term sentiment positive" in content
-
-
 def test_service_run_continues_when_single_symbol_fetch_fails():
     service = USPremarketNewsService(
         config=MagicMock(),
@@ -158,7 +118,6 @@ def test_service_run_continues_when_single_symbol_fetch_fails():
     service._load_candidate_news = MagicMock(return_value=[])
     service.llm_analyzer.select_important_news.return_value = []
     service.llm_analyzer.judge_impact.return_value = []
-    service.reporter.record_to_calendar.return_value = 123
     service.reporter.send_notification.return_value = True
 
     def _fake_fetch(symbol, *, query_id):
@@ -179,10 +138,13 @@ def test_service_run_continues_when_single_symbol_fetch_fails():
 
     service._fetch_symbol_news = MagicMock(side_effect=_fake_fetch)
 
-    summary = service.run(["BROKEN", "NVDA"], now=datetime(2026, 6, 18, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")))
+    with patch(
+        "finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service.build_premarket_symbol_universe",
+        return_value=["BROKEN", "NVDA"],
+    ):
+        summary = service.run(["BROKEN", "NVDA"], now=datetime(2026, 6, 18, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai")))
 
     assert summary.fetched_news_count == 1
     assert summary.inserted_news_count == 1
     assert any("BROKEN" in warning for warning in summary.warnings)
-    assert summary.calendar_id == 123
     assert summary.notification_sent is True

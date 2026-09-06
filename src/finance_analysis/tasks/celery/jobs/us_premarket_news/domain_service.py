@@ -8,17 +8,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import desc, func, select
 
-from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
 from finance_analysis.integrations.market_data.providers.longbridge.news import (
     LongbridgeNewsFetcher,
     LongbridgeNewsRecord,
 )
-from finance_analysis.database.repositories.stock import InstrumentRepository
+from finance_analysis.database.repositories.news_time import effective_news_time
 from finance_analysis.database.repositories.universe import UniverseResolver
-from finance_analysis.database.models import NewsIntel
+from finance_analysis.database.models import NewsIntel, NewsIntelUsage
 from finance_analysis.database import DatabaseManager, ensure_aware_datetime
 
 from .llm import PremarketNewsLLMAnalyzer
@@ -27,7 +26,7 @@ from .notifications import PremarketNewsReporter
 
 logger = logging.getLogger(__name__)
 
-PREMARKET_NEWS_DIMENSION = "premarket_news"
+PREMARKET_NEWS_USAGE = "premarket_news"
 PREMARKET_NEWS_TIMEZONE = "Asia/Shanghai"
 NASDAQ100_SYMBOL_LIMIT = 20
 NEWS_FETCH_LIMIT_PER_SYMBOL = 10
@@ -74,7 +73,6 @@ class USPremarketNewsService:
         *,
         config: Any,
         longbridge_fetcher: Optional[LongbridgeProvider] = None,
-        market_data_service: Optional[MarketDataService] = None,
         news_fetcher: Optional[LongbridgeNewsFetcher] = None,
         llm_analyzer: Optional[PremarketNewsLLMAnalyzer] = None,
         reporter: Optional[PremarketNewsReporter] = None,
@@ -82,7 +80,6 @@ class USPremarketNewsService:
     ) -> None:
         self.config = config
         self.longbridge_fetcher = longbridge_fetcher or LongbridgeProvider()
-        self.market_data = market_data_service or MarketDataService()
         self.news_fetcher = news_fetcher or LongbridgeNewsFetcher(self.longbridge_fetcher)
         self.llm_analyzer = llm_analyzer or PremarketNewsLLMAnalyzer(config)
         self.reporter = reporter or PremarketNewsReporter()
@@ -126,7 +123,14 @@ class USPremarketNewsService:
         summary.impact_results = self.llm_analyzer.judge_impact(summary.important_news, candidates_by_key)
 
         summary.finished_at = self._scheduler_now()
-        summary.calendar_id = self.reporter.record_to_calendar(summary)
+        from finance_analysis.database.repositories.news_analysis import NewsAnalysisRepo
+
+        NewsAnalysisRepo(self.db).persist_premarket(
+            summary.important_news,
+            summary.impact_results,
+            model=self.llm_analyzer.model_used,
+            analyzed_at=summary.finished_at,
+        )
         summary.notification_sent = self.reporter.send_notification(summary)
         logger.info(
             "美股盘前新闻情报任务完成: symbols=%s fetched=%s inserted=%s candidates=%s top=%s warnings=%s",
@@ -144,30 +148,23 @@ class USPremarketNewsService:
         return (now or datetime.now(tz)).astimezone(tz)
 
     def _fetch_symbol_news(self, symbol: str, *, query_id: str) -> List[LongbridgeNewsRecord]:
-        stock_name = self._get_stock_name(symbol)
         return self.news_fetcher.fetch_and_save_news(
             symbol,
-            name=stock_name,
-            dimension=PREMARKET_NEWS_DIMENSION,
+            usage_type=PREMARKET_NEWS_USAGE,
             query_id=query_id,
             limit=NEWS_FETCH_LIMIT_PER_SYMBOL,
         )
 
-    def _get_stock_name(self, symbol: str) -> str:
-        persisted = InstrumentRepository(self.db).get_by_code(f"{symbol}.US")
-        if persisted is not None:
-            return persisted.name
-        try:
-            canonical = f"{symbol}.US" if not symbol.endswith(".US") else symbol
-            info = self.market_data.get_instrument_info([canonical]).data.get(canonical)
-            return info.name if info else ""
-        except Exception:
-            return ""
-
     def _count_premarket_news_rows(self) -> int:
         with self.db.get_session() as session:
             value = session.execute(
-                select(func.count()).select_from(NewsIntel).where(NewsIntel.dimension == PREMARKET_NEWS_DIMENSION)
+                select(func.count())
+                .select_from(NewsIntel)
+                .where(
+                    NewsIntel.id.in_(
+                        select(NewsIntelUsage.news_intel_id).where(NewsIntelUsage.usage_type == PREMARKET_NEWS_USAGE)
+                    )
+                )
             ).scalar_one()
             return int(value or 0)
 
@@ -177,27 +174,30 @@ class USPremarketNewsService:
         url_symbols: Dict[str, List[str]],
     ) -> List[NewsCandidate]:
         start_utc, end_utc = premarket_news_window(run_time)
+        news_time = effective_news_time(NewsIntelUsage.usage_type == PREMARKET_NEWS_USAGE)
         with self.db.get_session() as session:
             stmt = (
                 select(NewsIntel)
                 .where(
-                    NewsIntel.dimension == PREMARKET_NEWS_DIMENSION,
-                    or_(
-                        and_(
-                            NewsIntel.published_date >= start_utc,
-                            NewsIntel.published_date <= end_utc,
-                        ),
-                        and_(
-                            NewsIntel.published_date.is_(None),
-                            NewsIntel.fetched_at >= start_utc,
-                            NewsIntel.fetched_at <= end_utc,
-                        ),
+                    NewsIntel.id.in_(
+                        select(NewsIntelUsage.news_intel_id).where(NewsIntelUsage.usage_type == PREMARKET_NEWS_USAGE)
                     ),
+                    news_time >= start_utc,
+                    news_time <= end_utc,
                 )
-                .order_by(desc(NewsIntel.published_date), desc(NewsIntel.fetched_at))
+                .order_by(desc(news_time), desc(NewsIntel.id))
                 .limit(MAX_LLM_CANDIDATES)
             )
             rows = session.execute(stmt).scalars().all()
+
+            usage_rows = session.execute(
+                select(NewsIntelUsage.news_intel_id, NewsIntelUsage.symbol).where(
+                    NewsIntelUsage.news_intel_id.in_([row.id for row in rows])
+                )
+            ).all()
+            stored_symbols = {}
+            for news_id, symbol in usage_rows:
+                stored_symbols.setdefault(news_id, []).append(normalize_us_symbol(symbol))
 
         candidates: List[NewsCandidate] = []
         seen: set[str] = set()
@@ -207,8 +207,7 @@ class USPremarketNewsService:
             if not key or key in seen:
                 continue
             seen.add(key)
-            row_symbol = normalize_us_symbol(getattr(row, "code", "") or "")
-            related_symbols = list(dict.fromkeys([*url_symbols.get(key, []), row_symbol]))
+            related_symbols = list(dict.fromkeys([*url_symbols.get(key, []), *stored_symbols.get(row.id, [])]))
             candidates.append(
                 NewsCandidate(
                     news_id_or_url=key,

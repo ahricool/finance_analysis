@@ -456,7 +456,8 @@ def test_index_etf_migration_preserves_members_fk_metadata_and_final_includes(ex
     config = Config()
     config.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
     config.attributes["connection"] = database.engine
-    command.upgrade(config, "head")
+    # This fixture contains only security-master tables; stop at its migration boundary.
+    command.upgrade(config, "0042_merge_reference_heads")
     with database.engine.begin() as connection:
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()

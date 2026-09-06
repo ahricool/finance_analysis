@@ -24,11 +24,13 @@ from finance_analysis.database.models import (
     FundamentalSnapshot,
     LLMUsage,
     NewsIntel,
+    NewsIntelUsage,
     StockDaily,
 )
 from finance_analysis.stocks.markets import normalize_market_type
 from finance_analysis.core.time import date_range_bounds_utc, utc_isoformat, utc_now
 from finance_analysis.database.repositories.conversation import ConversationUsageMixin
+from finance_analysis.database.repositories.news_time import effective_news_time
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -155,11 +157,19 @@ class DatabaseManager(ConversationUsageMixin):
     def _set_utc_timezone(dbapi_connection, connection_record) -> None:
         """Force PostgreSQL sessions to UTC so timestamptz I/O is stable."""
         del connection_record
-        cursor = dbapi_connection.cursor()
+        # SET inside an implicit transaction is reverted by pool rollback. Run
+        # connection initialization outside a transaction so UTC survives reuse.
+        previous_autocommit = dbapi_connection.autocommit
+        dbapi_connection.autocommit = True
         try:
-            cursor.execute("SET TIME ZONE 'UTC'")
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("SET TIME ZONE 'UTC'")
+            finally:
+                cursor.close()
         finally:
-            cursor.close()
+            dbapi_connection.autocommit = previous_autocommit
+
 
     def _run_write_transaction(
         self,
@@ -276,13 +286,7 @@ class DatabaseManager(ConversationUsageMixin):
         return StockRepository(self).get_latest(code, days, market)
 
     def save_news_intel(
-        self,
-        code: str,
-        name: str,
-        dimension: str,
-        query: str,
-        response: 'SearchResponse',
-        query_context: Optional[Dict[str, str]] = None
+        self, code: str, usage_type: str, response: "SearchResponse", query_context: Optional[Dict[str, str]] = None
     ) -> int:
         """
         保存新闻情报到数据库
@@ -292,7 +296,7 @@ class DatabaseManager(ConversationUsageMixin):
         - URL 缺失时按 title + source + published_date 进行软去重
 
         关联策略：
-        - query_context 记录用户查询信息（平台、用户、会话、原始指令等）
+        - news_intel_usage 保存 usage_type、symbol、query_id 和 uid，重复抓取不覆盖原始事实
         """
         if not response or not response.results:
             return 0
@@ -322,83 +326,49 @@ class DatabaseManager(ConversationUsageMixin):
                     continue
 
                 url_key = url or self._build_fallback_url_key(
-                    code=code,
                     title=title,
                     source=source,
                     published_date=published_date
                 )
 
-                existing = session.execute(
-                    select(NewsIntel).where(NewsIntel.url == url_key)
-                ).scalar_one_or_none()
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-                if existing:
-                    existing.name = name or existing.name
-                    if owner_uid is not None and existing.uid is None:
-                        existing.uid = owner_uid
-                    existing.dimension = dimension or existing.dimension
-                    existing.query = query or existing.query
-                    existing.provider = response.provider or existing.provider
-                    existing.snippet = snippet or existing.snippet
-                    existing.source = source or existing.source
-                    existing.published_date = published_date or existing.published_date
-                    existing.fetched_at = utc_now()
-
-                    if query_context:
-                        if not existing.query_id and current_query_id:
-                            existing.query_id = current_query_id
-                        existing.query_source = (
-                            query_context.get("query_source") or existing.query_source
-                        )
-                        existing.requester_platform = (
-                            query_context.get("requester_platform") or existing.requester_platform
-                        )
-                        existing.requester_user_id = (
-                            query_context.get("requester_user_id") or existing.requester_user_id
-                        )
-                        existing.requester_user_name = (
-                            query_context.get("requester_user_name") or existing.requester_user_name
-                        )
-                        existing.requester_chat_id = (
-                            query_context.get("requester_chat_id") or existing.requester_chat_id
-                        )
-                        existing.requester_message_id = (
-                            query_context.get("requester_message_id") or existing.requester_message_id
-                        )
-                        existing.requester_query = (
-                            query_context.get("requester_query") or existing.requester_query
-                        )
-                    continue
-
-                try:
-                    with session.begin_nested():
-                        record = NewsIntel(
-                            uid=owner_uid,
-                            code=code,
-                            name=name,
-                            dimension=dimension,
-                            query=query,
-                            provider=response.provider,
+                insert = pg_insert if session.bind.dialect.name == "postgresql" else sqlite_insert
+                values = dict(
                             title=title,
                             snippet=snippet,
                             url=url_key,
                             source=source,
                             published_date=published_date,
+                    provider=response.provider,
                             fetched_at=utc_now(),
-                            query_id=current_query_id or None,
-                            query_source=query_ctx.get("query_source"),
-                            requester_platform=query_ctx.get("requester_platform"),
-                            requester_user_id=query_ctx.get("requester_user_id"),
-                            requester_user_name=query_ctx.get("requester_user_name"),
-                            requester_chat_id=query_ctx.get("requester_chat_id"),
-                            requester_message_id=query_ctx.get("requester_message_id"),
-                            requester_query=query_ctx.get("requester_query"),
                         )
-                        session.add(record)
-                        session.flush()
+                record_id = session.execute(
+                    insert(NewsIntel)
+                    .values(**values)
+                    .on_conflict_do_nothing(index_elements=["url"])
+                    .returning(NewsIntel.id)
+                ).scalar_one_or_none()
+                if record_id is not None:
                     local_saved_count += 1
-                except IntegrityError:
-                    logger.debug("新闻情报重复（已跳过）: %s %s", code, url_key)
+                else:
+                    record_id = session.execute(select(NewsIntel.id).where(NewsIntel.url == url_key)).scalar_one()
+                session.execute(
+                    insert(NewsIntelUsage)
+                    .values(
+                        news_intel_id=record_id,
+                        usage_type=usage_type or "news",
+                        query_id=current_query_id,
+                        symbol=code,
+                        uid=owner_uid,
+                        observed_at=utc_now(),
+                    )
+                    .on_conflict_do_update(
+                        index_elements=["news_intel_id", "usage_type", "query_id", "symbol"],
+                        set_={"observed_at": utc_now()},
+                    )
+                )
 
             return local_saved_count
 
@@ -504,22 +474,27 @@ class DatabaseManager(ConversationUsageMixin):
 
     def get_recent_news(self, code: str, days: int = 7, limit: int = 20) -> List[NewsIntel]:
         """
-        获取指定股票最近 N 天的新闻情报
+        获取指定股票最近 N 天的新闻：发布时间优先，缺失时取该股票最近观察时间。
         """
         cutoff_date = utc_now() - timedelta(days=days)
+        news_time = effective_news_time(NewsIntelUsage.symbol == code)
 
         with self.get_session() as session:
-            results = session.execute(
+            results = (
+                session.execute(
                 select(NewsIntel)
                 .where(
                     and_(
-                        NewsIntel.code == code,
-                        NewsIntel.fetched_at >= cutoff_date
+                            NewsIntel.id.in_(select(NewsIntelUsage.news_intel_id).where(NewsIntelUsage.symbol == code)),
+                            news_time >= cutoff_date,
                     )
                 )
-                .order_by(desc(NewsIntel.fetched_at))
+                .order_by(desc(news_time), desc(NewsIntel.id))
                 .limit(limit)
-            ).scalars().all()
+                )
+                .scalars()
+                .all()
+            )
 
             return list(results)
 
@@ -532,20 +507,25 @@ class DatabaseManager(ConversationUsageMixin):
             limit: 返回数量限制
 
         Returns:
-            NewsIntel 列表（按发布时间或抓取时间倒序）
+            NewsIntel 列表（按发布时间或该 query 最近观察时间倒序）
         """
-        from sqlalchemy import func
-
         with self.get_session() as session:
-            results = session.execute(
+            results = (
+                session.execute(
                 select(NewsIntel)
-                .where(NewsIntel.query_id == query_id)
+                    .where(
+                        NewsIntel.id.in_(
+                            select(NewsIntelUsage.news_intel_id).where(NewsIntelUsage.query_id == query_id)
+                        )
+                    )
                 .order_by(
-                    desc(func.coalesce(NewsIntel.published_date, NewsIntel.fetched_at)),
-                    desc(NewsIntel.fetched_at)
+                        desc(effective_news_time(NewsIntelUsage.query_id == query_id)), desc(NewsIntel.id)
                 )
                 .limit(limit)
-            ).scalars().all()
+                )
+                .scalars()
+                .all()
+            )
 
             return list(results)
 
@@ -1114,7 +1094,6 @@ class DatabaseManager(ConversationUsageMixin):
 
     @staticmethod
     def _build_fallback_url_key(
-        code: str,
         title: str,
         source: str,
         published_date: Optional[datetime]
@@ -1123,9 +1102,9 @@ class DatabaseManager(ConversationUsageMixin):
         生成无 URL 时的去重键（确保稳定且较短）
         """
         date_str = published_date.isoformat() if published_date else ""
-        raw_key = f"{code}|{title}|{source}|{date_str}"
+        raw_key = f"{title}|{source}|{date_str}"
         digest = hashlib.md5(raw_key.encode("utf-8")).hexdigest()
-        return f"no-url:{code}:{digest}"
+        return f"no-url:{digest}"
 
 
 # 便捷函数

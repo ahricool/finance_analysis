@@ -75,7 +75,6 @@ class USIntradayAnalysisService:
         self.rules: Sequence[RulePredicate] = rules if rules is not None else DEFAULT_INTRADAY_SIGNAL_RULES
         self.signal_state_store = signal_state_store or IntradaySignalStateStore()
         self._news_cache: Dict[str, List[Dict[str, Any]]] = {}
-        self._run_query_id = ""
         self._run_time: Optional[datetime] = None
         self._state_observed_symbols: set[str] = set()
 
@@ -86,7 +85,6 @@ class USIntradayAnalysisService:
         started = time.perf_counter()
         run_time = _eastern_now(now)
         self._run_time = run_time
-        self._run_query_id = f"us_intraday_{run_time.strftime('%Y%m%d_%H%M%S')}"
         self._news_cache = {}
         self._state_observed_symbols = set()
 
@@ -207,7 +205,6 @@ class USIntradayAnalysisService:
         if candidates:
             market_context["market_news"] = self._get_symbol_news(
                 MARKET_NEWS_SYMBOL,
-                dimension="market_news",
             )
         for start in range(0, len(candidates), LLM_BATCH_SIZE):
             batch = candidates[start:start + LLM_BATCH_SIZE]
@@ -244,8 +241,6 @@ class USIntradayAnalysisService:
     def _get_symbol_news(
         self,
         symbol: str,
-        *,
-        dimension: str = "intraday_news",
     ) -> List[Dict[str, Any]]:
         cached = self._news_cache.get(symbol)
         if cached is not None:
@@ -255,16 +250,7 @@ class USIntradayAnalysisService:
             self._news_cache[symbol] = []
             return []
 
-        canonical = f"{symbol}.US" if not symbol.endswith(".US") else symbol
-        info = self.market_data.get_instrument_info([canonical]).data.get(canonical)
-        stock_name = info.name if info else ""
-        records = self.news_fetcher.fetch_and_save_news(
-            symbol,
-            name=stock_name,
-            dimension=dimension,
-            query_id=self._run_query_id,
-            limit=INTRADAY_NEWS_LIMIT,
-        )
+        records = self.news_fetcher.fetch_news(symbol, limit=INTRADAY_NEWS_LIMIT)
         news_context = LongbridgeNewsFetcher.to_llm_context(records)
         self._news_cache[symbol] = news_context
         return news_context
@@ -301,7 +287,6 @@ class USIntradayAnalysisService:
             },
         )
         now = self._run_time or datetime.now(US_EASTERN)
-        signal.calendar_id = self.reporter.record_to_calendar(signal)
         if need_notification:
             severity = _notification_severity(candidate)
             notification_signature = build_notification_signature(

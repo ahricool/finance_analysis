@@ -123,15 +123,15 @@ class TestLongbridgeNewsFetcher(unittest.TestCase):
 
             records = self.fetcher.fetch_and_save_news(
                 "NVDA",
-                name="英伟达",
-                query_id="us_intraday_test",
+                usage_type="premarket_news",
+                query_id="us_premarket_test",
             )
 
             self.assertEqual(len(records), 1)
             mock_db.save_news_intel.assert_called_once()
             kwargs = mock_db.save_news_intel.call_args.kwargs
             self.assertEqual(kwargs["code"], "NVDA")
-            self.assertEqual(kwargs["dimension"], "intraday_news")
+            self.assertEqual(kwargs["usage_type"], "premarket_news")
             self.assertEqual(kwargs["response"].provider, "longbridge")
 
 

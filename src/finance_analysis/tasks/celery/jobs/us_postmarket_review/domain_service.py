@@ -8,11 +8,11 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, func, select
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database import DatabaseManager, ensure_aware_datetime
-from finance_analysis.database.models import NewsIntel
+from finance_analysis.database.models import NewsIntel, NewsIntelUsage
 from finance_analysis.integrations.market_data.realtime_types import safe_float, safe_int
 from finance_analysis.market_review.trading_calendar import (
     get_effective_trading_date,
@@ -104,7 +104,7 @@ class USPostmarketReviewService:
 
         summary.finished_at = self._market_now()
         summary.report_file = self.reporter.save_report_file(summary)
-        summary.calendar_id = self.reporter.record_to_calendar(summary)
+        summary.timeline_entry_id = self.reporter.record_report(summary)
         summary.notification_sent = self.reporter.send_notification(
             summary,
             send_notification=send_notification,
@@ -356,18 +356,16 @@ class USPostmarketReviewService:
             codes = {"market", "SPY.US", "QQQ.US", *watch_symbols}
             with self.db.get_session() as session:
                 stmt = (
-                    select(NewsIntel)
+                    select(NewsIntel, NewsIntelUsage.symbol)
+                    .join(NewsIntelUsage, NewsIntelUsage.news_intel_id == NewsIntel.id)
                     .where(
-                        NewsIntel.code.in_(codes),
-                        or_(
-                            NewsIntel.published_date >= start_utc,
-                            NewsIntel.fetched_at >= start_utc,
-                        ),
+                        NewsIntelUsage.symbol.in_(codes),
+                        func.coalesce(NewsIntel.published_date, NewsIntelUsage.observed_at) >= start_utc,
                     )
-                    .order_by(desc(NewsIntel.published_date), desc(NewsIntel.fetched_at))
+                    .order_by(desc(func.coalesce(NewsIntel.published_date, NewsIntelUsage.observed_at)))
                     .limit(_NEWS_LIMIT)
                 )
-                rows = session.execute(stmt).scalars().all()
+                rows = session.execute(stmt).all()
             return [
                 {
                     "title": str(row.title or "")[:180],
@@ -375,9 +373,9 @@ class USPostmarketReviewService:
                     "source": str(row.source or row.provider or "")[:80],
                     "published_at": self._format_dt(ensure_aware_datetime(row.published_date)),
                     "url": str(row.url or "")[:500],
-                    "related_symbols": [self._normalize_us_symbol(row.code)] if row.code else [],
+                    "related_symbols": [self._normalize_us_symbol(symbol)] if symbol else [],
                 }
-                for row in rows
+                for row, symbol in rows
             ]
         except Exception as exc:
             logger.warning("读取已保存美股新闻失败: %s", exc, exc_info=True)

@@ -133,8 +133,6 @@ def test_service_continues_when_single_interface_fails_and_records_summary(monke
     fetcher.fetch_ipo_calendar.return_value = []
     fetcher.fetch_macro_calendar.return_value = []
     repo = _FakeRepo()
-    calendar_repo = MagicMock()
-    calendar_repo.create.return_value = SimpleNamespace(id=9)
     user_repo = MagicMock()
     user_repo.ensure_default_admin.return_value = 1
     notifier = MagicMock()
@@ -146,8 +144,6 @@ def test_service_continues_when_single_interface_fails_and_records_summary(monke
     service = MarketCalendarSyncService(
         fetcher=fetcher,
         repo=repo,
-        calendar_repo=calendar_repo,
-        user_repo=user_repo,
         notifier_factory=lambda: notifier,
     )
 
@@ -156,11 +152,9 @@ def test_service_continues_when_single_interface_fails_and_records_summary(monke
     assert summary.inserted_count == 1
     assert summary.skipped_duplicate_count == 1
     assert any("split" in item for item in summary.errors)
-    assert summary.calendar_id == 9
     assert summary.notification_sent_count == 1
     assert summary.importance_candidate_ids == [1]
     assert repo.marked and repo.marked[0][0] == 1
-    assert "scheduled_market_calendar" == calendar_repo.create.call_args.kwargs["type"]
 
 
 def test_importance_candidates_ignore_unrelated_timestamp_changes():
@@ -200,7 +194,7 @@ def test_importance_candidate_ids_are_deduped(monkeypatch):
         MagicMock(return_value=[]),
     )
 
-    summary = MarketCalendarSyncService(fetcher=fetcher, repo=repo, calendar_repo=MagicMock(), user_repo=MagicMock()).run(
+    summary = MarketCalendarSyncService(fetcher=fetcher, repo=repo).run(
         now=datetime(2026, 6, 18, 19, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
     )
 

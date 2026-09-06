@@ -1211,8 +1211,8 @@ class TestPipelineRouting(unittest.TestCase):
 class TestAnalyzeWithAgentStockName(unittest.TestCase):
     """Test stock-name handling in _analyze_with_agent."""
 
-    def test_analyze_with_agent_uses_resolved_name_for_news_persistence(self):
-        """Should use resolved stock name from dashboard for search and DB persistence."""
+    def test_analyze_with_agent_uses_resolved_name_for_search_and_persists_news_usage(self):
+        """Use the resolved name for search and keep symbol/query associations in news usage."""
         with patch('finance_analysis.analysis.pipeline.get_pipeline_config') as mock_config, \
              patch('finance_analysis.analysis.pipeline.get_db'), \
              patch('finance_analysis.analysis.pipeline.MarketDataService'), \
@@ -1287,7 +1287,8 @@ class TestAnalyzeWithAgentStockName(unittest.TestCase):
             )
             pipeline.db.save_news_intel.assert_called_once()
             saved_kwargs = pipeline.db.save_news_intel.call_args.kwargs
-            self.assertEqual(saved_kwargs["name"], "科创芯片ETF")
+            self.assertEqual(saved_kwargs["code"], "588200")
+            self.assertEqual(saved_kwargs["usage_type"], "latest_news")
 
     def test_analyze_with_agent_keeps_dashboard_top_level_fields_after_stability(self):
         """Decision stability downgrade in agent flow should sync dashboard and top-level decision fields."""

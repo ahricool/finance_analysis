@@ -98,7 +98,7 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 | `/market/quant` 及子路径 | `market-quant*` | 量化研究（总览 / 选股 / 数据集 / 模型 / 组合） |
 | `/market/etf-rotation` | `market-etf-rotation` | ETF 动量轮动 |
 | `/market/trend-following` | `market-trend-following` | 趋势跟踪 |
-| `/calendar` | `calendar` | 日历记录 |
+| `/timeline` | `timeline` | 投资时间线 |
 | `/profile/info` `/password` `/notification` | `profile-*` | 个人中心（同一页） |
 | `/tasks` `/scheduled` `/runs` | `tasks*` | 任务中心（同一页） |
 
@@ -138,7 +138,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 页面展示错误用 `getParsedApiError` + `AppApiErrorAlert`，不要把原始 `error.message` 直接丢给用户。分类逻辑在 `src/api/error.ts`（LLM 未配置、本机连不上、上游超时等）。
 
-领域模块：`auth`、`analysis`、`history`、`agent`、`watchList`、`stocks`、`quant`、`etfRotation`、`trendFollowing`、`calendar`、`tasks`、`realtimeMarket`。`portfolio.ts` 仍在源码中，但其后端路由已移除，属于已知前端遗留，不应作为可用 API 范例。
+领域模块：`auth`、`analysis`、`history`、`agent`、`watchList`、`stocks`、`quant`、`etfRotation`、`trendFollowing`、`timeline`、`tasks`、`realtimeMarket`。`portfolio.ts` 仍在源码中，但其后端路由已移除，属于已知前端遗留，不应作为可用 API 范例。
 
 约定：
 

@@ -27,7 +27,7 @@ const QuantPortfoliosPage = () => import('@/pages/market/quant/QuantPortfoliosPa
 const ETFRotationPage = () => import('@/pages/market/ETFRotationPage.vue');
 const TrendFollowingPage = () => import('@/pages/market/TrendFollowingPage.vue');
 const LoginPage = () => import('@/pages/LoginPage.vue');
-const CalendarPage = () => import('@/pages/CalendarPage.vue');
+const TimelinePage = () => import('@/pages/TimelinePage.vue');
 const ProfilePage = () => import('@/pages/ProfilePage.vue');
 const TasksPage = () => import('@/pages/TasksPage.vue');
 const NotFoundPage = () => import('@/pages/NotFoundPage.vue');
@@ -95,7 +95,7 @@ const router = createRouter({
             },
           ],
         },
-        { path: 'calendar', name: 'calendar', component: CalendarPage, meta: { title: '日历记录' } },
+        { path: 'timeline', name: 'timeline', component: TimelinePage, meta: { title: '投资时间线' } },
         { path: 'profile', redirect: { name: 'profile-info' }, meta: { title: '个人中心' } },
         { path: 'profile/info', name: 'profile-info', component: ProfilePage, meta: { title: '个人中心' } },
         { path: 'profile/password', name: 'profile-password', component: ProfilePage, meta: { title: '个人中心' } },

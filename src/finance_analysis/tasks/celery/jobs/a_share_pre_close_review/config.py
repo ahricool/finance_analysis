@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 TASK_TYPE = "scheduled_a_share_pre_close_review"
-CALENDAR_TYPE = TASK_TYPE
 
 
 @dataclass(frozen=True)
