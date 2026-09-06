@@ -22,6 +22,7 @@ from finance_analysis.tasks.celery.schedule import (
     QUEUE_ANALYSIS,
     require_scheduled_task_definition,
 )
+from finance_analysis.etf_rotation.ranking import calculate_rank_changes
 from finance_analysis.trend_following.config import DEFAULT_CONFIG
 from finance_analysis.trend_following.risk import theoretical_position_weight
 from finance_analysis.trend_following.universe import universe_by_code
@@ -162,6 +163,9 @@ async def ranking(
     change_rows = rows
     if limit is not None:
         change_rows = repository.snapshots_by_date(resolved, sort_by="rank", limit=None)
+    historical = repository.historical_composite_ranks(resolved, [str(row["code"]) for row in rows])
+    for row in rows:
+        row.update(calculate_rank_changes(row["rank"], historical.get(str(row["code"]), {})))
     return jsonable_encoder({**summary, "changes": _changes(repository, resolved, change_rows, summary), "items": rows})
 
 

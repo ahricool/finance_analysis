@@ -6,6 +6,7 @@ import { trendFollowingApi } from '@/api/trendFollowing';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import { trendIndicatorDescriptions as descriptions } from '@/components/trend-following/indicatorDescriptions';
@@ -59,13 +60,58 @@ const detailOpen = ref(false);
 const detailLoading = ref(false);
 const detail = ref<TrendDetailResponse | null>(null);
 const detailError = ref<ParsedApiError | null>(null);
-const sortKey = ref<'rank' | 'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore'>('rank');
+const rankingColumns = [
+  { key: 'rank', label: 'Alpha Rank', description: descriptions.rank },
+  { key: 'name', label: '股票名称', description: undefined },
+  { key: 'code', label: '股票代码', description: undefined },
+  { key: 'state', label: 'State', description: descriptions.state },
+  { key: 'action', label: 'Action', description: descriptions.action },
+  { key: 'alphaScore', label: 'Alpha Score', description: descriptions.alpha },
+  { key: 'trendScore', label: 'Trend Score', description: descriptions.trend },
+  { key: 'rsScore', label: 'RS Score', description: descriptions.relativeStrength },
+  { key: 'breakoutScore', label: 'Breakout Score', description: descriptions.breakout },
+  { key: 'setup', label: 'Setup', description: descriptions.setup },
+  { key: 'return5D', label: '5D Return', description: descriptions.return },
+  { key: 'return10D', label: '10D Return', description: descriptions.return },
+  { key: 'return20D', label: '20D Return', description: descriptions.return },
+  { key: 'volumeRatio', label: 'Volume Ratio', description: descriptions.volumeCompression },
+  { key: 'distanceFromMa20', label: 'Distance From MA20', description: descriptions.movingAverage },
+  { key: 'rankChange5D', label: '排名趋势', description: descriptions.rankChange },
+  { key: 'atr', label: 'ATR', description: descriptions.atr },
+  { key: 'referencePrice', label: 'Reference Price', description: descriptions.reference },
+  { key: 'signalDate', label: 'Signal Date', description: descriptions.signal },
+  { key: 'signalPrice', label: 'Signal Price', description: descriptions.signal },
+  { key: 'openedAt', label: 'Entry Date', description: descriptions.entry },
+  { key: 'entryPrice', label: 'Entry Price', description: descriptions.entry },
+  { key: 'initialStop', label: 'Stop', description: descriptions.initialStop },
+  { key: 'nextAddPrice', label: 'Next Add', description: descriptions.nextAdd },
+  { key: 'exitLevel', label: 'Exit Level', description: descriptions.exitLevel },
+  { key: 'suggestedInitialWeight', label: '理论初始权重', description: descriptions.initialWeight },
+] as const;
+type SortKey = typeof rankingColumns[number]['key'];
+const sortKey = ref<SortKey>('rank');
+const sortDirection = ref<'asc' | 'desc'>('asc');
 let generation = 0;
 
 const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
+function sortValue(item: TrendSnapshot, key: SortKey): string | number | null | undefined {
+  if (key === 'rankChange5D') return item.rankChange5D ?? item.rankChange3D ?? item.rankChange1D;
+  if (key === 'return5D' || key === 'return10D' || key === 'return20D' || key === 'volumeRatio' || key === 'distanceFromMa20') return item.features[key];
+  return item[key];
+}
+function toggleSort(key: SortKey) {
+  sortDirection.value = sortKey.value === key
+    ? (sortDirection.value === 'asc' ? 'desc' : 'asc')
+    : (['rank', 'code', 'name', 'setup', 'state', 'action', 'signalDate', 'openedAt'].includes(key) ? 'asc' : 'desc');
+  sortKey.value = key;
+}
 const sortedItems = computed(() => [...items.value].sort((left, right) => {
-  if (sortKey.value === 'rank') return left.rank - right.rank;
-  return right[sortKey.value] - left[sortKey.value] || left.code.localeCompare(right.code);
+  const a = sortValue(left, sortKey.value);
+  const b = sortValue(right, sortKey.value);
+  if (a == null) return b == null ? 0 : 1;
+  if (b == null) return -1;
+  const comparison = typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b));
+  return comparison * (sortDirection.value === 'asc' ? 1 : -1) || left.code.localeCompare(right.code);
 }));
 const cards = computed(() => [
   ['Market Regime', summary.value.marketRegime, descriptions.marketRegime],
@@ -576,27 +622,6 @@ onMounted(() => void load(true));
     <Card>
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
         <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ summary.tradeDate || '—' }} · {{ scope }} · {{ summary.dataReadyCount }}/{{ summary.universeSize }} 数据就绪</CardDescription></div>
-        <NativeSelect
-          v-model="sortKey"
-          size="sm"
-          aria-label="排序"
-        >
-          <NativeSelectOption value="rank">
-            Rank
-          </NativeSelectOption>
-          <NativeSelectOption value="alphaScore">
-            Alpha Score
-          </NativeSelectOption>
-          <NativeSelectOption value="trendScore">
-            Trend Score
-          </NativeSelectOption>
-          <NativeSelectOption value="rsScore">
-            RS Score
-          </NativeSelectOption>
-          <NativeSelectOption value="breakoutScore">
-            Breakout Score
-          </NativeSelectOption>
-        </NativeSelect>
       </CardHeader>
       <CardContent class="px-0">
         <Empty v-if="!loading && !items.length">
@@ -609,132 +634,15 @@ onMounted(() => void load(true));
           <Table class="min-w-[2450px]">
             <TableHeader>
               <TableRow>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Rank"
-                    :description="descriptions.rank"
-                  />
-                </TableHead><TableHead>股票</TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="State"
-                    :description="descriptions.state"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Action"
-                    :description="descriptions.action"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Alpha"
-                    :description="descriptions.alpha"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Trend"
-                    :description="descriptions.trend"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="RS"
-                    :description="descriptions.relativeStrength"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Breakout"
-                    :description="descriptions.breakout"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Setup"
-                    :description="descriptions.setup"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="5D Return"
-                    :description="descriptions.return"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="10D Return"
-                    :description="descriptions.return"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="20D Return"
-                    :description="descriptions.return"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="ATR"
-                    :description="descriptions.atr"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Reference"
-                    :description="descriptions.reference"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Signal Date"
-                    :description="descriptions.signal"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Signal Price"
-                    :description="descriptions.signal"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Entry Date"
-                    :description="descriptions.entry"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Entry Price"
-                    :description="descriptions.entry"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Stop"
-                    :description="descriptions.initialStop"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Next Add"
-                    :description="descriptions.nextAdd"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="Exit Level"
-                    :description="descriptions.exitLevel"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="理论初始权重"
-                    :description="descriptions.initialWeight"
-                  />
-                </TableHead>
+                <SortableTableHeader
+                  v-for="column in rankingColumns"
+                  :key="column.key"
+                  :label="column.label"
+                  :description="column.description"
+                  :active="sortKey === column.key"
+                  :direction="sortDirection"
+                  @sort="toggleSort(column.key)"
+                />
                 <TableHead class="w-[480px] min-w-[420px]">
                   <IndicatorLabel
                     label="Reasons"
@@ -751,7 +659,9 @@ onMounted(() => void load(true));
                 data-testid="trend-row"
                 @click="openDetail(item)"
               >
-                <TableCell>#{{ item.rank }}</TableCell><TableCell><strong class="block">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span></TableCell>
+                <TableCell>#{{ item.rank }}</TableCell><TableCell><strong>{{ item.name }}</strong></TableCell><TableCell class="font-mono text-xs text-muted-foreground">
+                  {{ item.code }}
+                </TableCell>
                 <TableCell>
                   <Badge :variant="badgeVariant(item.state)">
                     {{ stateText(item.state) }}
@@ -766,7 +676,26 @@ onMounted(() => void load(true));
                   {{ score(item.alphaScore) }}
                 </TableCell><TableCell>{{ score(item.trendScore) }}</TableCell>
                 <TableCell>{{ score(item.rsScore) }}</TableCell><TableCell>{{ score(item.breakoutScore) }}</TableCell><TableCell>{{ item.setup }}</TableCell>
-                <TableCell>{{ pct(item.features.return5D) }}</TableCell><TableCell>{{ pct(item.features.return10D) }}</TableCell><TableCell>{{ pct(item.features.return20D) }}</TableCell><TableCell>{{ price(item.atr) }}</TableCell>
+                <TableCell>{{ pct(item.features.return5D) }}</TableCell><TableCell>{{ pct(item.features.return10D) }}</TableCell><TableCell>{{ pct(item.features.return20D) }}</TableCell><TableCell>{{ score(item.features.volumeRatio) }}</TableCell>
+                <TableCell>{{ pct(item.features.distanceFromMa20) }}</TableCell>
+                <TableCell>
+                  <div
+                    class="flex gap-3 whitespace-nowrap"
+                    data-testid="trend-rank-changes"
+                  >
+                    <span
+                      v-for="[label, value] in ([['1D', item.rankChange1D], ['3D', item.rankChange3D], ['5D', item.rankChange5D]] as const)"
+                      :key="label"
+                      class="text-xs"
+                    >
+                      <span class="text-muted-foreground">{{ label }}</span>
+                      <span :class="value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
+                        {{ value == null ? '—' : value > 0 ? `↑${value}` : value < 0 ? `↓${Math.abs(value)}` : '→0' }}
+                      </span>
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell>{{ price(item.atr) }}</TableCell>
                 <TableCell>{{ price(item.referencePrice) }}</TableCell>
                 <TableCell>{{ item.signalDate || '—' }}</TableCell><TableCell>{{ price(item.signalPrice) }}</TableCell>
                 <TableCell>{{ item.openedAt || '—' }}</TableCell><TableCell>{{ price(item.entryPrice) }}</TableCell>

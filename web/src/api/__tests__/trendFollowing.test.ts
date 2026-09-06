@@ -96,3 +96,14 @@ describe('trendFollowingApi', () => {
     });
   });
 });
+
+it('maps ranking snapshot rank changes including null and zero with the shared camel-case mapper', async () => {
+  vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [
+    { rank_change_1d: 5, rank_change_3d: -17, rank_change_5d: 32 },
+    { rank_change_1d: 0, rank_change_3d: null, rank_change_5d: null },
+  ] } });
+  expect((await trendFollowingApi.ranking('CN')).items).toEqual([
+    { rankChange1D: 5, rankChange3D: -17, rankChange5D: 32 },
+    { rankChange1D: 0, rankChange3D: null, rankChange5D: null },
+  ]);
+});

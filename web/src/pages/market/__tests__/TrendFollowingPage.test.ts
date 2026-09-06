@@ -21,7 +21,7 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
   return {
     id: 1, market, tradeDate: '2026-08-28', code: market === 'CN' ? '000001.SZ' : 'AAPL.US',
     name: market === 'CN' ? '平安银行' : 'Apple', universeKey: market === 'CN' ? 'cn_csi300_csi500' : 'us_sp500',
-    marketRegime: 'RISK_ON', marketScore: 82, rank: 1, trendScore: 80, rsScore: 78,
+    marketRegime: 'RISK_ON', marketScore: 82, rank: 1, rankChange1D: 5, rankChange3D: -2, rankChange5D: 0, trendScore: 80, rsScore: 78,
     breakoutScore: 76, alphaScore: 79, setup: 'BREAKOUT_20D', state: 'ENTRY', action: 'ENTRY',
     referencePrice: 110, atr: 2, signalDate: '2026-08-27', signalPrice: 108, openedAt: '2026-08-28',
     pendingAction: null, pendingSince: null, pendingRegime: null, pendingMaxExposure: null,
@@ -84,11 +84,52 @@ describe('TrendFollowingPage', () => {
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
+  it('sorts ranking locally in both directions and displays rank trends with nulls last', async () => {
+    const a = { ...snapshot(), code: 'A.US', name: 'Alpha', rank: 1, alphaScore: 90, rankChange5D: 2 };
+    const b = { ...snapshot(), code: 'B.US', name: 'Beta', rank: 2, alphaScore: 80, rankChange5D: null, rankChange3D: 7,
+      features: { ...snapshot().features, return10D: 0.5 } };
+    const c = { ...snapshot(), code: 'C.US', name: 'Gamma', rank: 3, alphaScore: 70,
+      rankChange1D: null, rankChange3D: null, rankChange5D: null };
+    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items: [b, c, a] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[2]!.text());
+    const click = async (label: string) => {
+      const button = wrapper.findAll('th button').find(button => button.text() === label)!;
+      await button.trigger('click');
+    };
+    expect(order()).toEqual(['A.US', 'B.US', 'C.US']);
+    await click('Alpha Rank');
+    expect(order()).toEqual(['C.US', 'B.US', 'A.US']);
+    for (const label of ['Alpha Score', '股票名称']) {
+      await click(label);
+      expect(order()).toEqual(['A.US', 'B.US', 'C.US']);
+      await click(label);
+      expect(order()).toEqual(['C.US', 'B.US', 'A.US']);
+    }
+    await click('10D Return');
+    expect(order()[0]).toBe('B.US');
+    await click('排名趋势');
+    expect(order()).toEqual(['B.US', 'A.US', 'C.US']);
+    await click('排名趋势');
+    expect(order()).toEqual(['A.US', 'B.US', 'C.US']);
+    expect(wrapper.find('[aria-sort="ascending"]').text()).toContain('排名趋势');
+    const trends = wrapper.findAll('[data-testid="trend-rank-changes"]');
+    expect(trends[0]!.text()).toContain('1D');
+    expect(trends[0]!.text()).toContain('↑5');
+    expect(trends[0]!.text()).toContain('3D');
+    expect(trends[0]!.text()).toContain('↓2');
+    expect(trends[0]!.text()).toContain('5D');
+    expect(trends[2]!.text()).toContain('—');
+    expect(apiMocks.ranking).toHaveBeenCalledTimes(1);
+  });
+
   it('renders CN scope, regime, ranking, state and action on mobile-safe layout', async () => {
     const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
     expect(wrapper.text()).toContain('沪深300 + 中证500');
     expect(wrapper.text()).toContain('RISK_ON');
+    expect(wrapper.get('[data-testid="trend-rank-changes"]').text()).toContain('→0');
     expect(wrapper.text()).toContain('平安银行');
     expect(wrapper.text()).toContain('建议入场');
     expect(wrapper.find('table').classes().join(' ')).toContain('min-w-');
@@ -97,7 +138,7 @@ describe('TrendFollowingPage', () => {
     expect(reasons.text()).toBe('candidate thresholds passed');
     expect(reasons.attributes('tabindex')).toBe('0');
     expect(wrapper.find('[aria-label="查看 Market Score 指标说明与计算公式"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="查看 Alpha 指标说明与计算公式"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="查看 Alpha Score 指标说明与计算公式"]').exists()).toBe(true);
   });
 
   it('renders market, lifecycle, transition and significant mover changes', async () => {

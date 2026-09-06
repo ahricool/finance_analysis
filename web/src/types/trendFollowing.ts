@@ -42,6 +42,9 @@ export interface TrendSnapshot {
   marketRegime: TrendRegime;
   marketScore: number;
   rank: number;
+  rankChange1D: number | null;
+  rankChange3D: number | null;
+  rankChange5D: number | null;
   trendScore: number;
   rsScore: number;
   breakoutScore: number;
