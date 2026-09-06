@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import { RefreshCcw } from 'lucide-vue-next';
 import { toast } from 'vue-sonner';
 import { trendFollowingApi } from '@/api/trendFollowing';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
+import AppPagination from '@/components/app/AppPagination.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
@@ -50,7 +51,7 @@ const market = ref<TrendMarket>('CN');
 const selectedDate = ref('');
 const availableDates = ref<string[]>([]);
 const summary = ref<TrendSummary>(emptySummary());
-const items = ref<TrendRankingSnapshot[]>([]);
+const items = shallowRef<TrendRankingSnapshot[]>([]);
 const candidates = ref<TrendSnapshot[]>([]);
 const portfolio = ref<TrendPortfolioResponse>(emptyPortfolio());
 const changes = ref<TrendRankingChanges | null>(null);
@@ -90,6 +91,8 @@ const rankingColumns = [
   { key: 'suggestedInitialWeight', label: '理论初始权重', description: descriptions.initialWeight },
 ] as const;
 type SortKey = typeof rankingColumns[number]['key'];
+const rankingPage = ref(1);
+const rankingPageSize = 50;
 const sortKey = ref<SortKey>('rank');
 const sortDirection = ref<'asc' | 'desc'>('asc');
 let generation = 0;
@@ -101,6 +104,7 @@ function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | 
   return item[key];
 }
 function toggleSort(key: SortKey) {
+  rankingPage.value = 1;
   sortDirection.value = sortKey.value === key
     ? (sortDirection.value === 'asc' ? 'desc' : 'asc')
     : (['rank', 'code', 'name', 'setup', 'state', 'action', 'signalDate', 'openedAt'].includes(key) ? 'asc' : 'desc');
@@ -114,6 +118,10 @@ const sortedItems = computed(() => [...items.value].sort((left, right) => {
   const comparison = typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b));
   return comparison * (sortDirection.value === 'asc' ? 1 : -1) || left.code.localeCompare(right.code);
 }));
+const rankingTotalPages = computed(() => Math.ceil(sortedItems.value.length / rankingPageSize));
+const visibleItems = computed(() => sortedItems.value.slice(
+  (rankingPage.value - 1) * rankingPageSize, rankingPage.value * rankingPageSize,
+));
 const cards = computed(() => [
   ['Market Regime', summary.value.marketRegime, descriptions.marketRegime],
   ['Market Score', score(summary.value.marketScore), descriptions.marketScore],
@@ -171,13 +179,14 @@ async function load(refreshDates = false) {
   loading.value = true;
   error.value = null;
   try {
-    if (refreshDates || !availableDates.value.length) {
-      const dates = await trendFollowingApi.dates(market.value);
-      if (current !== generation) return;
-      availableDates.value = dates.items;
-    }
-    const ranking = await trendFollowingApi.ranking(market.value, selectedDate.value || undefined);
+    const requestedMarket = market.value;
+    const [ranking, dates] = await Promise.all([
+      trendFollowingApi.ranking(requestedMarket, selectedDate.value || undefined),
+      refreshDates || !availableDates.value.length ? trendFollowingApi.dates(requestedMarket) : Promise.resolve(null),
+    ]);
     if (current !== generation) return;
+    if (dates) availableDates.value = dates.items;
+    rankingPage.value = 1;
     summary.value = ranking;
     items.value = ranking.items;
     changes.value = ranking.changes ?? null;
@@ -654,7 +663,7 @@ onMounted(() => void load(true));
             </TableHeader>
             <TableBody>
               <TableRow
-                v-for="item in sortedItems"
+                v-for="item in visibleItems"
                 :key="item.code"
                 class="cursor-pointer"
                 data-testid="trend-row"
@@ -727,6 +736,22 @@ onMounted(() => void load(true));
             <ScrollBar orientation="horizontal" />
           </template>
         </ScrollArea>
+        <div
+          v-if="items.length"
+          class="flex flex-wrap items-center justify-between gap-3 px-6 pt-4"
+        >
+          <p
+            class="text-sm text-muted-foreground"
+            data-testid="trend-ranking-page-info"
+          >
+            共 {{ items.length }} 条 · 每页 {{ rankingPageSize }} 条 · 第 {{ rankingPage }}/{{ rankingTotalPages }} 页
+          </p>
+          <AppPagination
+            :current-page="rankingPage"
+            :total-pages="rankingTotalPages"
+            @page-change="rankingPage = $event"
+          />
+        </div>
       </CardContent>
     </Card>
 
