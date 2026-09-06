@@ -7,7 +7,7 @@ describe('router document titles', () => {
   it.each([
     ['/', 'Finance Analysis'],
     ['/analysis', '分析 - Finance Analysis'],
-    ['/calendar', '日历记录 - Finance Analysis'],
+    ['/timeline', '投资时间线 - Finance Analysis'],
     ['/market/watch-list', '自选股 - Finance Analysis'],
     ['/market/holdings', '投资组合 - Finance Analysis'],
     ['/market/quant', '量化研究 - Finance Analysis'],

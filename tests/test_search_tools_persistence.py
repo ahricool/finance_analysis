@@ -46,9 +46,7 @@ class SearchToolsPersistenceTest(unittest.TestCase):
         self.assertTrue(result["success"])
         db.save_news_intel.assert_called_once_with(
             code="600519",
-            name="贵州茅台",
-            dimension="latest_news",
-            query=response.query,
+            usage_type="latest_news",
             response=response,
             query_context=None,
         )
@@ -73,9 +71,7 @@ class SearchToolsPersistenceTest(unittest.TestCase):
         self.assertEqual(list(result["dimensions"].keys()), ["latest_news"])
         db.save_news_intel.assert_called_once_with(
             code="600519",
-            name="贵州茅台",
-            dimension="latest_news",
-            query=latest.query,
+            usage_type="latest_news",
             response=latest,
             query_context=None,
         )

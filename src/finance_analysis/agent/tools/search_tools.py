@@ -47,9 +47,7 @@ def _persist_news_response(
     try:
         saved_count = _get_db().save_news_intel(
             code=code,
-            name=stock_name,
-            dimension=dimension,
-            query=response.query,
+            usage_type=dimension,
             response=response,
             query_context=None,
         )

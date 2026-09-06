@@ -12,10 +12,8 @@ from zoneinfo import ZoneInfo
 
 ASIA_SHANGHAI = ZoneInfo("Asia/Shanghai")
 
-# Task / calendar identifiers (kept stable for the task center and history).
+# Celery task identifier for task_records.
 A_SHARE_INTRADAY_TASK_TYPE = "scheduled_a_share_intraday"
-A_SHARE_INTRADAY_SIGNAL_CALENDAR_TYPE = "a_share_intraday_signal"
-A_SHARE_INTRADAY_SUMMARY_CALENDAR_TYPE = "scheduled_a_share_intraday"
 
 # Candidate pool ceilings. Two-stage scanning means only a bounded number of
 # symbols ever reach minute-bar fetching or the LLM.

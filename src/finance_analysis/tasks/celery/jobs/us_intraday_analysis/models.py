@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 FILTER_FAILURE_KEYS = (
     "insufficient_bars",
@@ -31,7 +31,6 @@ class IntradaySignalResult:
     need_notification: bool
     llm_result: Dict[str, Any]
     metrics: Dict[str, Any]
-    calendar_id: Optional[int] = None
     notification_sent: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
@@ -42,7 +41,6 @@ class IntradaySignalResult:
             "need_notification": bool(self.need_notification),
             "llm_result": _jsonable(self.llm_result),
             "metrics": _jsonable(self.metrics),
-            "calendar_id": self.calendar_id,
             "notification_sent": bool(self.notification_sent),
         }
 

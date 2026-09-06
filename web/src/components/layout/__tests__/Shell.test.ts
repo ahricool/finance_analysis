@@ -105,19 +105,19 @@ describe('Shell navigation', () => {
   });
 
   it('opens the mobile navigation sheet and supports route changes', async () => {
-    const { router, wrapper } = await mountShell('/calendar');
+    const { router, wrapper } = await mountShell('/timeline');
     await wrapper.get('button[aria-label="打开主导航"]').trigger('click');
 
     await vi.waitFor(() => {
       expect(document.body.querySelector('[data-testid="mobile-menu"]')).not.toBeNull();
     });
-    const calendarLink = document.body.querySelector<HTMLAnchorElement>(
-      '[data-testid="mobile-menu"] a[href="/calendar"]',
+    const timelineLink = document.body.querySelector<HTMLAnchorElement>(
+      '[data-testid="mobile-menu"] a[href="/timeline"]',
     );
     const marketLink = document.body.querySelector<HTMLAnchorElement>(
       '[data-testid="mobile-menu"] a[href="/market/watch-list"]',
     );
-    expect(calendarLink?.getAttribute('aria-current')).toBe('page');
+    expect(timelineLink?.getAttribute('aria-current')).toBe('page');
     expect(marketLink).not.toBeNull();
 
     marketLink!.click();

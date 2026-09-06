@@ -77,7 +77,7 @@ export const mainNavItems: MainNavItem[] = [
     icon: BarChart3,
     children: researchNavItems,
   },
-  { key: 'calendar', label: '日历', to: '/calendar', icon: CalendarDays },
+  { key: 'timeline', label: '时间线', to: '/timeline', icon: CalendarDays },
   {
     key: 'chat',
     label: '问股',

@@ -586,7 +586,6 @@ class AShareIntradayAnalysisService:
         signals: Sequence[AShareSignalResult],
         send_notification: bool,
     ) -> None:
-        summary.calendar_id = self.reporter.record_summary(summary, snapshot)
 
         state_selected = [
             signal
@@ -609,14 +608,8 @@ class AShareIntradayAnalysisService:
                     self._mark_notification_state(signal, summary.snapshot_time)
                 summary.notification_count = len(to_notify)
 
-        # Per-signal calendar entries for notified or high-risk signals.
-        important = [
-            s for s in signals
-            if s in to_notify or s.severity in ("warning", "error")
-        ]
-        for signal in important:
+        for signal in signals:
             signal.notification_sent = notified and signal in to_notify
-            signal.calendar_id = self.reporter.record_signal(signal, summary.snapshot_time)
 
     def _should_notify_state_change(self, signal: AShareSignalResult, now: datetime) -> bool:
         if not signal.need_notification:

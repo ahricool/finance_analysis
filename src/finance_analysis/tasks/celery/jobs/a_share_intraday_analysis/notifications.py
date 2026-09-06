@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Calendar persistence and aggregated notification delivery.
+"""Aggregated notification delivery.
 
 A single run sends at most one aggregated notification. Per-signal dedup and
 cooldown are applied before aggregation so the same code/signal is not pushed
@@ -10,15 +10,11 @@ escalations can still surface immediately.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import time as _time
-from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .config import (
-    A_SHARE_INTRADAY_SIGNAL_CALENDAR_TYPE,
-    A_SHARE_INTRADAY_SUMMARY_CALENDAR_TYPE,
     ASIA_SHANGHAI,
     MAX_AGGREGATED_SIGNALS,
 )
@@ -49,18 +45,16 @@ def signal_cooldown_key(code: str, signal_type: str) -> str:
 
 
 class AShareIntradayReporter:
-    """Persists signals to the calendar and pushes one aggregated alert."""
+    """Pushes one aggregated alert."""
 
     def __init__(
         self,
         *,
         notification_factory: Optional[Callable[[], Any]] = None,
-        calendar_writer: Optional[Callable[..., Optional[int]]] = None,
         cooldown_seconds: int = _DEFAULT_COOLDOWN_SECONDS,
         clock: Optional[Callable[[], float]] = None,
     ) -> None:
         self._notification_factory = notification_factory
-        self._calendar_writer = calendar_writer
         self.cooldown_seconds = cooldown_seconds
         self._clock = clock or _time.time
 
@@ -107,66 +101,6 @@ class AShareIntradayReporter:
                 generation,
                 signal.severity,
             )
-
-    # ------------------------------------------------------------------
-    # Calendar
-    # ------------------------------------------------------------------
-    def record_summary(
-        self,
-        summary: AShareIntradayTaskSummary,
-        snapshot: AShareMarketSnapshot,
-    ) -> Optional[int]:
-        title = self._summary_title(summary)
-        content = render_summary_content(summary, snapshot)
-        return self._write_calendar(
-            time=summary.snapshot_time,
-            title=title,
-            content=content,
-            calendar_type=A_SHARE_INTRADAY_SUMMARY_CALENDAR_TYPE,
-        )
-
-    def record_signal(self, signal: AShareSignalResult, snapshot_time: datetime) -> Optional[int]:
-        title = f"A股盘中异动：{signal.code} {signal.name} {self._signal_label(signal.signal_type)}"
-        content = render_signal_content(signal)
-        return self._write_calendar(
-            time=snapshot_time,
-            title=title,
-            content=content,
-            calendar_type=A_SHARE_INTRADAY_SIGNAL_CALENDAR_TYPE,
-        )
-
-    def _write_calendar(
-        self,
-        *,
-        time: datetime,
-        title: str,
-        content: str,
-        calendar_type: str,
-    ) -> Optional[int]:
-        if self._calendar_writer is not None:
-            try:
-                return self._calendar_writer(
-                    time=time, title=title, content=content, calendar_type=calendar_type
-                )
-            except Exception as exc:
-                logger.warning("写入 A 股盘中日历失败(custom): %s", exc)
-                return None
-        try:
-            from finance_analysis.database.repositories.calendar import CalendarRepo
-            from finance_analysis.database.repositories.user import UserRepository
-
-            uid = UserRepository().ensure_default_admin()
-            entry = CalendarRepo().create(
-                uid=uid,
-                time=time,
-                title=title[:120],
-                content=content,
-                type=calendar_type,
-            )
-            return int(getattr(entry, "id", 0) or 0)
-        except Exception as exc:
-            logger.warning("写入 A 股盘中日历失败: %s", exc)
-            return None
 
     # ------------------------------------------------------------------
     # Notification
@@ -229,23 +163,6 @@ class AShareIntradayReporter:
                 best = signal.severity
         return best
 
-    @staticmethod
-    def _summary_title(summary: AShareIntradayTaskSummary) -> str:
-        risk_count = sum(
-            1
-            for s in summary.signal_results
-            if s.severity in ("warning", "error")
-        )
-        regime = _REGIME_LABELS.get(summary.market_regime, summary.market_regime)
-        return (
-            f"A股盘中分析 {summary.snapshot_time.astimezone(ASIA_SHANGHAI).strftime('%H:%M')}："
-            f"{regime}，风险信号 {risk_count} 个"
-        )
-
-    @staticmethod
-    def _signal_label(signal_type: str) -> str:
-        return _SIGNAL_LABELS.get(signal_type, signal_type)
-
 
 _SIGNAL_LABELS = {
     "near_limit_up_acceleration": "接近涨停加速",
@@ -267,93 +184,6 @@ _REGIME_LABELS = {
     "panic": "市场恐慌",
     "unknown": "状态未知",
 }
-
-
-def render_summary_content(
-    summary: AShareIntradayTaskSummary,
-    snapshot: AShareMarketSnapshot,
-) -> str:
-    stats = snapshot.market_stats or {}
-    break_rate = stats.get("break_rate")
-    lines = [
-        "## A股盘中分析",
-        "",
-        f"- 时间：{summary.snapshot_time.astimezone(ASIA_SHANGHAI).strftime('%Y-%m-%d %H:%M:%S %Z')}",
-        f"- 市场阶段：{summary.market_phase}",
-        f"- 市场状态：{_REGIME_LABELS.get(summary.market_regime, summary.market_regime)}",
-        f"- 上涨/下跌家数：{summary.up_count} / {summary.down_count}",
-        f"- 涨停/跌停数量：{summary.limit_up_count} / {summary.limit_down_count}",
-        f"- 炸板数量/炸板率：{summary.opened_limit_up_count} / "
-        f"{'-' if break_rate is None else f'{break_rate:.2%}'}",
-        f"- 两市成交额（亿）：{stats.get('total_amount', '-')}",
-        f"- 候选数量：{summary.snapshot_candidate_count}",
-        f"- 规则命中数量：{summary.rule_candidate_count}",
-        f"- LLM 复核数量：{summary.llm_candidate_count}",
-        f"- 通知数量：{summary.notification_count}",
-    ]
-    if snapshot.indices:
-        lines.extend(["", "### 指数表现", ""])
-        for code, item in list(snapshot.indices.items())[:8]:
-            name = item.get("name", code) if isinstance(item, dict) else code
-            chg = item.get("change_pct") if isinstance(item, dict) else None
-            lines.append(f"- {name}：{'-' if chg is None else f'{chg:+.2f}%'}")
-    if snapshot.sector_leaders:
-        lines.append("")
-        lines.append("- 领涨板块：" + "、".join(
-            f"{s.get('name', '-')}({s.get('change_pct', 0):+.2f}%)" for s in snapshot.sector_leaders[:5]
-        ))
-    if snapshot.sector_laggers:
-        lines.append("- 领跌板块：" + "、".join(
-            f"{s.get('name', '-')}({s.get('change_pct', 0):+.2f}%)" for s in snapshot.sector_laggers[:5]
-        ))
-    if summary.warnings:
-        lines.extend(["", "### 数据源警告", "", *[f"- {w}" for w in summary.warnings[:15]]])
-    if summary.signal_results:
-        lines.extend(["", "### 重要信号", ""])
-        for signal in summary.signal_results[:MAX_AGGREGATED_SIGNALS]:
-            lines.append(
-                f"- {signal.code} {signal.name} {_SIGNAL_LABELS.get(signal.signal_type, signal.signal_type)}"
-                f"（{signal.final_decision}）：{str(signal.llm_result.get('summary', '') or '')[:120]}"
-            )
-    lines.extend(["", "### 市场上下文 JSON", "",
-                  f"```json\n{json.dumps(snapshot.to_context_dict(), ensure_ascii=False, indent=2)}\n```"])
-    return "\n".join(lines)
-
-
-def render_signal_content(signal: AShareSignalResult) -> str:
-    metrics = signal.metrics
-    result = signal.llm_result
-    lines = [
-        f"## {signal.code} {signal.name} 盘中异动",
-        "",
-        f"- 信号类型：{_SIGNAL_LABELS.get(signal.signal_type, signal.signal_type)}",
-        f"- 板块：{signal.board}",
-        f"- 最终决策：{result.get('final_decision', '-')}",
-        f"- 方向：{result.get('direction', '-')}",
-        f"- 置信度：{result.get('confidence', '-')}",
-        f"- 驱动类型：{result.get('driver_type', '-')}",
-        f"- 现价：{metrics.get('price', '-')}",
-        f"- 涨跌幅：{metrics.get('change_pct', '-')}%",
-        f"- 5/15分钟涨跌幅：{metrics.get('change_5m', '-')}% / {metrics.get('change_15m', '-')}%",
-        f"- 距涨停：{metrics.get('distance_to_limit_up_pct', '-')}%",
-        f"- VWAP：{metrics.get('vwap', '-')}",
-        f"- 分时量比：{metrics.get('intraday_volume_ratio', '-')}",
-        "",
-        "### AI 判断",
-        "",
-        f"- 摘要：{result.get('summary', '-')}",
-        f"- 理由：{result.get('reason', '-')}",
-        f"- 风险：{result.get('risk', '-')}",
-        f"- 已持仓者：{result.get('holder_suggestion', '-')}",
-        f"- 未持仓者：{result.get('observer_suggestion', '-')}",
-        f"- T+1 提示：{result.get('t1_warning', '-')}",
-        f"- 失效条件：{result.get('invalidation', '-')}",
-    ]
-    if signal.fallback_used:
-        lines.extend(["", "> AI 复核暂不可用，本提示由确定性量价规则生成。"])
-    lines.extend(["", "### 指标 JSON", "",
-                  f"```json\n{json.dumps(metrics, ensure_ascii=False, indent=2)}\n```"])
-    return "\n".join(lines)
 
 
 def render_aggregated_notification(

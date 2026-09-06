@@ -206,7 +206,7 @@ class ASharePreCloseReviewService:
             fallback_used=fallback_used,
             llm_calls=self.web_llm.call_count,
         )
-        summary.calendar_id = self.reporter.record_to_calendar(summary)
+        summary.timeline_entry_id = self.reporter.record_report(summary)
         summary.notification_sent = self.reporter.send_notification(
             summary,
             send_notification=send_notification,
@@ -318,31 +318,28 @@ class ASharePreCloseReviewService:
             from sqlalchemy import desc, select
 
             from finance_analysis.database import DatabaseManager
-            from finance_analysis.database.models import NewsIntel
+            from finance_analysis.database.models import NewsIntel, NewsIntelUsage
 
             with DatabaseManager.get_instance().get_session() as session:
-                rows = (
-                    session.execute(
-                        select(NewsIntel)
+                rows = session.execute(
+                    select(NewsIntel, NewsIntelUsage.symbol)
+                    .join(NewsIntelUsage, NewsIntelUsage.news_intel_id == NewsIntel.id)
                         .where(
-                            NewsIntel.code.in_(list(code_to_key)),
+                        NewsIntelUsage.symbol.in_(list(code_to_key)),
                             NewsIntel.fetched_at >= utc_now() - timedelta(days=7),
                         )
                         .order_by(desc(NewsIntel.published_date))
                         .limit(30)
-                    )
-                    .scalars()
-                    .all()
-                )
+                ).all()
             return [
                 {
-                    "entity_key": code_to_key.get(str(item.code), ""),
+                    "entity_key": code_to_key.get(str(symbol), ""),
                     "title": str(item.title or "")[:180],
                     "snippet": str(item.snippet or "")[:500],
                     "url": str(item.url or "")[:500],
                     "published_at": item.published_date.isoformat() if item.published_date else None,
                 }
-                for item in rows
+                for item, symbol in rows
             ]
         except Exception as exc:
             logger.warning("读取已有新闻存储失败: %s", exc)

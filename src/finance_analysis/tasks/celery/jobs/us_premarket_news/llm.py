@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Sequence
 
 from finance_analysis.llm import LLMClient, LLMRequest
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.llm import parse_llm_batch_results
@@ -202,6 +202,7 @@ class PremarketNewsLLMAnalyzer:
 
     def __init__(self, config: Any) -> None:
         self.config = config
+        self.model_used = None
 
     def select_important_news(self, candidates: Sequence[NewsCandidate]) -> List[Dict[str, Any]]:
         if not candidates:
@@ -222,6 +223,7 @@ class PremarketNewsLLMAnalyzer:
                     call_type="us_premarket_news_importance",
                 )
             )
+            self.model_used = result.model_used
             return normalize_importance_results(parse_llm_batch_results(result.text))
         except Exception as exc:
             logger.warning("美股盘前新闻重要性筛选失败: %s", exc)
@@ -250,6 +252,7 @@ class PremarketNewsLLMAnalyzer:
                     call_type="us_premarket_news_impact",
                 )
             )
+            self.model_used = result.model_used
             return normalize_impact_results(parse_llm_batch_results(result.text))
         except Exception as exc:
             logger.warning("美股盘前新闻影响方向判断失败: %s", exc)

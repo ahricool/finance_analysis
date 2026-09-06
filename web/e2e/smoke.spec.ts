@@ -67,13 +67,9 @@ async function mockAuthenticatedSession(page: Page) {
           extra: { gender: 'unknown' },
         },
       };
-    } else if (url.pathname === '/api/v1/calendar/summary') {
-      body = {
-        start_date: url.searchParams.get('start_date'),
-        end_date: url.searchParams.get('end_date'),
-        items: [],
-      };
-    } else if (url.pathname === '/api/v1/calendar' || url.pathname === '/api/v1/calendar/events') {
+    } else if (url.pathname === '/api/v1/timeline/summary') {
+      body = [];
+    } else if (url.pathname === '/api/v1/timeline') {
       body = {
         date: url.searchParams.get('date'),
         items: [],
@@ -96,7 +92,7 @@ async function mockAuthenticatedSession(page: Page) {
 test.describe('web smoke', () => {
   test('root keeps a stable vertical scrollbar gutter during route changes', async ({ page }) => {
     await mockAuthenticatedSession(page);
-    await page.goto('/calendar');
+    await page.goto('/timeline');
 
     await expect(page.locator('html')).toHaveCSS('scrollbar-gutter', 'stable');
   });
@@ -104,7 +100,7 @@ test.describe('web smoke', () => {
   test('header dropdown menus do not shift the page while opening', async ({ page }) => {
     await mockAuthenticatedSession(page);
     await page.setViewportSize({ width: 1440, height: 800 });
-    await page.goto('/calendar');
+    await page.goto('/timeline');
 
     const headerContent = page.getByTestId('shell-header-content');
     const initialBox = await headerContent.boundingBox();
@@ -249,7 +245,7 @@ test.describe('web smoke', () => {
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockAuthenticatedSession(page);
-    await page.goto('/calendar');
+    await page.goto('/timeline');
 
     const navigationTrigger = page.getByRole('button', { name: '打开主导航' });
     await expect(navigationTrigger).toBeVisible();
@@ -263,7 +259,7 @@ test.describe('web smoke', () => {
       '量化研究',
       'ETF动量轮动',
       '趋势跟踪',
-      '日历',
+      '时间线',
       '问股',
       '任务',
     ]) {
@@ -278,10 +274,10 @@ test.describe('web smoke', () => {
     await expect(navigationSheet.getByRole('link', { name: '任务' })).toHaveAttribute('aria-current', 'page');
     await page.keyboard.press('Escape');
 
-    await page.goto('/calendar');
+    await page.goto('/timeline');
 
     await navigationTrigger.click();
-    await expect(navigationSheet.getByRole('link', { name: '日历' })).toHaveAttribute(
+    await expect(navigationSheet.getByRole('link', { name: '时间线' })).toHaveAttribute(
       'aria-current',
       'page',
     );
@@ -320,8 +316,8 @@ test.describe('web smoke', () => {
 
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
-      await page.goto('/calendar');
-      await expect(page.getByRole('heading', { name: '日历记录' })).toBeVisible();
+      await page.goto('/timeline');
+      await expect(page.getByRole('heading', { name: '投资时间线' })).toBeVisible();
       if (viewport.width < 1024) {
         await expect(page.getByRole('button', { name: '打开主导航' })).toBeVisible();
       } else {
@@ -333,63 +329,18 @@ test.describe('web smoke', () => {
     }
   });
 
-  test('date, time, datetime, select, combobox, dialog, and popover controls are operable', async ({
-    page,
-  }) => {
-    const pageErrors: string[] = [];
-    page.on('pageerror', (error) => pageErrors.push(error.message));
-    await page.setViewportSize({ width: 390, height: 844 });
+  test('timeline note composer and filters are operable', async ({ page }) => {
     await mockAuthenticatedSession(page);
-    await page.goto('/calendar');
-
-    const displayDateButton = page.getByRole('button', { name: '展示日期' });
-    const previousDisplay = await displayDateButton.textContent();
-    await displayDateButton.click();
-    const calendar = page.locator('[data-slot="calendar"]').last();
-    await expect(calendar).toBeVisible();
-    const alternateDate = calendar
-      .locator('[data-slot="calendar-cell-trigger"]:not([data-selected]):not([data-disabled])')
-      .first();
-    await alternateDate.click();
-    await expect(calendar).toBeHidden();
-    expect(await displayDateButton.textContent()).not.toBe(previousDisplay);
-
-    await page.getByTestId('add-finance-event').click();
-    const eventDialog = page.getByRole('dialog', { name: '新增财经事件' });
-    await expect(eventDialog).toBeVisible();
-    const eventType = eventDialog.getByRole('combobox', { name: '事件类型 *' });
-    await eventType.click();
-    await page.waitForTimeout(100);
-    expect(pageErrors).toEqual([]);
-    const comboboxPopover = page.locator('[data-slot="popover-content"]').last();
-    await expect(comboboxPopover).toBeVisible();
-    await comboboxPopover.locator('[data-slot="command-input"]').fill('财报');
-    await page.getByRole('option', { name: /财报/ }).click();
-    await expect(eventType).toContainText('财报');
-    await eventDialog.getByRole('button', { name: '取消' }).click();
-    await expect(eventDialog).toBeHidden();
-
-    await page.getByTestId('add-calendar-entry').click();
-    const entryDialog = page.getByRole('dialog', { name: '新增日历记录' });
-    await expect(entryDialog).toBeVisible();
-    const dateTimeButton = entryDialog.getByRole('button', { name: '记录时间 *' });
-    await dateTimeButton.click();
-    const dateTimeDialog = page.getByRole('dialog', { name: '选择日期和时间' });
-    await expect(dateTimeDialog).toBeVisible();
-    const timeButton = dateTimeDialog.getByRole('button', { name: '时间', exact: true });
-    await timeButton.click();
-    const timePopover = page.locator('[data-slot="popover-content"]').last();
-    const hourSelect = timePopover.getByRole('combobox', { name: '小时' });
-    const minuteSelect = timePopover.getByRole('combobox', { name: '分钟' });
-    await hourSelect.click();
-    await page.getByRole('option', { name: '10', exact: true }).click();
-    await minuteSelect.click();
-    await page.getByRole('option', { name: '30', exact: true }).click();
-    await timePopover.getByRole('button', { name: '确认' }).click();
-    await dateTimeDialog.getByRole('button', { name: '确认' }).click();
-    await expect(dateTimeButton).toContainText('10:30');
-    await entryDialog.getByRole('button', { name: '取消' }).click();
-    expect(pageErrors).toEqual([]);
+    await page.goto('/timeline');
+    await page.getByRole('button', { name: '美股', exact: true }).click();
+    await page.getByLabel('重要度', { exact: true }).selectOption('high');
+    await page.getByTestId('add-note').click();
+    const dialog = page.getByRole('dialog', { name: '新增笔记' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel('标题', { exact: true }).fill('观察需求变化');
+    await dialog.getByLabel('笔记内容').fill('等待财报验证');
+    await dialog.getByRole('button', { name: '保存笔记' }).click();
+    await expect(dialog).toBeHidden();
   });
 
   test('settings and theme navigation entries are removed after login', async ({ page }) => {
@@ -398,4 +349,26 @@ test.describe('web smoke', () => {
     await expect(page.getByRole('link', { name: '设置' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '切换主题' })).toHaveCount(0);
   });
+});
+
+test('investment feed shows individual items and report details across viewports', async ({ page }) => {
+  await mockAuthenticatedSession(page);
+  const base = { market: 'US', related_symbols: ['NVDA', 'AMD'], symbol: null, actionability: 'watch', impact: null, impact_score: null, importance_score: null, event_type: null };
+  const items = [
+    { ...base, id: 'report:1', source_type: 'report', source_id: 1, event_time: '2026-09-06T01:00:00Z', category: 'analysis', title: '美股盘前分析：关注科技股趋势与开盘风险', summary: '市场方向仍待成交确认。复核重点持仓，留意关键价位与开盘后的量能变化。', importance: 'high', actionability: 'consider', detail_type: 'report', detail_payload: { content: '# 美股盘前分析\n\n## 持仓风险\n\n等待趋势确认，避免开盘追高。' } },
+    { ...base, id: 'finance_event:2', source_type: 'finance_event', source_id: 2, related_symbols: [], event_time: '2026-09-06T00:30:00Z', category: 'event', title: '美国消费者价格指数（CPI）', summary: '关注核心通胀与利率预期的变化，以及对成长股估值的影响。', importance: 'critical', detail_type: 'event', detail_payload: { content: '美国消费者价格指数发布。' } },
+    { ...base, id: 'news:3', source_type: 'news', source_id: 3, event_time: '2026-09-05T23:45:00Z', category: 'news', title: 'NVIDIA 数据中心需求增长，供应链展望上调', summary: '新增订单反映需求韧性，后续关注产能交付与客户资本开支。', importance: 'critical', importance_score: 9, impact: 'bullish', impact_score: 3, detail_type: 'news', detail_payload: { source: '示例新闻', url: 'https://example.com/news', published_at: '2026-09-05T23:45:00Z', importance_reason: '需求变化影响盈利预期', watch_points: ['交付进度'], risk_notes: ['估值风险'] } },
+    { ...base, id: 'report:4', source_type: 'report', source_id: 4, event_time: '2026-09-05T10:00:00Z', category: 'analysis', title: '美股收盘复盘：市场分歧与下一交易日观察', summary: '指数走势分化，防御板块相对强势。继续观察科技股能否重获资金支持。', importance: 'high', detail_type: 'report', detail_payload: { content: '# 收盘复盘' } },
+    { ...base, id: 'report:5', source_type: 'report', source_id: 5, market: 'CN', related_symbols: ['600519.SH'], event_time: '2026-09-05T06:30:00Z', category: 'analysis', title: 'A股收盘前复核：尾盘风险与持仓调整', summary: '成交趋弱，优先复核持仓风险，等待板块持续性验证。', importance: 'high', actionability: 'consider', detail_type: 'report', detail_payload: { content: '# A股收盘前复核' } },
+  ];
+  await page.route('**/api/v1/timeline?**', route => route.fulfill({ json: { items, total: items.length, page: 1, limit: 20 } }));
+  for (const width of [1280, 360]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/timeline');
+    await expect(page.getByTestId('timeline-item')).toHaveCount(5);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/timeline-${width}.png`, fullPage: true });
+  }
+  await page.getByRole('button', { name: '查看美股盘前分析：关注科技股趋势与开盘风险' }).click();
+  await expect(page.getByRole('heading', { name: '持仓风险' })).toBeVisible();
 });

@@ -415,12 +415,7 @@ class StockAnalysisPipeline(AgentResultMixin):
                         for dim_name, response in intel_results.items():
                             if response and response.success and response.results:
                                 self.db.save_news_intel(
-                                    code=code,
-                                    name=stock_name,
-                                    dimension=dim_name,
-                                    query=response.query,
-                                    response=response,
-                                    query_context=query_context
+                                    code=code, usage_type=dim_name, response=response, query_context=query_context
                                 )
                     except Exception as e:
                         logger.warning(f"{stock_name}({code}) 保存新闻情报失败: {e}")
@@ -875,12 +870,7 @@ class StockAnalysisPipeline(AgentResultMixin):
                     if news_response.success and news_response.results:
                         query_context = self._build_query_context(query_id=query_id)
                         self.db.save_news_intel(
-                            code=code,
-                            name=resolved_stock_name,
-                            dimension="latest_news",
-                            query=news_response.query,
-                            response=news_response,
-                            query_context=query_context
+                            code=code, usage_type="latest_news", response=news_response, query_context=query_context
                         )
                         logger.info(f"[{code}] Agent 模式: 新闻情报已保存 {len(news_response.results)} 条")
                 except Exception as e:

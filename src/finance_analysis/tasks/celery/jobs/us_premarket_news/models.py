@@ -46,7 +46,6 @@ class PremarketNewsSummary:
     impact_results: List[Dict[str, Any]] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
-    calendar_id: Optional[int] = None
     notification_sent: bool = False
 
     @property

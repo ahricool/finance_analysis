@@ -15,7 +15,7 @@ from finance_analysis.interfaces.api.v1.endpoints import (
     agent,
     analysis,
     auth,
-    calendar,
+    timeline,
     celery_demo,
     etf_rotation,
     history,
@@ -56,9 +56,9 @@ router.include_router(
 )
 
 router.include_router(
-    calendar.router,
-    prefix="/calendar",
-    tags=["Calendar"],
+    timeline.router,
+    prefix="/timeline",
+    tags=["Timeline"],
 )
 
 router.include_router(

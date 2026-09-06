@@ -8,7 +8,7 @@ import {
 
 describe('main navigation', () => {
   it('keeps tasks last while keeping market scoped', () => {
-    expect(mainNavItems.map((item) => item.label)).toEqual(['分析', '市场', '研究', '日历', '问股', '任务']);
+    expect(mainNavItems.map((item) => item.label)).toEqual(['分析', '市场', '研究', '时间线', '问股', '任务']);
     expect(mainNavItems[0]).toMatchObject({ key: 'analysis', to: '/analysis', exact: true });
     expect(mainNavItems.find((item) => item.key === 'market')).toMatchObject({
       to: '/market/watch-list',
@@ -30,7 +30,7 @@ describe('main navigation', () => {
       'quant',
       'etf-rotation',
       'trend-following',
-      'calendar',
+      'timeline',
       'chat',
       'tasks',
     ]);

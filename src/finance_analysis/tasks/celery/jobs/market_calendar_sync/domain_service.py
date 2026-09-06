@@ -58,7 +58,6 @@ class MarketCalendarSyncSummary:
     new_or_changed_important_events: List[FinanceEvent] = field(default_factory=list)
     focus_events: List[FinanceEvent] = field(default_factory=list)
     importance_candidate_ids: List[int] = field(default_factory=list)
-    calendar_id: Optional[int] = None
 
     @property
     def fetched_total_count(self) -> int:
@@ -82,7 +81,6 @@ class MarketCalendarSyncSummary:
             "notification_sent_count": self.notification_sent_count,
             "errors": list(self.errors),
             "importance_candidate_ids": list(self.importance_candidate_ids),
-            "calendar_id": self.calendar_id,
             "all_interfaces_failed": self.all_interfaces_failed,
         }
 
@@ -194,51 +192,6 @@ def render_event_line(event: FinanceEvent) -> str:
     )
 
 
-def render_calendar_content(summary: MarketCalendarSyncSummary) -> str:
-    elapsed = (summary.finished_at - summary.started_at).total_seconds()
-    lines = [
-        "## 财经日历更新",
-        "",
-        f"- 执行状态：{'失败' if summary.all_interfaces_failed else '完成'}",
-        f"- 开始时间：{summary.started_at.strftime('%Y-%m-%d %H:%M:%S %Z')}",
-        f"- 结束时间：{summary.finished_at.strftime('%Y-%m-%d %H:%M:%S %Z')}",
-        f"- 耗时：{elapsed:.2f} 秒",
-        f"- 查询范围：{summary.start_date.isoformat()} 至 {summary.end_date.isoformat()}",
-        f"- 市场：{summary.market}",
-        "",
-        "### 抓取数量",
-    ]
-    for calendar_type in CALENDAR_TYPES:
-        label = CALENDAR_TYPE_LABELS.get(calendar_type, calendar_type)
-        lines.append(f"- {label}：{summary.fetched_count_by_type.get(calendar_type, 0)}")
-
-    lines.extend(
-        [
-            "",
-            "### 入库结果",
-            f"- 新增事件数量：{summary.inserted_count}",
-            f"- 更新事件数量：{summary.updated_count}",
-            f"- 跳过重复数量：{summary.skipped_duplicate_count}",
-            f"- 通知事件数量：{summary.notification_sent_count}",
-        ]
-    )
-
-    if summary.errors:
-        lines.extend(["", "### 失败接口列表", "", *[f"- {item}" for item in summary.errors]])
-    else:
-        lines.extend(["", "### 失败接口列表", "", "- 无"])
-
-    lines.extend(["", "### 未来 14 天重点事件", ""])
-    if summary.focus_events:
-        focus = summary.focus_events[:30]
-        lines.extend(render_event_line(event) for event in focus)
-        remaining = len(summary.focus_events) - len(focus)
-        if remaining > 0:
-            lines.append(f"- ……另有 {remaining} 条重点事件未展示。")
-    else:
-        lines.append("- 无")
-
-    return "\n".join(lines).strip()
 
 
 def render_notification(events: Sequence[FinanceEvent], start_date: date, end_date: date) -> str:
@@ -259,14 +212,10 @@ class MarketCalendarSyncService:
         *,
         fetcher: Optional[LongbridgeCalendarFetcher] = None,
         repo: Optional[MarketCalendarEventRepo] = None,
-        calendar_repo: Optional[Any] = None,
-        user_repo: Optional[Any] = None,
         notifier_factory: Optional[Callable[[], Any]] = None,
     ) -> None:
         self.fetcher = fetcher or LongbridgeCalendarFetcher()
         self.repo = repo or MarketCalendarEventRepo()
-        self.calendar_repo = calendar_repo
-        self.user_repo = user_repo
         self.notifier_factory = notifier_factory
 
     def run(self, now: Optional[datetime] = None) -> MarketCalendarSyncSummary:
@@ -329,7 +278,6 @@ class MarketCalendarSyncService:
             focus_events = []
         summary.focus_events = sort_focus_events(focus_events, watch_symbols)[:30]
         summary.finished_at = scheduler_now()
-        summary.calendar_id = self._record_calendar(summary)
 
         logger.info(
             "财经日历任务完成: fetched=%s inserted=%s updated=%s duplicate=%s notify=%s errors=%s",
@@ -422,31 +370,3 @@ class MarketCalendarSyncService:
         if result.created:
             return True
         return bool(IMPORTANCE_RELEVANT_FIELDS.intersection(result.changed_fields))
-
-    def _record_calendar(self, summary: MarketCalendarSyncSummary) -> Optional[int]:
-        try:
-            calendar_repo = self.calendar_repo
-            if calendar_repo is None:
-                from finance_analysis.database.repositories.calendar import CalendarRepo
-
-                calendar_repo = CalendarRepo()
-            user_repo = self.user_repo
-            if user_repo is None:
-                from finance_analysis.database.repositories.user import UserRepository
-
-                user_repo = UserRepository()
-            uid = user_repo.ensure_default_admin()
-            title = f"财经日历更新完成：新增 {summary.inserted_count} / 总计 {summary.fetched_total_count}"
-            if summary.all_interfaces_failed:
-                title = f"财经日历更新失败：新增 {summary.inserted_count} / 总计 {summary.fetched_total_count}"
-            entry = calendar_repo.create(
-                uid=uid,
-                time=summary.finished_at,
-                title=title[:120],
-                content=render_calendar_content(summary),
-                type="scheduled_market_calendar",
-            )
-            return int(getattr(entry, "id", 0) or 0)
-        except Exception as exc:
-            logger.warning("写入财经日历摘要失败: %s", exc, exc_info=True)
-            return None

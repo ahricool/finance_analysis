@@ -8,7 +8,7 @@ LongbridgeNewsFetcher - 长桥 OpenAPI 新闻获取
 去重策略（写入 news_intel 表）：
 1. 主键：URL 唯一约束（Longbridge 返回稳定 url，缺失时用 news id 构造 canonical url）
 2. 兜底：title + source + published_date 生成 hash 键（复用 DatabaseManager.save_news_intel）
-3. 重复命中时更新 fetched_at，便于追踪最近抓取时间
+3. 重复命中保留原始新闻，查询与标的关联写入 news_intel_usage
 """
 
 from __future__ import annotations
@@ -285,8 +285,7 @@ class LongbridgeNewsFetcher:
         self,
         stock_code: str,
         *,
-        name: str = "",
-        dimension: str = "intraday_news",
+        usage_type: str = "news",
         query_id: str = "",
         limit: Optional[int] = None,
     ) -> List[LongbridgeNewsRecord]:
@@ -301,9 +300,7 @@ class LongbridgeNewsFetcher:
             response = news_records_to_search_response(stock_code, records)
             DatabaseManager.get_instance().save_news_intel(
                 code=stock_code,
-                name=name,
-                dimension=dimension,
-                query=response.query,
+                usage_type=usage_type,
                 response=response,
                 query_context={
                     "query_id": query_id,

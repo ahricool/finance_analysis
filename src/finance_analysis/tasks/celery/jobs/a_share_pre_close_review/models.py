@@ -103,7 +103,7 @@ class PreCloseReviewSummary:
     decision: dict[str, Any]
     data_quality: DataQuality
     warnings: list[str] = field(default_factory=list)
-    calendar_id: Optional[int] = None
+    timeline_entry_id: Optional[int] = None
     notification_sent: bool = False
     fallback_used: bool = False
     llm_calls: int = 0
@@ -127,7 +127,7 @@ class PreCloseReviewSummary:
             "decision": self.decision,
             "data_quality": self.data_quality.to_dict(),
             "warnings": self.warnings[:50],
-            "calendar_id": self.calendar_id,
+            "timeline_entry_id": self.timeline_entry_id,
             "notification_sent": self.notification_sent,
             "fallback_used": self.fallback_used,
             "llm_calls": self.llm_calls,
@@ -172,7 +172,7 @@ class PreCloseReviewSummary:
             "decision": compact_decision,
             "data_quality": self.data_quality.to_dict(),
             "warnings": self.warnings[:20],
-            "calendar_id": self.calendar_id,
+            "timeline_entry_id": self.timeline_entry_id,
             "notification_sent": self.notification_sent,
             "fallback_used": self.fallback_used,
             "llm_calls": self.llm_calls,

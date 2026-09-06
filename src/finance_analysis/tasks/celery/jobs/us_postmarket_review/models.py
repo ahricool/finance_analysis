@@ -139,7 +139,7 @@ class USPostmarketReviewSummary:
     market_regime: str = "neutral"
     report: str = ""
     report_file: Optional[str] = None
-    calendar_id: Optional[int] = None
+    timeline_entry_id: Optional[int] = None
     notification_sent: bool = False
     fallback_used: bool = False
     warnings: List[str] = field(default_factory=list)
@@ -153,7 +153,7 @@ class USPostmarketReviewSummary:
             "watchlist_count": self.watchlist_count,
             "watchlist_up_count": self.watchlist_up_count,
             "watchlist_down_count": self.watchlist_down_count,
-            "calendar_id": self.calendar_id,
+            "timeline_entry_id": self.timeline_entry_id,
             "notification_sent": self.notification_sent,
             "fallback_used": self.fallback_used,
             "warnings": list(self.warnings),

@@ -42,15 +42,19 @@ def test_postgres_connection_hook_sets_utc_timezone() -> None:
 
     class Cursor:
         def execute(self, statement: str) -> None:
+            assert connection.autocommit is True
             statements.append(statement)
 
         def close(self) -> None:
             statements.append("closed")
 
     class Connection:
+        autocommit = False
         def cursor(self) -> Cursor:
             return Cursor()
 
-    DatabaseManager._set_utc_timezone(Connection(), object())
+    connection = Connection()
+    DatabaseManager._set_utc_timezone(connection, object())
+    assert connection.autocommit is False
 
     assert statements == ["SET TIME ZONE 'UTC'", "closed"]

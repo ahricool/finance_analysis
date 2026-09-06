@@ -128,7 +128,7 @@ class FakeReporter:
     def save_report_file(self, summary):
         return f"/tmp/us_postmarket_review_{summary.trading_date.strftime('%Y%m%d')}.md"
 
-    def record_to_calendar(self, summary):
+    def record_report(self, summary):
         return 123
 
     def send_notification(self, summary, *, send_notification: bool):
@@ -225,7 +225,7 @@ def test_normal_trading_day_after_close_generates_report_and_sends_notification(
     assert summary.watchlist_count == 3
     assert summary.watchlist_up_count == 2
     assert summary.watchlist_down_count == 1
-    assert summary.calendar_id == 123
+    assert summary.timeline_entry_id == 123
     assert summary.notification_sent is True
     assert summary.fallback_used is False
     assert summary.report_file.endswith("us_postmarket_review_20260623.md")
@@ -349,7 +349,7 @@ def test_news_search_failure_records_warning_and_completes() -> None:
     assert any("新闻搜索失败" in item for item in summary.warnings)
 
 
-def test_reporter_reuses_existing_calendar_entry_and_uses_dedup_key() -> None:
+def test_reporter_creates_investment_report_and_uses_notification_dedup_key() -> None:
     sent = {}
 
     class Notifier:
@@ -379,17 +379,17 @@ def test_reporter_reuses_existing_calendar_entry_and_uses_dedup_key() -> None:
     repo = Repo()
     reporter = USPostmarketReviewReporter(
         notifier=Notifier(),
-        calendar_repo=repo,
+        timeline_repo=repo,
         user_repo=SimpleNamespace(ensure_default_admin=lambda: 1),
     )
     summary = _service(reporter=FakeReporter()).run(now=TRADING_DATE, send_notification=False)
     summary.report = _complete_markdown()
-    summary.calendar_id = reporter.record_to_calendar(summary)
+    summary.timeline_entry_id = reporter.record_report(summary)
     summary.notification_sent = reporter.send_notification(summary, send_notification=True)
 
-    assert summary.calendar_id == 7
-    assert repo.updated is True
-    assert repo.created is False
+    assert summary.timeline_entry_id == 99
+    assert repo.updated is False
+    assert repo.created is True
     assert sent["dedup_key"] == "us_postmarket_review:2026-06-23"
     assert sent["cooldown_key"] == "us_postmarket_review:2026-06-23"
 

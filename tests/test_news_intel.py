@@ -70,20 +70,10 @@ class NewsIntelStorageTestCase(unittest.TestCase):
         }
 
         saved_first = self.db.save_news_intel(
-            code="600519",
-            name="贵州茅台",
-            dimension="latest_news",
-            query=response.query,
-            response=response,
-            query_context=query_context
+            code="600519", usage_type="latest_news", response=response, query_context=query_context
         )
         saved_second = self.db.save_news_intel(
-            code="600519",
-            name="贵州茅台",
-            dimension="latest_news",
-            query=response.query,
-            response=response,
-            query_context=query_context
+            code="600519", usage_type="latest_news", response=response, query_context=query_context
         )
 
         self.assertEqual(saved_first, 1)
@@ -95,8 +85,12 @@ class NewsIntelStorageTestCase(unittest.TestCase):
         self.assertEqual(total, 1)
         if row is None:
             self.fail("未找到保存的新闻记录")
-        self.assertEqual(row.query_id, "task_001")
-        self.assertEqual(row.requester_user_name, "测试用户")
+        from finance_analysis.database.models.news import NewsIntelUsage
+
+        with self.db.get_session() as session:
+            usage = session.query(NewsIntelUsage).one()
+            self.assertEqual(usage.query_id, "task_001")
+            self.assertEqual(usage.symbol, "600519")
 
     def test_save_news_intel_without_url_fallback_key(self) -> None:
         """无 URL 时使用兜底键去重"""
@@ -109,20 +103,8 @@ class NewsIntelStorageTestCase(unittest.TestCase):
         )
         response = self._build_response([result])
 
-        saved_first = self.db.save_news_intel(
-            code="600519",
-            name="贵州茅台",
-            dimension="earnings",
-            query=response.query,
-            response=response
-        )
-        saved_second = self.db.save_news_intel(
-            code="600519",
-            name="贵州茅台",
-            dimension="earnings",
-            query=response.query,
-            response=response
-        )
+        saved_first = self.db.save_news_intel(code="600519", usage_type="earnings", response=response)
+        saved_second = self.db.save_news_intel(code="600519", usage_type="earnings", response=response)
 
         self.assertEqual(saved_first, 1)
         self.assertEqual(saved_second, 0)
@@ -145,13 +127,7 @@ class NewsIntelStorageTestCase(unittest.TestCase):
         )
         response = self._build_response([result])
 
-        self.db.save_news_intel(
-            code="600519",
-            name="贵州茅台",
-            dimension="market_analysis",
-            query=response.query,
-            response=response
-        )
+        self.db.save_news_intel(code="600519", usage_type="market_analysis", response=response)
 
         recent_news = self.db.get_recent_news(code="600519", days=7, limit=10)
         self.assertEqual(len(recent_news), 1)

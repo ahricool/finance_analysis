@@ -2,11 +2,12 @@
 """ORM model exports."""
 
 from finance_analysis.database.models.analysis import AnalysisHistory
-from finance_analysis.database.models.calendar import CalendarEntry
+from finance_analysis.database.models.timeline import TimelineEntry
+from finance_analysis.database.models.news_analysis import NewsAnalysis
 from finance_analysis.database.models.conversation import ConversationMessage, LLMUsage
 from finance_analysis.database.models.etf_rotation import ETFMarketRotationSnapshot, ETFMomentumSnapshot
 from finance_analysis.database.models.market_calendar import FinanceEvent
-from finance_analysis.database.models.news import FundamentalSnapshot, NewsIntel
+from finance_analysis.database.models.news import FundamentalSnapshot, NewsIntel, NewsIntelUsage
 from finance_analysis.database.models.quant import (
     DailyFeatureSnapshot,
     EventFeatureDaily,
@@ -34,7 +35,7 @@ from finance_analysis.database.models.watch_list import WatchListItem
 
 __all__ = [
     "AnalysisHistory",
-    "CalendarEntry",
+    "TimelineEntry",
     "ConversationMessage",
     "ETFMomentumSnapshot",
     "ETFMarketRotationSnapshot",
@@ -43,6 +44,8 @@ __all__ = [
     "LLMUsage",
     "Instrument",
     "NewsIntel",
+    "NewsIntelUsage",
+    "NewsAnalysis",
     "Universe",
     "UniverseInclude",
     "UniverseMember",
