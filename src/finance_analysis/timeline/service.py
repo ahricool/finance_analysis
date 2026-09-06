@@ -55,7 +55,7 @@ class TimelineService:
             select(
                 literal("news"),
                 a.id,
-                func.coalesce(n.published_date, n.fetched_at),
+                func.coalesce(n.published_date, a.analyzed_at),
                 literal("news"),
                 literal("US"),
                 a.importance,
@@ -83,20 +83,10 @@ class TimelineService:
         with self.db.get_session() as session:
             feed = self._projection(session, **query)
             count = session.scalar(select(func.count()).select_from(feed))
-            rank = case(
-                (feed.c.importance == "critical", 3),
-                (feed.c.importance == "high", 2),
-                (feed.c.importance == "normal", 1),
-                else_=0,
-            )
-            local_day = self._local_day(session, feed, query["timezone_name"])
             rows = (
                 session.execute(
                     select(feed)
                     .order_by(
-                        local_day.desc(),
-                        rank.desc(),
-                        feed.c.importance_score.desc(),
                         feed.c.event_time.desc(),
                         feed.c.source_type,
                         feed.c.source_id.desc(),

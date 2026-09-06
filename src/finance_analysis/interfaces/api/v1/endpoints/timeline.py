@@ -36,7 +36,7 @@ def timeline_query(
         raise HTTPException(422, "date cannot be combined with start_date or end_date")
     today = datetime.now(ZoneInfo(timezone)).date()
     start = date or start_date or today - timedelta(days=7)
-    end = date or end_date or today + timedelta(days=7)
+    end = date or end_date or today
     if end < start or (end - start).days > 366:
         raise HTTPException(422, "Date range must be ordered and at most 367 days")
     return dict(

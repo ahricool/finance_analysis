@@ -113,7 +113,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
           </p><h1 class="mt-1 text-2xl font-semibold tracking-tight">
             投资时间线
           </h1><p class="mt-2 text-sm text-muted-foreground">
-            今天与未来，值得关注的投资信息。
+            按时间汇总值得关注的投资信息。
           </p>
         </div>
         <Button

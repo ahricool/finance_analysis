@@ -136,3 +136,35 @@ class NewsIntelStorageTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_news_first_seen_stays_fixed_while_usage_refreshes(monkeypatch):
+    from datetime import timedelta, timezone
+    from sqlalchemy import delete, select
+    from uuid import uuid4
+    from finance_analysis.database.models.news import NewsIntelUsage
+
+    db = DatabaseManager.get_instance()
+    first = datetime(2026, 9, 5, tzinfo=timezone.utc)
+    last = first + timedelta(days=1)
+    url = "https://example.com/first-seen/" + uuid4().hex
+    response = SearchResponse(
+        query="test",
+        provider="test",
+        success=True,
+        results=[SearchResult(title="test", snippet="test", url=url, source="test")],
+    )
+    try:
+        monkeypatch.setattr("finance_analysis.database.session.utc_now", lambda: first)
+        assert db.save_news_intel("NVDA", "premarket_news", response) == 1
+        monkeypatch.setattr("finance_analysis.database.session.utc_now", lambda: last)
+        assert db.save_news_intel("NVDA", "premarket_news", response) == 0
+        with db.get_session() as session:
+            fact = session.scalars(select(NewsIntel).where(NewsIntel.url == url)).one()
+            usage = session.scalars(select(NewsIntelUsage).where(NewsIntelUsage.news_intel_id == fact.id)).one()
+            assert fact.fetched_at == first
+            assert usage.observed_at == last
+    finally:
+        db._run_write_transaction(
+            "test.cleanup", lambda session: session.execute(delete(NewsIntel).where(NewsIntel.url == url))
+        )

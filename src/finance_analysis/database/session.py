@@ -30,6 +30,7 @@ from finance_analysis.database.models import (
 from finance_analysis.stocks.markets import normalize_market_type
 from finance_analysis.core.time import date_range_bounds_utc, utc_isoformat, utc_now
 from finance_analysis.database.repositories.conversation import ConversationUsageMixin
+from finance_analysis.database.repositories.news_time import effective_news_time
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -473,9 +474,10 @@ class DatabaseManager(ConversationUsageMixin):
 
     def get_recent_news(self, code: str, days: int = 7, limit: int = 20) -> List[NewsIntel]:
         """
-        获取指定股票最近 N 天的新闻情报
+        获取指定股票最近 N 天的新闻：发布时间优先，缺失时取该股票最近观察时间。
         """
         cutoff_date = utc_now() - timedelta(days=days)
+        news_time = effective_news_time(NewsIntelUsage.symbol == code)
 
         with self.get_session() as session:
             results = (
@@ -484,10 +486,10 @@ class DatabaseManager(ConversationUsageMixin):
                 .where(
                     and_(
                             NewsIntel.id.in_(select(NewsIntelUsage.news_intel_id).where(NewsIntelUsage.symbol == code)),
-                            NewsIntel.fetched_at >= cutoff_date,
+                            news_time >= cutoff_date,
                     )
                 )
-                .order_by(desc(NewsIntel.fetched_at))
+                .order_by(desc(news_time), desc(NewsIntel.id))
                 .limit(limit)
                 )
                 .scalars()
@@ -505,10 +507,8 @@ class DatabaseManager(ConversationUsageMixin):
             limit: 返回数量限制
 
         Returns:
-            NewsIntel 列表（按发布时间或抓取时间倒序）
+            NewsIntel 列表（按发布时间或该 query 最近观察时间倒序）
         """
-        from sqlalchemy import func
-
         with self.get_session() as session:
             results = (
                 session.execute(
@@ -519,7 +519,7 @@ class DatabaseManager(ConversationUsageMixin):
                         )
                     )
                 .order_by(
-                        desc(func.coalesce(NewsIntel.published_date, NewsIntel.fetched_at)), desc(NewsIntel.fetched_at)
+                        desc(effective_news_time(NewsIntelUsage.query_id == query_id)), desc(NewsIntel.id)
                 )
                 .limit(limit)
                 )

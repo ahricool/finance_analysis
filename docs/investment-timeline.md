@@ -89,12 +89,12 @@ NewsIntel 仅保留 `id / title / snippet / url / source / published_date / prov
 时间规则：
 
 - 报告：`finished_at` → `event_time`。
-- 新闻：`published_date`，缺失则 `fetched_at`；重新分析不会把旧新闻刷新到当天。
+- 新闻：`published_date`，缺失则 `news_analysis.analyzed_at`；有发布时间的旧新闻不会因重新观察而刷新到当天。
 - 财经事件：`event_datetime`；仅有日期时，以市场当地午夜作为排序锚点（US: America/New_York；其他现有市场: Asia/Shanghai），详情保留原始 `event_date` 和 `all_day`。
 - TIMESTAMPTZ 保存绝对时间，DTO 的 event_time 统一 UTC。前端按用户的 Asia/Shanghai 或 America/New_York 展示，列表与 Summary 使用同一日期边界。
 - 全天事件显示“全天”，原始市场日期仍在 detail_payload；跨时区归属日按同一个 UTC 锚点计算。
 
-默认查询前后各 7 天，也可以传单日或日期范围（最多 367 天）。排序为展示日期 DESC → importance DESC → importance_score DESC → event_time DESC，再按来源和 ID 稳定排序。因此同日新闻按重要性评分排列。
+默认查询 today − 7 天至 today（按展示时区，包含两端日期）。所有类型按 event_time DESC，再按 source_type ASC、source_id DESC 稳定分页；重要度仅用于展示和筛选。本次不增加 Upcoming UI，未来财经事件仍可通过单日或日期范围查询（最多 367 天）。
 
 CPI/FOMC、非农和利率决议等核心宏观标题映射为 critical/watch；其他财经事件参考已有 importance_score/star，未评分事件为 normal/watch。不引入新的评分系统。
 
@@ -156,8 +156,12 @@ pnpm run test
 pnpm exec playwright test --grep 'investment feed|timeline note|shell remains|root keeps|header dropdown|mobile shell'
 ```
 
-关键覆盖：笔记 CRUD 与用户隔离；三类报告写入；盘中无持久化；新闻实际任务写入、去重和多股票关联；三源聚合、筛选、分页、新闻重要度排序、Summary；UTC 与美东/北京跨日及全天事件；API 校验和旧路由移除；桌面/移动端 Feed、详情、筛选与笔记操作。
+关键覆盖：笔记 CRUD 与用户隔离；三类报告写入；盘中无持久化；新闻实际任务写入、去重和多股票关联；三源聚合、筛选、分页、新闻时间排序、Summary；UTC 与美东/北京跨日及全天事件；API 校验和旧路由移除；桌面/移动端 Feed、详情、筛选与笔记操作。
 
 发现的既有架构问题：TaskRecord 实际表名为 task；部分服务原本返回 None 导致 record_result 无内容（已修复）；news_intel 混入单一业务上下文（已拆分）；美股盘中新闻抓取隐含数据库写入（已改只读）；历史 baseline 动态读取当前 ORM 的新库 bootstrap 问题仍属于既有迁移链，未修改历史迁移。数据库连接原先在隐式事务内 SET UTC，池回滚会恢复服务器时区（已改为 autocommit 初始化，并验证回滚后仍为 UTC）。LLM 统计测试还使用无时区本地时间，验证时统一以 UTC 运行。
 
-最终验证结果：后端 CI gate（语法、critical flake8、路径测试及离线 pytest）通过；离线 pytest 为 **1908 passed、16 skipped、2 deselected、104 subtests passed**。前端 build/typecheck 通过；ESLint **0 errors**（保留现有风格及安全提示 warnings）；Vitest **378 passed**；相关 Playwright **6 passed**。运行时代码全局检索无旧 Calendar ORM/Repo/persistence/API 残留；历史迁移测试中的旧表 fixture 和 TaskRecord 的 scheduled_* 标识按职责保留。
+最终验证结果：后端 CI gate（语法、critical flake8、路径测试及离线 pytest）通过；离线 pytest 为 **1919 passed、16 skipped、2 deselected、104 subtests passed**。前端 build/typecheck 通过；ESLint **0 errors**（保留现有风格及安全提示 warnings）；Vitest **379 passed**；原 PR 相关 Playwright **6 passed**（本轮仅修改页面文案，未重复运行）。运行时代码全局检索无旧 Calendar ORM/Repo/persistence/API 残留；历史迁移测试中的旧表 fixture 和 TaskRecord 的 scheduled_* 标识按职责保留。
+
+新闻时间约定：`fetched_at` 是 URL 首次入库时间；`observed_at` 是 usage 唯一键最近观察时间。最近新闻和历史上下文排序优先使用发布时间，缺失时使用相关 symbol/query/usage_type 的最近观察时间。已发布的过期新闻不会因重复观察重新进入新鲜度窗口。
+
+本轮 review 仅修正新闻时间、Feed 默认范围/时间排序，并 rebase 至 main `a20ce9b`。保留报告 create/幂等行为以及两处复盘 JOIN 的重复结果；未修改策略、通知或 LLM prompts。新增回归覆盖 first seen/观察时间、旧新闻不复活、相关 usage 隔离、分析时间 fallback、默认日期范围及跨页顺序。

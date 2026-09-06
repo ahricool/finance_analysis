@@ -17,6 +17,7 @@ class NewsIntel(Base):
     source = Column(String(100))
     published_date = Column(DateTime(timezone=True), index=True)
     provider = Column(String(32), index=True)
+    # First insertion of this URL, never updated by repeated observations.
     fetched_at = Column(DateTime(timezone=True), default=utc_now, index=True)
     __table_args__ = (UniqueConstraint("url", name="uix_news_url"),)
 
@@ -31,6 +32,7 @@ class NewsIntelUsage(Base):
     query_id = Column(String(64), nullable=False, default="", index=True)
     symbol = Column(String(32), nullable=False, index=True)
     uid = Column(Integer, index=True)
+    # Latest observation for this usage key; refreshed on conflict.
     observed_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     __table_args__ = (UniqueConstraint("news_intel_id", "usage_type", "query_id", "symbol", name="uq_news_usage"),)
 

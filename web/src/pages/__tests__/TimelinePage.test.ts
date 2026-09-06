@@ -39,4 +39,19 @@ describe('Investment Timeline feed', () => {
     expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ market: 'US', category: 'news', importance: 'critical', actionability: 'watch', page: 1 }));
     wrapper.unmount();
   });
+  it('appends older pages in API order without prioritizing importance', async () => {
+    const older = { ...item, id: 'news:2', sourceId: 2, title: '较早的重要新闻', eventTime: '2026-09-06T07:00:00Z' };
+    vi.mocked(timelineApi.list)
+      .mockResolvedValueOnce({ items: [{ ...item, importance: 'normal' }], total: 2, page: 1, limit: 20 })
+      .mockResolvedValueOnce({ items: [older], total: 2, page: 2, limit: 20 });
+    const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.findAll('button').find(button => button.text() === '加载更多')!.trigger('click');
+    await flushPromises();
+    expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }));
+    expect(wrapper.findAll('[data-testid="timeline-item"]').map(row => row.text()))
+      .toEqual([expect.stringContaining(item.title), expect.stringContaining(older.title)]);
+    wrapper.unmount();
+  });
+
 });

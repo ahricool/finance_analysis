@@ -315,7 +315,7 @@ class ASharePreCloseReviewService:
         if not code_to_key:
             return []
         try:
-            from sqlalchemy import desc, select
+            from sqlalchemy import desc, func, select
 
             from finance_analysis.database import DatabaseManager
             from finance_analysis.database.models import NewsIntel, NewsIntelUsage
@@ -326,9 +326,10 @@ class ASharePreCloseReviewService:
                     .join(NewsIntelUsage, NewsIntelUsage.news_intel_id == NewsIntel.id)
                         .where(
                         NewsIntelUsage.symbol.in_(list(code_to_key)),
-                            NewsIntel.fetched_at >= utc_now() - timedelta(days=7),
+                            func.coalesce(NewsIntel.published_date, NewsIntelUsage.observed_at)
+                            >= utc_now() - timedelta(days=7),
                         )
-                        .order_by(desc(NewsIntel.published_date))
+                        .order_by(desc(func.coalesce(NewsIntel.published_date, NewsIntelUsage.observed_at)))
                         .limit(30)
                 ).all()
             return [

@@ -8,13 +8,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import desc, func, select
 
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
 from finance_analysis.integrations.market_data.providers.longbridge.news import (
     LongbridgeNewsFetcher,
     LongbridgeNewsRecord,
 )
+from finance_analysis.database.repositories.news_time import effective_news_time
 from finance_analysis.database.repositories.universe import UniverseResolver
 from finance_analysis.database.models import NewsIntel, NewsIntelUsage
 from finance_analysis.database import DatabaseManager, ensure_aware_datetime
@@ -173,6 +174,7 @@ class USPremarketNewsService:
         url_symbols: Dict[str, List[str]],
     ) -> List[NewsCandidate]:
         start_utc, end_utc = premarket_news_window(run_time)
+        news_time = effective_news_time(NewsIntelUsage.usage_type == PREMARKET_NEWS_USAGE)
         with self.db.get_session() as session:
             stmt = (
                 select(NewsIntel)
@@ -180,19 +182,10 @@ class USPremarketNewsService:
                     NewsIntel.id.in_(
                         select(NewsIntelUsage.news_intel_id).where(NewsIntelUsage.usage_type == PREMARKET_NEWS_USAGE)
                     ),
-                    or_(
-                        and_(
-                            NewsIntel.published_date >= start_utc,
-                            NewsIntel.published_date <= end_utc,
-                        ),
-                        and_(
-                            NewsIntel.published_date.is_(None),
-                            NewsIntel.fetched_at >= start_utc,
-                            NewsIntel.fetched_at <= end_utc,
-                        ),
-                    ),
+                    news_time >= start_utc,
+                    news_time <= end_utc,
                 )
-                .order_by(desc(NewsIntel.published_date), desc(NewsIntel.fetched_at))
+                .order_by(desc(news_time), desc(NewsIntel.id))
                 .limit(MAX_LLM_CANDIDATES)
             )
             rows = session.execute(stmt).scalars().all()

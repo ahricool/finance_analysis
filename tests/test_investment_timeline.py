@@ -381,3 +381,147 @@ def test_news_job_persists_each_selected_fact_analysis_only(db, monkeypatch):
         assert analysis.related_symbols == ["NVDA", "AMD"]
         assert analysis.impact_score == 3
         assert session.scalar(select(func.count()).select_from(TimelineEntry)) == 0
+
+
+@pytest.mark.parametrize(
+    "published_days,observed_days,expected", [(0, 0, True), (None, 0, True), (30, 0, False), (None, 8, False)]
+)
+def test_recent_news_publication_first_and_relevant_observation(
+    db, monkeypatch, published_days, observed_days, expected
+):
+    from datetime import timedelta
+
+    monkeypatch.setattr("finance_analysis.database.session.utc_now", lambda: NOW)
+
+    def seed(session):
+        news = NewsIntel(
+            title="time",
+            url="https://example.com/time",
+            fetched_at=NOW - timedelta(days=8),
+            published_date=None if published_days is None else NOW - timedelta(days=published_days),
+        )
+        session.add(news)
+        session.flush()
+        session.add_all(
+            [
+                NewsIntelUsage(
+                    news_intel_id=news.id,
+                    symbol="NVDA",
+                    usage_type="premarket_news",
+                    query_id="q",
+                    observed_at=NOW - timedelta(days=observed_days),
+                ),
+                NewsIntelUsage(
+                    news_intel_id=news.id, symbol="AMD", usage_type="intraday_news", query_id="other", observed_at=NOW
+                ),
+            ]
+        )
+
+    db._run_write_transaction("seed", seed)
+    assert bool(DatabaseManager.get_recent_news(db, "NVDA", days=1)) is expected
+
+
+@pytest.mark.parametrize("published", [True, False])
+def test_timeline_news_publication_or_analysis_time(db, published):
+    from datetime import timedelta
+
+    seed_news(db)
+    with db.get_session() as session, session.begin():
+        fact = session.scalars(select(NewsIntel)).one()
+        fact.fetched_at = NOW - timedelta(days=8)
+        fact.published_date = NOW - timedelta(hours=1) if published else None
+    item = TimelineService(db).list(**QUERY, category="news")["items"][0]
+    assert item.event_time == (NOW - timedelta(hours=1) if published else NOW)
+
+
+def test_feed_chronology_overrides_importance_and_pagination_is_stable(db):
+    from datetime import timedelta
+
+    report(db, event_time=NOW - timedelta(hours=1), importance="critical", title="older critical")
+    report(db, event_time=NOW, importance="normal", title="newer normal")
+    report(db, event_time=NOW, importance="low", title="newer low")
+    service = TimelineService(db)
+    items = service.list(**QUERY)["items"]
+    assert [item.title for item in items] == ["newer low", "newer normal", "older critical"]
+    pages = [service.list(**QUERY, page=page, limit=1)["items"][0].id for page in range(1, 4)]
+    assert pages == [item.id for item in items]
+
+
+def test_api_default_range_excludes_future_and_summary_agrees(db, monkeypatch):
+    from datetime import timedelta
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from finance_analysis.interfaces.api.v1.endpoints import timeline
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW.astimezone(tz)
+
+    monkeypatch.setattr(timeline, "datetime", FixedDatetime)
+    monkeypatch.setattr(timeline, "get_effective_uid", lambda request: 7)
+    monkeypatch.setattr(timeline, "TimelineService", lambda: TimelineService(db))
+    report(db, title="today")
+    report(db, title="future", event_time=NOW + timedelta(days=1))
+    report(db, title="outside", event_time=NOW - timedelta(days=8))
+    app = FastAPI()
+    app.include_router(timeline.router, prefix="/timeline")
+    client = TestClient(app)
+    items = client.get("/timeline").json()["items"]
+    assert [item["title"] for item in items] == ["today"]
+    assert sum(day["total"] for day in client.get("/timeline/summary").json()) == 1
+    assert client.get("/timeline?date=2026-09-07").json()["items"][0]["title"] == "future"
+
+
+def test_premarket_freshness_and_history_use_only_relevant_usage(db):
+    from datetime import timedelta
+    from finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service import USPremarketNewsService
+
+    def seed(session):
+        for title, published, observed in [
+            ("published today", NOW, NOW),
+            ("unpublished observed today", None, NOW),
+            ("old publication", NOW - timedelta(days=30), NOW),
+            ("unrelated observation", None, NOW - timedelta(days=8)),
+        ]:
+            fact = NewsIntel(
+                title=title,
+                url="https://example.com/" + title,
+                published_date=published,
+                fetched_at=NOW - timedelta(days=8),
+            )
+            session.add(fact)
+            session.flush()
+            session.add_all(
+                [
+                    NewsIntelUsage(
+                        news_intel_id=fact.id,
+                        symbol="NVDA",
+                        query_id="q",
+                        usage_type="premarket_news",
+                        observed_at=observed,
+                    ),
+                    NewsIntelUsage(
+                        news_intel_id=fact.id,
+                        symbol="AMD",
+                        query_id="other",
+                        usage_type="intraday_news",
+                        observed_at=NOW + timedelta(hours=1),
+                    ),
+                ]
+            )
+
+    db._run_write_transaction("seed", seed)
+    service = USPremarketNewsService.__new__(USPremarketNewsService)
+    service.db = db
+    assert {item.title for item in service._load_candidate_news(NOW, {})} == {
+        "published today",
+        "unpublished observed today",
+    }
+    history = DatabaseManager.get_news_intel_by_query_id(db, "q")
+    assert [item.title for item in history] == [
+        "unpublished observed today",
+        "published today",
+        "unrelated observation",
+        "old publication",
+    ]

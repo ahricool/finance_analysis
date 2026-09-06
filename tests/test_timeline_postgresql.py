@@ -135,3 +135,49 @@ def test_connection_keeps_utc_after_pool_rollback():
         assert connection.execute(text("SHOW timezone")).scalar_one() == "UTC"
         connection.rollback()
         assert connection.execute(text("SHOW timezone")).scalar_one() == "UTC"
+
+
+def test_postgresql_news_freshness_and_feed_chronology(monkeypatch):
+    from datetime import timedelta
+
+    db = DatabaseManager.get_instance()
+    now = datetime(2099, 9, 6, 8, tzinfo=timezone.utc)
+    key = "news-time-" + uuid4().hex[:16]
+    monkeypatch.setattr("finance_analysis.database.session.utc_now", lambda: now)
+
+    def seed(session):
+        for index, published in enumerate([now, None, now - timedelta(days=30)]):
+            fact = NewsIntel(
+                title=str(index), url=f"{key}/{index}", published_date=published, fetched_at=now - timedelta(days=8)
+            )
+            session.add(fact)
+            session.flush()
+            session.add(NewsIntelUsage(news_intel_id=fact.id, usage_type="premarket_news", symbol=key, observed_at=now))
+            session.add(
+                NewsAnalysis(
+                    news_intel_id=fact.id,
+                    analysis_type="premarket",
+                    prompt_version="test",
+                    analyzed_at=now + timedelta(hours=index),
+                    importance="critical" if index == 0 else "normal",
+                    importance_score=10 - index,
+                    actionability="watch",
+                )
+            )
+
+    db._run_write_transaction("test.seed", seed)
+    try:
+        assert {item.title for item in db.get_recent_news(key, days=1)} == {"0", "1"}
+        query = dict(uid=987654321, start_date=now.date(), end_date=now.date(), timezone_name="Asia/Shanghai", category="news")
+        service = TimelineService(db)
+        items = service.list(**query)["items"]
+        assert [item.title for item in items] == ["1", "0"]
+        assert [item.event_time for item in items] == [now + timedelta(hours=1), now]
+        assert [service.list(**query, page=page, limit=1)["items"][0].id for page in (1, 2)] == [
+            item.id for item in items
+        ]
+        assert service.summary(**query)[0].total == 2
+    finally:
+        db._run_write_transaction(
+            "test.cleanup", lambda session: session.execute(delete(NewsIntel).where(NewsIntel.url.like(key + "/%")))
+        )

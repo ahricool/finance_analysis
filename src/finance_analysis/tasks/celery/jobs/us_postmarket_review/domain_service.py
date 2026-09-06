@@ -8,7 +8,7 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, func, select
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database import DatabaseManager, ensure_aware_datetime
@@ -360,12 +360,9 @@ class USPostmarketReviewService:
                     .join(NewsIntelUsage, NewsIntelUsage.news_intel_id == NewsIntel.id)
                     .where(
                         NewsIntelUsage.symbol.in_(codes),
-                        or_(
-                            NewsIntel.published_date >= start_utc,
-                            NewsIntel.fetched_at >= start_utc,
-                        ),
+                        func.coalesce(NewsIntel.published_date, NewsIntelUsage.observed_at) >= start_utc,
                     )
-                    .order_by(desc(NewsIntel.published_date), desc(NewsIntel.fetched_at))
+                    .order_by(desc(func.coalesce(NewsIntel.published_date, NewsIntelUsage.observed_at)))
                     .limit(_NEWS_LIMIT)
                 )
                 rows = session.execute(stmt).all()
