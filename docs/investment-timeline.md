@@ -100,7 +100,7 @@ CPI/FOMC、非农和利率决议等核心宏观标题映射为 critical/watch；
 
 ## API
 
-- `GET /api/v1/timeline`：date 或 start_date/end_date，market，category，importance，actionability，page，limit，timezone。
+- `GET /api/v1/timeline`：date 或 start_date/end_date，market，category，importance，actionability，cursor，limit，timezone。
 - `GET /api/v1/timeline/summary`：相同筛选与日期条件，返回每日 total、critical、high、event_count、news_count、analysis_count、note_count。
 - `POST /api/v1/timeline/notes`。
 - `PUT /api/v1/timeline/notes/{id}`。
@@ -127,7 +127,7 @@ CPI/FOMC、非农和利率决议等核心宏观标题映射为 critical/watch；
 
 ## 前端 Feed
 
-`/timeline` 为类似 X 的单列 Feed：连续条目、细分隔线、日期分组、紧凑的类型/市场/时间/标题/短摘要/重要度/行动等级/标的/影响方向。顶部市场与类型、重要度、行动筛选独立组合。分页通过“加载更多”。没有日历网格和按表拆分的分类 Card。
+`/timeline` 为类似 X 的单列 Feed：连续条目、细分隔线、日期分组、紧凑的类型/市场/时间/标题/短摘要/重要度/行动等级/标的/影响方向。顶部市场与类型、重要度、行动筛选独立组合。分页通过“加载更多”，传递后端返回的 opaque cursor。没有日历网格和按表拆分的分类 Card。
 
 每条 Top 新闻独立呈现；详情显示原文链接、来源、发布时间、两阶段分析理由、评分、置信度、观察点与风险。报告完整 Markdown 只在详情中展示，使用既有 DOMPurify 渲染工具。笔记支持创建、编辑和删除。
 
@@ -160,8 +160,14 @@ pnpm exec playwright test --grep 'investment feed|timeline note|shell remains|ro
 
 发现的既有架构问题：TaskRecord 实际表名为 task；部分服务原本返回 None 导致 record_result 无内容（已修复）；news_intel 混入单一业务上下文（已拆分）；美股盘中新闻抓取隐含数据库写入（已改只读）；历史 baseline 动态读取当前 ORM 的新库 bootstrap 问题仍属于既有迁移链，未修改历史迁移。数据库连接原先在隐式事务内 SET UTC，池回滚会恢复服务器时区（已改为 autocommit 初始化，并验证回滚后仍为 UTC）。LLM 统计测试还使用无时区本地时间，验证时统一以 UTC 运行。
 
-最终验证结果：后端 CI gate（语法、critical flake8、路径测试及离线 pytest）通过；离线 pytest 为 **1919 passed、16 skipped、2 deselected、104 subtests passed**。前端 build/typecheck 通过；ESLint **0 errors**（保留现有风格及安全提示 warnings）；Vitest **379 passed**；原 PR 相关 Playwright **6 passed**（本轮仅修改页面文案，未重复运行）。运行时代码全局检索无旧 Calendar ORM/Repo/persistence/API 残留；历史迁移测试中的旧表 fixture 和 TaskRecord 的 scheduled_* 标识按职责保留。
+最终验证结果：后端 CI gate（语法、critical flake8、路径测试及离线 pytest）通过；离线 pytest 为 **1936 passed、16 skipped、2 deselected、104 subtests passed**。前端 build/typecheck 通过；ESLint **0 errors**（保留现有风格及安全提示 warnings）；Vitest **387 passed**；本轮 Timeline Playwright **2 passed**。运行时代码全局检索无旧 Calendar ORM/Repo/persistence/API 残留；历史迁移测试中的旧表 fixture 和 TaskRecord 的 scheduled_* 标识按职责保留。
 
 新闻时间约定：`fetched_at` 是 URL 首次入库时间；`observed_at` 是 usage 唯一键最近观察时间。最近新闻和历史上下文排序优先使用发布时间，缺失时使用相关 symbol/query/usage_type 的最近观察时间。已发布的过期新闻不会因重复观察重新进入新鲜度窗口。
 
-本轮 review 仅修正新闻时间、Feed 默认范围/时间排序，并 rebase 至 main `a20ce9b`。保留报告 create/幂等行为以及两处复盘 JOIN 的重复结果；未修改策略、通知或 LLM prompts。新增回归覆盖 first seen/观察时间、旧新闻不复活、相关 usage 隔离、分析时间 fallback、默认日期范围及跨页顺序。
+此前已修正新闻时间、Feed 默认范围/时间排序，并 rebase 至 main `a20ce9b`。保留报告 create/幂等行为以及两处复盘 JOIN 的重复结果；未修改策略、通知或 LLM prompts。新增回归覆盖 first seen/观察时间、旧新闻不复活、相关 usage 隔离、分析时间 fallback、默认日期范围及跨页顺序。
+
+Timeline Feed 使用无状态 keyset 分页，不再使用 OFFSET。响应为 `items / total / limit / next_cursor / has_more`；total 保留原范围 COUNT，仅用于展示。Cursor 为 `event_time / source_type / source_id` 的 JSON → base64url token，校验格式、带时区时间、来源和正整数 ID；非法 token 返回 422。
+
+排序保持 `event_time DESC, source_type ASC, source_id DESC`。后续查询使用严格 seek：时间更早，或同时间且来源更大，或同时间同来源且 ID 更小。取 limit + 1 判断 has_more，有下一批时从本批最后一条生成 cursor，否则返回 null。顶部插入不会推动已加载位置，同时间戳由完整排序键区分。前端在全部筛选或展示时区变化时清空 items/cursor，保留 loading/requestId 防重复和过期响应保护。Summary、Note CRUD 和其他 review 问题不变。
+
+Cursor 回归测试覆盖：普通连续读取、顶部插入后继续、删除已读边界记录后继续、同时间戳跨来源/ID、微秒精度、非法 token 422、末批与空批、前端追加与所有筛选重置、双击/过期响应保护。PostgreSQL 执行语句验证无 OFFSET；本轮仅改分页，不改变报告幂等、复盘 JOIN、发布时间补全、当天未来事件或业务数据库结构。

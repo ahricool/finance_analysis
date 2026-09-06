@@ -12,6 +12,7 @@ from finance_analysis.database.models.timeline import TimelineEntry
 from finance_analysis.database.repositories.timeline import TimelineEntryRepo
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.timeline.service import TimelineService
+from finance_analysis.timeline.cursor import TimelineCursor
 
 
 def test_migrated_postgres_schema_has_no_calendar_or_news_context():
@@ -173,11 +174,72 @@ def test_postgresql_news_freshness_and_feed_chronology(monkeypatch):
         items = service.list(**query)["items"]
         assert [item.title for item in items] == ["1", "0"]
         assert [item.event_time for item in items] == [now + timedelta(hours=1), now]
-        assert [service.list(**query, page=page, limit=1)["items"][0].id for page in (1, 2)] == [
-            item.id for item in items
-        ]
+        first = service.list(**query, limit=1)
+        second = service.list(**query, cursor=TimelineCursor.decode(first["next_cursor"]), limit=1)
+        assert [first["items"][0].id, second["items"][0].id] == [item.id for item in items]
+        assert second["has_more"] is False
+        assert second["next_cursor"] is None
         assert service.summary(**query)[0].total == 2
     finally:
         db._run_write_transaction(
             "test.cleanup", lambda session: session.execute(delete(NewsIntel).where(NewsIntel.url.like(key + "/%")))
+        )
+
+
+def test_postgresql_cursor_survives_top_insert_and_deleted_anchor():
+    from datetime import timedelta
+    from sqlalchemy import event
+
+    db = DatabaseManager.get_instance()
+    uid = 987654322
+    now = datetime(2099, 9, 6, 8, 0, 0, 123456, tzinfo=timezone.utc)
+    repo = TimelineEntryRepo(db)
+    ids = []
+    statements = []
+
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(db._engine, "before_cursor_execute", capture)
+    try:
+        for title in "DCBA":
+            row = repo.create(
+                uid=uid,
+                entry_type="manual_note",
+                event_time=now,
+                title=title,
+                summary="test",
+                content="test",
+                importance="normal",
+                actionability="none",
+            )
+            ids.append(row.id)
+        query = dict(
+            uid=uid, start_date=now.date(), end_date=now.date(), timezone_name="Asia/Shanghai", category="note"
+        )
+        service = TimelineService(db)
+        first = service.list(**query, limit=2)
+        assert [item.title for item in first["items"]] == ["A", "B"]
+        ids.append(
+            repo.create(
+                uid=uid,
+                entry_type="manual_note",
+                event_time=now + timedelta(seconds=1),
+                title="X",
+                summary="test",
+                content="test",
+                importance="normal",
+                actionability="none",
+            ).id
+        )
+        repo.delete_note(first["items"][-1].source_id, uid=uid)
+        second = service.list(**query, cursor=TimelineCursor.decode(first["next_cursor"]), limit=2)
+        assert [item.title for item in second["items"]] == ["C", "D"]
+        assert second["next_cursor"] is None
+        assert second["has_more"] is False
+        assert all("OFFSET" not in statement.upper() for statement in statements)
+    finally:
+        event.remove(db._engine, "before_cursor_execute", capture)
+        db._run_write_transaction(
+            "test.cleanup", lambda session: session.execute(delete(TimelineEntry).where(TimelineEntry.id.in_(ids)))
         )

@@ -34,7 +34,8 @@ class TimelineItem(BaseModel):
 class TimelineList(BaseModel):
     items: list[TimelineItem]
     total: int
-    page: int
+    next_cursor: str | None
+    has_more: bool
     limit: int
 
 

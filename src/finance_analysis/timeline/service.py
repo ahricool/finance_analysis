@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from sqlalchemy import DateTime, case, cast, func, literal, select, union_all
+from sqlalchemy import DateTime, and_, case, cast, func, literal, or_, select, union_all
 
 from finance_analysis.core.time import coerce_aware_utc, date_range_bounds_utc
 from finance_analysis.database.models.market_calendar import FinanceEvent
@@ -10,6 +10,7 @@ from finance_analysis.database.models.news import NewsIntel
 from finance_analysis.database.models.news_analysis import NewsAnalysis
 from finance_analysis.database.models.timeline import TimelineEntry
 from finance_analysis.database.session import DatabaseManager
+from finance_analysis.timeline.cursor import TimelineCursor
 from finance_analysis.timeline.dto import TimelineItem, TimelineSummaryItem
 
 
@@ -79,27 +80,46 @@ class TimelineService:
                 stmt = stmt.where(projection.c[key] == filters[key])
         return stmt.subquery()
 
-    def list(self, *, page=1, limit=20, **query):
+    def list(self, *, cursor: TimelineCursor | None = None, limit=20, **query):
         with self.db.get_session() as session:
             feed = self._projection(session, **query)
             count = session.scalar(select(func.count()).select_from(feed))
+            stmt = select(feed)
+            if cursor is not None:
+                stmt = stmt.where(
+                    or_(
+                        feed.c.event_time < cursor.event_time,
+                        and_(feed.c.event_time == cursor.event_time, feed.c.source_type > cursor.source_type),
+                        and_(
+                            feed.c.event_time == cursor.event_time,
+                            feed.c.source_type == cursor.source_type,
+                            feed.c.source_id < cursor.source_id,
+                        ),
+                    )
+                )
             rows = (
                 session.execute(
-                    select(feed)
-                    .order_by(
+                    stmt.order_by(
                         feed.c.event_time.desc(),
                         feed.c.source_type,
                         feed.c.source_id.desc(),
                     )
-                    .offset((page - 1) * limit)
-                    .limit(limit)
+                    .limit(limit + 1)
                 )
                 .mappings()
                 .all()
             )
+            has_more = len(rows) > limit
+            rows = rows[:limit]
+            next_cursor = None
+            if has_more:
+                last = rows[-1]
+                next_cursor = TimelineCursor(
+                    coerce_aware_utc(last["event_time"]), last["source_type"], last["source_id"]
+                ).encode()
             entries = self._load_details(session, rows)
             items = [self._detail(entries, row) for row in rows if (row["source_type"], row["source_id"]) in entries]
-            return dict(items=items, total=count, page=page, limit=limit)
+            return dict(items=items, total=count, limit=limit, next_cursor=next_cursor, has_more=has_more)
 
     @staticmethod
     def _local_day(session, feed, timezone_name):

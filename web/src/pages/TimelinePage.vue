@@ -24,7 +24,8 @@ const date = ref('');
 const items = ref<TimelineItem[]>([]);
 const summaries = ref<TimelineSummary[]>([]);
 const total = ref(0);
-const page = ref(1);
+const nextCursor = ref<string | null>(null);
+const hasMore = ref(false);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const detail = ref<TimelineItem | null>(null);
@@ -43,21 +44,28 @@ const query = computed<TimelineQuery>(() => ({ ...(date.value ? { date: date.val
 const todaySummary = computed(() => summaries.value.find(item => item.date === getTodayInDisplayTimezone()));
 let requestId = 0;
 async function load(append = false) {
+  if (append && (loading.value || !hasMore.value || !nextCursor.value)) return;
+  const cursor = append ? nextCursor.value! : undefined;
+  if (!append) {
+    items.value = [];
+    nextCursor.value = null;
+    hasMore.value = false;
+  }
   const id = ++requestId;
   loading.value = true;
   error.value = null;
-  const requestedPage = append ? page.value + 1 : 1;
   try {
-    const [response, summary] = await Promise.all([timelineApi.list({ ...query.value, page: requestedPage, limit: 20 }), timelineApi.summary(query.value)]);
+    const [response, summary] = await Promise.all([timelineApi.list({ ...query.value, cursor, limit: 20 }), timelineApi.summary(query.value)]);
     if (id !== requestId) return;
     items.value = append ? [...items.value, ...response.items] : response.items;
     total.value = response.total;
     summaries.value = summary;
-    page.value = requestedPage;
+    nextCursor.value = response.nextCursor;
+    hasMore.value = response.hasMore;
   } catch (err) { if (id === requestId) error.value = getParsedApiError(err); }
   finally { if (id === requestId) loading.value = false; }
 }
-watch([query, displayTimezone], () => { items.value = []; void load(); }, { immediate: true });
+watch([query, displayTimezone], () => { void load(); }, { immediate: true });
 function dayOf(item: TimelineItem) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: displayTimezone.value, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(item.eventTime));
 }
@@ -282,7 +290,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
       </article>
     </template>
     <div
-      v-if="items.length < total"
+      v-if="hasMore"
       class="p-5 text-center"
     >
       <LoadingButton

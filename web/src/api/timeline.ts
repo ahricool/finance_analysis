@@ -15,7 +15,7 @@ export interface TimelineItem {
 export interface TimelineQuery {
   date?: string; start_date?: string; end_date?: string;
   market?: string; category?: Category; importance?: Importance; actionability?: Actionability;
-  page?: number; limit?: number;
+  cursor?: string; limit?: number;
 }
 export interface TimelineSummary {
   date: string; total: number; critical: number; high: number;
@@ -28,7 +28,7 @@ export interface NoteInput {
 export const timelineApi = {
   async list(query: TimelineQuery) {
     const { data } = await apiClient.get('/api/v1/timeline', { params: { ...query, timezone: getDisplayTimezone() } });
-    return toCamelCase<{ items: TimelineItem[]; total: number; page: number; limit: number }>(data);
+    return toCamelCase<{ items: TimelineItem[]; total: number; nextCursor: string | null; hasMore: boolean; limit: number }>(data);
   },
   async summary(query: TimelineQuery) {
     const { data } = await apiClient.get('/api/v1/timeline/summary', { params: { ...query, timezone: getDisplayTimezone() } });

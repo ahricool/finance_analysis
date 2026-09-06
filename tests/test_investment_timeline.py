@@ -19,6 +19,7 @@ from finance_analysis.database.repositories.news_analysis import NewsAnalysisRep
 from finance_analysis.database.repositories.timeline import TimelineEntryRepo
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.timeline.service import TimelineService
+from finance_analysis.timeline.cursor import TimelineCursor
 
 NOW = datetime(2026, 9, 6, 8, tzinfo=timezone.utc)
 QUERY = dict(uid=7, start_date=date(2026, 9, 6), end_date=date(2026, 9, 6), timezone_name="Asia/Shanghai")
@@ -176,7 +177,9 @@ def test_three_sources_filters_sort_pagination_and_summary(db):
     assert news[1].event_time == NOW
     assert service.list(**QUERY, market="CN")["total"] == 1
     assert service.list(**QUERY, importance="high", actionability="consider")["total"] == 1
-    assert service.list(**QUERY, page=2, limit=2)["items"][0].id == result["items"][2].id
+    first = service.list(**QUERY, limit=2)
+    second = service.list(**QUERY, cursor=TimelineCursor.decode(first["next_cursor"]), limit=2)
+    assert second["items"][0].id == result["items"][2].id
     summary = service.summary(**QUERY)[0]
     assert summary.model_dump() == dict(
         date="2026-09-06", total=5, critical=3, high=1, event_count=1, news_count=2, analysis_count=1, note_count=1
@@ -240,7 +243,7 @@ def test_api_filters_summary_note_crud_and_validation(db, monkeypatch):
         {"category": "a_share"},
         {"date": "2026-09-06", "start_date": "2026-09-01"},
         {"start_date": "2026-09-06", "end_date": "2026-09-05"},
-        {"page": 0},
+        {"cursor": "abc"},
         {"importance": "bad"},
     ):
         assert client.get(path, params=params).status_code == 422
@@ -443,8 +446,16 @@ def test_feed_chronology_overrides_importance_and_pagination_is_stable(db):
     service = TimelineService(db)
     items = service.list(**QUERY)["items"]
     assert [item.title for item in items] == ["newer low", "newer normal", "older critical"]
-    pages = [service.list(**QUERY, page=page, limit=1)["items"][0].id for page in range(1, 4)]
-    assert pages == [item.id for item in items]
+    loaded = []
+    cursor = None
+    while True:
+        result = service.list(**QUERY, cursor=cursor, limit=1)
+        loaded.extend(item.id for item in result["items"])
+        if not result["has_more"]:
+            assert result["next_cursor"] is None
+            break
+        cursor = TimelineCursor.decode(result["next_cursor"])
+    assert loaded == [item.id for item in items]
 
 
 def test_api_default_range_excludes_future_and_summary_agrees(db, monkeypatch):
@@ -525,3 +536,130 @@ def test_premarket_freshness_and_history_use_only_relevant_usage(db):
         "unrelated observation",
         "old publication",
     ]
+
+
+@pytest.mark.parametrize("mutation", ["none", "insert", "delete"])
+def test_cursor_continues_after_loaded_position_despite_feed_changes(db, mutation):
+    from datetime import timedelta
+    from sqlalchemy import delete
+
+    for index, title in enumerate("ABCD"):
+        report(db, title=title, event_time=NOW - timedelta(hours=index))
+    service = TimelineService(db)
+    first = service.list(**QUERY, limit=2)
+    assert [item.title for item in first["items"]] == ["A", "B"]
+    assert first["has_more"] is True
+    if mutation == "insert":
+        report(db, title="X", event_time=NOW + timedelta(minutes=5))
+    elif mutation == "delete":
+        db._run_write_transaction(
+            "delete", lambda session: session.execute(delete(TimelineEntry).where(TimelineEntry.title.in_(["A", "B"])))
+        )
+    second = service.list(**QUERY, limit=2, cursor=TimelineCursor.decode(first["next_cursor"]))
+    assert [item.title for item in second["items"]] == ["C", "D"]
+    assert second["has_more"] is False
+    assert second["next_cursor"] is None
+    assert second["total"] == {"none": 4, "insert": 5, "delete": 2}[mutation]
+
+
+def test_cursor_ties_across_all_sources(db):
+    report(db)
+    report(db, entry_type="manual_note")
+    seed_news(db)
+    seed_news(db, url="https://example.com/second")
+    db._run_write_transaction(
+        "seed",
+        lambda session: session.add(
+            FinanceEvent(
+                provider="test",
+                event_key="ties",
+                calendar_type="macro",
+                market="US",
+                event_date=NOW.date(),
+                event_datetime=NOW,
+                title="CPI",
+                content="test",
+            )
+        ),
+    )
+    service = TimelineService(db)
+    expected = service.list(**QUERY)["items"]
+    assert [item.source_type for item in expected] == ["finance_event", "news", "news", "note", "report"]
+    assert expected[1].source_id > expected[2].source_id
+    loaded = []
+    cursor = None
+    while True:
+        batch = service.list(**QUERY, cursor=cursor, limit=1)
+        loaded.extend(item.id for item in batch["items"])
+        if not batch["has_more"]:
+            assert batch["next_cursor"] is None
+            break
+        cursor = TimelineCursor.decode(batch["next_cursor"])
+    assert loaded == [item.id for item in expected]
+    last = expected[-1]
+    empty = service.list(**QUERY, cursor=TimelineCursor(last.event_time, last.source_type, last.source_id))
+    assert empty["items"] == []
+    assert empty["has_more"] is False
+    assert empty["next_cursor"] is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        [],
+        {},
+        {"event_time": "bad", "source_type": "news", "source_id": 1},
+        {"event_time": "2026-09-06T08:00:00", "source_type": "news", "source_id": 1},
+        {"event_time": NOW.isoformat(), "source_type": "bad", "source_id": 1},
+        {"event_time": NOW.isoformat(), "source_type": "news", "source_id": True},
+        {"event_time": NOW.isoformat(), "source_type": "news", "source_id": "1"},
+        {"event_time": NOW.isoformat(), "source_type": "news", "source_id": -1},
+        {"event_time": NOW.isoformat(), "source_type": "news", "source_id": 2**63},
+        {"event_time": "0001-01-01T00:00:00+14:00", "source_type": "news", "source_id": 1},
+    ],
+)
+def test_invalid_cursor_payload_returns_422_before_query(monkeypatch, payload):
+    import base64
+    import json
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from finance_analysis.interfaces.api.v1.endpoints import timeline
+
+    monkeypatch.setattr(timeline, "get_effective_uid", lambda request: 7)
+
+    def unexpected_query():
+        raise AssertionError("Invalid cursor must not query the database")
+
+    monkeypatch.setattr(timeline, "TimelineService", unexpected_query)
+    app = FastAPI()
+    app.include_router(timeline.router, prefix="/timeline")
+    client = TestClient(app)
+    token = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    assert client.get("/timeline", params={"cursor": token}).status_code == 422
+    for malformed in ("abc", "", "not+url/base64", "x" * 1025):
+        assert client.get("/timeline", params={"cursor": malformed}).status_code == 422
+
+
+def test_cursor_api_contract_and_round_trip(db, monkeypatch):
+    from datetime import timedelta
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from finance_analysis.interfaces.api.v1.endpoints import timeline
+
+    monkeypatch.setattr(timeline, "get_effective_uid", lambda request: 7)
+    monkeypatch.setattr(timeline, "TimelineService", lambda: TimelineService(db))
+    app = FastAPI()
+    app.include_router(timeline.router, prefix="/timeline")
+    client = TestClient(app)
+    report(db, title="newer", event_time=NOW + timedelta(microseconds=1))
+    report(db, title="older")
+    first = client.get("/timeline", params={"date": "2026-09-06", "limit": 1}).json()
+    assert set(first) == {"items", "total", "limit", "next_cursor", "has_more"}
+    assert first["has_more"] is True
+    position = TimelineCursor.decode(first["next_cursor"])
+    assert position.event_time == NOW + timedelta(microseconds=1)
+    second = client.get("/timeline", params={"date": "2026-09-06", "limit": 1, "cursor": first["next_cursor"]}).json()
+    assert second["items"][0]["title"] == "older"
+    assert second["has_more"] is False
+    assert second["next_cursor"] is None

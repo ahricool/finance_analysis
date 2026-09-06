@@ -74,7 +74,8 @@ async function mockAuthenticatedSession(page: Page) {
         date: url.searchParams.get('date'),
         items: [],
         total: 0,
-        page: 1,
+        next_cursor: null,
+        has_more: false,
         limit: 20,
       };
     } else if (url.pathname === '/api/v1/watch-list') {
@@ -361,7 +362,7 @@ test('investment feed shows individual items and report details across viewports
     { ...base, id: 'report:4', source_type: 'report', source_id: 4, event_time: '2026-09-05T10:00:00Z', category: 'analysis', title: '美股收盘复盘：市场分歧与下一交易日观察', summary: '指数走势分化，防御板块相对强势。继续观察科技股能否重获资金支持。', importance: 'high', detail_type: 'report', detail_payload: { content: '# 收盘复盘' } },
     { ...base, id: 'report:5', source_type: 'report', source_id: 5, market: 'CN', related_symbols: ['600519.SH'], event_time: '2026-09-05T06:30:00Z', category: 'analysis', title: 'A股收盘前复核：尾盘风险与持仓调整', summary: '成交趋弱，优先复核持仓风险，等待板块持续性验证。', importance: 'high', actionability: 'consider', detail_type: 'report', detail_payload: { content: '# A股收盘前复核' } },
   ];
-  await page.route('**/api/v1/timeline?**', route => route.fulfill({ json: { items, total: items.length, page: 1, limit: 20 } }));
+  await page.route('**/api/v1/timeline?**', route => route.fulfill({ json: { items, total: items.length, next_cursor: null, has_more: false, limit: 20 } }));
   for (const width of [1280, 360]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/timeline');

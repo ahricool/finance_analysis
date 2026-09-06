@@ -13,6 +13,7 @@ from finance_analysis.interfaces.api.deps import get_effective_uid
 from finance_analysis.interfaces.api.v1.schemas.timeline import NoteInput
 from finance_analysis.timeline.dto import Actionability, Category, Importance, TimelineList, TimelineSummaryItem
 from finance_analysis.timeline.service import TimelineService
+from finance_analysis.timeline.cursor import InvalidTimelineCursor, TimelineCursor
 
 router = APIRouter()
 
@@ -53,9 +54,15 @@ def timeline_query(
 
 @router.get("", response_model=TimelineList)
 def list_timeline(
-    query: Annotated[dict, Depends(timeline_query)], page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100)
+    query: Annotated[dict, Depends(timeline_query)],
+    cursor: str | None = Query(None, max_length=1024),
+    limit: int = Query(20, ge=1, le=100),
 ):
-    return TimelineService().list(page=page, limit=limit, **query)
+    try:
+        position = TimelineCursor.decode(cursor) if cursor is not None else None
+    except InvalidTimelineCursor as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return TimelineService().list(cursor=position, limit=limit, **query)
 
 
 @router.get("/summary", response_model=list[TimelineSummaryItem])
