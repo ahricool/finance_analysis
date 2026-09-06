@@ -17,7 +17,7 @@ class USIndexConstituentProvider:
     name = "wikipedia"
     URLS = {
         "SP500": "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
-        "NASDAQ100": "https://en.wikipedia.org/wiki/Nasdaq-100",
+        "NASDAQ100": "https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies",
     }
 
     def __init__(self, *, timeout: float = 30.0, session: Any = None) -> None:
