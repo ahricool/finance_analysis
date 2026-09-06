@@ -74,6 +74,12 @@ export interface TrendSnapshot {
   generatedAt: string;
 }
 
+export interface TrendRankingSnapshot extends TrendSnapshot {
+  rankChange1D: number | null;
+  rankChange3D: number | null;
+  rankChange5D: number | null;
+}
+
 export interface TrendSummary {
   market: TrendMarket;
   tradeDate: string;
@@ -125,7 +131,7 @@ export interface TrendRankingChanges {
 }
 
 export interface TrendRankingResponse extends TrendSummary {
-  items: TrendSnapshot[];
+  items: TrendRankingSnapshot[];
   changes?: TrendRankingChanges | null;
 }
 export interface TrendPortfolioPosition {

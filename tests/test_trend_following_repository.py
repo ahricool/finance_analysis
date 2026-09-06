@@ -245,3 +245,29 @@ def test_invalidate_from_removes_only_trend_following_future_chain():
     repository.invalidate_from(date(2026, 6, 2))
     assert repository.available_trade_dates() == [date(2026, 6, 1)]
     assert repository.snapshot_history("AAA.US", limit=10)[0]["trade_date"] == date(2026, 6, 1)
+
+
+def test_historical_rank_changes_use_market_snapshot_offsets():
+    from finance_analysis.core.ranking import calculate_rank_changes
+
+    db = _Database()
+    days = [date(2026, 8, day) for day in (28, 27, 26, 25, 24, 21)]
+    with db.session_scope() as session:
+        session.add(Instrument(id=1, code="AAPL.US", name="Apple", market="US"))
+        for index, day in enumerate(days):
+            row = _snapshot(snapshot_id=index + 1, code="AAPL.US", instrument_id=1, trade_date=day)
+            row.rank = [15, 20, 27, 30, 42, 50][index]
+            session.add(row)
+    repository = TrendFollowingRepository("US", db)
+    history = repository.historical_composite_ranks(date(2026, 8, 31), ["AAPL.US", "MISSING.US"])
+    assert calculate_rank_changes(10, history["AAPL.US"]) == {
+        "rank_change_1d": 5, "rank_change_3d": 17, "rank_change_5d": 32,
+    }
+    assert calculate_rank_changes(10, history.get("MISSING.US", {})) == {
+        "rank_change_1d": None, "rank_change_3d": None, "rank_change_5d": None,
+    }
+    short = repository.historical_composite_ranks(date(2026, 8, 24), ["AAPL.US"])
+    assert calculate_rank_changes(10, short["AAPL.US"]) == {
+        "rank_change_1d": 40, "rank_change_3d": None, "rank_change_5d": None,
+    }
+    assert TrendFollowingRepository("CN", db).historical_composite_ranks(date(2026, 8, 31), ["AAPL.US"]) == {}

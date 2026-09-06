@@ -314,6 +314,44 @@ class TrendFollowingRepository:
                 ).scalars()
             )
 
+    def historical_composite_ranks(self, trade_date: date, codes: Iterable[str]) -> dict[str, dict[int, int]]:
+        selected = sorted(set(codes))
+        if not selected:
+            return {}
+        with self.db.get_session() as session:
+            dates = list(
+                session.execute(
+                    select(TrendFollowingSnapshot.trade_date)
+                    .where(
+                        TrendFollowingSnapshot.market == self.market,
+                        TrendFollowingSnapshot.trade_date < trade_date,
+                    )
+                    .distinct()
+                    .order_by(desc(TrendFollowingSnapshot.trade_date))
+                    .limit(5)
+                ).scalars()
+            )
+            if not dates:
+                return {}
+            rows = session.execute(
+                select(Instrument.code, TrendFollowingSnapshot.trade_date, TrendFollowingSnapshot.rank)
+                .join(Instrument, Instrument.id == TrendFollowingSnapshot.instrument_id)
+                .where(
+                    TrendFollowingSnapshot.market == self.market,
+                    Instrument.market == self.market,
+                    Instrument.code.in_(selected),
+                    TrendFollowingSnapshot.trade_date.in_(dates),
+                    TrendFollowingSnapshot.rank.is_not(None),
+                )
+            ).all()
+        offsets = {snapshot_date: index + 1 for index, snapshot_date in enumerate(dates)}
+        result: dict[str, dict[int, int]] = {}
+        for code, snapshot_date, rank in rows:
+            offset = offsets[snapshot_date]
+            if offset in {1, 3, 5}:
+                result.setdefault(str(code), {})[offset] = int(rank)
+        return result
+
     def previous_trade_date(self, trade_date: date) -> date | None:
         with self.db.get_session() as session:
             return session.execute(

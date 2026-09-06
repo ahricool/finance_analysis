@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
 
+from finance_analysis.core.ranking import calculate_rank_changes
 from finance_analysis.etf_rotation.backtest.types import OhlcvBar
 from finance_analysis.etf_rotation.classifier import classify_state
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG, ETFRotationConfig
@@ -17,7 +18,6 @@ from finance_analysis.etf_rotation.features import calculate_features
 from finance_analysis.etf_rotation.models import DailyBar
 from finance_analysis.etf_rotation.ranking import (
     FACTOR_RANK_DIRECTIONS,
-    calculate_rank_changes,
     rank_cross_section,
     rank_features,
 )

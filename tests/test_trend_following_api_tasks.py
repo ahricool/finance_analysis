@@ -25,6 +25,9 @@ class FakeRepository:
     def __init__(self, market):
         self.market = market
 
+    def historical_composite_ranks(self, trade_date, codes):
+        return {}
+
     def latest_trade_date(self):
         return date(2026, 8, 29)
 
@@ -41,7 +44,7 @@ class FakeRepository:
         }
 
     def snapshots_by_date(self, trade_date, *, sort_by, limit):
-        return [{"code": "AAPL.US", "trade_date": trade_date, "alpha_score": 80}]
+        return [{"code": "AAPL.US", "trade_date": trade_date, "alpha_score": 80, "rank": 1}]
 
     def candidates_by_date(self, trade_date, *, limit):
         return [{"code": "AAPL.US", "trade_date": trade_date, "state": "ENTRY"}]
@@ -186,6 +189,7 @@ def test_ranking_reuses_previous_snapshots_for_daily_changes(monkeypatch):
 
 
 def test_historical_detail_requires_an_exact_snapshot_date(monkeypatch):
+    monkeypatch.setattr(trend_following, "universe_by_code", lambda market: {"AAPL.US": {}})
     monkeypatch.setattr(trend_following, "TrendFollowingRepository", FakeRepository)
     with pytest.raises(HTTPException) as error:
         asyncio.run(
@@ -267,3 +271,17 @@ def test_migration_and_snapshot_have_no_user_columns():
     assert 'down_revision: Union[str, Sequence[str], None] = "0033_trend_pending_action"' in execution
     assert "pending_regime" in execution
     assert "pending_max_exposure" in execution
+
+
+def test_ranking_includes_rank_changes_for_limited_items(monkeypatch):
+    class HistoryRepository(FakeRepository):
+        def historical_composite_ranks(self, trade_date, codes):
+            assert trade_date == TRADE_DATE
+            assert codes == ["AAPL.US"]
+            return {"AAPL.US": {1: 6, 3: 18, 5: 33}}
+
+    monkeypatch.setattr(trend_following, "TrendFollowingRepository", HistoryRepository)
+    result = asyncio.run(trend_following.ranking(TRADE_DATE, "rank", 1, SimpleNamespace(id=1), "US"))
+    assert {key: value for key, value in result["items"][0].items() if key.startswith("rank_change")} == {
+        "rank_change_1d": 5, "rank_change_3d": 17, "rank_change_5d": 32,
+    }
