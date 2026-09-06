@@ -29,6 +29,7 @@ import type {
   TrendPortfolioResponse,
   TrendRankingChanges,
   TrendSnapshot,
+  TrendRankingSnapshot,
   TrendState,
   TrendSummary,
 } from '@/types/trendFollowing';
@@ -49,7 +50,7 @@ const market = ref<TrendMarket>('CN');
 const selectedDate = ref('');
 const availableDates = ref<string[]>([]);
 const summary = ref<TrendSummary>(emptySummary());
-const items = ref<TrendSnapshot[]>([]);
+const items = ref<TrendRankingSnapshot[]>([]);
 const candidates = ref<TrendSnapshot[]>([]);
 const portfolio = ref<TrendPortfolioResponse>(emptyPortfolio());
 const changes = ref<TrendRankingChanges | null>(null);
@@ -94,7 +95,7 @@ const sortDirection = ref<'asc' | 'desc'>('asc');
 let generation = 0;
 
 const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
-function sortValue(item: TrendSnapshot, key: SortKey): string | number | null | undefined {
+function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | null | undefined {
   if (key === 'rankChange5D') return item.rankChange5D ?? item.rankChange3D ?? item.rankChange1D;
   if (key === 'return5D' || key === 'return10D' || key === 'return20D' || key === 'volumeRatio' || key === 'distanceFromMa20') return item.features[key];
   return item[key];

@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TrendMarket, TrendSnapshot } from '@/types/trendFollowing';
+import type { TrendMarket, TrendSnapshot, TrendRankingSnapshot, TrendRankingResponse } from '@/types/trendFollowing';
 import { trendIndicatorDescriptions } from '@/components/trend-following/indicatorDescriptions';
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
@@ -21,7 +21,7 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
   return {
     id: 1, market, tradeDate: '2026-08-28', code: market === 'CN' ? '000001.SZ' : 'AAPL.US',
     name: market === 'CN' ? '平安银行' : 'Apple', universeKey: market === 'CN' ? 'cn_csi300_csi500' : 'us_sp500',
-    marketRegime: 'RISK_ON', marketScore: 82, rank: 1, rankChange1D: 5, rankChange3D: -2, rankChange5D: 0, trendScore: 80, rsScore: 78,
+    marketRegime: 'RISK_ON', marketScore: 82, rank: 1, trendScore: 80, rsScore: 78,
     breakoutScore: 76, alphaScore: 79, setup: 'BREAKOUT_20D', state: 'ENTRY', action: 'ENTRY',
     referencePrice: 110, atr: 2, signalDate: '2026-08-27', signalPrice: 108, openedAt: '2026-08-28',
     pendingAction: null, pendingSince: null, pendingRegime: null, pendingMaxExposure: null,
@@ -41,14 +41,18 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
   };
 }
 
-function ranking(market: TrendMarket) {
+function rankingSnapshot(market: TrendMarket = 'CN'): TrendRankingSnapshot {
+  return { ...snapshot(market), rankChange1D: 5, rankChange3D: -2, rankChange5D: 0 };
+}
+
+function ranking(market: TrendMarket): TrendRankingResponse {
   return {
     market, tradeDate: '2026-08-28', universeKey: market === 'CN' ? 'cn_csi300_csi500' : 'us_sp500',
     benchmarkCode: market === 'CN' ? '510300.SH' : 'SPY.US', marketRegime: 'RISK_ON', marketScore: 82,
     suggestedMaxExposure: 1, universeSize: market === 'CN' ? 800 : 500, dataReadyCount: market === 'CN' ? 790 : 500,
     dataCoverage: market === 'CN' ? 0.9875 : 1, rankableCount: 480, candidateCount: 1,
     entryCount: 1, addCount: 0, holdCount: 0, reduceCount: 0, exitCount: 0, warnings: [],
-    features: {}, scoreBreakdown: {}, generatedAt: '2026-08-28T12:00:00Z', items: [snapshot(market)],
+    features: {}, scoreBreakdown: {}, generatedAt: '2026-08-28T12:00:00Z', items: [rankingSnapshot(market)],
     changes: {
       previousTradeDate: '2026-08-27', marketScoreChange: 2.5, breadthScoreChange: 4,
       newCandidates: [], newWeakening: [], newReduces: [], newExits: [], transitions: [], movers: [],
@@ -85,10 +89,10 @@ describe('TrendFollowingPage', () => {
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
   it('sorts ranking locally in both directions and displays rank trends with nulls last', async () => {
-    const a = { ...snapshot(), code: 'A.US', name: 'Alpha', rank: 1, alphaScore: 90, rankChange5D: 2 };
-    const b = { ...snapshot(), code: 'B.US', name: 'Beta', rank: 2, alphaScore: 80, rankChange5D: null, rankChange3D: 7,
+    const a = { ...rankingSnapshot(), code: 'A.US', name: 'Alpha', rank: 1, alphaScore: 90, rankChange5D: 2 };
+    const b = { ...rankingSnapshot(), code: 'B.US', name: 'Beta', rank: 2, alphaScore: 80, rankChange5D: null, rankChange3D: 7,
       features: { ...snapshot().features, return10D: 0.5 } };
-    const c = { ...snapshot(), code: 'C.US', name: 'Gamma', rank: 3, alphaScore: 70,
+    const c = { ...rankingSnapshot(), code: 'C.US', name: 'Gamma', rank: 3, alphaScore: 70,
       rankChange1D: null, rankChange3D: null, rankChange5D: null };
     apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items: [b, c, a] });
     const wrapper = mount(TrendFollowingPage);

@@ -42,9 +42,6 @@ export interface TrendSnapshot {
   marketRegime: TrendRegime;
   marketScore: number;
   rank: number;
-  rankChange1D: number | null;
-  rankChange3D: number | null;
-  rankChange5D: number | null;
   trendScore: number;
   rsScore: number;
   breakoutScore: number;
@@ -75,6 +72,12 @@ export interface TrendSnapshot {
   suggestedMaxWeight: number | null;
   reasons: string[];
   generatedAt: string;
+}
+
+export interface TrendRankingSnapshot extends TrendSnapshot {
+  rankChange1D: number | null;
+  rankChange3D: number | null;
+  rankChange5D: number | null;
 }
 
 export interface TrendSummary {
@@ -128,7 +131,7 @@ export interface TrendRankingChanges {
 }
 
 export interface TrendRankingResponse extends TrendSummary {
-  items: TrendSnapshot[];
+  items: TrendRankingSnapshot[];
   changes?: TrendRankingChanges | null;
 }
 export interface TrendPortfolioPosition {

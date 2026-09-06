@@ -6,6 +6,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from finance_analysis.core.ranking import calculate_rank_changes
 from finance_analysis.database.repositories.etf_rotation import ETFRotationRepository
 from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.etf_rotation.classifier import classify_state, is_overheated
@@ -16,7 +17,6 @@ from finance_analysis.etf_rotation.features import calculate_features
 from finance_analysis.etf_rotation.models import DailyBar
 from finance_analysis.etf_rotation.ranking import (
     FACTOR_RANK_DIRECTIONS,
-    calculate_rank_changes,
     rank_cross_section,
     rank_features,
 )

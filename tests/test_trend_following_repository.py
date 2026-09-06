@@ -248,7 +248,7 @@ def test_invalidate_from_removes_only_trend_following_future_chain():
 
 
 def test_historical_rank_changes_use_market_snapshot_offsets():
-    from finance_analysis.etf_rotation.ranking import calculate_rank_changes
+    from finance_analysis.core.ranking import calculate_rank_changes
 
     db = _Database()
     days = [date(2026, 8, day) for day in (28, 27, 26, 25, 24, 21)]

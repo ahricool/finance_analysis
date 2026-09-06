@@ -16,7 +16,8 @@ from finance_analysis.etf_rotation.correlation import rolling_correlations  # pr
 from finance_analysis.etf_rotation.eligibility import is_absolute_trend_eligible  # pragma: allowlist secret
 from finance_analysis.etf_rotation.features import MINIMUM_HISTORY_BARS, calculate_features  # pragma: allowlist secret
 from finance_analysis.etf_rotation.models import DailyBar  # pragma: allowlist secret
-from finance_analysis.etf_rotation.ranking import calculate_rank_changes, rank_feature  # pragma: allowlist secret
+from finance_analysis.core.ranking import calculate_rank_changes
+from finance_analysis.etf_rotation.ranking import rank_feature  # pragma: allowlist secret
 from finance_analysis.etf_rotation.regime import calculate_market_regime  # pragma: allowlist secret
 from finance_analysis.etf_rotation.scoring import (  # pragma: allowlist secret
     calculate_factor_scores,

@@ -22,7 +22,7 @@ from finance_analysis.tasks.celery.schedule import (
     QUEUE_ANALYSIS,
     require_scheduled_task_definition,
 )
-from finance_analysis.etf_rotation.ranking import calculate_rank_changes
+from finance_analysis.core.ranking import calculate_rank_changes
 from finance_analysis.trend_following.config import DEFAULT_CONFIG
 from finance_analysis.trend_following.risk import theoretical_position_weight
 from finance_analysis.trend_following.universe import universe_by_code
