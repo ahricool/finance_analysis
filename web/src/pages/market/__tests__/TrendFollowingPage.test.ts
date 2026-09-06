@@ -88,6 +88,44 @@ describe('TrendFollowingPage', () => {
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
+  it('bounds ranking rendering for a full CN universe and sorts across pages', async () => {
+    const items = Array.from({ length: 3800 }, (_, index) => ({
+      ...rankingSnapshot(), code: `STOCK${index}`, rank: index + 1, alphaScore: index / 38,
+    }));
+    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    const rows = () => wrapper.findAll('[data-testid="trend-row"]');
+    expect(rows()).toHaveLength(50);
+    expect(rows()[0]!.text()).toContain('STOCK0');
+    await wrapper.get('button[aria-label="下一页"]').trigger('click');
+    expect(rows()).toHaveLength(50);
+    expect(rows()[0]!.text()).toContain('STOCK50');
+    const sort = wrapper.findAll('th button').find(button => button.text() === 'Alpha Score')!;
+    await sort.trigger('click');
+    expect(rows()[0]!.text()).toContain('STOCK3799');
+    expect(wrapper.get('[data-testid="trend-ranking-page-info"]').text()).toContain('第 1/76 页');
+    await wrapper.get('button[aria-label="下一页"]').trigger('click');
+    await rows()[0]!.trigger('click');
+    expect(apiMocks.detail).toHaveBeenCalledWith('STOCK3749', 'CN', 60, '2026-08-28');
+    expect(apiMocks.ranking).toHaveBeenCalledTimes(1);
+    await wrapper.get('[data-testid="trend-refresh"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[data-testid="trend-ranking-page-info"]').text()).toContain('第 1/1 页');
+    wrapper.unmount();
+  });
+
+  it('requests rankings without waiting for the dates response', async () => {
+    let resolveDates!: (value: { market: string; latest: string; items: string[] }) => void;
+    apiMocks.dates.mockReturnValueOnce(new Promise(resolve => { resolveDates = resolve; }));
+    const wrapper = mount(TrendFollowingPage);
+    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined);
+    resolveDates({ market: 'CN', latest: '2026-08-28', items: ['2026-08-28'] });
+    await flushPromises();
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
   it('sorts ranking locally in both directions and displays rank trends with nulls last', async () => {
     const a = { ...rankingSnapshot(), code: 'A.US', name: 'Alpha', rank: 1, alphaScore: 90, rankChange5D: 2 };
     const b = { ...rankingSnapshot(), code: 'B.US', name: 'Beta', rank: 2, alphaScore: 80, rankChange5D: null, rankChange3D: 7,
