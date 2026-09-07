@@ -6,12 +6,12 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { Separator } from '@/components/ui/separator';
 import { researchNavItems } from '@/config/mainNav';
 
-type ResearchTab = 'quant' | 'etf-rotation' | 'trend-following';
+type ResearchTab = 'quant' | 'etf-rotation' | 'trend-following' | 'crypto-btc';
 
 const route = useRoute();
 
 const activeTab = computed<ResearchTab>(() =>
-  route.path.startsWith('/market/etf-rotation')
+  route.path.startsWith('/market/crypto/btc') ? 'crypto-btc' : route.path.startsWith('/market/etf-rotation')
     ? 'etf-rotation'
     : route.path.startsWith('/market/trend-following') ? 'trend-following' : 'quant',
 );
@@ -21,7 +21,7 @@ const activeTab = computed<ResearchTab>(() =>
   <div class="space-y-6 py-4 sm:py-6">
     <PageHeader
       title="研究"
-      description="研究量化模型、ETF 动量轮动与独立趋势跟踪策略。"
+      description="研究量化模型、ETF 动量轮动、趋势跟踪与 BTC 策略。"
     />
     <ModuleTabs
       :items="researchNavItems"

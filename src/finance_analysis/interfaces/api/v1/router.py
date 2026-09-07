@@ -12,6 +12,7 @@ API v1 路由聚合
 from fastapi import APIRouter
 
 from finance_analysis.interfaces.api.v1.endpoints import (
+    crypto,
     agent,
     analysis,
     auth,
@@ -78,3 +79,5 @@ router.include_router(quant.router, prefix="/quant", tags=["Quant"])
 router.include_router(etf_rotation.router, prefix="/etf-rotation", tags=["ETF Rotation"])
 
 router.include_router(trend_following.router, prefix="/trend-following", tags=["Trend Following"])
+
+router.include_router(crypto.router, prefix="/crypto", tags=["Crypto"])

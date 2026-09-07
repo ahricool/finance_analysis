@@ -45,11 +45,13 @@ dependencies = [
     "yfinance>=1.5.2",
     "ipdb>=0.13.13",
     "pyarrow>=20.0.0,<24.0.0",
+    "websockets>=15,<17",
 ]
 
 [project.scripts]
 finance-analysis = "finance_analysis.__main__:main"
 finance-analysis-stream = "finance_analysis.market_stream.__main__:main"
+finance-analysis-crypto-stream = "finance_analysis.crypto_stream.__main__:main"
 
 [build-system]
 requires = ["setuptools>=77"]

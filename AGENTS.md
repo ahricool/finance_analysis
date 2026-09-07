@@ -291,3 +291,9 @@ pnpm run test:smoke
 5. `.env.example`、专题文档、AGENTS 指南是否需要随行为更新。
 6. 聚焦测试及相应门禁是否实际通过。
 7. 未提交 secret、日志、缓存、Playwright 报告、`node_modules` 或生成的 `static/`。
+
+## BTC V0.1
+
+`crypto/` 是独立 BTCUSDT Spot 领域，`integrations/crypto/binance.py` 仅负责公开Binance传输；不要接股票 Provider 链。
+`finance-analysis-crypto-stream` / Compose `crypto-streamer` 独立采集，PostgreSQL保存1m闭合K线和策略状态/快照，Redis仅为实时视图。
+API `/api/v1/crypto` 与页面 `/market/crypto/btc` 统一走 `CryptoService`，详见 `docs/crypto-btc.md`；测试位于 `tests/crypto/`。

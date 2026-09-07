@@ -22,6 +22,7 @@ describe('main navigation', () => {
       { key: 'quant', to: '/market/quant', activePathPrefix: '/market/quant' },
       { key: 'etf-rotation', to: '/market/etf-rotation' },
       { key: 'trend-following', to: '/market/trend-following' },
+      { key: 'crypto-btc', to: '/market/crypto/btc' },
     ]);
     expect(allNavDestinations.map((item) => item.key)).toEqual([
       'analysis',
@@ -30,6 +31,7 @@ describe('main navigation', () => {
       'quant',
       'etf-rotation',
       'trend-following',
+      'crypto-btc',
       'timeline',
       'chat',
       'tasks',

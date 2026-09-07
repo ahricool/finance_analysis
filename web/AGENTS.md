@@ -247,3 +247,8 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 不要把 Pinia store 改成 Options API，或把 zustand store 无故迁到 Pinia（两套并存是有意的）。
 - 不要把 shadcn `ui/` 组件改成业务耦合实现；业务变体放到 `app/` 或领域目录。
 - 不要提交 `node_modules`、`playwright-report`、`test-results`，以及构建生成的 `static/` 内容（除非任务明确要求更新静态资源）。
+
+## BTC 页面
+
+`/market/crypto/btc` 位于研究导航，`useCryptoBtc()` 统一后端REST与WS，断线后60秒轮询并尝试重连；不得直接访问Binance。
+`BtcKlineChart` 复用ECharts，已闭合history与单根current分开更新。VChart的固定高度放外层；manual-update配合autoresize时，应等初始nextTick提交完整option，再增量更新series。

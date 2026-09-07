@@ -33,7 +33,12 @@ from finance_analysis.database.models.trend_following import TrendFollowingSnaps
 from finance_analysis.database.models.user import User
 from finance_analysis.database.models.watch_list import WatchListItem
 
+from finance_analysis.database.models.crypto import CryptoKline, CryptoStrategySnapshot, CryptoStrategyState
+
 __all__ = [
+    "CryptoKline",
+    "CryptoStrategySnapshot",
+    "CryptoStrategyState",
     "AnalysisHistory",
     "TimelineEntry",
     "ConversationMessage",

@@ -269,3 +269,10 @@ uv run ./scripts/ci_gate.sh
 7. 外部服务失败是否有明确 partial/failed/fallback，而非伪造成功数据。
 8. schema 变更是否包含 ORM、Alembic 和迁移测试。
 9. 聚焦测试与离线门禁是否通过。
+
+## BTC 策略
+
+`crypto/` 负责 BTCUSDT Spot 聚合、指标、LONG/FLAT、ATR风险与统一 `CryptoService`；`integrations/crypto` 仅做Binance协议。
+`crypto_stream/` 为独立WS主通道/REST备用进程。只持久化已闭合1m；15m与1h严格UTC本地聚合。
+`database/repositories/crypto.py` 原子写状态及不可变15m快照，用唯一时间点和行锁防止重放信号。迁移为 `0044_crypto_btc`。
+这是共享研究状态，不是用户仓位/Paper Trading。不要添加资金、订单或AI执行。详见 `docs/crypto-btc.md`。
