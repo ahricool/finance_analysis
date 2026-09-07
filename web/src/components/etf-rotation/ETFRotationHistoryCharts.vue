@@ -35,26 +35,26 @@ const rsOption = computed(() => option([
 </script>
 
 <template>
-  <div class="grid gap-3 lg:grid-cols-2">
-    <VChart
+  <div
+    class="grid min-w-0 gap-3 lg:grid-cols-2"
+    data-testid="rotation-history-charts"
+  >
+    <div
+      v-for="chart in [
+        { label: '价格与均线', option: priceOption },
+        { label: '综合得分', option: compositeOption },
+        { label: '排名', option: rankOption },
+        { label: '相对强度', option: rsOption },
+      ]"
+      :key="chart.label"
       class="h-56 min-w-0 rounded border"
-      :option="priceOption"
-      autoresize
-    />
-    <VChart
-      class="h-56 min-w-0 rounded border"
-      :option="compositeOption"
-      autoresize
-    />
-    <VChart
-      class="h-56 min-w-0 rounded border"
-      :option="rankOption"
-      autoresize
-    />
-    <VChart
-      class="h-56 min-w-0 rounded border"
-      :option="rsOption"
-      autoresize
-    />
+    >
+      <VChart
+        :option="chart.option"
+        autoresize
+        role="img"
+        :aria-label="chart.label"
+      />
+    </div>
   </div>
 </template>
