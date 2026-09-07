@@ -8,6 +8,7 @@ const apiMocks = vi.hoisted(() => ({
   ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn(),
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
+vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
 vi.mock('vue-sonner', () => ({ toast: { success: vi.fn() } }));
 vi.mock('@/components/app/AppDatePicker.vue', () => ({
   default: {
@@ -158,9 +159,12 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.find('[aria-sort="ascending"]').text()).toContain('排名趋势');
     const trends = wrapper.findAll('[data-testid="trend-rank-changes"]');
     expect(trends[0]!.text()).toContain('1D');
-    expect(trends[0]!.text()).toContain('↑5');
+    expect(trends[0]!.text()).toContain('+5');
+    expect(trends[0]!.find('.text-market-up').text()).toBe('+5');
+    expect(trends[0]!.find('.text-market-down').text()).toBe('-2');
+    expect(trends[0]!.text()).not.toMatch(/[↑↓→]/);
     expect(trends[0]!.text()).toContain('3D');
-    expect(trends[0]!.text()).toContain('↓2');
+    expect(trends[0]!.text()).toContain('-2');
     expect(trends[0]!.text()).toContain('5D');
     expect(trends[2]!.text()).toContain('—');
     expect(apiMocks.ranking).toHaveBeenCalledTimes(1);
@@ -171,7 +175,7 @@ describe('TrendFollowingPage', () => {
     await flushPromises();
     expect(wrapper.text()).toContain('沪深300 + 中证500');
     expect(wrapper.text()).toContain('RISK_ON');
-    expect(wrapper.get('[data-testid="trend-rank-changes"]').text()).toContain('→0');
+    expect(wrapper.get('[data-testid="trend-rank-changes"]').text()).toContain('0');
     expect(wrapper.text()).toContain('平安银行');
     expect(wrapper.text()).toContain('建议入场');
     expect(wrapper.find('table').classes().join(' ')).toContain('min-w-');
@@ -294,12 +298,17 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.text()).toContain('Apple');
   });
 
-  it('opens detail sheet with risk metrics and history', async () => {
+  it('opens a centered dialog with ranking chart, risk metrics and history', async () => {
     mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
     (document.body.querySelector('[data-testid="trend-candidate"]') as HTMLElement).click();
     await flushPromises();
     expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28');
+    const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
+    expect(dialog.getAttribute('role')).toBe('dialog');
+    expect(dialog.classList.contains('top-1/2')).toBe(true);
+    expect(dialog.querySelector('[data-testid="trend-rank-history"]')).not.toBeNull();
+    expect(dialog.querySelector('[data-testid="rank-chart"]')).not.toBeNull();
     expect(document.body.textContent).toContain('Alpha Score Breakdown');
     expect(document.body.textContent).toContain('理论风险权重');
     expect(document.body.textContent).toContain('Signal Date / Price');

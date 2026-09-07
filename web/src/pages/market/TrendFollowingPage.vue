@@ -18,7 +18,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistoryChart.vue';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type {
@@ -699,8 +700,8 @@ onMounted(() => void load(true));
                       class="text-xs"
                     >
                       <span class="text-muted-foreground">{{ label }}</span>
-                      <span :class="value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
-                        {{ value == null ? '—' : value > 0 ? `↑${value}` : value < 0 ? `↓${Math.abs(value)}` : '→0' }}
+                      <span :class="value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-market-up' : 'text-market-down'">
+                        {{ rankDelta(value) }}
                       </span>
                     </span>
                   </div>
@@ -755,18 +756,22 @@ onMounted(() => void load(true));
       </CardContent>
     </Card>
 
-    <Sheet
+    <Dialog
       :open="detailOpen"
       @update:open="value => { detailOpen = value; }"
     >
-      <SheetContent
-        class="w-full overflow-y-auto sm:max-w-2xl"
+      <DialogContent
+        class="max-h-[calc(100dvh-2rem)] min-w-0 overflow-y-auto p-4 sm:max-w-4xl sm:p-6"
         data-testid="trend-detail"
       >
-        <SheetHeader><SheetTitle>{{ detail?.metadata.name || '趋势详情' }}</SheetTitle><SheetDescription>{{ detail?.metadata.code }} · 指标、风险线与 point-in-time 状态历史</SheetDescription></SheetHeader>
+        <DialogHeader class="min-w-0 pr-8 text-left">
+          <DialogTitle class="break-words">
+            {{ detail?.metadata.name || '趋势详情' }}
+          </DialogTitle><DialogDescription>{{ detail?.metadata.code }} · 指标、风险线与 point-in-time 状态历史</DialogDescription>
+        </DialogHeader>
         <div
           v-if="detailLoading"
-          class="space-y-3 px-4"
+          class="min-w-0 space-y-3"
         >
           <Skeleton
             v-for="index in 6"
@@ -781,7 +786,7 @@ onMounted(() => void load(true));
         />
         <div
           v-else-if="detail"
-          class="space-y-5 px-4 pb-6"
+          class="min-w-0 space-y-5"
         >
           <div class="flex flex-wrap gap-2">
             <Badge :variant="badgeVariant(detail.latest.state)">
@@ -792,6 +797,7 @@ onMounted(() => void load(true));
               {{ detail.latest.setup }}
             </Badge>
           </div>
+          <TrendRankHistoryChart :history="detail.history" />
           <section>
             <h3 class="mb-2 font-semibold">
               <IndicatorLabel
@@ -955,7 +961,7 @@ onMounted(() => void load(true));
                 class="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm"
                 data-testid="trend-history"
               >
-                <span>{{ snapshot.tradeDate }}</span><span>Alpha {{ score(snapshot.alphaScore) }}</span><Badge :variant="badgeVariant(snapshot.state)">
+                <span>{{ snapshot.tradeDate }}</span><span>排名 {{ snapshot.rank > 0 ? `#${snapshot.rank}` : '—' }}</span><span>Alpha {{ score(snapshot.alphaScore) }}</span><Badge :variant="badgeVariant(snapshot.state)">
                   {{ stateText(snapshot.state) }}
                 </Badge><Badge :variant="badgeVariant(snapshot.action)">
                   {{ actionText(snapshot.action) }}
@@ -964,7 +970,7 @@ onMounted(() => void load(true));
             </div>
           </section>
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
