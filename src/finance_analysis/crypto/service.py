@@ -81,9 +81,9 @@ class CryptoService:
 
     async def ingest(self, rows, *, calculate=True):
         now = utc_now()
-        await run_db(self.repository.upsert_klines, rows, now)
+        await run_db(self.repository.upsert_klines, rows)
         closed = {row["open_time"]: row for row in self.live["recent_closed"]}
-        closed.update({row.open_time: asdict(row) for row in rows if row.closed and row.close_time <= now})
+        closed.update({row.open_time: asdict(row) for row in rows if row.closed})
         self.live["recent_closed"] = [closed[key] for key in sorted(closed)[-5:]]
         for row in sorted(rows, key=lambda item: item.open_time):
             current = self.live["latest_candle"]

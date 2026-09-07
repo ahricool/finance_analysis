@@ -3,6 +3,7 @@
 from contextlib import contextmanager, suppress
 from dataclasses import asdict
 from datetime import datetime
+from threading import Lock
 
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
@@ -28,11 +29,12 @@ class CryptoRepository:
 
             db_manager = DatabaseManager.get_instance()
         self.db = db_manager
-        self._leader_session = None
+        self._leader_connection = None
+        self._leader_mutex = Lock()
 
-    def upsert_klines(self, rows: list[Kline], as_of: datetime) -> int:
+    def upsert_klines(self, rows: list[Kline]) -> int:
         self._check_leader()
-        closed = {row.open_time: row.storage_values() for row in rows if row.closed and row.close_time <= as_of}
+        closed = {row.open_time: row.storage_values() for row in rows if row.closed}
         if not closed:
             return 0
         with self.db.session_scope() as session:
@@ -113,23 +115,47 @@ class CryptoRepository:
             return snapshot
 
     def _check_leader(self):
-        if self._leader_session is not None:
-            try:
-                self._leader_session.execute(text("SELECT 1"))
-            except Exception as exc:
-                raise CryptoLeadershipLost("BTC writer lock connection lost") from exc
+        # Lifecycle operations and worker-thread health checks share this mutex.
+        with self._leader_mutex:
+            connection = self._leader_connection
+            if connection is not None:
+                try:
+                    # Never reconnect without reacquiring the session-level lock.
+                    if connection.closed or connection.invalidated:
+                        raise CryptoLeadershipLost("BTC writer lock connection lost")
+                    connection.execute(text("SELECT 1"))
+                    connection.commit()
+                except Exception as exc:
+                    raise CryptoLeadershipLost("BTC writer lock connection lost") from exc
 
     @contextmanager
     def stream_leader(self):
-        """A dedicated PostgreSQL session owns the single BTC writer until shutdown."""
-        with self.db.get_session() as session:
-            acquired = session.scalar(text("SELECT pg_try_advisory_lock(7310044)"))
-            if acquired:
-                self._leader_session = session
-            try:
-                yield bool(acquired)
-            finally:
+        """Keep a dedicated connection for the session-level lock, never business SQL."""
+        connection = None
+        acquired = False
+        try:
+            with self._leader_mutex:
+                if self._leader_connection is not None:
+                    raise RuntimeError("BTC writer leadership already active on this repository")
+                connection = self.db.connect()
+                # Session locks survive commits; avoid an idle transaction for hours.
+                connection = connection.execution_options(isolation_level="AUTOCOMMIT")
+                acquired = bool(connection.scalar(text("SELECT pg_try_advisory_lock(7310044)")))
+                connection.commit()
                 if acquired:
-                    self._leader_session = None
-                    with suppress(Exception):
-                        session.execute(text("SELECT pg_advisory_unlock(7310044)"))
+                    self._leader_connection = connection
+            yield acquired
+        finally:
+            with self._leader_mutex:
+                if connection is not None:
+                    if acquired:
+                        self._leader_connection = None
+                        try:
+                            if not connection.closed and not connection.invalidated:
+                                connection.execute(text("SELECT pg_advisory_unlock(7310044)"))
+                                connection.commit()
+                        except Exception:
+                            # Never pool a physical connection that may still own the lock.
+                            with suppress(Exception):
+                                connection.invalidate()
+                    connection.close()

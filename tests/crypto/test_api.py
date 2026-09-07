@@ -11,7 +11,7 @@ def test_rest_contracts_and_invalid_interval(repository):
     app.include_router(crypto.router, prefix="/api/v1/crypto")
     service = CryptoService(repository)
     row = candle()
-    repository.upsert_klines([row], row.close_time)
+    repository.upsert_klines([row])
     app.dependency_overrides[crypto.get_crypto_service] = lambda: service
     with TestClient(app) as client:
         response = client.get("/api/v1/crypto/btc/klines").json()["items"][0]

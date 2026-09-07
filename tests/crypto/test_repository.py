@@ -12,9 +12,9 @@ from .helpers import START, candle
 def test_upsert_idempotent_and_partial_bars_never_persist(repository):
     row = candle()
     now = START + timedelta(minutes=3)
-    repository.upsert_klines([row, row, candle(1, closed=False), candle(4)], now)
+    repository.upsert_klines([row, row, candle(1, closed=False)])
     assert len(repository.klines(as_of=now)) == 1
-    repository.upsert_klines([replace(row, close=Decimal("100.123456789012"))], now)
+    repository.upsert_klines([replace(row, close=Decimal("100.123456789012"))])
     actual = repository.klines(as_of=now)
     assert len(actual) == 1 and actual[0].close == Decimal("100.123456789012")
     assert actual[0].volume == row.volume

@@ -137,10 +137,23 @@ async def test_reconciliation_finishes_interrupted_history_before_advancing_to_r
             index = 1435 if start is None else int((start - START).total_seconds() // 60)
             return [candle(i) for i in range(index, min(1440, index + limit))]
 
-    repository.upsert_klines([candle(i) for i in range(1000)], end)
+    repository.upsert_klines([candle(i) for i in range(1000)])
     service = CryptoService(repository, binance=Binance())
     await service.reconcile()
     assert calls[0] == START + timedelta(minutes=999)
     assert calls[-1] is None
     assert len(repository.klines(limit=2000, as_of=end)) == 1440
     assert len(repository.signals()) == 1
+
+
+@pytest.mark.asyncio
+async def test_closed_candle_persists_when_local_clock_is_500ms_behind(repository, monkeypatch):
+    row = candle()
+    local_now = row.close_time - timedelta(milliseconds=500)
+    monkeypatch.setattr("finance_analysis.crypto.service.utc_now", lambda: local_now)
+    monkeypatch.setattr("finance_analysis.database.repositories.crypto.utc_now", lambda: local_now)
+    service = CryptoService(repository)
+    await service.ingest([row, candle(1, closed=False)])
+    assert repository.klines(as_of=row.close_time + timedelta(minutes=2)) == [row]
+    assert [item["open_time"] for item in service.live["recent_closed"]] == [row.open_time]
+    assert service.live["latest_candle"]["closed"] is False
