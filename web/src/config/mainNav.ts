@@ -1,6 +1,7 @@
 import type { Component } from 'vue';
 import {
   BarChart3,
+  Bitcoin,
   BrainCircuit,
   CalendarDays,
   ChartNoAxesCombined,
@@ -52,6 +53,7 @@ export const researchNavItems: NavDestination[] = [
     to: '/market/trend-following',
     icon: TrendingUp,
   },
+  { key: 'crypto-btc', label: 'BTC交易', to: '/market/crypto/btc', icon: Bitcoin },
 ];
 
 export const mainNavItems: MainNavItem[] = [

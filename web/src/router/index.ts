@@ -88,6 +88,12 @@ const router = createRouter({
               meta: { title: 'ETF动量轮动' },
             },
             {
+              path: 'crypto/btc',
+              name: 'market-crypto-btc',
+              component: () => import('@/pages/market/CryptoBtcPage.vue'),
+              meta: { title: 'BTC交易' },
+            },
+            {
               path: 'trend-following',
               name: 'market-trend-following',
               component: TrendFollowingPage,
