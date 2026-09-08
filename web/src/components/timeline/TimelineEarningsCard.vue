@@ -35,7 +35,7 @@ const surprise = computed(() => formatSurprise(payload.value.epsSurprisePct));
       >{{ payload.counterName }}</span>
     </p>
     <p class="mt-1 text-sm text-muted-foreground">
-      {{ [payload.reportingPeriod, session].filter(Boolean).join(' · ') || item.title }}
+      {{ payload.reportingPeriod || item.title }}
     </p>
     <p class="mt-2 text-xs text-muted-foreground">
       {{ when }}
