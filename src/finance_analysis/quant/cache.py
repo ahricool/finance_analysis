@@ -24,13 +24,6 @@ class QuantLatestCache:
         except redis.RedisError as exc:
             logger.warning("Quant cache write failed: key=%s error=%s", key, exc); return False
 
-    def get(self, key: str):
-        try:
-            value=self.client.get(key); return json.loads(value) if value else None
-        except (redis.RedisError, json.JSONDecodeError) as exc:
-            logger.warning("Quant cache read failed: key=%s error=%s", key, exc); return None
-
-
 def cache_keys(market: str, universe: str) -> dict:
     return {
         "ranking": f"quant:ranking:{market}:{universe}:latest",

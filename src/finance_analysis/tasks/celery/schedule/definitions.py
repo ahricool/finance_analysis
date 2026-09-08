@@ -237,7 +237,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_QUANT_DAILY_PIPELINE_US,
         name="美股量化日频流水线",
-        description="在日线同步后计算市场、排名、融合信号和组合建议",
+        description="在日线同步后计算市场、排名、融合信号和目标组合",
         task_type="scheduled_quant_daily_us",
         celery_task_name=celery_task_name(JOB_QUANT_DAILY_PIPELINE_US),
         schedules=(CronSchedule(minute="30", hour="21", day_of_week="mon-fri", timezone=US_TIMEZONE),),
@@ -250,7 +250,7 @@ SCHEDULED_TASK_DEFINITIONS = (
     ScheduledTaskDefinition(
         job_id=JOB_QUANT_DAILY_PIPELINE_CN,
         name="A股量化日频流水线",
-        description="在A股日线同步后计算市场、行业、排名、融合信号和组合建议",
+        description="在A股日线同步后计算市场、排名、融合信号和目标组合",
         task_type="scheduled_quant_daily_cn",
         celery_task_name=celery_task_name(JOB_QUANT_DAILY_PIPELINE_CN),
         schedules=(CronSchedule(minute="0", hour="19", day_of_week="mon-fri"),),
