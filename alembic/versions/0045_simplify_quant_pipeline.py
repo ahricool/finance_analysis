@@ -14,6 +14,11 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Signal and portfolio semantics changed in this revision. Removing the old
+    # derived rows prevents old and new algorithms sharing one model_version.
+    op.execute("DELETE FROM portfolio_recommendation")
+    op.execute("DELETE FROM model_signal")
+
     op.drop_table("event_feature_daily")
     op.drop_table("market_event")
     op.drop_table("daily_feature_snapshot")

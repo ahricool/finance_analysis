@@ -91,6 +91,10 @@ def test_quant_simplification_revision_drops_legacy_schema() -> None:
 
     assert migration.revision == "0045_simplify_quant"
     assert migration.down_revision == "0044_crypto_btc"
+    assert [call.args[0] for call in migration.op.execute.call_args_list] == [
+        "DELETE FROM portfolio_recommendation",
+        "DELETE FROM model_signal",
+    ]
     assert {call.args[0] for call in migration.op.drop_table.call_args_list} == {
         "market_event",
         "event_feature_daily",
