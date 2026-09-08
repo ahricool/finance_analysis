@@ -330,7 +330,7 @@ test.describe('web smoke', () => {
     }
   });
 
-  test('timeline filters stay on one row of equal-height controls', async ({ page }) => {
+  test('timeline filter rows use equal-height controls', async ({ page }) => {
     await mockAuthenticatedSession(page);
     await page.goto('/timeline');
     await page.getByRole('button', { name: '美股', exact: true }).click();
@@ -340,7 +340,7 @@ test.describe('web smoke', () => {
     await expect(page.getByRole('button', { name: '笔记', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '财经事件', exact: true })).toHaveCount(0);
     const marketButton = await page.getByRole('button', { name: '美股', exact: true }).boundingBox();
-    const datePicker = await page.getByRole('button', { name: '截止日期' }).boundingBox();
+    const datePicker = await page.getByTestId('investment-timeline').getByRole('button', { name: /\d{4}年/ }).boundingBox();
     expect(marketButton?.height).toBe(datePicker?.height);
   });
 
@@ -364,12 +364,26 @@ test('investment feed shows individual items and report details across viewports
     { ...base, id: 'report:5', source_type: 'report', source_id: 5, market: 'CN', related_symbols: ['600519.SH'], event_time: '2026-09-05T06:30:00Z', category: 'analysis', title: 'A股收盘前复核：尾盘风险与持仓调整', summary: '成交趋弱，优先复核持仓风险，等待板块持续性验证。', importance: 'high', actionability: 'consider', detail_type: 'report', detail_payload: { content: '# A股收盘前复核' } },
   ];
   await page.route('**/api/v1/timeline?**', route => route.fulfill({ json: { items, total: items.length, next_cursor: null, has_more: false, limit: 20 } }));
-  for (const width of [1280, 360]) {
+  await page.clock.setFixedTime(new Date('2026-09-09T08:00:00Z'));
+  items[0]!.event_time = '2026-09-06T02:00:00Z';
+  for (const width of [1280, 1440, 360]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/timeline');
     await expect(page.getByTestId('timeline-item')).toHaveCount(6);
     await expect(page.getByTestId('timeline-item').first()).toContainText('EPS 预期 $1.32');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const columns = page.getByTestId('timeline-columns').first();
+    await expect(columns).toHaveCSS('column-count', width >= 1024 ? '2' : '1');
+    const wrappers = columns.locator(':scope > div');
+    for (const wrapper of await wrappers.all()) {
+      await expect(wrapper).toHaveCSS('break-inside', 'avoid');
+      expect(await wrapper.evaluate(el => el.getClientRects().length)).toBe(1);
+    }
+    expect(await page.getByTestId('timeline-item').evaluateAll(cards => cards.map(card => card.getAttribute('aria-label'))))
+      .toEqual(items.map(item => `查看${item.title}`));
+    const boxes = await page.getByTestId('timeline-item').evaluateAll(cards => cards.slice(0, 4).map(card => ({ x: card.getBoundingClientRect().x, height: card.getBoundingClientRect().height })));
+    expect(new Set(boxes.map(box => Math.round(box.x))).size).toBe(width >= 1024 ? 2 : 1);
+    expect(new Set(boxes.map(box => Math.round(box.height))).size).toBeGreaterThan(1);
     await page.screenshot({ path: `test-results/timeline-${width}.png`, fullPage: true });
   }
   await page.getByRole('button', { name: '查看美股盘前分析：关注科技股趋势与开盘风险' }).click();

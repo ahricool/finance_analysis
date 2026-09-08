@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from finance_analysis.core.time import DEFAULT_DISPLAY_TIMEZONE, validate_display_timezone
 from finance_analysis.timeline.cursor import InvalidTimelineCursor, TimelineCursor
-from finance_analysis.timeline.dto import CalendarType, Category, TimelineList  # pragma: allowlist secret
+from finance_analysis.timeline.dto import CalendarType, Category, Importance, TimelineList  # pragma: allowlist secret
 from finance_analysis.timeline.service import TimelineService  # pragma: allowlist secret
 
 router = APIRouter()
@@ -19,6 +19,7 @@ def timeline_query(
     market: str | None = None,
     category: Category | None = None,
     calendar_type: CalendarType | None = None,
+    importance: Importance | None = None,
 ):
     """``end_date`` is a cutoff: keep everything up to the end of that display-timezone day."""
     try:
@@ -31,6 +32,7 @@ def timeline_query(
         market=market,
         category=category,
         calendar_type=calendar_type,
+        importance=importance,
     )
 
 

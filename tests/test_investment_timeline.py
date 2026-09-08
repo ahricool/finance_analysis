@@ -329,6 +329,7 @@ def test_api_is_public_and_validates_input(db, monkeypatch):
         {"category": "note"},
         {"category": "a_share"},
         {"calendar_type": "bad"},
+        {"importance": "bad"},
         {"cursor": "abc"},
         {"end_date": "not-a-date"},
     ):
@@ -766,3 +767,41 @@ def test_cursor_api_contract_and_round_trip(db, monkeypatch):
     assert second["items"][0]["title"] == "older"
     assert second["has_more"] is False
     assert second["next_cursor"] is None
+
+
+@pytest.mark.parametrize("importance", ["critical", "high", "normal", "low"])
+def test_importance_filters_unified_sources_and_cursor(db, monkeypatch, importance):
+    for index, level in enumerate(("critical", "high", "normal", "low")):
+        report(db, title=level, importance=level, event_time=NOW - timedelta(minutes=index))
+    event(db)
+    seed_news(db)
+    client = timeline_client(db, monkeypatch)
+    params = dict(importance=importance, market="US", end_date=NOW.date().isoformat(), limit=1)
+    titles = []
+    while True:
+        response = client.get("/api/v1/timeline", params=params)
+        assert response.status_code == 200
+        page = response.json()
+        assert all(item["importance"] == importance for item in page["items"])
+        titles.extend(item["title"] for item in page["items"])
+        if not page["has_more"]:
+            break
+        params["cursor"] = page["next_cursor"]
+    assert importance in titles
+    assert len(titles) == (3 if importance == "critical" else 1)
+
+
+def test_importance_combines_with_calendar_type_market_and_cutoff(db, monkeypatch):
+    event(db, event_key="match", title="earnings", calendar_type="earnings", symbol="NVDA", importance_score=9)
+    event(db, event_key="later", title="later", calendar_type="earnings", symbol="NVDA", importance_score=9,
+          event_datetime=NOW + timedelta(days=1))
+    event(db, event_key="normal", title="normal", calendar_type="earnings", symbol="NVDA", importance_score=1)
+    event(db, event_key="macro", title="CPI")
+    event(db, event_key="cn", title="CN", calendar_type="earnings", symbol="NVDA", market="CN", importance_score=9)
+    seed_news(db)
+    report(db, importance="critical")
+    response = timeline_client(db, monkeypatch).get("/api/v1/timeline", params=dict(
+        market="US", category="event", calendar_type="earnings", symbol="NVDA", importance="critical", end_date="2026-09-06",
+    ))
+    assert response.status_code == 200
+    assert [item["title"] for item in response.json()["items"]] == ["earnings"]

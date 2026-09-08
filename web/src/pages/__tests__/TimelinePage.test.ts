@@ -3,7 +3,7 @@ import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import { useTimezoneStore } from '@/stores/timezoneStore';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TimelinePage from '../TimelinePage.vue';
 import { timelineApi, type TimelineItem } from '@/api/timeline';
 
@@ -42,8 +42,13 @@ function respond(items: TimelineItem[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-09-09T08:00:00Z'));
   vi.mocked(timelineApi.list).mockResolvedValue(respond([news]));
 });
+
+afterEach(() => vi.useRealTimers());
 
 function clickTab(wrapper: ReturnType<typeof mount>, label: string) {
   return wrapper.findAll('button').find(button => button.text() === label)!.trigger('click');
@@ -77,10 +82,10 @@ describe('Public investment timeline', () => {
   it('sends no category filter for the 全部 tab and combines the market filter', async () => {
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
-    expect(timelineApi.list).toHaveBeenLastCalledWith({ market: undefined, cursor: undefined, limit: 20 });
+    expect(timelineApi.list).toHaveBeenLastCalledWith({ market: undefined, importance: undefined, end_date: '2026-09-09', cursor: undefined, limit: 20 });
     await clickTab(wrapper, '美股');
     await flushPromises();
-    expect(timelineApi.list).toHaveBeenLastCalledWith({ market: 'US', cursor: undefined, limit: 20 });
+    expect(timelineApi.list).toHaveBeenLastCalledWith({ market: 'US', importance: undefined, end_date: '2026-09-09', cursor: undefined, limit: 20 });
     wrapper.unmount();
   });
 
@@ -159,7 +164,7 @@ describe('Public investment timeline', () => {
     wrapper.unmount();
   });
 
-  it.each(['market', 'tab', 'date', 'timezone'])('clears cursor on %s change', async (filter) => {
+  it.each(['market', 'tab', 'date', 'timezone', 'importance', 'preset'])('clears cursor on %s change', async (filter) => {
     let finish!: (value: Awaited<ReturnType<typeof timelineApi.list>>) => void;
     vi.mocked(timelineApi.list)
       .mockResolvedValueOnce({ items: [news], total: 2, nextCursor: 'old-position', hasMore: true, limit: 20 })
@@ -169,6 +174,10 @@ describe('Public investment timeline', () => {
     await flushPromises();
     if (filter === 'market' || filter === 'tab') {
       await clickTab(wrapper, filter === 'market' ? '美股' : '宏观');
+    } else if (filter === 'importance') {
+      await wrapper.get('select[aria-label="重要性"]').setValue('high');
+    } else if (filter === 'preset') {
+      await clickTab(wrapper, '未来7天');
     } else if (filter === 'date') {
       wrapper.findComponent(AppDatePicker).vm.$emit('update:modelValue', '2026-09-05');
     } else {
@@ -196,6 +205,72 @@ describe('Public investment timeline', () => {
     expect(dialog).toContain('实际 EPS');
     expect(dialog).toContain('$1.46');
     expect(dialog).toContain('longbridge · yfinance');
+    wrapper.unmount();
+  });
+});
+
+describe('cutoff presets and columns', () => {
+  it.each([['今天', '2026-09-09', '2026年9月9日'], ['未来7天', '2026-09-16', '2026年9月16日'], ['未来14天', '2026-09-23', '2026年9月23日'], ['未来30天', '2026-10-09', '2026年10月9日']])('selects %s and displays the actual date', async (label, endDate, display) => {
+    const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(wrapper.get('[aria-label="今天"]').attributes('aria-pressed')).toBe('true');
+    expect(wrapper.findComponent(AppDatePicker).text()).toContain('2026年9月9日');
+    expect(wrapper.findComponent(AppDatePicker).props('clearable')).toBe(false);
+    await clickTab(wrapper, label);
+    await flushPromises();
+    expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ end_date: endDate }));
+    expect(wrapper.get(`[aria-label="${label}"]`).attributes('aria-pressed')).toBe('true');
+    expect(wrapper.findComponent(AppDatePicker).text()).toContain(display);
+    wrapper.unmount();
+  });
+
+  it.each(['今天', '未来7天', '未来14天', '未来30天'])('recomputes %s at a timezone date boundary and preserves custom dates', async label => {
+    vi.setSystemTime(new Date('2026-09-09T01:00:00Z'));
+    const pinia = createPinia();
+    const wrapper = mount(TimelinePage, { global: { plugins: [pinia] } });
+    await clickTab(wrapper, label);
+    const shanghai = wrapper.findComponent(AppDatePicker).props('modelValue')!;
+    useTimezoneStore(pinia).setDisplayTimezone('America/New_York');
+    await flushPromises();
+    const expected = { '今天': '2026-09-08', '未来7天': '2026-09-15', '未来14天': '2026-09-22', '未来30天': '2026-10-08' }[label];
+    expect(wrapper.findComponent(AppDatePicker).props('modelValue')).toBe(expected);
+    useTimezoneStore(pinia).setDisplayTimezone('Asia/Shanghai');
+    await flushPromises();
+    expect(wrapper.findComponent(AppDatePicker).props('modelValue')).toBe(shanghai);
+    wrapper.findComponent(AppDatePicker).vm.$emit('update:modelValue', '2026-10-20');
+    await flushPromises();
+    expect(wrapper.findComponent(AppDatePicker).text()).toContain('2026年10月20日');
+    expect(wrapper.get('[aria-label="截止日期快捷筛选"]').findAll('[aria-pressed="true"]')).toHaveLength(0);
+    useTimezoneStore(pinia).setDisplayTimezone('America/New_York');
+    await flushPromises();
+    expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ end_date: '2026-10-20' }));
+    wrapper.findComponent(AppDatePicker).vm.$emit('update:modelValue', '');
+    await flushPromises();
+    expect(wrapper.findComponent(AppDatePicker).props('modelValue')).toBe('2026-10-20');
+    wrapper.unmount();
+  });
+
+  it.each(['critical', 'high', 'normal', 'low', ''])('combines importance %s with market, earnings and cutoff', async importance => {
+    const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
+    await clickTab(wrapper, '美股');
+    await clickTab(wrapper, '财报');
+    await clickTab(wrapper, '未来30天');
+    await wrapper.get('select[aria-label="重要性"]').setValue(importance);
+    await flushPromises();
+    expect(timelineApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ market: 'US', category: 'event', calendar_type: 'earnings', end_date: '2026-10-09', importance: importance || undefined, cursor: undefined }));
+    wrapper.unmount();
+  });
+
+  it('keeps one uninterrupted DOM sequence within each day columns container', async () => {
+    const sameDay = [earnings, macro, news, analysis].map((item, index) => ({ ...item, eventTime: `2026-09-09T0${7-index}:00:00Z` }));
+    vi.mocked(timelineApi.list).mockResolvedValue(respond(sameDay));
+    const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const columns = wrapper.findAll('[data-testid="timeline-columns"]');
+    expect(columns).toHaveLength(1);
+    expect(columns[0]!.classes()).toEqual(expect.arrayContaining(['columns-1', 'lg:columns-2']));
+    expect(columns[0]!.findAll('.break-inside-avoid')).toHaveLength(4);
+    expect(columns[0]!.findAll('[data-testid="timeline-item"]').map(card => card.attributes('aria-label'))).toEqual(sameDay.map(item => `查看${item.title}`));
     wrapper.unmount();
   });
 });
