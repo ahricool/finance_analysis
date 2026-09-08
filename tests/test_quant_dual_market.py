@@ -263,4 +263,3 @@ def test_cn_missing_production_model_never_falls_back_to_us():
         pipeline._production_model("CN", "cross_section_lgbm")
 
     repository.production_model.assert_called_once_with("CN", "cross_section_lgbm")
-

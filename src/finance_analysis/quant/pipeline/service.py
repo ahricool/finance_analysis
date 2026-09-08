@@ -441,4 +441,3 @@ class QuantDailyPipeline:
                 f"missing={missing} unexpected={unexpected} duplicates={duplicates} "
                 f"invalid_entries={invalid_count}"
             )
-

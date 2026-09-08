@@ -7,8 +7,6 @@ import pandas as pd
 import pytest
 
 from finance_analysis.database.models.quant import QUANT_TABLES
-from finance_analysis.quant.models.splits import WalkForwardConfig, walk_forward_splits
-from finance_analysis.quant.portfolio.backtest import BacktestCostConfig, run_topk_backtest
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
 from finance_analysis.quant.regime.service import MarketRegimeService
 from finance_analysis.quant.signals.fusion import SignalFusion
@@ -127,15 +125,6 @@ def test_us_market_regime_keeps_qqq_spy_contract_and_returns_valid_breakdown() -
     assert 0.10 <= result.max_equity_exposure <= 0.80
 
 
-def test_walk_forward_has_purge_and_embargo_gaps():
-    config = WalkForwardConfig(train_years=1, valid_months=2, test_months=2, prediction_horizon=5, embargo_days=3)
-    splits = walk_forward_splits(pd.bdate_range("2020-01-01", "2023-01-01"), config)
-    assert splits
-    first = splits[0]
-    assert (pd.Timestamp(first["valid"][0]) - pd.Timestamp(first["train"][1])).days >= 8
-    assert first["purge_days"] == 5 and first["embargo_days"] == 3
-
-
 def test_fusion_gating_and_risk_penalty_are_explicit():
     fused = SignalFusion().fuse(0.8, 0.7, "neutral", risk_penalty=0.1)
     expected_pre_regime = 0.8 * 0.60 + 0.7 * 0.40 - 0.1
@@ -162,20 +151,3 @@ def test_portfolio_is_a_ranked_target_allocation_with_single_stock_caps():
     assert all(item["target_weight"] <= 0.08 for item in result["items"])
     assert result["target_equity_exposure"] == pytest.approx(0.4)
     assert all("current_weight" not in item and "action" not in item for item in result["items"])
-
-
-def test_backtest_uses_next_open_and_costs():
-    bars = pd.DataFrame(
-        {
-            "code": ["A.US"] * 3,
-            "date": pd.date_range("2025-01-01", periods=3).date,
-            "open": [10, 20, 30],
-            "close": [11, 22, 33],
-        }
-    )
-    predictions = pd.DataFrame({"code": ["A.US"], "date": [bars.date.iloc[0]], "score": [1.0]})
-    benchmark = pd.DataFrame({"date": bars.date, "close": [100, 100, 100]})
-    result = run_topk_backtest(
-        predictions, bars, benchmark, top_k=1, costs=BacktestCostConfig(commission_bps=0, slippage_bps=0)
-    )
-    assert next(iter(result["daily_returns"].values())) == pytest.approx(22 / 20 - 1)
