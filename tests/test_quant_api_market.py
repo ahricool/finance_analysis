@@ -279,7 +279,7 @@ def test_model_definitions_expose_only_worker_trainable_models(monkeypatch):
 
 def test_model_run_defaults_match_worker_contract_and_dispatch_explicit_run(monkeypatch):
     client, repository = _client(monkeypatch)
-    from finance_analysis.tasks.celery.jobs.quant_training import tasks as training_tasks
+    from finance_analysis.tasks.celery.jobs.quant_training import tasks as training_tasks  # pragma: allowlist secret
 
     apply_async = MagicMock(return_value=SimpleNamespace(id="training-task-1"))
     monkeypatch.setattr(training_tasks.train_quant_model, "apply_async", apply_async)
@@ -353,6 +353,13 @@ def test_model_run_rejects_dataset_below_minimum_universe_coverage(monkeypatch):
 
 def test_model_run_does_not_depend_on_removed_price_mode(monkeypatch):
     client, repository = _client(monkeypatch)
+    from finance_analysis.tasks.celery.jobs.quant_training import tasks as training_tasks  # pragma: allowlist secret
+
+    monkeypatch.setattr(
+        training_tasks.train_quant_model,
+        "apply_async",
+        MagicMock(return_value=SimpleNamespace(id="training-task-2")),
+    )
     original = repository.get_dataset
 
     def dataset_without_legacy_mode(snapshot_id):

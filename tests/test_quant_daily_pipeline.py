@@ -605,7 +605,7 @@ def test_portfolio_excludes_non_buy_signals() -> None:
 
     assert result["items"] == []
     assert result["target_equity_exposure"] == 0
-    assert "没有满足建仓阈值" in result["warnings"][0]
+    assert "没有满足入选阈值" in result["warnings"][0]
 
 
 def test_portfolio_contains_only_ranked_model_target_weights() -> None:
