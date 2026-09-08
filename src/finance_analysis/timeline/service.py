@@ -79,7 +79,7 @@ class TimelineService:
         stmt = select(projection)
         if end_date is not None:
             stmt = stmt.where(projection.c.event_time < day_bounds_utc(end_date, timezone_name)[1])
-        for key in ("market", "category", "calendar_type"):
+        for key in ("market", "category", "calendar_type", "importance"):
             if filters.get(key):
                 stmt = stmt.where(projection.c[key] == filters[key])
         return stmt.subquery()

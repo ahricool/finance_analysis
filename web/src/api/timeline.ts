@@ -38,7 +38,7 @@ export interface TimelineItem {
 export interface TimelineQuery {
   /** Cutoff: keep everything up to the end of this day in the display timezone. */
   end_date?: string;
-  market?: string; category?: Category; calendar_type?: CalendarType;
+  market?: string; category?: Category; calendar_type?: CalendarType; importance?: Importance;
   cursor?: string; limit?: number;
 }
 

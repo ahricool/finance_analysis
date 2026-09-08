@@ -25,3 +25,13 @@ describe('AppDatePicker available dates', () => {
     expect(calendar.props('maxValue')?.toString()).toBe('2026-08-25');
   });
 });
+
+
+it('does not emit a cleared date when clearable is false', async () => {
+  const wrapper = mount(AppDatePicker, { props: { modelValue: '2026-09-09', clearable: false } });
+  await wrapper.get('button').trigger('click');
+  wrapper.getComponent(Calendar).vm.$emit('update:modelValue', undefined);
+  expect(wrapper.emitted('update:modelValue')).toBeUndefined();
+  expect(wrapper.text()).toContain('2026年9月9日');
+  wrapper.unmount();
+});

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { parseDate } from '@internationalized/date';
 import { storeToRefs } from 'pinia';
-import { timelineApi, type TimelineItem, type TimelineQuery, type TimelineTab } from '@/api/timeline';
+import { timelineApi, type Importance, type TimelineItem, type TimelineQuery, type TimelineTab } from '@/api/timeline';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
@@ -14,7 +15,7 @@ import TimelineNewsCard from '@/components/timeline/TimelineNewsCard.vue';
 import { dayHeading, dayKey, importanceNames, kindLabel, marketLabel, tabQuery } from '@/components/timeline/timelineFormat';
 import { Dialog, DialogDescription, DialogHeader, DialogScrollContent, DialogTitle } from '@/components/ui/dialog';
 import { useTimezoneStore } from '@/stores/timezoneStore';
-import { formatDateTimeInDisplayTimezone } from '@/utils/format';
+import { formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/utils/format';
 import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 
 const { displayTimezone } = storeToRefs(useTimezoneStore());
@@ -27,7 +28,27 @@ const cards = { earnings: TimelineEarningsCard, macro: TimelineMacroCard, news: 
 
 const market = ref('');
 const tab = ref<TimelineTab>('all');
-const endDate = ref('');
+type DatePreset = 'today' | '7d' | '14d' | '30d' | 'custom';
+const presets = [
+  { value: 'today', days: 0, label: '今天' }, { value: '7d', days: 7, label: '未来7天' },
+  { value: '14d', days: 14, label: '未来14天' }, { value: '30d', days: 30, label: '未来30天' },
+] as const;
+const preset = ref<DatePreset>('today');
+const endDate = ref(getTodayInDisplayTimezone());
+const importance = ref<Importance | ''>('');
+function selectPreset(value: Exclude<DatePreset, 'custom'>) {
+  preset.value = value;
+  const days = presets.find(option => option.value === value)!.days;
+  endDate.value = parseDate(getTodayInDisplayTimezone()).add({ days }).toString();
+}
+function selectCustomDate(value: string) {
+  if (!value) return;
+  preset.value = 'custom';
+  endDate.value = value;
+}
+watch(displayTimezone, () => {
+  if (preset.value !== 'custom') selectPreset(preset.value);
+});
 const items = ref<TimelineItem[]>([]);
 const total = ref(0);
 const nextCursor = ref<string | null>(null);
@@ -38,8 +59,9 @@ const detail = ref<TimelineItem | null>(null);
 
 const query = computed<TimelineQuery>(() => ({
   ...tabQuery[tab.value],
-  ...(endDate.value ? { end_date: endDate.value } : {}),
+  end_date: endDate.value,
   market: market.value || undefined,
+  importance: importance.value || undefined,
 }));
 
 /** The API already returns a stable event_time DESC page; never re-sort on the client. */
@@ -127,11 +149,22 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
         >
           {{ option.label }}
         </button>
-        <AppDatePicker
-          v-model="endDate"
-          class="ml-auto w-full sm:w-56"
-          placeholder="截止日期"
-        />
+        <select
+          v-model="importance"
+          aria-label="重要性"
+          class="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm sm:ml-auto sm:w-40"
+        >
+          <option value="">
+            全部重要性
+          </option>
+          <option
+            v-for="value in (['critical', 'high', 'normal', 'low'] as const)"
+            :key="value"
+            :value="value"
+          >
+            {{ importanceNames[value] }}
+          </option>
+        </select>
       </div>
       <div
         class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1"
@@ -153,6 +186,32 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
         <span class="ml-auto hidden shrink-0 self-center pl-3 text-xs text-muted-foreground sm:block">
           {{ displayTimezone === 'Asia/Shanghai' ? '北京时间' : '美东时间' }}
         </span>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <div
+          class="flex max-w-full gap-1 overflow-x-auto"
+          aria-label="截止日期快捷筛选"
+        >
+          <button
+            v-for="option in presets"
+            :key="option.value"
+            type="button"
+            class="h-10 shrink-0 whitespace-nowrap rounded-lg px-3 text-sm transition-colors"
+            :class="preset === option.value ? 'bg-primary/10 font-semibold text-primary' : 'text-muted-foreground hover:bg-muted'"
+            :aria-label="option.label"
+            :aria-pressed="preset === option.value"
+            @click="selectPreset(option.value)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+        <AppDatePicker
+          :model-value="endDate"
+          :clearable="false"
+          class="w-full sm:w-56"
+          placeholder="截止日期"
+          @update:model-value="selectCustomDate"
+        />
       </div>
     </div>
 
@@ -193,13 +252,22 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
         <h2 class="sticky top-14 z-10 -mx-1 bg-background/90 px-1 py-1.5 text-xs font-medium tabular-nums text-muted-foreground backdrop-blur">
           {{ dayHeading(group.key) }}
         </h2>
-        <component
-          :is="cardFor(item)"
-          v-for="item in group.items"
-          :key="item.id"
-          :item="item"
-          @open="detail = item"
-        />
+        <div
+          class="columns-1 gap-3 lg:columns-2"
+          data-testid="timeline-columns"
+        >
+          <div
+            v-for="item in group.items"
+            :key="item.id"
+            class="mb-3 break-inside-avoid"
+          >
+            <component
+              :is="cardFor(item)"
+              :item="item"
+              @open="detail = item"
+            />
+          </div>
+        </div>
       </section>
     </div>
 

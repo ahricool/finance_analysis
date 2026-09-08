@@ -67,11 +67,20 @@ event_time < (end_date 当天在展示时区的次日零点)
 全部保留，向过去继续由 cursor 分页加载。时区边界复用 `core/time.py::day_bounds_utc`，不重复实现。
 
 未提供 `end_date` 时**不设置任何时间上界**：未来 FinanceEvent、最新 News、最新 Analysis 都参与同一条
-DESC Timeline。没有隐藏的 today / today-7d / today+14d 默认范围，也没有 7 天 / 14 天 / 30 天等 Future Range 按钮。
+DESC Timeline。API 没有隐藏的默认日期；Timeline 页面首次进入明确发送展示时区的今天作为 `end_date`。
+
+页面提供今天 / 未来7天 / 未来14天 / 未来30天快捷截止日期。`getTodayInDisplayTimezone()` 获取今天，
+已有 `@internationalized/date` 的 `parseDate(...).add({ days })` 按日历天相加，跨月和夏令时无需毫秒运算。
+四个 preset 与 DatePicker 共用 `endDate`；trigger 始终展示实际日期，`clearable=false` 禁止清空。
+手工选择后 preset 为 `custom`，所有快捷按钮取消选中。切换展示时区时，快捷日期重新计算，custom 日期保留。
+这些都是截止日期，不限制历史起点。
 
 ## API
 
-- `GET /api/v1/timeline`：`end_date`、`timezone`、`market`、`category`、`calendar_type`、`cursor`、`limit`。
+- `GET /api/v1/timeline`：`end_date`、`timezone`、`market`、`category`、`calendar_type`、`importance`、`cursor`、`limit`。
+
+`importance` 支持 critical / high / normal / low，省略表示全部。它与市场、类型、截止日期在统一 projection
+上组合过滤，不改变来源评分。页面任一查询条件或时区变化都会清空 cursor，重新请求第一页。
 
 不再存在 `date` / `start_date` 范围参数、`/timeline/summary`，以及 `POST|PUT|DELETE /timeline/notes*`。
 endpoint 是纯公共查询，不读取 `request.state.uid`，也不依赖 `get_effective_uid`。
@@ -127,7 +136,16 @@ Card 只负责展示，不自己请求 API；详情继续用现有 `Dialog` + `D
 距离时间（今天 / 明天 / 2天后 / 3天前）只是 UI 信息，不影响排序和 filter。只有后端提供
 `trading_days_to_event` 时才显示 `T-x`，否则使用日历天；前端不维护交易日历。
 
-移动端：Tab 横向滚动，Card 竖排，Dialog 可滚动。
+每个日期 group 独立使用 `columns-1 gap-3 lg:columns-2`，1024px 以下一列、以上始终两列（不增为三列）。
+Card wrapper 使用 `mb-3 break-inside-avoid`，12px 间距；Shell 为 `block w-full`，自然高度，不拆列。
+DOM 仍按 API 顺序单次遍历，未排序、未按奇偶或高度分列，也没有新增第三方依赖。
+CSS Columns 按列流动而非逐行左右交替；追加数据或高度变化时浏览器可能重新平衡列，这是已知取舍。
+
+桌面筛选分为市场与重要性、类型、快捷日期与 DatePicker 三行。移动端重要性和 DatePicker 独立换行，
+Tab 和快捷日期支持横向滚动；Card 单列，Dialog 可滚动。
+
+![桌面 1440px](images/investment-timeline-desktop.png)
+![移动端 360px](images/investment-timeline-mobile.png)
 
 ## 任务写入矩阵
 

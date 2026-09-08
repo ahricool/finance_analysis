@@ -32,7 +32,7 @@ const score = computed(() =>
     data-testid="timeline-item"
     :aria-label="`查看${item.title}`"
     :class="[
-      'group relative w-full overflow-hidden rounded-xl border border-border bg-card p-4 text-left shadow-sm',
+      'group relative block w-full overflow-hidden rounded-xl border border-border bg-card p-4 text-left shadow-sm',
       'transition duration-200 hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-md sm:p-5',
       'before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:opacity-70',
       accent,

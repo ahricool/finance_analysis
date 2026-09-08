@@ -78,6 +78,7 @@ const display = computed(() =>
 );
 
 function choose(value: DateValue | undefined) {
+  if (!value && !props.clearable) return;
   emit('update:modelValue', value?.toString() ?? '');
   if (value) open.value = false;
 }
