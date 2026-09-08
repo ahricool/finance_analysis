@@ -43,7 +43,12 @@ class PortfolioBuilder:
             {
                 **item,
                 "target_weight": target_weights[item["code"]],
-                "constraints": ["single_stock_max_weight", "max_equity_exposure"],
+                "constraints": {
+                    "limits": {
+                        "single_stock_max_weight": self.config.single_stock_max_weight,
+                        "max_equity_exposure": max_equity_exposure,
+                    }
+                },
             }
             for item in selected
         ]

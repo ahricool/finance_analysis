@@ -151,3 +151,13 @@ def test_portfolio_is_a_ranked_target_allocation_with_single_stock_caps():
     assert all(item["target_weight"] <= 0.08 for item in result["items"])
     assert result["target_equity_exposure"] == pytest.approx(0.4)
     assert all("current_weight" not in item and "action" not in item for item in result["items"])
+    assert all(
+        item["constraints"]
+        == {
+            "limits": {
+                "single_stock_max_weight": 0.08,
+                "max_equity_exposure": 0.8,
+            }
+        }
+        for item in result["items"]
+    )

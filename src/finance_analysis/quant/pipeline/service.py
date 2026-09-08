@@ -378,11 +378,6 @@ class QuantDailyPipeline:
             portfolio_values,
             portfolio_items,
         )
-        keys = cache_keys(market, universe_key)
-        if not self.cache.set(keys["ranking"], public):
-            warnings.append("Redis ranking cache write failed")
-        if not self.cache.set(keys["portfolio"], {"id": recommendation.id, "trade_date": trade_date}):
-            warnings.append("Redis portfolio cache write failed")
         return {
             "trade_date": str(trade_date),
             "market": market,
