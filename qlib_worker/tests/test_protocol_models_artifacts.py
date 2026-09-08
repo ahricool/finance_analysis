@@ -90,7 +90,6 @@ def test_target_config_changes_horizon_benchmark_and_prices(tmp_path: Path) -> N
     manifest = {
         "benchmark_codes": ["QQQ.US"],
         "market_benchmark": "QQQ.US",
-        "sector_benchmark_mapping": {},
     }
     one_day = TargetConfig.parse(
         {
@@ -135,7 +134,7 @@ def test_target_uses_forward_adjusted_daily_prices_without_reapplying_factor(tmp
     ).to_csv(dataset / "source" / "daily.csv", index=False)
     target = build_target(
         dataset,
-        {"benchmark_codes": [], "sector_benchmark_mapping": {}},
+        {"benchmark_codes": []},
         TargetConfig(
             prediction_horizon=2,
             benchmark="none",
@@ -147,12 +146,13 @@ def test_target_uses_forward_adjusted_daily_prices_without_reapplying_factor(tmp
     assert target.iloc[0] == pytest.approx(0.0)
 
 
-def test_target_config_uses_market_neutral_name_and_accepts_legacy_alias() -> None:
+def test_target_config_defaults_to_market_and_rejects_sector_benchmarks() -> None:
     default = TargetConfig.parse({}, 5)
-    legacy = TargetConfig.parse({"benchmark": "sector_or_qqq"}, 5)
 
-    assert default.benchmark == "sector_or_market"
-    assert legacy.benchmark == "sector_or_qqq"
+    assert default.benchmark == "market"
+    for benchmark in ("sector", "sector_or_market", "sector_or_qqq"):
+        with pytest.raises(ValueError, match="benchmark must be market or none"):
+            TargetConfig.parse({"benchmark": benchmark}, 5)
 
 
 def test_artifact_store_rejects_traversal_and_commits_atomically(tmp_path: Path) -> None:

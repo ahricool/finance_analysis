@@ -20,7 +20,7 @@ const baseNavItems = [
   { key: 'models' as const, label: '模型运行', icon: Bot, path: '/market/quant/models' },
   {
     key: 'portfolios' as const,
-    label: '组合建议',
+    label: '目标组合',
     icon: BriefcaseBusiness,
     path: '/market/quant/portfolios',
   },

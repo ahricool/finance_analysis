@@ -33,11 +33,8 @@ def _db_universe(monkeypatch):
     )
 
 
-def _member(code: str, instrument_id: int):
-    return (
-        SimpleNamespace(sector_key="semiconductor", sector_benchmark_code="SOXX.US"),
-        SimpleNamespace(id=instrument_id, code=code),
-    )
+def _instrument(code: str, instrument_id: int):
+    return SimpleNamespace(id=instrument_id, code=code)
 
 
 def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
@@ -104,7 +101,6 @@ def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
                 regime="neutral",
                 market_score=0.5,
                 max_equity_exposure=0.4,
-                sector_permissions={"ranking": True},
                 features={},
                 reasons=[],
             )
@@ -155,7 +151,8 @@ def test_daily_research_uses_csi300_primary_and_growth_style_benchmarks(
     assert captured["primary"]["close"].iloc[-1] == captured["broad"]["close"].iloc[-1]
     assert captured["style"]["close"].iloc[-1] != captured["primary"]["close"].iloc[-1]
     assert set(captured["universe"]) == {"600519.SH"}
-    assert result["feature_count"] == 1
+    assert result["context_count"] == 1
+    assert set(result["runtime_context"]) == {"600519.SH"}
     assert result["coverage"]["coverage_ratio"] == pytest.approx(0.5)
     assert result["coverage"]["skipped_codes"] == ["000001.SZ"]
     assert "行情覆盖 1/2" in result["warnings"][0]
@@ -167,7 +164,6 @@ def test_prepare_rejects_research_symbol_without_target_daily_bar(monkeypatch) -
     repository.daily_bar_codes.return_value = {"AAPL.US"}
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
         artifact_store=MagicMock(),
@@ -181,6 +177,7 @@ def test_prepare_rejects_research_symbol_without_target_daily_bar(monkeypatch) -
         lambda _repository, **_kwargs: SimpleNamespace(
             run=lambda *_args: {
                 "eligible_codes": ["AAPL.US", "NVDA.US"],
+                "runtime_context": {},
                 "market_regime": SimpleNamespace(id=1, regime="neutral", market_score=0.5, max_equity_exposure=0.4),
             }
         ),
@@ -217,6 +214,14 @@ def test_prepare_does_not_require_universe_member_repository_methods(monkeypatch
         lambda _repository, **_kwargs: SimpleNamespace(
             run=lambda *_args: {
                 "eligible_codes": ["AAPL.US"],
+                "runtime_context": {
+                    "AAPL.US": {
+                        "has_sufficient_data": True,
+                        "liquidity": 2_000_000,
+                        "risk_penalty": 0.04,
+                        "close": 100,
+                    }
+                },
                 "market_regime": SimpleNamespace(
                     id=1,
                     regime="neutral",
@@ -229,7 +234,6 @@ def test_prepare_does_not_require_universe_member_repository_methods(monkeypatch
 
     requests, context = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=exporter,
         symbol_repository=MagicMock(),
         artifact_store=MagicMock(),
@@ -254,7 +258,6 @@ def test_prepare_rejects_missing_model_before_universe_lookup(
     artifact_store = MagicMock()
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
         artifact_store=artifact_store,
@@ -277,7 +280,6 @@ def test_prepare_rejects_missing_model_artifact_before_universe_lookup() -> None
     artifact_store.resolve_uri.side_effect = ModelArtifactMissingError("Artifact does not exist: quant://us/cs")
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
         artifact_store=artifact_store,
@@ -298,7 +300,6 @@ def test_prepare_rejects_legacy_production_model_before_universe_lookup() -> Non
     artifact_store = MagicMock()
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
         artifact_store=artifact_store,
@@ -314,7 +315,6 @@ def test_prepare_rejects_legacy_production_model_before_universe_lookup() -> Non
 def test_prepare_rejects_unsupported_universe_before_lookup() -> None:
     pipeline = QuantDailyPipeline(
         repository=MagicMock(),
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
     )
@@ -338,7 +338,7 @@ def test_prediction_coverage_lists_missing_symbols() -> None:
 
 
 def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -> None:
-    members = [_member("AAPL.US", 1), _member("NVDA.US", 2)]
+    instruments = [_instrument("AAPL.US", 1), _instrument("NVDA.US", 2)]
 
     class Repository:
         def __init__(self):
@@ -347,19 +347,6 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
 
         def get_universe(self, key):
             return SimpleNamespace(id=3, key="us_quant", market="US", enabled=True)
-
-        def feature_context(self, trade_date, feature_version):
-            common = {
-                "sector_score": 0.7,
-                "sector_key": "semiconductor",
-                "has_sufficient_data": True,
-                "liquidity": 2_000_000,
-                "risk_penalty": 0.04,
-            }
-            return {
-                1: {**common, "close": 100.0},
-                2: {**common, "close": 200.0},
-            }
 
         def replace_signals_and_save_portfolio(
             self, market, universe_id, trade_date, model_version, signals, portfolio_values, portfolio_items
@@ -371,18 +358,16 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
     class Symbols:
         @staticmethod
         def get_by_code(code):
-            return {"AAPL.US": members[0][1], "NVDA.US": members[1][1]}.get(code)
+            return {"AAPL.US": instruments[0], "NVDA.US": instruments[1]}.get(code)
 
     captured = {}
 
     class CapturingPortfolioBuilder:
-        def build(self, signals, max_equity_exposure, current_weights=None):
+        def build(self, signals, max_equity_exposure):
             captured["signals"] = signals
-            captured["current_weights"] = current_weights
             return {
                 "items": [],
                 "target_equity_exposure": 0,
-                "sector_exposure": {},
                 "warnings": [],
                 "config": {},
             }
@@ -392,11 +377,8 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
         CapturingPortfolioBuilder,
     )
     repository = Repository()
-    cache = MagicMock()
-    cache.set.return_value = True
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=cache,
         exporter=MagicMock(),
         symbol_repository=Symbols(),
     )
@@ -410,6 +392,20 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
         "cross_section_model_run_id": 11,
         "time_series_model_run_id": 12,
         "expected_codes": ["AAPL.US", "NVDA.US"],
+        "runtime_context": {
+            "AAPL.US": {
+                "has_sufficient_data": True,
+                "liquidity": 2_000_000,
+                "risk_penalty": 0.04,
+                "close": 100.0,
+            },
+            "NVDA.US": {
+                "has_sufficient_data": True,
+                "liquidity": 2_000_000,
+                "risk_penalty": 0.04,
+                "close": 200.0,
+            },
+        },
         "warnings": ["行情覆盖 2/3；已跳过缺失数据标的"],
         "coverage": {"universe_members": 3, "rankable_members": 2, "skipped_members": 1},
         "regime": {
@@ -443,7 +439,6 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
     result = pipeline.finalize(responses, context)
 
     assert result["signal_count"] == 2
-    assert captured["current_weights"] == {}
     assert all(item["risk_penalty"] == 0.04 for item in captured["signals"])
     assert repository.portfolio_values["warnings"] == ["行情覆盖 2/3；已跳过缺失数据标的"]
     assert repository.portfolio_values["summary"]["coverage"]["skipped_members"] == 1
@@ -453,7 +448,6 @@ def test_finalize_rejects_unsupported_callback_context_before_writes() -> None:
     repository = MagicMock()
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
     )
@@ -535,7 +529,7 @@ def test_training_rejects_missing_dataset_artifact_before_marking_training() -> 
     repository.update_model_run.assert_not_called()
 
 
-def test_portfolio_metadata_uses_twenty_day_turnover_and_realized_risk() -> None:
+def test_portfolio_context_uses_twenty_day_turnover_and_realized_risk() -> None:
     dates = pd.bdate_range(end=TRADE_DATE, periods=61)
     bars = pd.DataFrame(
         {
@@ -545,21 +539,12 @@ def test_portfolio_metadata_uses_twenty_day_turnover_and_realized_risk() -> None
             "amount": None,
         }
     )
-    features = pd.Series(
-        {
-            "ret_60d": 0.1,
-            "price_ma60_ratio": 0.05,
-            "realized_vol_20d": 0.4,
-            "relative_20d_to_market": 0.02,
-            "relative_20d_to_sector": 0.01,
-        }
-    )
-
-    metadata = DailyResearchService._portfolio_metadata(bars, features, TRADE_DATE)
+    bars["close"] = [100 + index * 0.4 for index in range(len(bars))]
+    metadata = DailyResearchService._portfolio_metadata(bars, TRADE_DATE)
 
     assert metadata["has_sufficient_data"] is True
-    assert metadata["liquidity"] == pytest.approx(2_000_000)
-    assert metadata["risk_penalty"] == pytest.approx(0.04)
+    assert metadata["liquidity"] > 2_000_000
+    assert 0 <= metadata["risk_penalty"] <= 0.15
 
 
 def test_portfolio_filters_low_liquidity_without_default_pass_through() -> None:
@@ -568,10 +553,8 @@ def test_portfolio_filters_low_liquidity_without_default_pass_through() -> None:
             "code": "LIQUID.US",
             "instrument_id": 1,
             "final_score": 0.9,
-            "sector_key": "one",
             "signal": "buy",
             "reasons": [],
-            "vetoed": False,
             "has_sufficient_data": True,
             "liquidity": 2_000_000,
         },
@@ -579,10 +562,8 @@ def test_portfolio_filters_low_liquidity_without_default_pass_through() -> None:
             "code": "THIN.US",
             "instrument_id": 2,
             "final_score": 0.8,
-            "sector_key": "two",
             "signal": "buy",
             "reasons": [],
-            "vetoed": False,
             "has_sufficient_data": True,
             "liquidity": 100_000,
         },
@@ -596,16 +577,14 @@ def test_portfolio_filters_low_liquidity_without_default_pass_through() -> None:
         PortfolioBuilder().build([{**signals[0], "liquidity": None}], 0.8)
 
 
-def test_portfolio_never_buys_reduce_signals() -> None:
+def test_portfolio_excludes_non_buy_signals() -> None:
     signals = [
         {
             "code": f"S{i}.SZ",
             "instrument_id": i,
             "final_score": 0.3 - i * 0.01,
-            "sector_key": None,
-            "signal": "reduce",
+            "signal": "avoid",
             "reasons": [],
-            "vetoed": False,
             "has_sufficient_data": True,
             "liquidity": 2_000_000,
         }
@@ -616,35 +595,30 @@ def test_portfolio_never_buys_reduce_signals() -> None:
 
     assert result["items"] == []
     assert result["target_equity_exposure"] == 0
-    assert "没有满足建仓阈值" in result["warnings"][0]
+    assert "没有满足入选阈值" in result["warnings"][0]
 
 
-def test_portfolio_uses_current_weights_for_actions_and_daily_limits() -> None:
+def test_portfolio_contains_only_ranked_model_target_weights() -> None:
     signals = [
         {
             "code": f"S{i}.US",
             "instrument_id": i,
             "final_score": 1 - i * 0.02,
-            "sector_key": f"sector-{i}",
             "signal": "buy",
             "reasons": [],
-            "vetoed": False,
             "has_sufficient_data": True,
             "liquidity": 2_000_000,
         }
         for i in range(22)
     ]
-    current_weights = {"S1.US": 0.08, "S2.US": 0.10, "S21.US": 0.05}
+    result = PortfolioBuilder().build(signals, 0.8)
 
-    result = PortfolioBuilder().build(signals, 0.8, current_weights=current_weights)
-    actions = {item["code"]: item["action"] for item in result["items"]}
-
-    assert actions["S0.US"] == "buy"
-    assert actions["S1.US"] == "hold"
-    assert actions["S2.US"] == "reduce"
-    assert actions["S21.US"] == "sell"
-    assert sum(max(0, item["weight_change"]) for item in result["items"]) <= 0.20 + 1e-9
-    assert sum(abs(item["weight_change"]) for item in result["items"]) <= 0.30 + 1e-9
+    assert [item["code"] for item in result["items"]] == [f"S{i}.US" for i in range(5)]
+    assert all(item["target_weight"] == pytest.approx(0.08) for item in result["items"])
+    assert all(
+        not {"action", "current_weight", "weight_change", "previous_rank", "sector_key"} & item.keys()
+        for item in result["items"]
+    )
 
 
 def test_scheduled_daily_history_defaults_use_recent_postgres_windows() -> None:

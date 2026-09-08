@@ -29,9 +29,8 @@ Apply the schema with the normal application bootstrap or explicitly:
 uv run alembic upgrade head
 ```
 
-For a genuinely empty database, follow the repository baseline caveat first:
-`uv run alembic upgrade 0001_baseline && uv run alembic stamp 0016_dual_engine_backtests`,
-then run `uv run alembic upgrade head`.
+For a genuinely empty database, Alembic creates the current ORM metadata and
+stamps the single head. Existing databases run the migration chain normally.
 
 ## Celery workflow
 
@@ -44,8 +43,9 @@ state from leaking into the next task.
 Training dispatches `qlib.model.train` and links either
 `quant.model.train.finalize` or `quant.model.train.failed` on the `analysis`
 queue. Daily prediction uses a Celery chord with two `qlib.model.predict`
-tasks; `quant.daily.finalize` performs signal fusion, portfolio construction,
-and PostgreSQL persistence. Main workers never wait synchronously for Qlib.
+tasks; `quant.daily.finalize` performs signal fusion, final-score ranking,
+target-portfolio construction, and PostgreSQL persistence. <!-- pragma: allowlist secret --> Main workers never
+wait synchronously for Qlib.
 
 ## Business workflow
 
@@ -77,9 +77,9 @@ constituent lists or legacy `quant_universe_member` compatibility tables.
 Stock readiness remains DB-only. Daily persistence is independently scoped to
 CN CSI300/500/1000 + `cn_index_etf`, and US S&P500 + `us_index_etf`;
 CSI2000, Nasdaq100 and other strategy dependencies do not expand it.
-Market benchmark dependencies come only from the
-fixed market configuration; stock industry mappings and industry benchmarks
-are not part of the MVP data path.
+Market benchmark dependencies come only from the fixed market configuration.
+Quant has no sector regime model, sector score, sector ranking, or sector
+portfolio cap.
 
 Exports contain `calendars/day.txt`, `instruments/all.txt`, Qlib float32 binary
 feature files, `source/daily.csv`, `manifest.json`, and `validation.json`.
@@ -102,8 +102,9 @@ rather than selected from three regime buckets.
 Both trainable models build their training and prediction matrices exclusively
 with Qlib `Alpha158`. Dataset exports do not contain custom feature panels, and
 news or structured events are not uploaded, scored, joined into model inputs,
-or fused into daily signals. Existing event-related database columns and tables
-remain unused solely for migration compatibility.
+or fused into daily signals. Quant does not retain event tables or prediction
+staging rows: Qlib prediction payloads flow directly into signal fusion and
+`model_signal`.
 Production models whose stored `feature_config` still contains legacy keys
 such as `ablation` are rejected before daily fan-out. After upgrading from a
 custom-feature release, retrain and publish both daily models with
@@ -128,6 +129,18 @@ training instead of producing rankings from a misleadingly small subset.
 Legacy dataset artifacts are not relabeled. Models trained before the canonical
 daily-price change should be rebuilt before publication.
 
+The daily pipeline calculates only the temporary liquidity, data-sufficiency,
+close-price, and volatility-risk context needed by signal fusion and portfolio
+selection. That context travels in the Celery callback payload and is not
+persisted. It is not a model feature panel; `daily_feature_snapshot` has been
+removed.
+
+`PortfolioBuilder` produces a model target portfolio. It does not read user
+holdings and does not emit increase/reduce/sell or current-weight deltas. The
+persisted items contain rank, target weight, final score, signal, reasons, and
+applied constraints. Allocation is bounded by market-regime exposure,
+single-stock weight, data sufficiency, and liquidity.
+
 Model runs use expanding time-ordered walk-forward folds. The prediction
 horizon is purged before validation/test data and the configured embargo is
 applied in trading sessions. Every fold is trained and evaluated independently;
@@ -137,6 +150,5 @@ Artifacts are written under
 directory, digested, validated, and atomically renamed. Identical retries reuse
 the committed result.
 
-Redis contains only latest-result caches (`quant:market_regime:*`,
-`quant:sector_ranking:*`, `quant:ranking:*`, `quant:portfolio:*`,
-and `quant:signal:*`). Cache failures are warnings; PostgreSQL rows remain authoritative.
+Quant ranking and target-portfolio queries read PostgreSQL directly; Quant no <!-- pragma: allowlist secret -->
+longer writes a separate Redis result cache.

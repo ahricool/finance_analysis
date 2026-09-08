@@ -56,7 +56,6 @@ def _write_minimal_dataset(root: Path) -> None:
                 "symbols": ["A.US"],
                 "benchmark_codes": ["QQQ.US"],
                 "market_benchmark": "QQQ.US",
-                "sector_benchmark_mapping": {},
             }
         )
     )

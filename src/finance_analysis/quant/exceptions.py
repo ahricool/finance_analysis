@@ -37,10 +37,6 @@ class BenchmarkDataMissingError(QuantError):
     pass
 
 
-class EventProviderUnavailableError(QuantError):
-    pass
-
-
 class PredictionFailedError(QuantError):
     pass
 

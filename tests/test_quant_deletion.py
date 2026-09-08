@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 
 from finance_analysis.database.models.quant import (
     ModelDefinition,
-    ModelPrediction,
     ModelPublication,
     ModelRun,
     QuantDatasetSnapshot,
@@ -60,7 +59,6 @@ def _database() -> SqliteManager:
         ModelDefinition.__table__,
         ModelRun.__table__,
         ModelPublication.__table__,
-        ModelPrediction.__table__,
     ):
         table.create(database.engine)
     with Session(database.engine) as session:
@@ -136,27 +134,14 @@ def test_dataset_deletion_rejects_active_and_referenced_snapshots() -> None:
         assert session.get(QuantDatasetSnapshot, 2) is not None
 
 
-def test_model_run_deletion_removes_publication_predictions_and_then_allows_dataset_delete() -> None:
+def test_model_run_deletion_removes_publication_and_then_allows_dataset_delete() -> None:
     database = _database()
     with Session(database.engine) as session:
         session.add(_dataset(2))
         session.flush()
         session.add(_model_run(10, 2, "retired"))
         session.flush()
-        session.add_all(
-            [
-                ModelPublication(id=1, model_run_id=10, published_by=1, reason="superseded"),
-                ModelPrediction(
-                    id=1,
-                    model_run_id=10,
-                    trade_date=date(2026, 1, 2),
-                    instrument_id=1,
-                    code="AAPL.US",
-                    raw_prediction=0.1,
-                    normalized_score=0.2,
-                ),
-            ]
-        )
+        session.add(ModelPublication(id=1, model_run_id=10, published_by=1, reason="superseded"))
         session.commit()
     repository = QuantRepository(database)
 
@@ -168,7 +153,6 @@ def test_model_run_deletion_removes_publication_predictions_and_then_allows_data
     with Session(database.engine) as session:
         assert session.get(ModelRun, 10) is None
         assert session.execute(select(ModelPublication)).scalar_one_or_none() is None
-        assert session.execute(select(ModelPrediction)).scalar_one_or_none() is None
         assert session.get(QuantDatasetSnapshot, 2) is None
 
 

@@ -7,13 +7,6 @@ import pandas as pd
 import pytest
 
 from finance_analysis.database.models.quant import QUANT_TABLES
-from finance_analysis.quant.features.daily import (
-    add_relative_strength,
-    build_daily_features,
-    build_forward_excess_label,
-)
-from finance_analysis.quant.models.splits import WalkForwardConfig, walk_forward_splits
-from finance_analysis.quant.portfolio.backtest import BacktestCostConfig, run_topk_backtest
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
 from finance_analysis.quant.regime.service import MarketRegimeService
 from finance_analysis.quant.signals.fusion import SignalFusion
@@ -36,36 +29,11 @@ def daily_frame(count=90, start="2025-01-01", drift=1.0):
 
 def test_quant_schema_uses_canonical_market_tables_only():
     names = {model.__tablename__ for model in QUANT_TABLES}
-    assert len(names) == 13
+    assert len(names) == 8
     assert not names & {"security_master", "daily_bar", "minute_bar"}
     foreign_keys = {str(fk.target_fullname) for model in QUANT_TABLES for fk in model.__table__.foreign_keys}
     assert "instrument.id" in foreign_keys
     assert "universe.id" in foreign_keys
-
-
-def test_daily_features_are_backward_looking_and_correct():
-    bars = daily_frame()
-    result = build_daily_features(bars)
-    assert result.loc[20, "ret_20d"] == pytest.approx(bars.close.iloc[20] / bars.close.iloc[0] - 1)
-    assert result.loc[19, "price_ma20_ratio"] == pytest.approx(bars.close.iloc[19] / bars.close.iloc[:20].mean() - 1)
-    assert result.loc[13, "atr_14"] > 0
-    changed = bars.copy()
-    changed.loc[89, "close"] = 9999
-    assert build_daily_features(changed).loc[70, "ret_20d"] == result.loc[70, "ret_20d"]
-
-
-def test_relative_strength_and_forward_label_use_exact_window():
-    stock, market, sector = daily_frame(drift=2), daily_frame(drift=1), daily_frame(drift=0.5)
-    result = add_relative_strength(build_daily_features(stock), market, sector)
-    expected = stock.close.iloc[-1] / stock.close.iloc[-21] - market.close.iloc[-1] / market.close.iloc[-21]
-    assert result.iloc[-1].relative_20d_to_market == pytest.approx(expected)
-    labels = build_forward_excess_label(stock, market, horizon=5)
-    expected_label = (
-        (stock.close.iloc[5] / stock.open.iloc[1] - 1) - (market.close.iloc[5] / market.open.iloc[1] - 1)
-    ) * 100
-    assert labels.iloc[0] == pytest.approx(expected_label)
-    assert labels.tail(5).isna().all()
-
 
 def test_market_regime_uses_primary_relative_to_broad_without_risk_benchmark():
     primary = daily_frame(drift=2.0)
@@ -157,60 +125,39 @@ def test_us_market_regime_keeps_qqq_spy_contract_and_returns_valid_breakdown() -
     assert 0.10 <= result.max_equity_exposure <= 0.80
 
 
-def test_walk_forward_has_purge_and_embargo_gaps():
-    config = WalkForwardConfig(train_years=1, valid_months=2, test_months=2, prediction_horizon=5, embargo_days=3)
-    splits = walk_forward_splits(pd.bdate_range("2020-01-01", "2023-01-01"), config)
-    assert splits
-    first = splits[0]
-    assert (pd.Timestamp(first["valid"][0]) - pd.Timestamp(first["train"][1])).days >= 8
-    assert first["purge_days"] == 5 and first["embargo_days"] == 3
-
-
-def test_fusion_gating_and_sector_adjustment_are_explicit():
+def test_fusion_gating_and_risk_penalty_are_explicit():
     fused = SignalFusion().fuse(0.8, 0.7, "neutral", risk_penalty=0.1)
-    assert fused.raw_final_score == pytest.approx(0.8 * 0.60 + 0.7 * 0.40 - 0.1)
-    assert fused.gated_final_score == pytest.approx(fused.raw_final_score * 0.7)
-    strong_sector = SignalFusion().fuse(0.8, 0.7, "neutral", sector_score=0.9, risk_penalty=0.1)
-    weak_sector = SignalFusion().fuse(0.8, 0.7, "neutral", sector_score=0.1, risk_penalty=0.1)
-    assert strong_sector.raw_final_score > weak_sector.raw_final_score
-    assert strong_sector.score_components["sector_contribution"] == pytest.approx(0.04)
+    expected_pre_regime = 0.8 * 0.60 + 0.7 * 0.40 - 0.1
+    assert fused.final_score == pytest.approx(expected_pre_regime * 0.7)
+    assert fused.score_components["pre_regime_score"] == pytest.approx(expected_pre_regime)
+    assert fused.score_components["regime_multiplier"] == pytest.approx(0.7)
 
 
-def test_portfolio_respects_veto_single_stock_and_sector_caps():
+def test_portfolio_is_a_ranked_target_allocation_with_single_stock_caps():
     signals = [
         {
             "code": f"S{i}.US",
             "instrument_id": i,
             "final_score": 1 - i * 0.05,
-            "sector_key": "semiconductor",
             "signal": "buy",
             "reasons": [],
-            "vetoed": i == 0,
             "has_sufficient_data": True,
             "liquidity": 2_000_000,
         }
         for i in range(8)
     ]
     result = PortfolioBuilder().build(signals, 0.8)
-    assert all(item["code"] != "S0.US" or item["action"] == "blocked" for item in result["items"])
+    assert [item["rank"] for item in result["items"]] == [1, 2, 3, 4, 5]
     assert all(item["target_weight"] <= 0.08 for item in result["items"])
-    assert (
-        sum(item["target_weight"] for item in result["items"] if item["sector_key"] == "semiconductor") <= 0.30 + 1e-9
-    )
-
-
-def test_backtest_uses_next_open_and_costs():
-    bars = pd.DataFrame(
-        {
-            "code": ["A.US"] * 3,
-            "date": pd.date_range("2025-01-01", periods=3).date,
-            "open": [10, 20, 30],
-            "close": [11, 22, 33],
+    assert result["target_equity_exposure"] == pytest.approx(0.4)
+    assert all("current_weight" not in item and "action" not in item for item in result["items"])
+    assert all(
+        item["constraints"]
+        == {
+            "limits": {
+                "single_stock_max_weight": 0.08,
+                "max_equity_exposure": 0.8,
+            }
         }
+        for item in result["items"]
     )
-    predictions = pd.DataFrame({"code": ["A.US"], "date": [bars.date.iloc[0]], "score": [1.0]})
-    benchmark = pd.DataFrame({"date": bars.date, "close": [100, 100, 100]})
-    result = run_topk_backtest(
-        predictions, bars, benchmark, top_k=1, costs=BacktestCostConfig(commission_bps=0, slippage_bps=0)
-    )
-    assert next(iter(result["daily_returns"].values())) == pytest.approx(22 / 20 - 1)

@@ -93,45 +93,31 @@ class RegimeConfig:
 class FusionConfig:
     cross_section_weight: float = 0.60
     time_series_weight: float = 0.40
-    sector_weight: float = 0.10
     regime_multipliers: dict[str, float] = field(
         default_factory=lambda: {"risk_on": 1.0, "neutral": 0.7, "risk_off": 0.3}
-    )
-    regime_position_limits: dict[str, float] = field(
-        default_factory=lambda: {"risk_on": 0.08, "neutral": 0.05, "risk_off": 0.02}
     )
 
     def validate(self) -> None:
         total = self.cross_section_weight + self.time_series_weight
         if abs(total - 1.0) > 1e-9:
             raise ValueError(f"Fusion weights must sum to 1, got {total}")
-        if not 0 <= self.sector_weight <= 1:
-            raise ValueError("sector_weight must be between 0 and 1")
 
 
 @dataclass(frozen=True)
 class PortfolioConfig:
     buy_top_k: int = 5
-    watch_top_k: int = 10
-    hold_rank_threshold: int = 15
-    sell_rank_threshold: int = 20
     single_stock_max_weight: float = 0.08
-    sector_max_weight: float = 0.30
     minimum_liquidity: float = 1_000_000
-    maximum_daily_new_exposure: float = 0.20
-    maximum_daily_turnover: float = 0.30
     weighting: str = "equal_weight"
 
 
 @dataclass(frozen=True)
 class QuantConfig:
-    feature_version: str = "daily-v1"
+    feature_version: str = "alpha158-v1"
     regime_model_version: str = "regime-rules-v2"
-    sector_model_version: str = "sector-rules-v1"
     artifact_root: Path = field(
         default_factory=lambda: Path(os.getenv("QUANT_ARTIFACT_ROOT", get_data_dir() / "quant"))
     )
-    cache_ttl_seconds: int = field(default_factory=lambda: int(os.getenv("QUANT_CACHE_TTL_SECONDS", "86400")))
     minimum_universe_coverage: float = field(
         default_factory=lambda: _ratio("QUANT_MIN_UNIVERSE_COVERAGE", 0.90)
     )

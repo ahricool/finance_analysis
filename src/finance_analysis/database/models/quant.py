@@ -71,7 +71,6 @@ class MarketRegimeSnapshot(Base):
     regime = Column(String(16), nullable=False)
     market_score = Column(Float, nullable=False)
     max_equity_exposure = Column(Float, nullable=False)
-    sector_permissions = Column(JSONB, nullable=False, default=json_object)
     features = Column(JSONB, nullable=False, default=json_object)
     reasons = Column(JSONB, nullable=False, default=json_array)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
@@ -79,121 +78,6 @@ class MarketRegimeSnapshot(Base):
         UniqueConstraint("market", "trade_date", "model_version", name="uix_market_regime_version"),
         CheckConstraint("regime IN ('risk_on','neutral','risk_off')", name="ck_market_regime_state"),
         Index("ix_market_regime_latest", "market", "trade_date"),
-    )
-
-
-class SectorRegimeSnapshot(Base):
-    __tablename__ = "sector_regime_snapshot"
-    id = Column(BigInteger, primary_key=True)
-    market = Column(String(8), nullable=False)
-    trade_date = Column(Date, nullable=False)
-    sector_key = Column(String(64), nullable=False)
-    benchmark_code = Column(String(32), nullable=False)
-    model_version = Column(String(64), nullable=False)
-    sector_score = Column(Float, nullable=False)
-    rank = Column(Integer, nullable=False)
-    state = Column(String(16), nullable=False)
-    features = Column(JSONB, nullable=False, default=json_object)
-    generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    __table_args__ = (
-        UniqueConstraint("market", "trade_date", "sector_key", "model_version", name="uix_sector_regime_version"),
-        CheckConstraint("state IN ('strong','neutral','weak','blocked')", name="ck_sector_regime_state"),
-        Index("ix_sector_regime_latest", "market", "trade_date", "rank"),
-    )
-
-
-class MarketEvent(Base):
-    __tablename__ = "market_event"
-    id = Column(BigInteger, primary_key=True)
-    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="RESTRICT"))
-    code = Column(String(32))
-    market = Column(String(8), nullable=False)
-    event_type = Column(String(40), nullable=False)
-    published_at = Column(DateTime(timezone=True), nullable=False)
-    effective_at = Column(DateTime(timezone=True))
-    available_at = Column(DateTime(timezone=True), nullable=False)
-    direction = Column(String(16), nullable=False)
-    importance = Column(Float, nullable=False)
-    confidence = Column(Float, nullable=False)
-    surprise_value = Column(Float)
-    source = Column(String(64), nullable=False)
-    source_event_id = Column(String(160), nullable=False)
-    title = Column(Text, nullable=False)
-    summary = Column(Text)
-    raw_content = Column(Text)
-    raw_payload = Column(JSONB, nullable=False, default=json_object)
-    dedupe_key = Column(String(64), nullable=False, unique=True)
-    review_status = Column(String(16), nullable=False, default="reviewed")
-    extractor_model = Column(String(128))
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
-    instrument = relationship("Instrument")
-    __table_args__ = (
-        UniqueConstraint("source", "source_event_id", name="uix_market_event_source_id"),
-        CheckConstraint("direction IN ('positive','negative','neutral')", name="ck_market_event_direction"),
-        CheckConstraint("importance BETWEEN 0 AND 1", name="ck_market_event_importance"),
-        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_market_event_confidence"),
-        Index("ix_market_event_available", "market", "available_at"),
-        Index("ix_market_event_symbol_published", "instrument_id", "published_at"),
-    )
-
-
-class EventFeatureDaily(Base):
-    __tablename__ = "event_feature_daily"
-    id = Column(BigInteger, primary_key=True)
-    trade_date = Column(Date, nullable=False)
-    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="CASCADE"), nullable=False)
-    feature_version = Column(String(64), nullable=False)
-    earnings_surprise = Column(Float)
-    revenue_surprise = Column(Float)
-    guidance_change = Column(Float)
-    rating_change = Column(Float)
-    target_price_change = Column(Float)
-    buyback_score = Column(Float)
-    offering_score = Column(Float)
-    regulatory_score = Column(Float)
-    litigation_score = Column(Float)
-    positive_event_count_3d = Column(Integer, nullable=False, default=0)
-    negative_event_count_3d = Column(Integer, nullable=False, default=0)
-    event_score = Column(Float, nullable=False, default=0)
-    negative_event_veto = Column(Boolean, nullable=False, default=False)
-    feature_payload = Column(JSONB, nullable=False, default=json_object)
-    generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    __table_args__ = (
-        UniqueConstraint("trade_date", "instrument_id", "feature_version", name="uix_event_feature_daily"),
-    )
-
-
-class DailyFeatureSnapshot(Base):
-    __tablename__ = "daily_feature_snapshot"
-    id = Column(BigInteger, primary_key=True)
-    trade_date = Column(Date, nullable=False)
-    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="CASCADE"), nullable=False)
-    feature_version = Column(String(64), nullable=False)
-    ret_1d = Column(Float)
-    ret_5d = Column(Float)
-    ret_20d = Column(Float)
-    ret_60d = Column(Float)
-    price_ma20_ratio = Column(Float)
-    price_ma60_ratio = Column(Float)
-    volume_ratio_5d = Column(Float)
-    atr_14 = Column(Float)
-    realized_vol_20d = Column(Float)
-    distance_from_20d_high = Column(Float)
-    gap_return = Column(Float)
-    rsi_14 = Column(Float)
-    relative_5d_to_market = Column(Float)
-    relative_20d_to_market = Column(Float)
-    relative_5d_to_sector = Column(Float)
-    relative_20d_to_sector = Column(Float)
-    market_score = Column(Float)
-    sector_score = Column(Float)
-    event_score = Column(Float)
-    features = Column(JSONB, nullable=False, default=json_object)
-    generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    __table_args__ = (
-        UniqueConstraint("trade_date", "instrument_id", "feature_version", name="uix_daily_feature_snapshot"),
-        Index("ix_daily_feature_date", "trade_date", "feature_version"),
     )
 
 
@@ -281,27 +165,6 @@ class ModelPublication(Base):
     published_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
-class ModelPrediction(Base):
-    __tablename__ = "model_prediction"
-    id = Column(BigInteger, primary_key=True)
-    model_run_id = Column(BigInteger, ForeignKey("model_run.id", ondelete="CASCADE"), nullable=False)
-    trade_date = Column(Date, nullable=False)
-    instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="RESTRICT"), nullable=False)
-    code = Column(String(32), nullable=False)
-    raw_prediction = Column(Float, nullable=False)
-    normalized_score = Column(Float, nullable=False)
-    predicted_return = Column(Float)
-    universe_rank = Column(Integer)
-    sector_rank = Column(Integer)
-    actual_return = Column(Float)
-    actual_excess_return = Column(Float)
-    evaluation_status = Column(String(20))
-    features_digest = Column(String(64))
-    explanation = Column(JSONB, nullable=False, default=json_object)
-    generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    __table_args__ = (UniqueConstraint("model_run_id", "trade_date", "instrument_id", name="uix_model_prediction"),)
-
-
 class ModelSignal(Base):
     __tablename__ = "model_signal"
     id = Column(BigInteger, primary_key=True)
@@ -312,21 +175,13 @@ class ModelSignal(Base):
     universe_id = Column(Integer, ForeignKey("universe.id", ondelete="RESTRICT"), nullable=False)
     model_version = Column(String(96), nullable=False)
     market_score = Column(Float)
-    sector_score = Column(Float)
-    event_score = Column(Float)
     time_series_score = Column(Float)
     cross_section_score = Column(Float)
     risk_penalty = Column(Float, nullable=False, default=0)
-    raw_final_score = Column(Float, nullable=False)
-    gated_final_score = Column(Float, nullable=False)
     final_score = Column(Float, nullable=False)
     universe_rank = Column(Integer)
-    sector_rank = Column(Integer)
     predicted_return = Column(Float)
     signal = Column(String(16), nullable=False)
-    target_position = Column(Float, nullable=False, default=0)
-    vetoed = Column(Boolean, nullable=False, default=False)
-    veto_reason = Column(Text)
     reasons = Column(JSONB, nullable=False, default=json_array)
     score_components = Column(JSONB, nullable=False, default=json_object)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
@@ -372,13 +227,8 @@ class PortfolioRecommendationItem(Base):
     )
     instrument_id = Column(Integer, ForeignKey("instrument.id", ondelete="RESTRICT"), nullable=False)
     code = Column(String(32), nullable=False)
-    sector_key = Column(String(64))
     rank = Column(Integer, nullable=False)
-    previous_rank = Column(Integer)
-    action = Column(String(16), nullable=False)
-    current_weight = Column(Float, nullable=False, default=0)
     target_weight = Column(Float, nullable=False, default=0)
-    weight_change = Column(Float, nullable=False, default=0)
     final_score = Column(Float, nullable=False)
     predicted_return = Column(Float)
     signal = Column(String(16), nullable=False)
@@ -387,23 +237,15 @@ class PortfolioRecommendationItem(Base):
     recommendation = relationship("PortfolioRecommendation", back_populates="items")
     __table_args__ = (
         UniqueConstraint("recommendation_id", "instrument_id", name="uix_portfolio_item"),
-        CheckConstraint(
-            "action IN ('buy','increase','hold','reduce','sell','watch','blocked')", name="ck_portfolio_item_action"
-        ),
     )
 
 
 QUANT_TABLES = (
     QuantDatasetSnapshot,
     MarketRegimeSnapshot,
-    SectorRegimeSnapshot,
-    MarketEvent,
-    EventFeatureDaily,
-    DailyFeatureSnapshot,
     ModelDefinition,
     ModelRun,
     ModelPublication,
-    ModelPrediction,
     ModelSignal,
     PortfolioRecommendation,
     PortfolioRecommendationItem,

@@ -1,4 +1,4 @@
-"""Compute and persist one point-in-time, market-scoped daily research snapshot."""
+"""Build the market regime and ephemeral portfolio context for one trading day."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.quant.exceptions import BenchmarkDataMissingError, FeatureDataMissingError
-from finance_analysis.quant.features.daily import add_relative_strength, build_daily_features
 from finance_analysis.quant.markets import (
     get_quant_market_config,
     get_universe_codes,
@@ -131,62 +130,15 @@ class DailyResearchService:
                 "regime": market_result.regime,
                 "market_score": market_result.market_score,
                 "max_equity_exposure": market_result.max_equity_exposure,
-                "sector_permissions": market_result.sector_permissions,
                 "features": market_result.features,
                 "reasons": market_result.reasons,
             }
         )
 
-        daily_values = []
+        runtime_context = {}
         for code in eligible_codes:
-            symbol = symbols_by_code[code]
             bars = member_frames[code]
-            features = add_relative_strength(
-                build_daily_features(bars),
-                frames[market_config.primary_benchmark],
-                frames[market_config.primary_benchmark],
-            ).iloc[-1]
-            portfolio_metadata = self._portfolio_metadata(bars, features, trade_date)
-            explicit = {
-                key: None if pd.isna(features.get(key)) else float(features[key])
-                for key in (
-                    "ret_1d",
-                    "ret_5d",
-                    "ret_20d",
-                    "ret_60d",
-                    "price_ma20_ratio",
-                    "price_ma60_ratio",
-                    "volume_ratio_5d",
-                    "atr_14",
-                    "realized_vol_20d",
-                    "distance_from_20d_high",
-                    "gap_return",
-                    "rsi_14",
-                    "relative_5d_to_market",
-                    "relative_20d_to_market",
-                    "relative_5d_to_sector",
-                    "relative_20d_to_sector",
-                )
-            }
-            daily_values.append(
-                {
-                    "trade_date": trade_date,
-                    "instrument_id": symbol.id,
-                    "feature_version": self.config.feature_version,
-                    **explicit,
-                    "market_score": market_result.market_score,
-                    "sector_score": None,
-                    "features": {
-                        "market": market_config.market,
-                        "sector_key": None,
-                        "sector_benchmark_code": None,
-                        "sector_proxy_code": market_config.primary_benchmark,
-                        "daily_price_semantics": "forward_adjusted",
-                        **portfolio_metadata,
-                    },
-                }
-            )
-        self.repository.save_daily_features(daily_values)
+            runtime_context[code] = self._portfolio_metadata(bars, trade_date)
         skipped_codes = sorted(universe_codes - set(eligible_codes))
         warnings = []
         if skipped_codes:
@@ -198,8 +150,8 @@ class DailyResearchService:
             )
         return {
             "market_regime": regime,
-            "sectors": [],
-            "feature_count": len(daily_values),
+            "context_count": len(runtime_context),
+            "runtime_context": runtime_context,
             "eligible_codes": eligible_codes,
             "coverage": {
                 "universe_members": len(universe_codes),
@@ -215,7 +167,7 @@ class DailyResearchService:
         }
 
     @staticmethod
-    def _portfolio_metadata(bars: pd.DataFrame, features: pd.Series, trade_date: date) -> dict:
+    def _portfolio_metadata(bars: pd.DataFrame, trade_date: date) -> dict:
         ordered = bars.sort_values("date").reset_index(drop=True)
         close = pd.to_numeric(ordered["close"], errors="coerce")
         volume = pd.to_numeric(ordered["volume"], errors="coerce")
@@ -227,22 +179,19 @@ class DailyResearchService:
         turnover = amount.where(amount > 0, close * volume)
         recent_turnover = turnover.tail(20).dropna()
         liquidity = float(recent_turnover.mean()) if not recent_turnover.empty else 0.0
-        realized_volatility = features.get("realized_vol_20d")
-        if pd.isna(realized_volatility):
-            realized_volatility = close.pct_change().tail(20).std(ddof=1) * math.sqrt(252)
-        risk_penalty = 0.15 if pd.isna(realized_volatility) else min(0.15, max(0.0, float(realized_volatility)) * 0.10)
-        required_features = (
-            "ret_60d",
-            "price_ma60_ratio",
-            "realized_vol_20d",
-            "relative_20d_to_market",
-            "relative_20d_to_sector",
+        recent_returns = close.pct_change().tail(20).dropna()
+        realized_volatility = (
+            float(recent_returns.std(ddof=1) * math.sqrt(252))
+            if len(recent_returns) >= 20
+            else float("nan")
         )
+        risk_penalty = 0.15 if pd.isna(realized_volatility) else min(0.15, max(0.0, float(realized_volatility)) * 0.10)
         latest_date = pd.Timestamp(ordered["date"].iloc[-1]).date()
         has_sufficient_data = (
             len(ordered) >= 61
             and latest_date == trade_date
-            and all(pd.notna(features.get(key)) for key in required_features)
+            and pd.notna(close.iloc[-1])
+            and pd.notna(realized_volatility)
         )
         return {
             "has_sufficient_data": bool(has_sufficient_data),

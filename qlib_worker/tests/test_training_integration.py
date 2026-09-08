@@ -62,7 +62,6 @@ def _dataset(root: Path, periods: int = 650) -> str:
                 "symbols": ["A.US", "B.US", "C.US"],
                 "benchmark_codes": ["QQQ.US"],
                 "market_benchmark": "QQQ.US",
-                "sector_benchmark_mapping": {},
                 "warnings": [],
             }
         ),

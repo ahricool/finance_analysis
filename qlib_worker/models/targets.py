@@ -13,7 +13,7 @@ import pandas as pd
 @dataclass(frozen=True)
 class TargetConfig:
     prediction_horizon: int = 5
-    benchmark: str = "sector_or_market"
+    benchmark: str = "market"
     entry_price: str = "open"
     exit_price: str = "close"
     excess_return: bool = True
@@ -36,10 +36,8 @@ class TargetConfig:
             raise ValueError("prediction_horizon must be positive")
         if config.entry_price not in {"open", "close"} or config.exit_price not in {"open", "close"}:
             raise ValueError("entry_price and exit_price must be open or close")
-        if config.benchmark not in {"sector_or_market", "sector_or_qqq", "market", "sector", "none"}:
-            raise ValueError(
-                "benchmark must be sector_or_market, sector_or_qqq, market, sector, or none"
-            )
+        if config.benchmark not in {"market", "none"}:
+            raise ValueError("benchmark must be market or none")
         return cls(**{**asdict(config), "prediction_horizon": int(config.prediction_horizon)})
 
 
@@ -50,18 +48,18 @@ def build_target(dataset: Path, manifest: dict[str, Any], config: TargetConfig) 
     grouped = {code: frame.set_index("datetime") for code, frame in bars.groupby("instrument")}
     benchmark_codes = set(manifest["benchmark_codes"])
     market_benchmark = manifest.get("market_benchmark") or next(iter(benchmark_codes), None)
-    sector_mapping = manifest.get("sector_benchmark_mapping", {})
     rows: list[tuple[pd.Timestamp, str, float]] = []
     for code, frame in grouped.items():
         if code in benchmark_codes:
             continue
         stock_return = _forward_return(frame, config)
         values = stock_return
-        if config.excess_return and config.benchmark != "none":
-            benchmark_code = _benchmark_code(code, config.benchmark, sector_mapping, market_benchmark)
-            benchmark = grouped.get(benchmark_code)
+        if config.excess_return and config.benchmark == "market":
+            if not market_benchmark:
+                raise ValueError(f"No market benchmark configured for {code}")
+            benchmark = grouped.get(market_benchmark)
             if benchmark is None:
-                raise ValueError(f"Benchmark data missing for {code}: {benchmark_code}")
+                raise ValueError(f"Market benchmark data missing for {code}: {market_benchmark}")
             values = stock_return - _forward_return(benchmark, config).reindex(stock_return.index)
         rows.extend((day, code, float(value * 100.0)) for day, value in values.items() if np.isfinite(value))
     if not rows:
@@ -77,20 +75,3 @@ def _forward_return(frame: pd.DataFrame, config: TargetConfig) -> pd.Series:
     entry = frame[config.entry_price].shift(-1)
     exit_value = frame[config.exit_price].shift(-config.prediction_horizon)
     return exit_value / entry - 1.0
-
-
-def _benchmark_code(
-    code: str,
-    benchmark: str,
-    sector_mapping: dict[str, str | None],
-    market_benchmark: str | None,
-) -> str:
-    if benchmark == "market":
-        candidate = market_benchmark
-    elif benchmark == "sector":
-        candidate = sector_mapping.get(code)
-    else:
-        candidate = sector_mapping.get(code) or market_benchmark
-    if not candidate:
-        raise ValueError(f"No benchmark configured for {code}")
-    return candidate

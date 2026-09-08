@@ -3,7 +3,7 @@ import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import type { QuantSignal } from '@/types/quant';
-import { formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
+import { formatPredictedReturn, formatScore } from '@/utils/quant';
 import { formatSecurityLabel } from '@/utils/security';
 import { ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -51,19 +51,15 @@ watch(
         </h2>
         <p class="text-xs text-muted-foreground">
           排名 {{ item.universeRank ?? '—' }} · {{ item.signal }} · 预测
-          {{ formatPredictedReturn(item.predictedReturn) }} · 目标
-          {{ formatPercent(item.targetPosition) }}
+          {{ formatPredictedReturn(item.predictedReturn) }}
         </p>
       </header>
       <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div
           v-for="row in [
             ['最终得分', item.finalScore],
-            ['原始得分', item.rawFinalScore],
-            ['门控得分', item.gatedFinalScore],
             ['风险惩罚', item.riskPenalty],
             ['市场', item.marketScore],
-            ['行业', item.sectorScore],
             ['横截面', item.crossSectionScore],
             ['时间序列', item.timeSeriesScore],
           ]"

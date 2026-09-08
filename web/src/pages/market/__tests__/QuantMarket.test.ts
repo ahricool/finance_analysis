@@ -10,7 +10,6 @@ vi.mock('@/api/quant', () => ({
     capabilities: vi.fn(),
     marketRegime: vi.fn(),
     marketRegimeHistory: vi.fn(),
-    sectors: vi.fn(),
     signals: vi.fn(),
   },
 }));
@@ -38,7 +37,6 @@ describe('quant market context', () => {
     vi.mocked(quantApi.capabilities).mockResolvedValue(capability as never);
     vi.mocked(quantApi.marketRegime).mockRejectedValue({ response: { status: 404, data: { detail: 'missing' } } });
     vi.mocked(quantApi.marketRegimeHistory).mockResolvedValue([]);
-    vi.mocked(quantApi.sectors).mockResolvedValue([]);
     vi.mocked(quantApi.signals).mockResolvedValue({ tradeDate: null, market: 'US', universe: 'us_sp500', modelVersion: null, marketRegime: null, maxEquityExposure: null, items: [] });
   });
 

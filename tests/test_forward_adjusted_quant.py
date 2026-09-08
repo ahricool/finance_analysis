@@ -12,7 +12,6 @@ import pandas as pd
 from finance_analysis.quant.data import DailyBarLoader
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
-from finance_analysis.quant.features.daily import build_daily_features
 from finance_analysis.tasks.celery.jobs.quant_dataset import tasks as dataset_tasks
 from qlib_worker.price_modes import require_forward_adjusted_manifest
 
@@ -53,18 +52,6 @@ def test_loader_returns_stored_forward_adjusted_prices_without_second_adjustment
     }
     assert result.frame.iloc[0]["volume"] == 100.0
     assert "forward_adjustment_factor" not in result.frame.columns
-
-
-def test_forward_adjusted_company_action_series_does_not_create_false_returns() -> None:
-    days = [date(2026, 7, 15), date(2026, 7, 16), date(2026, 7, 17)]
-    frame = (
-        DailyBarLoader(BarRepository([_row("AAPL.US", day, 50.0) for day in days]))
-        .load("US", {"AAPL.US"}, days[0], days[-1])
-        .frame
-    )
-    features = build_daily_features(frame.rename(columns={"datetime": "date"}))
-
-    assert features.iloc[-1]["ret_1d"] == 0.0
 
 
 class ExportRepository(BarRepository):

@@ -64,7 +64,7 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
   database/                ORM、仓储、连接、启动迁移和种子数据
   tasks/                   Celery 应用、任务生命周期、队列、周期定义与 jobs
   market_stream/           独立 Longbridge streamer、订阅、预热、趋势/形态
-  quant/                   数据集导出、研究特征、信号融合和组合构建
+ quant/                   Qlib 数据集导出、市场状态、信号融合和目标组合构建
   etf_rotation/            ETF 动量轮动领域模型与服务
   trend_following/         多市场趋势跟踪领域模型与服务
   market_review/           市场复盘、交易日历、运行时配置
@@ -150,7 +150,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - LLM/Agent：`LLM_*`、`AGENT_*`；统一调用在 `llm/`，不要在业务模块直接创建厂商 SDK client。
 - 搜索：`ANSPIRE_*`、`BOCHA_*`、`MINIMAX_*`、`TAVILY_*`、`BRAVE_*`、`SERPAPI_*`、`SEARXNG_*`。
 - 行情：`TICKFLOW_*`、`LONGBRIDGE_*`、`MARKET_DATA_*`、`REALTIME_REDIS_URL`、`MARKET_STREAM_*`。
-- 量化：`QUANT_ARTIFACT_ROOT`、`QUANT_CACHE_TTL_SECONDS`、`QUANT_MIN_UNIVERSE_COVERAGE`。
+- 量化：`QUANT_ARTIFACT_ROOT`、`QUANT_MIN_UNIVERSE_COVERAGE`。
 - 通知：`TELEGRAM_*`、`EMAIL_*`、`NTFY_*`、`CUSTOM_WEBHOOK_*`、`ASTRBOT_*`。
 
 以各领域 `config.py` 与 `.env.example` 为准。不要提交 `.env`、token、数据库密码或真实通知地址。

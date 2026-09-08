@@ -1,4 +1,4 @@
-"""Config-driven model score fusion, market gating and risk penalty."""
+"""Fuse Qlib model scores with market gating and a runtime risk penalty."""
 
 from __future__ import annotations
 
@@ -9,13 +9,8 @@ from finance_analysis.quant.config import FusionConfig
 
 @dataclass(frozen=True)
 class FusedSignal:
-    raw_final_score: float
-    gated_final_score: float
     final_score: float
-    target_position: float
     signal: str
-    vetoed: bool
-    veto_reason: str | None
     score_components: dict
     reasons: list[str]
 
@@ -30,41 +25,40 @@ class SignalFusion:
         time_series_score: float,
         market_regime: str,
         market_score: float | None = None,
-        sector_score: float | None = None,
         risk_penalty: float = 0,
     ) -> FusedSignal:
-        sector_contribution = (
-            (float(sector_score) - 0.5) * self.config.sector_weight
-            if sector_score is not None
-            else 0.0
+        pre_regime_score = (
+            cross_section_score * self.config.cross_section_weight
+            + time_series_score * self.config.time_series_weight
+            - risk_penalty
         )
+        regime_multiplier = self.config.regime_multipliers[market_regime]
+        final_score = pre_regime_score * regime_multiplier
         components = {
             "cross_section_score": cross_section_score,
             "time_series_score": time_series_score,
             "cross_section_weight": self.config.cross_section_weight,
             "time_series_weight": self.config.time_series_weight,
-            "sector_weight": self.config.sector_weight,
-            "sector_contribution": sector_contribution,
             "risk_penalty": risk_penalty,
             "market_score": market_score,
-            "sector_score": sector_score,
+            "market_regime": market_regime,
+            "pre_regime_score": pre_regime_score,
+            "regime_multiplier": regime_multiplier,
         }
-        raw = (
-            cross_section_score * self.config.cross_section_weight
-            + time_series_score * self.config.time_series_weight
-            + sector_contribution
-            - risk_penalty
-        )
-        gated = raw * self.config.regime_multipliers[market_regime]
         reasons = [
             f"横截面得分 {cross_section_score:.2f}",
             f"时间序列得分 {time_series_score:.2f}",
             f"市场状态 {market_regime}",
         ]
-        if sector_score is not None:
-            reasons.append(f"板块得分 {sector_score:.2f}")
         if risk_penalty:
             reasons.append(f"风险扣分 {risk_penalty:.2f}")
-        signal = "buy" if gated >= .65 else "watch" if gated >= .50 else "reduce" if gated < .35 else "hold"
-        position = self.config.regime_position_limits[market_regime] if signal == "buy" else 0
-        return FusedSignal(raw, gated, gated, position, signal, False, None, components, reasons)
+        signal = (
+            "buy"
+            if final_score >= 0.65
+            else "watch"
+            if final_score >= 0.50
+            else "avoid"
+            if final_score < 0.35
+            else "hold"
+        )
+        return FusedSignal(final_score, signal, components, reasons)
