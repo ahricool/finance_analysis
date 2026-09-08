@@ -330,18 +330,18 @@ test.describe('web smoke', () => {
     }
   });
 
-  test('timeline note composer and filters are operable', async ({ page }) => {
+  test('timeline filters stay on one row of equal-height controls', async ({ page }) => {
     await mockAuthenticatedSession(page);
     await page.goto('/timeline');
     await page.getByRole('button', { name: '美股', exact: true }).click();
-    await page.getByLabel('重要度', { exact: true }).selectOption('high');
-    await page.getByTestId('add-note').click();
-    const dialog = page.getByRole('dialog', { name: '新增笔记' });
-    await expect(dialog).toBeVisible();
-    await dialog.getByLabel('标题', { exact: true }).fill('观察需求变化');
-    await dialog.getByLabel('笔记内容').fill('等待财报验证');
-    await dialog.getByRole('button', { name: '保存笔记' }).click();
-    await expect(dialog).toBeHidden();
+    for (const label of ['全部', '财报', '宏观', '新闻', '市场分析']) {
+      await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible();
+    }
+    await expect(page.getByRole('button', { name: '笔记', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '财经事件', exact: true })).toHaveCount(0);
+    const marketButton = await page.getByRole('button', { name: '美股', exact: true }).boundingBox();
+    const datePicker = await page.getByRole('button', { name: '截止日期' }).boundingBox();
+    expect(marketButton?.height).toBe(datePicker?.height);
   });
 
   test('settings and theme navigation entries are removed after login', async ({ page }) => {
@@ -354,10 +354,11 @@ test.describe('web smoke', () => {
 
 test('investment feed shows individual items and report details across viewports', async ({ page }) => {
   await mockAuthenticatedSession(page);
-  const base = { market: 'US', related_symbols: ['NVDA', 'AMD'], symbol: null, actionability: 'watch', impact: null, impact_score: null, importance_score: null, event_type: null };
+  const base = { market: 'US', related_symbols: ['NVDA', 'AMD'], symbol: null, calendar_type: null, actionability: 'watch', impact: null, impact_score: null, importance_score: null, event_type: null };
   const items = [
+    { ...base, id: 'finance_event:6', source_type: 'finance_event', source_id: 6, calendar_type: 'earnings', symbol: 'NVDA', related_symbols: ['NVDA'], event_time: '2026-11-18T21:00:00Z', category: 'event', title: 'NVDA 财报', summary: '', importance: 'high', importance_score: 9, detail_type: 'event', detail_payload: { counter_name: 'NVIDIA', reporting_period: 'Q3', market_session: 'amc', eps_estimate: 1.32, all_day: true, source_providers: ['longbridge', 'yfinance'] } },
     { ...base, id: 'report:1', source_type: 'report', source_id: 1, event_time: '2026-09-06T01:00:00Z', category: 'analysis', title: '美股盘前分析：关注科技股趋势与开盘风险', summary: '市场方向仍待成交确认。复核重点持仓，留意关键价位与开盘后的量能变化。', importance: 'high', actionability: 'consider', detail_type: 'report', detail_payload: { content: '# 美股盘前分析\n\n## 持仓风险\n\n等待趋势确认，避免开盘追高。' } },
-    { ...base, id: 'finance_event:2', source_type: 'finance_event', source_id: 2, related_symbols: [], event_time: '2026-09-06T00:30:00Z', category: 'event', title: '美国消费者价格指数（CPI）', summary: '关注核心通胀与利率预期的变化，以及对成长股估值的影响。', importance: 'critical', detail_type: 'event', detail_payload: { content: '美国消费者价格指数发布。' } },
+    { ...base, id: 'finance_event:2', source_type: 'finance_event', source_id: 2, calendar_type: 'macro', related_symbols: [], event_time: '2026-09-06T00:30:00Z', category: 'event', title: '美国消费者价格指数（CPI）', summary: '关注核心通胀与利率预期的变化，以及对成长股估值的影响。', importance: 'critical', detail_type: 'event', detail_payload: { content: '美国消费者价格指数发布。' } },
     { ...base, id: 'news:3', source_type: 'news', source_id: 3, event_time: '2026-09-05T23:45:00Z', category: 'news', title: 'NVIDIA 数据中心需求增长，供应链展望上调', summary: '新增订单反映需求韧性，后续关注产能交付与客户资本开支。', importance: 'critical', importance_score: 9, impact: 'bullish', impact_score: 3, detail_type: 'news', detail_payload: { source: '示例新闻', url: 'https://example.com/news', published_at: '2026-09-05T23:45:00Z', importance_reason: '需求变化影响盈利预期', watch_points: ['交付进度'], risk_notes: ['估值风险'] } },
     { ...base, id: 'report:4', source_type: 'report', source_id: 4, event_time: '2026-09-05T10:00:00Z', category: 'analysis', title: '美股收盘复盘：市场分歧与下一交易日观察', summary: '指数走势分化，防御板块相对强势。继续观察科技股能否重获资金支持。', importance: 'high', detail_type: 'report', detail_payload: { content: '# 收盘复盘' } },
     { ...base, id: 'report:5', source_type: 'report', source_id: 5, market: 'CN', related_symbols: ['600519.SH'], event_time: '2026-09-05T06:30:00Z', category: 'analysis', title: 'A股收盘前复核：尾盘风险与持仓调整', summary: '成交趋弱，优先复核持仓风险，等待板块持续性验证。', importance: 'high', actionability: 'consider', detail_type: 'report', detail_payload: { content: '# A股收盘前复核' } },
@@ -366,7 +367,8 @@ test('investment feed shows individual items and report details across viewports
   for (const width of [1280, 360]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/timeline');
-    await expect(page.getByTestId('timeline-item')).toHaveCount(5);
+    await expect(page.getByTestId('timeline-item')).toHaveCount(6);
+    await expect(page.getByTestId('timeline-item').first()).toContainText('EPS 预期 $1.32');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: `test-results/timeline-${width}.png`, fullPage: true });
   }

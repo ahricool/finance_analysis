@@ -17,10 +17,12 @@ from finance_analysis.database.models.quant import (  # pragma: allowlist secret
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_quant_simplification_is_the_single_head_and_matches_current_orm() -> None:
+def test_quant_simplification_is_in_the_single_head_chain_and_matches_current_orm() -> None:
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "alembic"))
-    assert ScriptDirectory.from_config(config).get_current_head() == "0046_simplify_quant"
+    script = ScriptDirectory.from_config(config)
+    assert script.get_current_head() == "0047_public_timeline"
+    assert "0046_simplify_quant" in {revision.revision for revision in script.walk_revisions()}
 
     table_names = {model.__tablename__ for model in QUANT_TABLES}
     assert table_names.isdisjoint(

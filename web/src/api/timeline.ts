@@ -4,39 +4,51 @@ import { getDisplayTimezone } from '@/utils/format';
 
 export type Importance = 'low' | 'normal' | 'high' | 'critical';
 export type Actionability = 'none' | 'watch' | 'consider' | 'action_required';
-export type Category = 'event' | 'news' | 'analysis' | 'note';
+export type Category = 'event' | 'news' | 'analysis';
+export type CalendarType = 'earnings' | 'macro';
+export type TimelineTab = 'all' | 'earnings' | 'macro' | 'news' | 'analysis';
+
+export interface TimelineEventPayload {
+  content?: string;
+  allDay?: boolean;
+  eventDate?: string | null;
+  counterName?: string | null;
+  marketSession?: string | null;
+  reportingPeriod?: string | null;
+  currency?: string | null;
+  provider?: string | null;
+  sourceProviders?: string[];
+  epsEstimate?: number | null;
+  reportedEps?: number | null;
+  epsSurprisePct?: number | null;
+  importanceReason?: string | null;
+  tradingDaysToEvent?: number | null;
+}
+
 export interface TimelineItem {
-  id: string; sourceType: 'finance_event' | 'news' | 'report' | 'note'; sourceId: number;
-  eventTime: string; category: Category; market: string | null; title: string; summary: string;
+  id: string; sourceType: 'finance_event' | 'news' | 'report'; sourceId: number;
+  eventTime: string; category: Category; calendarType: CalendarType | null;
+  market: string | null; title: string; summary: string;
   symbol: string | null; relatedSymbols: string[]; importance: Importance; actionability: Actionability;
   impact: string | null; impactScore: number | null; importanceScore: number | null;
-  eventType: string | null; detailType: string; detailPayload: Record<string, unknown>;
+  eventType: string | null; detailType: string;
+  detailPayload: TimelineEventPayload & Record<string, unknown>;
 }
+
 export interface TimelineQuery {
-  date?: string; start_date?: string; end_date?: string;
-  market?: string; category?: Category; importance?: Importance; actionability?: Actionability;
+  /** Cutoff: keep everything up to the end of this day in the display timezone. */
+  end_date?: string;
+  market?: string; category?: Category; calendar_type?: CalendarType;
   cursor?: string; limit?: number;
 }
-export interface TimelineSummary {
-  date: string; total: number; critical: number; high: number;
-  eventCount: number; newsCount: number; analysisCount: number; noteCount: number;
+
+export interface TimelineListResponse {
+  items: TimelineItem[]; total: number; nextCursor: string | null; hasMore: boolean; limit: number;
 }
-export interface NoteInput {
-  event_time: string; title: string; summary: string; content: string; market: 'CN' | 'US' | null;
-  importance: Importance; actionability: Actionability; related_symbols: string[];
-}
+
 export const timelineApi = {
   async list(query: TimelineQuery) {
     const { data } = await apiClient.get('/api/v1/timeline', { params: { ...query, timezone: getDisplayTimezone() } });
-    return toCamelCase<{ items: TimelineItem[]; total: number; nextCursor: string | null; hasMore: boolean; limit: number }>(data);
+    return toCamelCase<TimelineListResponse>(data);
   },
-  async summary(query: TimelineQuery) {
-    const { data } = await apiClient.get('/api/v1/timeline/summary', { params: { ...query, timezone: getDisplayTimezone() } });
-    return toCamelCase<TimelineSummary[]>(data);
-  },
-  async saveNote(note: NoteInput, id?: number) {
-    if (id !== undefined) await apiClient.put(`/api/v1/timeline/notes/${id}`, note);
-    else await apiClient.post('/api/v1/timeline/notes', note);
-  },
-  async deleteNote(id: number) { await apiClient.delete(`/api/v1/timeline/notes/${id}`); },
 };

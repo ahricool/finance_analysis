@@ -1,4 +1,4 @@
-"""Opaque, stateless position in the investment feed's three-part ordering."""
+"""Opaque, stateless position in the public timeline's three-part ordering."""
 
 import base64
 import json
@@ -38,7 +38,7 @@ class TimelineCursor:
             timestamp = datetime.fromisoformat(payload["event_time"])
             if timestamp.tzinfo is None or timestamp.utcoffset() is None:
                 raise ValueError("Timestamp must include timezone")
-            if payload["source_type"] not in ("finance_event", "news", "report", "note"):
+            if payload["source_type"] not in ("finance_event", "news", "report"):
                 raise ValueError("Invalid source")
             if type(payload["source_id"]) is not int or not 0 < payload["source_id"] <= 2147483647:
                 raise ValueError("Invalid source id")

@@ -1,4 +1,4 @@
-"""Public investment DTOs, independent of storage layout."""
+"""Public market timeline DTOs, independent of storage layout."""
 
 from datetime import datetime
 from typing import Any, Literal
@@ -7,15 +7,17 @@ from pydantic import BaseModel, Field
 
 Importance = Literal["low", "normal", "high", "critical"]
 Actionability = Literal["none", "watch", "consider", "action_required"]
-Category = Literal["event", "news", "analysis", "note"]
+Category = Literal["event", "news", "analysis"]
+CalendarType = Literal["earnings", "macro"]
 
 
 class TimelineItem(BaseModel):
     id: str
-    source_type: Literal["finance_event", "news", "report", "note"]
+    source_type: Literal["finance_event", "news", "report"]
     source_id: int
     event_time: datetime
     category: Category
+    calendar_type: CalendarType | None = None
     market: str | None = None
     title: str
     summary: str
@@ -37,14 +39,3 @@ class TimelineList(BaseModel):
     next_cursor: str | None
     has_more: bool
     limit: int
-
-
-class TimelineSummaryItem(BaseModel):
-    date: str
-    total: int = 0
-    critical: int = 0
-    high: int = 0
-    event_count: int = 0
-    news_count: int = 0
-    analysis_count: int = 0
-    note_count: int = 0

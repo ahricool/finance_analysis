@@ -11,27 +11,33 @@ from finance_analysis.database.models.news_analysis import NewsAnalysis
 from finance_analysis.database.models.timeline import TimelineEntry
 from finance_analysis.database.repositories.timeline import TimelineEntryRepo
 from finance_analysis.database.session import DatabaseManager
-from finance_analysis.timeline.service import TimelineService
 from finance_analysis.timeline.cursor import TimelineCursor
+from finance_analysis.timeline.service import TimelineService  # pragma: allowlist secret
 
 
-def test_migrated_postgres_schema_has_no_calendar_or_news_context():
+def cleanup_entries(db, ids):
+    db._run_write_transaction(
+        "timeline-test.cleanup", lambda session: session.execute(delete(TimelineEntry).where(TimelineEntry.id.in_(ids)))
+    )
+
+
+def test_migrated_postgresql_schema_has_no_calendar_or_news_context():  # pragma: allowlist secret
     db = DatabaseManager.get_instance()
     inspector = inspect(db._engine)
     assert "calendar" not in inspector.get_table_names()
     for model in (TimelineEntry, NewsIntel, NewsIntelUsage, NewsAnalysis):
         actual = {column["name"] for column in inspector.get_columns(model.__tablename__)}
         assert actual == set(model.__table__.columns.keys())
+    assert "uid" not in {column["name"] for column in inspector.get_columns("timeline_entries")}
 
 
-def test_postgresql_day_boundaries_all_day_events_and_summary_agree():
+def test_postgresql_day_boundaries_all_day_events_and_cutoff_agree():  # pragma: allowlist secret
     db = DatabaseManager.get_instance()
-    uid = 987654321
     key = "timeline-test-" + uuid4().hex
     repo = TimelineEntryRepo(db)
     entry = repo.create(
-        uid=uid,
-        entry_type="manual_note",
+        entry_type="us_premarket",
+        market="US",
         event_time=datetime(2099, 9, 6, 1, tzinfo=timezone.utc),
         title="Timezone check",
         summary="Timezone",
@@ -56,31 +62,38 @@ def test_postgresql_day_boundaries_all_day_events_and_summary_agree():
     db._run_write_transaction("timeline-test.seed", seed)
     try:
         service = TimelineService(db)
-        query = dict(uid=uid, start_date=date(2099, 9, 6), end_date=date(2099, 9, 6), timezone_name="Asia/Shanghai")
+        query = dict(timezone_name="Asia/Shanghai", end_date=date(2099, 9, 6))
         result = service.list(**query)
-        assert result["total"] == 2
+        titles = [item.title for item in result["items"]]
+        assert titles[:2] == ["FOMC", "Timezone check"]
         event = next(item for item in result["items"] if item.category == "event")
         assert event.event_time == datetime(2099, 9, 6, 4, tzinfo=timezone.utc)
         assert event.detail_payload["all_day"] is True
         assert event.importance == "critical"
-        assert service.summary(**query)[0].total == 2
-        eastern = query | dict(timezone_name="America/New_York")
-        assert service.list(**eastern)["total"] == 1
-        assert service.summary(**eastern)[0].total == 1
-        yesterday = eastern | dict(start_date=date(2099, 9, 5), end_date=date(2099, 9, 5))
-        assert service.list(**yesterday)["items"][0].source_id == entry.id
+        assert event.calendar_type == "macro"
+        # The all-day US event anchors at 04:00 UTC, which is still 2099-09-06 midnight in New York.
+        eastern = service.list(timezone_name="America/New_York", end_date=date(2099, 9, 5))
+        assert [item.title for item in eastern["items"][:1]] == ["Timezone check"]
     finally:
-        repo.delete_note(entry.id, uid=uid)
+        cleanup_entries(db, [entry.id])
         db._run_write_transaction(
             "timeline-test.cleanup",
             lambda session: session.execute(delete(FinanceEvent).where(FinanceEvent.event_key == key)),
         )
 
 
-def test_migration_drops_calendar_and_moves_existing_news_usage(monkeypatch):
+def load_migration(name):
     import importlib.util
     from pathlib import Path
 
+    path = Path(__file__).resolve().parents[1] / f"alembic/versions/{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    return migration
+
+
+def test_migration_drops_calendar_and_moves_existing_news_usage(monkeypatch):
     from sqlalchemy import text
 
     from alembic.migration import MigrationContext
@@ -88,10 +101,7 @@ def test_migration_drops_calendar_and_moves_existing_news_usage(monkeypatch):
 
     db = DatabaseManager.get_instance()
     schema = "timeline_migration_" + uuid4().hex
-    path = Path(__file__).resolve().parents[1] / "alembic/versions/0043_investment_timeline.py"
-    spec = importlib.util.spec_from_file_location("timeline_migration", path)
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
+    migration = load_migration("0043_investment_timeline")
     with db._engine.connect() as connection:
         transaction = connection.begin()
         try:
@@ -129,8 +139,61 @@ def test_migration_drops_calendar_and_moves_existing_news_usage(monkeypatch):
             transaction.rollback()
 
 
+def test_public_timeline_migration_drops_notes_and_owner_but_keeps_reports(monkeypatch):
+    from sqlalchemy import text
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    db = DatabaseManager.get_instance()
+    schema = "public_timeline_" + uuid4().hex
+    legacy = load_migration("0043_investment_timeline")
+    migration = load_migration("0047_public_timeline")
+    with db._engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+            connection.execute(text("CREATE TABLE news_intel (id SERIAL PRIMARY KEY, fetched_at TIMESTAMPTZ)"))
+            operations = Operations(MigrationContext.configure(connection))
+            monkeypatch.setattr(legacy, "op", operations)
+            monkeypatch.setattr(migration, "op", operations)
+            legacy.upgrade()
+            for entry_type in ("manual_note", "a_share_pre_close", "us_premarket", "us_postmarket"):
+                connection.execute(
+                    text(
+                        "INSERT INTO timeline_entries "
+                        "(uid, entry_type, event_time, title, summary, content, importance, actionability) "
+                        "VALUES (7, :entry_type, CURRENT_TIMESTAMP, 't', 's', 'c', 'normal', 'none')"
+                    ),
+                    {"entry_type": entry_type},
+                )
+            migration.upgrade()
+            columns = {column["name"] for column in inspect(connection).get_columns("timeline_entries")}
+            assert "uid" not in columns
+            kept = connection.execute(text("SELECT entry_type FROM timeline_entries ORDER BY entry_type")).scalars()
+            assert list(kept) == ["a_share_pre_close", "us_postmarket", "us_premarket"]
+            try:
+                connection.execute(text("SAVEPOINT note_check"))
+                connection.execute(
+                    text(
+                        "INSERT INTO timeline_entries "
+                        "(entry_type, event_time, title, summary, content, importance, actionability) "
+                        "VALUES ('manual_note', CURRENT_TIMESTAMP, 't', 's', 'c', 'normal', 'none')"
+                    )
+                )
+                raise AssertionError("manual_note must violate the timeline check constraint")
+            except Exception as exc:  # noqa: BLE001 - the constraint error type is driver specific
+                assert "ck_timeline_type" in str(exc)
+            connection.execute(text("ROLLBACK TO SAVEPOINT note_check"))
+            migration.upgrade()  # Idempotent for databases bootstrapped from the current ORM metadata.
+        finally:
+            transaction.rollback()
+
+
 def test_connection_keeps_utc_after_pool_rollback():
     from sqlalchemy import text
+
     db = DatabaseManager.get_instance()
     with db._engine.connect() as connection:
         assert connection.execute(text("SHOW timezone")).scalar_one() == "UTC"
@@ -169,17 +232,12 @@ def test_postgresql_news_freshness_and_feed_chronology(monkeypatch):
     db._run_write_transaction("test.seed", seed)
     try:
         assert {item.title for item in db.get_recent_news(key, days=1)} == {"0", "1"}
-        query = dict(uid=987654321, start_date=now.date(), end_date=now.date(), timezone_name="Asia/Shanghai", category="news")
+        query = dict(timezone_name="Asia/Shanghai", end_date=now.date(), category="news")
         service = TimelineService(db)
-        items = service.list(**query)["items"]
-        assert [item.title for item in items] == ["1", "0"]
-        assert [item.event_time for item in items] == [now + timedelta(hours=1), now]
-        first = service.list(**query, limit=1)
-        second = service.list(**query, cursor=TimelineCursor.decode(first["next_cursor"]), limit=1)
-        assert [first["items"][0].id, second["items"][0].id] == [item.id for item in items]
-        assert second["has_more"] is False
-        assert second["next_cursor"] is None
-        assert service.summary(**query)[0].total == 2
+        items = [item for item in service.list(**query)["items"] if item.detail_payload["url"].startswith(key)]
+        # Without a range floor the cutoff keeps older publications, still newest first.
+        assert [item.title for item in items] == ["1", "0", "2"]
+        assert [item.event_time for item in items[:2]] == [now + timedelta(hours=1), now]
     finally:
         db._run_write_transaction(
             "test.cleanup", lambda session: session.execute(delete(NewsIntel).where(NewsIntel.url.like(key + "/%")))
@@ -188,10 +246,10 @@ def test_postgresql_news_freshness_and_feed_chronology(monkeypatch):
 
 def test_postgresql_cursor_survives_top_insert_and_deleted_anchor():
     from datetime import timedelta
-    from sqlalchemy import event
+
+    from sqlalchemy import event as sqlalchemy_event
 
     db = DatabaseManager.get_instance()
-    uid = 987654322
     now = datetime(2099, 9, 6, 8, 0, 0, 123456, tzinfo=timezone.utc)
     repo = TimelineEntryRepo(db)
     ids = []
@@ -200,12 +258,12 @@ def test_postgresql_cursor_survives_top_insert_and_deleted_anchor():
     def capture(connection, cursor, statement, parameters, context, executemany):
         statements.append(statement)
 
-    event.listen(db._engine, "before_cursor_execute", capture)
+    sqlalchemy_event.listen(db._engine, "before_cursor_execute", capture)
     try:
         for title in "DCBA":
             row = repo.create(
-                uid=uid,
-                entry_type="manual_note",
+                entry_type="us_premarket",
+                market="US",
                 event_time=now,
                 title=title,
                 summary="test",
@@ -214,16 +272,14 @@ def test_postgresql_cursor_survives_top_insert_and_deleted_anchor():
                 actionability="none",
             )
             ids.append(row.id)
-        query = dict(
-            uid=uid, start_date=now.date(), end_date=now.date(), timezone_name="Asia/Shanghai", category="note"
-        )
+        query = dict(timezone_name="Asia/Shanghai", end_date=now.date(), category="analysis", market="US")
         service = TimelineService(db)
         first = service.list(**query, limit=2)
         assert [item.title for item in first["items"]] == ["A", "B"]
         ids.append(
             repo.create(
-                uid=uid,
-                entry_type="manual_note",
+                entry_type="us_premarket",
+                market="US",
                 event_time=now + timedelta(seconds=1),
                 title="X",
                 summary="test",
@@ -232,14 +288,10 @@ def test_postgresql_cursor_survives_top_insert_and_deleted_anchor():
                 actionability="none",
             ).id
         )
-        repo.delete_note(first["items"][-1].source_id, uid=uid)
+        cleanup_entries(db, [first["items"][-1].source_id])
         second = service.list(**query, cursor=TimelineCursor.decode(first["next_cursor"]), limit=2)
         assert [item.title for item in second["items"]] == ["C", "D"]
-        assert second["next_cursor"] is None
-        assert second["has_more"] is False
         assert all("OFFSET" not in statement.upper() for statement in statements)
     finally:
-        event.remove(db._engine, "before_cursor_execute", capture)
-        db._run_write_transaction(
-            "test.cleanup", lambda session: session.execute(delete(TimelineEntry).where(TimelineEntry.id.in_(ids)))
-        )
+        sqlalchemy_event.remove(db._engine, "before_cursor_execute", capture)
+        cleanup_entries(db, ids)
