@@ -150,7 +150,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - LLM/Agent：`LLM_*`、`AGENT_*`；统一调用在 `llm/`，不要在业务模块直接创建厂商 SDK client。
 - 搜索：`ANSPIRE_*`、`BOCHA_*`、`MINIMAX_*`、`TAVILY_*`、`BRAVE_*`、`SERPAPI_*`、`SEARXNG_*`。
 - 行情：`TICKFLOW_*`、`LONGBRIDGE_*`、`MARKET_DATA_*`、`REALTIME_REDIS_URL`、`MARKET_STREAM_*`。
-- 量化：`QUANT_ARTIFACT_ROOT`、`QUANT_CACHE_TTL_SECONDS`、`QUANT_MIN_UNIVERSE_COVERAGE`。
+- 量化：`QUANT_ARTIFACT_ROOT`、`QUANT_MIN_UNIVERSE_COVERAGE`。
 - 通知：`TELEGRAM_*`、`EMAIL_*`、`NTFY_*`、`CUSTOM_WEBHOOK_*`、`ASTRBOT_*`。
 
 以各领域 `config.py` 与 `.env.example` 为准。不要提交 `.env`、token、数据库密码或真实通知地址。

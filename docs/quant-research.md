@@ -150,6 +150,5 @@ Artifacts are written under
 directory, digested, validated, and atomically renamed. Identical retries reuse
 the committed result.
 
-Redis contains only latest ranking and target-portfolio caches
-(`quant:ranking:*` and `quant:portfolio:*`). Cache failures are warnings;
-PostgreSQL rows remain authoritative. <!-- pragma: allowlist secret -->
+Quant ranking and target-portfolio queries read PostgreSQL directly; Quant no <!-- pragma: allowlist secret -->
+longer writes a separate Redis result cache.

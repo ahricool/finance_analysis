@@ -159,7 +159,6 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
     )
     requests, context = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=exporter,
         symbol_repository=MagicMock(),
         artifact_store=MagicMock(),
@@ -254,7 +253,6 @@ def test_cn_missing_production_model_never_falls_back_to_us():
     repository.production_model.return_value = None
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
     )

@@ -11,7 +11,6 @@ from finance_analysis.core.time import utc_now
 from finance_analysis.database.repositories.quant import QuantRepository
 from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.market_review.trading_calendar import get_effective_trading_date
-from finance_analysis.quant.cache import QuantLatestCache, cache_keys
 from finance_analysis.quant.config import get_quant_config
 from finance_analysis.quant.datasets.artifact_store import ArtifactStore
 from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
@@ -138,13 +137,11 @@ class QuantDailyPipeline:
     def __init__(
         self,
         repository: Any = None,
-        cache: Any = None,
         exporter: Any = None,
         symbol_repository: Any = None,
         artifact_store: Any = None,
     ):
         self.repository = repository or QuantRepository()
-        self.cache = cache or QuantLatestCache()
         self.exporter = exporter or QlibDatasetExporter(self.repository)
         self.symbol_repository = symbol_repository or InstrumentRepository()
         self.artifact_store = artifact_store
@@ -365,7 +362,7 @@ class QuantDailyPipeline:
                 "predicted_return": item.get("predicted_return"),
                 "signal": item["signal"],
                 "reasons": item["reasons"],
-                "constraints": {"applied": item["constraints"]},
+                "constraints": item["constraints"],
             }
             for item in portfolio["items"]
         ]

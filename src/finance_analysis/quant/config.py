@@ -118,7 +118,6 @@ class QuantConfig:
     artifact_root: Path = field(
         default_factory=lambda: Path(os.getenv("QUANT_ARTIFACT_ROOT", get_data_dir() / "quant"))
     )
-    cache_ttl_seconds: int = field(default_factory=lambda: int(os.getenv("QUANT_CACHE_TTL_SECONDS", "86400")))
     minimum_universe_coverage: float = field(
         default_factory=lambda: _ratio("QUANT_MIN_UNIVERSE_COVERAGE", 0.90)
     )

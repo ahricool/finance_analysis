@@ -164,7 +164,6 @@ def test_prepare_rejects_research_symbol_without_target_daily_bar(monkeypatch) -
     repository.daily_bar_codes.return_value = {"AAPL.US"}
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
         artifact_store=MagicMock(),
@@ -235,7 +234,6 @@ def test_prepare_does_not_require_universe_member_repository_methods(monkeypatch
 
     requests, context = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=exporter,
         symbol_repository=MagicMock(),
         artifact_store=MagicMock(),
@@ -260,7 +258,6 @@ def test_prepare_rejects_missing_model_before_universe_lookup(
     artifact_store = MagicMock()
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
         artifact_store=artifact_store,
@@ -283,7 +280,6 @@ def test_prepare_rejects_missing_model_artifact_before_universe_lookup() -> None
     artifact_store.resolve_uri.side_effect = ModelArtifactMissingError("Artifact does not exist: quant://us/cs")
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
         artifact_store=artifact_store,
@@ -304,7 +300,6 @@ def test_prepare_rejects_legacy_production_model_before_universe_lookup() -> Non
     artifact_store = MagicMock()
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
         artifact_store=artifact_store,
@@ -320,7 +315,6 @@ def test_prepare_rejects_legacy_production_model_before_universe_lookup() -> Non
 def test_prepare_rejects_unsupported_universe_before_lookup() -> None:
     pipeline = QuantDailyPipeline(
         repository=MagicMock(),
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
     )
@@ -383,11 +377,8 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
         CapturingPortfolioBuilder,
     )
     repository = Repository()
-    cache = MagicMock()
-    cache.set.return_value = True
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=cache,
         exporter=MagicMock(),
         symbol_repository=Symbols(),
     )
@@ -457,7 +448,6 @@ def test_finalize_rejects_unsupported_callback_context_before_writes() -> None:
     repository = MagicMock()
     pipeline = QuantDailyPipeline(
         repository=repository,
-        cache=MagicMock(),
         exporter=MagicMock(),
         symbol_repository=MagicMock(),
     )
