@@ -7,6 +7,8 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from finance_analysis.integrations.market_data.providers.longbridge.calendar import LongbridgeCalendarFetcher
 
 
@@ -143,3 +145,108 @@ def test_macro_country_is_required_and_bad_row_does_not_stop_others():
         market="US",
     )
     assert len(result.events) == 1 and result.skipped == 2
+
+
+def test_cn_requests_exchanges_and_normalizes_logical_market_with_universe_filter():
+    from longbridge.openapi import CalendarCategory
+
+    fetcher = LongbridgeCalendarFetcher()
+    ctx = MagicMock()
+
+    def response(category, start, end, market):
+        assert category == CalendarCategory.Report
+        assert market in {"SH", "SZ"}
+        symbols = ["600519", "600000"] if market == "SH" else ["000001.SZ", "000002.SZ"]
+        return {
+            "list": [
+                {
+                    "date": "2026-06-18",
+                    "infos": [{"symbol": symbol, "market": market, "content": "财报"} for symbol in symbols],
+                }
+            ]
+        }
+
+    ctx.finance_calendar.side_effect = response
+    fetcher._get_ctx = lambda: ctx
+    result = fetcher.fetch_earnings_calendar(date(2026, 6, 18), date(2026, 6, 20), "CN", ["600519.SH", "000001.SZ"])
+    assert [call.args[3] for call in ctx.finance_calendar.call_args_list] == ["SH", "SZ"]
+    assert {event["symbol"] for event in result.events} == {"600519.SH", "000001.SZ"}
+    assert all(event["market"] == "CN" for event in result.events)
+    assert result.fetched == 4 and result.skipped == 2
+
+
+@pytest.mark.parametrize("failed_market", ["SH", "SZ"])
+def test_cn_exchange_failure_preserves_other_exchange(failed_market):
+    fetcher = LongbridgeCalendarFetcher()
+    ctx = MagicMock()
+
+    def response(category, start, end, market):
+        if market == failed_market:
+            raise RuntimeError("exchange unavailable")
+        symbol = "600519.SH" if market == "SH" else "000001.SZ"
+        return {"list": [{"date": "2026-06-18", "infos": [{"symbol": symbol, "market": market}]}]}
+
+    ctx.finance_calendar.side_effect = response
+    fetcher._get_ctx = lambda: ctx
+    result = fetcher.fetch_earnings_calendar(date(2026, 6, 18), date(2026, 6, 20), "CN", ["600519.SH", "000001.SZ"])
+    assert ctx.finance_calendar.call_count == 2
+    assert len(result.events) == 1 and result.events[0]["market"] == "CN"
+    assert result.pages_succeeded == 1
+    assert len(result.errors) == 1 and f"market={failed_market}" in result.errors[0]
+
+
+def test_cn_both_exchanges_empty_is_normal():
+    fetcher = LongbridgeCalendarFetcher()
+    ctx = MagicMock()
+    ctx.finance_calendar.return_value = {"list": []}
+    fetcher._get_ctx = lambda: ctx
+    result = fetcher.fetch_earnings_calendar(date(2026, 6, 18), date(2026, 6, 20), "CN", ["600519.SH"])
+    assert not result.events and not result.errors and result.pages_succeeded == 2
+    assert [call.args[3] for call in ctx.finance_calendar.call_args_list] == ["SH", "SZ"]
+
+
+def test_live_sample_eps_types_enrich_yahoo_and_preserve_all_raw_kv():
+    import json
+    from pathlib import Path
+    from finance_analysis.market_calendar.events import merge_events, with_source
+
+    sample = json.loads((Path(__file__).parent / "fixtures/market_calendar/longbridge_report_sample.json").read_text())
+    fetcher = LongbridgeCalendarFetcher()
+    info = sample["events"][0]
+    lb = fetcher.normalize_info(info, calendar_type="earnings", market="US", group_date=date(2026, 9, 3))
+    assert lb["eps_estimate"] == 0.01243 and lb["reported_eps"] == 0.03
+    assert "eps_surprise_pct" not in lb  # No confirmed provider field; do not invent a mapping.
+    assert lb["raw_payload_json"]["longbridge"]["raw"]["details"] == info["data_kv"]
+    assert not any("revenue" in key for key in lb)
+    yahoo = with_source(
+        {
+            "provider": "yfinance",
+            "calendar_type": "earnings",
+            "market": "US",
+            "symbol": "IOT.US",
+            "event_date": "2026-09-03",
+            "eps_estimate": None,
+            "reported_eps": None,
+        }
+    )
+    merged = merge_events([yahoo, lb], as_of=date(2026, 9, 3))[0]
+    assert merged["provider"] == "yfinance" and merged["eps_estimate"] == 0.01243 and merged["reported_eps"] == 0.03
+    pending = fetcher.normalize_info(
+        sample["events"][1], calendar_type="earnings", market="US", group_date=date(2026, 9, 8)
+    )
+    assert pending["eps_estimate"] == -0.056 and "reported_eps" not in pending
+
+
+@pytest.mark.parametrize("raw", ["0", "NaN", "Infinity", "--", None])
+def test_confirmed_eps_type_numeric_validation(raw):
+    fetcher = LongbridgeCalendarFetcher()
+    result = fetcher.normalize_info(
+        {"symbol": "IOT.US", "data_kv": [{"key": "", "value": "--", "value_raw": raw, "value_type": "actual_eps"}]},
+        calendar_type="earnings",
+        market="US",
+        group_date=date(2026, 9, 3),
+    )
+    if raw == "0":
+        assert result["reported_eps"] == 0
+    else:
+        assert "reported_eps" not in result

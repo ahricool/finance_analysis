@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -17,6 +17,20 @@ from finance_analysis.integrations.market_data.providers.yfinance import YFinanc
 from finance_analysis.market_calendar.events import macro_type, normalize_session, with_source
 
 logger = logging.getLogger(__name__)
+
+
+def _inclusive_calendar(start: date, end: date):
+    import yfinance as yf
+
+    class InclusiveCalendars(yf.Calendars):
+        def _parse_date_param(self, value):
+            # yfinance 1.5.2 truncates even datetime inputs to midnight while
+            # building inclusive GTE/LTE queries. Keep the final day's time.
+            if isinstance(value, datetime):
+                return value.isoformat()
+            return super()._parse_date_param(value)
+
+    return InclusiveCalendars(start=datetime.combine(start, time.min), end=datetime.combine(end, time.max))
 
 
 def _value(value: Any) -> Any:
@@ -59,16 +73,12 @@ class YFinanceCalendarFetcher:
         key = (calendar_type, start, end)
         if key in self._cache:
             return self._cache[key]
-        factory = self.calendar_factory
-        if factory is None:
-            import yfinance as yf
-
-            factory = yf.Calendars
+        factory = self.calendar_factory or _inclusive_calendar
         rows = []
         result = CalendarFetchResult()
         cursor = start
         while cursor <= end:
-            stop = min(cursor + timedelta(days=7), end + timedelta(days=1))
+            stop = min(cursor + timedelta(days=6), end)
             offset = 0
             seen_pages = set()
             try:
@@ -104,11 +114,17 @@ class YFinanceCalendarFetcher:
                 error = f"{calendar_type} shard={cursor}/{stop} offset={offset}: {exc}"
                 result.errors.append(error)
                 logger.warning("Yahoo calendar page failed: %s", error)
-            cursor = stop
+            cursor = stop + timedelta(days=1)
         self._cache[key] = (rows, result)
         return rows, result
 
     def fetch_earnings_calendar(self, start, end, market, symbols=()) -> CalendarFetchResult:
+        if market == "CN":
+            reason = "Yahoo batch earnings calendar has no reliable CN contract; best-effort skipped"
+            logger.info(reason)
+            return CalendarFetchResult(unsupported_reason=reason)
+        if market != "US":
+            raise ValueError("only US earnings are supported by the Yahoo calendar adapter")
         # Exact reverse mapping also handles US share classes (BRK.B.US -> BRK-B).
         mapping = {}
         mapping_errors = []

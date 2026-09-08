@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
@@ -11,18 +12,37 @@ from typing import Any, Iterable, Mapping, Optional
 from zoneinfo import ZoneInfo
 
 from finance_analysis.core.time import coerce_aware_utc, utc_now
+from finance_analysis.integrations.market_data.calendar import CalendarFetchResult
+from finance_analysis.integrations.market_data.normalizer import canonical_symbol
 from finance_analysis.integrations.market_data.providers.longbridge.market import (
     _longbridge_config_kwargs,
     _sanitize_longbridge_env,
 )
 
+from finance_analysis.market_calendar.events import macro_type, normalize_session, with_source
+
 logger = logging.getLogger(__name__)
 
 PROVIDER = "longbridge"
 MARKET_CALENDAR_TIMEZONE = "Asia/Shanghai"
-from finance_analysis.integrations.market_data.calendar import CalendarFetchResult
-from finance_analysis.integrations.market_data.normalizer import canonical_symbol
-from finance_analysis.market_calendar.events import macro_type, normalize_session, with_source
+# Confirmed in SDK CalendarDataKv and live Report samples on 2026-09-08.
+# Display keys were empty: use the provider's explicit value_type discriminator.
+EPS_FIELD_BY_VALUE_TYPE = {"estimate_eps": "eps_estimate", "actual_eps": "reported_eps"}
+
+
+def _eps_fields(details: list[dict]) -> dict:
+    fields = {}
+    for item in details:
+        field = EPS_FIELD_BY_VALUE_TYPE.get(item["value_type"])
+        if field is None:
+            continue
+        try:
+            value = float(item["value_raw"])
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(value):
+            fields[field] = value
+    return fields
 
 
 def _clean_text(value: Any) -> str:
@@ -222,6 +242,20 @@ class LongbridgeCalendarFetcher:
         resolved_market = self._resolve_market(market)
         if calendar_type == "macro" and resolved_market != "US":
             raise ValueError("only US macro is supported")
+        if resolved_market not in {"US", "CN", "SH", "SZ"}:
+            raise ValueError(f"Unsupported calendar market: {resolved_market}")
+        provider_markets = ("SH", "SZ") if resolved_market == "CN" else (resolved_market,)
+        result = CalendarFetchResult()
+        for provider_market in provider_markets:
+            part = self._fetch_market(calendar_type, start, end, provider_market, symbols)
+            result.events.extend(part.events)
+            result.errors.extend(part.errors)
+            result.pages_succeeded += part.pages_succeeded
+            result.fetched += part.fetched
+            result.skipped += part.skipped
+        return result
+
+    def _fetch_market(self, calendar_type, start, end, provider_market, symbols) -> CalendarFetchResult:
         result = CalendarFetchResult()
         cursor = start
         while cursor <= end:
@@ -230,9 +264,9 @@ class LongbridgeCalendarFetcher:
                     self._resolve_category(calendar_type),
                     _format_request_date(cursor),
                     _format_request_date(end),
-                    resolved_market,
+                    provider_market,
                 )
-                page = self.normalize_response(response, calendar_type=calendar_type, market=resolved_market)
+                page = self.normalize_response(response, calendar_type=calendar_type, market=provider_market)
                 result.events.extend(page.events)
                 result.errors.extend(page.errors)
                 result.fetched += page.fetched
@@ -247,7 +281,7 @@ class LongbridgeCalendarFetcher:
                     raise ValueError(f"non-advancing pagination cursor {next_date}")
                 cursor = next_cursor
             except Exception as exc:
-                result.errors.append(f"{calendar_type} start={cursor}: {exc}")
+                result.errors.append(f"{calendar_type} market={provider_market} start={cursor}: {exc}")
                 logger.warning("Longbridge calendar page failed: %s", result.errors[-1])
                 break
         allowed = set(symbols)
@@ -281,6 +315,7 @@ class LongbridgeCalendarFetcher:
 
     def normalize_info(self, info, *, calendar_type, market, group_date) -> Optional[dict]:
         getter = info.get if isinstance(info, Mapping) else lambda key, default=None: getattr(info, key, default)
+        logical_market = "CN" if market in {"CN", "SH", "SZ"} else market
         explicit_market = _enum_name(getter("market")).upper()
         if calendar_type == "macro" and explicit_market != "US":
             logger.debug("Skip unidentified/non-US Longbridge macro: market=%s", explicit_market)
@@ -292,7 +327,9 @@ class LongbridgeCalendarFetcher:
                 return None
             symbol = canonical_symbol(raw_symbol if "." in raw_symbol else f"{raw_symbol}.{market}")
             actual_market = "US" if symbol.endswith(".US") else "CN" if symbol.endswith((".SH", ".SZ")) else None
-            if actual_market != market:
+            if market in {"SH", "SZ"} and not symbol.endswith(f".{market}"):
+                return None
+            if actual_market != logical_market:
                 return None
         event_date = _parse_date(getter("date"), fallback=group_date)
         event_datetime = _parse_datetime(getter("datetime"))
@@ -303,15 +340,19 @@ class LongbridgeCalendarFetcher:
         details = []
         for item in getter("data_kv") or []:
             item_get = item.get if isinstance(item, Mapping) else lambda key: getattr(item, key, None)
-            value = item_get("value")
-            if value is None:
-                value = item_get("value_raw")
-            details.append({"key": item_get("key"), "value": _jsonable(value)})
+            details.append(
+                {
+                    "key": item_get("key"),
+                    "value": _jsonable(item_get("value")),
+                    "value_raw": _jsonable(item_get("value_raw")),
+                    "value_type": _enum_name(item_get("value_type")),
+                }
+            )
         event = {
             "provider": PROVIDER,
             "provider_event_id": _none_if_blank(getter("id")),
             "calendar_type": calendar_type,
-            "market": market,
+            "market": logical_market,
             "symbol": symbol,
             "counter_name": name,
             "event_type": "earnings_release" if calendar_type == "earnings" else macro_type(content),
@@ -319,9 +360,20 @@ class LongbridgeCalendarFetcher:
             "event_datetime": event_datetime.isoformat() if event_datetime else None,
             "market_session": normalize_session(getter("financial_market_time") or getter("date_type")),
             "title": (f"{symbol} {name or ''} 财报" if symbol else content)[:120],
-            "content": "\n".join([content, *(f"{item['key']}: {item['value']}" for item in details)]),
+            "content": "\n".join(
+                [
+                    content,
+                    *(
+                        f"{item['key'] or item['value_type']}: "
+                        f"{item['value'] if item['value'] is not None else item['value_raw']}"
+                        for item in details
+                    ),
+                ]
+            ),
             "currency": _none_if_blank(getter("currency")),
         }
+        if calendar_type == "earnings":
+            event.update(_eps_fields(details))
         raw = {
             key: _jsonable(getter(key))
             for key in (

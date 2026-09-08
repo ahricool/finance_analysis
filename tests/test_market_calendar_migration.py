@@ -1,7 +1,6 @@
 """Exercise old finance_events data through the real Alembic operations."""
 
 import importlib.util
-import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -77,23 +76,25 @@ def exercise_migration(connection, monkeypatch):
             {**values, "id": 2, "event_key": "old-duplicate-key"},
             {**values, "id": 3, "event_key": "old-dividend", "calendar_type": "dividend"},
             {**values, "id": 4, "event_key": "old-hk", "market": "HK"},
+            {**values, "id": 5, "event_key": "old-macro", "calendar_type": "macro", "symbol": None},
+            {**values, "id": 6, "event_key": "old-ipo", "calendar_type": "ipo"},
+            {**values, "id": 7, "event_key": "old-split", "calendar_type": "split"},
         ],
     )
+    assert connection.scalar(sa.select(sa.func.count()).select_from(old)) == 7
     module = migration_module()
     monkeypatch.setattr(module, "op", Operations(MigrationContext.configure(connection)))
     module.upgrade()
     new = sa.Table("finance_events", sa.MetaData(), autoload_with=connection)
     assert set(new.c.keys()) == set(FinanceEvent.__table__.c.keys())
     assert not any("star" in index["column_names"] for index in sa.inspect(connection).get_indexes("finance_events"))
-    rows = list(connection.execute(sa.select(new)).mappings())
-    assert len(rows) == 1
-    row = rows[0]
-    assert row["id"] == 1 and row["event_key"] == "old-stable-key" and row["symbol"] == "NVDA.US"
-    assert row["market_session"] == "amc" and row["importance_score"] is None
-    assert row["notified_at"] is not None and row["notification_fingerprint"]
-    audit = json.loads(row["raw_payload_json"])
-    assert audit["longbridge"]["legacy_metadata"]["star"] == 3
-    assert "star" not in row["content"]
+    assert connection.scalar(sa.select(sa.func.count()).select_from(new)) == 0
+    constraints = {item["name"] for item in sa.inspect(connection).get_check_constraints("finance_events")}
+    assert constraints == {
+        item.name for item in FinanceEvent.__table__.constraints if isinstance(item, sa.CheckConstraint)
+    }
+    # This isolated schema has no Universe/Instrument tables: migration must not depend on them.
+    assert sa.inspect(connection).get_table_names() == ["finance_events"]
     with pytest.raises(RuntimeError, match="irreversible"):
         module.downgrade()
 

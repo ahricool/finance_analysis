@@ -19,7 +19,7 @@ from finance_analysis.database.repositories.market_calendar_event import (
 )
 from finance_analysis.database.repositories.universe import UniverseResolver
 from finance_analysis.integrations.market_data import MarketDataService
-from finance_analysis.market_calendar.events import CALENDAR_TYPE_LABELS, CALENDAR_TYPES, merge_events, source_payloads
+from finance_analysis.market_calendar.events import CALENDAR_TYPE_LABELS, merge_events, source_payloads
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class MarketCalendarSyncSummary:
     skipped_duplicate_count: int = 0
     notification_sent_count: int = 0
     errors: List[str] = field(default_factory=list)
-    new_or_changed_important_events: List[FinanceEvent] = field(default_factory=list)
+    time_changed_events: List[FinanceEvent] = field(default_factory=list)
     focus_events: List[FinanceEvent] = field(default_factory=list)
     importance_candidate_ids: List[int] = field(default_factory=list)
 
@@ -167,12 +167,6 @@ def sort_focus_events(events: Sequence[FinanceEvent], watch_symbols: Sequence[st
     return sorted(events, key=_key)
 
 
-def is_important_for_notification(event: FinanceEvent, watch_symbols: Sequence[str], today: date) -> bool:
-    return event.calendar_type in CALENDAR_TYPES and today <= _event_date(event) <= (
-        today + timedelta(days=MARKET_CALENDAR_NOTIFICATION_DAYS)
-    )
-
-
 def render_event_line(event: FinanceEvent) -> str:
     label = CALENDAR_TYPE_LABELS.get(str(getattr(event, "calendar_type", "") or ""), "财经事件")
     symbol = _event_symbol(event)
@@ -188,7 +182,7 @@ def render_event_line(event: FinanceEvent) -> str:
 
 def render_notification(events: Sequence[FinanceEvent], start_date: date, end_date: date) -> str:
     lines = [
-        f"【财经日历】新增或时间调整 {len(events)} 个事件",
+        f"【财经日历】时间调整 {len(events)} 个事件",
         f"范围：{start_date.isoformat()} 至 {end_date.isoformat()}",
         "",
     ]
@@ -259,6 +253,7 @@ class MarketCalendarSyncService:
                         market,
                         symbols=symbols,
                     )
+                    stats["unsupported_reason"] = result.unsupported_reason
                     stats.update(
                         fetched=result.fetched,
                         pages_succeeded=result.pages_succeeded,
@@ -323,8 +318,8 @@ class MarketCalendarSyncService:
                     for stats in contributors:
                         stats["errors"] += 1
                     logger.warning("Calendar upsert failed: %s", exc, exc_info=True)
-        candidates = self._notification_candidates(upsert_results, watch_symbols, start_date)
-        summary.new_or_changed_important_events = candidates
+        candidates = self._notification_candidates(upsert_results, start_date)
+        summary.time_changed_events = candidates
         summary.notification_sent_count = self._send_notification(candidates, start_date)
         try:
             summary.focus_events = sort_focus_events(
@@ -353,19 +348,18 @@ class MarketCalendarSyncService:
     def _notification_candidates(
         self,
         upsert_results: Sequence[FinanceEventUpsertResult],
-        watch_symbols: Sequence[str],
         today: date,
     ) -> List[FinanceEvent]:
         selected: List[FinanceEvent] = []
         for result in upsert_results:
             event = result.event
-            if not (
-                result.created or {"event_date", "event_datetime", "market_session"}.intersection(result.changed_fields)
+            if result.created or not {"event_date", "event_datetime", "market_session"}.intersection(
+                result.changed_fields
             ):
                 continue
             if any(item.id == event.id for item in selected):
                 continue
-            if not is_important_for_notification(event, watch_symbols, today):
+            if not today <= _event_date(event) <= today + timedelta(days=MARKET_CALENDAR_NOTIFICATION_DAYS):
                 continue
             fingerprint = notification_fingerprint(
                 {
@@ -373,8 +367,6 @@ class MarketCalendarSyncService:
                     "symbol": event.symbol,
                     "event_date": event.event_date,
                     "event_datetime": event.event_datetime,
-                    "title": event.title,
-                    "content": event.content,
                     "market_session": event.market_session,
                 }
             )
@@ -382,7 +374,7 @@ class MarketCalendarSyncService:
                 continue
             setattr(event, "_pending_notification_fingerprint", fingerprint)
             selected.append(event)
-        return sort_focus_events(selected, watch_symbols)
+        return sorted(selected, key=lambda event: (_event_date(event), event.symbol or "", event.id))
 
     def _send_notification(self, events: Sequence[FinanceEvent], start_date: date) -> int:
         if not events:

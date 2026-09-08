@@ -1,65 +1,98 @@
 # 财经日历后端：双 Provider 合并
 
-本说明对应 `0045_calendar_sources`。继续使用 `FinanceEvent / finance_events / MarketCalendarSync`，不增加表、`instrument_id` FK 或 Earnings Radar；不接入 Quant Event、Trend Following、ETF Rotation、fundamental_snapshot。
+对应 PR #277 / `0045_calendar_sources`。继续使用 `FinanceEvent / finance_events / MarketCalendarSync`；不新增表或 instrument_id FK，不修改前端、Trend Following、ETF Rotation、Quant Event。
 
-## 数据流与调度
+## Destructive migration：删除全部旧事件
+
+**0045 upgrade 首先执行 `DELETE FROM finance_events`，删除全部旧 earnings、macro、IPO、dividend、split，包括旧 event_key、raw payload、importance、通知状态、first_seen/last_seen 等业务数据。**
+
+部署前如果希望保留旧财经日历历史，**必须备份数据库**。本项目预期行为是部署后从任务中心手动触发“财经日历同步”（或等待原定时任务），重新构建今天至今天 + 30 天的 earnings/macro。首次新建事件不发即时通知。
+
+随后 migration 重命名 financial_market_time 为 market_session，增加 reporting_period 和三个 EPS 字段，删除 activity_type/date_type/star/data_kv_json 及 star 索引，添加类型与市场 CHECK。没有旧数据读取/转换/合并、日期匹配、Universe 查询或 legacy restore。迁移接在 main 的 `0044_crypto_btc` 后，保持单一 head。
+
+删除不可逆；downgrade 显式抛出 RuntimeError，不能恢复历史。此次仅在隔离测试库执行迁移，没有对生产数据库执行写入。
+
+## 最终数据流与 Provider 分工
 
 ```text
-UniverseResolver → us_sp500 / cn_csi300 → canonical symbols
-                                      ↓
-MarketDataService.get_calendar_sources()
-  ├─ YFinanceCalendarFetcher：US/CN earnings + US economic events
-  └─ LongbridgeCalendarFetcher：US/CN Report + US MacroData
-                                      ↓
-标准化普通 Python dict + CalendarFetchResult（不泄漏 DataFrame/SDK 对象）
-                                      ↓
-同批次合并 → Repository 匹配既有事件并合并历史来源 → finance_events
-                                      ↓
-Timeline UNION 查询 / 新发现及时间变化通知 / LLM 重要性评分
+US earnings: UniverseResolver(us_sp500)
+              → Yahoo Calendars primary + Longbridge Report(US) secondary
+              → normalize → merge → FinanceEvent
+
+CN earnings: UniverseResolver(cn_csi300)
+              → Longbridge Report(SH) + Report(SZ)
+              → normalize logical market=CN → Universe filter → FinanceEvent
+              Yahoo CN: unsupported best-effort，空结果，不请求 Ticker
+
+US macro: Yahoo Economic Events primary + Longbridge MacroData(US) secondary
+              → 明确 US 过滤 → normalize → merge → FinanceEvent
+
+FinanceEvent → Timeline UNION / LLM importance
+            → 仅已有事件时间变化通知
 ```
 
-只同步 `earnings`、`macro`。每次执行两个 Provider 都请求 US earnings、CN earnings、US macro；不是失败后才请求 Longbridge。一个 Celery 任务完成全部范围，任务名称为“财经日历同步”，保留每天 **07:00 America/New_York** 的原调度、队列和任务 ID。
+US earnings 与 US macro 每次执行都请求两源，不是 fallback-only。CN 不假设 Yahoo 公共批量 earnings calendar 能可靠提供沪深300覆盖，因此 adapter 明确返回 unsupported_reason、空 events、零网络请求，不发起 300 个 Ticker 查询，也不引入新国内 Provider。
 
-Universe 使用现有 `UniverseResolver.resolve_universe()`，经过 `UniverseRepository` 读取 `Universe / UniverseMember / Instrument`，支持现有 include 解析。US 固定读取 `us_sp500`，CN 固定读取 `cn_csi300`；没有硬编码股票名单。Universe 缺失时记录错误、该市场 earnings 以空授权集合过滤，绝不扩大为全市场。
+Longbridge 明确区分 provider market `SH/SZ` 与 logical market `CN`，每个交易所独立分页、独立捕获失败；一边失败保留另一边结果。Provider 层支持带后缀和按请求交易所限定的裸代码，最后按动态 cn_csi300 成员过滤。全 CN 无数据不导致 Calendar Task 失败。
 
-## Provider 获取与标准化
+Universe 通过现有 `UniverseResolver → UniverseRepository → Universe/UniverseMember/Instrument` 读取，保留 include 解析；不硬编码成分。US ticker 转换复用 `YFinanceProvider.to_yfinance_symbol()`（例如 NVDA.US ↔ NVDA、BRK.B.US ↔ BRK-B）。所有业务层事件都是普通 Python dict，不泄漏 DataFrame 或 SDK 对象。
 
-Yahoo 使用已安装的 yfinance 1.5.2 公共 `Calendars` API。每个日期分片至多 7 天，每页 `limit=100`，`offset` 按实际行数递增，直到空页或不足 100 行；重复页检测防止无限循环。外部查询终点覆盖同步终点的下一天，最终按事件市场日期再次过滤。每一页 earnings 都显式传 `filter_most_active=False`、`force=True`，没有 market-cap 过滤。US/CN 复用同一次全球 earnings 分页结果，之后分别应用 Universe 映射；不逐个请求 800 个 Ticker。
+## Yahoo 分片与分页
 
-代码转换复用 `YFinanceProvider.to_yfinance_symbol()`，在 Provider 层从 Universe 构建精确反向映射：`NVDA.US ↔ NVDA`、`BRK.B.US ↔ BRK-B`、`600519.SH ↔ 600519.SS`、`000001.SZ ↔ 000001.SZ`。存储使用 canonical `market + symbol`。
+US earnings 保留 `filter_most_active=False`、`limit=100`、offset 按实际行数递增，直到空页或不足一页。每个最多 7 天的分片使用不重叠的闭区间：Sep 1–7、Sep 8–14、Sep 15–21；不额外请求 end + 1。每个自然日仅属于一个 shard，最终严格筛选 start <= 市场 event_date <= end。
 
-实测 Yahoo earnings 列为 `Company / Event Name / Event Start Date / Timing / EPS Estimate / Reported EPS / Surprise(%)` 等，Symbol 是索引。只有 `Qn YYYY` 这类明确字段才提取 `YYYY-Qn` 报告周期；不把发布年份当财年。
+yfinance 1.5.2 的查询使用 GTE/LTE，但默认日期解析会把 datetime 截到零点。Provider 内局部 Calendars 子类仅覆盖日期解析，保留 00:00:00 至结束日 23:59:59.999999 的边界；仍调用官方两个 Calendar getter 和分页。离线测试直接拦截已安装 SDK 的查询，检查两类事件的 GTE/LTE，避免只测试 mock factory 而遗漏截断。2026-09-08 的单日真实只读验证返回 222 行、3 页、0 错误。该适配点随 yfinance 升级需由 contract test 继续验证。
 
-实测 economic events 列为 `Region / Event Time / For / Actual / Expected / Last / Revised`，Event 是索引。只接受明确 `US / USA / UNITED STATES` 的 Region，其余跳过；`For` 仅有月份时不猜年份。宏观数值进入通用 content 与来源审计，不新增独立宏观指标表。
+后页异常保留前页，继续后续 shard；重复页检测防止死循环。同一次同步仍有批次 cache，CN 路径不再消费 Yahoo 批次。
 
-Longbridge 仅请求 `Report` 与 `MacroData`，实现 `next_date` cursor 翻页，检测不前进的 cursor。支持 SDK 的点号日期、Unix 秒/毫秒时间戳；`financial_market_time` 或 `date_type` 中的中英文交易时段由适配层变为 `bmo / amc / during_market / unknown`。旧 `date_type` 数据库列删除，不代表丢掉 SDK 中仍有用的盘前/盘后输入。宏观记录仍要求明确 US market，不能仅凭 USD 或请求参数推断未知国家。
+Yahoo earnings 使用 Symbol 索引以及 Event Name、Event Start Date、Timing、EPS Estimate、Reported EPS、Surprise(%)；仅从明确 Qn YYYY 提取 YYYY-Qn 周期，不猜财年。US macro 使用 Event 索引以及 Region、Event Time、For、Actual/Expected/Last/Revised；仅接受明确 US/USA/UNITED STATES，不凭 currency 或请求参数猜国家，For 只有月份时不猜年份。
 
-日期使用所属市场时区；有明确时间的跨服务值使用 UTC。Yahoo 午夜占位值作为 date-only，不能伪造准确发布时刻。
+官方参数参考：[yfinance Calendars](https://ranaroussi.github.io/yfinance/reference/api/yfinance.Calendars.html)，实现同时核对本地 yfinance 1.5.2 源码。Yahoo 午夜占位作为 date-only，其余明确时间统一 UTC，并以市场时区判断事件日期。
 
-官方 API 参数参考：[yfinance Calendars](https://ranaroussi.github.io/yfinance/reference/api/yfinance.Calendars.html)。字段和行为同时核对本地 `yfinance/calendars.py` 及 `longbridge/openapi.pyi`。
+## Longbridge 真实 sample 与 EPS enrichment
 
-## 合并、来源审计与稳定身份
+2026-09-08 使用本机生产配置的 Longbridge 凭据执行了 **两个只读 US Report 请求**：2026-09-05..08（6 条）及 2026-09-03..04（43 条）。没有操作生产数据库、发送通知或执行交易，也没有输出凭据。
 
-1. Canonical 字段优先 Yahoo 非空值；包括 0 在内的有效数值不会被误当缺失。Longbridge 补缺字段及独有事件。
-2. `provider` 是 canonical source；只有 Longbridge 的记录真实写 `longbridge`。`provider_event_id` 只对应 canonical source，不把 Longbridge ID 填成 Yahoo ID。
-3. `raw_payload_json` 保存 `yfinance`、`longbridge` 各自的 `normalized`、受控 `raw` 及 `observed_at` 抓取时间；事实字段不一致写入 `conflicts` 并记录 debug 日志。不需要 `source_providers_json` 新列或 Provider mapping 表。
-4. 更新也合并数据库已有来源。单次 Yahoo 故障不会清掉已保存 Yahoo 信息，历史 Yahoo 非空值仍优先；因此次源单独的改期不会覆盖已有 Yahoo 日期，必须等 Yahoo 恢复后确认。可从每来源 observed_at 判断上次成功观察时间；来源快照不是无上限历史日志。
-5. 日期不同的 Longbridge 精确时间不能拼到 Yahoo 日期上。
+实际样本 `data_kv.key` 均为空字符串；有意义且稳定的分类是 **value_type**，不能猜测英文/中文 display key：
 
-Earnings 匹配范围为同 `calendar_type + market + canonical symbol`，匹配优先级：
+| 实际 value_type | 实际 value_raw 示例（IOT.US） | 结构化映射 |
+| --- | --- | --- |
+| estimate_eps | 0.012430 | eps_estimate |
+| actual_eps | 0.030000 | reported_eps |
+| estimate_revenue | 483296990.000000 | 不增加收入字段，仅保存 raw/content |
+| actual_revenue | 508437000.000000 | 不增加收入字段，仅保存 raw/content |
 
-- 双方明确报告周期相同：最高优先级；日期可跨较大范围修正。双方明确周期不同：不匹配。
-- 同一 Provider source ID：在日期相差不超过 45 天时匹配，避免循环使用的非周期 ID 无限跨季度关联。
-- 无充分周期信息：日期相差不超过 21 天，且较早日期不早于本次同步日期前 7 天。这个短宽限用于跨发布日的迟到记录/改期。
-- 多个同优先级候选不猜测；仓储报告歧义，由任务记录单事件错误并继续其他事件。
+SDK CalendarDataKv 的 value_type 文档也明确给出了 estimate_eps 示例。显式 mapping 仅包含确认的 estimate_eps / actual_eps，从 value_raw 读取有限数值，保留 0 与负数；TBA、--、NULL、NaN/Infinity 不写结构化 EPS。没有观察到稳定 Surprise 类型，因此 Longbridge 不填 eps_surprise_pct，也不推导或伪造映射；该字段仍可来自 Yahoo。
 
-新事件分配不含 Provider 或日期的 UUID `event_key`。后续匹配 UPDATE 原行，保留 `id / event_key / first_seen_at / created_at`。已有旧 Provider 风格 key 不重写，仅作为不透明既有标识使用；不保留旧 key 生成逻辑。查找与插入在同一事务，并用 PostgreSQL advisory transaction lock 串行化同一逻辑范围，真实并发测试验证两源仅插入一行。
+脱敏后的公开行情样本见 `tests/fixtures/market_calendar/longbridge_report_sample.json`（IOT 与 CAN）。CAN 的 actual_eps 为 TBA/NULL，测试覆盖正常跳过。未知 KV 连同 key/value/value_raw/value_type 保留来源审计并可渲染 content。
 
-无报告周期和可靠 source ID，且变动超过邻近边界时，不能保证识别同一周期；不会用日期推造永久报告周期。此限制避免把下一季度误覆盖到本季度。
+## 合并与稳定身份
 
-Macro 使用规范化事件类型 + US + 发布日期；显式同报告期间支持 7 天内日期修正。CPI、非农、FOMC 利率决议、PCE 和 GDP 有中英文别名，保留 core、同比/环比、初值/修正/终值差异。没有期间时要求同市场日期；双方明确时间相差超过 2 小时则不合并，避免同日重复讲话被吞并。未知名称仅做标准化文本匹配，不用模糊相似度猜测。未收录的跨语言别名可能仍需后续按实际样本扩充。
+Yahoo 非空 canonical 字段优先，Longbridge 补齐缺失事件与字段（包括上述已验证 EPS）。实际只有 Longbridge 的事件写 provider=longbridge。raw_payload_json 按 yfinance/longbridge 保存 normalized、受控 raw 和 observed_at，事实冲突写 conflicts；provider_event_id 只对应 canonical source，辅助来源 ID 保留在各自审计中。
 
-## finance_events 最终字段
+同一来源更新保留已有非空信息；Yahoo 某次不可用时，历史 Yahoo canonical 字段继续优先，来源 observed_at 可判断新鲜度。Longbridge 日期不一致时，其精确时间不能拼接到 Yahoo 日期。不存在旧数据库行/key 的转换兼容要求。
+
+Earnings 在相同类型、市场、canonical symbol 下按优先级匹配：明确相同报告周期；同 Provider ID（日期差 <=45 天）；否则使用 <=21 天邻近窗口，较早日期不早于同步日期前 7 天。明确不同报告周期绝不合并，多个同级候选记录歧义并跳过该项。
+
+新事件分配 UUID event_key，随后日期/session 变化 UPDATE 原行并保持 id/event_key/首次发现/创建时间。PostgreSQL advisory transaction lock 保留，防止两个并发同步创建重复逻辑事件。
+
+Macro 按中立名称类型、明确 US、日期/时间及可用报告期间匹配，支持 CPI、FOMC、非农、PCE、GDP 有限中英文别名，保留核心/非核心、同比/环比、初值/终值差异。明确同报告期间允许 7 天内改期；无期间要求同市场日期，明确时间相差超过 2 小时不合并。
+
+非阻塞限制：没有周期/可靠来源 ID 且改期超出邻近范围时，无法保证关联；未知宏观跨语言名称可能需要后续样本扩充；CN 不保证覆盖率。本次不扩大匹配、提醒或 Provider 设计。
+
+## Notification / Importance / Timeline
+
+**created=True 仅持久化、进入 Timeline 并提交 importance scoring，不立即通知。** 只有已有事件的 event_date、event_datetime、market_session 实质变化才进入 Calendar Change Notification；EPS、Provider、content、公司名、币种或审计补充不触发。时间范围仍为今天至今天 + 30 天，文案明确写“时间调整”。不实现 T-3/T-1。
+
+删除误导性的 is_important_for_notification，不再用 watchlist/importance 做通知资格判断；watchlist 只保留 focus_events 排序价值。时间变化通知按指纹去重，发送失败不标记成功。新系统重要性评分沿用中立 v2 Prompt、US/CN 市值币种与全市场宏观影响，不依赖 star，不按 Provider 加减分；没有历史 importance 迁移。
+
+Timeline 保留 FinanceEvent + News + TimelineEntry UNION，不写 timeline_entries；现有 detail payload 保留 market_session、reporting_period、provider 和三个 EPS 字段。旧 Calendar API 不恢复，前端不变。
+
+Provider、交易所、市场、页、单行及单次写入失败分别隔离。summary.source_stats 按 provider:type:market 给出 fetched/accepted/skipped/pages_succeeded/merged/inserted/updated/errors/universe_size，Yahoo CN 附 unsupported_reason。新事件不通知不影响 importance_candidate_ids。
+
+## finance_events 最终 schema
+
+不再做额外 schema 大改；保留 currency（明确币种）、provider_event_id（来源身份）、raw_payload_json（双源审计及 KV）。
 
 | 字段 | 用途 |
 | --- | --- |
@@ -76,13 +109,13 @@ Macro 使用规范化事件类型 + US + 发布日期；显式同报告期间支
 | `event_datetime` | 可空的准确 UTC 时间 |
 | `market_session` | 统一 bmo/amc/during_market/unknown |
 | `reporting_period` | 新增；实际明确的报告周期，支持稳定匹配 |
-| `eps_estimate` | 新增；Yahoo Calendar EPS Estimate |
-| `reported_eps` | 新增；Yahoo Calendar Reported EPS |
+| `eps_estimate` | 新增；Yahoo EPS Estimate 优先，Longbridge estimate_eps 补齐 |
+| `reported_eps` | 新增；Yahoo Reported EPS 优先，Longbridge actual_eps 补齐 |
 | `eps_surprise_pct` | 新增；Yahoo Calendar Surprise(%)，百分数而非小数比例 |
 | `title` | Timeline/通知事件标题 |
 | `content` | Provider-neutral 描述及可用宏观数值 |
 | `currency` | 来源明确提供的货币信息；不猜 EPS 币种 |
-| `raw_payload_json` | 双来源快照、原始明细、事实冲突和迁移审计 |
+| `raw_payload_json` | 双来源快照、原始明细、事实冲突；不保留旧行迁移审计 |
 | `importance_score` | LLM 市场重要性 |
 | `importance_reason` | 评分理由，Timeline 展示 |
 | `importance_confidence` | 评分置信度 |
@@ -97,49 +130,17 @@ Macro 使用规范化事件类型 + US + 发布日期；显式同报告期间支
 | `created_at` | 原行创建时间 |
 | `updated_at` | 原行最近更新时间 |
 
-不新增 revenue 字段：当前 Calendar 返回不足以支撑稳定结构化收入字段。EPS 缺失正常保存 NULL；yfinance 1.5.2 自身会将这些列中的 0 转成 NaN，适配器无法恢复上游丢失的零值，不伪造补齐。
 
-## 删除与重命名审计
+新增字段仍为 reporting_period、eps_estimate、reported_eps、eps_surprise_pct；重命名 financial_market_time → market_session（bmo/amc/during_market/unknown）。删除 activity_type/date_type/star/data_kv_json；旧值随整表数据一同删除。Provider 当前请求中的 date_type 仍可作为时段输入，但不存在旧数据库列的兼容代码。
 
 | 删除字段 | 原用途 | 原调用方 | 原因及替代 |
 | --- | --- | --- | --- |
-| `activity_type` | Longbridge 活动类型码 | Longbridge normalizer、Repository values/key/fingerprint、Domain 评分候选、Importance payload/hash、对应 tests | 与日历分类/中立子类型重复；由 calendar_type/event_type 替代，旧值仅留迁移审计 |
+| `activity_type` | Longbridge 活动类型码 | Longbridge normalizer、Repository values/key/fingerprint、Domain 评分候选、Importance payload/hash、对应 tests | 与日历分类/中立子类型重复；由 calendar_type/event_type 替代；旧值随整表数据删除 |
 | `date_type` | SDK 日期/时段标签 | Longbridge normalizer、Repository、ORM | 没有独立稳定领域语义；其中盘前/盘后价值归入 market_session，SDK 输入仍由 Provider 适配 |
 | `star` | Longbridge 0–3 星评级 | Longbridge 文案/normalizer、Repository 排序/fingerprint、Domain 排序/通知、Importance payload/hash、Timeline importance SQL、tests | 不应成为中立重要性的隐性偏置；由现有 LLM importance_score/理由/置信度替代，Timeline 不再以 star 提权 |
 | `data_kv_json` | Longbridge key/value 的重复存储 | Longbridge normalizer、Repository、Domain 评分候选、Importance payload/hash、fixtures | 与 raw payload 重复且 SDK 结构泄漏；EPS 用稳定字段，宏观数值用 content，详细 KV 留每来源 raw 审计 |
 
-`financial_market_time → market_session` 是重命名，不是丢掉 BMO/AMC。旧字符串在迁移/适配层统一映射。未删除 `event_type`、`currency`、`provider_event_id`、`raw_payload_json`：它们仍服务去重、展示、合并或审计。
-
-全局调用链核对发现：旧 `/api/v1/calendar` 已在前一轮 Timeline 改造中删除，不应恢复。当前 API 为 `/api/v1/timeline`，通过通用 detail_payload 增加 market_session、reporting_period、provider 和 EPS 字段；不修改前端，也不复制 FinanceEvent 到 timeline_entries。
-
-## 通知、评分与容错
-
-新发现和日期/准确时间/session 变化才进入通知候选；Provider、公司名、EPS、币种、raw 补齐不重复提醒。指纹不含这些噪音字段，同一合并事件只选一次。通知文案显示实际起止日期（今天至今天 + 30 天），不再硬写“未来14天”。通知去重/冷却 key 使用事件 ID 和变化指纹摘要；发送失败不标记，单次标记异常不回滚已存事件。不实现 T-3/T-1 Reminder。
-
-LLM 评分保留全部 importance_*，Prompt 升到 v2，移除 star/旧 KV，支持 US/CN 公司影响力和美国宏观全市场影响，不按 Provider 加减分。市值区分 US USD / CN CNY，不再把 A 股市值写成美元。价格/市值仍经统一 MarketDataService 获取。
-
-Provider、市场、单行、单页及单次入库失败分别隔离。后页失败保留前页，Yahoo 继续后续分片；CN 没数据正常跳过。所有 US 核心接口无可用页且没有其他市场可用事件，才判定全源不可用；CN 有数据也能独立成功。所有待存事件写入失败时明确失败，防止伪报同步成功。
-
-summary.source_stats 以 `provider:type:market` 为键，包含 fetched、accepted、skipped、pages_succeeded、merged、inserted、updated、errors、universe_size。Yahoo 的 fetched 是共享全球批次行数，accepted 才是对应 Universe 数量；两来源的 inserted/updated 是参与贡献计数，不能相加当作独立事件数。独立逻辑事件数见顶层 merged_count/inserted_count/updated_count。
-
-## 迁移与兼容影响
-
-`0045_calendar_sources` 接在最新 main 的 `0044_crypto_btc` 后：删除不支持类型和市场的历史日历行；保留 earnings/macro 历史；规范 US canonical symbol；迁移 session；新增报告期间和三个 EPS 字段；删除四旧列及 star 索引；增加类型/市场 CHECK。既有重复事件合并时保留较早行 ID/event_key、采用最新观察信息。旧元数据在 raw_payload_json 的 legacy_metadata 审计中保留，不参与运行时兼容逻辑。
-
-旧星级参与过的评分清空，由后续同步提交 v2 重评。已有通知标记重新计算中立指纹，减少迁移后重复通知。历史数据不强制按今天 Universe 成员删除，以免抹掉正常成分变动前的历史事件；新同步严格按动态成员过滤。
-
-这是含数据删除/合并的不可逆迁移，downgrade 显式拒绝恢复伪造数据。回滚需迁移前备份。此次仅在隔离测试 PostgreSQL 上执行验证，没有迁移业务库。空库仍沿用仓库 metadata bootstrap + stamp head。
-
-## 实测覆盖及已知限制
-
-2026-09-08 执行只读查询，窗口 2026-09-08 至 2026-09-15：
-
-- Yahoo earnings 完成 5 页，原始 401 行，分页错误 0；其中 `.SS/.SZ` 行数为 0。
-- Yahoo macro 完成 5 页，原始 460 行，筛选后 US 60 条，分页错误 0。
-- 本环境未配置 DATABASE_URL 与 Longbridge 凭据，无法读取真实两指数成员或验证 Longbridge 实时覆盖；不能把上述结果宣称为指数覆盖率。US/CN Universe 映射和真实仓储行为由离线/隔离数据库测试验证。
-- A 股只做 best-effort；没有数据不视为任务失败，也未引入国内新 Provider。
-
-修复的遗留问题包括：Provider/date 参与旧身份导致重复；Longbridge 漏翻页；SDK 点号日期与 Unix 时间戳解析遗漏；date_type 中的时段信息未统一；star 干预评分/Timeline；通知窗口与文案不一致；使用事件数量做通知去重 key 易碰撞；评分默认所有市值都按美元理解；根指南仍描述已删除的 Calendar API。
+不新增收入字段。yfinance 1.5.2 自身可能把 EPS 0 转为 NaN；Longbridge 有实际有限数值时可补齐，其他情况不伪造。
 
 ## 修改文件
 
@@ -159,13 +160,20 @@ summary.source_stats 以 `provider:type:market` 为键，包含 fetched、accept
 
 IPO/dividend/split 只从财经日历类别映射、fetch 方法、通知/排序规则、评分文案及旧测试中移除。行情复权、Corporate Action 和其他独立业务的 dividend/split 保留。工作区原有 Trend Following/前端改动未纳入本次实现。
 
-## 最终验证结果
+## 本轮 review 文件与验证
 
-2026-09-08，在显式指定的独立 PostgreSQL 16 测试容器上运行；`ENV_FILE=/dev/null`，清除 LLM 三项环境变量，并将 DATABASE_URL / CALENDAR_TEST_DATABASE_URL 指向该测试库。
+原 PR 涉及中立 events、两 Provider、MarketDataService 入口、FinanceEvent ORM/Repository、同步 Domain/Notification/Importance、Timeline、调度文案与相关测试。本轮 review 修复仅涉及：
 
-- `uv run ./scripts/ci_gate.sh` 完整通过：syntax、flake8、deterministic（13 passed）、offline-tests。
-- 完整后端测试：**1988 passed，17 skipped，2 deselected，104 subtests passed**。83 条 warning 为既有依赖/弃用提示。
-- 最终聚焦回归：**127 passed**，覆盖 Calendar provider/repository/task/importance/migration、Timeline、Celery service/schedule。
-- PostgreSQL 真实迁移与双线程并发 source 去重均通过；SQLite 验证作为额外离线覆盖。
-- `git diff --check` 及本次修改文件的未使用/未定义名称检查通过。
-- 测试容器已停止并自动删除；业务数据库未执行迁移，没有发送真实通知。
+- alembic/versions/0045_calendar_sources.py
+- integrations/market_data/calendar.py
+- providers/yfinance_calendar.py、providers/longbridge/calendar.py
+- tasks/celery/jobs/market_calendar_sync/domain_service.py
+- tests/test_market_calendar_migration.py、test_yfinance_calendar_fetcher.py、test_longbridge_calendar_fetcher.py、test_market_calendar_task.py
+- tests/fixtures/market_calendar/longbridge_report_sample.json
+- docs/market-calendar.md
+
+测试明确验证所有旧类型/重复事件/评分/通知状态在 migration 后清空且 schema 正确；SH/SZ 独立请求、logical CN、Universe 过滤及单边失败；Yahoo CN 无请求；offset 0/100/200、异常页、重复页、无交叠日期；created 不通知及各类时间/非时间变化；真实 KV EPS 补齐。
+
+2026-09-08，在独立 PostgreSQL 16 测试容器执行完整 `uv run ./scripts/ci_gate.sh`：**2012 passed、17 skipped、2 deselected、104 subtests passed**；83 条 warning 为既有依赖/弃用提示。syntax、flake8、deterministic（13 passed）均通过。显式设置 `ENV_FILE=/dev/null`，清除 LLM 环境变量，DATABASE_URL 与 CALENDAR_TEST_DATABASE_URL 均指向隔离测试库。
+
+PostgreSQL 真实迁移和 advisory lock 并发去重测试实际执行通过，未跳过；另有 SQLite 迁移覆盖。`alembic heads` 为唯一 `0045_calendar_sources`，`git diff --check` 通过。生产数据库未迁移，没有发送真实通知或执行交易。
