@@ -1,47 +1,63 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import { ArrowUpRight, Bell, FileText, Globe2, PenLine, Plus } from 'lucide-vue-next';
-import { timelineApi, type Actionability, type Category, type Importance, type TimelineItem, type TimelineQuery, type TimelineSummary } from '@/api/timeline';
+import { timelineApi, type TimelineItem, type TimelineQuery, type TimelineTab } from '@/api/timeline';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
-import { Button } from '@/components/ui/button';
+import TimelineAnalysisCard from '@/components/timeline/TimelineAnalysisCard.vue';
+import TimelineEarningsCard from '@/components/timeline/TimelineEarningsCard.vue';
+import TimelineEventDetail from '@/components/timeline/TimelineEventDetail.vue';
+import TimelineMacroCard from '@/components/timeline/TimelineMacroCard.vue';
+import TimelineNewsCard from '@/components/timeline/TimelineNewsCard.vue';
+import { dayHeading, dayKey, importanceNames, kindLabel, marketLabel, tabQuery } from '@/components/timeline/timelineFormat';
 import { Dialog, DialogDescription, DialogHeader, DialogScrollContent, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { useTimezoneStore } from '@/stores/timezoneStore';
-import { formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/utils/format';
+import { formatDateTimeInDisplayTimezone } from '@/utils/format';
 import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 
 const { displayTimezone } = storeToRefs(useTimezoneStore());
+const markets = [{ value: '', label: '全部市场' }, { value: 'CN', label: 'A股' }, { value: 'US', label: '美股' }] as const;
+const tabs = [
+  { value: 'all', label: '全部' }, { value: 'earnings', label: '财报' }, { value: 'macro', label: '宏观' },
+  { value: 'news', label: '新闻' }, { value: 'analysis', label: '市场分析' },
+] as const;
+const cards = { earnings: TimelineEarningsCard, macro: TimelineMacroCard, news: TimelineNewsCard, analysis: TimelineAnalysisCard };
+
 const market = ref('');
-const category = ref<Category | ''>('');
-const importance = ref<Importance | ''>('');
-const actionability = ref<Actionability | ''>('');
-const date = ref('');
+const tab = ref<TimelineTab>('all');
+const endDate = ref('');
 const items = ref<TimelineItem[]>([]);
-const summaries = ref<TimelineSummary[]>([]);
 const total = ref(0);
 const nextCursor = ref<string | null>(null);
 const hasMore = ref(false);
 const loading = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const detail = ref<TimelineItem | null>(null);
-const noteOpen = ref(false);
-const saving = ref(false);
-const editingId = ref<number>();
-const form = reactive({ title: '', summary: '', content: '', market: '' as '' | 'CN' | 'US', importance: 'normal' as Importance, actionability: 'none' as Actionability, symbols: '' });
-const noteError = ref<ParsedApiError | null>(null);
-const noteEventTime = ref('');
-const categories = [{ value: '', label: '全部' }, { value: 'event', label: '财经事件' }, { value: 'news', label: '新闻' }, { value: 'analysis', label: '市场分析' }, { value: 'note', label: '笔记' }] as const;
-const categoryNames: Record<Category, string> = { event: '财经事件', news: '新闻', analysis: '市场分析', note: '笔记' };
-const importanceNames: Record<Importance, string> = { low: 'Low', normal: 'Normal', high: 'High', critical: 'Critical' };
-const actionNames: Record<Actionability, string> = { none: '仅供了解', watch: '关注', consider: '考虑', action_required: '需要行动' };
-const icons = { event: Globe2, news: Bell, analysis: FileText, note: PenLine };
-const query = computed<TimelineQuery>(() => ({ ...(date.value ? { date: date.value } : {}), market: market.value || undefined, category: category.value || undefined, importance: importance.value || undefined, actionability: actionability.value || undefined }));
-const todaySummary = computed(() => summaries.value.find(item => item.date === getTodayInDisplayTimezone()));
+
+const query = computed<TimelineQuery>(() => ({
+  ...tabQuery[tab.value],
+  ...(endDate.value ? { end_date: endDate.value } : {}),
+  market: market.value || undefined,
+}));
+
+/** The API already returns a stable event_time DESC page; never re-sort on the client. */
+const groups = computed(() => {
+  const result: { key: string; items: TimelineItem[] }[] = [];
+  for (const item of items.value) {
+    const key = dayKey(item.eventTime);
+    if (result.at(-1)?.key !== key) result.push({ key, items: [] });
+    result.at(-1)!.items.push(item);
+  }
+  return result;
+});
+
+function cardFor(item: TimelineItem) {
+  if (item.category === 'event') return item.calendarType === 'earnings' ? cards.earnings : cards.macro;
+  return item.category === 'news' ? cards.news : cards.analysis;
+}
+
 let requestId = 0;
 async function load(append = false) {
   if (append && (loading.value || !hasMore.value || !nextCursor.value)) return;
@@ -55,49 +71,17 @@ async function load(append = false) {
   loading.value = true;
   error.value = null;
   try {
-    const [response, summary] = await Promise.all([timelineApi.list({ ...query.value, cursor, limit: 20 }), timelineApi.summary(query.value)]);
+    const response = await timelineApi.list({ ...query.value, cursor, limit: 20 });
     if (id !== requestId) return;
     items.value = append ? [...items.value, ...response.items] : response.items;
     total.value = response.total;
-    summaries.value = summary;
     nextCursor.value = response.nextCursor;
     hasMore.value = response.hasMore;
   } catch (err) { if (id === requestId) error.value = getParsedApiError(err); }
   finally { if (id === requestId) loading.value = false; }
 }
 watch([query, displayTimezone], () => { void load(); }, { immediate: true });
-function dayOf(item: TimelineItem) {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: displayTimezone.value, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(item.eventTime));
-}
-function timeOf(item: TimelineItem) {
-  if (item.detailPayload.allDay) return '全天';
-  return new Intl.DateTimeFormat('zh-CN', { timeZone: displayTimezone.value, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(item.eventTime));
-}
-function openNote(item?: TimelineItem) {
-  editingId.value = item?.sourceId;
-  noteEventTime.value = item?.eventTime || new Date().toISOString();
-  Object.assign(form, { title: item?.title || '', summary: item?.summary || '', content: String(item?.detailPayload.content || ''), market: item?.market || '', importance: item?.importance || 'normal', actionability: item?.actionability || 'none', symbols: item?.relatedSymbols.join(', ') || '' });
-  noteError.value = null;
-  detail.value = null;
-  noteOpen.value = true;
-}
-async function saveNote() {
-  saving.value = true;
-  noteError.value = null;
-  try {
-    await timelineApi.saveNote({ title: form.title, summary: form.summary, content: form.content, market: form.market || null, importance: form.importance, actionability: form.actionability, event_time: noteEventTime.value, related_symbols: form.symbols.split(/[,，\s]+/).filter(Boolean) }, editingId.value);
-    noteOpen.value = false;
-    await load();
-  } catch (err) { noteError.value = getParsedApiError(err); }
-  finally { saving.value = false; }
-}
-async function deleteNote() {
-  if (editingId.value === undefined) return;
-  saving.value = true;
-  try { await timelineApi.deleteNote(editingId.value); noteOpen.value = false; await load(); }
-  catch (err) { noteError.value = getParsedApiError(err); }
-  finally { saving.value = false; }
-}
+
 const newsFields = [
   ['importanceScore', '重要性评分'], ['importanceReason', '重要性依据'], ['eventType', '事件类型'],
   ['timeSensitivity', '时效性'], ['importanceConfidence', '重要性置信度'], ['impact', '影响方向'],
@@ -110,191 +94,121 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
 
 <template>
   <div
-    class="mx-auto w-full max-w-3xl border-x border-border min-h-screen"
+    class="w-full py-6"
     data-testid="investment-timeline"
   >
-    <header class="border-b border-border px-4 py-5 sm:px-6">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <p class="text-xs tracking-widest text-muted-foreground">
-            INVESTMENT TIMELINE
-          </p><h1 class="mt-1 text-2xl font-semibold tracking-tight">
-            投资时间线
-          </h1><p class="mt-2 text-sm text-muted-foreground">
-            按时间汇总值得关注的投资信息。
-          </p>
-        </div>
-        <Button
-          data-testid="add-note"
-          @click="openNote()"
-        >
-          <Plus class="size-4" />新增笔记
-        </Button>
-      </div>
-      <p
-        v-if="todaySummary"
-        class="mt-4 text-xs text-muted-foreground"
-      >
-        今天 {{ todaySummary.total }} 条 · {{ todaySummary.critical }} 条 Critical · {{ todaySummary.high }} 条 High
+    <header class="overflow-hidden rounded-xl border border-border bg-gradient-to-br from-primary/8 via-card to-card p-5 shadow-sm sm:p-6">
+      <p class="text-xs tracking-[0.2em] text-muted-foreground">
+        INVESTMENT TIMELINE
+      </p>
+      <h1 class="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
+        投资时间线
+      </h1>
+      <p class="mt-2 max-w-3xl text-sm text-muted-foreground">
+        公共市场信息看板：财报、宏观、新闻与市场分析统一按事件时间从新到旧排列，未来事件同样排在最前。
       </p>
     </header>
-    <div class="border-b border-border bg-background/95 px-4 py-3 space-y-3 sm:px-6">
+
+    <div class="mt-4 space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4">
       <div
         class="flex flex-wrap items-center gap-2"
         aria-label="市场筛选"
       >
         <button
-          v-for="option in [{ value: '', label: '全部市场' }, { value: 'CN', label: 'A股' }, { value: 'US', label: '美股' }]"
+          v-for="option in markets"
           :key="option.value"
-          class="rounded-full px-3 py-1.5 text-sm transition-colors hover:bg-muted"
-          :class="market === option.value ? 'bg-foreground text-background font-medium' : 'text-muted-foreground'"
+          type="button"
+          class="h-10 rounded-lg border px-3.5 text-sm transition-colors duration-150"
+          :class="market === option.value
+            ? 'border-transparent bg-foreground text-background font-medium'
+            : 'border-border text-muted-foreground hover:bg-muted'"
           :aria-pressed="market === option.value"
           @click="market = option.value"
         >
           {{ option.label }}
         </button>
+        <AppDatePicker
+          v-model="endDate"
+          class="ml-auto w-full sm:w-56"
+          placeholder="截止日期"
+        />
       </div>
       <div
-        class="flex gap-1 overflow-x-auto"
+        class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1"
         aria-label="内容类型筛选"
       >
         <button
-          v-for="option in categories"
+          v-for="option in tabs"
           :key="option.value"
-          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm"
-          :class="category === option.value ? 'border-primary font-semibold' : 'border-transparent text-muted-foreground'"
-          :aria-pressed="category === option.value"
-          @click="category = option.value"
+          type="button"
+          class="h-9 shrink-0 whitespace-nowrap rounded-lg px-3.5 text-sm transition-colors duration-150"
+          :class="tab === option.value
+            ? 'bg-primary/10 font-semibold text-primary'
+            : 'text-muted-foreground hover:bg-muted'"
+          :aria-pressed="tab === option.value"
+          @click="tab = option.value"
         >
           {{ option.label }}
         </button>
-      </div>
-      <div class="flex flex-wrap items-center gap-2 text-xs">
-        <select
-          v-model="importance"
-          aria-label="重要度"
-          class="rounded-md border border-input bg-background p-2"
-        >
-          <option value="">
-            全部重要度
-          </option><option value="critical">
-            Critical
-          </option><option value="high">
-            High
-          </option>
-        </select>
-        <select
-          v-model="actionability"
-          aria-label="行动等级"
-          class="rounded-md border border-input bg-background p-2"
-        >
-          <option value="">
-            全部行动
-          </option><option value="action_required">
-            需要行动
-          </option><option value="consider">
-            考虑
-          </option><option value="watch">
-            关注
-          </option>
-        </select>
-        <AppDatePicker
-          v-model="date"
-          placeholder="筛选日期"
-        />
-        <button
-          v-if="date"
-          class="text-muted-foreground hover:text-foreground"
-          @click="date = ''"
-        >
-          恢复时间流
-        </button>
-        <span class="ml-auto text-muted-foreground">{{ displayTimezone === 'Asia/Shanghai' ? '北京时间' : '美东时间' }}</span>
+        <span class="ml-auto hidden shrink-0 self-center pl-3 text-xs text-muted-foreground sm:block">
+          {{ displayTimezone === 'Asia/Shanghai' ? '北京时间' : '美东时间' }}
+        </span>
       </div>
     </div>
+
     <ApiErrorAlert
       v-if="error"
       :error="error"
-      class="m-4"
+      class="mt-4"
     />
     <div
       v-if="loading && !items.length"
-      class="space-y-6 p-6"
+      class="mt-4 space-y-3"
       aria-label="正在加载"
     >
       <div
         v-for="i in 4"
         :key="i"
-        class="h-24 animate-pulse rounded bg-muted"
+        class="h-28 animate-pulse rounded-xl bg-muted"
       />
     </div>
     <div
       v-else-if="!items.length && !error"
-      class="px-6 py-16 text-center"
+      class="mt-4 rounded-xl border border-dashed border-border px-6 py-16 text-center"
     >
       <p class="font-medium">
         暂无匹配的信息
-      </p><p class="mt-2 text-sm text-muted-foreground">
-        试试其他日期或调整筛选条件。
+      </p>
+      <p class="mt-2 text-sm text-muted-foreground">
+        试试调整市场、类型或截止日期。
       </p>
     </div>
-    <template
-      v-for="(item, index) in items"
-      :key="item.id"
-    >
-      <div
-        v-if="index === 0 || dayOf(items[index - 1]!) !== dayOf(item)"
-        class="border-b border-border bg-muted/30 px-5 py-2 text-xs font-medium text-muted-foreground"
+
+    <div class="mt-4 space-y-6">
+      <section
+        v-for="group in groups"
+        :key="group.key"
+        class="space-y-2.5"
       >
-        {{ dayOf(item) }}
-      </div>
-      <article
-        class="group border-b border-border px-4 py-5 transition-colors hover:bg-muted/30 sm:px-6"
-        data-testid="timeline-item"
-      >
-        <button
-          class="flex w-full gap-3 text-left"
-          :aria-label="`查看${item.title}`"
-          @click="detail = item"
-        >
-          <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"><component
-            :is="icons[item.category]"
-            class="size-4"
-          /></span>
-          <span class="min-w-0 flex-1">
-            <span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"><span class="font-semibold text-foreground">{{ categoryNames[item.category] }}</span><span v-if="item.market">{{ item.market === 'CN' ? 'A股' : item.market === 'US' ? '美股' : item.market }}</span><span>·</span><time :datetime="item.eventTime">{{ timeOf(item) }}</time></span>
-            <span class="mt-2 block break-words text-base font-semibold leading-relaxed">{{ item.title }}</span>
-            <span
-              v-if="item.summary"
-              class="mt-1 line-clamp-2 text-sm leading-relaxed text-muted-foreground"
-            >{{ item.summary }}</span>
-            <span class="mt-3 flex flex-wrap items-center gap-2 text-xs">
-              <span
-                class="rounded px-1.5 py-0.5 font-medium"
-                :class="item.importance === 'critical' ? 'bg-destructive/10 text-destructive' : item.importance === 'high' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-muted text-muted-foreground'"
-              >{{ item.category === 'news' ? `${item.importanceScore}/10` : importanceNames[item.importance] }}</span>
-              <span class="text-muted-foreground">{{ actionNames[item.actionability] }}</span>
-              <span
-                v-if="item.impact"
-                :class="item.impact === 'bullish' ? 'text-market-up' : item.impact === 'bearish' ? 'text-market-down' : 'text-muted-foreground'"
-              >{{ item.impact }} {{ item.impactScore !== null && item.impactScore > 0 ? '+' : '' }}{{ item.impactScore }}</span>
-              <span
-                v-for="symbol in item.relatedSymbols.slice(0, 6)"
-                :key="symbol"
-                class="font-medium text-foreground"
-              >${{ symbol }}</span>
-            </span>
-          </span>
-          <ArrowUpRight class="mt-1 size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-        </button>
-      </article>
-    </template>
+        <h2 class="sticky top-14 z-10 -mx-1 bg-background/90 px-1 py-1.5 text-xs font-medium tabular-nums text-muted-foreground backdrop-blur">
+          {{ dayHeading(group.key) }}
+        </h2>
+        <component
+          :is="cardFor(item)"
+          v-for="item in group.items"
+          :key="item.id"
+          :item="item"
+          @open="detail = item"
+        />
+      </section>
+    </div>
+
     <div
       v-if="hasMore"
-      class="p-5 text-center"
+      class="mt-6 text-center"
     >
       <LoadingButton
-        variant="ghost"
+        variant="outline"
         :loading="loading"
         @click="load(true)"
       >
@@ -303,9 +217,9 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     </div>
     <p
       v-else-if="items.length"
-      class="p-6 text-center text-xs text-muted-foreground"
+      class="mt-6 text-center text-xs text-muted-foreground"
     >
-      已显示当前范围内的 {{ total }} 条信息
+      已显示全部 {{ total }} 条信息
     </p>
 
     <Dialog
@@ -314,16 +228,27 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     >
       <DialogScrollContent class="sm:max-w-3xl">
         <template v-if="detail">
-          <DialogHeader><DialogTitle>{{ detail.title }}</DialogTitle><DialogDescription>{{ categoryNames[detail.category] }} · {{ formatDateTimeInDisplayTimezone(detail.eventTime) }} · {{ importanceNames[detail.importance] }} · {{ actionNames[detail.actionability] }}</DialogDescription></DialogHeader>
-          <p
-            v-if="detail.relatedSymbols.length"
-            class="text-sm font-medium"
-          >
-            {{ detail.relatedSymbols.join(' · ') }}
-          </p>
-          <template v-if="detail.category === 'news'">
+          <DialogHeader>
+            <DialogTitle>{{ detail.title }}</DialogTitle>
+            <DialogDescription>
+              {{ kindLabel(detail) }}{{ detail.market ? ` · ${marketLabel(detail.market)}` : '' }} ·
+              {{ formatDateTimeInDisplayTimezone(detail.eventTime) }} · {{ importanceNames[detail.importance] }}
+            </DialogDescription>
+          </DialogHeader>
+          <TimelineEventDetail
+            v-if="detail.category === 'event'"
+            :item="detail"
+          />
+          <template v-else-if="detail.category === 'news'">
+            <p
+              v-if="detail.relatedSymbols.length"
+              class="text-sm font-medium"
+            >
+              {{ detail.relatedSymbols.join(' · ') }}
+            </p>
             <p class="text-sm text-muted-foreground">
-              {{ detail.detailPayload.source }} · {{ detail.detailPayload.publishedAt ? formatDateTimeInDisplayTimezone(String(detail.detailPayload.publishedAt)) : '发布时间未提供' }}
+              {{ detail.detailPayload.source }} ·
+              {{ detail.detailPayload.publishedAt ? formatDateTimeInDisplayTimezone(String(detail.detailPayload.publishedAt)) : '发布时间未提供' }}
             </p>
             <a
               v-if="safeUrl(detail.detailPayload.url)"
@@ -339,7 +264,8 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
               >
                 <dt class="text-xs text-muted-foreground">
                   {{ label }}
-                </dt><dd class="mt-1 whitespace-pre-line text-sm leading-relaxed">
+                </dt>
+                <dd class="mt-1 whitespace-pre-line text-sm leading-relaxed">
                   {{ fieldText(detail.detailPayload[key]) }}
                 </dd>
               </div>
@@ -350,100 +276,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
             class="prose prose-sm max-w-none break-words dark:prose-invert"
             v-html="renderMarkdownToHtml(String(detail.detailPayload.content || ''))"
           />
-          <Button
-            v-if="detail.category === 'note'"
-            variant="outline"
-            @click="openNote(detail)"
-          >
-            编辑笔记
-          </Button>
         </template>
-      </DialogScrollContent>
-    </Dialog>
-    <Dialog v-model:open="noteOpen">
-      <DialogScrollContent>
-        <DialogHeader><DialogTitle>{{ editingId ? '编辑笔记' : '新增笔记' }}</DialogTitle><DialogDescription>记下投资判断、观察重点与后续行动。</DialogDescription></DialogHeader>
-        <form
-          class="space-y-4"
-          @submit.prevent="saveNote"
-        >
-          <label class="block space-y-1 text-sm"><span>标题</span><Input
-            v-model="form.title"
-            required
-            maxlength="300"
-          /></label>
-          <label class="block space-y-1 text-sm"><span>短摘要</span><Input
-            v-model="form.summary"
-            maxlength="500"
-          /></label>
-          <label class="block space-y-1 text-sm"><span>笔记内容</span><Textarea
-            v-model="form.content"
-            :rows="7"
-          /></label>
-          <label class="block space-y-1 text-sm"><span>相关标的（逗号分隔）</span><Input v-model="form.symbols" /></label>
-          <div class="flex flex-wrap gap-2">
-            <select
-              v-model="form.market"
-              aria-label="笔记市场"
-              class="rounded border bg-background p-2 text-sm"
-            >
-              <option value="">
-                不限市场
-              </option><option value="CN">
-                A股
-              </option><option value="US">
-                美股
-              </option>
-            </select>
-            <select
-              v-model="form.importance"
-              aria-label="笔记重要度"
-              class="rounded border bg-background p-2 text-sm"
-            >
-              <option
-                v-for="(label, value) in importanceNames"
-                :key="value"
-                :value="value"
-              >
-                {{ label }}
-              </option>
-            </select>
-            <select
-              v-model="form.actionability"
-              aria-label="笔记行动等级"
-              class="rounded border bg-background p-2 text-sm"
-            >
-              <option
-                v-for="(label, value) in actionNames"
-                :key="value"
-                :value="value"
-              >
-                {{ label }}
-              </option>
-            </select>
-          </div>
-          <ApiErrorAlert
-            v-if="noteError"
-            :error="noteError"
-          />
-          <div class="flex justify-end gap-2">
-            <LoadingButton
-              v-if="editingId"
-              type="button"
-              variant="destructive"
-              :loading="saving"
-              @click="deleteNote"
-            >
-              删除笔记
-            </LoadingButton><LoadingButton
-              type="submit"
-              :loading="saving"
-              :disabled="!form.title.trim()"
-            >
-              保存笔记
-            </LoadingButton>
-          </div>
-        </form>
       </DialogScrollContent>
     </Dialog>
   </div>

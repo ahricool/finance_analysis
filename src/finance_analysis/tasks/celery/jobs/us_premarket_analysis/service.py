@@ -47,10 +47,8 @@ class USPremarketAnalysisTaskService:
             finished_at = scheduled_now()
             if report:
                 from finance_analysis.database.repositories.timeline import TimelineEntryRepo
-                from finance_analysis.database.repositories.user import UserRepository
 
                 TimelineEntryRepo().create(
-                    uid=UserRepository().ensure_default_admin(),
                     entry_type="us_premarket",
                     market="US",
                     event_time=finished_at,
@@ -62,7 +60,7 @@ class USPremarketAnalysisTaskService:
                     related_symbols=stock_codes,
                     source_task="analysis_us_premarket",
                     source_run_id=get_current_task_id(),
-            )
+                )
             logger.info("美股盘前分析任务执行完成 - %s", finished_at.strftime("%Y-%m-%d %H:%M:%S"))
             return {
                 "total_count": total_count,

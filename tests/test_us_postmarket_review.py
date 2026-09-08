@@ -380,7 +380,6 @@ def test_reporter_creates_investment_report_and_uses_notification_dedup_key() ->
     reporter = USPostmarketReviewReporter(
         notifier=Notifier(),
         timeline_repo=repo,
-        user_repo=SimpleNamespace(ensure_default_admin=lambda: 1),
     )
     summary = _service(reporter=FakeReporter()).run(now=TRADING_DATE, send_notification=False)
     summary.report = _complete_markdown()

@@ -1,25 +1,25 @@
-"""One filtered, paginated feed across events, news judgments and reports."""
+"""One public, paginated feed across finance events, news judgments and market reports."""
 
-from datetime import timedelta
+from sqlalchemy import DateTime, String, and_, case, cast, func, literal, null, or_, select, union_all
 
-from sqlalchemy import DateTime, and_, case, cast, func, literal, or_, select, union_all
-
-from finance_analysis.core.time import coerce_aware_utc, date_range_bounds_utc
+from finance_analysis.core.time import coerce_aware_utc, day_bounds_utc  # pragma: allowlist secret
 from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.news import NewsIntel
 from finance_analysis.database.models.news_analysis import NewsAnalysis
 from finance_analysis.database.models.timeline import TimelineEntry
 from finance_analysis.database.session import DatabaseManager
+from finance_analysis.market_calendar.events import source_payloads  # pragma: allowlist secret
 from finance_analysis.timeline.cursor import TimelineCursor
-from finance_analysis.timeline.dto import TimelineItem, TimelineSummaryItem
+from finance_analysis.timeline.dto import TimelineItem  # pragma: allowlist secret
 
 
 class TimelineService:
+    """Everyone sees the same feed; the timeline carries no user-owned content."""
+
     def __init__(self, db=None):
         self.db = db or DatabaseManager.get_instance()
 
-    def _projection(self, session, *, uid, start_date, end_date, timezone_name, **filters):
-        start, end = date_range_bounds_utc(start_date, end_date, timezone_name)
+    def _projection(self, session, *, end_date=None, timezone_name, **filters):
         f, n, a, t = FinanceEvent, NewsIntel, NewsAnalysis, TimelineEntry
         critical_macro = (f.calendar_type == "macro") & (
             func.lower(f.title).like("%cpi%")
@@ -47,6 +47,7 @@ class TimelineService:
                 f.id.label("source_id"),
                 event_time.label("event_time"),
                 literal("event").label("category"),
+                f.calendar_type.label("calendar_type"),
                 f.market,
                 fi.label("importance"),
                 literal("watch").label("actionability"),
@@ -57,24 +58,28 @@ class TimelineService:
                 a.id,
                 func.coalesce(n.published_date, a.analyzed_at),
                 literal("news"),
+                cast(null(), String),
                 literal("US"),
                 a.importance,
                 a.actionability,
                 a.importance_score,
             ).join(n, n.id == a.news_intel_id),
             select(
-                case((t.entry_type == "manual_note", "note"), else_="report"),
+                literal("report"),
                 t.id,
                 t.event_time,
-                case((t.entry_type == "manual_note", "note"), else_="analysis"),
+                literal("analysis"),
+                cast(null(), String),
                 t.market,
                 t.importance,
                 t.actionability,
                 literal(0),
-            ).where(t.uid == uid),
+            ),
         ).subquery()
-        stmt = select(projection).where(projection.c.event_time >= start, projection.c.event_time < end)
-        for key in ("market", "category", "importance", "actionability"):
+        stmt = select(projection)
+        if end_date is not None:
+            stmt = stmt.where(projection.c.event_time < day_bounds_utc(end_date, timezone_name)[1])
+        for key in ("market", "category", "calendar_type"):
             if filters.get(key):
                 stmt = stmt.where(projection.c[key] == filters[key])
         return stmt.subquery()
@@ -121,52 +126,14 @@ class TimelineService:
             return dict(items=items, total=count, limit=limit, next_cursor=next_cursor, has_more=has_more)
 
     @staticmethod
-    def _local_day(session, feed, timezone_name):
-        if session.bind.dialect.name == "postgresql":
-            return func.date(func.timezone(timezone_name, feed.c.event_time))
-        return func.date(feed.c.event_time)
-
-    def summary(self, **query):
-        with self.db.get_session() as session:
-            feed = self._projection(session, **query)
-            day = self._local_day(session, feed, query["timezone_name"])
-            metrics = {"critical": feed.c.importance == "critical", "high": feed.c.importance == "high"}
-            metrics.update(
-                {category + "_count": feed.c.category == category for category in ("event", "news", "analysis", "note")}
-            )
-            rows = (
-                session.execute(
-                    select(
-                        day.label("date"),
-                        func.count().label("total"),
-                        *[func.sum(case((condition, 1), else_=0)).label(name) for name, condition in metrics.items()],
-                    )
-                    .select_from(feed)
-                    .group_by(day)
-                )
-                .mappings()
-                .all()
-            )
-        counts = {str(row["date"]): {key: value for key, value in row.items() if key != "date"} for row in rows}
-        return [
-            TimelineSummaryItem(
-                date=(query["start_date"] + timedelta(days=offset)).isoformat(),
-                **counts.get((query["start_date"] + timedelta(days=offset)).isoformat(), {}),
-            )
-            for offset in range((query["end_date"] - query["start_date"]).days + 1)
-        ]
-
-    @staticmethod
     def _load_details(session, rows):
         """Hydrate only the selected page, with at most three source queries."""
         entries = {}
         for source, model in (("finance_event", FinanceEvent), ("report", TimelineEntry)):
-            types = {source, "note"} if source == "report" else {source}
-            ids = [row["source_id"] for row in rows if row["source_type"] in types]
+            ids = [row["source_id"] for row in rows if row["source_type"] == source]
             if ids:
                 for item in session.scalars(select(model).where(model.id.in_(ids))):
-                    kind = "note" if model is TimelineEntry and item.entry_type == "manual_note" else source
-                    entries[(kind, item.id)] = item
+                    entries[(source, item.id)] = item
         ids = [row["source_id"] for row in rows if row["source_type"] == "news"]
         if ids:
             for analysis, news in session.execute(
@@ -182,7 +149,7 @@ class TimelineService:
         base = dict(row)
         base["id"] = f"{source}:{row['source_id']}"
         base["event_time"] = coerce_aware_utc(base["event_time"])
-        if source in {"report", "note"}:
+        if source == "report":
             item = entries[(source, row["source_id"])]
             base.update(
                 title=item.title,
@@ -190,7 +157,7 @@ class TimelineService:
                 symbol=item.symbol,
                 related_symbols=item.related_symbols or [],
                 event_type=item.entry_type,
-                detail_type="report" if source == "report" else "note",
+                detail_type="report",
                 detail_payload={"content": item.content},
             )
         elif source == "news":
@@ -239,9 +206,12 @@ class TimelineService:
                     "content": item.content,
                     "all_day": item.event_datetime is None,
                     "event_date": item.event_date,
+                    "counter_name": item.counter_name,
                     "market_session": item.market_session,
                     "reporting_period": item.reporting_period,
+                    "currency": item.currency,
                     "provider": item.provider,
+                    "source_providers": _source_providers(item),
                     "eps_estimate": item.eps_estimate,
                     "reported_eps": item.reported_eps,
                     "eps_surprise_pct": item.eps_surprise_pct,
@@ -249,3 +219,12 @@ class TimelineService:
                 },
             )
         return TimelineItem(**base)
+
+
+def _source_providers(event) -> list[str]:
+    """Providers that actually contributed to a merged calendar event."""
+    try:
+        providers = sorted(source_payloads({"raw_payload_json": event.raw_payload_json}))
+    except (TypeError, ValueError):
+        providers = []
+    return providers or ([event.provider] if event.provider else [])

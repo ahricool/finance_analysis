@@ -1,4 +1,4 @@
-"""Durable investment reports and user-owned notes."""
+"""Durable public market reports shown on the investment timeline."""
 
 from sqlalchemy import JSON, CheckConstraint, Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -11,7 +11,6 @@ class TimelineEntry(Base):
     __tablename__ = "timeline_entries"
 
     id = Column(Integer, primary_key=True)
-    uid = Column(Integer, nullable=False, index=True)
     entry_type = Column(String(32), nullable=False, index=True)
     market = Column(String(16), nullable=True, index=True)
     event_time = Column(DateTime(timezone=True), nullable=False, index=True)
@@ -29,7 +28,7 @@ class TimelineEntry(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "entry_type IN ('a_share_pre_close','us_premarket','us_postmarket','manual_note')", name="ck_timeline_type"
+            "entry_type IN ('a_share_pre_close','us_premarket','us_postmarket')", name="ck_timeline_type"
         ),
         CheckConstraint("importance IN ('low','normal','high','critical')", name="ck_timeline_importance"),
         CheckConstraint("actionability IN ('none','watch','consider','action_required')", name="ck_timeline_action"),

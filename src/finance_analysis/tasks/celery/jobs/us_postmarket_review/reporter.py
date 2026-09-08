@@ -33,11 +33,9 @@ class USPostmarketReviewReporter:
         *,
         notifier: Optional[object] = None,
         timeline_repo: Optional[object] = None,
-        user_repo: Optional[object] = None,
     ) -> None:
         self.notifier = notifier
         self.timeline_repo = timeline_repo
-        self.user_repo = user_repo
         self._notifier_provided = notifier is not None
 
     def save_report_file(self, summary: USPostmarketReviewSummary) -> Optional[str]:
@@ -52,7 +50,6 @@ class USPostmarketReviewReporter:
 
     def record_report(self, summary) -> int:
         entry = self._get_timeline_repo().create(
-            uid=int(self._get_user_repo().ensure_default_admin()),
             entry_type="us_postmarket",
             market="US",
             event_time=summary.finished_at,
@@ -63,7 +60,7 @@ class USPostmarketReviewReporter:
             actionability="watch",
             source_run_id=get_current_task_id(),
             source_task="analysis_us_postmarket_review",
-            )
+        )
         return entry.id
 
     def send_notification(
@@ -111,10 +108,3 @@ class USPostmarketReviewReporter:
 
             self.timeline_repo = TimelineEntryRepo()
         return self.timeline_repo
-
-    def _get_user_repo(self) -> object:
-        if self.user_repo is None:
-            from finance_analysis.database.repositories.user import UserRepository
-
-            self.user_repo = UserRepository()
-        return self.user_repo
