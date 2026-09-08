@@ -801,7 +801,7 @@ def test_importance_combines_with_calendar_type_market_and_cutoff(db, monkeypatc
     seed_news(db)
     report(db, importance="critical")
     response = timeline_client(db, monkeypatch).get("/api/v1/timeline", params=dict(
-        market="US", category="event", calendar_type="earnings", symbol="NVDA", importance="critical", end_date="2026-09-06",
+        market="US", category="event", calendar_type="earnings", importance="critical", end_date="2026-09-06",
     ))
     assert response.status_code == 200
     assert [item["title"] for item in response.json()["items"]] == ["earnings"]

@@ -21,7 +21,7 @@ const earnings: TimelineItem = {
   market: 'US', eventTime: '2026-10-01T20:00:00Z', title: 'NVDA Earnings', summary: '', symbol: 'NVDA',
   relatedSymbols: ['NVDA'], importance: 'high', actionability: 'watch', impact: null, impactScore: null,
   importanceScore: 9, eventType: 'earnings', detailType: 'event',
-  detailPayload: { counterName: 'NVIDIA', reportingPeriod: 'Q3', marketSession: 'amc', epsEstimate: 1.32, allDay: true },
+  detailPayload: { counterName: 'NVIDIA', reportingPeriod: 'Q3', marketSession: 'amc', currency: 'USD', epsEstimate: 1.32, allDay: true },
 };
 const macro: TimelineItem = {
   id: 'finance_event:3', sourceType: 'finance_event', sourceId: 3, category: 'event', calendarType: 'macro',
@@ -273,4 +273,26 @@ describe('cutoff presets and columns', () => {
     expect(columns[0]!.findAll('[data-testid="timeline-item"]').map(card => card.attributes('aria-label'))).toEqual(sameDay.map(item => `查看${item.title}`));
     wrapper.unmount();
   });
+});
+
+
+it.each([
+  ['USD', 1.32, '$1.32'], ['CNY', 15.2, '¥15.20'], ['HKD', 3.5, 'HK$3.50'],
+  [null, 2.1, '2.10'], ['unknown', 2.1, '2.10'],
+] as const)('renders %s EPS in both the earnings card and detail dialog', async (currency, value, expected) => {
+  vi.mocked(timelineApi.list).mockResolvedValue(respond([{
+    ...earnings, detailPayload: { ...earnings.detailPayload, currency, epsEstimate: value, reportedEps: value },
+  }]));
+  const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] }, attachTo: document.body });
+  await flushPromises();
+  const card = wrapper.get('[data-testid="timeline-item"]');
+  expect(card.text()).toContain(`EPS 预期 ${expected}`);
+  expect(card.text()).toContain(`实际 ${expected}`);
+  await card.trigger('click');
+  await flushPromises();
+  const facts = Array.from(document.body.querySelectorAll('[role="dialog"] dl > div'));
+  for (const label of ['EPS 预期', '实际 EPS']) {
+    expect(facts.find(fact => fact.querySelector('dt')?.textContent?.trim() === label)?.querySelector('dd')?.textContent?.trim()).toBe(expected);
+  }
+  wrapper.unmount();
 });

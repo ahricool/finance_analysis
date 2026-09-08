@@ -76,8 +76,12 @@ export function hasValue(value: unknown): boolean {
   return value !== null && value !== undefined && value !== '' && value !== 'unknown';
 }
 
-export function formatEps(value: unknown): string {
-  return typeof value === 'number' ? `$${value.toFixed(2)}` : '';
+/** Display the reported currency only; missing or unrecognized currencies stay numeric. */
+export function formatEps(value: unknown, currency?: string | null): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+  const code = currency?.trim().toUpperCase();
+  const symbol = code === 'USD' ? '$' : code === 'CNY' ? '¥' : code === 'HKD' ? 'HK$' : '';
+  return `${symbol}${value.toFixed(2)}`;
 }
 
 export function formatSurprise(value: unknown): string {

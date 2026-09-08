@@ -14,8 +14,8 @@ const when = computed(() => {
   if (session.value) return `${day} · ${session.value}`;
   return payload.value.allDay ? `${day} · 时间待定` : `${day} · ${clockTime(props.item.eventTime)}`;
 });
-const estimate = computed(() => formatEps(payload.value.epsEstimate));
-const reported = computed(() => formatEps(payload.value.reportedEps));
+const estimate = computed(() => formatEps(payload.value.epsEstimate, payload.value.currency));
+const reported = computed(() => formatEps(payload.value.reportedEps, payload.value.currency));
 const surprise = computed(() => formatSurprise(payload.value.epsSurprisePct));
 </script>
 
