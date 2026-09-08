@@ -1,0 +1,28 @@
+{
+  "observed_on": "2026-09-08",
+  "source": "Longbridge CalendarCategory.Report, US, read-only requests for 2026-09-03..04 and 2026-09-05..08",
+  "events": [
+    {
+      "symbol": "IOT.US",
+      "market": "US",
+      "date": "2026.09.03 (EST)",
+      "data_kv": [
+        {"key": "", "value": "0.0124", "value_raw": "0.012430", "value_type": "estimate_eps"},
+        {"key": "", "value": "483.3 M", "value_raw": "483296990.000000", "value_type": "estimate_revenue"},
+        {"key": "", "value": "0.03", "value_raw": "0.030000", "value_type": "actual_eps"},
+        {"key": "", "value": "508.44 M", "value_raw": "508437000.000000", "value_type": "actual_revenue"}
+      ]
+    },
+    {
+      "symbol": "CAN.US",
+      "market": "US",
+      "date": "Today 2026.09.08 (EST)",
+      "data_kv": [
+        {"key": "", "value": "-0.056", "value_raw": "-0.056000", "value_type": "estimate_eps"},
+        {"key": "", "value": "38.65 M", "value_raw": "38646250.000000", "value_type": "estimate_revenue"},
+        {"key": "", "value": "TBA", "value_raw": null, "value_type": "actual_eps"},
+        {"key": "", "value": "TBA", "value_raw": null, "value_type": "actual_revenue"}
+      ]
+    }
+  ]
+}

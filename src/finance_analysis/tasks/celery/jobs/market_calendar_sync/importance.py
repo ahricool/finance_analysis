@@ -19,7 +19,7 @@ from finance_analysis.tasks.celery.jobs.us_intraday_analysis.llm import parse_ll
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 DEFAULT_BATCH_SIZE = 10
 
 
@@ -74,15 +74,16 @@ def _event_payload(event: FinanceEvent, company_context: EventCompanyContext) ->
         "counter_name": event.counter_name,
         "company_name": company_context.company_name or event.counter_name,
         "event_type": event.event_type,
-        "activity_type": event.activity_type,
         "event_date": event.event_date.isoformat() if event.event_date else None,
         "event_datetime": _jsonable_datetime(event.event_datetime),
         "title": event.title,
         "content": event.content,
-        "star": event.star,
-        "provider_star": event.star,
-        "data_kv_json": event.data_kv_json,
         "market_cap": company_context.market_cap,
+        "market_cap_currency": "CNY" if event.market == "CN" else "USD",
+        "market_session": event.market_session,
+        "eps_estimate": event.eps_estimate,
+        "reported_eps": event.reported_eps,
+        "eps_surprise_pct": event.eps_surprise_pct,
         "current_price": company_context.current_price,
         "prompt_version": PROMPT_VERSION,
     }
@@ -99,25 +100,30 @@ def compute_importance_input_hash(event: FinanceEvent, company_context: EventCom
             "symbol",
             "counter_name",
             "event_type",
-            "activity_type",
             "event_date",
             "event_datetime",
             "title",
             "content",
-            "star",
-            "data_kv_json",
             "market_cap",
+            "market_cap_currency",
+            "market",
+            "market_session",
+            "eps_estimate",
+            "reported_eps",
+            "eps_surprise_pct",
             "prompt_version",
         }
     }
-    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
 
 
 def build_event_importance_prompt(events: Sequence[Dict[str, Any]]) -> str:
     payload = list(events)
     return (
-        "你是美股财经日历事件的客观市场重要性评分器。\n\n"
-        "评分目标：评估事件对整个美股市场、纳斯达克和标普等主要指数、重要行业和板块、"
+        "你是财经日历事件的客观市场重要性评分器。\n\n"
+        "评分目标：评估事件对事件所属市场（US 或 CN）、标普和沪深300等主要指数、重要行业和板块、"
         "大型上市公司、行业关键公司和周期风向标的潜在关注价值。评分是市场关注价值，不是涨跌方向。\n\n"
         "评分范围使用 1-10 分：\n"
         "10：可能影响整个市场、主要指数或全球风险偏好的核心事件。\n"
@@ -125,9 +131,9 @@ def build_event_importance_prompt(events: Sequence[Dict[str, Any]]) -> str:
         "8：大型公司或重要板块公司的重要财报、指引及重大公司事件。\n"
         "7：具有明显行业影响力的公司事件。\n"
         "5-6：普通中型公司的财报或具有一定关注价值的事件。\n"
-        "3-4：小型公司的常规财报、普通分红或普通公司行动。\n"
+        "3-4：小型公司的常规财报、普通财报更新。\n"
         "1-2：市场影响很小的例行事件、信息不足或普通小公司事件。\n\n"
-        "公司规模原则：当提供 market_cap 时，将其作为美元市值理解并明确考虑公司规模。"
+        "公司规模原则：当提供 market_cap 时，按 market_cap_currency 理解市值币种并明确考虑公司规模。"
         "超大型及大型公司事件通常比小公司同类事件更重要，但公司规模不是唯一因素。"
         "即使市值不是最大，行业关键公司、周期风向标也可以获得高分。"
         "小公司不能仅因为事件类型是 earnings 就获得高分；普通小公司的常规财报原则上不应超过 5 分。"
@@ -136,8 +142,7 @@ def build_event_importance_prompt(events: Sequence[Dict[str, Any]]) -> str:
         "可能显著高于陌生小公司的普通财报；但不要硬编码任何 symbol。\n\n"
         "事件类型原则：FOMC、CPI、PCE、非农、GDP、重大就业和通胀数据通常高分。"
         "大公司和行业龙头财报通常高分。财报指引、重大监管、重大并购等高于例行事件。"
-        "普通分红通常低分。拆股本身通常不是基本面重大变化，除非公司规模和市场关注度很高。"
-        "IPO 应结合发行规模、公司影响力和市场热度判断。仅凭标题无法判断时，保守评分。\n\n"
+        "仅凭标题无法判断时，保守评分。不得因为来源 Provider 不同提高或降低分数。\n\n"
         "禁止事项：不预测涨跌；不输出 bullish/bearish；不给交易建议；"
         "不虚构新闻、市场预期或财报数据；不使用训练记忆中的具体实时市值替代输入数据；"
         "不因为股票位于用户 watch list 就提高客观市场重要性评分。watch list 属于个人相关性，"
@@ -279,7 +284,7 @@ class MarketCalendarImportanceService:
         result = self.llm_client.complete_json(
             LLMRequest(
                 messages=[
-                    {"role": "system", "content": "你是美股财经日历客观市场重要性 JSON 评分器，只输出 JSON。"},
+                    {"role": "system", "content": "你是财经日历客观市场重要性 JSON 评分器，只输出 JSON。"},
                     {"role": "user", "content": build_event_importance_prompt(prompt_payload)},
                 ],
                 temperature=0.1,
@@ -315,4 +320,4 @@ class MarketCalendarImportanceService:
 
     @staticmethod
     def _chunks(items: Sequence[Dict[str, Any]], size: int) -> List[List[Dict[str, Any]]]:
-        return [list(items[index:index + size]) for index in range(0, len(items), size)]
+        return [list(items[index : index + size]) for index in range(0, len(items), size)]

@@ -10,9 +10,9 @@ from types import SimpleNamespace
 from finance_analysis.database.models import FinanceEvent
 from finance_analysis.llm.types import LLMResult
 from finance_analysis.tasks.celery.jobs.market_calendar_sync.importance import (
+    PROMPT_VERSION,
     EventCompanyContext,
     MarketCalendarImportanceService,
-    PROMPT_VERSION,
     build_event_importance_prompt,
     compute_importance_input_hash,
     normalize_importance_results,
@@ -25,7 +25,6 @@ def _event(
     symbol: str | None = "NVDA",
     calendar_type: str = "earnings",
     title: str = "NVIDIA earnings",
-    star: int | None = 3,
 ) -> FinanceEvent:
     now = datetime(2026, 6, 18, tzinfo=timezone.utc)
     return FinanceEvent(
@@ -37,13 +36,10 @@ def _event(
         symbol=symbol,
         counter_name="NVIDIA" if symbol else None,
         event_type="Release",
-        activity_type="Earnings",
         event_date=date(2026, 6, 20),
         event_datetime=now,
         title=title,
         content=f"{title} content",
-        star=star,
-        data_kv_json='[{"key":"EPS","value":"1.23"}]',
         first_seen_at=now,
         last_seen_at=now,
         created_at=now,
@@ -119,7 +115,6 @@ def test_prompt_contains_required_context_and_rules():
                 "calendar_type": "earnings",
                 "symbol": "MU",
                 "company_name": "Micron Technology",
-                "provider_star": 2,
                 "market_cap": 123456.0,
                 "title": "MU earnings",
             }
@@ -130,7 +125,7 @@ def test_prompt_contains_required_context_and_rules():
     assert "earnings" in prompt
     assert "MU" in prompt
     assert "Micron Technology" in prompt
-    assert "provider_star" in prompt
+    assert "provider_star" not in prompt
     assert "market_cap" in prompt
     assert "不预测涨跌" in prompt
     assert "普通小公司的常规财报原则上不应超过 5 分" in prompt
@@ -165,7 +160,9 @@ def test_same_input_hash_skips_llm():
     quote_fetcher = _FakeQuoteFetcher({"NVDA": SimpleNamespace(name="NVIDIA", total_mv=1000.0, price=10.0)})
     llm = _FakeLLMClient([])
 
-    result = MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids([1])
+    result = MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids(
+        [1]
+    )
 
     assert result["skipped"] == 1
     assert llm.requests == []
@@ -179,9 +176,13 @@ def test_prompt_version_change_rescores_event():
     event.importance_input_hash = "stale"
     repo = _FakeRepo([event])
     quote_fetcher = _FakeQuoteFetcher({"NVDA": SimpleNamespace(name="NVIDIA", total_mv=1000.0, price=10.0)})
-    llm = _FakeLLMClient([json.dumps([{"event_id": 1, "importance_score": 9, "importance_reason": "龙头财报", "confidence": 0.8}])])
+    llm = _FakeLLMClient(
+        [json.dumps([{"event_id": 1, "importance_score": 9, "importance_reason": "龙头财报", "confidence": 0.8}])]
+    )
 
-    result = MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids([1])
+    result = MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids(
+        [1]
+    )
 
     assert result["scored"] == 1
     assert repo.updated[0]["prompt_version"] == PROMPT_VERSION
@@ -213,7 +214,9 @@ def test_service_uses_unified_quote_context():
     event = _event()
     repo = _FakeRepo([event])
     quote_fetcher = _FakeLightweightContextFetcher()
-    llm = _FakeLLMClient([json.dumps([{"event_id": 1, "importance_score": 9, "importance_reason": "龙头财报", "confidence": 0.8}])])
+    llm = _FakeLLMClient(
+        [json.dumps([{"event_id": 1, "importance_score": 9, "importance_reason": "龙头财报", "confidence": 0.8}])]
+    )
 
     MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids([1])
 
@@ -226,9 +229,13 @@ def test_market_cap_failure_still_scores_with_null_market_cap():
     event = _event()
     repo = _FakeRepo([event])
     quote_fetcher = _FakeQuoteFetcher(exc=RuntimeError("quote down"))
-    llm = _FakeLLMClient([json.dumps([{"event_id": 1, "importance_score": 6, "importance_reason": "信息有限", "confidence": 0.4}])])
+    llm = _FakeLLMClient(
+        [json.dumps([{"event_id": 1, "importance_score": 6, "importance_reason": "信息有限", "confidence": 0.4}])]
+    )
 
-    result = MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids([1])
+    result = MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids(
+        [1]
+    )
 
     assert result["scored"] == 1
     assert '"market_cap": null' in llm.requests[0].messages[1]["content"]
@@ -266,7 +273,9 @@ def test_llm_unavailable_skips_safely():
     repo = _FakeRepo([_event()])
     llm = _FakeLLMClient(available=False)
 
-    result = MarketCalendarImportanceService(repo=repo, quote_fetcher=_FakeQuoteFetcher(), llm_client=llm).score_event_ids([1])
+    result = MarketCalendarImportanceService(
+        repo=repo, quote_fetcher=_FakeQuoteFetcher(), llm_client=llm
+    ).score_event_ids([1])
 
     assert result["errors"] == ["llm_unavailable"]
     assert repo.list_calls == 0
@@ -281,7 +290,9 @@ def test_invalid_json_does_not_overwrite_existing_score():
     quote_fetcher = _FakeQuoteFetcher({"NVDA": SimpleNamespace(name="NVIDIA", total_mv=1000.0, price=10.0)})
     llm = _FakeLLMClient(["not json"])
 
-    result = MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids([1])
+    result = MarketCalendarImportanceService(repo=repo, quote_fetcher=quote_fetcher, llm_client=llm).score_event_ids(
+        [1]
+    )
 
     assert result["scored"] == 0
     assert repo.updated == []

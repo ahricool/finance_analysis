@@ -15,7 +15,9 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_crypto_revision_single_head_upgrade_matches_orm_and_downgrade():
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "alembic"))
-    assert ScriptDirectory.from_config(config).get_current_head() == "0044_crypto_btc"
+    scripts = ScriptDirectory.from_config(config)
+    head = scripts.get_current_head()
+    assert head and "0044_crypto_btc" in {revision.revision for revision in scripts.walk_revisions(head=head)}
     spec = importlib.util.spec_from_file_location("crypto_migration", ROOT / "alembic/versions/0044_crypto_btc.py")
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)

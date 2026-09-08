@@ -181,6 +181,7 @@ def test_intraday_start_delay_is_bounded():
 def test_market_calendar_service_runs_sync_and_submits_importance():
     summary = MagicMock(
         all_interfaces_failed=False,
+        all_writes_failed=False,
         fetched_count_by_type={"earnings": 1},
         inserted_count=1,
         updated_count=0,

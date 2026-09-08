@@ -6,16 +6,18 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Mapping, Optional
+from uuid import uuid4
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
-from finance_analysis.database.models import FinanceEvent
-from finance_analysis.database.base import ensure_aware_datetime
-from finance_analysis.database.session import DatabaseManager
 from finance_analysis.core.time import utc_now
+from finance_analysis.database.base import ensure_aware_datetime
+from finance_analysis.database.models import FinanceEvent
+from finance_analysis.database.session import DatabaseManager
+from finance_analysis.market_calendar.events import CALENDAR_TYPES, EVENT_FIELDS, match_rank, merge_sources
 
 
 def get_db() -> DatabaseManager:
@@ -63,40 +65,22 @@ def _digest(value: str, length: int = 24) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:length]
 
 
-def normalize_event_key(event: Mapping[str, Any]) -> str:
-    """Build a stable unique identity for a provider calendar event."""
-    provider = _clean(event.get("provider")).lower() or "unknown"
-    calendar_type = _clean(event.get("calendar_type")).lower()
-    provider_event_id = _clean(event.get("provider_event_id"))
-    if provider_event_id:
-        return f"{provider}:{calendar_type}:id:{_digest(provider_event_id, 32)}"
-
-    content_identity = _clean(event.get("title")) or _clean(event.get("content")) or _clean(event.get("content_markdown"))
-    content_hash = _digest(content_identity.lower(), 32)
-    parts = [
-        provider,
-        calendar_type,
-        _clean(event.get("market")).upper(),
-        _clean(event.get("symbol")).upper(),
-        _date_value(event.get("event_date")).isoformat(),
-        _clean(event.get("event_type")).lower(),
-        _clean(event.get("activity_type")).lower(),
-        content_hash,
-    ]
-    return "fallback:" + _digest("|".join(parts), 48)
+def _new_event_key(event: Mapping[str, Any]) -> str:
+    """Allocate an opaque identity once; subsequent writes match business candidates."""
+    return str(event.get("event_key") or f"{event['calendar_type']}:{uuid4().hex}")
 
 
 def notification_fingerprint(event: Mapping[str, Any]) -> str:
     payload = {
-        "calendar_type": _clean(event.get("calendar_type")).lower(),
-        "symbol": _clean(event.get("symbol")).upper(),
-        "event_date": _date_value(event.get("event_date")).isoformat(),
-        "event_datetime": _clean(event.get("event_datetime")),
-        "title": _clean(event.get("title")),
-        "content": _clean(event.get("content")),
-        "event_type": _clean(event.get("event_type")),
-        "activity_type": _clean(event.get("activity_type")),
-        "star": event.get("star"),
+        "calendar_type": event.get("calendar_type"),
+        "symbol": event.get("symbol"),
+        "event_date": _date_value(event["event_date"]).isoformat(),
+        "event_datetime": (
+            _datetime_value(event.get("event_datetime")).isoformat()
+            if _datetime_value(event.get("event_datetime"))
+            else None
+        ),
+        "market_session": event.get("market_session") or "unknown",
     }
     return _digest(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str), 48)
 
@@ -111,20 +95,10 @@ def _sort_events_for_display(events: List[FinanceEvent]) -> List[FinanceEvent]:
         except (TypeError, ValueError):
             return (1, 0)
 
-    def _star_rank(event: FinanceEvent) -> tuple[int, int]:
-        star = getattr(event, "star", None)
-        if star is None:
-            return (1, 0)
-        try:
-            return (0, -int(star))
-        except (TypeError, ValueError):
-            return (1, 0)
-
     return sorted(
         events,
         key=lambda event: (
             *_importance_rank(event),
-            *_star_rank(event),
             str(getattr(event, "calendar_type", "") or ""),
             str(getattr(event, "symbol", "") or ""),
             str(getattr(event, "title", "") or ""),
@@ -148,40 +122,81 @@ class MarketCalendarEventRepo:
     def __init__(self, db: Optional[DatabaseManager] = None):
         self.db = db or get_db()
 
-    def upsert_event(self, event: Mapping[str, Any]) -> FinanceEventUpsertResult:
-        event_key = normalize_event_key(event)
+    def upsert_event(self, event: Mapping[str, Any], *, as_of: Optional[date] = None) -> FinanceEventUpsertResult:
+        if event.get("calendar_type") not in CALENDAR_TYPES:
+            raise ValueError("unsupported calendar type")
+        if event.get("calendar_type") == "macro":
+            if event.get("market") != "US" or event.get("symbol") is not None:
+                raise ValueError("only US macro is supported")
+        elif event.get("market") not in {"US", "CN"} or not event.get("symbol"):
+            raise ValueError("earnings requires a US/CN canonical symbol")
         now = utc_now()
-        values = self._event_values(event, event_key=event_key, now=now)
+        as_of = as_of or now.date()
 
         def _write(session: Session) -> FinanceEventUpsertResult:
-            obj = session.execute(select(FinanceEvent).where(FinanceEvent.event_key == event_key)).scalars().first()
+            # Serialize candidate lookup + insertion even when two Celery invocations overlap.
+            scope = f"{event['calendar_type']}:{event['market']}:{event.get('symbol') or event.get('event_type')}"
+            if session.get_bind().dialect.name == "postgresql":
+                lock_id = int.from_bytes(hashlib.sha256(scope.encode()).digest()[:8], "big", signed=True)
+                session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_id})
+            stmt = select(FinanceEvent).where(
+                FinanceEvent.calendar_type == event["calendar_type"],
+                FinanceEvent.market == event["market"],
+                FinanceEvent.symbol == event.get("symbol"),
+            )
+            event_date = _date_value(event["event_date"])
+            if event["calendar_type"] == "macro":
+                stmt = stmt.where(
+                    FinanceEvent.event_type == event.get("event_type"),
+                    FinanceEvent.event_date.between(event_date - timedelta(days=7), event_date + timedelta(days=7)),
+                )
+            else:
+                nearby = FinanceEvent.event_date.between(
+                    event_date - timedelta(days=45), event_date + timedelta(days=45)
+                )
+                if event.get("reporting_period"):
+                    nearby = or_(nearby, FinanceEvent.reporting_period == event["reporting_period"])
+                stmt = stmt.where(nearby)
+            rows = session.execute(stmt.with_for_update()).scalars().all()
+            ranks = [
+                match_rank(
+                    {**{key: getattr(row, key) for key in EVENT_FIELDS}, "raw_payload_json": row.raw_payload_json},
+                    event,
+                    as_of=as_of,
+                )
+                for row in rows
+            ]
+            best = max(ranks, default=0)
+            candidates = [row for row, rank in zip(rows, ranks) if best and rank == best]
+            if len(candidates) > 1:
+                raise ValueError(f"ambiguous calendar identity: {scope}, candidates={[row.id for row in candidates]}")
+            obj = candidates[0] if candidates else None
             if obj is None:
+                values = self._event_values(merge_sources(event), event_key=_new_event_key(event), now=now)
                 obj = FinanceEvent(**values)
                 session.add(obj)
                 session.flush()
                 session.refresh(obj)
                 session.expunge(obj)
                 return FinanceEventUpsertResult(event=obj, created=True, updated=False)
-
-            changed_fields: List[str] = []
-            mutable_values = dict(values)
-            mutable_values.pop("first_seen_at", None)
-            mutable_values.pop("created_at", None)
-            mutable_values["last_seen_at"] = now
-            mutable_values["updated_at"] = now
-            for key, value in mutable_values.items():
-                if getattr(obj, key) != value:
+            previous = {**{key: getattr(obj, key) for key in EVENT_FIELDS}, "raw_payload_json": obj.raw_payload_json}
+            values = self._event_values(merge_sources(previous, event), event_key=obj.event_key, now=now)
+            changed_fields = []
+            for key, value in values.items():
+                if key in {"event_key", "first_seen_at", "created_at"}:
+                    continue
+                old = getattr(obj, key)
+                if isinstance(old, datetime):
+                    old = ensure_aware_datetime(old)
+                if old != value:
                     setattr(obj, key, value)
-                    if key not in ("last_seen_at", "updated_at"):
+                    if key not in {"last_seen_at", "updated_at"}:
                         changed_fields.append(key)
             session.flush()
             session.refresh(obj)
             session.expunge(obj)
             return FinanceEventUpsertResult(
-                event=obj,
-                created=False,
-                updated=bool(changed_fields),
-                changed_fields=changed_fields,
+                event=obj, created=False, updated=bool(changed_fields), changed_fields=changed_fields
             )
 
         return self.db._run_write_transaction("finance_events.upsert", _write)
@@ -198,7 +213,6 @@ class MarketCalendarEventRepo:
                 .where(FinanceEvent.event_date == day)
                 .order_by(
                     FinanceEvent.importance_score.desc().nulls_last(),
-                    FinanceEvent.star.desc().nulls_last(),
                     FinanceEvent.calendar_type.asc(),
                     FinanceEvent.symbol.asc(),
                     FinanceEvent.title.asc(),
@@ -230,9 +244,7 @@ class MarketCalendarEventRepo:
 
         with self.db.get_session() as session:
             total = int(
-                session.execute(
-                    select(func.count()).select_from(FinanceEvent).where(and_(*conditions))
-                ).scalar_one()
+                session.execute(select(func.count()).select_from(FinanceEvent).where(and_(*conditions))).scalar_one()
                 or 0
             )
             stmt = (
@@ -240,7 +252,6 @@ class MarketCalendarEventRepo:
                 .where(and_(*conditions))
                 .order_by(
                     FinanceEvent.importance_score.desc().nulls_last(),
-                    FinanceEvent.star.desc().nulls_last(),
                     FinanceEvent.calendar_type.asc(),
                     FinanceEvent.symbol.asc(),
                     FinanceEvent.title.asc(),
@@ -267,7 +278,6 @@ class MarketCalendarEventRepo:
                 .order_by(
                     FinanceEvent.event_date.asc(),
                     FinanceEvent.importance_score.desc().nulls_last(),
-                    FinanceEvent.star.desc().nulls_last(),
                     FinanceEvent.calendar_type.asc(),
                     FinanceEvent.symbol.asc(),
                     FinanceEvent.title.asc(),
@@ -365,11 +375,8 @@ class MarketCalendarEventRepo:
 
     def _event_values(self, event: Mapping[str, Any], *, event_key: str, now: datetime) -> Dict[str, Any]:
         event_datetime = _datetime_value(event.get("event_datetime"))
-        data_kv_json = event.get("data_kv_json")
-        if data_kv_json is None:
-            data_kv_json = _json_text(event.get("data_kv"))
         return {
-            "provider": _clean(event.get("provider")) or "longbridge",
+            "provider": _clean(event.get("provider")) or "yfinance",
             "provider_event_id": _clean(event.get("provider_event_id")) or None,
             "event_key": event_key,
             "calendar_type": _clean(event.get("calendar_type")),
@@ -377,16 +384,16 @@ class MarketCalendarEventRepo:
             "symbol": _clean(event.get("symbol")).upper() or None,
             "counter_name": _clean(event.get("counter_name")) or None,
             "event_type": _clean(event.get("event_type")) or None,
-            "activity_type": _clean(event.get("activity_type")) or None,
             "event_date": _date_value(event.get("event_date")),
             "event_datetime": event_datetime,
-            "date_type": _clean(event.get("date_type")) or None,
-            "financial_market_time": _clean(event.get("financial_market_time")) or None,
+            "market_session": _clean(event.get("market_session")) or None,
             "title": (_clean(event.get("title")) or "财经日历")[:120],
             "content": str(event.get("content_markdown") or event.get("content") or "").strip(),
-            "star": int(event["star"]) if event.get("star") is not None else None,
+            "reporting_period": _clean(event.get("reporting_period")) or None,
+            "eps_estimate": event.get("eps_estimate"),
+            "reported_eps": event.get("reported_eps"),
+            "eps_surprise_pct": event.get("eps_surprise_pct"),
             "currency": _clean(event.get("currency")) or None,
-            "data_kv_json": data_kv_json,
             "raw_payload_json": _json_text(event.get("raw_payload_json")),
             "first_seen_at": now,
             "last_seen_at": now,
