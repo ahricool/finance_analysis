@@ -116,11 +116,6 @@ class FakeQuantRepository:
         self.calls.append(("signal_history", market, code, universe_id, model_version))
         return []
 
-    def sector_regimes(self, market, trade_date=None, sector_key=None, model_version=None):
-        self.calls.append(("sector_regimes", market, trade_date, sector_key, model_version))
-        return [SimpleNamespace(market=market, trade_date=date(2026, 7, 17), sector_key="电子")]
-
-
 def _client(monkeypatch):
     repository = FakeQuantRepository()
     monkeypatch.setattr(quant_endpoint, "QuantRepository", lambda: repository)
@@ -159,7 +154,6 @@ def test_market_regime_api_exposes_breakdown_and_keeps_legacy_snapshots(monkeypa
             regime="neutral",
             market_score=0.5,
             max_equity_exposure=0.4,
-            sector_permissions={"ranking": True},
             features={
                 "score_breakdown": {
                     "version": "regime-rules-v2",
@@ -194,16 +188,6 @@ def test_quant_api_rejects_unsupported_market_and_scopes_signal_history(monkeypa
 
     assert response.status_code == 200
     assert ("signal_history", "CN", "600519.SH", 2, None) in repository.calls
-
-
-def test_sector_ranking_without_date_delegates_latest_market_only_query(monkeypatch):
-    client, repository = _client(monkeypatch)
-
-    response = client.get("/quant/sectors/ranking?market=CN")
-
-    assert response.status_code == 200
-    assert response.json()[0]["market"] == "CN"
-    assert ("sector_regimes", "CN", None, None, None) in repository.calls
 
 
 def test_quant_api_rejects_unsupported_and_cross_market_universes(monkeypatch):
@@ -313,7 +297,7 @@ def test_model_run_defaults_match_worker_contract_and_dispatch_explicit_run(monk
     assert response.status_code == 202
     assert response.json()["model_run_id"] == 77
     assert response.json()["status"] == "pending"
-    assert repository.created_model_run["target_config"]["benchmark"] == "sector_or_market"
+    assert repository.created_model_run["target_config"]["benchmark"] == "market"
     assert repository.created_model_run["split_config"]["prediction_horizon"] == 5
     apply_async.assert_called_once_with(
         kwargs={"model_run_id": 77, "owner_uid": 1},
@@ -417,6 +401,13 @@ def test_quant_event_upload_routes_are_removed(monkeypatch):
     assert client.get("/quant/events").status_code == 404
     assert client.post("/quant/events", json={}).status_code == 404
     assert client.post("/quant/events/import", json={}).status_code == 404
+
+
+def test_quant_sector_routes_are_removed(monkeypatch):
+    client, _ = _client(monkeypatch)
+
+    assert client.get("/quant/sectors/ranking").status_code == 404
+    assert client.get("/quant/sectors/technology").status_code == 404
 
 
 def test_model_run_dispatch_failure_marks_created_run_failed(monkeypatch):

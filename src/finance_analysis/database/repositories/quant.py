@@ -10,7 +10,6 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.quant import (
-    DailyFeatureSnapshot,
     MarketRegimeSnapshot,
     ModelDefinition,
     ModelPublication,
@@ -19,7 +18,6 @@ from finance_analysis.database.models.quant import (
     PortfolioRecommendation,
     PortfolioRecommendationItem,
     QuantDatasetSnapshot,
-    SectorRegimeSnapshot,
 )
 from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.models.universe import Universe
@@ -212,46 +210,6 @@ class QuantRepository:
             session.flush()
             return result
 
-    def upsert_daily_features(self, model, constraint: str, values: list[dict[str, Any]], key_fields: set[str]) -> None:
-        with self.db.session_scope() as session:
-            for value in values:
-                session.execute(
-                    pg_insert(model)
-                    .values(**value)
-                    .on_conflict_do_update(
-                        constraint=constraint, set_={key: val for key, val in value.items() if key not in key_fields}
-                    )
-                )
-
-    def save_daily_features(self, values: list[dict[str, Any]]) -> None:
-        self.upsert_daily_features(
-            DailyFeatureSnapshot,
-            "uix_daily_feature_snapshot",
-            values,
-            {"trade_date", "instrument_id", "feature_version"},
-        )
-
-    def feature_context(self, trade_date: date, feature_version: str) -> dict[int, dict[str, Any]]:
-        with self.db.get_session() as session:
-            rows = session.scalars(
-                select(DailyFeatureSnapshot).where(
-                    DailyFeatureSnapshot.trade_date == trade_date,
-                    DailyFeatureSnapshot.feature_version == feature_version,
-                )
-            ).all()
-            result = {}
-            for daily in rows:
-                features = daily.features or {}
-                result[daily.instrument_id] = {
-                    "sector_score": daily.sector_score,
-                    "sector_key": features.get("sector_key"),
-                    "has_sufficient_data": features.get("has_sufficient_data"),
-                    "liquidity": features.get("liquidity"),
-                    "risk_penalty": features.get("risk_penalty"),
-                    "close": features.get("close"),
-                }
-            return result
-
     def save_market_regime(self, values: dict[str, Any]) -> MarketRegimeSnapshot:
         with self.db.session_scope() as session:
             stmt = (
@@ -310,66 +268,6 @@ class QuantRepository:
                     .where(ranked.c.version_rank == 1)
                     .order_by(desc(MarketRegimeSnapshot.trade_date))
                     .limit(limit)
-                ).scalars()
-            )
-            return self._detach(session, rows)
-
-    def save_sector_regimes(self, values: Iterable[dict[str, Any]]) -> None:
-        with self.db.session_scope() as session:
-            for value in values:
-                session.execute(
-                    pg_insert(SectorRegimeSnapshot)
-                    .values(**value)
-                    .on_conflict_do_update(
-                        constraint="uix_sector_regime_version",
-                        set_={
-                            k: v
-                            for k, v in value.items()
-                            if k not in {"market", "trade_date", "sector_key", "model_version"}
-                        },
-                    )
-                )
-
-    def sector_regimes(
-        self,
-        market: str,
-        trade_date: date | None = None,
-        sector_key: str | None = None,
-        model_version: str | None = None,
-    ) -> list[SectorRegimeSnapshot]:
-        clauses = [SectorRegimeSnapshot.market == market]
-        if sector_key:
-            clauses.append(SectorRegimeSnapshot.sector_key == sector_key)
-        if model_version:
-            clauses.append(SectorRegimeSnapshot.model_version == model_version)
-        with self.db.get_session() as session:
-            selection_clauses = list(clauses)
-            if trade_date:
-                selection_clauses.append(SectorRegimeSnapshot.trade_date == trade_date)
-            selected = session.execute(
-                select(
-                    SectorRegimeSnapshot.trade_date,
-                    SectorRegimeSnapshot.model_version,
-                )
-                .where(*selection_clauses)
-                .order_by(
-                    desc(SectorRegimeSnapshot.trade_date),
-                    desc(SectorRegimeSnapshot.generated_at),
-                    desc(SectorRegimeSnapshot.id),
-                )
-                .limit(1)
-            ).first()
-            if selected is None:
-                return []
-            rows = list(
-                session.execute(
-                    select(SectorRegimeSnapshot)
-                    .where(
-                        *clauses,
-                        SectorRegimeSnapshot.trade_date == selected.trade_date,
-                        SectorRegimeSnapshot.model_version == selected.model_version,
-                    )
-                    .order_by(SectorRegimeSnapshot.rank)
                 ).scalars()
             )
             return self._detach(session, rows)

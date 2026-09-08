@@ -9,19 +9,14 @@ from finance_analysis.database.models.etf_rotation import ETFMarketRotationSnaps
 from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.news import FundamentalSnapshot, NewsIntel, NewsIntelUsage
 from finance_analysis.database.models.quant import (
-    DailyFeatureSnapshot,
-    EventFeatureDaily,
-    MarketEvent,
     MarketRegimeSnapshot,
     ModelDefinition,
-    ModelPrediction,
     ModelPublication,
     ModelRun,
     ModelSignal,
     PortfolioRecommendation,
     PortfolioRecommendationItem,
     QuantDatasetSnapshot,
-    SectorRegimeSnapshot,
 )
 from finance_analysis.database.models.stock import (
     Instrument,
@@ -56,14 +51,9 @@ __all__ = [
     "UniverseMember",
     "QuantDatasetSnapshot",
     "MarketRegimeSnapshot",
-    "SectorRegimeSnapshot",
-    "MarketEvent",
-    "EventFeatureDaily",
-    "DailyFeatureSnapshot",
     "ModelDefinition",
     "ModelRun",
     "ModelPublication",
-    "ModelPrediction",
     "ModelSignal",
     "PortfolioRecommendation",
     "PortfolioRecommendationItem",

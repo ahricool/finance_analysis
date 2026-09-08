@@ -6,7 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import pandas as pd
 import pytest
 from celery.canvas import _chord
 from celery.utils.functional import arity_greater
@@ -23,7 +22,6 @@ from finance_analysis.quant.markets import (
     validate_universe_for_market,
 )
 from finance_analysis.quant.pipeline.service import QuantDailyPipeline
-from finance_analysis.quant.sectors.service import build_synthetic_sector_benchmark
 from finance_analysis.tasks.celery.jobs.quant_daily import tasks as quant_daily_tasks
 
 TRADE_DATE = date(2026, 7, 17)
@@ -145,6 +143,14 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
         lambda _repository, **_kwargs: SimpleNamespace(
             run=lambda *_args: {
                 "eligible_codes": ["600519.SH"],
+                "runtime_context": {
+                    "600519.SH": {
+                        "has_sufficient_data": True,
+                        "liquidity": 2_000_000,
+                        "risk_penalty": 0.02,
+                        "close": 100,
+                    }
+                },
                 "market_regime": SimpleNamespace(id=4, regime="neutral", market_score=0.5, max_equity_exposure=0.4),
                 "warnings": [],
                 "coverage": {"rankable_members": 1},
@@ -258,14 +264,3 @@ def test_cn_missing_production_model_never_falls_back_to_us():
 
     repository.production_model.assert_called_once_with("CN", "cross_section_lgbm")
 
-
-def test_cn_synthetic_sector_benchmark_uses_member_history_not_fake_symbol_data():
-    dates = pd.bdate_range("2026-01-01", periods=70).date
-    first = pd.DataFrame({"date": dates, "close": range(100, 170), "volume": 1000, "amount": 100_000})
-    second = pd.DataFrame({"date": dates, "close": range(200, 270), "volume": 2000, "amount": 200_000})
-
-    benchmark = build_synthetic_sector_benchmark({"A": first, "B": second})
-
-    assert len(benchmark) == 70
-    assert set(("date", "open", "high", "low", "close", "volume", "amount")).issubset(benchmark.columns)
-    assert benchmark["close"].iloc[-1] > benchmark["close"].iloc[0]

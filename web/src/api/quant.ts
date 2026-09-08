@@ -14,7 +14,6 @@ import type {
   QuantModelDefinition,
   QuantSignal,
   QuantUniverse,
-  SectorRegime,
   SignalRanking,
 } from '@/types/quant';
 
@@ -35,10 +34,6 @@ export const quantApi = {
   },
   async marketRegimeHistory(market: QuantMarket = 'US'): Promise<MarketRegime[]> {
     const { data } = await apiClient.get('/api/v1/quant/market-regime/history', { params: withMarket(market) });
-    return toCamelCase(data);
-  },
-  async sectors(market: QuantMarket = 'US'): Promise<SectorRegime[]> {
-    const { data } = await apiClient.get('/api/v1/quant/sectors/ranking', { params: withMarket(market) });
     return toCamelCase(data);
   },
   async signals(market: QuantMarket = 'US'): Promise<SignalRanking> {

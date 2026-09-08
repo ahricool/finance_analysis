@@ -12,7 +12,6 @@ from finance_analysis.database.models.quant import (
     MarketRegimeSnapshot,
     ModelSignal,
     PortfolioRecommendation,
-    SectorRegimeSnapshot,
 )
 from finance_analysis.database.repositories.quant import QuantRepository
 
@@ -42,13 +41,9 @@ def _signal(identifier: int, code: str, model_version: str, generated_at: dateti
         universe_id=1,
         model_version=model_version,
         risk_penalty=0,
-        raw_final_score=float(identifier),
-        gated_final_score=float(identifier),
         final_score=float(identifier),
         universe_rank=identifier,
         signal="hold",
-        target_position=0,
-        vetoed=False,
         reasons=[],
         score_components={},
         generated_at=generated_at,
@@ -60,7 +55,6 @@ def test_latest_quant_reads_do_not_mix_model_versions_on_the_same_trade_date() -
     for table in (
         ModelSignal.__table__,
         MarketRegimeSnapshot.__table__,
-        SectorRegimeSnapshot.__table__,
         PortfolioRecommendation.__table__,
     ):
         table.create(database.engine)
@@ -94,26 +88,6 @@ def test_latest_quant_reads_do_not_mix_model_versions_on_the_same_trade_date() -
                     max_equity_exposure=0.8,
                     generated_at=newer,
                 ),
-                *[
-                    SectorRegimeSnapshot(
-                        id=identifier,
-                        market="US",
-                        trade_date=date(2026, 7, 22),
-                        sector_key=sector,
-                        benchmark_code="SPY.US",
-                        model_version=version,
-                        sector_score=float(identifier),
-                        rank=rank,
-                        state="neutral",
-                        generated_at=generated,
-                    )
-                    for identifier, sector, version, rank, generated in (
-                        (1, "technology", "sector-v1", 1, older),
-                        (2, "financials", "sector-v1", 2, older),
-                        (3, "technology", "sector-v2", 1, newer),
-                        (4, "financials", "sector-v2", 2, newer),
-                    )
-                ],
                 PortfolioRecommendation(
                     id=1,
                     trade_date=date(2026, 7, 22),
@@ -145,12 +119,10 @@ def test_latest_quant_reads_do_not_mix_model_versions_on_the_same_trade_date() -
     signals = repository.latest_signals("US", universe_id=1)
     history = repository.signal_history("US", "AAPL.US", universe_id=1)
     regimes = repository.market_regimes("US")
-    sectors = repository.sector_regimes("US")
     portfolios = repository.latest_portfolios("US", universe_id=1)
 
     assert {row.model_version for row in signals} == {"model-v2"}
     assert [row.model_version for row in history] == ["model-v2"]
     assert [row.model_version for row in regimes] == ["regime-v2"]
-    assert {row.model_version for row in sectors} == {"sector-v2"}
     assert [row.model_version for row in portfolios] == ["model-v2"]
     assert {row.model_version for row in repository.latest_signals("US", 1, model_version="model-v1")} == {"model-v1"}

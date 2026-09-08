@@ -16,7 +16,6 @@ class MarketRegimeResult:
     regime: str
     market_score: float
     max_equity_exposure: float
-    sector_permissions: dict[str, bool]
     features: dict
     reasons: list[str]
 
@@ -252,7 +251,7 @@ class MarketRegimeService:
             f"{benchmark_labels[0]} 20日波动率 {features['primary_realized_vol_20d']:.1%}",
             f"{style_label}相对{benchmark_labels[1]} 20日 {features['style_relative_broad_20d']:.1%}",
         ]
-        return MarketRegimeResult(regime, score, exposure, {"ranking": regime != "risk_off"}, features, reasons)
+        return MarketRegimeResult(regime, score, exposure, features, reasons)
 
     @staticmethod
     def _normalize(value: float, lower: float, upper: float, *, inverse: bool = False) -> float:

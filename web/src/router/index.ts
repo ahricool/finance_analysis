@@ -78,7 +78,7 @@ const router = createRouter({
                 { path: 'datasets', name: 'market-quant-datasets', component: QuantDatasetsPage, meta: { title: '量化数据集' } },
                 { path: 'models', name: 'market-quant-models', component: QuantModelsPage, meta: { title: '量化模型' } },
                 { path: 'models/:runId', name: 'market-quant-model-run', component: QuantModelRunPage, meta: { title: '模型运行详情' } },
-                { path: 'portfolios', name: 'market-quant-portfolios', component: QuantPortfoliosPage, meta: { title: '组合建议' } },
+                { path: 'portfolios', name: 'market-quant-portfolios', component: QuantPortfoliosPage, meta: { title: '目标组合' } },
               ],
             },
             {

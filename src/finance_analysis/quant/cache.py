@@ -31,8 +31,8 @@ class QuantLatestCache:
             logger.warning("Quant cache read failed: key=%s error=%s", key, exc); return None
 
 
-def cache_keys(market: str, universe: str | None = None, code: str | None = None) -> dict:
-    result={"market_regime":f"quant:market_regime:{market}:latest","sector_ranking":f"quant:sector_ranking:{market}:latest"}
-    if universe: result.update({"ranking":f"quant:ranking:{market}:{universe}:latest","portfolio":f"quant:portfolio:{market}:{universe}:latest"})
-    if code: result.update({"signal":f"quant:signal:{market}:{code}:latest"})
-    return result
+def cache_keys(market: str, universe: str) -> dict:
+    return {
+        "ranking": f"quant:ranking:{market}:{universe}:latest",
+        "portfolio": f"quant:portfolio:{market}:{universe}:latest",
+    }

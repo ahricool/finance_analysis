@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { Portfolio } from '@/types/quant';
-import { actionLabels, formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
+import { formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
 import { formatSecurityLabel } from '@/utils/security';
 import { ref, watch } from 'vue';
 
@@ -41,10 +41,10 @@ watch(
   <div class="space-y-4">
     <header>
       <h2 class="text-lg font-semibold">
-        组合建议
+        模型目标组合
       </h2>
       <p class="text-xs text-muted-foreground">
-        研究建议，不执行真实券商订单，也不保证收益。
+        由当日模型排名生成，不读取真实用户持仓，也不执行券商订单。
       </p>
     </header>
     <ApiErrorAlert
@@ -76,7 +76,7 @@ watch(
         </AlertDescription>
       </Alert>
       <Card>
-        <CardHeader><CardTitle>调仓建议</CardTitle><CardDescription>展示目标权重和信号得分。</CardDescription></CardHeader>
+        <CardHeader><CardTitle>目标持仓</CardTitle><CardDescription>展示模型建议的目标权重和信号得分。</CardDescription></CardHeader>
         <CardContent class="hidden md:block">
           <Table class="w-full min-w-[900px] text-sm">
             <TableHeader class="text-left text-xs text-muted-foreground">
@@ -84,11 +84,9 @@ watch(
                 <TableHead class="min-w-[220px] p-3">
                   股票
                 </TableHead>
-                <TableHead>行业</TableHead>
-                <TableHead>动作</TableHead>
-                <TableHead>当前权重</TableHead>
+                <TableHead>排名</TableHead>
                 <TableHead>目标权重</TableHead>
-                <TableHead>变化</TableHead>
+                <TableHead>信号</TableHead>
                 <TableHead>得分</TableHead>
                 <TableHead>预测收益</TableHead>
               </TableRow>
@@ -102,11 +100,9 @@ watch(
                 <TableCell class="p-3">
                   {{ formatSecurityLabel(row.code, row.name) }}
                 </TableCell>
-                <TableCell>{{ row.sectorKey ?? '—' }}</TableCell>
-                <TableCell>{{ actionLabels[row.action] ?? row.action }}</TableCell>
-                <TableCell>{{ formatPercent(row.currentWeight) }}</TableCell>
+                <TableCell>#{{ row.rank }}</TableCell>
                 <TableCell>{{ formatPercent(row.targetWeight) }}</TableCell>
-                <TableCell>{{ formatPercent(row.weightChange) }}</TableCell>
+                <TableCell>{{ row.signal }}</TableCell>
                 <TableCell>{{ formatScore(row.finalScore) }}</TableCell>
                 <TableCell>{{ formatPredictedReturn(row.predictedReturn) }}</TableCell>
               </TableRow>
@@ -121,8 +117,8 @@ watch(
             <CardHeader>
               <CardTitle class="text-base">
                 {{ formatSecurityLabel(row.code, row.name) }}
-              </CardTitle><CardDescription>{{ row.sectorKey ?? '未分类' }}</CardDescription><Badge variant="outline">
-                {{ actionLabels[row.action] ?? row.action }}
+              </CardTitle><CardDescription>目标组合排名 #{{ row.rank }}</CardDescription><Badge variant="outline">
+                {{ row.signal }}
               </Badge>
             </CardHeader><CardContent class="grid grid-cols-2 gap-3 text-sm">
               <div>
@@ -140,7 +136,7 @@ watch(
       </Card>
     </template>
     <Empty v-else>
-      <EmptyHeader><EmptyTitle>{{ market === 'CN' ? 'A股组合建议尚未就绪' : '暂无组合建议' }}</EmptyTitle><EmptyDescription>当前市场尚未生成可展示的组合建议。</EmptyDescription></EmptyHeader>
+      <EmptyHeader><EmptyTitle>{{ market === 'CN' ? 'A股目标组合尚未就绪' : '暂无目标组合' }}</EmptyTitle><EmptyDescription>当前市场尚未生成可展示的模型目标组合。</EmptyDescription></EmptyHeader>
     </Empty>
   </div>
 </template>

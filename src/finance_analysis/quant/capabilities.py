@@ -39,6 +39,5 @@ def get_quant_capabilities(market: str = "US", repository=None) -> dict:
         "qlib": qlib,
         "lightgbm": "isolated_in_qlib_worker",
         "sklearn": "isolated_in_qlib_worker",
-        "event_providers": {"manual_json_csv": "available", "llm_extraction": "disabled"},
         "warnings": warnings,
     }

@@ -36,13 +36,7 @@ class TrainingTargetConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     prediction_horizon: int = Field(5, ge=1)
-    benchmark: Literal[
-        "sector_or_market",
-        "sector_or_qqq",
-        "market",
-        "sector",
-        "none",
-    ] = "sector_or_market"
+    benchmark: Literal["market", "none"] = "market"
     entry_price: Literal["open", "close"] = "open"
     exit_price: Literal["open", "close"] = "close"
     excess_return: bool = True

@@ -3,7 +3,6 @@ import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
-import FieldSelect from '@/components/forms/FieldSelect.vue';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
@@ -11,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import type { SignalRanking } from '@/types/quant';
-import { formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant';
+import { formatPredictedReturn, formatScore } from '@/utils/quant';
 import { formatSecurityLabel } from '@/utils/security';
 import { computed, ref, watch } from 'vue';
 
@@ -20,15 +19,13 @@ const ranking = ref<SignalRanking | null>(null);
 const error = ref<ParsedApiError | null>(null);
 const loading = ref(false);
 const filter = ref('');
-const vetoed = ref('all');
 const items = computed(
   () =>
     ranking.value?.items.filter(
       (item) =>
         (!filter.value ||
           item.code.includes(filter.value.toUpperCase()) ||
-          item.name?.toLowerCase().includes(filter.value.toLowerCase())) &&
-        (vetoed.value === 'all' || String(item.vetoed) === vetoed.value),
+          item.name?.toLowerCase().includes(filter.value.toLowerCase())),
     ) ?? [],
 );
 let requestVersion = 0;
@@ -60,7 +57,7 @@ watch(
         模型选股排名
       </h2>
       <p class="text-xs text-muted-foreground">
-        模型预测仅用于研究和组合建议，不代表真实订单。
+        模型预测仅用于研究和生成目标组合，不代表真实订单。
         <span v-if="ranking?.modelVersion">当前版本：{{ ranking.modelVersion }}。</span>
       </p>
     </header>
@@ -80,18 +77,10 @@ watch(
     </div>
     <template v-else>
       <Card>
-        <CardHeader><CardTitle>筛选排名</CardTitle><CardDescription>按股票代码、名称和风控否决状态缩小结果范围。</CardDescription></CardHeader><CardContent class="grid gap-3 sm:grid-cols-2">
+        <CardHeader><CardTitle>筛选排名</CardTitle><CardDescription>按股票代码或名称缩小结果范围。</CardDescription></CardHeader><CardContent>
           <FieldInput
             v-model="filter"
             placeholder="股票代码或名称"
-          />
-          <FieldSelect
-            v-model="vetoed"
-            :options="[
-              { value: 'all', label: '全部' },
-              { value: 'true', label: '已否决' },
-              { value: 'false', label: '未否决' },
-            ]"
           />
         </CardContent>
       </Card>
@@ -105,7 +94,7 @@ watch(
               <TableRow>
                 <TableHead>排名</TableHead><TableHead class="min-w-[220px]">
                   股票
-                </TableHead><TableHead>最终/原始</TableHead><TableHead>横截面</TableHead><TableHead>时间序列</TableHead><TableHead>预测收益</TableHead><TableHead>目标仓位</TableHead><TableHead>信号</TableHead>
+                </TableHead><TableHead>最终得分</TableHead><TableHead>横截面</TableHead><TableHead>时间序列</TableHead><TableHead>风险扣分</TableHead><TableHead>预测收益</TableHead><TableHead>信号</TableHead>
               </TableRow>
             </TableHeader><TableBody>
               <TableRow
@@ -120,9 +109,9 @@ watch(
                   >
                     {{ formatSecurityLabel(item.code, item.name) }}
                   </RouterLink>
-                </TableCell><TableCell>{{ formatScore(item.finalScore) }} / {{ formatScore(item.rawFinalScore) }}</TableCell><TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell><TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell><TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell><TableCell>{{ formatPercent(item.targetPosition) }}</TableCell><TableCell>
-                  <Badge :variant="item.vetoed ? 'destructive' : 'outline'">
-                    {{ item.vetoed ? '已否决' : item.signal }}
+                </TableCell><TableCell>{{ formatScore(item.finalScore) }}</TableCell><TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell><TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell><TableCell>{{ formatScore(item.riskPenalty) }}</TableCell><TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell><TableCell>
+                  <Badge variant="outline">
+                    {{ item.signal }}
                   </Badge>
                 </TableCell>
               </TableRow>
@@ -142,8 +131,8 @@ watch(
                 >
                   {{ formatSecurityLabel(item.code, item.name) }}
                 </RouterLink>
-              </CardTitle><CardDescription>排名 #{{ item.universeRank ?? '—' }}</CardDescription><Badge :variant="item.vetoed ? 'destructive' : 'outline'">
-                {{ item.vetoed ? '已否决' : item.signal }}
+              </CardTitle><CardDescription>排名 #{{ item.universeRank ?? '—' }}</CardDescription><Badge variant="outline">
+                {{ item.signal }}
               </Badge>
             </CardHeader><CardContent class="grid grid-cols-2 gap-3 text-sm">
               <div>
@@ -152,8 +141,8 @@ watch(
                 </p>{{ formatScore(item.finalScore) }}
               </div><div>
                 <p class="text-xs text-muted-foreground">
-                  目标仓位
-                </p>{{ formatPercent(item.targetPosition) }}
+                  风险扣分
+                </p>{{ formatScore(item.riskPenalty) }}
               </div>
             </CardContent>
           </Card>

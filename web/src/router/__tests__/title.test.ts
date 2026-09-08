@@ -14,7 +14,7 @@ describe('router document titles', () => {
     ['/market/quant/signals', '模型选股 - Finance Analysis'],
     ['/market/quant/signals/NVDA.US', '选股详情 - Finance Analysis'],
     ['/market/quant/models', '量化模型 - Finance Analysis'],
-    ['/market/quant/portfolios', '组合建议 - Finance Analysis'],
+    ['/market/quant/portfolios', '目标组合 - Finance Analysis'],
     ['/chat', '问股 - Finance Analysis'],
     ['/profile', '个人中心 - Finance Analysis'],
     ['/profile/info', '个人中心 - Finance Analysis'],

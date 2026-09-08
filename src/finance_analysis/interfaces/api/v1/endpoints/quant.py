@@ -122,8 +122,6 @@ async def universes(market: QuantMarket = "US", _: User = Depends(require_curren
                 {
                     "code": code,
                     "name": names.get(code),
-                    "sector_key": None,
-                    "sector_benchmark_code": None,
                     "effective_from": None,
                     "effective_to": None,
                 }
@@ -237,46 +235,6 @@ async def market_regime_history(
             model_version=model_version,
         )
     ]
-
-
-@router.get("/sectors/ranking")
-async def sector_ranking(
-    market: QuantMarket = "US",
-    trade_date: date | None = None,
-    model_version: str | None = None,
-    _: User = Depends(require_current_user),
-):
-    repo = QuantRepository()
-    return _encoded_with_names(
-        repo,
-        repo.sector_regimes(
-            market,
-            trade_date,
-            model_version=model_version,
-        ),
-        code_field="benchmark_code",
-        name_field="benchmark_name",
-    )
-
-
-@router.get("/sectors/{sector_key}")
-async def sector_detail(
-    sector_key: str,
-    market: QuantMarket = "US",
-    model_version: str | None = None,
-    _: User = Depends(require_current_user),
-):
-    repo = QuantRepository()
-    return _encoded_with_names(
-        repo,
-        repo.sector_regimes(
-            market,
-            sector_key=sector_key,
-            model_version=model_version,
-        ),
-        code_field="benchmark_code",
-        name_field="benchmark_name",
-    )
 
 
 @router.post("/model-runs", status_code=status.HTTP_202_ACCEPTED)

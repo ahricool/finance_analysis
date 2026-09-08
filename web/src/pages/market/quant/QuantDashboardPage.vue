@@ -10,7 +10,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/u
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuantMarket } from '@/composables/useQuantMarket';
-import type { MarketRegime, QuantCapabilities, SectorRegime, SignalRanking } from '@/types/quant';
+import type { MarketRegime, QuantCapabilities, SignalRanking } from '@/types/quant';
 import { formatPercent, formatPredictedReturn, formatScore, regimeLabels } from '@/utils/quant';
 import { formatSecurityLabel } from '@/utils/security';
 import { ref, watch } from 'vue';
@@ -19,7 +19,6 @@ const { market, marketQuery } = useQuantMarket();
 const capability = ref<QuantCapabilities | null>(null);
 const regime = ref<MarketRegime | null>(null);
 const history = ref<MarketRegime[]>([]);
-const sectors = ref<SectorRegime[]>([]);
 const ranking = ref<SignalRanking | null>(null);
 const loading = ref(true);
 const error = ref<ParsedApiError | null>(null);
@@ -32,7 +31,6 @@ watch(
     capability.value = null;
     regime.value = null;
     history.value = [];
-    sectors.value = [];
     ranking.value = null;
     error.value = null;
     loading.value = true;
@@ -40,7 +38,6 @@ watch(
       quantApi.capabilities(current),
       quantApi.marketRegime(current),
       quantApi.marketRegimeHistory(current),
-      quantApi.sectors(current),
       quantApi.signals(current),
     ]);
     if (version !== requestVersion) return;
@@ -48,8 +45,7 @@ watch(
     else error.value = getParsedApiError(results[0].reason);
     if (results[1].status === 'fulfilled') regime.value = results[1].value;
     if (results[2].status === 'fulfilled') history.value = results[2].value;
-    if (results[3].status === 'fulfilled') sectors.value = results[3].value;
-    if (results[4].status === 'fulfilled') ranking.value = results[4].value;
+    if (results[3].status === 'fulfilled') ranking.value = results[3].value;
     loading.value = false;
   },
   { immediate: true },
@@ -63,7 +59,7 @@ watch(
         总览
       </h2>
       <p class="text-xs text-muted-foreground">
-        展示市场状态、行业强弱、模型选股和组合建议。
+        展示市场状态、Qlib 模型选股和目标组合。
       </p>
     </header>
     <ApiErrorAlert
@@ -157,35 +153,6 @@ watch(
         </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>行业强弱</CardTitle><CardDescription>按相对收益与市场特征排序。</CardDescription></CardHeader>
-        <CardContent>
-          <div
-            v-if="sectors.length"
-          >
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>排名</TableHead><TableHead>行业</TableHead><TableHead class="min-w-[220px]">
-                    基准
-                  </TableHead><TableHead>得分</TableHead><TableHead>状态</TableHead><TableHead>5日相对收益</TableHead><TableHead>20日相对收益</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow
-                  v-for="item in sectors"
-                  :key="item.sectorKey"
-                >
-                  <TableCell>{{ item.rank }}</TableCell><TableCell>{{ item.sectorKey }}</TableCell><TableCell>{{ formatSecurityLabel(item.benchmarkCode, item.benchmarkName) }}</TableCell><TableCell>{{ formatScore(item.sectorScore) }}</TableCell><TableCell>{{ item.state }}</TableCell><TableCell>{{ formatPercent(item.features.sectorRelativeMarket5d) }}</TableCell><TableCell>{{ formatPercent(item.features.sectorRelativeMarket20d) }}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-          <Empty v-else>
-            <EmptyHeader><EmptyTitle>{{ market === 'CN' ? '暂无A股行业强弱数据' : '暂无行业强弱数据' }}</EmptyTitle><EmptyDescription>行业映射或当日行业计算尚未达到可用覆盖率。</EmptyDescription></EmptyHeader>
-          </Empty>
-        </CardContent>
-      </Card>
-      <Card>
         <CardHeader>
           <CardTitle>个股排名</CardTitle><CardDescription>生产模型生成的最新股票评分。</CardDescription><CardAction>
             <RouterLink
@@ -215,7 +182,6 @@ watch(
                   <TableHead>时间序列</TableHead>
                   <TableHead>预测收益</TableHead>
                   <TableHead>信号</TableHead>
-                  <TableHead>目标仓位</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -239,8 +205,7 @@ watch(
                   <TableCell>{{ formatScore(item.crossSectionScore) }}</TableCell>
                   <TableCell>{{ formatScore(item.timeSeriesScore) }}</TableCell>
                   <TableCell>{{ formatPredictedReturn(item.predictedReturn) }}</TableCell>
-                  <TableCell>{{ item.vetoed ? '否决' : item.signal }}</TableCell>
-                  <TableCell>{{ formatPercent(item.targetPosition) }}</TableCell>
+                  <TableCell>{{ item.signal }}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>

@@ -217,6 +217,7 @@ class QuantDailyPipeline:
             "cross_section_model_version": cross_section.model_version,
             "time_series_model_run_id": time_series.id,
             "expected_codes": sorted(eligible_codes),
+            "runtime_context": research["runtime_context"],
             "regime": {
                 "id": regime.id,
                 "regime": regime.regime,
@@ -260,8 +261,6 @@ class QuantDailyPipeline:
                 expected_model_runs[model_key],
             ):
                 raise ValueError(f"Qlib prediction result model_run_id mismatch for {model_key}")
-        config = get_quant_config()
-        feature_context = self.repository.feature_context(trade_date, config.feature_version)
         universe_codes = get_universe_codes(market)
         expected_codes = set(context.get("expected_codes") or universe_codes)
         if not expected_codes.issubset(universe_codes):
@@ -273,17 +272,17 @@ class QuantDailyPipeline:
         self._validate_prediction_coverage(time_series_response, expected_codes, trade_date)
         time_series_by_code = {item["code"]: item["normalized_score"] for item in time_series_response["predictions"]}
         regime = context["regime"]
+        runtime_context = context.get("runtime_context") or {}
         fusion = SignalFusion()
-        signal_values: list[dict[str, Any]] = []
         public: list[dict[str, Any]] = []
         for prediction in response.get("predictions", []):
             symbol = self.symbol_repository.get_by_code(prediction["code"])
             if symbol is None:
                 raise FeatureDataMissingError(f"Prediction code has no canonical symbol: {prediction['code']}")
             prediction["instrument_id"] = symbol.id
-            feature = feature_context.get(symbol.id)
+            feature = runtime_context.get(prediction["code"])
             if feature is None:
-                raise FeatureDataMissingError(f"Daily feature context missing for {prediction['code']} on {trade_date}")
+                raise FeatureDataMissingError(f"Daily runtime context missing for {prediction['code']} on {trade_date}")
             required_metadata = (
                 "has_sufficient_data",
                 "liquidity",
@@ -298,8 +297,6 @@ class QuantDailyPipeline:
             prediction.update(
                 {
                     "time_series_score": time_series_by_code.get(prediction["code"]),
-                    "sector_score": feature["sector_score"],
-                    "sector_key": feature.get("sector_key"),
                     "has_sufficient_data": bool(feature["has_sufficient_data"]),
                     "liquidity": float(feature["liquidity"]),
                     "risk_penalty": float(feature["risk_penalty"]),
@@ -313,44 +310,35 @@ class QuantDailyPipeline:
                 float(prediction["time_series_score"]),
                 regime["regime"],
                 market_score=regime["market_score"],
-                sector_score=prediction.get("sector_score"),
                 risk_penalty=float(prediction.get("risk_penalty", 0)),
             )
             item = {**prediction, **asdict(fused)}
             public.append(item)
-            signal_values.append(
-                {
-                    "trade_date": trade_date,
-                    "instrument_id": prediction["instrument_id"],
-                    "code": prediction["code"],
-                    "market": market,
-                    "universe_id": universe.id,
-                    "model_version": context["cross_section_model_version"],
-                    "market_score": regime["market_score"],
-                    "sector_score": prediction.get("sector_score"),
-                    "time_series_score": prediction.get("time_series_score"),
-                    "cross_section_score": prediction["normalized_score"],
-                    "risk_penalty": prediction.get("risk_penalty", 0),
-                    "raw_final_score": fused.raw_final_score,
-                    "gated_final_score": fused.gated_final_score,
-                    "final_score": fused.final_score,
-                    "universe_rank": prediction.get("universe_rank"),
-                    "sector_rank": prediction.get("sector_rank"),
-                    "predicted_return": prediction.get("predicted_return"),
-                    "signal": fused.signal,
-                    "target_position": fused.target_position,
-                    "vetoed": fused.vetoed,
-                    "veto_reason": fused.veto_reason,
-                    "reasons": fused.reasons,
-                    "score_components": fused.score_components,
-                }
-            )
-        current_weights = self._current_weights(public, market)
-        portfolio = PortfolioBuilder().build(
-            public,
-            regime["max_equity_exposure"],
-            current_weights=current_weights,
-        )
+        public.sort(key=lambda item: item["final_score"], reverse=True)
+        for rank, item in enumerate(public, 1):
+            item["universe_rank"] = rank
+        signal_values = [
+            {
+                "trade_date": trade_date,
+                "instrument_id": item["instrument_id"],
+                "code": item["code"],
+                "market": market,
+                "universe_id": universe.id,
+                "model_version": context["cross_section_model_version"],
+                "market_score": regime["market_score"],
+                "time_series_score": item["time_series_score"],
+                "cross_section_score": item["normalized_score"],
+                "risk_penalty": item["risk_penalty"],
+                "final_score": item["final_score"],
+                "universe_rank": item["universe_rank"],
+                "predicted_return": item.get("predicted_return"),
+                "signal": item["signal"],
+                "reasons": item["reasons"],
+                "score_components": item["score_components"],
+            }
+            for item in public
+        ]
+        portfolio = PortfolioBuilder().build(public, regime["max_equity_exposure"])
         warnings: list[str] = [*context.get("warnings", []), *portfolio["warnings"]]
         portfolio_values = {
             "trade_date": trade_date,
@@ -363,7 +351,6 @@ class QuantDailyPipeline:
             "target_equity_exposure": portfolio["target_equity_exposure"],
             "config": portfolio["config"],
             "summary": {
-                "sector_exposure": portfolio["sector_exposure"],
                 "coverage": context.get("coverage", {}),
             },
             "warnings": warnings,
@@ -372,13 +359,8 @@ class QuantDailyPipeline:
             {
                 "instrument_id": item["instrument_id"],
                 "code": item["code"],
-                "sector_key": item.get("sector_key"),
                 "rank": item["rank"],
-                "previous_rank": item.get("previous_rank"),
-                "action": item["action"],
-                "current_weight": item["current_weight"],
                 "target_weight": item["target_weight"],
-                "weight_change": item["weight_change"],
                 "final_score": item["final_score"],
                 "predicted_return": item.get("predicted_return"),
                 "signal": item["signal"],
@@ -460,6 +442,3 @@ class QuantDailyPipeline:
                 f"invalid_entries={invalid_count}"
             )
 
-    def _current_weights(self, signals: list[dict[str, Any]], market: str) -> dict[str, float]:
-        del signals, market
-        return {}
