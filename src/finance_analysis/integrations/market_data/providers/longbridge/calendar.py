@@ -3,29 +3,26 @@
 
 from __future__ import annotations
 
-import inspect
-import json
 import logging
 import os
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional
 from zoneinfo import ZoneInfo
 
-from finance_analysis.integrations.market_data.providers.longbridge.market import _longbridge_config_kwargs, _sanitize_longbridge_env
-from finance_analysis.core.time import coerce_aware_utc
+from finance_analysis.core.time import coerce_aware_utc, utc_now
+from finance_analysis.integrations.market_data.providers.longbridge.market import (
+    _longbridge_config_kwargs,
+    _sanitize_longbridge_env,
+)
 
 logger = logging.getLogger(__name__)
 
 PROVIDER = "longbridge"
 MARKET_CALENDAR_TIMEZONE = "Asia/Shanghai"
-CALENDAR_TYPE_LABELS: Dict[str, str] = {
-    "earnings": "财报",
-    "dividend": "分红",
-    "split": "拆股",
-    "ipo": "IPO",
-    "macro": "宏观",
-}
+from finance_analysis.integrations.market_data.calendar import CalendarFetchResult
+from finance_analysis.integrations.market_data.normalizer import canonical_symbol
+from finance_analysis.market_calendar.events import macro_type, normalize_session, with_source
 
 
 def _clean_text(value: Any) -> str:
@@ -76,16 +73,12 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
-def _dumps_json(value: Any) -> str:
-    return json.dumps(_jsonable(value), ensure_ascii=False, sort_keys=True, default=str)
-
-
 def _parse_date(value: Any, fallback: Optional[date] = None) -> date:
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
         return value
-    text = _clean_text(value)
+    text = _clean_text(value).replace(".", "-")
     if text:
         try:
             return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
@@ -118,6 +111,11 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
     text = _clean_text(value)
     if not text:
         return None
+    if text.isdigit():
+        timestamp = int(text)
+        if timestamp == 0:
+            return None
+        return datetime.fromtimestamp(timestamp / 1000 if timestamp > 10**12 else timestamp, timezone.utc)
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
@@ -127,86 +125,10 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
     return parsed.astimezone(timezone.utc)
 
 
-def _normalize_market(value: Any, default: str) -> str:
-    text = _enum_name(value).upper() or default
-    if text.endswith(".US"):
-        return "US"
-    return text
-
-
-def _normalize_symbol(value: Any) -> Optional[str]:
-    symbol = _none_if_blank(value)
-    if not symbol:
-        return None
-    symbol = symbol.upper()
-    if symbol.endswith(".US"):
-        symbol = symbol[:-3]
-    return symbol or None
-
-
-def _data_kv_to_list(items: Any) -> List[Dict[str, Any]]:
-    if not items:
-        return []
-    normalized: List[Dict[str, Any]] = []
-    for item in items:
-        normalized.append(
-            {
-                "key": _none_if_blank(getattr(item, "key", None)),
-                "value": _jsonable(getattr(item, "value", None)),
-                "value_raw": _jsonable(getattr(item, "value_raw", None)),
-                "value_type": _none_if_blank(_enum_name(getattr(item, "value_type", None))),
-            }
-        )
-    return normalized
-
-
-def build_event_title(event: Mapping[str, Any]) -> str:
-    label = CALENDAR_TYPE_LABELS.get(str(event.get("calendar_type") or ""), str(event.get("calendar_type") or "日历"))
-    symbol = _clean_text(event.get("symbol"))
-    counter_name = _clean_text(event.get("counter_name"))
-    content_or_type = _clean_text(event.get("content")) or _clean_text(event.get("event_type"))
-    if symbol:
-        parts = [symbol, counter_name, label, content_or_type]
-    else:
-        parts = [label, content_or_type]
-    title = " ".join(part for part in parts if part)
-    return title[:120] or label
-
-
-def build_event_content(event: Mapping[str, Any]) -> str:
-    data_kv = event.get("data_kv") or []
-    lines = [
-        f"- 类型：{CALENDAR_TYPE_LABELS.get(str(event.get('calendar_type') or ''), event.get('calendar_type') or '-')}",
-        f"- 股票代码：{event.get('symbol') or '-'}",
-        f"- 公司名称：{event.get('counter_name') or '-'}",
-        f"- 市场：{event.get('market') or '-'}",
-        f"- 事件日期：{event.get('event_date') or '-'}",
-        f"- 事件时间：{event.get('event_datetime') or event.get('financial_market_time') or '-'}",
-        f"- 重要性 star：{event.get('star') if event.get('star') is not None else '-'}",
-        f"- 事件内容：{event.get('content') or event.get('event_type') or '-'}",
-    ]
-    if data_kv:
-        lines.extend(["", "### 明细"])
-        for item in data_kv:
-            key = item.get("key") or "-"
-            value = item.get("value")
-            if value is None:
-                value = item.get("value_raw")
-            lines.append(f"- {key}：{value if value is not None else '-'}")
-    lines.extend(["", f"- 来源 provider：{event.get('provider') or PROVIDER}"])
-    return "\n".join(lines)
-
-
 class LongbridgeCalendarFetcher:
-    """Fetch and normalize Longbridge finance calendar events."""
+    """Secondary source, requested independently of Yahoo's outcome."""
 
-    _CATEGORY_BY_TYPE: Dict[str, str] = {
-        "earnings": "Report",
-        "dividend": "Dividend",
-        "split": "Split",
-        "ipo": "Ipo",
-        "macro": "MacroData",
-    }
+    _CATEGORY_BY_TYPE = {"earnings": "Report", "macro": "MacroData"}
 
     def __init__(self) -> None:
         self._ctx = None
@@ -288,92 +210,133 @@ class LongbridgeCalendarFetcher:
             return "US"
         return text
 
-    def fetch_earnings_calendar(self, start: date, end: date, market: str) -> List[Dict[str, Any]]:
-        return self.fetch_calendar("earnings", start, end, market)
+    def fetch_earnings_calendar(self, start, end, market, symbols=()) -> CalendarFetchResult:
+        return self.fetch_calendar("earnings", start, end, market, symbols)
 
-    def fetch_dividend_calendar(self, start: date, end: date, market: str) -> List[Dict[str, Any]]:
-        return self.fetch_calendar("dividend", start, end, market)
+    def fetch_macro_calendar(self, start, end, market="US", symbols=()) -> CalendarFetchResult:
+        return self.fetch_calendar("macro", start, end, market, symbols)
 
-    def fetch_split_calendar(self, start: date, end: date, market: str) -> List[Dict[str, Any]]:
-        return self.fetch_calendar("split", start, end, market)
+    def fetch_calendar(self, calendar_type, start, end, market, symbols=()) -> CalendarFetchResult:
+        if calendar_type not in self._CATEGORY_BY_TYPE:
+            raise ValueError(f"Unsupported calendar type: {calendar_type}")
+        resolved_market = self._resolve_market(market)
+        if calendar_type == "macro" and resolved_market != "US":
+            raise ValueError("only US macro is supported")
+        result = CalendarFetchResult()
+        cursor = start
+        while cursor <= end:
+            try:
+                response = self._get_ctx().finance_calendar(
+                    self._resolve_category(calendar_type),
+                    _format_request_date(cursor),
+                    _format_request_date(end),
+                    resolved_market,
+                )
+                page = self.normalize_response(response, calendar_type=calendar_type, market=resolved_market)
+                result.events.extend(page.events)
+                result.errors.extend(page.errors)
+                result.fetched += page.fetched
+                result.pages_succeeded += page.pages_succeeded
+                next_date = (
+                    response.get("next_date") if isinstance(response, Mapping) else getattr(response, "next_date", None)
+                )
+                if not next_date:
+                    break
+                next_cursor = _parse_date(next_date)
+                if next_cursor <= cursor:
+                    raise ValueError(f"non-advancing pagination cursor {next_date}")
+                cursor = next_cursor
+            except Exception as exc:
+                result.errors.append(f"{calendar_type} start={cursor}: {exc}")
+                logger.warning("Longbridge calendar page failed: %s", result.errors[-1])
+                break
+        allowed = set(symbols)
+        result.events = [
+            event
+            for event in result.events
+            if start <= _parse_date(event["event_date"]) <= end
+            and (calendar_type == "macro" or event["symbol"] in allowed)
+        ]
+        result.skipped = result.fetched - len(result.events)
+        return result
 
-    def fetch_ipo_calendar(self, start: date, end: date, market: str) -> List[Dict[str, Any]]:
-        return self.fetch_calendar("ipo", start, end, market)
+    def normalize_response(self, response, *, calendar_type, market) -> CalendarFetchResult:
+        groups = response.get("list") if isinstance(response, Mapping) else getattr(response, "list", response)
+        result = CalendarFetchResult(pages_succeeded=1)
+        for group in groups or []:
+            getter = group.get if isinstance(group, Mapping) else lambda key: getattr(group, key, None)
+            for info in getter("infos") or []:
+                result.fetched += 1
+                try:
+                    event = self.normalize_info(
+                        info, calendar_type=calendar_type, market=market, group_date=_parse_date(getter("date"))
+                    )
+                    if event is not None:
+                        result.events.append(event)
+                except Exception as exc:
+                    result.errors.append(f"invalid row: {exc}")
+                    logger.warning("Skip invalid Longbridge calendar row: %s", exc)
+        result.skipped = result.fetched - len(result.events)
+        return result
 
-    def fetch_macro_calendar(self, start: date, end: date, market: str) -> List[Dict[str, Any]]:
-        return self.fetch_calendar("macro", start, end, market)
-
-    def fetch_calendar(self, calendar_type: str, start: date, end: date, market: str) -> List[Dict[str, Any]]:
-        ctx = self._get_ctx()
-        method = getattr(ctx, "finance_calendar", None)
-        if not callable(method):
-            raise RuntimeError("Longbridge CalendarContext.finance_calendar is not available")
-
-        try:
-            logger.debug("Longbridge finance_calendar signature: %s", inspect.signature(method))
-        except Exception:
-            pass
-
-        response = method(
-            self._resolve_category(calendar_type),
-            _format_request_date(start),
-            _format_request_date(end),
-            self._resolve_market(market),
-        )
-        return self.normalize_response(response, calendar_type=calendar_type, market=market)
-
-    def normalize_response(self, response: Any, *, calendar_type: str, market: str) -> List[Dict[str, Any]]:
-        groups = getattr(response, "list", None)
-        if groups is None and isinstance(response, Mapping):
-            groups = response.get("list")
-        if groups is None:
-            groups = response or []
-
-        events: List[Dict[str, Any]] = []
-        for group in groups:
-            group_date = _parse_date(getattr(group, "date", None) if not isinstance(group, Mapping) else group.get("date"))
-            infos = getattr(group, "infos", None) if not isinstance(group, Mapping) else group.get("infos")
-            for info in infos or []:
-                event = self.normalize_info(info, calendar_type=calendar_type, market=market, group_date=group_date)
-                events.append(event)
-        return events
-
-    def normalize_info(
-        self,
-        info: Any,
-        *,
-        calendar_type: str,
-        market: str,
-        group_date: date,
-    ) -> Dict[str, Any]:
+    def normalize_info(self, info, *, calendar_type, market, group_date) -> Optional[dict]:
         getter = info.get if isinstance(info, Mapping) else lambda key, default=None: getattr(info, key, default)
-        event_date = _parse_date(getter("date", None), fallback=group_date)
-        event_datetime = _parse_datetime(getter("datetime", None))
-        data_kv = _data_kv_to_list(getter("data_kv", None))
-        event: Dict[str, Any] = {
+        explicit_market = _enum_name(getter("market")).upper()
+        if calendar_type == "macro" and explicit_market != "US":
+            logger.debug("Skip unidentified/non-US Longbridge macro: market=%s", explicit_market)
+            return None
+        symbol = None
+        if calendar_type == "earnings":
+            raw_symbol = str(getter("symbol") or "").upper()
+            if not raw_symbol:
+                return None
+            symbol = canonical_symbol(raw_symbol if "." in raw_symbol else f"{raw_symbol}.{market}")
+            actual_market = "US" if symbol.endswith(".US") else "CN" if symbol.endswith((".SH", ".SZ")) else None
+            if actual_market != market:
+                return None
+        event_date = _parse_date(getter("date"), fallback=group_date)
+        event_datetime = _parse_datetime(getter("datetime"))
+        name = _none_if_blank(getter("counter_name"))
+        content = _none_if_blank(getter("content")) or _enum_name(getter("event_type"))
+        if calendar_type == "macro" and not content:
+            return None
+        details = []
+        for item in getter("data_kv") or []:
+            item_get = item.get if isinstance(item, Mapping) else lambda key: getattr(item, key, None)
+            value = item_get("value")
+            if value is None:
+                value = item_get("value_raw")
+            details.append({"key": item_get("key"), "value": _jsonable(value)})
+        event = {
             "provider": PROVIDER,
+            "provider_event_id": _none_if_blank(getter("id")),
             "calendar_type": calendar_type,
-            "provider_event_id": _none_if_blank(getter("id", None)),
-            "symbol": _normalize_symbol(getter("symbol", None)),
-            "market": _normalize_market(getter("market", None), market),
-            "counter_name": _none_if_blank(getter("counter_name", None)),
-            "event_type": _none_if_blank(_enum_name(getter("event_type", None))),
-            "activity_type": _none_if_blank(_enum_name(getter("activity_type", None))),
+            "market": market,
+            "symbol": symbol,
+            "counter_name": name,
+            "event_type": "earnings_release" if calendar_type == "earnings" else macro_type(content),
             "event_date": event_date.isoformat(),
             "event_datetime": event_datetime.isoformat() if event_datetime else None,
-            "date_type": _none_if_blank(_enum_name(getter("date_type", None))),
-            "financial_market_time": _none_if_blank(getter("financial_market_time", None)),
-            "content": _none_if_blank(getter("content", None)) or "",
-            "star": getter("star", None),
-            "currency": _none_if_blank(getter("currency", None)),
-            "data_kv": data_kv,
-            "raw_payload_json": _dumps_json(info),
+            "market_session": normalize_session(getter("financial_market_time") or getter("date_type")),
+            "title": (f"{symbol} {name or ''} 财报" if symbol else content)[:120],
+            "content": "\n".join([content, *(f"{item['key']}: {item['value']}" for item in details)]),
+            "currency": _none_if_blank(getter("currency")),
         }
-        try:
-            event["star"] = int(event["star"]) if event["star"] is not None else None
-        except (TypeError, ValueError):
-            event["star"] = None
-        event["title"] = build_event_title(event)
-        event["content_markdown"] = build_event_content(event)
-        event["data_kv_json"] = _dumps_json(data_kv)
-        return event
+        raw = {
+            key: _jsonable(getter(key))
+            for key in (
+                "id",
+                "symbol",
+                "market",
+                "counter_name",
+                "event_type",
+                "date",
+                "datetime",
+                "financial_market_time",
+                "date_type",
+                "content",
+                "currency",
+            )
+        }
+        raw["details"] = details
+        return with_source(event, raw, observed_at=utc_now())
