@@ -15,17 +15,18 @@ logger = logging.getLogger(__name__)
 class MarketCalendarSyncTaskService:
     def run(self) -> dict[str, Any]:
         started_at = scheduled_now()
-        logger.info("美股财经日历任务开始执行 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
+        logger.info("财经日历任务开始执行 - %s", started_at.strftime("%Y-%m-%d %H:%M:%S"))
         try:
             from .domain_service import MarketCalendarSyncService
 
             summary = MarketCalendarSyncService().run(now=started_at)
-            if summary.all_interfaces_failed:
-                raise RuntimeError(f"美股财经日历任务失败：所有接口均失败 errors={summary.errors}")
+            if summary.all_interfaces_failed or summary.all_writes_failed:
+                reason = "所有核心数据源不可用" if summary.all_interfaces_failed else "所有事件入库失败"
+                raise RuntimeError(f"财经日历任务失败：{reason} errors={summary.errors}")
             importance_candidate_ids = list(getattr(summary, "importance_candidate_ids", []) or [])
             self._submit_importance_task(importance_candidate_ids)
             logger.info(
-                "美股财经日历任务完成: fetched=%s inserted=%s updated=%s duplicate=%s notify=%s "
+                "财经日历任务完成: fetched=%s inserted=%s updated=%s duplicate=%s notify=%s "
                 "importance_candidates=%s",
                 summary.fetched_count_by_type,
                 summary.inserted_count,
@@ -45,7 +46,7 @@ class MarketCalendarSyncTaskService:
                 "importance_candidate_ids": importance_candidate_ids,
             }
         except Exception as exc:
-            logger.exception("美股财经日历任务执行失败: %s", exc)
+            logger.exception("财经日历任务执行失败: %s", exc)
             raise
 
     @staticmethod

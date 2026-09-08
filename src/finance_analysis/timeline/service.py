@@ -32,7 +32,6 @@ class TimelineService:
             (critical_macro, "critical"),
             (f.importance_score >= 9, "critical"),
             (f.importance_score >= 7, "high"),
-            (f.star >= 3, "high"),
             else_="normal",
         )
         # A date-only event belongs to the provider's market date, not midnight UTC.
@@ -240,6 +239,12 @@ class TimelineService:
                     "content": item.content,
                     "all_day": item.event_datetime is None,
                     "event_date": item.event_date,
+                    "market_session": item.market_session,
+                    "reporting_period": item.reporting_period,
+                    "provider": item.provider,
+                    "eps_estimate": item.eps_estimate,
+                    "reported_eps": item.reported_eps,
+                    "eps_surprise_pct": item.eps_surprise_pct,
                     "importance_reason": item.importance_reason,
                 },
             )

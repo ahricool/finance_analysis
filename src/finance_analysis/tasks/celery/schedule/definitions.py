@@ -120,8 +120,8 @@ SCHEDULED_TASK_DEFINITIONS = (
     ),
     ScheduledTaskDefinition(
         job_id=JOB_MARKET_CALENDAR,
-        name="美股财经日历同步",
-        description="同步未来美股财经事件并更新事件日历",
+        name="财经日历同步",
+        description="同步标普500、沪深300财报及美国宏观事件",
         task_type="scheduled_market_calendar",
         celery_task_name=celery_task_name(JOB_MARKET_CALENDAR),
         schedules=(CronSchedule(minute="0", hour="7", timezone=US_TIMEZONE),),

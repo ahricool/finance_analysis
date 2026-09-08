@@ -1,14 +1,14 @@
 """Remove unused Quant event, sector, feature, and holdings designs.
 
-Revision ID: 0045_simplify_quant
-Revises: 0044_crypto_btc
+Revision ID: 0046_simplify_quant
+Revises: 0045_calendar_sources
 """
 
 from alembic import op
 
 
-revision = "0045_simplify_quant"
-down_revision = "0044_crypto_btc"
+revision = "0046_simplify_quant"
+down_revision = "0045_calendar_sources"
 branch_labels = None
 depends_on = None
 

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_quant_simplification_is_the_single_head_and_matches_current_orm() -> None:
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "alembic"))
-    assert ScriptDirectory.from_config(config).get_current_head() == "0045_simplify_quant"
+    assert ScriptDirectory.from_config(config).get_current_head() == "0046_simplify_quant"
 
     table_names = {model.__tablename__ for model in QUANT_TABLES}
     assert table_names.isdisjoint(
@@ -80,7 +80,7 @@ def test_quant_simplification_is_the_single_head_and_matches_current_orm() -> No
 
 
 def test_quant_simplification_revision_drops_legacy_schema() -> None:
-    path = ROOT / "alembic" / "versions" / "0045_simplify_quant_pipeline.py"
+    path = ROOT / "alembic" / "versions" / "0046_simplify_quant_pipeline.py"
     spec = importlib.util.spec_from_file_location("quant_simplification_migration", path)
     migration = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -89,8 +89,8 @@ def test_quant_simplification_revision_drops_legacy_schema() -> None:
 
     migration.upgrade()
 
-    assert migration.revision == "0045_simplify_quant"
-    assert migration.down_revision == "0044_crypto_btc"
+    assert migration.revision == "0046_simplify_quant"
+    assert migration.down_revision == "0045_calendar_sources"
     assert [call.args[0] for call in migration.op.execute.call_args_list] == [
         "DELETE FROM portfolio_recommendation",
         "DELETE FROM model_signal",

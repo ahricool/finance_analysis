@@ -240,6 +240,13 @@ def build_default_registry(
 
 
 class MarketDataService:
+    def get_calendar_sources(self):
+        """Fresh adapters per sync; Yahoo batch cache is shared across markets."""
+        from .providers.longbridge.calendar import LongbridgeCalendarFetcher
+        from .providers.yfinance_calendar import YFinanceCalendarFetcher
+
+        return {"yfinance": YFinanceCalendarFetcher(), "longbridge": LongbridgeCalendarFetcher()}
+
     def __init__(
         self,
         registry: ProviderRegistry | None = None,
