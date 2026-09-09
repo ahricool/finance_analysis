@@ -20,7 +20,7 @@ const market = {
   latest_candle: candle(200, false), recent_closed: [candle(199)], strategy_latest_state: snapshot,
 };
 
-for (const width of [360, 1280]) {
+for (const width of [1280, 1440]) {
   test(`BTC candles render and update through backend WS at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1000 });
     const errors: string[] = [];

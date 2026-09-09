@@ -15,10 +15,8 @@ import { useTimezoneStore } from '@/stores/timezoneStore';
 import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { Separator } from '@/components/ui/separator';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
-import { BarChart3, FileText, History, MessageCircle, RefreshCw, Search } from 'lucide-vue-next';
+import { BarChart3, FileText, MessageCircle, RefreshCw, Search } from 'lucide-vue-next';
 import { computed, ref, unref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
@@ -32,7 +30,6 @@ type MarketReviewNotice = {
 const router = useRouter();
 const timezoneStore = useTimezoneStore();
 const { displayTimezone } = storeToRefs(timezoneStore);
-const sidebarOpen = ref(false);
 const isSubmittingMarketReview = ref(false);
 const marketReviewNotice = ref<MarketReviewNotice>(null);
 const marketReviewError = ref<ParsedApiError | null>(null);
@@ -93,7 +90,6 @@ watch(displayTimezone, () => {
 
 function handleHistoryItemClick(recordId: number) {
   void unref(selectHistoryItem)(recordId);
-  sidebarOpen.value = false;
 }
 
 function handleSubmitAnalysisWrapper(
@@ -175,61 +171,51 @@ function handleHistoryPageChange(page: number) {
       title="股票分析"
       description="搜索标的、生成分析报告，并从历史记录继续研究。"
     >
-      <template #actions>
-        <Button
-          class="md:hidden"
-          variant="outline"
-          size="sm"
-          @click="sidebarOpen = true"
-        >
-          <History />历史记录
-        </Button>
-      </template>
     </PageHeader>
 
     <section class="shrink-0 border-b pb-4">
-        <div class="flex min-w-0 flex-col gap-3 md:flex-row md:items-center">
-          <div class="flex min-w-0 flex-1 items-center gap-2.5">
-            <div class="relative min-w-0 flex-1">
-              <StockAutocomplete
-                :model-value="query"
-                :disabled="isAnalyzing"
-                placeholder="输入股票代码或名称，如 600519、贵州茅台、AAPL"
-                :class="inputError ? 'border-destructive/50' : undefined"
-                @update:model-value="(v: string) => unref(setQuery)(v)"
-                @submit="onStockAutocompleteSubmit"
-              />
-            </div>
-          </div>
-          <div class="flex min-w-0 flex-shrink-0 items-center gap-2.5">
-            <LoadingButton
-              type="button"
-              variant="secondary"
-              size="default"
-              :loading="isSubmittingMarketReview"
-              loading-text="提交中"
-              class="flex-1 whitespace-nowrap md:flex-none"
-              @click="handleTriggerMarketReview"
-            >
-              <BarChart3
-                class="h-4 w-4"
-                aria-hidden="true"
-              />
-              大盘复盘
-            </LoadingButton>
-            <LoadingButton
-              type="button"
-              :disabled="!query || isAnalyzing"
-              :loading="isAnalyzing"
-              loading-text="分析中"
-              variant="brand"
-              class="flex-1 whitespace-nowrap md:flex-none"
-              @click="handleSubmitAnalysisWrapper()"
-            >
-              <Search />分析
-            </LoadingButton>
+      <div class="flex min-w-0 flex-col gap-3 md:flex-row md:items-center">
+        <div class="flex min-w-0 flex-1 items-center gap-2.5">
+          <div class="relative min-w-0 flex-1">
+            <StockAutocomplete
+              :model-value="query"
+              :disabled="isAnalyzing"
+              placeholder="输入股票代码或名称，如 600519、贵州茅台、AAPL"
+              :class="inputError ? 'border-destructive/50' : undefined"
+              @update:model-value="(v: string) => unref(setQuery)(v)"
+              @submit="onStockAutocompleteSubmit"
+            />
           </div>
         </div>
+        <div class="flex min-w-0 flex-shrink-0 items-center gap-2.5">
+          <LoadingButton
+            type="button"
+            variant="secondary"
+            size="default"
+            :loading="isSubmittingMarketReview"
+            loading-text="提交中"
+            class="flex-1 whitespace-nowrap md:flex-none"
+            @click="handleTriggerMarketReview"
+          >
+            <BarChart3
+              class="h-4 w-4"
+              aria-hidden="true"
+            />
+            大盘复盘
+          </LoadingButton>
+          <LoadingButton
+            type="button"
+            :disabled="!query || isAnalyzing"
+            :loading="isAnalyzing"
+            loading-text="分析中"
+            variant="brand"
+            class="flex-1 whitespace-nowrap md:flex-none"
+            @click="handleSubmitAnalysisWrapper()"
+          >
+            <Search />分析
+          </LoadingButton>
+        </div>
+      </div>
     </section>
 
     <div
@@ -252,7 +238,7 @@ function handleHistoryPageChange(page: number) {
     </div>
 
     <div class="flex min-h-0 flex-1 overflow-hidden">
-      <div class="hidden w-80 shrink-0 self-start pb-4 md:flex">
+      <div class="w-80 shrink-0 self-start pb-4 flex">
         <div class="flex w-full flex-col gap-3">
           <HistoryList
             :items="historyItems"
@@ -269,34 +255,10 @@ function handleHistoryPageChange(page: number) {
         </div>
       </div>
 
-      <Sheet v-model:open="sidebarOpen">
-        <SheetContent
-          side="left"
-          class="flex w-[min(92vw,24rem)] flex-col p-0"
-        >
-          <SheetHeader class="p-4 text-left">
-            <SheetTitle>历史分析</SheetTitle>
-            <SheetDescription>选择一份历史报告继续查看或追问。</SheetDescription>
-          </SheetHeader>
-          <Separator />
-          <HistoryList
-            :items="historyItems"
-            :is-loading="isLoadingHistory"
-            :current-page="currentPage"
-            :total-pages="historyTotalPages"
-            :total-count="historyTotal"
-            :selected-id="selectedReport?.meta.id"
-            class="min-h-0 flex-1 rounded-none border-0 shadow-none"
-            @item-click="handleHistoryItemClick"
-            @page-change="handleHistoryPageChange"
-          />
-        </SheetContent>
-      </Sheet>
-
       <section
         ref="dashboardScrollRef"
         data-testid="analysis-workspace-scroll"
-        class="min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto pb-4 md:pl-6"
+        class="min-h-0 min-w-0 flex-1 overflow-y-auto pb-4 md:pl-6"
       >
         <div
           v-if="marketReviewNotice"
@@ -345,33 +307,33 @@ function handleHistoryPageChange(page: number) {
           class="space-y-4 pb-8"
         >
           <div class="flex flex-wrap items-center justify-end gap-2 border-b pb-4">
-              <Button
-                variant="default"
-                size="sm"
-                :disabled="isAnalyzing || selectedReport.meta.id === undefined"
-                @click="handleReanalyze"
-              >
-                <RefreshCw />
-                {{ reportText.reanalyze }}
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                :disabled="selectedReport.meta.id === undefined"
-                @click="handleAskFollowUp"
-              >
-                <MessageCircle />
-                追问 AI
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                :disabled="selectedReport.meta.id === undefined"
-                @click="unref(openMarkdownDrawer)()"
-              >
-                <FileText />
-                {{ reportText.fullReport }}
-              </Button>
+            <Button
+              variant="default"
+              size="sm"
+              :disabled="isAnalyzing || selectedReport.meta.id === undefined"
+              @click="handleReanalyze"
+            >
+              <RefreshCw />
+              {{ reportText.reanalyze }}
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              :disabled="selectedReport.meta.id === undefined"
+              @click="handleAskFollowUp"
+            >
+              <MessageCircle />
+              追问 AI
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              :disabled="selectedReport.meta.id === undefined"
+              @click="unref(openMarkdownDrawer)()"
+            >
+              <FileText />
+              {{ reportText.fullReport }}
+            </Button>
           </div>
           <ReportSummary
             :data="selectedReport"

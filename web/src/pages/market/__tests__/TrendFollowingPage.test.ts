@@ -136,7 +136,7 @@ describe('TrendFollowingPage', () => {
     apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items: [b, c, a] });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[2]!.text());
+    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[1]!.find('span').text());
     const click = async (label: string) => {
       const button = wrapper.findAll('th button').find(button => button.text() === label)!;
       await button.trigger('click');
@@ -150,7 +150,7 @@ describe('TrendFollowingPage', () => {
       await click(label);
       expect(order()).toEqual(['C.US', 'B.US', 'A.US']);
     }
-    await click('10D Return');
+    await wrapper.get('select[aria-label="排名排序指标"]').setValue('return10D');
     expect(order()[0]).toBe('B.US');
     await click('排名趋势');
     expect(order()).toEqual(['B.US', 'A.US', 'C.US']);
@@ -170,7 +170,7 @@ describe('TrendFollowingPage', () => {
     expect(apiMocks.ranking).toHaveBeenCalledTimes(1);
   });
 
-  it('renders CN scope, regime, ranking, state and action on mobile-safe layout', async () => {
+  it('renders CN scope, regime, ranking, state and action in a compact desktop table', async () => {
     const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
     expect(wrapper.text()).toContain('沪深300 + 中证500');
@@ -178,11 +178,8 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.get('[data-testid="trend-rank-changes"]').text()).toContain('0');
     expect(wrapper.text()).toContain('平安银行');
     expect(wrapper.text()).toContain('建议入场');
-    expect(wrapper.find('table').classes().join(' ')).toContain('min-w-');
-    const reasons = wrapper.get('[data-testid="trend-reasons"]');
-    expect(reasons.classes()).toEqual(expect.arrayContaining(['truncate', 'whitespace-nowrap']));
-    expect(reasons.text()).toBe('candidate thresholds passed');
-    expect(reasons.attributes('tabindex')).toBe('0');
+    expect(wrapper.find('table').classes()).toContain('w-full');
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(11);
     expect(wrapper.find('[aria-label="查看 Market Score 指标说明与计算公式"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="查看 Alpha Score 指标说明与计算公式"]').exists()).toBe(true);
   });

@@ -1,5 +1,6 @@
 import type { Component } from 'vue';
 import {
+  Activity,
   BarChart3,
   Bitcoin,
   BrainCircuit,
@@ -57,6 +58,7 @@ export const researchNavItems: NavDestination[] = [
 ];
 
 export const mainNavItems: MainNavItem[] = [
+  { key: 'dashboard', label: '动态', to: '/dashboard', icon: Activity, exact: true },
   {
     key: 'analysis',
     label: '分析',

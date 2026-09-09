@@ -603,7 +603,7 @@ onMounted(async () => {
         v-if="equityPositions.length"
         data-testid="equity-section"
       >
-        <div class="hidden overflow-hidden rounded-xl border bg-card md:block">
+        <div class="overflow-hidden rounded-xl border bg-card block">
           <Table class="w-full min-w-[960px] text-sm">
             <TableHeader class="bg-muted/40 text-left text-xs text-muted-foreground">
               <TableRow>
@@ -660,63 +660,6 @@ onMounted(async () => {
             </TableBody>
           </Table>
         </div>
-        <div class="grid gap-3 md:hidden">
-          <article
-            v-for="position in equityPositions"
-            :key="position.id"
-            class="rounded-xl border bg-card p-4"
-          >
-            <div class="flex justify-between">
-              <div>
-                <p class="font-semibold">
-                  {{ formatSecurityLabel(position.display_symbol, position.name) }}
-                </p>
-                <p class="text-xs text-muted-foreground">
-                  {{ position.asset_type }}
-                </p>
-              </div>
-              <div class="flex gap-1">
-                <button
-                  aria-label="编辑持仓"
-                  @click="openEdit(position)"
-                >
-                  <Pencil class="h-4 w-4" />
-                </button><button
-                  aria-label="删除持仓"
-                  @click="deletingPosition = position"
-                >
-                  <Trash2 class="h-4 w-4 text-destructive" />
-                </button>
-              </div>
-            </div>
-            <dl class="mt-3 grid grid-cols-2 gap-2 text-sm">
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  数量
-                </dt>
-                <dd>{{ formatDecimalText(position.quantity) }} 股</dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  最新价格
-                </dt>
-                <dd>{{ amount(quotePrice(position)) }}</dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  市值
-                </dt>
-                <dd>{{ amount(positionMarketValue(position)) }}</dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  未实现盈亏
-                </dt>
-                <dd>{{ amount(positionPnl(position)) }}</dd>
-              </div>
-            </dl>
-          </article>
-        </div>
       </section>
 
       <section
@@ -727,7 +670,7 @@ onMounted(async () => {
         <p class="rounded-lg border border-warning/25 bg-warning/10 p-3 text-xs text-warning">
           期权仅作手工持仓记录，不提供实时价格、市值或盈亏。
         </p>
-        <div class="hidden overflow-hidden rounded-xl border bg-card md:block">
+        <div class="overflow-hidden rounded-xl border bg-card block">
           <Table class="w-full min-w-[1120px] text-sm">
             <TableHeader class="bg-muted/40 text-left text-xs text-muted-foreground">
               <TableRow>
@@ -810,94 +753,6 @@ onMounted(async () => {
               </TableRow>
             </TableBody>
           </Table>
-        </div>
-        <div class="grid gap-3 md:hidden">
-          <article
-            v-for="position in optionPositions"
-            :key="position.id"
-            class="rounded-xl border bg-card p-4"
-          >
-            <div class="flex justify-between">
-              <div>
-                <p class="font-semibold">
-                  {{ formatSecurityLabel(
-                    position.option?.underlying_display_symbol,
-                    position.option?.underlying_name,
-                  ) }}
-                </p>
-                <p class="text-xs text-warning">
-                  {{ position.position_side === 'LONG' ? '多头' : '空头' }} ·
-                  {{ position.option?.option_type }}
-                </p>
-              </div>
-              <div class="flex gap-2">
-                <button
-                  aria-label="编辑期权"
-                  @click="openEdit(position)"
-                >
-                  <Pencil class="h-4 w-4" />
-                </button><button
-                  aria-label="删除期权"
-                  @click="deletingPosition = position"
-                >
-                  <Trash2 class="h-4 w-4 text-destructive" />
-                </button>
-              </div>
-            </div>
-            <dl class="mt-3 grid grid-cols-2 gap-2 text-sm">
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  行权价
-                </dt>
-                <dd>{{ amount(position.option?.strike_price ?? null) }}</dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  到期日 / DTE
-                </dt>
-                <dd>
-                  {{ position.option?.expiration_date }} ·
-                  <span :class="dteClass(position)">{{ dteLabel(position) }}</span>
-                </dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  张数
-                </dt>
-                <dd>{{ formatDecimalText(position.quantity.replace('-', '')) }}</dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  成本金额
-                </dt>
-                <dd>{{ amount(position.cost_amount) }}</dd>
-              </div>
-              <div>
-                <dt class="text-xs text-muted-foreground">
-                  状态
-                </dt>
-                <dd>{{ position.status }}</dd>
-              </div>
-            </dl>
-            <div
-              v-if="position.option?.expiration_action_required"
-              class="mt-3 flex gap-2"
-            >
-              <Button
-                size="xs"
-                variant="secondary"
-                @click="markStatus(position, 'CLOSED')"
-              >
-                标记已平仓
-              </Button><Button
-                size="xs"
-                variant="destructive"
-                @click="markStatus(position, 'EXPIRED')"
-              >
-                标记到期失效
-              </Button>
-            </div>
-          </article>
         </div>
       </section>
       <Empty

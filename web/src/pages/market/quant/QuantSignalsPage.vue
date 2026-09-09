@@ -88,7 +88,7 @@ watch(
         v-if="items.length"
       >
         <CardHeader><CardTitle>模型排名</CardTitle><CardDescription>共 {{ items.length }} 个标的。</CardDescription></CardHeader>
-        <CardContent class="hidden md:block">
+        <CardContent class="block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -117,35 +117,6 @@ watch(
               </TableRow>
             </TableBody>
           </Table>
-        </CardContent>
-        <CardContent class="space-y-3 md:hidden">
-          <Card
-            v-for="item in items"
-            :key="item.id"
-          >
-            <CardHeader>
-              <CardTitle class="text-base">
-                <RouterLink
-                  :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
-                  class="font-medium underline-offset-4 hover:underline"
-                >
-                  {{ formatSecurityLabel(item.code, item.name) }}
-                </RouterLink>
-              </CardTitle><CardDescription>排名 #{{ item.universeRank ?? '—' }}</CardDescription><Badge variant="outline">
-                {{ item.signal }}
-              </Badge>
-            </CardHeader><CardContent class="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p class="text-xs text-muted-foreground">
-                  最终得分
-                </p>{{ formatScore(item.finalScore) }}
-              </div><div>
-                <p class="text-xs text-muted-foreground">
-                  风险扣分
-                </p>{{ formatScore(item.riskPenalty) }}
-              </div>
-            </CardContent>
-          </Card>
         </CardContent>
       </Card>
       <Empty v-else>

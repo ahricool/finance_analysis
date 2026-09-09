@@ -3,7 +3,6 @@ import { quantApi } from '@/api/quant';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -77,7 +76,7 @@ watch(
       </Alert>
       <Card>
         <CardHeader><CardTitle>目标持仓</CardTitle><CardDescription>展示模型建议的目标权重和信号得分。</CardDescription></CardHeader>
-        <CardContent class="hidden md:block">
+        <CardContent class="block">
           <Table class="w-full min-w-[900px] text-sm">
             <TableHeader class="text-left text-xs text-muted-foreground">
               <TableRow>
@@ -108,30 +107,6 @@ watch(
               </TableRow>
             </TableBody>
           </Table>
-        </CardContent>
-        <CardContent class="space-y-3 md:hidden">
-          <Card
-            v-for="row in item.items"
-            :key="row.id"
-          >
-            <CardHeader>
-              <CardTitle class="text-base">
-                {{ formatSecurityLabel(row.code, row.name) }}
-              </CardTitle><CardDescription>目标组合排名 #{{ row.rank }}</CardDescription><Badge variant="outline">
-                {{ row.signal }}
-              </Badge>
-            </CardHeader><CardContent class="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p class="text-xs text-muted-foreground">
-                  目标权重
-                </p>{{ formatPercent(row.targetWeight) }}
-              </div><div>
-                <p class="text-xs text-muted-foreground">
-                  预测收益
-                </p>{{ formatPredictedReturn(row.predictedReturn) }}
-              </div>
-            </CardContent>
-          </Card>
         </CardContent>
       </Card>
     </template>

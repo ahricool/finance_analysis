@@ -6,6 +6,7 @@ import router, { resolveDocumentTitle } from '../index';
 describe('router document titles', () => {
   it.each([
     ['/', 'Finance Analysis'],
+    ['/dashboard', '市场动态 - Finance Analysis'],
     ['/analysis', '分析 - Finance Analysis'],
     ['/timeline', '投资时间线 - Finance Analysis'],
     ['/market/watch-list', '自选股 - Finance Analysis'],
@@ -36,8 +37,8 @@ describe('router document titles', () => {
     expect(router.resolve('/stock-list').name).toBe('not-found');
   });
 
-  it('redirects the root path to the analysis page', () => {
-    expect(router.resolve('/').matched.at(-1)?.redirect).toEqual({ name: 'analysis' });
+  it('redirects the root path to the dashboard', () => {
+    expect(router.resolve('/').matched.at(-1)?.redirect).toEqual({ name: 'dashboard' });
     expect(router.resolve('/analysis').name).toBe('analysis');
   });
 
@@ -56,4 +57,14 @@ describe('router document titles', () => {
     expect(router.currentRoute.value.path).toBe('/profile/info');
     expect(router.currentRoute.value.name).toBe('profile-info');
   });
+});
+
+
+it('defaults an authenticated login route to dashboard', async () => {
+  setActivePinia(createPinia());
+  const auth = useAuthStore();
+  auth.isLoading = false;
+  auth.loggedIn = true;
+  await router.push('/login');
+  expect(router.currentRoute.value.path).toBe('/dashboard');
 });

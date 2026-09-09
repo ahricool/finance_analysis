@@ -39,7 +39,8 @@ const router = createRouter({
       path: '/',
       component: Shell,
       children: [
-        { path: '', redirect: { name: 'analysis' } },
+        { path: '', redirect: { name: 'dashboard' } },
+        { path: 'dashboard', name: 'dashboard', component: () => import('@/pages/DashboardPage.vue'), meta: { title: '市场动态' } },
         { path: 'analysis', name: 'analysis', component: HomePage, meta: { title: '分析' } },
         { path: 'chat', name: 'chat', component: ChatPage, meta: { title: '问股' } },
         {
@@ -150,7 +151,7 @@ router.beforeEach(async (to, from) => {
   }
 
   if (to.path === '/login' && auth.loggedIn) {
-    return { path: '/analysis', replace: true };
+    return { path: '/dashboard', replace: true };
   }
 
   return true;

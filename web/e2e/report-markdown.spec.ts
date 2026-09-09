@@ -33,7 +33,8 @@ async function login(page: Page) {
     page.getByTestId('login-submit').click(),
   ]);
 
-  await page.waitForURL('**/analysis', { timeout: 15_000 });
+  await page.waitForURL('**/dashboard', { timeout: 15_000 });
+  await page.goto('/analysis');
   await page.waitForLoadState('domcontentloaded');
   const stockInput = page.getByPlaceholder('输入股票代码或名称，如 600519、贵州茅台、AAPL');
   await expect(stockInput).toBeVisible({ timeout: 10_000 });
@@ -138,40 +139,6 @@ test.describe('ReportMarkdown component', () => {
 
     // Wait for icon to revert (icon disappears after 2 seconds)
     await expect(checkmarkIcon).not.toBeVisible({ timeout: 3500 });
-  });
-
-  test('mobile responsive layout', async ({ page }) => {
-    // Set mobile viewport
-    await page.setViewportSize({ width: 390, height: 844 });
-
-    await login(page);
-
-    // On mobile, a report should already be selected (showing in main content)
-    // Wait for main content to load
-    await expect(
-      page.getByPlaceholder('输入股票代码或名称，如 600519、贵州茅台、AAPL'),
-    ).toBeVisible({ timeout: 10_000 });
-
-    // Click the "完整分析报告" button to open the markdown drawer
-    const detailedReportButton = page.getByRole('button', { name: '完整分析报告' });
-    await expect(detailedReportButton).toBeVisible({ timeout: 5000 });
-    await detailedReportButton.click();
-
-    // Verify drawer content is visible (this ensures drawer is fully open)
-    await expect(page.getByRole('dialog').getByText('完整分析报告')).toBeVisible({
-      timeout: 10000,
-    });
-
-    // Verify toolbar buttons are visible and clickable on mobile
-    const copyMarkdownButton = page.getByRole('button', { name: '复制 Markdown 源码' });
-    const copyPlainTextButton = page.getByRole('button', { name: '复制纯文本' });
-
-    await expect(copyMarkdownButton).toBeVisible({ timeout: 5000 });
-    await expect(copyPlainTextButton).toBeVisible();
-
-    // Verify buttons are clickable (not checking icon animation on mobile due to timing issues)
-    await expect(copyMarkdownButton).toBeEnabled();
-    await expect(copyPlainTextButton).toBeEnabled();
   });
 
   test('buttons are disabled during loading', async ({ page }) => {

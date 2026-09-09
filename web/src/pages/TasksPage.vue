@@ -411,71 +411,7 @@ onBeforeUnmount(() => {
           </AlertDescription>
         </Alert>
 
-        <div
-          class="space-y-3 md:hidden"
-          data-testid="scheduled-task-cards"
-        >
-          <template v-if="scheduledLoading">
-            <Skeleton
-              v-for="index in 3"
-              :key="index"
-              class="h-40 w-full"
-            />
-          </template>
-          <Card
-            v-for="item in scheduledItems"
-            v-else
-            :key="item.jobId"
-          >
-            <CardHeader>
-              <CardTitle class="text-base">
-                {{ item.name }}
-              </CardTitle>
-              <CardDescription>{{ item.description }}</CardDescription>
-              <Badge :variant="item.schedulerStatus === 'active' ? 'success' : 'default'">
-                {{ schedulerStatusLabel(item.schedulerStatus) }}
-              </Badge>
-            </CardHeader>
-            <CardContent class="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p class="text-xs text-muted-foreground">
-                  调度规则
-                </p><p class="mt-1">
-                  {{ item.schedule }}
-                </p>
-              </div>
-              <div>
-                <p class="text-xs text-muted-foreground">
-                  下次执行
-                </p><p class="mt-1">
-                  {{ formatDateTimeInDisplayTimezone(item.nextRunTime) }}
-                </p>
-              </div>
-            </CardContent>
-            <CardContent
-              v-if="item.allowManualRun"
-              class="flex flex-wrap gap-2 pt-0"
-            >
-              <LoadingButton
-                size="sm"
-                :loading="runningJobId === item.jobId"
-                @click="selectScheduledJob(item, item.syncModes?.length ? 'incremental' : null)"
-              >
-                <Play />立即执行
-              </LoadingButton>
-              <Button
-                v-if="item.syncModes?.length"
-                size="sm"
-                variant="outline"
-                @click="selectScheduledJob(item, 'full')"
-              >
-                全量同步
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div class="hidden overflow-x-auto rounded-lg border md:block">
+        <div class="overflow-x-auto rounded-lg border block">
           <Table class="w-full min-w-[1080px] text-left text-sm">
             <TableHeader class="border-b border-border/70 text-xs text-muted-foreground">
               <TableRow>
@@ -780,50 +716,7 @@ onBeforeUnmount(() => {
           @dismiss="runsError = null"
         />
 
-        <div
-          class="space-y-3 md:hidden"
-          data-testid="task-run-cards"
-        >
-          <template v-if="runsLoading">
-            <Skeleton
-              v-for="index in 4"
-              :key="index"
-              class="h-36 w-full"
-            />
-          </template>
-          <Card
-            v-for="item in runs"
-            v-else
-            :key="item.taskId"
-          >
-            <CardHeader>
-              <CardTitle class="text-base">
-                {{ item.taskName || item.taskType }}
-              </CardTitle>
-              <CardDescription>{{ item.source }} · {{ formatDateTimeInDisplayTimezone(item.createdAt) }}</CardDescription>
-              <Badge :variant="statusVariant(item.status)">
-                {{ statusLabel(item.status) }}
-              </Badge>
-            </CardHeader>
-            <CardContent class="text-sm text-muted-foreground">
-              <p class="line-clamp-3">
-                {{ item.message || '暂无执行消息' }}
-              </p>
-            </CardContent>
-            <CardContent class="pt-0">
-              <Button
-                variant="outline"
-                size="sm"
-                class="w-full"
-                @click="openDetail(item)"
-              >
-                查看详情
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div class="hidden overflow-x-auto rounded-lg border md:block">
+        <div class="overflow-x-auto rounded-lg border block">
           <Table class="w-full min-w-[1320px] text-left text-sm">
             <TableHeader class="border-b border-border/70 text-xs text-muted-foreground">
               <TableRow>

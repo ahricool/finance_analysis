@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { MarketRegime } from '@/types/quant';
-import { useMediaQuery } from '@vueuse/core';
 import { LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
 import { use } from 'echarts/core';
@@ -13,7 +12,6 @@ use([CanvasRenderer, LineChart, GridComponent, TooltipComponent]);
 
 const props = defineProps<{ items: MarketRegime[] }>();
 const { resolvedTheme } = useTheme();
-const isMobile = useMediaQuery('(max-width: 639px)');
 
 const option = computed(() => {
   const rows = [...props.items].reverse();
@@ -23,7 +21,7 @@ const option = computed(() => {
   return {
     tooltip: { trigger: 'axis' },
     grid: {
-      left: isMobile.value ? 34 : 42,
+      left: 42,
       right: 10,
       top: 12,
       bottom: 30,
@@ -34,7 +32,7 @@ const option = computed(() => {
       axisLabel: {
         hideOverlap: true,
         color: muted,
-        fontSize: isMobile.value ? 10 : 12,
+        fontSize: 12,
       },
       axisLine: { lineStyle: { color: split } },
     },

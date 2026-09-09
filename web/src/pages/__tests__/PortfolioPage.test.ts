@@ -214,7 +214,7 @@ describe('portfolio page', () => {
     expect(mocks.listPositions).toHaveBeenCalledWith(1, 'ALL', 'ALL');
   });
 
-  it('shows US options as non-priced records with DTE actions and mobile cards', async () => {
+  it('shows US options as non-priced records with DTE actions', async () => {
     const page = await mountPage();
     await page.get('[data-account-code="US"]').trigger('click');
     await flushPromises();
@@ -224,7 +224,7 @@ describe('portfolio page', () => {
     expect(section.text()).toContain('已到期，待确认处理');
     expect(section.text()).toContain('标记已平仓');
     expect(section.text()).toContain('标记失效');
-    expect(section.findAll('article')).toHaveLength(1);
+    expect(section.findAll('tbody tr')).toHaveLength(1);
     const optionHeaders = section.findAll('thead th').map((item) => item.text());
     expect(optionHeaders).not.toContain('最新价格');
     expect(optionHeaders).not.toContain('持仓市值');

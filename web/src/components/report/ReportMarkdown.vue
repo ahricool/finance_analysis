@@ -195,7 +195,7 @@ onUnmounted(() => {
       </ScrollArea>
 
       <Separator />
-      <SheetFooter class="pb-[max(0rem,env(safe-area-inset-bottom))]">
+      <SheetFooter>
         <Button
           variant="outline"
           @click="handleClose"

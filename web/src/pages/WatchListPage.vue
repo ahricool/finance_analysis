@@ -19,7 +19,7 @@ import StockDetailDialog from '@/components/stocks/StockDetailDialog.vue';
 import TrendStatus from '@/components/stocks/TrendStatus.vue';
 import ZeroDteStatus from '@/components/stocks/ZeroDteStatus.vue';
 import StockAutocomplete from '@/components/StockAutocomplete/StockAutocomplete.vue';
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
@@ -433,88 +433,7 @@ onMounted(loadList);
         </div>
       </div>
 
-      <div class="grid gap-3 md:hidden">
-        <Card
-          v-for="item in visibleItems"
-          :key="`mobile-${item.id}`"
-          @click="detailItem = item"
-        >
-          <CardHeader>
-            <CardTitle class="truncate text-base">
-              {{ formatSecurityLabel(item.code, item.name) }}
-            </CardTitle><CardDescription>
-              {{ marketLabel(item.market_type) }}
-            </CardDescription><CardAction>
-              <Button
-                variant="ghost"
-                size="icon"
-                :aria-label="item.is_favorite ? '取消特别关注' : '标记为特别关注'"
-                @click.stop="toggleFavorite(item)"
-              >
-                <Heart
-                  class="size-4"
-                  :class="item.is_favorite && 'fill-current text-destructive'"
-                />
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent class="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p class="text-xs text-muted-foreground">
-                最新价
-              </p>
-              <p class="mt-1 font-semibold tabular-nums">
-                {{ formatQuoteNumber(getQuote(item.code, item.market_type)?.last_price) }}
-              </p>
-            </div>
-            <div>
-              <p class="text-xs text-muted-foreground">
-                今日涨跌
-              </p>
-              <p
-                class="mt-1 font-semibold tabular-nums"
-                :class="movementClass(getQuote(item.code, item.market_type)?.change_pct)"
-              >
-                {{
-                  formatSignedQuoteNumber(getQuote(item.code, item.market_type)?.change_pct, '%')
-                }}
-              </p>
-            </div>
-          </CardContent>
-          <CardFooter class="justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              @click.stop="detailItem = item"
-            >
-              查看详情
-            </Button><DropdownMenu>
-              <DropdownMenuTrigger as-child>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="更多操作"
-                  @click.stop
-                >
-                  <MoreHorizontal />
-                </Button>
-              </DropdownMenuTrigger><DropdownMenuContent align="end">
-                <DropdownMenuItem @select="openEdit(item)">
-                  <Pencil />编辑
-                </DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem
-                  class="text-destructive"
-                  @select="openDelete(item)"
-                >
-                  <Trash2 />删除
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </CardFooter>
-        </Card>
-      </div>
-
-      <!-- Desktop table -->
-      <Card class="hidden md:block">
+      <Card class="block">
         <CardHeader><CardTitle>自选股列表</CardTitle><CardDescription>点击任一行打开行情详情；次要操作收纳在行菜单中。</CardDescription></CardHeader><CardContent>
           <Table class="w-full min-w-[1360px] table-fixed text-left text-sm">
             <colgroup>

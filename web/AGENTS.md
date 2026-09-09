@@ -91,7 +91,8 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 
 | 路径 | 名称 | 含义 |
 | --- | --- | --- |
-| `/analysis` | `analysis` | 个股分析（默认首页，`/` 重定向到这里） |
+| `/dashboard` | `dashboard` | 公共市场动态（登录后的默认入口） |
+| `/analysis` | `analysis` | 个股分析 |
 | `/chat` | `chat` | 问股 Agent |
 | `/market/watch-list` | `market-watch-list` | 自选股 |
 | `/market/holdings` | `market-holdings` | 投资组合 |
@@ -197,7 +198,8 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - **禁止**使用 `input-terminal` 类名（同上治理测试）。
 - 弹层不要改 `document.body` 的 `overflow` / `paddingRight` 造成顶栏位移；冒烟测试会查这一点。
 - 根滚动条使用 `scrollbar-gutter: stable`，路由切换时不要让页面左右跳。
-- 移动端：窄屏走 `Sheet` 主导航（`打开主导航`），宽屏走 `desktop-main-nav`。布局改动至少考虑 360 与 1280 两种宽度，避免横向溢出。
+- WebUI 仅面向桌面，根最小宽度 1200px；低于此宽度允许页面级横向滚动。只维护 Desktop 导航与表格，不添加手机 Sheet 导航或 Mobile Card。验证 1280 / 1440 / 1920px；桌面宽度之间的响应式布局继续保留。
+- Dashboard 只组合公开的 Quant Regime/Signals、ETF/Trend Changes、Timeline、BTC overview。不得读取持仓、自选股、分析/问股历史等私人数据；各模块独立加载和失败。
 
 新增 shadcn 组件：按 `components.json` 生成到 `src/components/ui/`，不要改 aliases，不要另开一套 primitive。
 
@@ -237,7 +239,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 3. 量化跳转是否带上 `market` query。
 4. 错误是否经过 `parseApiError` / `AppApiErrorAlert`。
 5. 有没有引入原生 `title` 或 `input-terminal`。
-6. 深浅色、窄屏顶栏/Sheet、空态与加载骨架是否还站得住。
+6. 深浅色、桌面顶栏、空态与加载骨架是否还站得住。
 7. 单测或治理测试是否覆盖新契约。
 
 ## 不要做的事

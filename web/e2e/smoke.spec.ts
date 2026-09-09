@@ -13,7 +13,7 @@ async function login(page: Page) {
   const analysisLink = page.getByRole('link', { name: '分析' });
 
   const isAlreadyAuthenticated =
-    page.url().endsWith('/analysis') ||
+    page.url().endsWith('/dashboard') ||
     (await analysisLink.isVisible({ timeout: 2_000 }).catch(() => false));
 
   if (isAlreadyAuthenticated) {
@@ -45,7 +45,7 @@ async function login(page: Page) {
     page.getByTestId('login-submit').click(),
   ]);
 
-  await page.waitForURL('**/analysis', { timeout: 15_000 });
+  await page.waitForURL('**/dashboard', { timeout: 15_000 });
   await page.waitForLoadState('domcontentloaded');
   await page.waitForTimeout(1000);
 }
@@ -60,8 +60,8 @@ async function mockAuthenticatedSession(page: Page) {
         loggedIn: true,
         user: {
           uid: 1,
-          username: 'Mobile Tester',
-          email: 'mobile@example.com',
+          username: 'Desktop Tester',
+          email: 'desktop@example.com',
           avatarUrl: null,
           role: 'user',
           extra: { gender: 'unknown' },
@@ -185,6 +185,7 @@ test.describe('web smoke', () => {
 
   test('analysis page shows analysis entry and history panel after login', async ({ page }) => {
     await login(page);
+    await page.goto('/analysis');
 
     const stockInput = page.getByPlaceholder('输入股票代码或名称，如 600519、贵州茅台、AAPL');
     await expect(stockInput).toBeVisible({ timeout: 10_000 });
@@ -241,89 +242,17 @@ test.describe('web smoke', () => {
     await expect(composer).not.toHaveAttribute('title', /.+/);
   });
 
-  test('mobile shell exposes every grouped destination and market navigation', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await mockAuthenticatedSession(page);
-    await page.goto('/timeline');
-
-    const navigationTrigger = page.getByRole('button', { name: '打开主导航' });
-    await expect(navigationTrigger).toBeVisible();
-    await navigationTrigger.click();
-    const navigationSheet = page.getByTestId('mobile-menu');
-    await expect(navigationSheet).toBeVisible();
-    for (const label of [
-      '分析',
-      '自选股',
-      '投资组合',
-      '量化研究',
-      'ETF动量轮动',
-      '趋势跟踪',
-      '时间线',
-      '问股',
-      '任务',
-    ]) {
-      await expect(navigationSheet.getByRole('link', { name: label })).toBeVisible();
-    }
-    await navigationSheet.getByRole('link', { name: '量化研究' }).click();
-    await expect(page).toHaveURL(/\/market\/quant$/);
-    await expect(navigationSheet).toBeHidden();
-
-    await page.goto('/tasks/runs');
-    await navigationTrigger.click();
-    await expect(navigationSheet.getByRole('link', { name: '任务' })).toHaveAttribute('aria-current', 'page');
-    await page.keyboard.press('Escape');
-
-    await page.goto('/timeline');
-
-    await navigationTrigger.click();
-    await expect(navigationSheet.getByRole('link', { name: '时间线' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    await navigationSheet.getByRole('link', { name: '自选股' }).click();
-    await expect(page).toHaveURL(/\/market\/watch-list$/);
-
-    const marketNav = page.getByTestId('module-tabs');
-    await expect(marketNav).toBeVisible();
-    await expect(marketNav.getByRole('tab')).toHaveCount(2);
-    await expect(marketNav.locator('[data-reka-scroll-area-viewport]')).toBeVisible();
-
-    await page.setViewportSize({ width: 360, height: 800 });
-    for (const link of await marketNav.getByRole('tab').all()) {
-      await expect(link).toBeVisible();
-    }
-
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await expect(navigationTrigger).toBeHidden();
-    await expect(
-      page.getByTestId('desktop-main-nav').getByRole('button', { name: '市场' }),
-    ).toBeVisible();
-  });
-
   test('shell remains usable without horizontal overflow at all required breakpoints', async ({
     page,
   }) => {
     await mockAuthenticatedSession(page);
-    const viewports = [
-      { width: 360, height: 800 },
-      { width: 375, height: 812 },
-      { width: 390, height: 844 },
-      { width: 430, height: 932 },
-      { width: 768, height: 1024 },
-      { width: 1280, height: 800 },
-    ];
+    const viewports = [{ width: 1280, height: 900 }, { width: 1440, height: 1000 }, { width: 1920, height: 1080 }];
 
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
       await page.goto('/timeline');
       await expect(page.getByRole('heading', { name: '投资时间线' })).toBeVisible();
-      if (viewport.width < 1024) {
-        await expect(page.getByRole('button', { name: '打开主导航' })).toBeVisible();
-      } else {
-        await expect(page.getByTestId('desktop-main-nav')).toBeVisible();
-      }
+      await expect(page.getByTestId('desktop-main-nav')).toBeVisible();
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       ).toBe(true);
@@ -366,14 +295,14 @@ test('investment feed shows individual items and report details across viewports
   await page.route('**/api/v1/timeline?**', route => route.fulfill({ json: { items, total: items.length, next_cursor: null, has_more: false, limit: 20 } }));
   await page.clock.setFixedTime(new Date('2026-09-09T08:00:00Z'));
   items[0]!.event_time = '2026-09-06T02:00:00Z';
-  for (const width of [1280, 1440, 360]) {
+  for (const width of [1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/timeline');
     await expect(page.getByTestId('timeline-item')).toHaveCount(6);
     await expect(page.getByTestId('timeline-item').first()).toContainText('EPS 预期 $1.32');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const columns = page.getByTestId('timeline-columns').first();
-    await expect(columns).toHaveCSS('column-count', width >= 1024 ? '2' : '1');
+    await expect(columns).toHaveCSS('column-count', '2');
     const wrappers = columns.locator(':scope > div');
     for (const wrapper of await wrappers.all()) {
       await expect(wrapper).toHaveCSS('break-inside', 'avoid');
@@ -382,7 +311,7 @@ test('investment feed shows individual items and report details across viewports
     expect(await page.getByTestId('timeline-item').evaluateAll(cards => cards.map(card => card.getAttribute('aria-label'))))
       .toEqual(items.map(item => `查看${item.title}`));
     const boxes = await page.getByTestId('timeline-item').evaluateAll(cards => cards.slice(0, 4).map(card => ({ x: card.getBoundingClientRect().x, height: card.getBoundingClientRect().height })));
-    expect(new Set(boxes.map(box => Math.round(box.x))).size).toBe(width >= 1024 ? 2 : 1);
+    expect(new Set(boxes.map(box => Math.round(box.x))).size).toBe(2);
     expect(new Set(boxes.map(box => Math.round(box.height))).size).toBeGreaterThan(1);
     await page.screenshot({ path: `test-results/timeline-${width}.png`, fullPage: true });
   }

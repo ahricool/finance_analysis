@@ -16,7 +16,7 @@ const history = [12, 17, 14, 28, 35, 31, 46, 40, 52, 63].map((rank, index) => ({
   ...snapshot, rank, tradeDate: `2026-08-${28 - index}`,
 }));
 
-for (const width of [360, 1280]) {
+for (const width of [1280, 1440]) {
   for (const theme of ['light', 'dark']) {
     test(`trend detail is centered and readable at ${width}px in ${theme} mode`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
@@ -61,7 +61,7 @@ for (const width of [360, 1280]) {
       const box = (await dialog.boundingBox())!;
       expect(Math.abs(box.y + box.height / 2 - 450)).toBeLessThan(2);
       expect(box.width).toBeLessThanOrEqual(width - 30);
-      expect(box.y).toBeGreaterThanOrEqual(width < 640 ? 7 : 14);
+      expect(box.y).toBeGreaterThanOrEqual(14);
       expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
       const headerAfter = await page.locator('header').first().boundingBox();
       expect(headerAfter!.x).toBe(headerBefore!.x);
