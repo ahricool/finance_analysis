@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import QuantTrainingDialog from '@/components/quant/QuantTrainingDialog.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -199,11 +199,15 @@ watch(
     </div>
     <Card v-else-if="rows.length">
       <CardHeader><CardTitle>模型运行列表</CardTitle><CardDescription>查看训练区间、核心指标和发布状态。</CardDescription></CardHeader>
-      <CardContent class="hidden md:block">
+      <CardContent class="block">
         <Table>
-          <TableHeader><TableRow><TableHead>模型</TableHead><TableHead>版本</TableHead><TableHead>状态</TableHead><TableHead>训练/测试区间</TableHead><TableHead>Rank IC</TableHead><TableHead>Top10超额</TableHead><TableHead>进度</TableHead><TableHead v-if="isAdmin">
-            操作
-          </TableHead></TableRow></TableHeader><TableBody>
+          <TableHeader>
+            <TableRow>
+              <TableHead>模型</TableHead><TableHead>版本</TableHead><TableHead>状态</TableHead><TableHead>训练/测试区间</TableHead><TableHead>Rank IC</TableHead><TableHead>Top10超额</TableHead><TableHead>进度</TableHead><TableHead v-if="isAdmin">
+                操作
+              </TableHead>
+            </TableRow>
+          </TableHeader><TableBody>
             <TableRow
               v-for="item in rows"
               :key="item.id"
@@ -234,47 +238,6 @@ watch(
             </TableRow>
           </TableBody>
         </Table>
-      </CardContent>
-      <CardContent class="space-y-3 md:hidden">
-        <Card
-          v-for="item in rows"
-          :key="item.id"
-        >
-          <CardHeader>
-            <CardTitle class="text-base">
-              <RouterLink
-                :to="{ path: `/market/quant/models/${item.id}`, query: marketQuery() }"
-                class="font-medium underline-offset-4 hover:underline"
-              >
-                {{ item.modelKey }}
-              </RouterLink>
-            </CardTitle><CardDescription>{{ item.modelVersion }}</CardDescription><Badge variant="outline">
-              {{ item.status }}
-            </Badge>
-          </CardHeader><CardContent class="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p class="text-xs text-muted-foreground">
-                Rank IC
-              </p>{{ formatScore(item.metrics.rankIc) }}
-            </div><div>
-              <p class="text-xs text-muted-foreground">
-                进度
-              </p>{{ item.progress }}%
-            </div>
-          </CardContent><CardFooter v-if="isAdmin">
-            <Button
-              variant="destructive"
-              size="sm"
-              class="w-full"
-              :disabled="!canDelete(item) || deletingId === item.id"
-              :title="canDelete(item) ? '删除模型运行' : '排队中、训练中或生产模型不能删除'"
-              :data-testid="`delete-model-run-mobile-${item.id}`"
-              @click="requestDelete(item)"
-            >
-              {{ deletingId === item.id ? '删除中…' : '删除' }}
-            </Button>
-          </CardFooter>
-        </Card>
       </CardContent>
     </Card>
     <Empty v-else>

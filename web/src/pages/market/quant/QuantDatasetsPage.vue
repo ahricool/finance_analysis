@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import QuantDatasetBuildDialog from '@/components/quant/QuantDatasetBuildDialog.vue';
 import QuantTrainingDialog from '@/components/quant/QuantTrainingDialog.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -230,91 +230,7 @@ watch(
       />
     </div>
     <template v-else-if="rows.length">
-      <div
-        class="space-y-3 md:hidden"
-        data-testid="quant-dataset-mobile-list"
-      >
-        <Card
-          v-for="item in rows"
-          :key="item.id"
-        >
-          <CardHeader>
-            <CardTitle class="font-mono text-base">
-              #{{ item.id }} · {{ item.market }}
-            </CardTitle><CardDescription>{{ universeByMarket[item.market].name }} · {{ item.featureVersion }}</CardDescription><Badge :variant="statusVariant(item.status)">
-              {{ statusLabel(item.status) }}
-            </Badge>
-          </CardHeader>
-          <CardContent>
-            <dl class="grid grid-cols-2 gap-3 text-xs">
-              <div>
-                <dt class="text-muted-foreground">
-                  日期范围
-                </dt>
-                <dd class="mt-1 font-medium">
-                  {{ item.dateFrom }}<br />{{ item.dateTo }}
-                </dd>
-              </div>
-              <div>
-                <dt class="text-muted-foreground">
-                  Universe 覆盖
-                </dt>
-                <dd class="mt-1 font-medium">
-                  {{ formatCount(item.symbolCount) }} / {{ formatCount(item.universeMemberCount)
-                  }}<br />{{ (item.universeCoverageRatio * 100).toFixed(1) }}%
-                </dd>
-              </div>
-              <div>
-                <dt class="text-muted-foreground">
-                  数据行数
-                </dt>
-                <dd class="mt-1 font-medium tabular-nums">
-                  {{ formatCount(item.rowCount) }}
-                </dd>
-              </div>
-              <div>
-                <dt class="text-muted-foreground">
-                  日线价格
-                </dt>
-                <dd class="mt-1 font-medium">
-                  前复权
-                </dd>
-              </div>
-            </dl><p class="mt-3 line-clamp-2 break-all text-xs text-muted-foreground">
-              {{ validationText(item) }}
-            </p>
-          </CardContent>
-          <CardFooter class="gap-2">
-            <Button
-              v-if="canTrain(item) && isAdmin"
-              variant="secondary"
-              size="sm"
-              class="flex-1"
-              @click="openTraining(item)"
-            >
-              使用此数据集训练
-            </Button>
-            <p
-              v-else
-              class="flex-1 text-center text-xs text-muted-foreground"
-            >
-              当前数据集不可训练
-            </p>
-            <Button
-              v-if="isAdmin"
-              variant="destructive"
-              size="sm"
-              :disabled="!canDelete(item) || deletingId === item.id"
-              :title="canDelete(item) ? '删除数据集' : '等待中或构建中的数据集不能删除'"
-              :data-testid="`delete-dataset-${item.id}`"
-              @click="requestDelete(item)"
-            >
-              {{ deletingId === item.id ? '删除中…' : '删除' }}
-            </Button>
-          </CardFooter>
-        </Card>
-      </div>
-      <Card class="hidden md:block">
+      <Card class="block">
         <CardHeader><CardTitle>数据集快照</CardTitle><CardDescription>构建状态、覆盖率、数据口径与训练可用性。</CardDescription></CardHeader><CardContent>
           <Table
             class="min-w-[1680px] w-full text-left text-sm"

@@ -13,7 +13,7 @@ const history = [0, 1, 2, 3, 4].map(index => ({
   rs5D: 0.02 - index * 0.003, rs10D: 0.04 - index * 0.005, rs20D: 0.06 - index * 0.005,
 }));
 
-for (const width of [360, 1280]) {
+for (const width of [1280, 1440]) {
   test(`ETF table details render all four history charts at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await page.route('**/api/v1/**', async route => {

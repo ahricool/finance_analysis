@@ -8,8 +8,8 @@ import {
 
 describe('main navigation', () => {
   it('keeps tasks last while keeping market scoped', () => {
-    expect(mainNavItems.map((item) => item.label)).toEqual(['分析', '市场', '研究', '时间线', '问股', '任务']);
-    expect(mainNavItems[0]).toMatchObject({ key: 'analysis', to: '/analysis', exact: true });
+    expect(mainNavItems.map((item) => item.label)).toEqual(['动态', '分析', '市场', '研究', '时间线', '问股', '任务']);
+    expect(mainNavItems[0]).toMatchObject({ key: 'dashboard', to: '/dashboard', exact: true });
     expect(mainNavItems.find((item) => item.key === 'market')).toMatchObject({
       to: '/market/watch-list',
       children: marketNavItems,
@@ -25,6 +25,7 @@ describe('main navigation', () => {
       { key: 'crypto-btc', to: '/market/crypto/btc' },
     ]);
     expect(allNavDestinations.map((item) => item.key)).toEqual([
+      'dashboard',
       'analysis',
       'watch-list',
       'holdings',

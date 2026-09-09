@@ -268,7 +268,7 @@ describe('cutoff presets and columns', () => {
     await flushPromises();
     const columns = wrapper.findAll('[data-testid="timeline-columns"]');
     expect(columns).toHaveLength(1);
-    expect(columns[0]!.classes()).toEqual(expect.arrayContaining(['columns-1', 'lg:columns-2']));
+    expect(columns[0]!.classes()).toEqual(expect.arrayContaining(['columns-2']));
     expect(columns[0]!.findAll('.break-inside-avoid')).toHaveLength(4);
     expect(columns[0]!.findAll('[data-testid="timeline-item"]').map(card => card.attributes('aria-label'))).toEqual(sameDay.map(item => `查看${item.title}`));
     wrapper.unmount();

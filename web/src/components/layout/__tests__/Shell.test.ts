@@ -104,27 +104,11 @@ describe('Shell navigation', () => {
     wrapper.unmount();
   });
 
-  it('opens the mobile navigation sheet and supports route changes', async () => {
-    const { router, wrapper } = await mountShell('/timeline');
-    await wrapper.get('button[aria-label="打开主导航"]').trigger('click');
-
-    await vi.waitFor(() => {
-      expect(document.body.querySelector('[data-testid="mobile-menu"]')).not.toBeNull();
-    });
-    const timelineLink = document.body.querySelector<HTMLAnchorElement>(
-      '[data-testid="mobile-menu"] a[href="/timeline"]',
-    );
-    const marketLink = document.body.querySelector<HTMLAnchorElement>(
-      '[data-testid="mobile-menu"] a[href="/market/watch-list"]',
-    );
-    expect(timelineLink?.getAttribute('aria-current')).toBe('page');
-    expect(marketLink).not.toBeNull();
-
-    marketLink!.click();
-    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/market/watch-list'));
-    await vi.waitFor(() => {
-      expect(document.body.querySelector('[data-testid="mobile-menu"]')).toBeNull();
-    });
+  it('keeps the desktop navigation visible and links the logo to the dashboard', async () => {
+    const { wrapper } = await mountShell('/dashboard');
+    expect(wrapper.get('[data-testid="desktop-main-nav"]').classes()).not.toContain('hidden');
+    expect(wrapper.get('a[aria-label="回到动态"]').attributes('href')).toBe('/dashboard');
+    expect(wrapper.get('a[aria-label="动态"]').attributes('aria-current')).toBe('page');
     wrapper.unmount();
   });
 });

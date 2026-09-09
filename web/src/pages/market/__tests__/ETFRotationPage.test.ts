@@ -216,23 +216,26 @@ describe('ETFRotationPage', () => {
     vi.clearAllMocks();
   });
 
-  it('renders 1D-20D fast-rotation returns instead of slow-window placeholders', async () => {
-    const wrapper = mount(ETFRotationPage);
+  it('keeps 5D and 20D in the ranking and full returns in detail', async () => {
+    const wrapper = mount(ETFRotationPage, { attachTo: document.body });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('科创50ETF');
-    expect(wrapper.text()).toContain('+1.10%');
-    expect(wrapper.text()).toContain('+2.34%');
-    expect(wrapper.text()).toContain('-1.20%');
-    expect(wrapper.text()).toContain('+4.00%');
-    expect(wrapper.text()).toContain('+1.80%');
-    expect(wrapper.text()).toContain('-5.0%');
-    expect(wrapper.text()).toContain('¥95.00');
-    expect(wrapper.text()).toContain('#3');
-    expect(wrapper.text()).toContain('+4');
+    expect(document.body.textContent).toContain('科创50ETF');
+    expect(wrapper.findAll('thead th')).toHaveLength(11);
+    await wrapper.get('tbody tr').trigger('click');
+    await flushPromises();
+    expect(document.body.textContent).toContain('+1.10%');
+    expect(document.body.textContent).toContain('+2.34%');
+    expect(document.body.textContent).toContain('-1.20%');
+    expect(document.body.textContent).toContain('+4.00%');
+    expect(document.body.textContent).toContain('+1.80%');
+    expect(document.body.textContent).toContain('-5.0%');
+    expect(document.body.textContent).toContain('¥95.00');
+    expect(document.body.textContent).toContain('#3');
+    expect(document.body.textContent).toContain('+4');
     expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined);
-    expect(wrapper.find('[aria-label="查看 3D 指标说明与计算公式"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="查看 Entry 指标说明与计算公式"]').exists()).toBe(true);
+    expect(document.body.querySelector('[aria-label="查看 3D 指标说明与计算公式"]')).not.toBeNull();
+    expect(document.body.querySelector('[aria-label="查看 Entry 指标说明与计算公式"]')).not.toBeNull();
   });
 
   it('documents both explanations and the complete fast-rotation formulas in indicator hints', () => {

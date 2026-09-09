@@ -11,8 +11,6 @@ import ChatScrollArea from '@/components/chat/ChatScrollArea.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import DashboardStateBlock from '@/components/dashboard/DashboardStateBlock.vue';
 import { cn } from '@/utils/cn';
@@ -32,7 +30,7 @@ import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 import { useAgentChatStore, type Message, type ProgressStep } from '@/stores/agentChatStore';
 import { computed, nextTick, onMounted, onUnmounted, ref, unref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ArrowDown, ChevronRight, Download, History, Lightbulb, Menu, Plus, Send, Trash2, Zap } from 'lucide-vue-next';
+import { ArrowDown, ChevronRight, Download, History, Lightbulb, Plus, Send, Trash2, Zap } from 'lucide-vue-next';
 
 const QUICK_QUESTIONS = [
   { label: '用缠论分析茅台', skill: 'chan_theory' },
@@ -71,7 +69,6 @@ const selectedSkillIds = ref<string[]>([]);
 const showSkillDesc = ref<string | null>(null);
 const expandedThinking = ref<Set<string>>(new Set());
 const deleteConfirmId = ref<string | null>(null);
-const sidebarOpen = ref(false);
 const sending = ref(false);
 const isFollowUpContextLoading = ref(false);
 const sendToast = ref<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -247,13 +244,11 @@ function handleStartNewChat() {
   followUpContextRef.value = null;
   requestScrollToBottom('auto');
   useAgentChatStore.getState().startNewChat();
-  sidebarOpen.value = false;
 }
 
 async function handleSwitchSession(targetSessionId: string) {
   requestScrollToBottom('auto');
   await unref(chat.switchSession)(targetSessionId);
-  sidebarOpen.value = false;
 }
 
 function confirmDelete() {
@@ -492,10 +487,10 @@ function onTextareaInput(e: Event) {
   <!-- v-html values in this template come from DOMPurify-backed Markdown renderers. -->
   <div
     data-testid="conversation-workspace"
-    class="flex h-[calc(100dvh-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full min-w-0 gap-4 overflow-hidden py-4"
+    class="flex h-[calc(100dvh-3.5rem)] w-full min-w-0 gap-4 overflow-hidden py-4"
   >
     <div
-      class="hidden w-[clamp(18rem,22vw,22rem)] min-h-0 flex-shrink-0 flex-col overflow-hidden rounded-xl border bg-card md:flex"
+      class="w-[clamp(18rem,22vw,22rem)] min-h-0 flex-shrink-0 flex-col overflow-hidden rounded-xl border bg-card flex"
     >
       <div class="flex items-center justify-between border-b p-3">
         <h2 class="flex items-center gap-2 text-sm font-semibold">
@@ -587,78 +582,6 @@ function onTextareaInput(e: Event) {
       </ScrollArea>
     </div>
 
-    <Sheet
-      :open="sidebarOpen"
-      @update:open="sidebarOpen = $event"
-    >
-      <SheetContent
-        side="left"
-        class="flex max-h-dvh w-[min(22rem,90vw)] flex-col overflow-hidden"
-      >
-        <SheetHeader class="text-left">
-          <SheetTitle class="flex items-center gap-2">
-            <History class="size-4 text-muted-foreground" />历史对话
-          </SheetTitle>
-          <SheetDescription>切换历史会话，或开启一段新的问股对话。</SheetDescription>
-        </SheetHeader>
-        <Separator />
-        <Button
-          variant="outline"
-          class="mx-4"
-          @click="handleStartNewChat"
-        >
-          <Plus class="size-4" />开启新对话
-        </Button>
-        <ScrollArea
-          class="min-h-0 flex-1"
-          data-testid="conversation-list-scroll-mobile"
-        >
-          <div class="p-3">
-            <DashboardStateBlock
-              v-if="sessionsLoading"
-              loading
-              compact
-              title="加载对话中..."
-              class="rounded-lg border border-dashed bg-muted/30"
-            />
-            <div
-              v-else
-              class="space-y-2"
-            >
-              <div
-                v-for="s in sessions"
-                :key="`m-${s.session_id}`"
-                class="flex items-start gap-1"
-              >
-                <button
-                  type="button"
-                  :class="
-                    cn(
-                      'flex min-h-12 min-w-0 flex-1 items-start gap-2 rounded-lg border border-transparent p-2 text-left transition-colors hover:bg-muted',
-                      s.session_id === sessionId && 'border-border bg-muted',
-                    )
-                  "
-                  @click="handleSwitchSession(s.session_id)"
-                >
-                  <div
-                    :class="
-                      cn(
-                        'h-10 w-1 shrink-0 rounded-full bg-border',
-                        s.session_id === sessionId && 'bg-foreground',
-                      )
-                    "
-                  />
-                  <div class="min-w-0 flex-1">
-                    <span class="block truncate text-sm font-medium">{{ s.title }}</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
-        </ScrollArea>
-      </SheetContent>
-    </Sheet>
-
     <ConfirmDialog
       :open="Boolean(deleteConfirmId)"
       title="删除对话"
@@ -674,15 +597,6 @@ function onTextareaInput(e: Event) {
       <header class="mb-4 flex-shrink-0 space-y-3">
         <div class="flex items-start justify-between gap-4">
           <h1 class="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              class="-ml-1 md:hidden"
-              aria-label="历史对话"
-              @click="sidebarOpen = true"
-            >
-              <Menu class="size-5" />
-            </Button>
             问股
           </h1>
           <div

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
 import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import { RefreshCcw } from 'lucide-vue-next';
 import { toast } from 'vue-sonner';
@@ -11,7 +12,6 @@ import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import { trendIndicatorDescriptions as descriptions } from '@/components/trend-following/indicatorDescriptions';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,7 +48,8 @@ const emptyPortfolio = (portfolioMarket: TrendMarket = 'CN'): TrendPortfolioResp
   market: portfolioMarket, tradeDate: '', marketRegime: 'NEUTRAL', maxExposure: 0,
   currentExposure: 0, remainingExposure: 0, positionCount: 0, positions: [],
 });
-const market = ref<TrendMarket>('CN');
+const route = useRoute();
+const market = ref<TrendMarket>(route?.query.market === 'US' ? 'US' : 'CN');
 const selectedDate = ref('');
 const availableDates = ref<string[]>([]);
 const summary = ref<TrendSummary>(emptySummary());
@@ -91,6 +92,8 @@ const rankingColumns = [
   { key: 'exitLevel', label: 'Exit Level', description: descriptions.exitLevel },
   { key: 'suggestedInitialWeight', label: '理论初始权重', description: descriptions.initialWeight },
 ] as const;
+const visibleRankingColumns = rankingColumns.filter(column =>
+  ['rank', 'name', 'state', 'action', 'alphaScore', 'trendScore', 'rsScore', 'setup', 'return5D', 'return20D', 'rankChange5D'].includes(column.key));
 type SortKey = typeof rankingColumns[number]['key'];
 const rankingPage = ref(1);
 const rankingPageSize = 50;
@@ -424,14 +427,18 @@ onMounted(() => void load(true));
             v-else
             class="w-full"
           >
-            <Table class="min-w-[1650px]">
+            <Table class="w-full">
               <TableHeader>
                 <TableRow>
-                  <TableHead>股票</TableHead><TableHead>State</TableHead><TableHead>Action</TableHead>
-                  <TableHead>Units</TableHead><TableHead>单位仓位</TableHead><TableHead>当前仓位</TableHead>
-                  <TableHead>入场价</TableHead><TableHead>当前价</TableHead><TableHead>下一动作</TableHead>
-                  <TableHead>入场日期</TableHead><TableHead>初始止损</TableHead><TableHead>跟踪止损</TableHead>
-                  <TableHead>下次加仓价</TableHead><TableHead>退出线</TableHead><TableHead>Alpha</TableHead>
+                  <TableHead>股票</TableHead>
+                  <TableHead>State</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead>Units</TableHead>
+                  <TableHead>当前仓位</TableHead>
+                  <TableHead>入场价</TableHead>
+                  <TableHead>当前价</TableHead>
+                  <TableHead>跟踪止损</TableHead>
+                  <TableHead>下一动作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -453,15 +460,14 @@ onMounted(() => void load(true));
                       {{ actionText(position.action) }}
                     </Badge>
                   </TableCell>
-                  <TableCell>{{ position.units }}</TableCell><TableCell>{{ pct(position.unitWeight) }}</TableCell>
+                  <TableCell>{{ position.units }}</TableCell>
                   <TableCell class="font-semibold text-primary">
                     {{ pct(position.positionWeight) }}
                   </TableCell>
-                  <TableCell>{{ price(position.entryPrice) }}</TableCell><TableCell>{{ price(position.referencePrice) }}</TableCell>
+                  <TableCell>{{ price(position.entryPrice) }}</TableCell>
+                  <TableCell>{{ price(position.referencePrice) }}</TableCell>
+                  <TableCell>{{ price(position.trailingStop) }}</TableCell>
                   <TableCell>{{ position.pendingAction ? actionText(position.pendingAction) : '—' }}</TableCell>
-                  <TableCell>{{ position.openedAt || '—' }}</TableCell><TableCell>{{ price(position.initialStop) }}</TableCell>
-                  <TableCell>{{ price(position.trailingStop) }}</TableCell><TableCell>{{ price(position.nextAddPrice) }}</TableCell>
-                  <TableCell>{{ price(position.exitLevel) }}</TableCell><TableCell>{{ score(position.alphaScore) }}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
@@ -633,6 +639,19 @@ onMounted(() => void load(true));
     <Card>
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
         <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ summary.tradeDate || '—' }} · {{ scope }} · {{ summary.dataReadyCount }}/{{ summary.universeSize }} 数据就绪</CardDescription></div>
+        <label class="flex items-center gap-2 text-sm text-muted-foreground">排序指标
+          <select
+            v-model="sortKey"
+            aria-label="排名排序指标"
+            class="h-9 rounded-md border bg-background px-2 text-foreground"
+          >
+            <option
+              v-for="column in rankingColumns"
+              :key="column.key"
+              :value="column.key"
+            >{{ column.label }}</option>
+          </select>
+        </label>
       </CardHeader>
       <CardContent class="px-0">
         <Empty v-if="!loading && !items.length">
@@ -642,11 +661,11 @@ onMounted(() => void load(true));
           v-else
           class="w-full"
         >
-          <Table class="min-w-[2450px]">
+          <Table class="w-full">
             <TableHeader>
               <TableRow>
                 <SortableTableHeader
-                  v-for="column in rankingColumns"
+                  v-for="column in visibleRankingColumns"
                   :key="column.key"
                   :label="column.label"
                   :description="column.description"
@@ -654,12 +673,6 @@ onMounted(() => void load(true));
                   :direction="sortDirection"
                   @sort="toggleSort(column.key)"
                 />
-                <TableHead class="w-[480px] min-w-[420px]">
-                  <IndicatorLabel
-                    label="Reasons"
-                    :description="descriptions.reasons"
-                  />
-                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -670,9 +683,8 @@ onMounted(() => void load(true));
                 data-testid="trend-row"
                 @click="openDetail(item)"
               >
-                <TableCell>#{{ item.rank }}</TableCell><TableCell><strong>{{ item.name }}</strong></TableCell><TableCell class="font-mono text-xs text-muted-foreground">
-                  {{ item.code }}
-                </TableCell>
+                <TableCell>#{{ item.rank }}</TableCell>
+                <TableCell><strong class="block">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span></TableCell>
                 <TableCell>
                   <Badge :variant="badgeVariant(item.state)">
                     {{ stateText(item.state) }}
@@ -685,10 +697,12 @@ onMounted(() => void load(true));
                 </TableCell>
                 <TableCell class="font-bold text-primary">
                   {{ score(item.alphaScore) }}
-                </TableCell><TableCell>{{ score(item.trendScore) }}</TableCell>
-                <TableCell>{{ score(item.rsScore) }}</TableCell><TableCell>{{ score(item.breakoutScore) }}</TableCell><TableCell>{{ item.setup }}</TableCell>
-                <TableCell>{{ pct(item.features.return5D) }}</TableCell><TableCell>{{ pct(item.features.return10D) }}</TableCell><TableCell>{{ pct(item.features.return20D) }}</TableCell><TableCell>{{ score(item.features.volumeRatio) }}</TableCell>
-                <TableCell>{{ pct(item.features.distanceFromMa20) }}</TableCell>
+                </TableCell>
+                <TableCell>{{ score(item.trendScore) }}</TableCell>
+                <TableCell>{{ score(item.rsScore) }}</TableCell>
+                <TableCell>{{ item.setup }}</TableCell>
+                <TableCell>{{ pct(item.features.return5D) }}</TableCell>
+                <TableCell>{{ pct(item.features.return20D) }}</TableCell>
                 <TableCell>
                   <div
                     class="flex gap-3 whitespace-nowrap"
@@ -705,30 +719,6 @@ onMounted(() => void load(true));
                       </span>
                     </span>
                   </div>
-                </TableCell>
-                <TableCell>{{ price(item.atr) }}</TableCell>
-                <TableCell>{{ price(item.referencePrice) }}</TableCell>
-                <TableCell>{{ item.signalDate || '—' }}</TableCell><TableCell>{{ price(item.signalPrice) }}</TableCell>
-                <TableCell>{{ item.openedAt || '—' }}</TableCell><TableCell>{{ price(item.entryPrice) }}</TableCell>
-                <TableCell>{{ price(item.initialStop) }}</TableCell>
-                <TableCell>{{ price(item.nextAddPrice) }}</TableCell><TableCell>{{ price(item.exitLevel) }}</TableCell><TableCell>{{ pct(item.suggestedInitialWeight) }}</TableCell>
-                <TableCell class="w-[480px] min-w-[420px] max-w-[520px]">
-                  <TooltipProvider :delay-duration="150">
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <div
-                          class="truncate whitespace-nowrap"
-                          data-testid="trend-reasons"
-                          tabindex="0"
-                        >
-                          {{ item.reasons.join('；') || '—' }}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent class="max-w-sm whitespace-normal">
-                        {{ item.reasons.join('；') || '—' }}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
                 </TableCell>
               </TableRow>
             </TableBody>

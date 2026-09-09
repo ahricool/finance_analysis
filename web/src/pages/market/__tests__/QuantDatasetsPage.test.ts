@@ -224,7 +224,7 @@ describe('QuantDatasetsPage', () => {
   it('confirms deletion, removes the row, and keeps active datasets protected', async () => {
     const { wrapper } = await mountPage();
 
-    expect(wrapper.get('[data-testid="delete-dataset-9"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[data-testid="delete-dataset-desktop-9"]').attributes('disabled')).toBeDefined();
     await wrapper.get('[data-testid="delete-dataset-desktop-8"]').trigger('click');
     expect(wrapper.get('[role="alertdialog"]').text()).toContain('数据库记录和 /data 下对应制品');
     await wrapper.get('[data-testid="confirm-delete"]').trigger('click');
@@ -233,6 +233,6 @@ describe('QuantDatasetsPage', () => {
     expect(quantApi.deleteDataset).toHaveBeenCalledWith(8, 'CN');
     expect(wrapper.text()).toContain('数据集 #8 及其制品已删除');
     expect(wrapper.find('[data-testid="delete-dataset-desktop-8"]').exists()).toBe(false);
-    expect(wrapper.find('[data-testid="delete-dataset-9"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="delete-dataset-desktop-9"]').exists()).toBe(true);
   });
 });

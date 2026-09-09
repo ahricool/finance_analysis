@@ -183,7 +183,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
         >
           {{ option.label }}
         </button>
-        <span class="ml-auto hidden shrink-0 self-center pl-3 text-xs text-muted-foreground sm:block">
+        <span class="ml-auto shrink-0 self-center pl-3 text-xs text-muted-foreground block">
           {{ displayTimezone === 'Asia/Shanghai' ? '北京时间' : '美东时间' }}
         </span>
       </div>
@@ -253,7 +253,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
           {{ dayHeading(group.key) }}
         </h2>
         <div
-          class="columns-1 gap-3 lg:columns-2"
+          class="columns-2 gap-3"
           data-testid="timeline-columns"
         >
           <div

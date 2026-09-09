@@ -34,10 +34,13 @@ function setTimezone(value: DisplayTimezone) {
         class="gap-1 text-muted-foreground"
       >
         <Clock3 />
-        <span class="hidden sm:inline">{{ activeOption.shortLabel }}</span>
+        <span class="inline">{{ activeOption.shortLabel }}</span>
       </Button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="end" class="w-64">
+    <DropdownMenuContent
+      align="end"
+      class="w-64"
+    >
       <DropdownMenuLabel>
         <span class="block">展示时区</span>
         <span class="font-normal text-muted-foreground">日期与时间将按所选时区显示</span>

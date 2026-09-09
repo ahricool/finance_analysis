@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import { ChevronDown, LogOut, Menu, Moon, User, UserRound } from 'lucide-vue-next';
+import { ChevronDown, LogOut, Moon, User, UserRound } from 'lucide-vue-next';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import AppStatusDot from '@/components/app/AppStatusDot.vue';
@@ -17,14 +17,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
-import { Separator } from '@/components/ui/separator';
+
 import { useAuth } from '@/composables/useAuth';
 import { useTheme } from '@/composables/useTheme';
 import { APP_NAME } from '@/config/app';
@@ -40,7 +33,6 @@ const { logout } = useAuth();
 const { resolvedTheme, setTheme } = useTheme();
 const completionBadge = useAgentChatStore((state) => state.completionBadge);
 const showLogoutConfirm = ref(false);
-const navigationOpen = ref(false);
 
 function isDestinationActive(item: NavDestination): boolean {
   if (item.exact) return route.path === item.to;
@@ -65,48 +57,39 @@ async function onLogoutConfirm() {
   await logout();
 }
 
-watch(
-  () => route.fullPath,
-  () => {
-    navigationOpen.value = false;
-  },
-);
 </script>
 
 <template>
   <div class="flex min-h-screen flex-col bg-background text-foreground">
     <header class="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div
-        class="mx-auto flex h-14 w-full max-w-7xl items-center gap-2 px-4 sm:px-6"
+        class="mx-auto flex h-14 w-full max-w-[1500px] items-center gap-2 px-6"
         data-testid="shell-header-content"
       >
-        <Button
-          variant="ghost"
-          size="icon"
-          class="lg:hidden"
-          aria-label="打开主导航"
-          @click="navigationOpen = true"
-        >
-          <Menu />
-        </Button>
-
         <RouterLink
-          to="/analysis"
+          to="/dashboard"
           class="flex min-w-0 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="回到分析"
+          aria-label="回到动态"
         >
           <span class="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-brand/15">
-            <img src="/flower.svg" alt="" class="size-7" />
+            <img
+              src="/flower.svg"
+              alt=""
+              class="size-7"
+            />
           </span>
-          <span class="hidden truncate text-sm font-semibold tracking-tight sm:block">{{ APP_NAME }}</span>
+          <span class="truncate text-sm font-semibold tracking-tight block">{{ APP_NAME }}</span>
         </RouterLink>
 
         <nav
-          class="ml-4 hidden min-w-0 flex-1 items-center gap-1 lg:flex"
+          class="ml-4 min-w-0 flex-1 items-center gap-1 flex"
           aria-label="主导航"
           data-testid="desktop-main-nav"
         >
-          <template v-for="item in mainNavItems" :key="item.key">
+          <template
+            v-for="item in mainNavItems"
+            :key="item.key"
+          >
             <DropdownMenu
               v-if="item.children"
               :modal="false"
@@ -122,8 +105,15 @@ watch(
                   <component :is="item.icon" />{{ item.label }}<ChevronDown class="size-3.5 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" class="w-48">
-                <DropdownMenuItem v-for="child in item.children" :key="child.key" as-child>
+              <DropdownMenuContent
+                align="start"
+                class="w-48"
+              >
+                <DropdownMenuItem
+                  v-for="child in item.children"
+                  :key="child.key"
+                  as-child
+                >
                   <RouterLink
                     :to="child.to"
                     :aria-current="isDestinationActive(child) ? 'page' : undefined"
@@ -165,23 +155,41 @@ watch(
             :modal="false"
           >
             <DropdownMenuTrigger as-child>
-              <Button variant="ghost" size="icon" aria-label="打开用户菜单" class="rounded-full">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="打开用户菜单"
+                class="rounded-full"
+              >
                 <Avatar class="size-8 border">
-                  <AvatarImage v-if="currentUser.avatarUrl" :src="currentUser.avatarUrl" alt="" />
+                  <AvatarImage
+                    v-if="currentUser.avatarUrl"
+                    :src="currentUser.avatarUrl"
+                    alt=""
+                  />
                   <AvatarFallback class="bg-brand/15 text-foreground">
                     <User class="size-4" /><span class="sr-only">{{ initials }}</span>
                   </AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" class="w-64">
+            <DropdownMenuContent
+              align="end"
+              class="w-64"
+            >
               <DropdownMenuLabel>
-                <p class="truncate">{{ currentUser.username }}</p>
-                <p class="truncate font-normal text-muted-foreground">{{ currentUser.email }}</p>
+                <p class="truncate">
+                  {{ currentUser.username }}
+                </p>
+                <p class="truncate font-normal text-muted-foreground">
+                  {{ currentUser.email }}
+                </p>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem as-child>
-                <RouterLink to="/profile/info"><UserRound />个人中心</RouterLink>
+                <RouterLink to="/profile/info">
+                  <UserRound />个人中心
+                </RouterLink>
               </DropdownMenuItem>
               <DropdownMenuCheckboxItem
                 :model-value="resolvedTheme === 'dark'"
@@ -202,54 +210,9 @@ watch(
       </div>
     </header>
 
-    <main class="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6">
+    <main class="mx-auto w-full max-w-[1500px] flex-1 px-6">
       <RouterView />
     </main>
-
-    <Sheet v-model:open="navigationOpen">
-      <SheetContent side="left" class="w-80 max-w-[calc(100vw-2rem)] p-0" data-testid="mobile-menu">
-        <SheetHeader class="p-6 text-left">
-          <SheetTitle class="flex items-center gap-2">
-            <span class="flex size-8 items-center justify-center overflow-hidden rounded-md bg-brand/15">
-              <img src="/flower.svg" alt="" class="size-7" />
-            </span>
-            {{ APP_NAME }}
-          </SheetTitle>
-          <SheetDescription>金融分析与研究工作台</SheetDescription>
-        </SheetHeader>
-        <Separator />
-        <nav class="space-y-5 p-4" aria-label="移动端主导航">
-          <section v-for="item in mainNavItems" :key="item.key">
-            <p v-if="item.children" class="mb-2 px-2 text-xs font-medium text-muted-foreground">
-              {{ item.label }}
-            </p>
-            <div class="grid gap-1">
-              <Button
-                v-for="destination in item.children ?? [item]"
-                :key="destination.key"
-                as-child
-                variant="ghost"
-                class="justify-start"
-              >
-                <RouterLink
-                  :to="destination.to"
-                  :aria-current="isDestinationActive(destination) ? 'page' : undefined"
-                  :class="isDestinationActive(destination) && 'bg-muted text-foreground'"
-                >
-                  <component :is="destination.icon" />{{ destination.label }}
-                  <AppStatusDot
-                    v-if="destination.badge === 'completion' && completionBadge"
-                    tone="info"
-                    class="ml-auto"
-                    aria-label="问股有新消息"
-                  />
-                </RouterLink>
-              </Button>
-            </div>
-          </section>
-        </nav>
-      </SheetContent>
-    </Sheet>
 
     <AppConfirmDialog
       :open="showLogoutConfirm"

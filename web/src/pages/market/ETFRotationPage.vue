@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router';
 import { etfRotationApi } from '@/api/etfRotation';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -46,7 +47,8 @@ const error = ref<ParsedApiError | null>(null);
 const selected = ref<ETFDetailResponse | null>(null);
 const detailLoading = ref(false);
 const detailError = ref<ParsedApiError | null>(null);
-const market = ref<ETFMarket>('CN');
+const route = useRoute();
+const market = ref<ETFMarket>(route?.query.market === 'US' ? 'US' : 'CN');
 const sortKey = ref<'compositeScore' | 'momentumStrengthScore' | 'trendQualityScore' | 'relativeStrengthScore' | 'entryScore'>('compositeScore');
 let generation = 0;
 
@@ -383,7 +385,7 @@ onMounted(() => void load(true));
 
     <Card>
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
-        <div><CardTitle>Rotation Ranking</CardTitle><CardDescription>主列表比较 20 日以内收益与五个 Alpha 因子；点击 ETF 查看全部原始指标。</CardDescription></div>
+        <div><CardTitle>Rotation Ranking</CardTitle><CardDescription>比较核心得分、状态和 5D / 20D 收益；点击 ETF 查看完整指标。</CardDescription></div>
         <NativeSelect
           v-model="sortKey"
           size="sm"
@@ -403,76 +405,60 @@ onMounted(() => void load(true));
       </CardHeader>
       <CardContent class="px-0">
         <ScrollArea class="w-full">
-          <Table class="min-w-[1900px]">
+          <Table class="w-full">
             <TableHeader>
               <TableRow>
-                <TableHead>Rank</TableHead><TableHead>ETF</TableHead><TableHead>
+                <TableHead>Rank</TableHead>
+                <TableHead>ETF</TableHead>
+                <TableHead>
                   <IndicatorLabel
                     label="Composite"
                     :description="descriptions.composite"
                   />
-                </TableHead><TableHead>
+                </TableHead>
+                <TableHead>
                   <IndicatorLabel
                     label="Momentum"
                     :description="descriptions.momentum"
                   />
-                </TableHead><TableHead>
+                </TableHead>
+                <TableHead>
                   <IndicatorLabel
                     label="Trend Quality"
                     :description="descriptions.trendQuality"
                   />
-                </TableHead><TableHead>
+                </TableHead>
+                <TableHead>
                   <IndicatorLabel
                     label="Relative Strength"
                     :description="descriptions.relativeStrength"
                   />
-                </TableHead><TableHead>
-                  <IndicatorLabel
-                    label="Acceleration"
-                    :description="descriptions.acceleration"
-                  />
-                </TableHead><TableHead>
-                  <IndicatorLabel
-                    label="Efficiency"
-                    :description="descriptions.efficiency"
-                  />
-                </TableHead><TableHead>
-                  <IndicatorLabel
-                    label="Volatility"
-                    :description="descriptions.volatility"
-                  />
-                </TableHead><TableHead>
+                </TableHead>
+                <TableHead>
                   <IndicatorLabel
                     label="State"
                     :description="descriptions.state"
                   />
-                </TableHead><TableHead>
+                </TableHead>
+                <TableHead>
                   <IndicatorLabel
                     label="Action"
                     :description="descriptions.action"
                   />
-                </TableHead><TableHead>
-                  <IndicatorLabel
-                    label="Candidate"
-                    :description="descriptions.candidate"
-                  />
-                </TableHead><TableHead
-                  v-for="window in [1,3,5,10,20]"
+                </TableHead>
+                <TableHead
+                  v-for="window in [5,20]"
                   :key="window"
                 >
                   <IndicatorLabel
                     :label="`${window}D`"
                     :description="descriptions.return"
                   />
-                </TableHead><TableHead>
+                </TableHead>
+                <TableHead>
                   <IndicatorLabel
                     label="Rank Δ 1/3/5D"
                     :description="descriptions.rankChange"
-                  />
-                </TableHead><TableHead>
-                  <IndicatorLabel
-                    label="Entry"
-                    :description="descriptions.entry"
                   />
                 </TableHead>
               </TableRow>
@@ -483,27 +469,33 @@ onMounted(() => void load(true));
                 class="cursor-pointer"
                 @click="openDetail(item)"
               >
-                <TableCell>#{{ item.rank ?? '—' }}</TableCell><TableCell class="max-w-44">
+                <TableCell>#{{ item.rank ?? '—' }}</TableCell>
+                <TableCell class="max-w-44">
                   <strong class="block break-words">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
                 </TableCell>
                 <TableCell class="font-bold text-primary">
                   {{ score(item.compositeScore) }}
-                </TableCell><TableCell>{{ score(item.momentumStrengthScore) }}</TableCell><TableCell>{{ score(item.trendQualityScore) }}</TableCell><TableCell>{{ score(item.relativeStrengthScore) }}</TableCell><TableCell>{{ score(item.accelerationScore) }}</TableCell><TableCell>{{ score(item.efficiencyScore) }}</TableCell><TableCell>{{ pct(item.realizedVol20D, false) }}</TableCell>
+                </TableCell>
+                <TableCell>{{ score(item.momentumStrengthScore) }}</TableCell>
+                <TableCell>{{ score(item.trendQualityScore) }}</TableCell>
+                <TableCell>{{ score(item.relativeStrengthScore) }}</TableCell>
                 <TableCell>
                   <Badge :variant="stateVariant(item.state)">
                     {{ stateIcon(item.state) }} {{ item.state }}
                   </Badge>
-                </TableCell><TableCell>
+                </TableCell>
+                <TableCell>
                   <Badge :variant="actionVariant(item.action)">
                     {{ item.action ?? '—' }}
                   </Badge>
-                </TableCell><TableCell>{{ item.isCandidate ? `#${item.candidateRank}` : '—' }}</TableCell>
+                </TableCell>
                 <TableCell
-                  v-for="key in (['ret1D','ret3D','ret5D','ret10D','ret20D'] as const)"
+                  v-for="key in (['ret5D','ret20D'] as const)"
                   :key="key"
                 >
                   {{ pct(item[key]) }}
-                </TableCell><TableCell>{{ rankChange(item.rankChange1D) }} / {{ rankChange(item.rankChange3D) }} / {{ rankChange(item.rankChange5D) }}</TableCell><TableCell>{{ score(item.entryScore) }}</TableCell>
+                </TableCell>
+                <TableCell>{{ rankChange(item.rankChange1D) }} / {{ rankChange(item.rankChange3D) }} / {{ rankChange(item.rankChange5D) }}</TableCell>
               </TableRow>
             </TableBody>
           </Table><template #horizontal-scrollbar>
@@ -540,7 +532,7 @@ onMounted(() => void load(true));
               class="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-3"
             >
               <div
-                v-for="factor in ([['Composite',selected.latest.compositeScore,descriptions.composite],['Momentum',selected.latest.momentumStrengthScore,descriptions.momentum],['Relative Strength',selected.latest.relativeStrengthScore,descriptions.relativeStrength],['Acceleration',selected.latest.accelerationScore,descriptions.acceleration],['Trend Quality',selected.latest.trendQualityScore,descriptions.trendQuality],['Efficiency',selected.latest.efficiencyScore,descriptions.efficiency]] as const)"
+                v-for="factor in ([['Entry',selected.latest.entryScore,descriptions.entry],['Composite',selected.latest.compositeScore,descriptions.composite],['Momentum',selected.latest.momentumStrengthScore,descriptions.momentum],['Relative Strength',selected.latest.relativeStrengthScore,descriptions.relativeStrength],['Acceleration',selected.latest.accelerationScore,descriptions.acceleration],['Trend Quality',selected.latest.trendQualityScore,descriptions.trendQuality],['Efficiency',selected.latest.efficiencyScore,descriptions.efficiency]] as const)"
                 :key="factor[0]"
                 class="min-w-0 rounded border p-3"
               >

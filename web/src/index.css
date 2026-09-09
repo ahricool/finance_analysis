@@ -117,8 +117,8 @@
   }
 
   html {
-    min-width: 320px;
-    overflow-x: hidden;
+    min-width: 1200px;
+    overflow-x: auto;
     scrollbar-gutter: stable;
     background: hsl(var(--background));
   }
@@ -131,7 +131,7 @@
 
   body {
     @apply m-0 min-h-screen bg-background font-sans text-foreground antialiased;
-    overflow-x: hidden;
+    overflow-x: auto;
   }
 
   button,
@@ -193,15 +193,3 @@
 .prose table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
 .prose :where(th, td) { border: 1px solid hsl(var(--border)); padding: 0.45rem 0.6rem; }
 .prose a { font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
-
-@media (max-width: 639px) {
-  [data-slot='dialog-content'] {
-    max-height: calc(100dvh - 1rem);
-    overflow-y: auto;
-  }
-
-  [data-slot='select-content'],
-  [data-slot='popover-content'] {
-    max-width: calc(100vw - 1rem);
-  }
-}
