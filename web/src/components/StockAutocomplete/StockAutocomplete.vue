@@ -48,7 +48,6 @@ const {
 } = useAutocomplete();
 
 const inputRef = ref<HTMLInputElement | null>(null);
-const prevValue = ref(props.modelValue);
 const dropdownStyle = ref<{ top: string; left: string; width: string } | null>(null);
 
 let openListenersCleanup: (() => void) | null = null;
@@ -75,10 +74,7 @@ function closeSuggestions() {
 watch(
   () => props.modelValue,
   (v) => {
-    if (prevValue.value !== v) {
-      setQuery(v);
-      prevValue.value = v;
-    }
+    setQuery(v);
   },
   { immediate: true },
 );
