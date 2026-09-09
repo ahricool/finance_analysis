@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Shell from '../Shell.vue';
-import { theme } from '@/composables/useTheme';
+import { theme, systemPrefersDark } from '@/composables/useTheme';
 import { useAuthStore } from '@/stores/authStore';
 
 vi.mock('@/stores/agentChatStore', () => ({ useAgentChatStore: () => false }));
@@ -77,7 +77,7 @@ describe('Shell navigation', () => {
     },
   );
 
-  it('toggles dark mode from the keyboard-accessible checkbox menu item', async () => {
+  it('selects theme preference from radio items and keeps system selected when OS is dark', async () => {
     useAuthStore().currentUser = {
       uid: 1,
       username: 'Alice',
@@ -86,21 +86,48 @@ describe('Shell navigation', () => {
       role: 'admin',
       extra: { gender: 'female' },
     };
-    theme.value = 'light';
-    localStorage.setItem('theme', 'light');
+    systemPrefersDark.value = true;
+    theme.value = 'system';
+    localStorage.setItem('theme', 'system');
     const { wrapper } = await mountShell('/analysis');
 
     await wrapper.get('button[aria-label="打开用户菜单"]').trigger('click');
     await vi.waitFor(() => {
-      expect(document.body.querySelector('[role="menuitemcheckbox"]')).not.toBeNull();
+      expect(document.body.querySelector('[data-testid="theme-preference"]')).not.toBeNull();
     });
 
-    const themeItem = document.body.querySelector<HTMLElement>('[role="menuitemcheckbox"]')!;
-    themeItem.focus();
-    themeItem.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const radios = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+    const byLabel = (label: string) => radios.find((item) => item.textContent?.includes(label));
+    const systemItem = byLabel('跟随系统')!;
+    const lightItem = byLabel('浅色')!;
+    const darkItem = byLabel('深色')!;
 
+    expect(systemItem.getAttribute('aria-checked')).toBe('true');
+    expect(lightItem.getAttribute('aria-checked')).toBe('false');
+    expect(darkItem.getAttribute('aria-checked')).toBe('false');
+
+    darkItem.focus();
+    darkItem.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await vi.waitFor(() => expect(localStorage.getItem('theme')).toBe('dark'));
-    expect(themeItem.getAttribute('aria-checked')).toBe('true');
+    expect(theme.value).toBe('dark');
+
+    if (!document.body.querySelector('[data-testid="theme-preference"]')) {
+      await wrapper.get('button[aria-label="打开用户菜单"]').trigger('click');
+    }
+    await vi.waitFor(() => {
+      expect(document.body.querySelector('[data-testid="theme-preference"]')).not.toBeNull();
+    });
+    const radiosAfterDark = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+    const darkItemAfter = radiosAfterDark.find((item) => item.textContent?.includes('深色'))!;
+    const systemItemAfter = radiosAfterDark.find((item) => item.textContent?.includes('跟随系统'))!;
+    expect(darkItemAfter.getAttribute('aria-checked')).toBe('true');
+    expect(systemItemAfter.getAttribute('aria-checked')).toBe('false');
+
+    const lightItemAfter = radiosAfterDark.find((item) => item.textContent?.includes('浅色'))!;
+    lightItemAfter.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await vi.waitFor(() => expect(localStorage.getItem('theme')).toBe('light'));
+    expect(theme.value).toBe('light');
+
     wrapper.unmount();
   });
 
