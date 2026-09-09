@@ -2,6 +2,7 @@ from datetime import date
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from finance_analysis.integrations.market_data.models import Adjustment, DailyBarsRequest
 from finance_analysis.integrations.market_data.providers.baostock import BaoStockProvider
@@ -135,6 +136,8 @@ def test_yfinance_daily_download_batches_ten_us_symbols_once_with_threads(monkey
 
 def test_yfinance_daily_download_splits_batches_and_retries_only_missing_symbols(monkeypatch):
     calls = []
+    events = []
+    monkeypatch.setattr("finance_analysis.integrations.market_data.batch_pacing.sleep", events.append)
 
     def frame_for(tickers):
         frames = {
@@ -149,6 +152,7 @@ def test_yfinance_daily_download_splits_batches_and_retries_only_missing_symbols
     def download(**kwargs):
         tickers = list(kwargs["tickers"])
         calls.append(tickers)
+        events.append(tickers)
         if tickers == ["AAPL", "MSFT"]:
             return frame_for(["AAPL"])
         return frame_for(tickers)
@@ -165,6 +169,13 @@ def test_yfinance_daily_download_splits_batches_and_retries_only_missing_symbols
     )
 
     assert calls == [["AAPL", "MSFT"], ["MSFT"], ["NVDA"]]
+    assert events == [["AAPL", "MSFT"], ["MSFT"], 10, ["NVDA"]]
     assert set(result.data) == {"AAPL.US", "MSFT.US", "NVDA.US"}
     assert result.missing_symbols == []
     assert result.failed_symbols == {}
+
+
+@pytest.fixture(autouse=True)
+def mock_daily_sync_waits(monkeypatch):
+    monkeypatch.setattr("finance_analysis.integrations.market_data.batch_pacing.sleep", lambda seconds: None)
+    monkeypatch.setattr("finance_analysis.tasks.celery.jobs.market_data_sync.service.sleep", lambda seconds: None)

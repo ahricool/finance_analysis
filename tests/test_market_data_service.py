@@ -348,12 +348,15 @@ def test_tickflow_batch_configuration_defaults_and_validation():
         TickFlowFreeProvider(max_workers=0)
 
 
-def test_full_batch_keeps_failed_symbol_history_and_distinguishes_normal_empty():
+def test_full_batch_keeps_failed_symbol_history_and_distinguishes_normal_empty(monkeypatch):
+    events = []
+    monkeypatch.setattr("finance_analysis.integrations.market_data.batch_pacing.sleep", events.append)
     day = date(2025, 1, 2)
     symbols = [SimpleNamespace(id=i, code=code) for i, code in enumerate(("600000.SH", "600001.SH", "600002.SH"), 1)]
 
     class Klines:
         def batch(self, codes, **kwargs):
+            events.append(codes)
             assert len(codes) == 1  # still an HTTP-sized batch, isolated on failure
             if codes == ["600000.SH"]:
                 raise TimeoutError("chunk failed")
@@ -378,6 +381,7 @@ def test_full_batch_keeps_failed_symbol_history_and_distinguishes_normal_empty()
     fetched = provider.fetch_daily_bars(
         DailyBarsRequest(tuple(symbol.code for symbol in symbols), day, day, Adjustment.FORWARD)
     )
+    assert events == [["600000.SH"], 10, ["600001.SH"], 10, ["600002.SH"]]
     assert set(fetched.request_errors) == {"600000.SH"}
     assert fetched.missing_symbols == ["600002.SH"]
     original = {day: {"date": day, "close": 20}}
@@ -1028,6 +1032,7 @@ def test_sync_mode_preserves_sixty_day_incremental_and_five_year_full_windows(sy
     service._refresh_days = refresh_days
     service.stock_repository = SimpleNamespace(
         has_daily_data=lambda _symbol_id: True,
+        daily_ids_on_date=lambda ids, day: set(ids),
     )
     service._sync_daily_batch_groups = lambda _symbols, _days, **_kwargs: {
         symbol.code: DailyResult("success", providers=["tickflow"])
@@ -1140,7 +1145,7 @@ def test_cn_daily_batch_computes_missing_days_and_isolates_symbol_errors():
     assert results["600000.SH"].status == "success"
     assert results["600000.SH"].fallback_reasons == []
     assert results["000001.SZ"].status == "partial"
-    assert results["000001.SZ"].reason == "missing_trading_days=1"
+    assert results["000001.SZ"].reason == "requested_date_missing: missing_trading_days=1"
     assert results["000001.SZ"].fallback_reasons == []
     assert results["000002.SZ"].status == "failed"
     assert results["000002.SZ"].fallback_reasons == ["tickflow: timeout; akshare: empty"]
@@ -1263,3 +1268,149 @@ def test_db_fresh_two_thousand_symbols_use_three_db_queries_and_two_remote_batch
         assert session.scalar(select(func.count()).select_from(StockDaily)) == 1400
         assert session.scalar(select(func.count()).select_from(Instrument)) == 1999
     engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def mock_daily_sync_waits(monkeypatch):
+    monkeypatch.setattr("finance_analysis.integrations.market_data.batch_pacing.sleep", lambda seconds: None)
+    monkeypatch.setattr("finance_analysis.tasks.celery.jobs.market_data_sync.service.sleep", lambda seconds: None)
+
+
+@pytest.mark.parametrize("market", ["CN", "US"])
+@pytest.mark.parametrize("missing_count,retry_fills", [(0, True), (12, True), (12, False), (25, False)])
+def test_daily_sync_delayed_retry_is_bounded_and_missing_only(monkeypatch, caplog, market, missing_count, retry_fills):
+    from finance_analysis.integrations.market_data import batch_pacing
+    from finance_analysis.tasks.celery.jobs.market_data_sync import service as sync_module
+
+    day = date(2026, 9, 8)
+    codes = [f"SYM{i}.US" if market == "US" else f"600{i:03d}.SH" for i in range(25)]
+    symbols = [SimpleNamespace(id=i, code=code) for i, code in enumerate(codes)]
+    missing_codes = set(codes[:missing_count])
+    requests = []
+    events = []
+    delayed = False
+
+    def wait(seconds):
+        nonlocal delayed
+        events.append(seconds)
+        if seconds == 300:
+            delayed = True
+
+    # Emulate the real API boundary; sync grouping, persistence and DB coverage are real.
+    def fetch(requested, start, end, **kwargs):
+        batch_pacing.before_daily_batch()
+        requests.append(list(requested))
+        events.append(list(requested))
+        data = {}
+        for code in requested:
+            if code in missing_codes and not (delayed and retry_fills):
+                continue
+            data[code] = [_bar_on(code, "yfinance" if market == "US" else "tickflow", day)]
+        return BatchBarResult(data=data, providers_used={code: bars[0].provider for code, bars in data.items()})
+
+    monkeypatch.setattr(batch_pacing, "sleep", wait)
+    monkeypatch.setattr(sync_module, "sleep", wait)
+    service = _batch_sync_service(SimpleNamespace(get_daily_bars=fetch), market)
+    service.sync_mode = "incremental"
+    service.config = SimpleNamespace(market_data_initial_daily_days=1825, market_data_refresh_daily_days=60)
+    service.load_scope = lambda: symbols
+    service._refresh_days = lambda days: [day]
+    service.stock_repository.has_daily_data = lambda identity: True
+    service.stock_repository.daily_ids_on_date = lambda ids, target: {
+        identity for identity in ids if target in service.stock_repository.histories.get(identity, {})
+    }
+    with caplog.at_level("INFO"):
+        summary = service.run()
+    assert requests[0] == codes
+    if missing_count:
+        assert events.count(300) == 1
+        assert {code for batch in requests[1:] for code in batch} == missing_codes
+        assert all(len(batch) <= 10 for batch in requests[1:])
+        assert events.count(10) == (missing_count + 9) // 10 - 1
+        assert "delayed retry scheduled sleep_seconds=300" in caplog.text
+    else:
+        assert len(requests) == 1
+        assert 300 not in events
+        assert 10 not in events
+    assert isinstance(events[-1], list)  # no trailing sleep
+    expected_missing = missing_count if not retry_fills else 0
+    assert summary["remaining_missing_count"] == expected_missing
+    assert summary["final_coverage"] == 1 - expected_missing / len(codes)
+    assert summary["retry_requested_count"] == missing_count
+    assert summary["sync_status"] == ("partial" if expected_missing else "success")
+    assert "remaining_missing_symbols=" in caplog.text
+
+
+def test_delayed_retry_rechecks_database_before_requesting(monkeypatch):
+    from finance_analysis.tasks.celery.jobs.market_data_sync import service as module
+
+    service = _batch_sync_service(SimpleNamespace())
+    symbols = [SimpleNamespace(id=1, code="AAA.US")]
+    ready = set()
+    service.stock_repository.daily_ids_on_date = lambda ids, day: ready
+    monkeypatch.setattr(module, "sleep", lambda seconds: ready.add(1))
+    service._sync_daily_batch_groups = lambda *args, **kwargs: pytest.fail("already repaired; no API request")
+    result = service._retry_missing_daily(symbols, date(2026, 9, 8), {}, [], {"AAA.US": DailyResult("success")})
+    assert result["retry_requested_count"] == 0
+    assert result["remaining_missing_count"] == 0
+
+
+def test_batch_pacing_shared_across_nested_scopes_and_no_trailing_sleep(monkeypatch):
+    from finance_analysis.integrations.market_data import batch_pacing as pacing
+
+    events = []
+    monkeypatch.setattr(pacing, "sleep", lambda seconds: events.append(seconds))
+    with pacing.daily_batch_scope():
+        for _ in range(3):
+            with pacing.daily_batch_scope():
+                pacing.before_daily_batch()
+                events.append("request")
+    assert events == ["request", 10, "request", 10, "request"]
+    with pacing.daily_batch_scope():
+        pacing.before_daily_batch()
+        events.append("independent")
+    assert events[-2:] == ["request", "independent"]
+
+
+def test_missing_provider_error_logs_keep_reason_and_redact_credentials(monkeypatch, caplog):
+    from finance_analysis.tasks.celery.jobs.market_data_sync import service as module
+
+    service = _batch_sync_service(SimpleNamespace(), "US")
+    symbol = SimpleNamespace(id=1, code="MU.US")
+    day = date(2026, 9, 8)
+    response = BatchBarResult(failed_symbols={symbol.code: "download failed token=private-test-value"})
+    service.stock_repository.daily_ids_on_date = lambda ids, target: set()
+    monkeypatch.setattr(module, "sleep", lambda seconds: None)
+    with caplog.at_level("INFO"):
+        initial = service._persist_daily_result(symbol, [day], response)
+        service._sync_daily_batch_groups = lambda *args, **kwargs: {symbol.code: initial}
+        summary = service._retry_missing_daily([symbol], day, {symbol.code: [day]}, [day], {symbol.code: initial})
+    assert summary["remaining_missing_symbols"] == ["MU.US"]
+    assert "download failed" in caplog.text
+    assert "MU.US" in caplog.text
+    assert "private-test-value" not in caplog.text
+
+
+@pytest.mark.parametrize("provider_name", ["yfinance", "tickflow"])
+def test_daily_provider_parse_error_isolated_per_symbol(monkeypatch, provider_name):
+    from finance_analysis.integrations.market_data.providers import yfinance as yahoo
+    from finance_analysis.integrations.market_data.providers import tickflow
+
+    module = yahoo if provider_name == "yfinance" else tickflow
+    codes = ("BAD.US", "GOOD.US")
+
+    def parse(frame, *, symbol, **kwargs):
+        if symbol == "BAD.US":
+            raise ValueError("invalid date column")
+        return [_bar_on(symbol, provider_name, date(2026, 9, 8))]
+
+    monkeypatch.setattr(module, "bars_from_frame", parse)
+    if provider_name == "yfinance":
+        provider = yahoo.YFinanceProvider(max_retries=0)
+        monkeypatch.setattr(provider, "_download", lambda *args, **kwargs: pd.DataFrame())
+    else:
+        provider = tickflow.TickFlowFreeProvider(client=SimpleNamespace())
+        monkeypatch.setattr(provider, "_fetch_frames", lambda *args, **kwargs: {})
+    result = provider.fetch_daily_bars(DailyBarsRequest(codes, date(2026, 9, 8), date(2026, 9, 8), Adjustment.FORWARD))
+    assert set(result.data) == {"GOOD.US"}
+    assert result.failed_symbols["BAD.US"] == "parse_failed: invalid date column"

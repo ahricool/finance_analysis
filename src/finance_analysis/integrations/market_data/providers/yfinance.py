@@ -10,6 +10,8 @@ from typing import Any
 
 import pandas as pd
 
+from finance_analysis.integrations.market_data.batch_pacing import before_daily_batch, daily_batch_scope
+
 from finance_analysis.integrations.market_data.models import (
     Adjustment,
     BatchBarResult,
@@ -130,6 +132,7 @@ class YFinanceProvider:
     def _batches(self, values: list[tuple[str, str]]) -> list[list[tuple[str, str]]]:
         return [values[index : index + self.batch_size] for index in range(0, len(values), self.batch_size)]
 
+    @daily_batch_scope()
     def fetch_daily_bars(self, request: DailyBarsRequest) -> BatchBarResult:
         if request.adjustment is not Adjustment.FORWARD:
             raise ValueError("Yahoo daily storage reads require adjustment='forward'")
@@ -137,6 +140,7 @@ class YFinanceProvider:
         provider_symbols = [self.to_yfinance_symbol(symbol) for symbol in symbols]
         result = BatchBarResult()
         for batch in self._batches(list(zip(symbols, provider_symbols))):
+            before_daily_batch()
             pending = list(batch)
             errors: dict[str, str] = {}
             for _attempt in range(self.max_retries + 1):
@@ -152,7 +156,7 @@ class YFinanceProvider:
                         auto_adjust=True,
                     )
                 except Exception as exc:
-                    reason = str(exc) or type(exc).__name__
+                    reason = f"request_failed: {str(exc) or type(exc).__name__}"
                     errors.update({symbol: reason for symbol, _ in pending})
                     result.request_errors.update({symbol: reason for symbol, _ in pending})
                     continue
@@ -162,14 +166,21 @@ class YFinanceProvider:
                     if error:
                         result.request_errors[symbol] = error
                         errors[symbol] = error
-                    frame = self._ticker_frame(raw, provider_symbol).reset_index()
-                    bars = bars_from_frame(
-                        frame,
-                        symbol=symbol,
-                        provider=self.name,
-                        interval="1d",
-                        adjustment=Adjustment.FORWARD,
-                    )
+                    try:
+                        frame = self._ticker_frame(raw, provider_symbol).reset_index()
+                        bars = bars_from_frame(
+                            frame,
+                            symbol=symbol,
+                            provider=self.name,
+                            interval="1d",
+                            adjustment=Adjustment.FORWARD,
+                        )
+                    except Exception as exc:
+                        reason = f"parse_failed: {str(exc) or type(exc).__name__}"
+                        errors[symbol] = reason
+                        result.request_errors[symbol] = reason
+                        next_pending.append((symbol, provider_symbol))
+                        continue
                     if bars:
                         result.data[symbol] = bars
                         result.providers_used[symbol] = self.name

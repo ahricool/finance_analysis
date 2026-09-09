@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import RLock
 from typing import Any, Mapping
 
 import pandas as pd
+
+from finance_analysis.integrations.market_data.batch_pacing import before_daily_batch, daily_batch_scope
 
 from finance_analysis.integrations.market_data.models import (
     Adjustment,
@@ -65,6 +66,7 @@ class TickFlowFreeProvider:
         if client is not None:
             client.close()
 
+    @daily_batch_scope()
     def fetch_daily_bars(self, request: DailyBarsRequest) -> BatchBarResult:
         if request.adjustment is not Adjustment.FORWARD:
             raise ValueError("TickFlow daily storage reads require adjustment='forward'")
@@ -75,36 +77,37 @@ class TickFlowFreeProvider:
         # batch download, but submit single HTTP-sized chunks ourselves so a
         # failed chunk cannot masquerade as a normal empty response.
         chunks = [symbols[i : i + self.batch_size] for i in range(0, len(symbols), self.batch_size)]
-        with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
-            pending = {
-                pool.submit(self._fetch_frames, chunk, request.start_date, request.end_date, adjust="forward"): chunk
-                for chunk in chunks
-            }
-            for future in as_completed(pending):
-                chunk = pending[future]
-                try:
-                    fetched = future.result()
-                    if not isinstance(fetched, Mapping):
-                        raise ValueError("unexpected TickFlow batch response")
-                    frames.update(fetched)
-                except Exception as exc:
-                    reason = str(exc) or type(exc).__name__
-                    result.failed_symbols.update({symbol: reason for symbol in chunk})
-                    result.request_errors.update({symbol: reason for symbol in chunk})
+        for chunk in chunks:
+            before_daily_batch()
+            try:
+                fetched = self._fetch_frames(chunk, request.start_date, request.end_date, adjust="forward")
+                if not isinstance(fetched, Mapping):
+                    raise ValueError("unexpected TickFlow batch response")
+                frames.update(fetched)
+            except Exception as exc:
+                reason = f"request_failed: {str(exc) or type(exc).__name__}"
+                result.failed_symbols.update({symbol: reason for symbol in chunk})
+                result.request_errors.update({symbol: reason for symbol in chunk})
         for symbol in symbols:
             if symbol in result.failed_symbols:
                 continue
             frame = frames.get(symbol, pd.DataFrame())
             multiplier = 100 if infer_market(symbol).value == "CN" else 1
-            bars = bars_from_frame(
-                frame,
-                symbol=symbol,
-                provider=self.name,
-                interval="1d",
-                adjustment=Adjustment.FORWARD,
-                volume_multiplier=multiplier,
-            )
-            bars = [bar for bar in bars if request.start_date <= bar.trade_date <= request.end_date]
+            try:
+                bars = bars_from_frame(
+                    frame,
+                    symbol=symbol,
+                    provider=self.name,
+                    interval="1d",
+                    adjustment=Adjustment.FORWARD,
+                    volume_multiplier=multiplier,
+                )
+                bars = [bar for bar in bars if request.start_date <= bar.trade_date <= request.end_date]
+            except Exception as exc:
+                reason = f"parse_failed: {str(exc) or type(exc).__name__}"
+                result.failed_symbols[symbol] = reason
+                result.request_errors[symbol] = reason
+                continue
             if bars:
                 result.data[symbol] = bars
                 result.providers_used[symbol] = self.name

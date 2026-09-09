@@ -13,7 +13,7 @@ from ..integrations.market_data.service import MarketDataService
 from ..market_review.trading_calendar import get_completed_trading_days, get_trading_days_between
 from .config import DEFAULT_CONFIG, TrendFollowingConfig
 from .features import calculate_features
-from .models import DailyBar
+from .models import DailyBar, StrategyDecision
 from .ranking import rank_candidates
 from .regime import calculate_market_regime
 from .state import (
@@ -457,19 +457,29 @@ class TrendFollowingService:
                     )
                 }
                 expired.update(
+                    StrategyDecision(
+                        state="WATCHING",
+                        action="WATCH",
+                        entry_price=None,
+                        last_add_price=None,
+                        units=0,
+                        highest_close=None,
+                        initial_stop=None,
+                        trailing_stop=None,
+                        next_add_price=None,
+                        exit_level=None,
+                        opened_at=None,
+                        suggested_initial_weight=None,
+                        suggested_max_weight=None,
+                        reasons=["candidate expired because next-session execution data was unavailable"],
+                    ).to_dict()
+                )
+                expired.update(
                     market=self.market,
                     trade_date=effective_date,
                     universe_key=universe_key,
                     market_regime=regime["market_regime"],
                     market_score=regime["market_score"],
-                    state="WATCHING",
-                    action="WATCH",
-                    units=0,
-                    signal_date=None,
-                    signal_price=None,
-                    pending_action=None,
-                    pending_since=None,
-                    reasons=["candidate expired because next-session execution data was unavailable"],
                 )
                 snapshots.append(expired)
 

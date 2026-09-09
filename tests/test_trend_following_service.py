@@ -481,3 +481,17 @@ def test_cn_trend_batches_csi2000_history_before_readiness_without_daily_writes(
     assert calls[1][0] == ["510300.SH"]
     assert all(call[3] == {"adjustment": "forward", "source_policy": "db_fresh"} for call in calls)
     assert calls[0][1] == TRADE_DATE - timedelta(days=DEFAULT_CONFIG.calendar_lookback_days)
+
+
+def test_us_475_of_503_remains_incomplete_without_writing_snapshots(monkeypatch):
+    members = tuple(UniverseMember("US", f"SYM{i}.US", f"SYM{i}") for i in range(503))
+    monkeypatch.setattr("finance_analysis.trend_following.service.get_universe", lambda market: members)
+    repository = FakeRepository()
+    repository.daily_codes_on_date = lambda codes, day: {member.code for member in members[:475]}
+    result = TrendFollowingService("US", repository).run(TRADE_DATE)
+    assert DEFAULT_CONFIG.minimum_data_coverage == 0.95
+    assert result["status"] == "incomplete"
+    assert result["data_coverage"] == 475 / 503
+    assert result["data_ready_count"] == 475
+    assert result["snapshot_count"] == 0
+    assert repository.upserted_dates == []
