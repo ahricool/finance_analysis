@@ -57,3 +57,13 @@ def test_upsert_always_refreshes_existing_raw_bar(repository):
     assert repo.upsert_daily(symbol.id, [_bar(day, 101)], "refresh").updated_rows == 1
     assert repo.upsert_daily(symbol.id, [_bar(day, 99)], "latest").updated_rows == 1
     assert repo.get_latest("AAPL.US", 1)[0].close == 99
+
+
+def test_daily_ids_on_date_detects_historical_holes(repository):
+    repo, symbol = repository
+    day = date(2026, 9, 8)
+    repo.upsert_daily(symbol.id, [_bar(day + timedelta(days=1), 100)], "test")
+    assert repo.daily_ids_on_date([symbol.id], day) == set()
+    repo.upsert_daily(symbol.id, [_bar(day, 99)], "test")
+    assert repo.daily_ids_on_date([symbol.id, symbol.id, -1], day) == {symbol.id}
+    assert repo.daily_ids_on_date([], day) == set()

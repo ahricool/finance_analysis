@@ -162,9 +162,29 @@ class TrendFollowingRepository:
                 ).scalars()
             )
 
+    @staticmethod
+    def _normalize_snapshot(item: dict[str, Any]) -> dict[str, Any]:
+        """Materialize the ORM schema before either bulk INSERT path sees a record."""
+        defaults = {"features": dict, "score_breakdown": dict, "reasons": list, "units": lambda: 0}
+        record: dict[str, Any] = {}
+        for column in TrendFollowingSnapshot.__table__.columns:
+            name = column.name
+            if name in {"id", "instrument_id", "generated_at"}:
+                continue  # Repository-owned identities and timestamps are attached below.
+            value = item.get(name)
+            if value is None and name in defaults:
+                value = defaults[name]()
+            if value is None and not column.nullable:
+                raise ValueError(
+                    f"Trend Following snapshot code={item.get('code')!r}: required field {name!r} is missing or null"
+                )
+            record[name] = value
+        return record
+
     def upsert_snapshots(self, snapshots: list[dict[str, Any]]) -> int:
         if not snapshots:
             return 0
+        snapshots = [self._normalize_snapshot(item) for item in snapshots]
         codes = sorted({str(item["code"]) for item in snapshots})
         with self.db.session_scope() as session:
             symbol_ids = dict(
@@ -178,10 +198,9 @@ class TrendFollowingRepository:
             missing = sorted(set(codes) - set(symbol_ids))
             if missing:
                 raise ValueError(f"Trend Following symbols are not registered: {', '.join(missing[:10])}")
-            columns = {column.name for column in TrendFollowingSnapshot.__table__.columns}
             records = []
             for item in snapshots:
-                record = {key: value for key, value in item.items() if key in columns and key != "id"}
+                record = dict(item)
                 record.update(instrument_id=symbol_ids[item["code"]], generated_at=utc_now())
                 records.append(record)
             stmt = pg_insert(TrendFollowingSnapshot).values(records)
@@ -206,6 +225,7 @@ class TrendFollowingRepository:
         summary: dict[str, Any],
     ) -> int:
         """Atomically replace one complete market/date snapshot set and its summary."""
+        snapshots = [self._normalize_snapshot(item) for item in snapshots]
         codes = sorted({str(item["code"]) for item in snapshots})
         with self.db.session_scope() as session:
             symbol_ids = (
@@ -230,7 +250,6 @@ class TrendFollowingRepository:
                     TrendFollowingSnapshot.trade_date == trade_date,
                 )
             )
-            snapshot_columns = {column.name for column in TrendFollowingSnapshot.__table__.columns}
             generated_at = utc_now()
             records = []
             next_snapshot_id = None
@@ -239,7 +258,7 @@ class TrendFollowingRepository:
                     int(session.execute(select(func.coalesce(func.max(TrendFollowingSnapshot.id), 0))).scalar_one()) + 1
                 )
             for item in snapshots:
-                record = {key: value for key, value in item.items() if key in snapshot_columns and key != "id"}
+                record = dict(item)
                 record.update(instrument_id=symbol_ids[item["code"]], generated_at=generated_at)
                 if next_snapshot_id is not None:
                     record["id"] = next_snapshot_id

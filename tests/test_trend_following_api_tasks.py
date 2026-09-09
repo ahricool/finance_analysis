@@ -285,3 +285,44 @@ def test_ranking_includes_rank_changes_for_limited_items(monkeypatch):
     assert {key: value for key, value in result["items"][0].items() if key.startswith("rank_change")} == {
         "rank_change_1d": 5, "rank_change_3d": 17, "rank_change_5d": 32,
     }
+
+
+@pytest.mark.parametrize("market", ["CN", "US"])
+@pytest.mark.parametrize("status", ["completed", "failed", "incomplete"])
+def test_trend_task_business_status_drives_existing_lifecycle(monkeypatch, market, status):
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+    from finance_analysis.tasks import lifecycle
+    from finance_analysis.tasks.celery.jobs.trend_following import tasks
+
+    result = {
+        "status": status,
+        "market": market,
+        "trade_date": "2026-09-08",
+        "warnings": ["daily data coverage below 95%"],
+        "data_coverage": 475 / 503,
+    }
+    service = Mock()
+    notification = Mock()
+    domain = Mock()
+    domain.run.return_value = result
+    monkeypatch.setattr(tasks, "TrendFollowingService", lambda actual_market: domain)
+    monkeypatch.setattr(lifecycle, "get_task_lifecycle_service", lambda: service)
+    monkeypatch.setattr(lifecycle, "task_logging_context", lambda *args, **kwargs: nullcontext())
+    monkeypatch.setattr(lifecycle, "_relative_task_log_path", lambda *args, **kwargs: "fake.log")
+    monkeypatch.setattr(lifecycle, "_send_task_failure_notification", notification)
+    task = tasks.run_trend_following_cn if market == "CN" else tasks.run_trend_following_us
+    if status == "completed":
+        assert task.run(trade_date="2026-09-08") == result
+        service.mark_completed.assert_called_once()
+        service.mark_failed.assert_not_called()
+        notification.assert_not_called()
+    else:
+        with pytest.raises(RuntimeError) as error:
+            task.run(trade_date="2026-09-08")
+        for detail in (market, "2026-09-08", status, "warnings", "data_coverage"):
+            assert detail in str(error.value)
+        service.mark_failed.assert_called_once()
+        service.mark_completed.assert_not_called()
+        notification.assert_called_once()
+    domain.run.assert_called_once_with(date(2026, 9, 8))

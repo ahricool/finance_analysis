@@ -271,3 +271,92 @@ def test_historical_rank_changes_use_market_snapshot_offsets():
         "rank_change_1d": 40, "rank_change_3d": None, "rank_change_5d": None,
     }
     assert TrendFollowingRepository("CN", db).historical_composite_ranks(date(2026, 8, 31), ["AAPL.US"]) == {}
+
+
+def _mixed_snapshot_payloads(trade_date):
+    payloads = []
+    for index, state in enumerate(("CANDIDATE", "WATCHING", "HOLDING"), 1):
+        row = _snapshot(
+            snapshot_id=index,
+            code=f"SYM{index}.US",
+            instrument_id=index,
+            trade_date=trade_date,
+            state=state,
+            units=int(state == "HOLDING"),
+        )
+        payload = {
+            c.name: getattr(row, c.name)
+            for c in TrendFollowingSnapshot.__table__.columns
+            if c.name not in {"id", "instrument_id", "generated_at"}
+        }
+        if state == "WATCHING":
+            payload = {
+                key: value for key, value in payload.items() if not TrendFollowingSnapshot.__table__.c[key].nullable
+            }
+            for key in ("features", "score_breakdown", "reasons", "units"):
+                payload.pop(key)
+        payloads.append(payload)
+    return payloads
+
+
+def test_replace_day_normalizes_mixed_candidate_expired_and_carried_snapshots():
+    database = _Database()
+    day = date(2026, 9, 7)
+    with database.session_scope() as session:
+        session.add_all([Instrument(id=i, market="US", code=f"SYM{i}.US", name=f"SYM{i}") for i in range(1, 4)])
+    repo = TrendFollowingRepository("US", database)
+    assert repo.replace_day(day, _mixed_snapshot_payloads(day), _summary(day)) == 3
+    rows = {row["code"]: row for row in repo.snapshots_by_date(day)}
+    expired = rows["SYM2.US"]
+    assert expired["entry_price"] is None
+    assert expired["trailing_stop"] is None
+    assert expired["pending_max_exposure"] is None
+    assert expired["features"] == expired["score_breakdown"] == {}
+    assert expired["reasons"] == []
+    assert expired["units"] == 0
+    assert rows["SYM3.US"]["entry_price"] == 100
+
+
+def test_upsert_normalizes_mixed_records_before_postgresql_compilation():
+    from sqlalchemy.dialects import postgresql
+
+    statements = []
+
+    class FakeSession:
+        def execute(self, statement):
+            statements.append(statement)
+            return type("Rows", (), {"all": lambda self: [(f"SYM{i}.US", i) for i in range(1, 4)]})()
+
+    class Database:
+        @contextmanager
+        def session_scope(self):
+            yield FakeSession()
+
+    repo = TrendFollowingRepository("US", Database())
+    assert repo.upsert_snapshots(_mixed_snapshot_payloads(date(2026, 9, 7))) == 3
+    params = statements[-1].compile(dialect=postgresql.dialect()).params
+    assert params["entry_price_m1"] is None
+    assert params["trailing_stop_m1"] is None
+    assert params["units_m1"] == 0
+    assert params["features_m1"] == {}
+    assert params["entry_price_m2"] == 100
+
+
+def test_bulk_paths_validate_required_fields_before_opening_transaction():
+    import pytest
+
+    repo = TrendFollowingRepository("US", object())
+    day = date(2026, 9, 7)
+    for field in ("code", "market", "rank", "reference_price", "atr"):
+        for value in ("missing", None):
+            payload = _mixed_snapshot_payloads(day)[0]
+            if value == "missing":
+                payload.pop(field)
+            else:
+                payload[field] = None
+            for write in (
+                lambda: repo.upsert_snapshots([payload]),
+                lambda: repo.replace_day(day, [payload], _summary(day)),
+            ):
+                with pytest.raises(ValueError, match=f"required field '{field}' is missing or null"):
+                    write()

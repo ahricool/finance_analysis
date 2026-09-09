@@ -453,6 +453,20 @@ class StockRepository:
                 ).all()
             )
 
+    def daily_ids_on_date(self, instrument_ids: Iterable[int], trade_date: date) -> set[int]:
+        ids = sorted(set(instrument_ids))
+        if not ids:
+            return set()
+        with self.db.get_session() as session:
+            return set(
+                session.execute(
+                    select(StockDaily.instrument_id).where(
+                        StockDaily.instrument_id.in_(ids),
+                        StockDaily.date == trade_date,
+                    )
+                ).scalars()
+            )
+
     def daily_dates(self, instrument_id: int, start_date: date, end_date: date) -> set[date]:
         with self.db.get_session() as session:
             return set(

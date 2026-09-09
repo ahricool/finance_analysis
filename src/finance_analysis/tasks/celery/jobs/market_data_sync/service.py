@@ -6,10 +6,12 @@ import logging
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from statistics import median
+from time import sleep
 from typing import Any
 
 from finance_analysis.database.repositories.stock import StockRepository
 from finance_analysis.database.repositories.universe import UniverseResolver
+from finance_analysis.integrations.market_data.batch_pacing import daily_batch_scope, reset_daily_batch_sequence
 from finance_analysis.integrations.market_data.config import (
     DataProviderConfig,
     get_data_provider_config,
@@ -18,10 +20,14 @@ from finance_analysis.integrations.market_data.models import BatchBarResult
 from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.market_review.trading_calendar import get_completed_trading_days, get_trading_days_between
 
+from finance_analysis.tasks.lifecycle import _redact_error_text
+
 from .models import DailyResult, SymbolResult, normalize_sync_mode
 
 logger = logging.getLogger(__name__)
 MAX_RESULT_ITEMS = 20
+DELAYED_MISSING_RETRY_SECONDS = 300
+DELAYED_MISSING_BATCH_SIZE = 10
 ADJUSTMENT_SCALE_MIN_DATES = 3
 ADJUSTMENT_SCALE_MIN_CHANGE = 0.003
 ADJUSTMENT_SCALE_MAX_DRIFT = 0.005
@@ -53,6 +59,7 @@ class MarketDataSyncService:
         self.now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         self.sync_mode = normalize_sync_mode(sync_mode)
 
+    @daily_batch_scope()
     def run(self) -> dict[str, Any]:
         symbols = self.load_scope()
         if not symbols:
@@ -77,6 +84,8 @@ class MarketDataSyncService:
             self.config.market_data_refresh_daily_days,
         )
         daily_results = self._sync_daily_batch_groups(symbols, daily_days_by_code, full_days=full_days)
+        target_date = max(full_days)
+        coverage = self._retry_missing_daily(symbols, target_date, daily_days_by_code, full_days, daily_results)
         results = [
             SymbolResult(
                 symbol.code,
@@ -88,9 +97,111 @@ class MarketDataSyncService:
             results,
             len(symbols),
         )
+        summary.update(coverage)
+        if coverage["remaining_missing_count"]:
+            summary["sync_status"] = "partial"
         if summary["success_symbols"] + summary["partial_symbols"] == 0:
             raise MarketDataSyncError(f"All {len(symbols)} {self.market} symbols failed; see task log")
         return summary
+
+    def _missing_symbols(self, symbols: list[Any], trade_date: date) -> list[Any]:
+        ready = self.stock_repository.daily_ids_on_date([symbol.id for symbol in symbols], trade_date)
+        return [symbol for symbol in symbols if symbol.id not in ready]
+
+    def _retry_missing_daily(
+        self,
+        symbols: list[Any],
+        trade_date: date,
+        days_by_code: dict[str, list[date]],
+        full_days: list[date],
+        results: dict[str, DailyResult],
+    ) -> dict[str, Any]:
+        missing = self._missing_symbols(symbols, trade_date)
+        initial_missing = len(missing)
+        logger.info(
+            "market=%s trade_date=%s requested_count=%s success_count=%s missing_count=%s coverage=%.6f "
+            "missing_symbols=%s",
+            self.market,
+            trade_date,
+            len(symbols),
+            len(symbols) - initial_missing,
+            initial_missing,
+            1 - initial_missing / len(symbols),
+            [symbol.code for symbol in missing],
+        )
+        if missing:
+            for symbol in missing:
+                result = results.get(symbol.code)
+                logger.warning(
+                    "market=%s trade_date=%s code=%s reason=requested_date_missing detail=%s",
+                    self.market,
+                    trade_date,
+                    symbol.code,
+                    _redact_error_text(result.reason if result else "daily result missing"),
+                )
+            logger.warning(
+                "market=%s trade_date=%s delayed retry scheduled sleep_seconds=300 missing_count=%s missing_symbols=%s",
+                self.market,
+                trade_date,
+                len(missing),
+                [symbol.code for symbol in missing],
+            )
+            sleep(DELAYED_MISSING_RETRY_SECONDS)
+            reset_daily_batch_sequence()
+            # Recheck after waiting: another sync may have filled some of the holes.
+            missing = self._missing_symbols(missing, trade_date)
+            retry_results = (
+                self._sync_daily_batch_groups(
+                    missing,
+                    {symbol.code: days_by_code[symbol.code] for symbol in missing},
+                    full_days=full_days,
+                    max_batch_size=DELAYED_MISSING_BATCH_SIZE,
+                    replace_history=False,
+                )
+                if missing
+                else {}
+            )
+            for code, retried in retry_results.items():
+                initial = results.get(code)
+                if initial is not None:
+                    retried.inserted_rows += initial.inserted_rows
+                    retried.updated_rows += initial.updated_rows
+                    retried.deleted_rows += initial.deleted_rows
+                    retried.automatic_full_refresh |= initial.automatic_full_refresh
+                    retried.providers = list(dict.fromkeys([*initial.providers, *retried.providers]))
+                    retried.fallback_reasons = list(
+                        dict.fromkeys([*initial.fallback_reasons, *retried.fallback_reasons])
+                    )
+                results[code] = retried
+        remaining = self._missing_symbols(symbols, trade_date)
+        remaining_codes = {symbol.code for symbol in remaining}
+        final_coverage = 1 - len(remaining) / len(symbols)
+        logger.info(
+            "market=%s trade_date=%s retry_requested_count=%s retry_success_count=%s remaining_missing_count=%s "
+            "remaining_missing_symbols=%s final_coverage=%.6f",
+            self.market,
+            trade_date,
+            len(missing),
+            sum(s.code not in remaining_codes for s in missing),
+            len(remaining),
+            sorted(remaining_codes),
+            final_coverage,
+        )
+        for symbol in remaining:
+            result = results[symbol.code]
+            if result.status == "success":
+                result.status = "partial"
+            result.reason = "; ".join(filter(None, [result.reason, f"requested_date_missing={trade_date}"]))
+        return {
+            "trade_date": trade_date.isoformat(),
+            "requested_count": len(symbols),
+            "initial_missing_count": initial_missing,
+            "retry_requested_count": len(missing),
+            "retry_success_count": sum(s.code not in remaining_codes for s in missing),
+            "remaining_missing_count": len(remaining),
+            "remaining_missing_symbols": sorted(remaining_codes),
+            "final_coverage": final_coverage,
+        }
 
     def load_scope(self) -> list[Any]:
         """Resolve the explicit system-owned daily synchronization universe."""
@@ -128,6 +239,8 @@ class MarketDataSyncService:
         daily_days_by_code: dict[str, list[date]],
         *,
         full_days: list[date] | None = None,
+        max_batch_size: int | None = None,
+        replace_history: bool | None = None,
     ) -> dict[str, DailyResult]:
         groups: dict[tuple[date, date], list[Any]] = defaultdict(list)
         for symbol in symbols:
@@ -142,8 +255,15 @@ class MarketDataSyncService:
 
         results: dict[str, DailyResult] = {}
         automatic_full_symbols: list[Any] = []
-        replace_fetched_history = getattr(self, "sync_mode", "incremental") == "full"
-        for (start_date, end_date), grouped_symbols in groups.items():
+        replace_fetched_history = (
+            getattr(self, "sync_mode", "incremental") == "full" if replace_history is None else replace_history
+        )
+        batches = [
+            (window, members[offset : offset + (max_batch_size or len(members))])
+            for window, members in groups.items()
+            for offset in range(0, len(members), max_batch_size or len(members))
+        ]
+        for (start_date, end_date), grouped_symbols in batches:
             codes = [symbol.code for symbol in grouped_symbols]
             logger.info(
                 "market=%s data_type=daily action=batch_fetch symbol_count=%s start_date=%s end_date=%s sample=%s",
@@ -198,8 +318,11 @@ class MarketDataSyncService:
                     replace_history=replace_fetched_history,
                 )
 
-        if automatic_full_symbols and full_days:
-            codes = [symbol.code for symbol in automatic_full_symbols]
+        for offset in range(0, len(automatic_full_symbols), max_batch_size or max(1, len(automatic_full_symbols))):
+            if not full_days:
+                break
+            full_symbols = automatic_full_symbols[offset : offset + (max_batch_size or len(automatic_full_symbols))]
+            codes = [symbol.code for symbol in full_symbols]
             try:
                 routed = self.market_data.get_daily_bars(
                     codes,
@@ -215,7 +338,7 @@ class MarketDataSyncService:
                     len(codes),
                 )
                 routed = BatchBarResult(failed_symbols={code: str(exc) or type(exc).__name__ for code in codes})
-            for symbol in automatic_full_symbols:
+            for symbol in full_symbols:
                 result = self._persist_daily_result(symbol, full_days, routed, replace_history=True)
                 result.automatic_full_refresh = True
                 results[symbol.code] = result
@@ -357,6 +480,13 @@ class MarketDataSyncService:
     ) -> DailyResult:
         try:
             failure = routed.request_errors.get(symbol.code) or routed.failed_symbols.get(symbol.code)
+            if failure:
+                logger.warning(
+                    "market=%s code=%s reason=provider_error detail=%s",
+                    self.market,
+                    symbol.code,
+                    _redact_error_text(failure),
+                )
             if replace_history and failure:
                 return DailyResult("failed", reason=f"full_fetch_failed: {failure}", fallback_reasons=[failure])
             bars = routed.data.get(symbol.code, [])
@@ -364,7 +494,7 @@ class MarketDataSyncService:
                 failure = routed.failed_symbols.get(symbol.code)
                 return DailyResult(
                     "failed" if failure else "success",
-                    reason="all daily providers failed" if failure else "provider returned empty history; unchanged",
+                    reason=f"provider_error: {_redact_error_text(failure)}" if failure else "empty_response; unchanged",
                     fallback_reasons=[failure] if failure else [],
                 )
             provider = routed.providers_used.get(symbol.code)
@@ -399,7 +529,11 @@ class MarketDataSyncService:
                 deleted_rows=getattr(stats, "deleted_rows", 0),
                 providers=providers,
                 missing_amount=any(bar.amount is None for bar in bars),
-                reason=f"missing_trading_days={len(missing)}" if missing and not replace_history else "",
+                reason=(
+                    f"requested_date_missing: missing_trading_days={len(missing)}"
+                    if missing and not replace_history
+                    else ""
+                ),
                 fallback_reasons=[routed.failed_symbols[symbol.code]] if symbol.code in routed.failed_symbols else [],
             )
         except Exception as exc:
