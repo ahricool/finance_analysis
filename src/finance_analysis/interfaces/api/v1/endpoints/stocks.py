@@ -5,18 +5,24 @@
 ===================================
 
 职责：
-1. POST /api/v1/stocks/parse-import 解析 CSV/Excel/剪贴板
-2. GET /api/v1/stocks/{code}/quote 实时行情接口
-3. GET /api/v1/stocks/{code}/history 历史行情接口
+1. GET /api/v1/stocks/search 证券主数据轻量搜索
+2. POST /api/v1/stocks/parse-import 解析 CSV/Excel/剪贴板
+3. GET /api/v1/stocks/{code}/quote 实时行情接口
+4. GET /api/v1/stocks/{code}/history 历史行情接口
 """
 
 import logging
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from finance_analysis.database.models.stock import Instrument  # pragma: allowlist secret
+from finance_analysis.database.repositories.stock import InstrumentRepository  # pragma: allowlist secret
+
 from finance_analysis.interfaces.api.v1.schemas.stocks import (
     ExtractFromImageResponse,
     ExtractItem,
+    InstrumentSearchItem,
+    InstrumentSearchResponse,
     KLineData,
     StockHistoryResponse,
     StockInstrumentInfo,
@@ -35,6 +41,43 @@ from finance_analysis.stocks.service import StockService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _instrument_match_type(row: Instrument, keyword: str) -> str:
+    needle = str(keyword or "").strip().upper()
+    code = str(row.code or "").upper()
+    native_code = str(row.native_code or "").upper()
+    if code == needle or native_code == needle:
+        return "exact"
+    if code.startswith(needle) or native_code.startswith(needle):
+        return "prefix"
+    return "fuzzy"
+
+
+@router.get(
+    "/search",
+    response_model=InstrumentSearchResponse,
+    summary="搜索证券主数据",
+    description="按代码、native code 或名称搜索 ACTIVE 的 CN/US/HK 标的，精确代码优先。",
+)
+def search_instruments(
+    q: str = Query(..., min_length=1, max_length=64, description="代码、native code 或名称"),
+    limit: int = Query(10, ge=1, le=50, description="返回条数"),
+) -> InstrumentSearchResponse:
+    rows = InstrumentRepository().search_instruments(q, limit=limit)
+    return InstrumentSearchResponse(
+        items=[
+            InstrumentSearchItem(
+                code=row.code,
+                native_code=row.native_code,
+                name=row.name,
+                market=row.market,
+                instrument_type=row.instrument_type,
+                match_type=_instrument_match_type(row, q),
+            )
+            for row in rows
+        ]
+    )
 
 
 @router.get(

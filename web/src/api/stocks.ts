@@ -1,4 +1,5 @@
 import apiClient from './index';
+import { toCamelCase } from './utils';
 
 export type ExtractItem = {
   code?: string | null;
@@ -10,6 +11,19 @@ export type ExtractFromImageResponse = {
   codes: string[];
   items?: ExtractItem[];
   rawText?: string;
+};
+
+export type InstrumentSearchItem = {
+  code: string;
+  nativeCode: string;
+  name: string;
+  market: 'CN' | 'US' | 'HK' | string;
+  instrumentType: string;
+  matchType: 'exact' | 'prefix' | 'fuzzy' | string;
+};
+
+export type InstrumentSearchResponse = {
+  items: InstrumentSearchItem[];
 };
 
 export const stocksApi = {
@@ -28,5 +42,16 @@ export const stocksApi = {
       return { codes: data.codes ?? [], items: data.items };
     }
     throw new Error('请提供文件或粘贴文本');
+  },
+
+  async searchInstruments(
+    query: string,
+    options: { limit?: number; signal?: AbortSignal } = {},
+  ): Promise<InstrumentSearchItem[]> {
+    const { data } = await apiClient.get<Record<string, unknown>>('/api/v1/stocks/search', {
+      params: { q: query, limit: options.limit ?? 10 },
+      signal: options.signal,
+    });
+    return toCamelCase<InstrumentSearchResponse>(data).items ?? [];
   },
 };

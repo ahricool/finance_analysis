@@ -61,6 +61,23 @@ class StockInstrumentInfo(BaseModel):
     instrument_type: Optional[str] = Field(None, description="证券类型")
 
 
+class InstrumentSearchItem(BaseModel):
+    """Lightweight instrument match for autocomplete."""
+
+    code: str = Field(..., description="统一证券代码（ticker.region）")
+    native_code: str = Field(..., description="市场内代码")
+    name: str = Field(..., description="证券名称")
+    market: str = Field(..., description="市场：CN / US / HK")
+    instrument_type: str = Field(..., description="证券类型：STOCK / ETF / INDEX")
+    match_type: str = Field(..., description="匹配类型：exact / prefix / fuzzy")
+
+
+class InstrumentSearchResponse(BaseModel):
+    """Instrument search results."""
+
+    items: List[InstrumentSearchItem] = Field(default_factory=list)
+
+
 class KLineData(BaseModel):
     """K 线数据点"""
     

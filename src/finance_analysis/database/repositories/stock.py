@@ -14,6 +14,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.stock import (
+    SUPPORTED_MARKETS,
     Instrument,
     StockDaily,
     validate_instrument_code,
@@ -28,6 +29,11 @@ def _normalize_security_name(value: str | None) -> str:
     if not name:
         return ""
     return re.sub(rf"(?<=[{_CJK_CHARACTER}])\s+(?=[{_CJK_CHARACTER}])", "", name)
+
+
+def _escape_like_pattern(value: str) -> str:
+    """Escape ``\\``, ``%`` and ``_`` so user input is matched literally in LIKE."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @dataclass(frozen=True)
@@ -128,18 +134,61 @@ class InstrumentRepository:
                 session.expunge(row)
             return list(rows)
 
-    def search_enabled_symbols(self, market: str, keyword: str = "", limit: int = 20) -> list[Instrument]:
-        normalized = str(market).upper()
+    def search_instruments(
+        self,
+        keyword: str,
+        *,
+        markets: Sequence[str] | None = None,
+        listing_status: str = "ACTIVE",
+        limit: int = 20,
+    ) -> list[Instrument]:
+        """Search ACTIVE instruments by exact code, prefix, then name contains."""
         needle = str(keyword or "").strip()
+        if not needle:
+            return []
+        allowed_markets = tuple(
+            str(market).strip().upper()
+            for market in (markets if markets is not None else SUPPORTED_MARKETS)
+            if str(market).strip().upper() in SUPPORTED_MARKETS
+        )
+        if not allowed_markets:
+            return []
+        status = str(listing_status or "ACTIVE").strip().upper() or "ACTIVE"
+        bound = max(1, min(int(limit), 50))
+        needle_upper = needle.upper()
+        escaped = _escape_like_pattern(needle)
+        prefix_pattern = f"{escaped}%"
+        contains_pattern = f"%{escaped}%"
+        rank = case(
+            (func.upper(Instrument.code) == needle_upper, 0),
+            (func.upper(Instrument.native_code) == needle_upper, 1),
+            (Instrument.code.ilike(prefix_pattern, escape="\\"), 2),
+            (Instrument.native_code.ilike(prefix_pattern, escape="\\"), 3),
+            (Instrument.name.ilike(contains_pattern, escape="\\"), 4),
+            else_=5,
+        )
+        matched = or_(
+            func.upper(Instrument.code) == needle_upper,
+            func.upper(Instrument.native_code) == needle_upper,
+            Instrument.code.ilike(prefix_pattern, escape="\\"),
+            Instrument.native_code.ilike(prefix_pattern, escape="\\"),
+            Instrument.name.ilike(contains_pattern, escape="\\"),
+        )
         with self.db.get_session() as session:
-            query = select(Instrument).where(
-                Instrument.market == normalized,
-                Instrument.listing_status == "ACTIVE",
+            rows = (
+                session.execute(
+                    select(Instrument)
+                    .where(
+                        Instrument.listing_status == status,
+                        Instrument.market.in_(allowed_markets),
+                        matched,
+                    )
+                    .order_by(rank, Instrument.code)
+                    .limit(bound)
+                )
+                .scalars()
+                .all()
             )
-            if needle:
-                pattern = f"%{needle}%"
-                query = query.where(or_(Instrument.code.ilike(pattern), Instrument.name.ilike(pattern)))
-            rows = session.execute(query.order_by(Instrument.code).limit(limit)).scalars().all()
             for row in rows:
                 session.expunge(row)
             return list(rows)

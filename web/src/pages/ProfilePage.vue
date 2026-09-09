@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
-import ModuleTabs from '@/components/layout/ModuleTabs.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import AvatarCropper from '@/components/profile/AvatarCropper.vue';
 import ChangePasswordCard from '@/components/settings/ChangePasswordCard.vue';
@@ -21,7 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 import { Bell, Camera, LockKeyhole, Save, Upload, UserRound } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { RouterLink, useRoute } from 'vue-router';
 
 type ProfileTab = 'info' | 'password' | 'notification';
 
@@ -222,216 +221,234 @@ onBeforeUnmount(clearAvatarSource);
       <AlertDescription>{{ pageError.message }}</AlertDescription>
     </Alert>
 
-    <ModuleTabs
-      :items="tabs"
-      :active-key="activeTab"
-      label="个人中心设置导航"
-    />
-    <Separator />
-
-    <section class="mx-auto w-full min-w-0 max-w-4xl">
-      <Card v-if="activeTab === 'info'">
-        <CardHeader>
-          <CardTitle>我的信息</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div
-            v-if="isLoading"
-            class="space-y-4"
+    <div class="grid items-start gap-6 lg:grid-cols-[13.5rem_minmax(0,1fr)]">
+      <aside>
+        <nav
+          aria-label="个人中心设置导航"
+          class="flex flex-col gap-1 rounded-xl border border-border bg-card p-2 shadow-sm ring-1 ring-foreground/10"
+        >
+          <RouterLink
+            v-for="item in tabs"
+            :key="item.key"
+            :to="item.to"
+            :data-state="activeTab === item.key ? 'active' : undefined"
+            :aria-current="activeTab === item.key ? 'page' : undefined"
+            class="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            :class="activeTab === item.key && 'bg-muted font-medium text-foreground'"
           >
-            <div class="flex items-center gap-4">
-              <Skeleton class="size-24 rounded-full" /><div class="space-y-2">
-                <Skeleton class="h-5 w-36" /><Skeleton class="h-4 w-52" />
-              </div>
-            </div>
-            <Skeleton class="h-10 w-full max-w-sm" />
-            <Skeleton class="h-10 w-full max-w-xs" />
-          </div>
-          <div
-            v-else
-            class="space-y-5"
-          >
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
-              <div
-                class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted text-muted-foreground"
-              >
-                <img
-                  v-if="avatarUrl"
-                  :src="avatarUrl"
-                  alt=""
-                  class="h-full w-full object-cover"
-                />
-                <Camera
-                  v-else
-                  class="h-8 w-8"
-                />
-              </div>
-              <div class="min-w-0 flex-1 space-y-3">
-                <input
-                  ref="fileInput"
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  class="hidden"
-                  @change="onAvatarFileChange"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  @click="chooseAvatar"
-                >
-                  <Upload class="h-4 w-4" />
-                  上传头像
-                </Button>
-                <Alert
-                  v-if="avatarError"
-                  variant="destructive"
-                >
-                  <AlertTitle>头像保存失败</AlertTitle>
-                  <AlertDescription>{{ avatarError }}</AlertDescription>
-                </Alert>
-              </div>
-            </div>
-
-            <AvatarCropper
-              v-if="avatarSourceUrl"
-              :source-url="avatarSourceUrl"
-              :is-submitting="isUploadingAvatar"
-              @update:open="clearAvatarSource"
-              @error="avatarError = $event"
-              @cropped="uploadCroppedAvatar"
+            <component
+              :is="item.icon"
+              class="size-4"
             />
+            {{ item.label }}
+          </RouterLink>
+        </nav>
+      </aside>
 
-            <Separator />
-
-            <form
+      <section class="min-w-0">
+        <Card v-if="activeTab === 'info'">
+          <CardHeader>
+            <CardTitle>我的信息</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div
+              v-if="isLoading"
               class="space-y-4"
-              @submit.prevent="saveInfo"
             >
-              <FieldInput
-                id="profile-email"
-                label="邮箱"
-                class="max-w-sm"
-                :model-value="profile?.email ?? ''"
-                disabled
-                autocomplete="email"
-              />
-              <FieldInput
-                id="profile-username"
-                v-model="infoForm.username"
-                label="昵称"
-                class="max-w-xs"
-                placeholder="输入昵称"
-                :disabled="isSavingInfo"
-                autocomplete="nickname"
-              />
-              <FieldSelect
-                id="profile-gender"
-                label="性别"
-                class="max-w-xs"
-                :model-value="infoForm.gender"
-                :options="genderOptions"
-                :disabled="isSavingInfo"
-                @update:model-value="infoForm.gender = ($event || 'unknown') as UserGender"
-              />
-
-              <div>
-                <LoadingButton
-                  type="submit"
-                  variant="default"
-                  :loading="isSavingInfo"
-                >
-                  <Save class="h-4 w-4" />
-                  保存信息
-                </LoadingButton>
+              <div class="flex items-center gap-4">
+                <Skeleton class="size-24 rounded-full" /><div class="space-y-2">
+                  <Skeleton class="h-5 w-36" /><Skeleton class="h-4 w-52" />
+                </div>
               </div>
-            </form>
-
-            <Alert
-              v-if="infoError"
-              variant="destructive"
-            >
-              <AlertTitle>保存失败</AlertTitle>
-              <AlertDescription>{{ infoError }}</AlertDescription>
-            </Alert>
-            <Alert
-              v-if="infoSuccess"
-              variant="success"
-            >
-              <AlertTitle>保存成功</AlertTitle>
-              <AlertDescription>个人信息已更新。</AlertDescription>
-            </Alert>
-          </div>
-        </CardContent>
-      </Card>
-
-      <ChangePasswordCard v-else-if="activeTab === 'password'" />
-
-      <Card v-else>
-        <CardHeader>
-          <CardTitle>消息通知</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form
-            class="space-y-5"
-            @submit.prevent="saveNotification"
-          >
-            <div class="space-y-4">
-              <FieldInput
-                id="profile-ntfy-url"
-                v-model="notificationForm.ntfyUrl"
-                label="ntfy URL"
-                class="max-w-lg"
-                placeholder="https://ntfy.sh/topic"
-                :disabled="isSavingNotification"
-              />
-              <FieldInput
-                id="profile-telegram-chat"
-                v-model="notificationForm.telegramChatId"
-                label="Telegram Chat ID"
-                class="max-w-sm"
-                placeholder="chat_id"
-                :disabled="isSavingNotification"
-              />
+              <Skeleton class="h-10 w-full max-w-sm" />
+              <Skeleton class="h-10 w-full max-w-xs" />
             </div>
-            <FieldInput
-              id="profile-telegram-token"
-              v-model="notificationForm.telegramBotToken"
-              type="password"
-              allow-toggle-password
-              label="Telegram Bot Token"
-              class="max-w-2xl"
-              placeholder="bot_token"
-              :disabled="isSavingNotification"
-              autocomplete="off"
-            />
+            <div
+              v-else
+              class="space-y-5"
+            >
+              <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
+                <div
+                  class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted text-muted-foreground"
+                >
+                  <img
+                    v-if="avatarUrl"
+                    :src="avatarUrl"
+                    alt=""
+                    class="h-full w-full object-cover"
+                  />
+                  <Camera
+                    v-else
+                    class="h-8 w-8"
+                  />
+                </div>
+                <div class="min-w-0 flex-1 space-y-3">
+                  <input
+                    ref="fileInput"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    class="hidden"
+                    @change="onAvatarFileChange"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    @click="chooseAvatar"
+                  >
+                    <Upload class="h-4 w-4" />
+                    上传头像
+                  </Button>
+                  <Alert
+                    v-if="avatarError"
+                    variant="destructive"
+                  >
+                    <AlertTitle>头像保存失败</AlertTitle>
+                    <AlertDescription>{{ avatarError }}</AlertDescription>
+                  </Alert>
+                </div>
+              </div>
 
-            <LoadingButton
-              type="submit"
-              variant="default"
-              :loading="isSavingNotification"
-            >
-              <Save class="h-4 w-4" />
-              保存通知
-            </LoadingButton>
+              <AvatarCropper
+                v-if="avatarSourceUrl"
+                :source-url="avatarSourceUrl"
+                :is-submitting="isUploadingAvatar"
+                @update:open="clearAvatarSource"
+                @error="avatarError = $event"
+                @cropped="uploadCroppedAvatar"
+              />
 
-            <Alert
-              v-if="notificationError"
-              variant="destructive"
+              <Separator />
+
+              <form
+                class="space-y-4"
+                @submit.prevent="saveInfo"
+              >
+                <FieldInput
+                  id="profile-email"
+                  label="邮箱"
+                  class="max-w-sm"
+                  :model-value="profile?.email ?? ''"
+                  disabled
+                  autocomplete="email"
+                />
+                <FieldInput
+                  id="profile-username"
+                  v-model="infoForm.username"
+                  label="昵称"
+                  class="max-w-xs"
+                  placeholder="输入昵称"
+                  :disabled="isSavingInfo"
+                  autocomplete="nickname"
+                />
+                <FieldSelect
+                  id="profile-gender"
+                  label="性别"
+                  class="max-w-xs"
+                  :model-value="infoForm.gender"
+                  :options="genderOptions"
+                  :disabled="isSavingInfo"
+                  @update:model-value="infoForm.gender = ($event || 'unknown') as UserGender"
+                />
+
+                <div>
+                  <LoadingButton
+                    type="submit"
+                    variant="default"
+                    :loading="isSavingInfo"
+                  >
+                    <Save class="h-4 w-4" />
+                    保存信息
+                  </LoadingButton>
+                </div>
+              </form>
+
+              <Alert
+                v-if="infoError"
+                variant="destructive"
+              >
+                <AlertTitle>保存失败</AlertTitle>
+                <AlertDescription>{{ infoError }}</AlertDescription>
+              </Alert>
+              <Alert
+                v-if="infoSuccess"
+                variant="success"
+              >
+                <AlertTitle>保存成功</AlertTitle>
+                <AlertDescription>个人信息已更新。</AlertDescription>
+              </Alert>
+            </div>
+          </CardContent>
+        </Card>
+
+        <ChangePasswordCard v-else-if="activeTab === 'password'" />
+
+        <Card v-else>
+          <CardHeader>
+            <CardTitle>消息通知</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form
+              class="space-y-5"
+              @submit.prevent="saveNotification"
             >
-              <AlertTitle>保存失败</AlertTitle>
-              <AlertDescription>{{ notificationError }}</AlertDescription>
-            </Alert>
-            <Alert
-              v-if="notificationSuccess"
-              variant="success"
-            >
-              <AlertTitle>保存成功</AlertTitle>
-              <AlertDescription>通知配置已保存。</AlertDescription>
-            </Alert>
-          </form>
-        </CardContent>
-      </Card>
-    </section>
+              <div class="space-y-4">
+                <FieldInput
+                  id="profile-ntfy-url"
+                  v-model="notificationForm.ntfyUrl"
+                  label="ntfy URL"
+                  class="max-w-lg"
+                  placeholder="https://ntfy.sh/topic"
+                  :disabled="isSavingNotification"
+                />
+                <FieldInput
+                  id="profile-telegram-chat"
+                  v-model="notificationForm.telegramChatId"
+                  label="Telegram Chat ID"
+                  class="max-w-sm"
+                  placeholder="chat_id"
+                  :disabled="isSavingNotification"
+                />
+              </div>
+              <FieldInput
+                id="profile-telegram-token"
+                v-model="notificationForm.telegramBotToken"
+                type="password"
+                allow-toggle-password
+                label="Telegram Bot Token"
+                class="max-w-2xl"
+                placeholder="bot_token"
+                :disabled="isSavingNotification"
+                autocomplete="off"
+              />
+
+              <LoadingButton
+                type="submit"
+                variant="default"
+                :loading="isSavingNotification"
+              >
+                <Save class="h-4 w-4" />
+                保存通知
+              </LoadingButton>
+
+              <Alert
+                v-if="notificationError"
+                variant="destructive"
+              >
+                <AlertTitle>保存失败</AlertTitle>
+                <AlertDescription>{{ notificationError }}</AlertDescription>
+              </Alert>
+              <Alert
+                v-if="notificationSuccess"
+                variant="success"
+              >
+                <AlertTitle>保存成功</AlertTitle>
+                <AlertDescription>通知配置已保存。</AlertDescription>
+              </Alert>
+            </form>
+          </CardContent>
+        </Card>
+      </section>
+    </div>
   </div>
 </template>

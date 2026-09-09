@@ -1,37 +1,23 @@
 import { mount } from '@vue/test-utils';
-import { computed, nextTick, ref } from 'vue';
+import { nextTick } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StockIndexItem } from '@/types/stockIndex';
+import { stocksApi, type InstrumentSearchItem } from '@/api/stocks';
 import StockAutocomplete from '../StockAutocomplete.vue';
 
-const stockIndexState = vi.hoisted(() => ({
-  index: undefined as unknown,
-  loading: undefined as unknown,
-  fallback: undefined as unknown,
-  error: undefined as unknown,
+vi.mock('@/api/stocks', () => ({
+  stocksApi: {
+    parseImport: vi.fn(),
+    searchInstruments: vi.fn(),
+  },
 }));
 
-vi.mock('@/composables/useStockIndex', () => ({
-  useStockIndex: () => ({
-    index: stockIndexState.index,
-    loading: stockIndexState.loading,
-    fallback: stockIndexState.fallback,
-    error: stockIndexState.error,
-    loaded: computed(() => !(stockIndexState.loading as ReturnType<typeof ref<boolean>>).value),
-  }),
-}));
-
-const moutai: StockIndexItem = {
-  canonicalCode: '600519.SH',
-  displayCode: '600519',
-  nameZh: '贵州茅台',
-  pinyinFull: 'guizhoumaotai',
-  pinyinAbbr: 'gzmt',
-  aliases: ['茅台'],
+const moutai: InstrumentSearchItem = {
+  code: '600519.SH',
+  nativeCode: '600519',
+  name: '贵州茅台',
   market: 'CN',
-  assetType: 'stock',
-  active: true,
-  popularity: 100,
+  instrumentType: 'STOCK',
+  matchType: 'fuzzy',
 };
 
 describe('StockAutocomplete', () => {
@@ -41,11 +27,7 @@ describe('StockAutocomplete', () => {
       return window.setTimeout(() => callback(performance.now()), 0);
     });
     vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id));
-
-    stockIndexState.index = ref<StockIndexItem[]>([]);
-    stockIndexState.loading = ref(true);
-    stockIndexState.fallback = ref(false);
-    stockIndexState.error = ref<Error | null>(null);
+    vi.mocked(stocksApi.searchInstruments).mockResolvedValue([moutai]);
     document.body.innerHTML = '';
   });
 
@@ -63,25 +45,17 @@ describe('StockAutocomplete', () => {
       },
     });
 
-    await vi.advanceTimersByTimeAsync(250);
-    expect(document.body.textContent).not.toContain('贵州茅台');
-
-    (stockIndexState.index as ReturnType<typeof ref<StockIndexItem[]>>).value = [moutai];
-    (stockIndexState.loading as ReturnType<typeof ref<boolean>>).value = false;
-
-    await nextTick();
+    expect(stocksApi.searchInstruments).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(250);
     await nextTick();
     await vi.advanceTimersByTimeAsync(0);
 
+    expect(stocksApi.searchInstruments).toHaveBeenCalledWith('贵州', expect.objectContaining({ limit: 10 }));
     expect(document.body.textContent).toContain('贵州茅台');
     expect(document.body.textContent).toContain('600519');
   });
 
   it('positions the teleported suggestion list below the input', async () => {
-    stockIndexState.index = ref<StockIndexItem[]>([moutai]);
-    stockIndexState.loading = ref(false);
-
     const wrapper = mount(StockAutocomplete, {
       attachTo: document.body,
       props: {
@@ -119,9 +93,6 @@ describe('StockAutocomplete', () => {
   });
 
   it('emits the matched market when selecting an autocomplete suggestion', async () => {
-    stockIndexState.index = ref<StockIndexItem[]>([moutai]);
-    stockIndexState.loading = ref(false);
-
     const wrapper = mount(StockAutocomplete, {
       attachTo: document.body,
       props: {

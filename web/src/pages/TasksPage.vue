@@ -46,7 +46,7 @@ import type {
   TaskStatus,
 } from '@/types/tasks';
 import { formatDateTimeInDisplayTimezone, toUtcIsoString } from '@/utils/format';
-import { ClipboardCheck, ListChecks, RefreshCcw, Search, SlidersHorizontal } from 'lucide-vue-next';
+import { ClipboardCheck, ListChecks, Loader2, RefreshCcw, Search, SlidersHorizontal } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
@@ -59,6 +59,7 @@ const router = useRouter();
 
 const scheduledItems = ref<ScheduledTask[]>([]);
 const scheduledLoading = ref(false);
+const scheduledHasLoaded = ref(false);
 const scheduledError = ref<ParsedApiError | null>(null);
 const scheduledDetail = ref<ScheduledTask | null>(null);
 const pendingJob = ref<ScheduledTask | null>(null);
@@ -68,8 +69,9 @@ const runningJobId = ref<string | null>(null);
 const runs = ref<TaskRun[]>([]);
 const runsTotal = ref(0);
 const runsPage = ref(1);
-const runsPageSize = ref(10);
+const runsPageSize = ref(20);
 const runsLoading = ref(false);
+const runsHasLoaded = ref(false);
 const runsError = ref<ParsedApiError | null>(null);
 const runsOverviewTotal = ref(0);
 const runsOverviewStats = ref<Record<string, number>>({});
@@ -94,6 +96,10 @@ const isAdmin = computed(() => authStore.currentUser?.role === 'admin');
 const activeTab = computed<TaskTab>(() => (route.path.endsWith('/scheduled') ? 'scheduled' : 'runs'));
 const totalPages = computed(() => Math.max(1, Math.ceil(runsTotal.value / runsPageSize.value)));
 const pageError = computed(() => (activeTab.value === 'scheduled' ? scheduledError.value : runsError.value));
+const scheduledInitialLoading = computed(() => scheduledLoading.value && !scheduledHasLoaded.value);
+const scheduledRefreshing = computed(() => scheduledLoading.value && scheduledHasLoaded.value);
+const runsInitialLoading = computed(() => runsLoading.value && !runsHasLoaded.value);
+const runsRefreshing = computed(() => runsLoading.value && runsHasLoaded.value);
 
 const navItems = computed(() => [
   ...(isAdmin.value
@@ -233,6 +239,7 @@ async function loadScheduled() {
     scheduledError.value = getParsedApiError(err);
   } finally {
     scheduledLoading.value = false;
+    scheduledHasLoaded.value = true;
   }
 }
 
@@ -261,7 +268,10 @@ async function loadRuns(page = runsPage.value) {
     if (id !== runsRequestId) return;
     runsError.value = getParsedApiError(err);
   } finally {
-    if (id === runsRequestId) runsLoading.value = false;
+    if (id === runsRequestId) {
+      runsLoading.value = false;
+      runsHasLoaded.value = true;
+    }
   }
 }
 
@@ -469,13 +479,13 @@ onBeforeUnmount(() => {
           </div>
 
           <div
-            v-if="scheduledLoading"
+            v-if="scheduledInitialLoading"
             class="space-y-2"
           >
             <Skeleton
               v-for="index in 4"
               :key="index"
-              class="h-12 w-full"
+              class="h-9 w-full"
             />
           </div>
           <Empty v-else-if="!scheduledItems.length">
@@ -484,78 +494,81 @@ onBeforeUnmount(() => {
               <EmptyDescription>当前没有可展示的周期任务定义。</EmptyDescription>
             </EmptyHeader>
           </Empty>
-          <Table
+          <div
             v-else
-            data-testid="scheduled-table"
+            class="relative"
+            :aria-busy="scheduledRefreshing || undefined"
           >
-            <TableHeader>
-              <TableRow>
-                <TableHead>任务</TableHead>
-                <TableHead>调度规则</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>最近执行</TableHead>
-                <TableHead>下次执行</TableHead>
-                <TableHead class="w-[72px] text-right">
-                  详情
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow
-                v-for="job in scheduledItems"
-                :key="job.jobId"
-              >
-                <TableCell class="max-w-[280px]">
-                  <p class="font-medium">
+            <div
+              v-if="scheduledRefreshing"
+              class="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center"
+            >
+              <div class="flex items-center gap-2 rounded-full border bg-background/95 px-3 py-1 text-xs text-muted-foreground shadow-sm">
+                <Loader2 class="size-3.5 animate-spin" />
+                加载中
+              </div>
+            </div>
+            <Table
+              data-testid="scheduled-table"
+              :class="scheduledRefreshing ? 'opacity-70' : undefined"
+            >
+              <TableHeader>
+                <TableRow>
+                  <TableHead>任务</TableHead>
+                  <TableHead>任务 ID</TableHead>
+                  <TableHead class="w-[10rem]">
+                    调度规则
+                  </TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead>最近执行</TableHead>
+                  <TableHead>下次执行</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow
+                  v-for="job in scheduledItems"
+                  :key="job.jobId"
+                  class="cursor-pointer"
+                  @click="scheduledDetail = job"
+                >
+                  <TableCell class="max-w-[16rem] truncate font-medium">
                     {{ job.name }}
-                  </p>
-                  <p
-                    v-if="job.description"
-                    class="mt-0.5 truncate text-xs text-muted-foreground"
-                  >
-                    {{ job.description }}
-                  </p>
-                </TableCell>
-                <TableCell class="whitespace-nowrap text-muted-foreground">
-                  {{ job.schedule }}
-                </TableCell>
-                <TableCell>
-                  <Badge :variant="jobStatusVariant(job)">
-                    {{ jobStatusLabel(job) }}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div
-                    v-if="job.latestRun"
-                    class="flex items-center gap-2"
-                  >
-                    <Badge :variant="runStatusVariant(job.latestRun.status)">
-                      {{ runStatusLabel(job.latestRun.status) }}
+                  </TableCell>
+                  <TableCell class="max-w-[12rem] truncate font-mono text-xs text-muted-foreground">
+                    {{ job.jobId }}
+                  </TableCell>
+                  <TableCell class="max-w-[10rem] truncate text-muted-foreground">
+                    {{ job.schedule }}
+                  </TableCell>
+                  <TableCell>
+                    <Badge :variant="jobStatusVariant(job)">
+                      {{ jobStatusLabel(job) }}
                     </Badge>
-                    <span class="whitespace-nowrap text-xs text-muted-foreground">
-                      {{ lastRunTime(job) }}
-                    </span>
-                  </div>
-                  <span
-                    v-else
-                    class="text-sm text-muted-foreground"
-                  >暂无记录</span>
-                </TableCell>
-                <TableCell class="whitespace-nowrap text-muted-foreground">
-                  {{ formatDateTimeInDisplayTimezone(job.nextRunTime) }}
-                </TableCell>
-                <TableCell class="text-right">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    @click="scheduledDetail = job"
-                  >
-                    详情
-                  </Button>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
+                  </TableCell>
+                  <TableCell>
+                    <div
+                      v-if="job.latestRun"
+                      class="flex items-center gap-2"
+                    >
+                      <Badge :variant="runStatusVariant(job.latestRun.status)">
+                        {{ runStatusLabel(job.latestRun.status) }}
+                      </Badge>
+                      <span class="truncate text-xs text-muted-foreground">
+                        {{ lastRunTime(job) }}
+                      </span>
+                    </div>
+                    <span
+                      v-else
+                      class="text-sm text-muted-foreground"
+                    >暂无记录</span>
+                  </TableCell>
+                  <TableCell class="text-muted-foreground">
+                    {{ formatDateTimeInDisplayTimezone(job.nextRunTime) }}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </section>
@@ -672,13 +685,13 @@ onBeforeUnmount(() => {
           </div>
 
           <div
-            v-if="runsLoading"
+            v-if="runsInitialLoading"
             class="space-y-2"
           >
             <Skeleton
               v-for="index in 5"
               :key="index"
-              class="h-12 w-full"
+              class="h-9 w-full"
             />
           </div>
           <Empty v-else-if="!runs.length">
@@ -688,56 +701,57 @@ onBeforeUnmount(() => {
             </EmptyHeader>
           </Empty>
           <template v-else>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>任务</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>开始时间</TableHead>
-                  <TableHead>耗时</TableHead>
-                  <TableHead>结果摘要</TableHead>
-                  <TableHead class="w-[72px] text-right">
-                    详情
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow
-                  v-for="run in runs"
-                  :key="run.taskId"
-                >
-                  <TableCell class="max-w-[240px]">
-                    <p class="font-medium">
+            <div
+              class="relative"
+              :aria-busy="runsRefreshing || undefined"
+            >
+              <div
+                v-if="runsRefreshing"
+                class="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center"
+              >
+                <div class="flex items-center gap-2 rounded-full border bg-background/95 px-3 py-1 text-xs text-muted-foreground shadow-sm">
+                  <Loader2 class="size-3.5 animate-spin" />
+                  加载中
+                </div>
+              </div>
+              <Table :class="runsRefreshing ? 'opacity-70' : undefined">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>任务</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead>开始时间</TableHead>
+                    <TableHead>耗时</TableHead>
+                    <TableHead>结果摘要</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow
+                    v-for="run in runs"
+                    :key="run.taskId"
+                    class="cursor-pointer"
+                    @click="openRunDetail(run)"
+                  >
+                    <TableCell class="max-w-[16rem] truncate font-medium">
                       {{ run.taskName || run.taskType }}
-                    </p>
-                  </TableCell>
-                  <TableCell>
-                    <Badge :variant="runStatusVariant(run.status)">
-                      {{ runStatusLabel(run.status) }}
-                    </Badge>
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap text-muted-foreground">
-                    {{ runStartTime(run) }}
-                  </TableCell>
-                  <TableCell class="whitespace-nowrap text-muted-foreground">
-                    {{ formatDuration(run.durationSeconds) }}
-                  </TableCell>
-                  <TableCell class="max-w-[320px] text-muted-foreground">
-                    {{ truncateText(run.message, 72) || '—' }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      :disabled="detailLoading"
-                      @click="openRunDetail(run)"
-                    >
-                      详情
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+                    </TableCell>
+                    <TableCell>
+                      <Badge :variant="runStatusVariant(run.status)">
+                        {{ runStatusLabel(run.status) }}
+                      </Badge>
+                    </TableCell>
+                    <TableCell class="text-muted-foreground">
+                      {{ runStartTime(run) }}
+                    </TableCell>
+                    <TableCell class="text-muted-foreground">
+                      {{ formatDuration(run.durationSeconds) }}
+                    </TableCell>
+                    <TableCell class="max-w-[20rem] truncate text-muted-foreground">
+                      {{ truncateText(run.message, 72) || '—' }}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
             <AppPagination
               :current-page="runsPage"
               :total-pages="totalPages"

@@ -657,7 +657,7 @@ onMounted(loadList);
             >股票 *</Label>
             <StockAutocomplete
               v-model="formStockQuery"
-              placeholder="搜索股票代码、名称或拼音"
+              placeholder="搜索股票代码或名称"
               :disabled="editingId !== null"
               @submit="handleStockAutocompleteSubmit"
             />

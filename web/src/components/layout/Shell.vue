@@ -2,10 +2,9 @@
 import type { AcceptableValue } from 'reka-ui';
 import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import { ChevronDown, LogOut, Monitor, Moon, Sun, User, UserRound } from 'lucide-vue-next';
+import { ChevronDown, Clock3, LogOut, Monitor, Moon, Palette, Sun, User, UserRound } from 'lucide-vue-next';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
-import TimezoneSwitcher from '@/components/timezone/TimezoneSwitcher.vue';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,21 +15,40 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
 import { useAuth } from '@/composables/useAuth';
-import { useTheme } from '@/composables/useTheme';
+import { useTheme, type ThemePreference } from '@/composables/useTheme';
 import { APP_NAME } from '@/config/app';
 import { mainNavItems, type MainNavItem, type NavDestination } from '@/config/mainNav';
 import { useAuthStore } from '@/stores/authStore';
+import { DISPLAY_TIMEZONES, useTimezoneStore } from '@/stores/timezoneStore';
 
 const route = useRoute();
 const authStore = useAuthStore();
 const { currentUser } = storeToRefs(authStore);
 const { logout } = useAuth();
 const { theme, setTheme } = useTheme();
+const timezoneStore = useTimezoneStore();
+const { displayTimezone } = storeToRefs(timezoneStore);
 const showLogoutConfirm = ref(false);
+
+const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: typeof Monitor }> = [
+  { value: 'system', label: '跟随系统', icon: Monitor },
+  { value: 'light', label: '浅色', icon: Sun },
+  { value: 'dark', label: '深色', icon: Moon },
+];
+
+const themeLabel = computed(
+  () => THEME_OPTIONS.find((option) => option.value === theme.value)?.label ?? '跟随系统',
+);
+const timezoneLabel = computed(
+  () => DISPLAY_TIMEZONES.find((option) => option.value === displayTimezone.value)?.label ?? '北京时间',
+);
 
 function isDestinationActive(item: NavDestination): boolean {
   if (item.exact) return route.path === item.to;
@@ -49,6 +67,12 @@ const initials = computed(() =>
 function setThemePreference(value: AcceptableValue) {
   if (value === 'light' || value === 'dark' || value === 'system') {
     setTheme(value);
+  }
+}
+
+function setTimezonePreference(value: AcceptableValue) {
+  if (value === 'Asia/Shanghai' || value === 'America/New_York') {
+    timezoneStore.setDisplayTimezone(value);
   }
 }
 
@@ -143,7 +167,6 @@ async function onLogoutConfirm() {
         </nav>
 
         <div class="ml-auto flex items-center gap-1">
-          <TimezoneSwitcher />
           <DropdownMenu
             v-if="currentUser"
             :modal="false"
@@ -185,23 +208,50 @@ async function onLogoutConfirm() {
                   <UserRound />个人中心
                 </RouterLink>
               </DropdownMenuItem>
-              <DropdownMenuLabel>主题</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                :model-value="theme"
-                aria-label="主题"
-                data-testid="theme-preference"
-                @update:model-value="setThemePreference"
-              >
-                <DropdownMenuRadioItem value="system">
-                  <Monitor />跟随系统
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="light">
-                  <Sun />浅色
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="dark">
-                  <Moon />深色
-                </DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger data-testid="theme-menu">
+                  <Palette />主题
+                  <span class="ml-auto truncate text-xs text-muted-foreground">{{ themeLabel }}</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent class="w-44">
+                  <DropdownMenuRadioGroup
+                    :model-value="theme"
+                    aria-label="主题"
+                    data-testid="theme-preference"
+                    @update:model-value="setThemePreference"
+                  >
+                    <DropdownMenuRadioItem
+                      v-for="option in THEME_OPTIONS"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      <component :is="option.icon" />{{ option.label }}
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger data-testid="timezone-menu">
+                  <Clock3 />时区
+                  <span class="ml-auto truncate text-xs text-muted-foreground">{{ timezoneLabel }}</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent class="w-48">
+                  <DropdownMenuRadioGroup
+                    :model-value="displayTimezone"
+                    aria-label="时区"
+                    data-testid="timezone-preference"
+                    @update:model-value="setTimezonePreference"
+                  >
+                    <DropdownMenuRadioItem
+                      v-for="option in DISPLAY_TIMEZONES"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"

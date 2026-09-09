@@ -111,7 +111,7 @@ test.describe('web smoke', () => {
       '研究': ['量化研究', 'ETF动量轮动', '趋势跟踪'],
     };
 
-    for (const label of ['市场', '研究', '切换展示时区', '打开用户菜单']) {
+    for (const label of ['市场', '研究', '打开用户菜单']) {
       await page.getByRole('button', { name: label, exact: true }).click();
       const menu = page.getByRole('menu');
       await expect(menu).toBeVisible();

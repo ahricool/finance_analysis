@@ -58,7 +58,7 @@ const listResponse: TaskRunsResponse = {
   items: [sampleRun],
   total: 1,
   page: 1,
-  pageSize: 10,
+  pageSize: 20,
   statistics: {
     pending: 0,
     processing: 0,
@@ -163,12 +163,9 @@ function textOf(selector: string) {
 }
 
 async function openFirstScheduledDetail(wrapper: Awaited<ReturnType<typeof mountPage>>) {
-  const detailButton = wrapper
-    .get('[data-testid="scheduled-table"]')
-    .findAll('button')
-    .find((button) => button.text().trim() === '详情');
-  expect(detailButton).toBeDefined();
-  await detailButton?.trigger('click');
+  const row = wrapper.get('[data-testid="scheduled-table"]').findAll('tbody tr')[0];
+  expect(row).toBeDefined();
+  await row?.trigger('click');
   await flushPromises();
   return document.body.querySelector('[data-testid="scheduled-task-detail"]');
 }
@@ -201,7 +198,7 @@ describe('TasksPage', () => {
     });
   });
 
-  it('does not mention APScheduler and keeps technical ids out of the scheduled table', async () => {
+  it('does not mention APScheduler and shows job ids in the scheduled table', async () => {
     const wrapper = await mountPage();
 
     expect(wrapper.text()).not.toContain('APScheduler');
@@ -211,11 +208,13 @@ describe('TasksPage', () => {
     const tableText = wrapper.get('[data-testid="scheduled-table"]').text();
     expect(tableText).toContain('A股日线行情同步');
     expect(tableText).toContain('周一至周五 18:00');
-    expect(tableText).not.toContain('market_data_sync_cn_hk');
+    expect(tableText).toContain('market_data_sync_cn_hk');
+    expect(tableText).not.toContain('同步A股日线行情');
     expect(tableText).not.toContain('scheduled_market_data_sync_cn_hk');
     expect(tableText).not.toContain('立即执行');
     expect(tableText).not.toContain('全量同步');
     expect(tableText).not.toContain('增量同步');
+    expect(tableText).not.toContain('详情');
 
     wrapper.unmount();
   });
@@ -287,8 +286,8 @@ describe('TasksPage', () => {
     expect(tableText).not.toContain('admin@example.com');
     expect(tableText).not.toContain('定时触发');
 
-    const detailButton = wrapper.findAll('button').find((button) => button.text().trim() === '详情');
-    await detailButton?.trigger('click');
+    const row = wrapper.get('table').findAll('tbody tr')[0];
+    await row.trigger('click');
     await flushPromises();
 
     const detailDialog = document.body.querySelector('[data-testid="task-run-detail"]');
@@ -309,7 +308,7 @@ describe('TasksPage', () => {
     const initialList = listQueries();
     expect(initialList.length).toBeGreaterThanOrEqual(1);
     expect(initialList[0]?.status).toBeTruthy();
-    expect(initialList[0]?.pageSize).toBe(10);
+    expect(initialList[0]?.pageSize).toBe(20);
 
     wrapper.unmount();
   });

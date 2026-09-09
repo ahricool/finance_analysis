@@ -24,6 +24,19 @@ async function mountShell(path: string) {
   return { router, wrapper: mount(Shell, { global: { plugins: [router] } }) };
 }
 
+async function openThemePreference(wrapper: Awaited<ReturnType<typeof mountShell>>['wrapper']) {
+  await wrapper.get('button[aria-label="打开用户菜单"]').trigger('click');
+  await vi.waitFor(() => {
+    expect(document.body.querySelector('[data-testid="theme-menu"]')).not.toBeNull();
+  });
+  const trigger = document.body.querySelector<HTMLElement>('[data-testid="theme-menu"]');
+  trigger?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));
+  trigger?.click();
+  await vi.waitFor(() => {
+    expect(document.body.querySelector('[data-testid="theme-preference"]')).not.toBeNull();
+  });
+}
+
 describe('Shell navigation', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -41,6 +54,7 @@ describe('Shell navigation', () => {
     const { wrapper } = await mountShell('/analysis');
 
     expect(wrapper.get('button[aria-label="打开用户菜单"]')).toBeTruthy();
+    expect(wrapper.find('button[aria-label="切换展示时区"]').exists()).toBe(false);
     expect(wrapper.get('header').text()).not.toContain('alice@example.com');
     expect(wrapper.get('header').text()).not.toContain('退出登录');
   });
@@ -113,10 +127,7 @@ describe('Shell navigation', () => {
     localStorage.setItem('theme', 'system');
     const { wrapper } = await mountShell('/analysis');
 
-    await wrapper.get('button[aria-label="打开用户菜单"]').trigger('click');
-    await vi.waitFor(() => {
-      expect(document.body.querySelector('[data-testid="theme-preference"]')).not.toBeNull();
-    });
+    await openThemePreference(wrapper);
 
     const radios = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
     const byLabel = (label: string) => radios.find((item) => item.textContent?.includes(label));
@@ -134,7 +145,7 @@ describe('Shell navigation', () => {
     expect(theme.value).toBe('dark');
 
     if (!document.body.querySelector('[data-testid="theme-preference"]')) {
-      await wrapper.get('button[aria-label="打开用户菜单"]').trigger('click');
+      await openThemePreference(wrapper);
     }
     await vi.waitFor(() => {
       expect(document.body.querySelector('[data-testid="theme-preference"]')).not.toBeNull();
@@ -166,10 +177,7 @@ describe('Shell navigation', () => {
     localStorage.setItem('theme', 'light');
     const { wrapper } = await mountShell('/analysis');
 
-    await wrapper.get('button[aria-label="打开用户菜单"]').trigger('click');
-    await vi.waitFor(() => {
-      expect(document.body.querySelector('[data-testid="theme-preference"]')).not.toBeNull();
-    });
+    await openThemePreference(wrapper);
 
     const radioGroup = wrapper.findComponent({ name: 'DropdownMenuRadioGroup' });
     expect(radioGroup.exists()).toBe(true);

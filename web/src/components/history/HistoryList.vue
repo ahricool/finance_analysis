@@ -32,8 +32,8 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <Card :class="['flex min-h-0 flex-col overflow-hidden', props.class]">
-    <CardHeader class="shrink-0">
+  <Card :class="['flex min-h-0 flex-col overflow-hidden border border-border bg-card shadow-sm ring-1 ring-foreground/15', props.class]">
+    <CardHeader class="shrink-0 border-b">
       <CardTitle class="flex items-center gap-2 text-base">
         <History class="size-4 text-muted-foreground" />历史分析
       </CardTitle>
