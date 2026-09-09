@@ -131,6 +131,34 @@ describe('Shell navigation', () => {
     wrapper.unmount();
   });
 
+  it('ignores null theme radio updates so the current preference is kept', async () => {
+    useAuthStore().currentUser = {
+      uid: 1,
+      username: 'Alice',
+      email: 'alice@example.com',
+      avatarUrl: null,
+      role: 'admin',
+      extra: { gender: 'female' },
+    };
+    theme.value = 'light';
+    localStorage.setItem('theme', 'light');
+    const { wrapper } = await mountShell('/analysis');
+
+    await wrapper.get('button[aria-label="打开用户菜单"]').trigger('click');
+    await vi.waitFor(() => {
+      expect(document.body.querySelector('[data-testid="theme-preference"]')).not.toBeNull();
+    });
+
+    const radioGroup = wrapper.findComponent({ name: 'DropdownMenuRadioGroup' });
+    expect(radioGroup.exists()).toBe(true);
+    radioGroup.vm.$emit('update:modelValue', null);
+    await wrapper.vm.$nextTick();
+
+    expect(theme.value).toBe('light');
+    expect(localStorage.getItem('theme')).toBe('light');
+    wrapper.unmount();
+  });
+
   it('keeps the desktop navigation visible and links the logo to the dashboard', async () => {
     const { wrapper } = await mountShell('/dashboard');
     expect(wrapper.get('[data-testid="desktop-main-nav"]').classes()).not.toContain('hidden');
