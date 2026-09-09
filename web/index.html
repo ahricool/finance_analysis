@@ -10,10 +10,15 @@
         const storageKey = 'theme';
         const root = document.documentElement;
         const storedTheme = localStorage.getItem(storageKey);
-        const theme = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : 'light';
+        const resolved =
+          storedTheme === 'light' || storedTheme === 'dark'
+            ? storedTheme
+            : window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
         root.classList.remove('light', 'dark');
-        root.classList.add(theme);
-        root.style.colorScheme = theme;
+        root.classList.add(resolved);
+        root.style.colorScheme = resolved;
       })();
     </script>
     <title>Finance Analysis</title>

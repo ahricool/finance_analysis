@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import { ChevronDown, LogOut, Moon, User, UserRound } from 'lucide-vue-next';
+import { ChevronDown, LogOut, Monitor, Moon, Sun, User, UserRound } from 'lucide-vue-next';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import AppStatusDot from '@/components/app/AppStatusDot.vue';
@@ -10,10 +10,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -30,7 +31,7 @@ const route = useRoute();
 const authStore = useAuthStore();
 const { currentUser } = storeToRefs(authStore);
 const { logout } = useAuth();
-const { resolvedTheme, setTheme } = useTheme();
+const { theme, setTheme } = useTheme();
 const completionBadge = useAgentChatStore((state) => state.completionBadge);
 const showLogoutConfirm = ref(false);
 
@@ -48,8 +49,10 @@ const initials = computed(() =>
   (currentUser.value?.username || currentUser.value?.email || 'U').slice(0, 1).toUpperCase(),
 );
 
-function toggleTheme(checked: boolean) {
-  setTheme(checked ? 'dark' : 'light');
+function setThemePreference(value: string | number | bigint) {
+  if (value === 'light' || value === 'dark' || value === 'system') {
+    setTheme(value);
+  }
 }
 
 async function onLogoutConfirm() {
@@ -191,12 +194,23 @@ async function onLogoutConfirm() {
                   <UserRound />个人中心
                 </RouterLink>
               </DropdownMenuItem>
-              <DropdownMenuCheckboxItem
-                :model-value="resolvedTheme === 'dark'"
-                @update:model-value="toggleTheme"
+              <DropdownMenuLabel>主题</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                :model-value="theme"
+                aria-label="主题"
+                data-testid="theme-preference"
+                @update:model-value="setThemePreference"
               >
-                <Moon />深色模式
-              </DropdownMenuCheckboxItem>
+                <DropdownMenuRadioItem value="system">
+                  <Monitor />跟随系统
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="light">
+                  <Sun />浅色
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="dark">
+                  <Moon />深色
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"

@@ -15,7 +15,7 @@
 | 图表 | ECharts + `vue-echarts` |
 | 包管理 | `pnpm@11.1.3`（以 `package.json` 的 `packageManager` 为准） |
 
-入口：`index.html` → `src/main.ts` → `App.vue`。`index.html` 在 Vue 挂载前用 `localStorage.theme` 给 `<html>` 打 `light`/`dark`，避免主题闪烁。
+入口：`index.html` → `src/main.ts` → `App.vue`。`index.html` 在 Vue 挂载前读取 `localStorage.theme`：`light`/`dark` 直接应用；缺失、非法或 `system` 则按 `prefers-color-scheme` 解析后给 `<html>` 打 `light`/`dark`，避免主题闪烁。
 
 ## 常用命令
 
@@ -170,14 +170,14 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 跨路由、带请求序号、需要在非组件里 `getState()` → zustand（分析看板、问股）。
 - 分析页不要直接碰 `stockPoolStore` 的全部字段，走 `useHomeDashboardState()`；轮询/可见性刷新走 `useDashboardLifecycle()`。
 
-主题不是 store：`useTheme()` 模块级 ref，`ThemeProvider` 在挂载时 `initThemeRuntime()`。默认偏好是 `light`（不是 `system`）。
+主题不是 store：`useTheme()` 模块级 ref，`ThemeProvider` 在挂载时 `initThemeRuntime()`。默认主题偏好是 `system`（跟随系统）；`resolvedTheme` 才是最终渲染的 `light`/`dark`。已有 `light`/`dark` 存储值会继续生效。系统主题变化时由 `matchMedia('(prefers-color-scheme: dark)')` 同步 `systemPrefersDark`。
 
 ## 页面与组合式函数
 
 | 组合式函数 | 作用 |
 | --- | --- |
 | `useAuth` | 对 `authStore` 的稳定 API |
-| `useTheme` | 主题读写与 `documentElement` class |
+| `useTheme` | 主题偏好（`system` / `light` / `dark`）与 `documentElement` class |
 | `useQuantMarket` | 量化 `market` query |
 | `useRealtimeQuotes` | 行情 WebSocket |
 | `useHomeDashboardState` / `useDashboardLifecycle` | 分析首页状态与 30s 轮询 |
