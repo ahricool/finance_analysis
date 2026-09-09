@@ -222,14 +222,15 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
     />
     <div
       v-if="loading && !items.length"
-      class="mt-4 space-y-3"
+      class="mt-4 columns-3 gap-3 2xl:columns-4"
       aria-label="正在加载"
     >
-      <div
-        v-for="i in 4"
-        :key="i"
-        class="h-28 animate-pulse rounded-xl bg-muted"
-      />
+      <div class="mb-3 h-36 break-inside-avoid animate-pulse rounded-xl bg-muted" />
+      <div class="mb-3 h-52 break-inside-avoid animate-pulse rounded-xl bg-muted" />
+      <div class="mb-3 h-28 break-inside-avoid animate-pulse rounded-xl bg-muted" />
+      <div class="mb-3 h-44 break-inside-avoid animate-pulse rounded-xl bg-muted" />
+      <div class="mb-3 h-32 break-inside-avoid animate-pulse rounded-xl bg-muted" />
+      <div class="mb-3 h-48 break-inside-avoid animate-pulse rounded-xl bg-muted" />
     </div>
     <div
       v-else-if="!items.length && !error"
@@ -253,7 +254,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
           {{ dayHeading(group.key) }}
         </h2>
         <div
-          class="columns-2 gap-3"
+          class="columns-3 gap-3 2xl:columns-4"
           data-testid="timeline-columns"
         >
           <div

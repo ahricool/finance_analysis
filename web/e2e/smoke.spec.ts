@@ -269,7 +269,8 @@ test('investment feed shows individual items and report details across viewports
     await expect(page.getByTestId('timeline-item').first()).toContainText('EPS 预期 $1.32');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const columns = page.getByTestId('timeline-columns').first();
-    await expect(columns).toHaveCSS('column-count', '2');
+    const columnCount = width >= 1536 ? '4' : '3';
+    await expect(columns).toHaveCSS('column-count', columnCount);
     const wrappers = columns.locator(':scope > div');
     for (const wrapper of await wrappers.all()) {
       await expect(wrapper).toHaveCSS('break-inside', 'avoid');
@@ -278,7 +279,7 @@ test('investment feed shows individual items and report details across viewports
     expect(await page.getByTestId('timeline-item').evaluateAll(cards => cards.map(card => card.getAttribute('aria-label'))))
       .toEqual(items.map(item => `查看${item.title}`));
     const boxes = await page.getByTestId('timeline-item').evaluateAll(cards => cards.slice(0, 4).map(card => ({ x: card.getBoundingClientRect().x, height: card.getBoundingClientRect().height })));
-    expect(new Set(boxes.map(box => Math.round(box.x))).size).toBe(2);
+    expect(new Set(boxes.map(box => Math.round(box.x))).size).toBe(Number(columnCount));
     expect(new Set(boxes.map(box => Math.round(box.height))).size).toBeGreaterThan(1);
     await page.screenshot({ path: `test-results/timeline-${width}.png`, fullPage: true });
   }

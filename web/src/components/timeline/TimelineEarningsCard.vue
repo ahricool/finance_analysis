@@ -25,24 +25,27 @@ const surprise = computed(() => formatSurprise(payload.value.epsSurprisePct));
     @open="$emit('open')"
   >
     <template #meta>
-      <span>· {{ distanceLabel(item) }}</span>
+      <span>{{ distanceLabel(item) }}</span>
     </template>
-    <p class="flex flex-wrap items-baseline gap-x-2 text-base font-semibold leading-snug">
+    <p class="break-words text-[15px] font-semibold leading-snug tracking-tight">
       <span class="tabular-nums">{{ item.symbol || item.title }}</span>
       <span
         v-if="hasValue(payload.counterName)"
-        class="text-sm font-medium text-muted-foreground"
+        class="mt-0.5 block text-sm font-medium text-muted-foreground"
       >{{ payload.counterName }}</span>
     </p>
-    <p class="mt-1 text-sm text-muted-foreground">
+    <p
+      v-if="payload.reportingPeriod || item.title"
+      class="mt-1.5 break-words text-sm text-muted-foreground"
+    >
       {{ payload.reportingPeriod || item.title }}
     </p>
-    <p class="mt-2 text-xs text-muted-foreground">
+    <p class="mt-1 break-words text-[11px] leading-4 text-muted-foreground">
       {{ when }}
     </p>
     <p
       v-if="estimate || reported"
-      class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm tabular-nums"
+      class="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 text-sm tabular-nums"
     >
       <span v-if="estimate">EPS 预期 {{ estimate }}</span>
       <span v-if="reported">实际 {{ reported }}</span>
