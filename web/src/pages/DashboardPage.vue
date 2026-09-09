@@ -192,7 +192,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         >
           <div class="border-t pt-4">
             <RouterLink
-              :to="{ path: '/market/etf-rotation', query: { market: entry.market } }"
+              :to="{ path: '/research/etf-rotation', query: { market: entry.market } }"
               class="mb-3 flex items-center justify-between text-sm font-semibold"
             >
               {{ marketLabel(entry.market) }} · ETF 动量轮动 <ArrowUpRight class="size-4" />
@@ -207,7 +207,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
           </div>
           <div class="border-t pt-4">
             <RouterLink
-              :to="{ path: '/market/trend-following', query: { market: entry.market } }"
+              :to="{ path: '/research/trend-following', query: { market: entry.market } }"
               class="mb-3 flex items-center justify-between text-sm font-semibold"
             >
               {{ marketLabel(entry.market) }} · 趋势跟踪 <ArrowUpRight class="size-4" />
@@ -237,7 +237,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
             class="pr-5 last:pl-5 last:pr-0"
           >
             <RouterLink
-              :to="{ path: '/market/quant', query: { market: entry.market } }"
+              :to="{ path: '/research/quant', query: { market: entry.market } }"
               class="flex items-center justify-between text-sm font-semibold"
             >
               {{ marketLabel(entry.market) }} · Quant <ArrowUpRight class="size-4" />
@@ -253,7 +253,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
               <RouterLink
                 v-for="(item, index) in entry.signals.data?.items.slice(0, 3)"
                 :key="item.code"
-                :to="{ path: '/market/quant', query: { market: entry.market } }"
+                :to="{ path: '/research/quant', query: { market: entry.market } }"
                 class="flex items-center gap-3 py-2 text-sm"
               >
                 <span class="text-xs tabular-nums text-muted-foreground">0{{ index + 1 }}</span><span class="min-w-0 flex-1 truncate font-medium">{{ item.name || item.code }}</span><span class="tabular-nums">{{ formatScore(item.finalScore) }}</span>
@@ -263,7 +263,7 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
         </div>
         <div class="mt-5 rounded-lg border px-5 py-4">
           <RouterLink
-            to="/market/crypto/btc"
+            to="/research/crypto/btc"
             class="flex items-center gap-2 text-sm font-semibold"
           >
             <Bitcoin class="size-4" /> BTCUSDT <span class="ml-auto text-xs font-normal text-muted-foreground">24 / 7</span><ArrowUpRight class="size-4" />

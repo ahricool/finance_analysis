@@ -6,8 +6,6 @@ import Shell from '../Shell.vue';
 import { theme, systemPrefersDark } from '@/composables/useTheme';
 import { useAuthStore } from '@/stores/authStore';
 
-vi.mock('@/stores/agentChatStore', () => ({ useAgentChatStore: () => false }));
-
 function createTestRouter() {
   return createRouter({
     history: createMemoryHistory(),
@@ -54,28 +52,52 @@ describe('Shell navigation', () => {
       const marketMenu = wrapper.get('button[aria-label="市场"]');
       expect(marketMenu.attributes('aria-current')).toBe('page');
       expect(marketMenu.classes()).toContain('bg-muted');
+      expect(wrapper.get('button[aria-label="研究"]').attributes('aria-current')).toBeUndefined();
     },
   );
 
   it.each([
-    '/market/quant/models',
-    '/market/quant/signals/NVDA.US',
+    '/research/quant/models',
+    '/research/quant/signals/NVDA.US',
+    '/research/etf-rotation',
   ])('marks research navigation active on %s', async (path) => {
     const { wrapper } = await mountShell(path);
     const researchMenu = wrapper.get('button[aria-label="研究"]');
     expect(researchMenu.attributes('aria-current')).toBe('page');
     expect(researchMenu.classes()).toContain('bg-muted');
+    expect(wrapper.get('button[aria-label="市场"]').attributes('aria-current')).toBeUndefined();
+    expect(wrapper.find('[data-testid="desktop-main-nav"] a[aria-label="分析"]').attributes('aria-current')).toBeUndefined();
   });
 
   it.each(['/tasks', '/tasks/runs'])(
     'marks the task navigation active on %s',
     async (path) => {
       const { wrapper } = await mountShell(path);
-      const taskLink = wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="任务"]');
+      const taskLink = wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="任务中心"]');
       expect(taskLink.attributes('aria-current')).toBe('page');
       expect(taskLink.classes()).toContain('bg-muted');
     },
   );
+
+  it('renders the canonical top-level labels without chat or AI entries', async () => {
+    const { wrapper } = await mountShell('/dashboard');
+    const labels = wrapper
+      .get('[data-testid="desktop-main-nav"]')
+      .findAll('a[aria-label], button[aria-label]')
+      .map((node) => node.attributes('aria-label'));
+    expect(labels).toEqual(['动态', '时间线', '研究', '分析', '市场', '任务中心']);
+    expect(wrapper.text()).not.toContain('问股');
+    expect(wrapper.text()).not.toContain('AI');
+    wrapper.unmount();
+  });
+
+  it('marks analysis as the only active primary destination', async () => {
+    const { wrapper } = await mountShell('/analysis');
+    expect(wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="分析"]').attributes('aria-current')).toBe('page');
+    expect(wrapper.get('button[aria-label="研究"]').attributes('aria-current')).toBeUndefined();
+    expect(wrapper.get('button[aria-label="市场"]').attributes('aria-current')).toBeUndefined();
+    wrapper.unmount();
+  });
 
   it('selects theme preference from radio items and keeps system selected when OS is dark', async () => {
     useAuthStore().currentUser = {

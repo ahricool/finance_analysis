@@ -7,38 +7,53 @@ import {
 } from '../mainNav';
 
 describe('main navigation', () => {
-  it('keeps tasks last while keeping market scoped', () => {
-    expect(mainNavItems.map((item) => item.label)).toEqual(['动态', '分析', '市场', '研究', '时间线', '问股', '任务']);
+  it('orders desktop destinations and scopes research away from market', () => {
+    expect(mainNavItems.map((item) => item.label)).toEqual([
+      '动态',
+      '时间线',
+      '研究',
+      '分析',
+      '市场',
+      '任务中心',
+    ]);
+    expect(mainNavItems.map((item) => item.key)).not.toContain('chat');
+    expect(mainNavItems.some((item) => item.label === '问股' || item.label === 'AI')).toBe(false);
     expect(mainNavItems[0]).toMatchObject({ key: 'dashboard', to: '/dashboard', exact: true });
-    expect(mainNavItems.find((item) => item.key === 'market')).toMatchObject({
-      to: '/market/watch-list',
-      children: marketNavItems,
-    });
+    expect(mainNavItems.find((item) => item.key === 'timeline')).toMatchObject({ to: '/timeline' });
     expect(mainNavItems.find((item) => item.key === 'research')).toMatchObject({
-      to: '/market/quant',
+      to: '/research/etf-rotation',
+      activePathPrefix: '/research/',
       children: researchNavItems,
     });
+    expect(mainNavItems.find((item) => item.key === 'analysis')).toMatchObject({
+      to: '/analysis',
+      exact: true,
+    });
+    expect(mainNavItems.find((item) => item.key === 'market')).toMatchObject({
+      to: '/market/watch-list',
+      activePathPrefix: '/market/',
+      children: marketNavItems,
+    });
     expect(researchNavItems).toMatchObject([
-      { key: 'quant', to: '/market/quant', activePathPrefix: '/market/quant' },
-      { key: 'etf-rotation', to: '/market/etf-rotation' },
-      { key: 'trend-following', to: '/market/trend-following' },
-      { key: 'crypto-btc', to: '/market/crypto/btc' },
+      { key: 'etf-rotation', to: '/research/etf-rotation' },
+      { key: 'trend-following', to: '/research/trend-following' },
+      { key: 'quant', to: '/research/quant', activePathPrefix: '/research/quant' },
+      { key: 'crypto-btc', to: '/research/crypto/btc' },
     ]);
     expect(allNavDestinations.map((item) => item.key)).toEqual([
       'dashboard',
+      'timeline',
+      'etf-rotation',
+      'trend-following',
+      'quant',
+      'crypto-btc',
       'analysis',
       'watch-list',
       'holdings',
-      'quant',
-      'etf-rotation',
-      'trend-following',
-      'crypto-btc',
-      'timeline',
-      'chat',
       'tasks',
     ]);
     expect(mainNavItems.find((item) => item.key === 'tasks')).toMatchObject({
-      label: '任务',
+      label: '任务中心',
       to: '/tasks',
     });
   });

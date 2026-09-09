@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import ThemeProvider from '@/components/theme/ThemeProvider.vue';
 import { Toaster } from '@/components/ui/sonner';
 import { useAuthStore } from '@/stores/authStore';
-import { useAgentChatStore } from '@/stores/agentChatStore';
 
 const auth = useAuthStore();
 const { isLoading, loadError, loggedIn } = storeToRefs(auth);
@@ -19,14 +18,6 @@ onMounted(() => {
     void auth.fetchStatus();
   }
 });
-
-watch(
-  () => route.path,
-  (path) => {
-    useAgentChatStore.getState().setCurrentRoute(path);
-  },
-  { immediate: true },
-);
 
 watch(
   [isLoading, loadError, loggedIn, () => route.path],

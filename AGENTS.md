@@ -296,4 +296,4 @@ pnpm run test:smoke
 
 `crypto/` 是独立 BTCUSDT Spot 领域，`integrations/crypto/binance.py` 仅负责公开Binance传输；不要接股票 Provider 链。
 `finance-analysis-crypto-stream` / Compose `crypto-streamer` 独立采集，PostgreSQL保存1m闭合K线和策略状态/快照，Redis仅为实时视图。
-API `/api/v1/crypto` 与页面 `/market/crypto/btc` 统一走 `CryptoService`，详见 `docs/crypto-btc.md`；测试位于 `tests/crypto/`。
+API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`，详见 `docs/crypto-btc.md`；测试位于 `tests/crypto/`。

@@ -190,7 +190,10 @@ test.describe('web smoke', () => {
     const stockInput = page.getByPlaceholder('输入股票代码或名称，如 600519、贵州茅台、AAPL');
     await expect(stockInput).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('link', { name: '分析' })).toBeVisible();
-    await expect(page.getByRole('link', { name: '问股' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '时间线' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '研究' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '任务中心' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '问股' })).toHaveCount(0);
     await expect(page.getByText('历史分析', { exact: true })).toBeVisible();
 
     await stockInput.fill('600519');
@@ -198,48 +201,12 @@ test.describe('web smoke', () => {
     await expect(analyzeButton).toBeVisible();
   });
 
-  test('chat page allows entering a question and starts a request', async ({ page }) => {
-    await login(page);
-
-    // Navigate to chat page by clicking the link
-    await page.getByRole('link', { name: '问股' }).click();
-    await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(1000);
-
-    await expect(page.getByTestId('conversation-workspace')).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId('conversation-list-scroll')).toBeVisible();
-    await expect(page.getByTestId('conversation-message-scroll')).toBeVisible();
-
-    const input = page.getByPlaceholder(/分析 600519/);
-    await expect(input).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('策略', { exact: true })).toBeVisible();
-
-    const prompt = '请简要分析 600519';
-    await input.fill(prompt);
-    await page.getByRole('button', { name: '发送' }).click();
-
-    await expect(page.locator('p').filter({ hasText: prompt }).last()).toBeVisible({
-      timeout: 5000,
-    });
-  });
-
-  test('chat page uses accessible labels instead of native title attributes for key actions', async ({
-    page,
-  }) => {
-    await login(page);
-
-    await page.getByRole('link', { name: '问股' }).click();
-    await page.waitForLoadState('domcontentloaded');
-
-    const sendButton = page.getByRole('button', { name: '发送' });
-    const composer = page.getByPlaceholder(/分析 600519/);
-
-    await expect(page.getByTestId('conversation-workspace')).toBeVisible({ timeout: 10_000 });
-    await expect(sendButton).toBeVisible({ timeout: 10_000 });
-    await expect(composer).toBeVisible({ timeout: 10_000 });
-
-    await expect(sendButton).not.toHaveAttribute('title', /.+/);
-    await expect(composer).not.toHaveAttribute('title', /.+/);
+  test('legacy chat URL redirects to analysis', async ({ page }) => {
+    await mockAuthenticatedSession(page);
+    await page.goto('/chat');
+    await expect(page).toHaveURL(/\/analysis$/);
+    await expect(page.getByTestId('analysis-workspace')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('link', { name: '问股' })).toHaveCount(0);
   });
 
   test('shell remains usable without horizontal overflow at all required breakpoints', async ({

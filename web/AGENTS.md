@@ -46,7 +46,7 @@ web/
       app/          # 产品级封装（日期选择、确认框、API 错误条）
       forms/        # FieldInput / FieldSelect 等表单字段封装
       layout/       # Shell、PageHeader、ModuleTabs
-      */            # 业务块：chat、report、stocks、quant、history…
+      */            # 业务块：report、stocks、quant、history…
     composables/    # 可复用组合式逻辑
     stores/         # Pinia / zustand
     router/         # 路由表与守卫
@@ -64,7 +64,7 @@ web/
 - **新页面**：`src/pages/`（或 `pages/market/`），在 `src/router/index.ts` 注册，需要出现在顶栏时同步改 `src/config/mainNav.ts`。
 - **新接口**：`src/api/<domain>.ts`，类型放 `src/types/` 或与 API 同文件。页面不要直接 `axios.get`。
 - **新基础控件**：先看 `components/ui/` 和 `components/app/`。没有再用 shadcn-vue 加到 `ui/`，产品语义包装放 `app/`。
-- **业务块**：按功能建目录（已有 `chat/`、`report/`、`quant/`、`stocks/`），不要堆到 `components/` 根上，也不要新建全局 `services/`。
+- **业务块**：按功能建目录（已有 `report/`、`quant/`、`stocks/`），不要堆到 `components/` 根上，也不要新建全局 `services/`。
 - **纯计算**：`src/utils/`；和 Vue 生命周期/路由绑定的逻辑放 `composables/`。
 
 ## 运行时分层
@@ -92,14 +92,14 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
 | 路径 | 名称 | 含义 |
 | --- | --- | --- |
 | `/dashboard` | `dashboard` | 公共市场动态（登录后的默认入口） |
+| `/timeline` | `timeline` | 投资时间线 |
+| `/research/etf-rotation` | `research-etf-rotation` | ETF 动量轮动 |
+| `/research/trend-following` | `research-trend-following` | 趋势跟踪 |
+| `/research/quant` 及子路径 | `research-quant*` | 量化研究（总览 / 选股 / 数据集 / 模型 / 组合） |
+| `/research/crypto/btc` | `research-crypto-btc` | BTC 交易 |
 | `/analysis` | `analysis` | 个股分析 |
-| `/chat` | `chat` | 问股 Agent |
 | `/market/watch-list` | `market-watch-list` | 自选股 |
 | `/market/holdings` | `market-holdings` | 投资组合 |
-| `/market/quant` 及子路径 | `market-quant*` | 量化研究（总览 / 选股 / 数据集 / 模型 / 组合） |
-| `/market/etf-rotation` | `market-etf-rotation` | ETF 动量轮动 |
-| `/market/trend-following` | `market-trend-following` | 趋势跟踪 |
-| `/timeline` | `timeline` | 投资时间线 |
 | `/profile/info` `/password` `/notification` | `profile-*` | 个人中心（同一页） |
 | `/tasks` `/scheduled` `/runs` | `tasks*` | 任务中心（同一页） |
 
@@ -110,7 +110,9 @@ layout（Shell / PageHeader / ModuleTabs）+ ui/app 组件
   不要假设后端契约仍存在。
 - `meta.public === true` 才是公开页（目前只有登录）。
 - `meta.title` 用于 `document.title`（`「页面名 - Finance Analysis」`）。嵌套路由取最近一层有 title 的记录。
-- 市场与研究是**两套并列的 `/market` 子树**，分别由 `MarketPage` 和 `ResearchPage` 提供 `ModuleTabs`。量化、ETF、趋势跟踪走研究树，不要塞进市场 tab。
+- 研究走 `/research/**`，市场走 `/market/**`。不要把 Quant / ETF / 趋势跟踪 / BTC 再挂到 `/market`。
+- 旧 `/market/quant*`、`/market/etf-rotation`、`/market/trend-following`、`/market/crypto/btc` 只作为 compatibility redirect，内部导航必须用 canonical URL。
+- `/chat` 只保留到 `/analysis` 的 legacy redirect，前端不再有问股页面或 chat store。
 - 量化范围用 query `?market=US|CN`。在量化子路由之间跳转时，守卫会保留已有 `market`。读写市场用 `useQuantMarket()`，不要手写丢 query 的 `router.push`。
 - 顶栏菜单数据在 `src/config/mainNav.ts`，和路由表分开维护。加入口时两处都要改，并补 `src/config/__tests__/mainNav.test.ts` 一类断言。
 - `/tasks` 由 `TasksPage` 按角色转到子页：管理员进入 `/tasks/scheduled`，普通用户进入 `/tasks/runs`。
@@ -139,14 +141,13 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 页面展示错误用 `getParsedApiError` + `AppApiErrorAlert`，不要把原始 `error.message` 直接丢给用户。分类逻辑在 `src/api/error.ts`（LLM 未配置、本机连不上、上游超时等）。
 
-领域模块：`auth`、`analysis`、`history`、`agent`、`watchList`、`stocks`、`quant`、`etfRotation`、`trendFollowing`、`timeline`、`tasks`、`realtimeMarket`。`portfolio.ts` 仍在源码中，但其后端路由已移除，属于已知前端遗留，不应作为可用 API 范例。
+领域模块：`auth`、`analysis`、`history`、`watchList`、`stocks`、`quant`、`etfRotation`、`trendFollowing`、`timeline`、`tasks`、`realtimeMarket`。`portfolio.ts` 仍在源码中，但其后端路由已移除，属于已知前端遗留，不应作为可用 API 范例。后端 `/api/v1/agent/*` 仍存在，但前端不再封装问股 API。
 
 约定：
 
 - 请求路径走 `/api/v1/...`。
 - 后端 snake_case 时，在 API 模块里用 `toCamelCase()` 再交给页面；**不要在 Vue 里散落 `stock_code` 字段访问**。
 - 少数接口（如部分 auth JSON）后端已是 camelCase，保持原样，不要双重转换。
-- 问股流式接口 `agentApi.chatStream` 用 `fetch` + `credentials: 'include'`，因为要读 SSE，不走 Axios。
 - 行情推送：`useRealtimeQuotes()` 连 WebSocket，指数退避重连；`4401`/`4403` 视为未授权，停止重连。
 
 ## 语言边界
@@ -162,12 +163,11 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 | `authStore` | Pinia | 登录态、当前用户、lookup/login/logout |
 | `timezoneStore` | Pinia | 展示时区 `Asia/Shanghai` \| `America/New_York`，写入 `localStorage` |
 | `stockPoolStore` | vue-zustand | 分析页查询、历史列表、当前报告、重复任务错误 |
-| `agentChatStore` | vue-zustand | 问股会话、流式消息、完成角标；`session_id` 在 `localStorage` |
 
 选择：
 
 - 和壳层/鉴权/时区相关 → Pinia，组件用 `storeToRefs`。
-- 跨路由、带请求序号、需要在非组件里 `getState()` → zustand（分析看板、问股）。
+- 跨路由、带请求序号、需要在非组件里 `getState()` → zustand（分析看板）。
 - 分析页不要直接碰 `stockPoolStore` 的全部字段，走 `useHomeDashboardState()`；轮询/可见性刷新走 `useDashboardLifecycle()`。
 
 主题不是 store：`useTheme()` 模块级 ref，`ThemeProvider` 在挂载时 `initThemeRuntime()`。默认主题偏好是 `system`（跟随系统）；`resolvedTheme` 才是最终渲染的 `light`/`dark`。已有 `light`/`dark` 存储值会继续生效。系统主题变化时由 `matchMedia('(prefers-color-scheme: dark)')` 同步 `systemPrefersDark`。
@@ -199,7 +199,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 - 弹层不要改 `document.body` 的 `overflow` / `paddingRight` 造成顶栏位移；冒烟测试会查这一点。
 - 根滚动条使用 `scrollbar-gutter: stable`，路由切换时不要让页面左右跳。
 - WebUI 仅面向桌面，根最小宽度 1200px；低于此宽度允许页面级横向滚动。只维护 Desktop 导航与表格，不添加手机 Sheet 导航或 Mobile Card。验证 1280 / 1440 / 1920px；桌面宽度之间的响应式布局继续保留。
-- Dashboard 只组合公开的 Quant Regime/Signals、ETF/Trend Changes、Timeline、BTC overview。不得读取持仓、自选股、分析/问股历史等私人数据；各模块独立加载和失败。
+- Dashboard 只组合公开的 Quant Regime/Signals、ETF/Trend Changes、Timeline、BTC overview。不得读取持仓、自选股、分析历史等私人数据；各模块独立加载和失败。
 
 新增 shadcn 组件：按 `components.json` 生成到 `src/components/ui/`，不要改 aliases，不要另开一套 primitive。
 
@@ -252,5 +252,5 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 ## BTC 页面
 
-`/market/crypto/btc` 位于研究导航，`useCryptoBtc()` 统一后端REST与WS，断线后60秒轮询并尝试重连；不得直接访问Binance。
+`/research/crypto/btc` 位于研究导航，`useCryptoBtc()` 统一后端REST与WS，断线后60秒轮询并尝试重连；不得直接访问Binance。
 `BtcKlineChart` 复用ECharts，已闭合history与单根current分开更新。VChart的固定高度放外层；manual-update配合autoresize时，应等初始nextTick提交完整option，再增量更新series。

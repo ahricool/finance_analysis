@@ -44,7 +44,7 @@ describe('public market dashboard', () => {
     const timelineCalls = get.mock.calls.filter(([path]) => path === '/api/v1/timeline');
     expect(timelineCalls[0]![1]?.params).toEqual({ limit: 10, timezone: 'Asia/Shanghai' });
     expect(timelineCalls[1]![1]?.params).toMatchObject({ end_date: '2026-09-16', category: 'event' });
-    for (const path of ['/timeline', '/market/crypto/btc', '/market/quant?market=CN', '/market/quant?market=US', '/market/etf-rotation?market=CN', '/market/trend-following?market=CN']) expect(wrapper.find(`a[href="${path}"]`).exists()).toBe(true);
+    for (const path of ['/timeline', '/research/crypto/btc', '/research/quant?market=CN', '/research/quant?market=US', '/research/etf-rotation?market=CN', '/research/trend-following?market=CN']) expect(wrapper.find(`a[href="${path}"]`).exists()).toBe(true);
     wrapper.unmount();
   });
 

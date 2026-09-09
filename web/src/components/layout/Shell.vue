@@ -5,7 +5,6 @@ import { storeToRefs } from 'pinia';
 import { ChevronDown, LogOut, Monitor, Moon, Sun, User, UserRound } from 'lucide-vue-next';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
-import AppStatusDot from '@/components/app/AppStatusDot.vue';
 import TimezoneSwitcher from '@/components/timezone/TimezoneSwitcher.vue';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -24,16 +23,13 @@ import { useAuth } from '@/composables/useAuth';
 import { useTheme } from '@/composables/useTheme';
 import { APP_NAME } from '@/config/app';
 import { mainNavItems, type MainNavItem, type NavDestination } from '@/config/mainNav';
-import { useAgentChatStore } from '@/stores/agentChatStore';
 import { useAuthStore } from '@/stores/authStore';
-import { cn } from '@/utils/cn';
 
 const route = useRoute();
 const authStore = useAuthStore();
 const { currentUser } = storeToRefs(authStore);
 const { logout } = useAuth();
 const { theme, setTheme } = useTheme();
-const completionBadge = useAgentChatStore((state) => state.completionBadge);
 const showLogoutConfirm = ref(false);
 
 function isDestinationActive(item: NavDestination): boolean {
@@ -138,15 +134,9 @@ async function onLogoutConfirm() {
                 :to="item.to"
                 :aria-label="item.label"
                 :aria-current="isNavItemActive(item) ? 'page' : undefined"
-                :class="cn('relative', isNavItemActive(item) && 'bg-muted text-foreground')"
+                :class="isNavItemActive(item) && 'bg-muted text-foreground'"
               >
                 <component :is="item.icon" />{{ item.label }}
-                <AppStatusDot
-                  v-if="item.badge === 'completion' && completionBadge"
-                  tone="info"
-                  class="absolute right-1 top-1"
-                  aria-label="问股有新消息"
-                />
               </RouterLink>
             </Button>
           </template>

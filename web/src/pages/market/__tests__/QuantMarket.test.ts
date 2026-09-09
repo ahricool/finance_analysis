@@ -23,7 +23,7 @@ const capability = {
 async function mountMarket(path: string) {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/market/quant', component: QuantPage, children: [{ path: '', component: QuantDashboardPage }] }],
+    routes: [{ path: '/research/quant', component: QuantPage, children: [{ path: '', component: QuantDashboardPage }] }],
   });
   await router.push(path);
   await router.isReady();
@@ -41,7 +41,7 @@ describe('quant market context', () => {
   });
 
   it('defaults to US and stores CN selection in the route query', async () => {
-    const { wrapper, router } = await mountMarket('/market/quant');
+    const { wrapper, router } = await mountMarket('/research/quant');
     await flushPromises();
     const controls = wrapper.get('[data-testid="quant-market-switcher"]');
     expect(controls.attributes('role')).toBe('radiogroup');
@@ -64,9 +64,9 @@ describe('quant market context', () => {
       if (market === 'US') return new Promise((resolve) => { resolveUs = resolve; });
       return Promise.resolve({ tradeDate: null, market: 'CN', universe: 'cn_csi300', modelVersion: null, marketRegime: null, maxEquityExposure: null, items: [] });
     });
-    const { wrapper, router } = await mountMarket('/market/quant?market=US');
+    const { wrapper, router } = await mountMarket('/research/quant?market=US');
     await flushPromises();
-    await router.push('/market/quant?market=CN');
+    await router.push('/research/quant?market=CN');
     await flushPromises();
     resolveUs({
       tradeDate: '2026-07-17', market: 'US', universe: 'us_sp500', modelVersion: 'model-v1', marketRegime: 'risk_on', maxEquityExposure: 0.8,
@@ -85,7 +85,7 @@ describe('quant market context', () => {
       items: [{ id: 1, market: 'US', tradeDate: '2026-07-17', code: 'AAPL.US', name: 'Apple' } as never],
     });
 
-    const { wrapper } = await mountMarket('/market/quant');
+    const { wrapper } = await mountMarket('/research/quant');
     await flushPromises();
 
     expect(wrapper.text()).toContain('AAPL.US - Apple');
@@ -127,7 +127,7 @@ describe('quant market context', () => {
       },
     });
 
-    const { wrapper } = await mountMarket('/market/quant?market=CN');
+    const { wrapper } = await mountMarket('/research/quant?market=CN');
     await flushPromises();
 
     const breakdown = wrapper.get('[data-testid="market-score-breakdown"]');

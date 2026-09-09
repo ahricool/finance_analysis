@@ -11,12 +11,14 @@ describe('router document titles', () => {
     ['/timeline', '投资时间线 - Finance Analysis'],
     ['/market/watch-list', '自选股 - Finance Analysis'],
     ['/market/holdings', '投资组合 - Finance Analysis'],
-    ['/market/quant', '量化研究 - Finance Analysis'],
-    ['/market/quant/signals', '模型选股 - Finance Analysis'],
-    ['/market/quant/signals/NVDA.US', '选股详情 - Finance Analysis'],
-    ['/market/quant/models', '量化模型 - Finance Analysis'],
-    ['/market/quant/portfolios', '目标组合 - Finance Analysis'],
-    ['/chat', '问股 - Finance Analysis'],
+    ['/research/quant', '量化研究 - Finance Analysis'],
+    ['/research/quant/signals', '模型选股 - Finance Analysis'],
+    ['/research/quant/signals/NVDA.US', '选股详情 - Finance Analysis'],
+    ['/research/quant/models', '量化模型 - Finance Analysis'],
+    ['/research/quant/portfolios', '目标组合 - Finance Analysis'],
+    ['/research/etf-rotation', 'ETF动量轮动 - Finance Analysis'],
+    ['/research/trend-following', '趋势跟踪 - Finance Analysis'],
+    ['/research/crypto/btc', 'BTC交易 - Finance Analysis'],
     ['/profile', '个人中心 - Finance Analysis'],
     ['/profile/info', '个人中心 - Finance Analysis'],
     ['/profile/password', '个人中心 - Finance Analysis'],
@@ -35,6 +37,17 @@ describe('router document titles', () => {
     expect(router.hasRoute('stock-list')).toBe(false);
     expect(router.resolve('/watch-list').name).toBe('not-found');
     expect(router.resolve('/stock-list').name).toBe('not-found');
+  });
+
+  it('does not keep former chat or market-research route names', () => {
+    expect(router.hasRoute('chat')).toBe(false);
+    expect(router.hasRoute('market-quant')).toBe(false);
+    expect(router.hasRoute('market-etf-rotation')).toBe(false);
+    expect(router.hasRoute('market-trend-following')).toBe(false);
+    expect(router.hasRoute('market-crypto-btc')).toBe(false);
+    expect(router.hasRoute('research-quant')).toBe(true);
+    expect(router.hasRoute('research-etf-rotation')).toBe(true);
+    expect(router.resolve('/analysis').name).toBe('analysis');
   });
 
   it('redirects the root path to the dashboard', () => {
@@ -58,7 +71,6 @@ describe('router document titles', () => {
     expect(router.currentRoute.value.name).toBe('profile-info');
   });
 });
-
 
 it('defaults an authenticated login route to dashboard', async () => {
   setActivePinia(createPinia());

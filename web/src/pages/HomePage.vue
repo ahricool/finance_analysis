@@ -16,10 +16,9 @@ import { getReportText, normalizeReportLanguage } from '@/utils/reportLanguage';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
-import { BarChart3, FileText, MessageCircle, RefreshCw, Search } from 'lucide-vue-next';
+import { BarChart3, FileText, RefreshCw, Search } from 'lucide-vue-next';
 import { computed, ref, unref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import { useRouter } from 'vue-router';
 
 type MarketReviewNotice = {
   variant: 'success' | 'warning' | 'destructive';
@@ -27,7 +26,6 @@ type MarketReviewNotice = {
   message: string;
 } | null;
 
-const router = useRouter();
 const timezoneStore = useTimezoneStore();
 const { displayTimezone } = storeToRefs(timezoneStore);
 const isSubmittingMarketReview = ref(false);
@@ -111,16 +109,6 @@ function onStockAutocompleteSubmit(
   source?: 'manual' | 'autocomplete',
 ) {
   handleSubmitAnalysisWrapper(code, name, source ?? 'manual');
-}
-
-function handleAskFollowUp() {
-  if (selectedReport.value?.meta.id === undefined) return;
-  const code = selectedReport.value.meta.stockCode;
-  const name = selectedReport.value.meta.stockName;
-  const rid = selectedReport.value.meta.id;
-  router.push(
-    `/chat?stock=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}&recordId=${rid}`,
-  );
 }
 
 function handleReanalyze() {
@@ -315,15 +303,6 @@ function handleHistoryPageChange(page: number) {
             >
               <RefreshCw />
               {{ reportText.reanalyze }}
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              :disabled="selectedReport.meta.id === undefined"
-              @click="handleAskFollowUp"
-            >
-              <MessageCircle />
-              追问 AI
             </Button>
             <Button
               variant="default"

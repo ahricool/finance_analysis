@@ -135,7 +135,7 @@ async function handleBuildSubmitted(result: DatasetBuildAccepted): Promise<void>
 async function handleTrainingCreated(result: ModelRunCreateAccepted): Promise<void> {
   trainingOpen.value = false;
   await router.push({
-    path: '/market/quant/models',
+    path: '/research/quant/models',
     query: { market: result.market, createdRun: String(result.modelRunId), taskId: result.taskId },
   });
 }

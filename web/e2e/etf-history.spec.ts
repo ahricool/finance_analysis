@@ -33,7 +33,7 @@ for (const width of [1280, 1440]) {
     });
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto('/market/etf-rotation');
+    await page.goto('/research/etf-rotation');
     await page.getByRole('row').filter({ hasText: '510300.SH' }).click();
     const dialog = page.getByTestId('etf-detail-modal');
     await expect(dialog).toBeVisible();

@@ -7,7 +7,6 @@ import {
   CalendarDays,
   ChartNoAxesCombined,
   ClipboardList,
-  MessageSquareQuote,
   RefreshCcw,
   Sigma,
   Star,
@@ -22,7 +21,6 @@ export type NavDestination = {
   icon: Component;
   activePathPrefix?: string;
   exact?: boolean;
-  badge?: 'completion';
 };
 
 export type MainNavItem = NavDestination & {
@@ -36,29 +34,38 @@ export const marketNavItems: NavDestination[] = [
 
 export const researchNavItems: NavDestination[] = [
   {
-    key: 'quant',
-    label: '量化研究',
-    to: '/market/quant',
-    icon: Sigma,
-    activePathPrefix: '/market/quant',
-  },
-  {
     key: 'etf-rotation',
-    label: 'ETF动量轮动',
-    to: '/market/etf-rotation',
+    label: 'ETF 动量轮动',
+    to: '/research/etf-rotation',
     icon: RefreshCcw,
   },
   {
     key: 'trend-following',
     label: '趋势跟踪',
-    to: '/market/trend-following',
+    to: '/research/trend-following',
     icon: TrendingUp,
   },
-  { key: 'crypto-btc', label: 'BTC交易', to: '/market/crypto/btc', icon: Bitcoin },
+  {
+    key: 'quant',
+    label: '量化研究',
+    to: '/research/quant',
+    icon: Sigma,
+    activePathPrefix: '/research/quant',
+  },
+  { key: 'crypto-btc', label: 'BTC 交易', to: '/research/crypto/btc', icon: Bitcoin },
 ];
 
 export const mainNavItems: MainNavItem[] = [
   { key: 'dashboard', label: '动态', to: '/dashboard', icon: Activity, exact: true },
+  { key: 'timeline', label: '时间线', to: '/timeline', icon: CalendarDays },
+  {
+    key: 'research',
+    label: '研究',
+    to: '/research/etf-rotation',
+    icon: BarChart3,
+    activePathPrefix: '/research/',
+    children: researchNavItems,
+  },
   {
     key: 'analysis',
     label: '分析',
@@ -74,22 +81,7 @@ export const mainNavItems: MainNavItem[] = [
     activePathPrefix: '/market/',
     children: marketNavItems,
   },
-  {
-    key: 'research',
-    label: '研究',
-    to: '/market/quant',
-    icon: BarChart3,
-    children: researchNavItems,
-  },
-  { key: 'timeline', label: '时间线', to: '/timeline', icon: CalendarDays },
-  {
-    key: 'chat',
-    label: '问股',
-    to: '/chat',
-    icon: MessageSquareQuote,
-    badge: 'completion',
-  },
-  { key: 'tasks', label: '任务', to: '/tasks', icon: ClipboardList },
+  { key: 'tasks', label: '任务中心', to: '/tasks', icon: ClipboardList },
 ];
 
 export const allNavDestinations = mainNavItems.flatMap((item) => item.children ?? [item]);

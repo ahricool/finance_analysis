@@ -14,12 +14,12 @@ Web UI 仅面向桌面浏览器。根布局最低宽度 1200px，Shell 最大内
 | What's Next | Timeline `category=event, end_date=today+7, limit=100` | 展示仍未发生的 earnings/macro，最多8条；保留返回顺序，时间倒序而非最近事件优先 |
 
 每个来源拥有独立 loading/error/retry 状态。时区变化重新获取 Timeline cutoff，异步请求使用版本号防止旧响应覆盖新结果。
-页面不读取持仓、投资组合、自选股、分析历史、问股历史或用户偏好接口；时区仍复用全站展示时区。
+页面不读取持仓、投资组合、自选股、分析历史或用户偏好接口；时区仍复用全站展示时区。
 数据不足时显示缺失状态，不推导市场评分增量、BTC涨跌幅或缺失的策略比较结果。
 
 ## 桌面清理与信息层级
 
-- 删除 Shell 手机菜单、分析/问股的手机历史侧栏、Tasks / WatchList / StockList / Quant 的 Mobile Card 双模板。
+- 删除 Shell 手机菜单、分析页的手机历史侧栏、Tasks / WatchList / StockList / Quant 的 Mobile Card 双模板。
 - 删除手机图表字号分支、手机弹层 CSS 和对应窄屏测试。
 - 股票详情、完整报告的 Sheet 是桌面共用详情抽屉，继续保留。
 - 保留不同桌面宽度的 `xl` / `2xl` 栅格，以及有必要的表格内部滚动。
@@ -37,6 +37,6 @@ Web UI 仅面向桌面浏览器。根布局最低宽度 1200px，Shell 最大内
 ![深色 Dashboard](images/dashboard-dark.png)
 
 验证覆盖 1280 / 1440 / 1920px 深浅色、登录默认路由、公共请求白名单、局部失败重试、Timeline 原始顺序及详情链接。
-真实登录依赖的历史报告/问股 smoke 用例仍需要 `FA_WEB_SMOKE_PASSWORD`；没有凭据时按原规则跳过。
+真实登录依赖的历史报告 smoke 用例仍需要 `FA_WEB_SMOKE_PASSWORD`；没有凭据时按原规则跳过。
 
 后续可单独评估：公开排名接口在首页只显示摘要但仍返回全量数据的成本，以及更细的快照新鲜度提示。首版不新增聚合 API。
