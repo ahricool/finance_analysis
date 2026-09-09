@@ -19,17 +19,17 @@ const when = computed(() => {
     @open="$emit('open')"
   >
     <template #meta>
-      <span>· {{ distanceLabel(item) }}</span>
+      <span>{{ distanceLabel(item) }}</span>
     </template>
-    <p class="break-words text-base font-semibold leading-snug">
+    <p class="break-words text-[15px] font-semibold leading-snug tracking-tight">
       {{ item.title }}
     </p>
-    <p class="mt-2 text-xs text-muted-foreground">
+    <p class="mt-1.5 break-words text-[11px] leading-4 text-muted-foreground">
       {{ when }}
     </p>
     <p
       v-if="hasValue(item.summary)"
-      class="mt-2 line-clamp-2 text-sm leading-relaxed text-muted-foreground"
+      class="mt-1.5 line-clamp-3 break-words text-sm leading-relaxed text-muted-foreground"
     >
       {{ item.summary }}
     </p>

@@ -26,7 +26,7 @@ Web UI 仅面向桌面浏览器。根布局最低宽度 1200px，Shell 最大内
 - ETF Ranking 为 11 列；完整收益、Entry 和各因子指标在 Detail Dialog。
 - Trend Ranking 为 11 列，名称/代码合并，移除完整 Reasons 和高级指标列；排序指标选择仍覆盖原字段。
 - Trend Portfolio 为 9 列：股票、State、Action、Units、当前仓位、入场价、当前价、跟踪止损、下一动作。
-- Timeline 按日期分组，两列 CSS Columns；公共、无 uid/Notes、DESC、end_date cutoff 和 cursor 语义不变。
+- Timeline 按日期分组，桌面 3 列、`2xl`（1536px）起 4 列 CSS Columns 瀑布流；公共、无 uid/Notes、DESC、end_date cutoff 和 cursor 语义不变。
 
 ## 视觉验证
 

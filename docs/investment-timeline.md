@@ -122,13 +122,13 @@ CPI/FOMC、非农和利率决议等核心宏观标题映射为 critical；其他
 
 筛选区只有三行元素：市场按钮组、类型 Tab、截止日期 DatePicker；市场按钮与 DatePicker 统一 `h-10`。
 
-每条消息都是独立圆角 Card（`rounded-xl` + border + subtle shadow + hover 抬升 200ms）。四种 Card 共享
-`TimelineCardShell.vue` 外壳（类型 · 市场 · 元信息 / 重要度 / 日期），内部布局不同：
+每条消息都是独立圆角 Card（`rounded-xl` + 克制 border + 轻微 hover）。四种 Card 共享
+`TimelineCardShell.vue` 外壳（弱化的类型 / 市场 / 元信息 / 重要度 / 日期），内部布局不同：
 
-- `TimelineEarningsCard.vue`：代码 + 公司名、报告期 · BMO/AMC、日期、EPS 预期 / 实际 / Surprise；字段有值才显示。
-- `TimelineMacroCard.vue`：标题 + 日期时间，不套用 symbol / EPS / 报告期。
-- `TimelineNewsCard.vue`：标题、摘要、impact 与相关标的。
-- `TimelineAnalysisCard.vue`：标题、摘要、重要度。
+- `TimelineEarningsCard.vue`：代码、公司名、报告期 · BMO/AMC、日期、EPS 预期 / 实际 / Surprise；字段有值才显示。
+- `TimelineMacroCard.vue`：标题 + 日期时间 + 摘要，不套用 symbol / EPS / 报告期。
+- `TimelineNewsCard.vue`：标题、摘要（`line-clamp-4`）、impact 与相关标的。
+- `TimelineAnalysisCard.vue`：标题、摘要（`line-clamp-5`）、相关标的。
 
 Card 只负责展示，不自己请求 API；详情继续用现有 `Dialog` + `DialogScrollContent`，财经事件详情由
 `TimelineEventDetail.vue` 渲染并在底部显示 `source_providers`。
@@ -136,13 +136,12 @@ Card 只负责展示，不自己请求 API；详情继续用现有 `Dialog` + `D
 距离时间（今天 / 明天 / 2天后 / 3天前）只是 UI 信息，不影响排序和 filter。只有后端提供
 `trading_days_to_event` 时才显示 `T-x`，否则使用日历天；前端不维护交易日历。
 
-每个日期 group 独立使用 `columns-1 gap-3 lg:columns-2`，1024px 以下一列、以上始终两列（不增为三列）。
-Card wrapper 使用 `mb-3 break-inside-avoid`，12px 间距；Shell 为 `block w-full`，自然高度，不拆列。
+每个日期 group 独立使用 `columns-3 gap-3 2xl:columns-4`：普通桌面 3 列，视口 ≥1536px 时 4 列。
+Card wrapper 使用 `mb-3 break-inside-avoid`，12px 间距；Shell 为 `block w-full`，高度由内容自然撑开，不强制等高、不拆列。
 DOM 仍按 API 顺序单次遍历，未排序、未按奇偶或高度分列，也没有新增第三方依赖。
 CSS Columns 按列流动而非逐行左右交替；追加数据或高度变化时浏览器可能重新平衡列，这是已知取舍。
 
-桌面筛选分为市场与重要性、类型、快捷日期与 DatePicker 三行。移动端重要性和 DatePicker 独立换行，
-Tab 和快捷日期支持横向滚动；Card 单列，Dialog 可滚动。
+桌面筛选分为市场与重要性、类型、快捷日期与 DatePicker 三行。详情继续用可滚动 Dialog。
 
 ![桌面 1440px](images/investment-timeline-desktop.png)
 ![移动端 360px](images/investment-timeline-mobile.png)
