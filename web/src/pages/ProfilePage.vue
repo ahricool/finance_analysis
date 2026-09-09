@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import FieldInput from '@/components/forms/FieldInput.vue';
 import FieldSelect from '@/components/forms/FieldSelect.vue';
-import ModuleTabs from '@/components/layout/ModuleTabs.vue';
 import PageHeader from '@/components/layout/PageHeader.vue';
 import AvatarCropper from '@/components/profile/AvatarCropper.vue';
 import ChangePasswordCard from '@/components/settings/ChangePasswordCard.vue';
@@ -21,7 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 import { Bell, Camera, LockKeyhole, Save, Upload, UserRound } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { RouterLink, useRoute } from 'vue-router';
 
 type ProfileTab = 'info' | 'password' | 'notification';
 
@@ -222,14 +221,31 @@ onBeforeUnmount(clearAvatarSource);
       <AlertDescription>{{ pageError.message }}</AlertDescription>
     </Alert>
 
-    <ModuleTabs
-      :items="tabs"
-      :active-key="activeTab"
-      label="个人中心设置导航"
-    />
-    <Separator />
+    <div class="grid items-start gap-6 lg:grid-cols-[13.5rem_minmax(0,1fr)]">
+      <aside>
+        <nav
+          aria-label="个人中心设置导航"
+          class="flex flex-col gap-1 rounded-xl border border-border bg-card p-2 shadow-sm ring-1 ring-foreground/10"
+        >
+          <RouterLink
+            v-for="item in tabs"
+            :key="item.key"
+            :to="item.to"
+            :data-state="activeTab === item.key ? 'active' : undefined"
+            :aria-current="activeTab === item.key ? 'page' : undefined"
+            class="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            :class="activeTab === item.key && 'bg-muted font-medium text-foreground'"
+          >
+            <component
+              :is="item.icon"
+              class="size-4"
+            />
+            {{ item.label }}
+          </RouterLink>
+        </nav>
+      </aside>
 
-    <section class="mx-auto w-full min-w-0 max-w-4xl">
+      <section class="min-w-0">
       <Card v-if="activeTab === 'info'">
         <CardHeader>
           <CardTitle>我的信息</CardTitle>
@@ -433,5 +449,6 @@ onBeforeUnmount(clearAvatarSource);
         </CardContent>
       </Card>
     </section>
+    </div>
   </div>
 </template>
