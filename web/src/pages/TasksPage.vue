@@ -69,9 +69,13 @@ const runs = ref<TaskRun[]>([]);
 const runsTotal = ref(0);
 const runsPage = ref(1);
 const runsPageSize = ref(10);
-const runsStats = ref<Record<string, number>>({});
 const runsLoading = ref(false);
 const runsError = ref<ParsedApiError | null>(null);
+const runsOverviewTotal = ref(0);
+const runsOverviewStats = ref<Record<string, number>>({});
+
+let keywordTimer: ReturnType<typeof setTimeout> | null = null;
+let runsRequestId = 0;
 
 const detail = ref<TaskRunDetail | null>(null);
 const detailOpen = ref(false);
@@ -85,8 +89,6 @@ const filters = reactive({
   startedFrom: '',
   startedTo: '',
 });
-
-let keywordTimer: ReturnType<typeof setTimeout> | null = null;
 
 const isAdmin = computed(() => authStore.currentUser?.role === 'admin');
 const activeTab = computed<TaskTab>(() => (route.path.endsWith('/scheduled') ? 'scheduled' : 'runs'));
@@ -130,10 +132,13 @@ const scheduledOverview = computed(() => {
 });
 
 const runOverview = computed(() => ({
-  total: runsTotal.value,
-  running: (runsStats.value.processing || 0) + (runsStats.value.pending || 0) + (runsStats.value.retrying || 0),
-  success: runsStats.value.completed || 0,
-  failed: runsStats.value.failed || 0,
+  total: runsOverviewTotal.value,
+  running:
+    (runsOverviewStats.value.processing || 0)
+    + (runsOverviewStats.value.pending || 0)
+    + (runsOverviewStats.value.retrying || 0),
+  success: runsOverviewStats.value.completed || 0,
+  failed: runsOverviewStats.value.failed || 0,
 }));
 
 const selectedStatusesLabel = computed(() => {
@@ -194,11 +199,28 @@ function buildRunQuery(page = runsPage.value): TaskRunQuery {
   };
 }
 
+function buildOverviewQuery(): TaskRunQuery {
+  return { page: 1, pageSize: 1 };
+}
+
+function clearKeywordTimer() {
+  if (keywordTimer) {
+    clearTimeout(keywordTimer);
+    keywordTimer = null;
+  }
+}
+
 function scheduleKeywordApply() {
-  if (keywordTimer) clearTimeout(keywordTimer);
+  clearKeywordTimer();
   keywordTimer = setTimeout(() => {
+    keywordTimer = null;
     void loadRuns(1);
   }, 400);
+}
+
+function applyKeywordImmediately() {
+  clearKeywordTimer();
+  void loadRuns(1);
 }
 
 async function loadScheduled() {
@@ -214,20 +236,32 @@ async function loadScheduled() {
   }
 }
 
+async function loadRunsOverview() {
+  try {
+    const res = await tasksApi.getTaskRuns(buildOverviewQuery());
+    runsOverviewTotal.value = res.total;
+    runsOverviewStats.value = res.statistics || {};
+  } catch {
+    // Keep the last successful overview. List errors remain the page-level signal.
+  }
+}
+
 async function loadRuns(page = runsPage.value) {
+  const id = ++runsRequestId;
   runsLoading.value = true;
   runsError.value = null;
   try {
     const res = await tasksApi.getTaskRuns(buildRunQuery(page));
+    if (id !== runsRequestId) return;
     runs.value = res.items;
     runsTotal.value = res.total;
     runsPage.value = res.page;
     runsPageSize.value = res.pageSize;
-    runsStats.value = res.statistics;
   } catch (err) {
+    if (id !== runsRequestId) return;
     runsError.value = getParsedApiError(err);
   } finally {
-    runsLoading.value = false;
+    if (id === runsRequestId) runsLoading.value = false;
   }
 }
 
@@ -236,6 +270,7 @@ function refreshCurrent() {
     void loadScheduled();
     return;
   }
+  void loadRunsOverview();
   void loadRuns(runsPage.value);
 }
 
@@ -341,13 +376,16 @@ watch(
   () => {
     routeToDefaultIfNeeded();
     if (route.path.endsWith('/scheduled') && isAdmin.value) void loadScheduled();
-    if (route.path.endsWith('/runs')) void loadRuns(1);
+    if (route.path.endsWith('/runs')) {
+      void loadRunsOverview();
+      void loadRuns(1);
+    }
   },
   { immediate: true },
 );
 
 onBeforeUnmount(() => {
-  if (keywordTimer) clearTimeout(keywordTimer);
+  clearKeywordTimer();
 });
 </script>
 
@@ -574,7 +612,7 @@ onBeforeUnmount(() => {
                 v-model="filters.keyword"
                 class="pl-8"
                 placeholder="搜索任务名称、消息或任务 ID"
-                @keyup.enter="loadRuns(1)"
+                @keyup.enter="applyKeywordImmediately"
                 @update:model-value="scheduleKeywordApply"
               />
             </div>

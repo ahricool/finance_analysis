@@ -172,6 +172,7 @@ function busy(job: ScheduledTask): boolean {
         >
           <template v-if="job.syncModes.length">
             <LoadingButton
+              v-if="job.syncModes.includes('incremental')"
               variant="outline"
               :loading="running"
               :disabled="busy(job)"
@@ -180,6 +181,7 @@ function busy(job: ScheduledTask): boolean {
               增量同步
             </LoadingButton>
             <Button
+              v-if="job.syncModes.includes('full')"
               variant="outline"
               :disabled="busy(job)"
               @click="emit('run', job, 'full')"
