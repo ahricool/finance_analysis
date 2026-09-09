@@ -165,6 +165,7 @@ describe('TasksPage', () => {
 
     const dialog = document.body.querySelector('[role="alertdialog"]');
     expect(dialog).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="scheduled-task-detail"]')).toBeNull();
     expect(dialog?.textContent).toContain('全量同步会覆盖');
     const confirm = Array.from(dialog?.querySelectorAll('button') ?? []).find(
       (button) => button.textContent?.trim() === '立即执行',

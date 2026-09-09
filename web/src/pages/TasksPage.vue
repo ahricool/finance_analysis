@@ -251,15 +251,23 @@ function resetFilters() {
 function requestJobRun(job: ScheduledTask, syncMode: ScheduledSyncMode | null) {
   pendingJob.value = job;
   pendingSyncMode.value = syncMode;
+  scheduledDetail.value = null;
 }
 
 function closeScheduledDetail() {
   scheduledDetail.value = null;
 }
 
-function closeConfirm() {
+function cancelConfirm() {
+  if (runningJobId.value) {
+    pendingJob.value = null;
+    pendingSyncMode.value = null;
+    return;
+  }
+  const job = pendingJob.value;
   pendingJob.value = null;
   pendingSyncMode.value = null;
+  if (job) scheduledDetail.value = job;
 }
 
 async function confirmRunScheduled() {
@@ -268,7 +276,8 @@ async function confirmRunScheduled() {
   const syncMode = pendingSyncMode.value;
   runningJobId.value = job.jobId;
   scheduledError.value = null;
-  closeConfirm();
+  pendingJob.value = null;
+  pendingSyncMode.value = null;
   scheduledDetail.value = null;
   try {
     await tasksApi.runScheduledTask(job.jobId, syncMode ?? undefined);
@@ -724,7 +733,7 @@ onBeforeUnmount(() => {
       confirm-text="立即执行"
       :destructive="pendingSyncMode === 'full'"
       @confirm="confirmRunScheduled"
-      @update:open="(open) => { if (!open) closeConfirm() }"
+      @update:open="(open) => { if (!open) cancelConfirm() }"
     />
   </div>
 </template>

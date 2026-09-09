@@ -159,7 +159,7 @@ function busy(job: ScheduledTask): boolean {
         </section>
       </div>
 
-      <DialogFooter class="gap-2 sm:justify-between">
+      <DialogFooter class="sticky bottom-0 z-10 gap-2 border-t bg-background pt-4 sm:justify-between">
         <Button
           variant="outline"
           @click="close"
