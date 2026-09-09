@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory, type RouteLocationNormalizedLoaded } from 'vue-router';
+import { createRouter, createWebHistory, type RouteLocationGeneric, type RouteLocationNormalizedLoaded } from 'vue-router';
 import Shell from '@/components/layout/Shell.vue';
 import { formatDocumentTitle } from '@/config/app';
 import { useAuthStore } from '@/stores/authStore';
@@ -11,7 +11,6 @@ declare module 'vue-router' {
 }
 
 const HomePage = () => import('@/pages/HomePage.vue');
-const ChatPage = () => import('@/pages/ChatPage.vue');
 const MarketPage = () => import('@/pages/MarketPage.vue');
 const ResearchPage = () => import('@/pages/ResearchPage.vue');
 const MarketWatchListPage = () => import('@/pages/WatchListPage.vue');
@@ -26,11 +25,30 @@ const QuantModelRunPage = () => import('@/pages/market/quant/QuantModelRunPage.v
 const QuantPortfoliosPage = () => import('@/pages/market/quant/QuantPortfoliosPage.vue');
 const ETFRotationPage = () => import('@/pages/market/ETFRotationPage.vue');
 const TrendFollowingPage = () => import('@/pages/market/TrendFollowingPage.vue');
+const CryptoBtcPage = () => import('@/pages/market/CryptoBtcPage.vue');
 const LoginPage = () => import('@/pages/LoginPage.vue');
 const TimelinePage = () => import('@/pages/TimelinePage.vue');
 const ProfilePage = () => import('@/pages/ProfilePage.vue');
 const TasksPage = () => import('@/pages/TasksPage.vue');
 const NotFoundPage = () => import('@/pages/NotFoundPage.vue');
+
+function redirectWithQuery(path: string) {
+  return (to: RouteLocationGeneric) => ({
+    path,
+    query: to.query,
+    hash: to.hash,
+  });
+}
+
+function redirectLegacyQuant(to: RouteLocationGeneric) {
+  const rest = to.params.pathMatch;
+  const suffix = Array.isArray(rest) ? rest.filter(Boolean).join('/') : String(rest || '');
+  return {
+    path: suffix ? `/research/quant/${suffix}` : '/research/quant',
+    query: to.query,
+    hash: to.hash,
+  };
+}
 
 const router = createRouter({
   history: createWebHistory(),
@@ -40,9 +58,84 @@ const router = createRouter({
       component: Shell,
       children: [
         { path: '', redirect: { name: 'dashboard' } },
-        { path: 'dashboard', name: 'dashboard', component: () => import('@/pages/DashboardPage.vue'), meta: { title: '市场动态' } },
+        {
+          path: 'dashboard',
+          name: 'dashboard',
+          component: () => import('@/pages/DashboardPage.vue'),
+          meta: { title: '市场动态' },
+        },
+        { path: 'timeline', name: 'timeline', component: TimelinePage, meta: { title: '投资时间线' } },
+        {
+          path: 'research',
+          component: ResearchPage,
+          meta: { title: '研究' },
+          children: [
+            { path: '', redirect: { name: 'research-etf-rotation' } },
+            {
+              path: 'etf-rotation',
+              name: 'research-etf-rotation',
+              component: ETFRotationPage,
+              meta: { title: 'ETF动量轮动' },
+            },
+            {
+              path: 'trend-following',
+              name: 'research-trend-following',
+              component: TrendFollowingPage,
+              meta: { title: '趋势跟踪' },
+            },
+            {
+              path: 'quant',
+              component: QuantPage,
+              meta: { title: '量化研究' },
+              children: [
+                { path: '', name: 'research-quant', component: QuantDashboardPage },
+                {
+                  path: 'signals',
+                  name: 'research-quant-signals',
+                  component: QuantSignalsPage,
+                  meta: { title: '模型选股' },
+                },
+                {
+                  path: 'signals/:code',
+                  name: 'research-quant-signal-detail',
+                  component: QuantSignalDetailPage,
+                  meta: { title: '选股详情' },
+                },
+                {
+                  path: 'datasets',
+                  name: 'research-quant-datasets',
+                  component: QuantDatasetsPage,
+                  meta: { title: '量化数据集' },
+                },
+                {
+                  path: 'models',
+                  name: 'research-quant-models',
+                  component: QuantModelsPage,
+                  meta: { title: '量化模型' },
+                },
+                {
+                  path: 'models/:runId',
+                  name: 'research-quant-model-run',
+                  component: QuantModelRunPage,
+                  meta: { title: '模型运行详情' },
+                },
+                {
+                  path: 'portfolios',
+                  name: 'research-quant-portfolios',
+                  component: QuantPortfoliosPage,
+                  meta: { title: '目标组合' },
+                },
+              ],
+            },
+            {
+              path: 'crypto/btc',
+              name: 'research-crypto-btc',
+              component: CryptoBtcPage,
+              meta: { title: 'BTC交易' },
+            },
+          ],
+        },
         { path: 'analysis', name: 'analysis', component: HomePage, meta: { title: '分析' } },
-        { path: 'chat', name: 'chat', component: ChatPage, meta: { title: '问股' } },
         {
           path: 'market',
           component: MarketPage,
@@ -63,46 +156,6 @@ const router = createRouter({
             },
           ],
         },
-        {
-          path: 'market',
-          component: ResearchPage,
-          meta: { title: '研究' },
-          children: [
-            {
-              path: 'quant',
-              component: QuantPage,
-              meta: { title: '量化研究' },
-              children: [
-                { path: '', name: 'market-quant', component: QuantDashboardPage },
-                { path: 'signals', name: 'market-quant-signals', component: QuantSignalsPage, meta: { title: '模型选股' } },
-                { path: 'signals/:code', name: 'market-quant-signal-detail', component: QuantSignalDetailPage, meta: { title: '选股详情' } },
-                { path: 'datasets', name: 'market-quant-datasets', component: QuantDatasetsPage, meta: { title: '量化数据集' } },
-                { path: 'models', name: 'market-quant-models', component: QuantModelsPage, meta: { title: '量化模型' } },
-                { path: 'models/:runId', name: 'market-quant-model-run', component: QuantModelRunPage, meta: { title: '模型运行详情' } },
-                { path: 'portfolios', name: 'market-quant-portfolios', component: QuantPortfoliosPage, meta: { title: '目标组合' } },
-              ],
-            },
-            {
-              path: 'etf-rotation',
-              name: 'market-etf-rotation',
-              component: ETFRotationPage,
-              meta: { title: 'ETF动量轮动' },
-            },
-            {
-              path: 'crypto/btc',
-              name: 'market-crypto-btc',
-              component: () => import('@/pages/market/CryptoBtcPage.vue'),
-              meta: { title: 'BTC交易' },
-            },
-            {
-              path: 'trend-following',
-              name: 'market-trend-following',
-              component: TrendFollowingPage,
-              meta: { title: '趋势跟踪' },
-            },
-          ],
-        },
-        { path: 'timeline', name: 'timeline', component: TimelinePage, meta: { title: '投资时间线' } },
         { path: 'profile', redirect: { name: 'profile-info' }, meta: { title: '个人中心' } },
         { path: 'profile/info', name: 'profile-info', component: ProfilePage, meta: { title: '个人中心' } },
         { path: 'profile/password', name: 'profile-password', component: ProfilePage, meta: { title: '个人中心' } },
@@ -115,6 +168,11 @@ const router = createRouter({
         { path: 'tasks', name: 'tasks', component: TasksPage, meta: { title: '任务中心' } },
         { path: 'tasks/scheduled', name: 'tasks-scheduled', component: TasksPage, meta: { title: '任务中心' } },
         { path: 'tasks/runs', name: 'tasks-runs', component: TasksPage, meta: { title: '任务中心' } },
+        { path: 'chat', redirect: redirectWithQuery('/analysis') },
+        { path: 'market/quant/:pathMatch(.*)*', redirect: redirectLegacyQuant },
+        { path: 'market/etf-rotation', redirect: redirectWithQuery('/research/etf-rotation') },
+        { path: 'market/trend-following', redirect: redirectWithQuery('/research/trend-following') },
+        { path: 'market/crypto/btc', redirect: redirectWithQuery('/research/crypto/btc') },
         { path: ':pathMatch(.*)*', name: 'not-found', component: NotFoundPage, meta: { title: '页面未找到' } },
       ],
     },
@@ -129,8 +187,8 @@ export function resolveDocumentTitle(to: Pick<RouteLocationNormalizedLoaded, 'ma
 
 router.beforeEach(async (to, from) => {
   if (
-    to.path.startsWith('/market/quant')
-    && from.path.startsWith('/market/quant')
+    to.path.startsWith('/research/quant')
+    && from.path.startsWith('/research/quant')
     && to.query.market === undefined
     && (from.query.market === 'US' || from.query.market === 'CN')
   ) {

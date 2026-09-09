@@ -41,7 +41,7 @@ for (const width of [1280, 1440]) {
       });
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
-      await page.goto('/market/trend-following');
+      await page.goto('/research/trend-following');
       const changes = page.getByTestId('trend-rank-changes');
       await expect(changes.locator('.text-market-up')).toHaveText('+5');
       await expect(changes.locator('.text-market-down')).toHaveText('-2');

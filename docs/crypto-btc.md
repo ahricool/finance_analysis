@@ -71,7 +71,7 @@ SIGINT/SIGTERM 会中断连接、接收或重试等待，结束正在执行的�
 | GET /api/v1/crypto/btc/status | 采集模式和即时状态 |
 | WS /api/v1/crypto/ws | 每2秒 `{type:"state", market: ...}`，相同结构覆盖WS和HTTP来源 |
 
-页面 `/market/crypto/btc` 在“研究 → BTC交易”。显示价、Regime/Setup/Action、EMA、突破/成交量、ATR/止损、LONG/FLAT、1m K线和近期快照。HTTP兜底只显示弱提示。
+页面 `/research/crypto/btc` 在“研究 → BTC 交易”。显示价、Regime/Setup/Action、EMA、突破/成交量、ATR/止损、LONG/FLAT、1m K线和近期快照。HTTP兜底只显示弱提示。
 
 V0.1未增加手动backfill API；重启crypto-streamer会自动补齐。没有AI、下单、持仓数量、资金、PnL、多币种或多交易所。
 

@@ -156,7 +156,7 @@ watch(
         <CardHeader>
           <CardTitle>个股排名</CardTitle><CardDescription>生产模型生成的最新股票评分。</CardDescription><CardAction>
             <RouterLink
-              :to="{ path: '/market/quant/signals', query: marketQuery() }"
+              :to="{ path: '/research/quant/signals', query: marketQuery() }"
               class="text-xs font-medium underline-offset-4 hover:underline"
             >
               查看全部
@@ -195,7 +195,7 @@ watch(
                   </TableCell>
                   <TableCell>
                     <RouterLink
-                      :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
+                      :to="{ path: `/research/quant/signals/${item.code}`, query: marketQuery() }"
                       class="font-medium underline-offset-4 hover:underline"
                     >
                       {{ formatSecurityLabel(item.code, item.name) }}

@@ -14,15 +14,15 @@ const scopeDescription = computed(() =>
   market.value === 'US' ? '当前范围：标普500' : '当前范围：沪深300',
 );
 const baseNavItems = [
-  { key: 'dashboard' as const, label: '总览', icon: LayoutDashboard, path: '/market/quant' },
-  { key: 'signals' as const, label: '模型选股', icon: BarChart3, path: '/market/quant/signals' },
-  { key: 'datasets' as const, label: '数据集', icon: Database, path: '/market/quant/datasets' },
-  { key: 'models' as const, label: '模型运行', icon: Bot, path: '/market/quant/models' },
+  { key: 'dashboard' as const, label: '总览', icon: LayoutDashboard, path: '/research/quant' },
+  { key: 'signals' as const, label: '模型选股', icon: BarChart3, path: '/research/quant/signals' },
+  { key: 'datasets' as const, label: '数据集', icon: Database, path: '/research/quant/datasets' },
+  { key: 'models' as const, label: '模型运行', icon: Bot, path: '/research/quant/models' },
   {
     key: 'portfolios' as const,
     label: '目标组合',
     icon: BriefcaseBusiness,
-    path: '/market/quant/portfolios',
+    path: '/research/quant/portfolios',
   },
 ];
 const navItems = computed(() =>
@@ -35,10 +35,10 @@ const navItems = computed(() =>
 );
 const activeTab = computed<QuantTab>(() => {
   const path = route.path;
-  if (path.startsWith('/market/quant/signals')) return 'signals';
-  if (path.startsWith('/market/quant/datasets')) return 'datasets';
-  if (path.startsWith('/market/quant/models')) return 'models';
-  if (path.startsWith('/market/quant/portfolios')) return 'portfolios';
+  if (path.startsWith('/research/quant/signals')) return 'signals';
+  if (path.startsWith('/research/quant/datasets')) return 'datasets';
+  if (path.startsWith('/research/quant/models')) return 'models';
+  if (path.startsWith('/research/quant/portfolios')) return 'portfolios';
   return 'dashboard';
 });
 </script>

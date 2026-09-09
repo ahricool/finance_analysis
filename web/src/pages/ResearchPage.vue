@@ -10,11 +10,12 @@ type ResearchTab = 'quant' | 'etf-rotation' | 'trend-following' | 'crypto-btc';
 
 const route = useRoute();
 
-const activeTab = computed<ResearchTab>(() =>
-  route.path.startsWith('/market/crypto/btc') ? 'crypto-btc' : route.path.startsWith('/market/etf-rotation')
-    ? 'etf-rotation'
-    : route.path.startsWith('/market/trend-following') ? 'trend-following' : 'quant',
-);
+const activeTab = computed<ResearchTab>(() => {
+  if (route.path.startsWith('/research/crypto/btc')) return 'crypto-btc';
+  if (route.path.startsWith('/research/etf-rotation')) return 'etf-rotation';
+  if (route.path.startsWith('/research/trend-following')) return 'trend-following';
+  return 'quant';
+});
 </script>
 
 <template>

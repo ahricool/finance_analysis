@@ -104,7 +104,7 @@ watch(
                 <TableCell>{{ item.universeRank ?? '—' }}</TableCell>
                 <TableCell>
                   <RouterLink
-                    :to="{ path: `/market/quant/signals/${item.code}`, query: marketQuery() }"
+                    :to="{ path: `/research/quant/signals/${item.code}`, query: marketQuery() }"
                     class="font-medium underline-offset-4 hover:underline"
                   >
                     {{ formatSecurityLabel(item.code, item.name) }}

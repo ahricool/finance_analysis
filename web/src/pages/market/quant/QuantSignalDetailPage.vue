@@ -9,7 +9,7 @@ import { ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 const route = useRoute();
-const { market } = useQuantMarket();
+const { market, marketQuery } = useQuantMarket();
 const item = ref<QuantSignal | null>(null);
 const history = ref<QuantSignal[]>([]);
 const error = ref<ParsedApiError | null>(null);
@@ -37,7 +37,7 @@ watch(
 <template>
   <div class="space-y-4">
     <RouterLink
-      to="/market/quant/signals"
+      :to="{ path: '/research/quant/signals', query: marketQuery() }"
       class="text-sm font-medium underline-offset-4 hover:underline"
     >
       ← 返回排名

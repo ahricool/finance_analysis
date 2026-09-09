@@ -10,7 +10,7 @@ import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 const route = useRoute();
-const { market } = useQuantMarket();
+const { market, marketQuery } = useQuantMarket();
 const auth = useAuthStore();
 const item = ref<ModelRun | null>(null);
 const error = ref<ParsedApiError | null>(null);
@@ -48,7 +48,7 @@ async function publish() {
 <template>
   <div class="space-y-4">
     <RouterLink
-      to="/market/quant/models"
+      :to="{ path: '/research/quant/models', query: marketQuery() }"
       class="text-sm font-medium underline-offset-4 hover:underline"
     >
       ← 返回模型列表

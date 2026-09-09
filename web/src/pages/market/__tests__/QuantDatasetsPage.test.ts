@@ -113,12 +113,12 @@ async function mountPage() {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/market/quant/datasets', component: QuantDatasetsPage },
-      { path: '/market/quant/models', component: { template: '<div>models</div>' } },
+      { path: '/research/quant/datasets', component: QuantDatasetsPage },
+      { path: '/research/quant/models', component: { template: '<div>models</div>' } },
       { path: '/tasks/runs', component: { template: '<div>tasks</div>' } },
     ],
   });
-  await router.push('/market/quant/datasets?market=CN');
+  await router.push('/research/quant/datasets?market=CN');
   await router.isReady();
   const wrapper = mount(QuantDatasetsPage, {
     global: {

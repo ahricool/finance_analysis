@@ -126,13 +126,13 @@ async function mountPage(role: 'admin' | 'user') {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/market/quant/models', component: QuantModelsPage },
-      { path: '/market/quant/models/:runId', component: { template: '<div>run detail</div>' } },
-      { path: '/market/quant/datasets', component: { template: '<div>datasets</div>' } },
+      { path: '/research/quant/models', component: QuantModelsPage },
+      { path: '/research/quant/models/:runId', component: { template: '<div>run detail</div>' } },
+      { path: '/research/quant/datasets', component: { template: '<div>datasets</div>' } },
       { path: '/tasks/runs', component: { template: '<div>task runs</div>' } },
     ],
   });
-  await router.push('/market/quant/models?market=CN');
+  await router.push('/research/quant/models?market=CN');
   await router.isReady();
   const wrapper = mount(QuantModelsPage, {
     global: {
@@ -247,7 +247,7 @@ describe('QuantModelsPage training entry', () => {
     await wrapper.get('[data-testid="training-dataset-empty"] button').trigger('click');
     await flushPromises();
 
-    expect(router.currentRoute.value.path).toBe('/market/quant/datasets');
+    expect(router.currentRoute.value.path).toBe('/research/quant/datasets');
     expect(router.currentRoute.value.query).toMatchObject({ market: 'CN', build: '1' });
   });
 

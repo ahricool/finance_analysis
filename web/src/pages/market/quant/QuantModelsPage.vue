@@ -81,7 +81,7 @@ async function confirmDelete(): Promise<void> {
 async function handleCreated(result: ModelRunCreateAccepted): Promise<void> {
   trainingOpen.value = false;
   if (result.market !== market.value) {
-    await router.push({ path: '/market/quant/models', query: { market: result.market } });
+    await router.push({ path: '/research/quant/models', query: { market: result.market } });
   } else {
     await load();
   }
@@ -91,7 +91,7 @@ async function handleCreated(result: ModelRunCreateAccepted): Promise<void> {
 async function openDatasetBuilder(targetMarket: QuantMarket): Promise<void> {
   trainingOpen.value = false;
   await router.push({
-    path: '/market/quant/datasets',
+    path: '/research/quant/datasets',
     query: { market: targetMarket, build: '1' },
   });
 }
@@ -167,7 +167,7 @@ watch(
         >
           <RouterLink
             :to="{
-              path: `/market/quant/models/${createdRun.modelRunId}`,
+              path: `/research/quant/models/${createdRun.modelRunId}`,
               query: { market: createdRun.market },
             }"
           >
@@ -214,7 +214,7 @@ watch(
             >
               <TableCell>
                 <RouterLink
-                  :to="{ path: `/market/quant/models/${item.id}`, query: marketQuery() }"
+                  :to="{ path: `/research/quant/models/${item.id}`, query: marketQuery() }"
                   class="font-medium underline-offset-4 hover:underline"
                 >
                   {{ item.modelKey }}
