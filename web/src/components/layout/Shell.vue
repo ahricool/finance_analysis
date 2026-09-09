@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { AcceptableValue } from 'reka-ui';
 import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { ChevronDown, LogOut, Monitor, Moon, Sun, User, UserRound } from 'lucide-vue-next';
@@ -49,7 +50,7 @@ const initials = computed(() =>
   (currentUser.value?.username || currentUser.value?.email || 'U').slice(0, 1).toUpperCase(),
 );
 
-function setThemePreference(value: string | number | bigint) {
+function setThemePreference(value: AcceptableValue) {
   if (value === 'light' || value === 'dark' || value === 'system') {
     setTheme(value);
   }
