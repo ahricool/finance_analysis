@@ -181,11 +181,10 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 | `useQuantMarket` | 量化 `market` query |
 | `useRealtimeQuotes` | 行情 WebSocket |
 | `useHomeDashboardState` / `useDashboardLifecycle` | 分析首页状态与 30s 轮询 |
-| `useStockIndex` / `useAutocomplete` | 本地股票索引与搜索建议 |
+| `useAutocomplete` | 证券主数据搜索建议（debounce 请求搜索 API） |
 | `useCurrentTime` | 随展示时区走的当前时间 |
 
-股票代码补全读 `/stocks.index.json`：源码位于 `public/stocks.index.json`，构建后也会出现在
-仓库根 `static/stocks.index.json` 并由后端/静态服务器提供。不要为自动完成再打搜索 API。
+股票代码补全请求 `/api/v1/stocks/search`：以前端不再读取静态股票索引，输入时 debounce 请求后端搜索代码、native code 和名称。 <!-- pragma: allowlist secret -->
 
 ## UI 与样式
 

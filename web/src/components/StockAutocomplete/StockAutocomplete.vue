@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import SuggestionsList from '@/components/StockAutocomplete/SuggestionsList.vue';
 import { useAutocomplete } from '@/composables/useAutocomplete';
-import { useStockIndex } from '@/composables/useStockIndex';
 import type { AssetType, Market } from '@/types/stockIndex';
 import { cn } from '@/utils/cn';
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { nextTick, onUnmounted, ref, watch } from 'vue';
 
 const AUTOCOMPLETE_INPUT_CLASS =
   'border-input bg-background shadow-xs focus:border-ring focus:ring-2 focus:ring-ring/30 h-11 w-full rounded-xl border bg-transparent px-4 text-sm transition-all focus:outline-none disabled:cursor-not-allowed disabled:opacity-60';
@@ -34,12 +33,11 @@ const emit = defineEmits<{
   ];
 }>();
 
-const { index, loading, fallback } = useStockIndex();
-
 const {
   setQuery,
   suggestions,
   isOpen,
+  searching,
   highlightedIndex,
   setHighlightedIndex,
   highlightPrevious,
@@ -47,9 +45,7 @@ const {
   close,
   isComposing,
   setIsComposing,
-  runtimeFallback,
-  error: autocompleteError,
-} = useAutocomplete(() => index.value);
+} = useAutocomplete();
 
 const inputRef = ref<HTMLInputElement | null>(null);
 const prevValue = ref(props.modelValue);
@@ -86,17 +82,6 @@ watch(
   },
   { immediate: true },
 );
-
-watch([loading, index], ([isLoading]) => {
-  if (isLoading || fallback.value || runtimeFallback.value) {
-    return;
-  }
-
-  const currentValue = props.modelValue.trim();
-  if (currentValue) {
-    setQuery(currentValue);
-  }
-});
 
 watch(isOpen, (open) => {
   openListenersCleanup?.();
@@ -140,14 +125,6 @@ onUnmounted(() => {
   openListenersCleanup?.();
 });
 
-watch(autocompleteError, (err) => {
-  if (err) {
-    console.error('Autocomplete runtime fallback activated.', err);
-  }
-});
-
-const useSimpleInput = computed(() => fallback.value || loading.value || runtimeFallback.value);
-
 function onKeyDown(e: KeyboardEvent) {
   if (isComposing.value) return;
 
@@ -186,12 +163,6 @@ function onKeyDown(e: KeyboardEvent) {
   }
 }
 
-function onFallbackKeyDown(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !props.disabled && props.modelValue) {
-    emit('submit', props.modelValue, undefined, 'manual');
-  }
-}
-
 function onBlur() {
   window.setTimeout(() => closeSuggestions(), 200);
 }
@@ -220,25 +191,7 @@ function onCompositionEnd(e: CompositionEvent) {
 </script>
 
 <template>
-  <div
-    v-if="useSimpleInput"
-    class="relative"
-  >
-    <input
-      :value="modelValue"
-      type="text"
-      :disabled="disabled"
-      :placeholder="placeholder"
-      :class="cn(AUTOCOMPLETE_INPUT_CLASS, props.class)"
-      data-autocomplete-mode="fallback"
-      @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-      @keydown="onFallbackKeyDown"
-    />
-  </div>
-  <div
-    v-else
-    class="stock-autocomplete relative"
-  >
+  <div class="stock-autocomplete relative">
     <input
       ref="inputRef"
       type="text"
@@ -266,8 +219,8 @@ function onCompositionEnd(e: CompositionEvent) {
     />
 
     <div
-      v-if="loading"
-      class="absolute right-3 top-1/2 -translate-y-1/2"
+      v-if="searching"
+      class="absolute top-1/2 right-3 -translate-y-1/2"
     >
       <div class="h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
     </div>
