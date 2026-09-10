@@ -93,6 +93,41 @@ class PreviewRepository:
         raise AssertionError(f"preview must not invalidate official state: {trade_date}")
 
 
+def _history_rows(code, trade_date, step):
+    rows = []
+    for index in range(80):
+        close = 100 + index * step
+        rows.append(
+            {
+                "instrument_id": 1,
+                "code": code,
+                "name": code,
+                "trade_date": trade_date - timedelta(days=79 - index),
+                "open": close - 0.5,
+                "high": close + 1,
+                "low": close - 1,
+                "close": close,
+                "volume": 1_000 + index * 100,
+                "amount": None,
+            }
+        )
+    return rows
+
+
+def _forward_market_data(bars_by_code):
+    calls = []
+
+    class MarketData:
+        def get_daily_bars(self, codes, start, end, **options):
+            calls.append((list(codes), start, end, options))
+            assert options == {"adjustment": "forward", "source_policy": "db_fresh"}
+            return SimpleNamespace(
+                data={code: [SimpleNamespace(**row) for row in bars_by_code[code]] for code in codes}
+            )
+
+    return MarketData(), calls
+
+
 def test_tencent_prefixed_codes_keep_exchange_and_do_not_collide_indexes():
     assert tencent_code_to_canonical("sz000001") == "000001.SZ"
     assert tencent_code_to_canonical("sh000001") == "000001.SH"
@@ -330,7 +365,9 @@ def test_preview_reuses_previous_official_snapshot_and_does_not_persist(monkeypa
         lambda *args, **kwargs: (bars, "yfinance", 3),
     )
     monkeypatch.setattr("finance_analysis.trend_following.service.save_preview", lambda *args, **kwargs: None)  # pragma: allowlist secret
-    service = TrendFollowingService("US", repository, market_data=SimpleNamespace())
+    spy_rows = repository.load_daily_history({"SPY.US"}, TRADE_DATE, calendar_lookback_days=500)
+    market_data, _ = _forward_market_data({"SPY.US": spy_rows})
+    service = TrendFollowingService("US", repository, market_data=market_data)
     first = service.run_preview(TRADE_DATE)
     second = service.run_preview(TRADE_DATE)
     assert first["status"] == "completed"
@@ -372,6 +409,100 @@ def test_official_run_after_preview_still_inherits_previous_official_state(monke
     assert repository.replace_calls == [TRADE_DATE]
     assert repository.previous_calls[0][0] == TRADE_DATE
     assert repository.previous_calls[-1][0] == TRADE_DATE
+
+
+
+
+def test_cn_preview_completes_with_csi2000_db_fresh_history(monkeypatch):
+    codes = ("600001.SH", "600002.SH", "600003.SH")
+    csi2000 = {"600002.SH", "600003.SH"}
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: tuple(UniverseMember("CN", code, code) for code in codes),
+    )
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.UniverseResolver",  # pragma: allowlist secret
+        lambda: SimpleNamespace(resolve_universe=lambda key: [SimpleNamespace(code=code) for code in sorted(csi2000)]),
+    )
+    overlay = {code: _overlay_bar(200.0 + index) for index, code in enumerate(codes)}
+    overlay["510300.SH"] = _overlay_bar(160.0)
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.collect_preview_daily_bars",  # pragma: allowlist secret
+        lambda *args, **kwargs: (overlay, "easyquotation_tencent", 4),
+    )
+    saved = []
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.save_preview",  # pragma: allowlist secret
+        lambda market, payload: saved.append(payload),
+    )
+
+    class Repository(PreviewRepository):
+        market = "CN"
+
+        def load_daily_history(self, requested, trade_date, *, calendar_lookback_days):
+            assert set(requested) == {"600001.SH"}
+            return _history_rows("600001.SH", trade_date, 1.2)
+
+    repository = Repository()
+    bars_by_code = {
+        "600002.SH": _history_rows("600002.SH", TRADE_DATE, 0.8),
+        "600003.SH": _history_rows("600003.SH", TRADE_DATE, 0.6),
+        "510300.SH": _history_rows("510300.SH", TRADE_DATE, 0.7),
+    }
+    market_data, calls = _forward_market_data(bars_by_code)
+    service = TrendFollowingService("CN", repository, market_data=market_data)
+    result = service.run_preview(TRADE_DATE)
+    assert DEFAULT_CONFIG.minimum_data_coverage == 0.95
+    assert result["status"] == "completed"
+    assert result["data_coverage"] == 1.0
+    assert result["rankable_count"] == 3
+    snapshot_codes = {item["code"] for item in result["snapshots"]}
+    assert snapshot_codes >= set(codes)
+    assert {item["code"] for item in saved[0]["snapshots"]} >= csi2000
+    assert repository.replace_calls == []
+    assert repository.previous_calls == [(TRADE_DATE, set(codes))]
+    assert calls[0][0] == ["600002.SH", "600003.SH"]
+    assert calls[1][0] == ["510300.SH"]
+    assert all(call[3] == {"adjustment": "forward", "source_policy": "db_fresh"} for call in calls)
+    csi_row = next(item for item in result["snapshots"] if item["code"] == "600002.SH")
+    assert csi_row["reference_price"] == overlay["600002.SH"].close
+
+
+def test_preview_task_result_omits_snapshots(monkeypatch):
+    from finance_analysis.tasks.celery.jobs.trend_following import tasks  # pragma: allowlist secret
+
+    monkeypatch.setattr(tasks, "is_market_open", lambda market, day: True)
+
+    class Service:
+        def __init__(self, market):
+            self.market = market
+
+        def run_preview(self, requested):
+            return {
+                "status": "completed",
+                "market": "CN",
+                "trade_date": requested.isoformat(),
+                "preview_time": "2026-09-10T03:00:00+00:00",
+                "provider": "easyquotation_tencent",
+                "quote_count": 10,
+                "universe_size": 3,
+                "data_coverage": 1.0,
+                "rankable_count": 3,
+                "snapshot_count": 3,
+                "candidate_count": 1,
+                "elapsed_seconds": 1.2,
+                "warnings": [],
+                "snapshots": [{"code": "600001.SH"}, {"code": "600002.SH"}],
+                "features": {"ignored": True},
+            }
+
+    monkeypatch.setattr(tasks, "TrendFollowingService", Service)
+    result = tasks._run_preview("CN", "2026-09-10")
+    assert "snapshots" not in result
+    assert "features" not in result
+    assert result["status"] == "completed"
+    assert result["snapshot_count"] == 3
+    assert result["provider"] == "easyquotation_tencent"
 
 
 def test_cn_snapshot_failure_raises_and_does_not_write_snapshots(monkeypatch):

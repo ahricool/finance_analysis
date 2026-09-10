@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 CN_TZ = ZoneInfo("Asia/Shanghai")
 PROVIDER_NAME = "easyquotation"
 PROVIDER_LABEL = "easyquotation_tencent"
+REQUEST_TIMEOUT_SECONDS = 30
 
 
 def tencent_code_to_canonical(raw_code: str) -> str | None:
@@ -121,7 +122,18 @@ class EasyQuotationProvider:
             return self._client_factory()
         import easyquotation
 
-        return easyquotation.use("tencent")
+        client = easyquotation.use("tencent")
+        session = getattr(client, "_session", None)
+        if session is not None and not getattr(client, "_preview_timeout_patched", False):
+            original_get = session.get
+
+            def get_with_timeout(*args: Any, **kwargs: Any) -> Any:
+                kwargs.setdefault("timeout", REQUEST_TIMEOUT_SECONDS)
+                return original_get(*args, **kwargs)
+
+            session.get = get_with_timeout
+            client._preview_timeout_patched = True
+        return client
 
     def fetch_market_snapshot(self, market: Market) -> BatchQuoteResult:
         if market is not Market.CN:
@@ -177,4 +189,5 @@ __all__ = [
     "canonical_to_tencent_code",
     "quote_from_tencent_row",
     "tencent_code_to_canonical",
+    "REQUEST_TIMEOUT_SECONDS",
 ]

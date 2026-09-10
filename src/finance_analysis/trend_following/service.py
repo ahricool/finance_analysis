@@ -40,6 +40,14 @@ from .universe import get_universe, normalize_market
 logger = logging.getLogger(__name__)
 
 
+def _to_daily_bar(bar: Any) -> DailyBar:
+    return DailyBar(bar.trade_date, bar.open, bar.high, bar.low, bar.close, bar.volume, bar.amount)
+
+
+def _bars_before(bars: list[DailyBar], trade_date: date) -> list[DailyBar]:
+    return [item for item in bars if item.trade_date < trade_date]
+
+
 class TrendFollowingService:
     """Read canonical forward-adjusted DB bars, calculate outputs, and persist snapshots."""
 
@@ -235,6 +243,71 @@ class TrendFollowingService:
         save_preview(self.market, payload)
         return payload
 
+    def _csi2000_universe_codes(self, universe_codes: set[str]) -> set[str]:
+        if self.market != "CN":
+            return set()
+        return {item.code for item in UniverseResolver().resolve_universe("cn_csi2000")} & universe_codes
+
+    def _forward_adjusted_histories(self, codes: set[str], effective_date: date) -> dict[str, list[DailyBar]]:
+        """Read-only CSI2000 / benchmark tails. Official and preview share this db_fresh path."""
+        if not codes:
+            return {}
+        result = self.market_data.get_daily_bars(
+            sorted(codes),
+            effective_date - timedelta(days=self.config.calendar_lookback_days),
+            effective_date,
+            adjustment="forward",
+            source_policy="db_fresh",
+        ).data
+        histories: dict[str, list[DailyBar]] = {}
+        for code, bars in result.items():
+            histories[code] = [
+                _to_daily_bar(bar)
+                for bar in sorted(bars, key=lambda item: item.trade_date)
+                if bar.trade_date <= effective_date
+            ]
+        return histories
+
+    def _load_db_histories(
+        self,
+        codes: set[str],
+        effective_date: date,
+        *,
+        drop_today: bool,
+    ) -> dict[str, list[DailyBar]]:
+        histories: dict[str, list[DailyBar]] = defaultdict(list)
+        rows = self.repository.load_daily_history(
+            codes, effective_date, calendar_lookback_days=self.config.calendar_lookback_days
+        )
+        for item in rows:
+            if item["trade_date"] > effective_date:
+                continue
+            if drop_today and item["trade_date"] == effective_date:
+                continue
+            histories[str(item["code"])].append(
+                DailyBar(
+                    trade_date=item["trade_date"],
+                    open=float(item["open"]),
+                    high=float(item["high"]),
+                    low=float(item["low"]),
+                    close=float(item["close"]),
+                    volume=float(item["volume"]),
+                    amount=None if item["amount"] is None else float(item["amount"]),
+                )
+            )
+        return histories
+
+    def _apply_overlay_bars(
+        self,
+        histories: dict[str, list[DailyBar]],
+        overlay_bars: dict[str, DailyBar],
+        effective_date: date,
+    ) -> None:
+        for code, bar in overlay_bars.items():
+            prior = _bars_before(histories.get(code, []), effective_date)
+            prior.append(bar)
+            histories[code] = prior
+
     def _run_single_date(
         self,
         effective_date: date,
@@ -247,54 +320,21 @@ class TrendFollowingService:
         universe_codes = set(member_by_code)
         benchmark_code = self.config.benchmark_codes[self.market]
         universe_key = self.config.universe_keys[self.market]
-        csi2000_codes = (
-            {item.code for item in UniverseResolver().resolve_universe("cn_csi2000")} & universe_codes
-            if self.market == "CN"
-            else set()
-        )
+        csi2000_codes = self._csi2000_universe_codes(universe_codes)
+        db_codes = universe_codes - csi2000_codes
+        supplemental = self._forward_adjusted_histories(csi2000_codes, effective_date)
+        benchmark_history = self._forward_adjusted_histories({benchmark_code}, effective_date).get(benchmark_code, [])
+        drop_today = overlay_bars is not None
         if overlay_bars is None:
-            requested_codes = universe_codes - csi2000_codes
-            ready_codes = self.repository.daily_codes_on_date(requested_codes, effective_date)
-            supplemental = {}
-            if csi2000_codes:
-                supplemental = self.market_data.get_daily_bars(
-                    sorted(csi2000_codes),
-                    effective_date - timedelta(days=self.config.calendar_lookback_days),
-                    effective_date,
-                    adjustment="forward",
-                    source_policy="db_fresh",
-                ).data
-                ready_codes.update(
-                    code
-                    for code in csi2000_codes
-                    if any(bar.trade_date == effective_date for bar in supplemental.get(code, []))
-                )
-            # All other main-universe stocks remain DB-only.
-            benchmark_result = self.market_data.get_daily_bars(
-                [benchmark_code],
-                effective_date - timedelta(days=self.config.calendar_lookback_days),
-                effective_date,
-                adjustment="forward",
-                source_policy="db_fresh",
+            ready_codes = self.repository.daily_codes_on_date(db_codes, effective_date)
+            ready_codes.update(
+                code
+                for code in csi2000_codes
+                if any(bar.trade_date == effective_date for bar in supplemental.get(code, []))
             )
-            benchmark_bars = [
-                DailyBar(
-                    trade_date=bar.trade_date,
-                    open=bar.open,
-                    high=bar.high,
-                    low=bar.low,
-                    close=bar.close,
-                    volume=bar.volume,
-                    amount=bar.amount,
-                )
-                for bar in sorted(benchmark_result.data.get(benchmark_code, []), key=lambda bar: bar.trade_date)
-            ]
-            benchmark_ready = bool(benchmark_bars and benchmark_bars[-1].trade_date == effective_date)
+            benchmark_ready = bool(benchmark_history and benchmark_history[-1].trade_date == effective_date)
         else:
-            requested_codes = set(universe_codes) | {benchmark_code}
             ready_codes = {code for code in universe_codes if code in overlay_bars}
-            supplemental = {}
-            benchmark_bars = []
             overlay_benchmark = overlay_bars.get(benchmark_code)
             benchmark_ready = overlay_benchmark is not None and overlay_benchmark.trade_date == effective_date
         data_coverage = len(ready_codes) / len(universe_codes) if universe_codes else 0.0
@@ -335,38 +375,14 @@ class TrendFollowingService:
                 "warnings": warnings,
             }
 
-        rows = self.repository.load_daily_history(
-            requested_codes, effective_date, calendar_lookback_days=self.config.calendar_lookback_days
-        )
-        histories: dict[str, list[DailyBar]] = defaultdict(list)
-        for item in rows:
-            if item["trade_date"] > effective_date:
-                continue
-            if overlay_bars is not None and item["trade_date"] == effective_date:
-                continue
-            histories[str(item["code"])].append(
-                DailyBar(
-                    trade_date=item["trade_date"],
-                    open=float(item["open"]),
-                    high=float(item["high"]),
-                    low=float(item["low"]),
-                    close=float(item["close"]),
-                    volume=float(item["volume"]),
-                    amount=None if item["amount"] is None else float(item["amount"]),
-                )
-            )
+        histories = self._load_db_histories(db_codes, effective_date, drop_today=drop_today)
+        for code, bars in supplemental.items():
+            histories[code] = _bars_before(bars, effective_date) if drop_today else bars
         if overlay_bars is None:
-            for code, bars in supplemental.items():
-                histories[code] = [
-                    DailyBar(bar.trade_date, bar.open, bar.high, bar.low, bar.close, bar.volume, bar.amount)
-                    for bar in sorted(bars, key=lambda bar: bar.trade_date)
-                    if bar.trade_date <= effective_date
-                ]
+            benchmark_bars = benchmark_history
         else:
-            for code, bar in overlay_bars.items():
-                prior = [item for item in histories.get(code, []) if item.trade_date < effective_date]
-                prior.append(bar)
-                histories[code] = prior
+            histories[benchmark_code] = _bars_before(benchmark_history, effective_date)
+            self._apply_overlay_bars(histories, overlay_bars, effective_date)
             benchmark_bars = histories.get(benchmark_code, [])
         benchmark_bars = benchmark_bars[-self.config.history_bars :]
         if len(benchmark_bars) < self.config.minimum_history_bars:

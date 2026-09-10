@@ -23,6 +23,26 @@ US_DEFINITION = require_scheduled_task_definition(JOB_TREND_FOLLOWING_US)
 CN_PREVIEW_DEFINITION = require_scheduled_task_definition(JOB_TREND_FOLLOWING_PREVIEW_CN)
 US_PREVIEW_DEFINITION = require_scheduled_task_definition(JOB_TREND_FOLLOWING_PREVIEW_US)
 
+PREVIEW_TASK_RESULT_KEYS = (
+    "status",
+    "market",
+    "trade_date",
+    "preview_time",
+    "provider",
+    "quote_count",
+    "universe_size",
+    "data_coverage",
+    "rankable_count",
+    "snapshot_count",
+    "candidate_count",
+    "elapsed_seconds",
+    "warnings",
+)
+
+
+def _preview_task_result(result: dict[str, Any]) -> dict[str, Any]:
+    return {key: result[key] for key in PREVIEW_TASK_RESULT_KEYS if key in result}
+
 
 def _run(market: str, trade_date: str | None) -> dict[str, Any]:
     result = TrendFollowingService(market).run(date.fromisoformat(trade_date) if trade_date else None)
@@ -48,7 +68,7 @@ def _run_preview(market: str, trade_date: str | None) -> dict[str, Any]:
         raise RuntimeError(
             "Trend Following preview did not complete: " + json.dumps(details, ensure_ascii=False, default=str)
         )
-    return result
+    return _preview_task_result(result)
 
 
 @celery_app.task(name=CN_DEFINITION.celery_task_name)
