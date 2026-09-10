@@ -33,6 +33,8 @@ EXPECTED_JOBS = {
     "quant_daily_pipeline_cn": ("scheduled_quant_daily_cn", "Asia/Shanghai"),
     "etf_rotation_cn": ("scheduled_etf_rotation_cn", "Asia/Shanghai"),
     "etf_rotation_us": ("scheduled_etf_rotation_us", "America/New_York"),
+    "etf_rotation_preview_cn": ("scheduled_etf_rotation_preview_cn", "Asia/Shanghai"),
+    "etf_rotation_preview_us": ("scheduled_etf_rotation_preview_us", "America/New_York"),
     "trend_following_cn": ("scheduled_trend_following_cn", "Asia/Shanghai"),
     "trend_following_us": ("scheduled_trend_following_us", "America/New_York"),
     "trend_following_preview_cn": ("scheduled_trend_following_preview_cn", "Asia/Shanghai"),
@@ -275,6 +277,24 @@ def test_trend_following_preview_schedules_use_market_timezones_and_dst():
     # Winter EST UTC-5: 11:00 New York == 16:00 UTC.
     winter = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
     assert us.next_run_time(now=winter) == datetime(2026, 1, 5, 16, 0, tzinfo=timezone.utc)
+
+
+def test_etf_rotation_preview_schedules_use_market_timezones_and_dst():
+    cn = get_scheduled_task_definition("etf_rotation_preview_cn")
+    us = get_scheduled_task_definition("etf_rotation_preview_us")
+    assert cn.timezone == "Asia/Shanghai"
+    assert us.timezone == "America/New_York"
+    assert cn.queue == us.queue == "analysis"
+    assert cn.schedule_text == "周一至周五 11:05、14:05、14:35 Asia/Shanghai"
+    assert us.schedule_text == "周一至周五 11:05、15:05、15:35 America/New_York"
+    beat = build_beat_schedule()
+    assert len([key for key in beat if key.startswith("etf_rotation_preview_cn")]) == 3
+    assert len([key for key in beat if key.startswith("etf_rotation_preview_us")]) == 3
+
+    summer = datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
+    assert us.next_run_time(now=summer) == datetime(2026, 7, 1, 15, 5, tzinfo=timezone.utc)
+    winter = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
+    assert us.next_run_time(now=winter) == datetime(2026, 1, 5, 16, 5, tzinfo=timezone.utc)
 
 
 def test_compute_next_run_handles_localized_per_schedule_timezone():

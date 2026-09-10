@@ -118,7 +118,13 @@ BUY 要求 Composite Top4、Entry Score 至少 70 且状态为 EMERGING/STRONG/T
 
 Celery Beat 任务 `scheduled.etf_rotation_cn` / `scheduled.etf_rotation_us` 默认分别在工作日
 18:30 Asia/Shanghai / 18:30 America/New_York 进入 `analysis` queue。时间顺序不是数据正确性的保障，
-任务自身总会执行 readiness 检查。
+任务自身总会执行 readiness 检查。正式 18:30 任务不读取盘中 Preview。
+
+盘中预演 `etf_rotation_preview_cn` / `etf_rotation_preview_us` 在交易日
+11:05、14:05、14:35 Asia/Shanghai 与 11:05、15:05、15:35 America/New_York 运行，
+相对 Trend Following Preview 错开 5 分钟。CN 用 Tencent `real(ETF codes)`，US 用 Yahoo 5 分钟 batch。
+结果只写 Redis `etf_rotation:preview:{CN|US}`（TTL 24h），不写正式 snapshot。
+`BUY/HOLD/EXIT` 仍基于上一交易日正式候选。非交易日 `TaskSkipped`。Redis 写入失败则任务失败。
 
 管理员可在前端点击“手动运行”，或调用：
 
@@ -135,6 +141,7 @@ Content-Type: application/json
 - `GET /api/v1/etf-rotation/candidates?market=&trade_date=&limit=`
 - `GET /api/v1/etf-rotation/dates?market=`
 - `GET /api/v1/etf-rotation/universe?market=`
+- `GET /api/v1/etf-rotation/preview?market=`
 - `GET /api/v1/etf-rotation/{code}?market=&limit=60`
 - `POST /api/v1/etf-rotation/run`（admin）
 

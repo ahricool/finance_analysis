@@ -4,31 +4,61 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta, timezone
+from time import monotonic
 from typing import Any
 
-from finance_analysis.core.ranking import calculate_rank_changes
-from finance_analysis.database.repositories.etf_rotation import ETFRotationRepository
-from finance_analysis.integrations.market_data.service import MarketDataService
-from finance_analysis.etf_rotation.classifier import classify_state, is_overheated
-from finance_analysis.etf_rotation.config import DEFAULT_CONFIG, ETFRotationConfig
-from finance_analysis.etf_rotation.correlation import rolling_correlations
-from finance_analysis.etf_rotation.eligibility import is_absolute_trend_eligible, is_liquidity_eligible
-from finance_analysis.etf_rotation.features import calculate_features
-from finance_analysis.etf_rotation.models import DailyBar
-from finance_analysis.etf_rotation.ranking import (
+from finance_analysis.core.ranking import calculate_rank_changes  # pragma: allowlist secret
+from finance_analysis.core.time import utc_isoformat, utc_now  # pragma: allowlist secret
+from finance_analysis.database.repositories.etf_rotation import ETFRotationRepository  # pragma: allowlist secret
+from finance_analysis.integrations.market_data.preview import (  # pragma: allowlist secret
+    CN_PREVIEW_PROVIDER,
+    PreviewQuoteError,
+    US_PREVIEW_PROVIDER,
+    collect_symbol_preview_daily_bars,
+)
+from finance_analysis.integrations.market_data.service import MarketDataService  # pragma: allowlist secret
+from finance_analysis.etf_rotation.classifier import classify_state, is_overheated  # pragma: allowlist secret
+from finance_analysis.etf_rotation.config import DEFAULT_CONFIG, ETFRotationConfig  # pragma: allowlist secret
+from finance_analysis.etf_rotation.correlation import rolling_correlations  # pragma: allowlist secret
+from finance_analysis.etf_rotation.eligibility import (  # pragma: allowlist secret
+    is_absolute_trend_eligible,
+    is_liquidity_eligible,
+)
+from finance_analysis.etf_rotation.features import calculate_features  # pragma: allowlist secret
+from finance_analysis.etf_rotation.models import DailyBar  # pragma: allowlist secret
+from finance_analysis.etf_rotation.preview_cache import save_preview  # pragma: allowlist secret
+from finance_analysis.etf_rotation.ranking import (  # pragma: allowlist secret
     FACTOR_RANK_DIRECTIONS,
     rank_cross_section,
     rank_features,
 )
-from finance_analysis.etf_rotation.readiness import require_minimum_coverage
-from finance_analysis.etf_rotation.regime import calculate_market_regime
-from finance_analysis.etf_rotation.risk import calculate_stop_loss_pct, calculate_suggested_stop_price
-from finance_analysis.etf_rotation.scoring import calculate_entry_score, calculate_factor_scores
-from finance_analysis.etf_rotation.selector import public_rotation_action, select_candidates
-from finance_analysis.etf_rotation.universe import enabled_etfs, normalize_etf_market
-from finance_analysis.market_review.trading_calendar import get_completed_trading_days
+from finance_analysis.etf_rotation.readiness import require_minimum_coverage  # pragma: allowlist secret
+from finance_analysis.etf_rotation.regime import calculate_market_regime  # pragma: allowlist secret
+from finance_analysis.etf_rotation.risk import (  # pragma: allowlist secret
+    calculate_stop_loss_pct,
+    calculate_suggested_stop_price,
+)
+from finance_analysis.etf_rotation.scoring import (  # pragma: allowlist secret
+    calculate_entry_score,
+    calculate_factor_scores,
+)
+from finance_analysis.etf_rotation.selector import public_rotation_action, select_candidates  # pragma: allowlist secret
+from finance_analysis.etf_rotation.universe import enabled_etfs, normalize_etf_market  # pragma: allowlist secret
+from finance_analysis.market_review.trading_calendar import (  # pragma: allowlist secret
+    get_completed_trading_days,
+    get_market_now,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _to_daily_bar(bar: Any) -> DailyBar:
+    return DailyBar(
+        trade_date=bar.trade_date,
+        close=float(bar.close),
+        volume=float(bar.volume),
+        amount=None if getattr(bar, "amount", None) is None else float(bar.amount),
+    )
 
 
 class ETFRotationService:
@@ -54,6 +84,11 @@ class ETFRotationService:
 
     def resolve_trade_date(self, requested: date | None = None) -> date:
         return requested or get_completed_trading_days(self.market.lower(), 1, self.now)[-1]
+
+    def resolve_preview_trade_date(self, requested: date | None = None) -> date:
+        if requested is not None:
+            return requested
+        return get_market_now(self.market.lower()).date()
 
     def _incomplete_summary(
         self,
@@ -89,7 +124,135 @@ class ETFRotationService:
         return summary
 
     def run(self, trade_date: date | None = None) -> dict[str, Any]:
-        effective_date = self.resolve_trade_date(trade_date)
+        return self._run_single_date(self.resolve_trade_date(trade_date), persist=True)
+
+    def run_preview(
+        self,
+        trade_date: date | None = None,
+        *,
+        preview_time: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Compute today's rotation using official T-1 state plus a temporary today bar.
+
+        Preview never writes ``ETFMarketRotationSnapshot`` or ``ETFMomentumSnapshot``.
+        Each call reloads previous official candidates and historical ranks.
+        """
+        started = monotonic()
+        observed_at = preview_time or utc_now()
+        effective_date = self.resolve_preview_trade_date(trade_date)
+        members = enabled_etfs(self.market)
+        universe_codes = {member.code for member in members}
+        benchmark_code = self.config.benchmark_codes[self.market]
+        requested = sorted(universe_codes | {benchmark_code})
+        provider = CN_PREVIEW_PROVIDER if self.market == "CN" else US_PREVIEW_PROVIDER
+        quote_count = 0
+        try:
+            bars, provider, quote_count = collect_symbol_preview_daily_bars(
+                self.market_data,
+                self.market,
+                requested,
+                effective_date,
+            )
+            overlay = {code: _to_daily_bar(bar) for code, bar in bars.items()}
+            result = self._run_single_date(effective_date, persist=False, overlay_bars=overlay)
+        except PreviewQuoteError as exc:
+            elapsed = round(monotonic() - started, 3)
+            logger.exception(
+                "market=%s job=etf_rotation_preview provider=%s quote_failed elapsed_seconds=%s",
+                self.market,
+                provider,
+                elapsed,
+            )
+            save_preview(
+                self.market,
+                {
+                    "status": "failed",
+                    "market": self.market,
+                    "trade_date": effective_date.isoformat(),
+                    "preview_time": utc_isoformat(observed_at),
+                    "provider": provider,
+                    "quote_count": quote_count,
+                    "universe_size": len(universe_codes),
+                    "data_ready_count": 0,
+                    "data_coverage": 0.0,
+                    "rankable_count": 0,
+                    "rankable_coverage": 0.0,
+                    "snapshot_count": 0,
+                    "candidate_count": 0,
+                    "candidate_codes": [],
+                    "regime": None,
+                    "market_snapshot": None,
+                    "warnings": [str(exc)],
+                    "elapsed_seconds": elapsed,
+                    "items": [],
+                },
+            )
+            raise
+        elapsed = round(monotonic() - started, 3)
+        payload = {
+            **result,
+            "preview_time": utc_isoformat(observed_at),
+            "provider": provider,
+            "quote_count": quote_count,
+            "elapsed_seconds": elapsed,
+        }
+        payload.setdefault("items", [])
+        payload.setdefault("market_snapshot", None)
+        logger.info(
+            "market=%s job=etf_rotation_preview preview_time=%s provider=%s universe_size=%s "
+            "quote_count=%s data_coverage=%s rankable_count=%s snapshot_count=%s candidate_count=%s "
+            "elapsed_seconds=%s status=%s",
+            self.market,
+            payload["preview_time"],
+            provider,
+            payload.get("universe_size"),
+            quote_count,
+            payload.get("data_coverage"),
+            payload.get("rankable_count"),
+            payload.get("snapshot_count"),
+            payload.get("candidate_count"),
+            elapsed,
+            payload.get("status"),
+        )
+        save_preview(self.market, payload)
+        return payload
+
+    def _load_histories(
+        self,
+        codes: set[str],
+        effective_date: date,
+        overlay_bars: dict[str, DailyBar] | None,
+    ) -> dict[str, list[DailyBar]]:
+        fetched = self.market_data.get_daily_bars(
+            sorted(codes),
+            effective_date - timedelta(days=500),
+            effective_date,
+            adjustment="forward",
+            source_policy="db_fresh",
+        )
+        histories = {
+            code: [_to_daily_bar(bar) for bar in sorted(bars, key=lambda item: item.trade_date)]
+            for code, bars in fetched.data.items()
+        }
+        if overlay_bars is None:
+            return histories
+        for code, bars in list(histories.items()):
+            histories[code] = [bar for bar in bars if bar.trade_date < effective_date]
+        for code, bar in overlay_bars.items():
+            if bar.trade_date != effective_date:
+                continue
+            prior = histories.get(code, [])
+            prior.append(_to_daily_bar(bar))
+            histories[code] = prior
+        return histories
+
+    def _run_single_date(
+        self,
+        effective_date: date,
+        *,
+        persist: bool = True,
+        overlay_bars: dict[str, DailyBar] | None = None,
+    ) -> dict[str, Any]:
         members = enabled_etfs(self.market)
         member_by_code = {member.code: member for member in members}
         codes = set(member_by_code)
@@ -97,20 +260,7 @@ class ETFRotationService:
         warnings: list[str] = []
         # Daily sync maintains the Index ETF pool; refresh only stale tails.
         # Remote fallback is calculation-only and never writes stock_daily.
-        fetched = self.market_data.get_daily_bars(
-            sorted(codes | {benchmark_code}),
-            effective_date - timedelta(days=500),
-            effective_date,
-            adjustment="forward",
-            source_policy="db_fresh",
-        )
-        histories = {
-            code: [
-                DailyBar(trade_date=bar.trade_date, close=bar.close, volume=bar.volume, amount=bar.amount)
-                for bar in sorted(bars, key=lambda bar: bar.trade_date)
-            ]
-            for code, bars in fetched.data.items()
-        }
+        histories = self._load_histories(codes | {benchmark_code}, effective_date, overlay_bars)
         ready_codes = {
             code for code in codes if histories.get(code) and histories[code][-1].trade_date == effective_date
         }
@@ -128,7 +278,8 @@ class ETFRotationService:
         if not benchmark_ready:
             warnings.append(f"benchmark {benchmark_code} is missing on completed trading date {effective_date}")
             if not self.config.allow_missing_relative_strength:
-                return self._incomplete_summary(
+                return self._preview_or_official_incomplete(
+                    persist=persist,
                     trade_date=effective_date,
                     universe_size=len(codes),
                     data_ready_count=len(ready_codes),
@@ -143,7 +294,8 @@ class ETFRotationService:
         if not benchmark_ready and not any("benchmark" in item for item in warnings):
             warnings.append(f"benchmark {benchmark_code} has insufficient aligned history")
         if not benchmark_ready and not self.config.allow_missing_relative_strength:
-            return self._incomplete_summary(
+            return self._preview_or_official_incomplete(
+                persist=persist,
                 trade_date=effective_date,
                 universe_size=len(codes),
                 data_ready_count=len(ready_codes),
@@ -241,7 +393,8 @@ class ETFRotationService:
                 config=self.config,
             )
             regime = str(market_snapshot["regime"])
-            self.repository.upsert_market_snapshot(market_snapshot)
+            if persist:
+                self.repository.upsert_market_snapshot(market_snapshot)
         previous = self.repository.previous_candidate_codes(effective_date)
         correlations = rolling_correlations(
             {code: histories[code] for code in ready_codes}, self.config.correlation_window
@@ -268,7 +421,9 @@ class ETFRotationService:
                 "status": "ready" if known else "insufficient_history",
             }
 
-        snapshot_count = self.repository.upsert_snapshots(ranked_composite)
+        snapshot_count = (
+            self.repository.upsert_snapshots(ranked_composite) if persist else len(ranked_composite)
+        )
         summary = {
             "status": "completed",
             "market": self.market,
@@ -285,15 +440,39 @@ class ETFRotationService:
             "warnings": warnings,
         }
         logger.info(
-            "market=%s job=etf_rotation_v2 trade_date=%s regime=%s snapshots=%s candidates=%s warnings=%s",
+            "market=%s job=%s trade_date=%s regime=%s snapshots=%s candidates=%s warnings=%s",
             self.market,
+            "etf_rotation_v2" if persist else "etf_rotation_preview",
             effective_date,
             regime,
             snapshot_count,
             candidate_codes,
             warnings,
         )
-        return summary
+        if persist:
+            return summary
+        return {**summary, "items": ranked_composite, "market_snapshot": market_snapshot}
+
+    def _preview_or_official_incomplete(
+        self,
+        *,
+        persist: bool,
+        trade_date: date,
+        universe_size: int,
+        data_ready_count: int,
+        data_coverage: float,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        summary = self._incomplete_summary(
+            trade_date=trade_date,
+            universe_size=universe_size,
+            data_ready_count=data_ready_count,
+            data_coverage=data_coverage,
+            warnings=warnings,
+        )
+        if persist:
+            return summary
+        return {**summary, "items": [], "market_snapshot": None}
 
 
 __all__ = ["ETFRotationService"]

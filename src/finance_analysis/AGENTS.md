@@ -226,6 +226,8 @@ Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练�
 
 `etf_rotation/service.py` 从 `cn_index_etf`/`us_index_etf` Universe 加 benchmark 读取 `db_fresh` 前复权数据，执行完整性门槛、因子排名、市场状态、候选选择与风控，再写领域快照。Universe 来自数据库 seed/migration，不从 YAML strategy skill 派生。
 
+盘中预演 `run_preview()` 复用同一套计算：T-1 及以前仍走 `db_fresh`，Today 用 realtime overlay，结果只写入 Redis `etf_rotation:preview:{market}`，不写 `ETFMarketRotationSnapshot` / `ETFMomentumSnapshot`。CN 对 Universe+benchmark 一次 Tencent `real()`，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback。周期任务为 `etf_rotation_preview_cn`（11:05/14:05/14:35 Asia/Shanghai）与 `etf_rotation_preview_us`（11:05/15:05/15:35 America/New_York），相对 Trend Following Preview 错开 5 分钟。API：`GET /api/v1/etf-rotation/preview`。Redis 写入失败必须让 Celery Preview task 失败。
+
 ### Trend Following
 
 `trend_following/service.py` 对固定 CN/US Universe 计算特征、排名、仓位和状态机。大部分标的 DB-only；CN CSI2000 与 benchmark 可用 `db_fresh` 只读补尾部，远程结果不落库。支持从历史快照向后重建，因此变更规则时要考虑旧日期重算和 invalidate 行为。

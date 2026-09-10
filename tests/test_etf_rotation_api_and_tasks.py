@@ -280,7 +280,8 @@ def test_api_is_authenticated_and_market_aware_with_cn_default() -> None:
     assert route_paths.index("/candidates") < route_paths.index("/{code}")
     assert route_paths.index("/universe") < route_paths.index("/{code}")
     assert route_paths.index("/dates") < route_paths.index("/{code}")
-    for path in ("/ranking", "/candidates", "/universe", "/dates", "/{code}"):
+    assert route_paths.index("/preview") < route_paths.index("/{code}")
+    for path in ("/ranking", "/candidates", "/universe", "/dates", "/preview", "/{code}"):
         dependency_calls = {dependency.call for dependency in route_by_path[path].dependant.dependencies}
         assert etf_rotation.require_current_user in dependency_calls
     run_dependencies = {dependency.call for dependency in route_by_path["/run"].dependant.dependencies}
@@ -314,6 +315,12 @@ def test_scheduler_definition_and_task_registration() -> None:
     assert us_definition.celery_task_name == "scheduled.etf_rotation_us"
     assert us_definition.schedule_text == "周一至周五 18:30 America/New_York"
     assert build_beat_schedule()[JOB_ETF_ROTATION_US]["options"]["queue"] == "analysis"
+    preview_cn = require_scheduled_task_definition("etf_rotation_preview_cn")
+    preview_us = require_scheduled_task_definition("etf_rotation_preview_us")
+    assert preview_cn.celery_task_name == "scheduled.etf_rotation_preview_cn"
+    assert preview_us.celery_task_name == "scheduled.etf_rotation_preview_us"
+    assert preview_cn.schedule_text == "周一至周五 11:05、14:05、14:35 Asia/Shanghai"
+    assert preview_us.schedule_text == "周一至周五 11:05、15:05、15:35 America/New_York"
     assert "finance_analysis.tasks.celery.jobs.etf_rotation.tasks" in TASK_MODULES
 
 
@@ -335,11 +342,14 @@ def test_manual_us_run_submits_the_us_task(monkeypatch) -> None:
 
 def test_rotation_domain_has_no_redis_quant_feature_or_provider_dependency() -> None:
     root = Path(__file__).resolve().parents[1] / "src" / "finance_analysis" / "etf_rotation"
-    source = "\n".join(path.read_text(encoding="utf-8") for path in root.rglob("*.py"))
+    engine_files = [path for path in root.rglob("*.py") if path.name != "preview_cache.py"]
+    source = "\n".join(path.read_text(encoding="utf-8") for path in engine_files)
     assert "redis" not in source.lower()
     assert "quant.features" not in source
     assert "providers.akshare" not in source
     assert "providers.efinance" not in source
+    cache = (root / "preview_cache.py").read_text(encoding="utf-8")
+    assert "etf_rotation:preview:" in cache
 
 
 def test_migration_creates_only_snapshot_table_with_required_constraints() -> None:
