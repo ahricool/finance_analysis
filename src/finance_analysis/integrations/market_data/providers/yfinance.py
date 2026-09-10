@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, datetime, timedelta, timezone
 import ast
 import logging
 import threading
@@ -21,6 +21,7 @@ from finance_analysis.integrations.market_data.models import (
     InstrumentInfo,
     InstrumentRequest,
     Market,
+    MarketBar,
     MarketIndex,
     MinuteBarsRequest,
     QuoteRequest,
@@ -217,6 +218,63 @@ class YFinanceProvider:
                 result.providers_used[symbol] = self.name
             else:
                 result.missing_symbols.append(symbol)
+        return result
+
+    def fetch_intraday_preview_daily_bars(self, symbols: list[str], trade_date: date) -> BatchBarResult:
+        """Batch 5-minute bars for one session and aggregate them into temporary daily bars."""
+        canonical = [canonical_symbol(value) for value in symbols]
+        provider_symbols = [self.to_yfinance_symbol(symbol) for symbol in canonical]
+        result = BatchBarResult()
+        for batch in self._batches(list(zip(canonical, provider_symbols))):
+            pending = list(batch)
+            try:
+                raw = self._download(
+                    [provider_symbol for _, provider_symbol in pending],
+                    interval="5m",
+                    period="1d",
+                    actions=False,
+                    auto_adjust=False,
+                )
+            except Exception as exc:
+                reason = str(exc) or type(exc).__name__
+                logger = logging.getLogger(__name__)
+                logger.exception("provider=%s action=intraday_preview_daily_bars failed", self.name)
+                result.failed_symbols.update({symbol: reason for symbol, _ in pending})
+                continue
+            for symbol, provider_symbol in pending:
+                error = raw.attrs.get("request_errors", {}).get(provider_symbol)
+                if error:
+                    result.failed_symbols[symbol] = error
+                    continue
+                frame = self._ticker_frame(raw, provider_symbol).reset_index()
+                bars = bars_from_frame(frame, symbol=symbol, provider=self.name, interval="5m")
+                session = [bar for bar in bars if bar.trade_date == trade_date]
+                if not session:
+                    result.missing_symbols.append(symbol)
+                    continue
+                session = sorted(
+                    session,
+                    key=lambda bar: bar.bar_time or datetime.min.replace(tzinfo=timezone.utc),
+                )
+                result.data[symbol] = [
+                    MarketBar(
+                        symbol=symbol,
+                        market=infer_market(symbol),
+                        interval="1d",
+                        trade_date=trade_date,
+                        bar_time=None,
+                        open=session[0].open,
+                        high=max(bar.high for bar in session),
+                        low=min(bar.low for bar in session),
+                        close=session[-1].close,
+                        volume=int(sum(bar.volume for bar in session)),
+                        amount=None,
+                        currency=currency_for_market(infer_market(symbol)),
+                        adjustment=Adjustment.RAW,
+                        provider=self.name,
+                    )
+                ]
+                result.providers_used[symbol] = self.name
         return result
 
     def fetch_quotes(self, request: QuoteRequest) -> BatchQuoteResult:

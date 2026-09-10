@@ -133,7 +133,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - `/watch-list`：用户级自选股 CRUD。
 - `/calendar`：日历记录和财经事件。
 - `/tasks`：周期定义、手动触发及任务运行记录。
-- `/quant`、`/etf-rotation`、`/trend-following`：研究结果与运行入口。
+- `/quant`、`/etf-rotation`、`/trend-following`：研究结果与运行入口；趋势预演为 `GET /trend-following/preview`。
 - `/market-data/ws`：基于 Cookie 的用户自选股实时 WebSocket。
 - `/usage`：LLM 使用统计；`/celery` 是演示/诊断端点。
 

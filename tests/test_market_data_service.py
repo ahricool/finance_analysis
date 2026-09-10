@@ -19,6 +19,7 @@ from finance_analysis.integrations.market_data.providers.akshare import AkShareP
 from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
 from finance_analysis.integrations.market_data.registry import (
     DAILY_BARS,
+    LATEST_MARKET_SNAPSHOT,
     MINUTE_BARS,
     ProviderConfigurationError,
     ProviderRegistry,
@@ -233,6 +234,14 @@ def test_default_orders_are_explicit_and_not_integer_priorities():
     assert "longbridge" not in provider_order(Market.US, DAILY_BARS)
     assert "akshare" not in provider_order(Market.US, DAILY_BARS)
     assert provider_order(Market.CN, MINUTE_BARS) == ("streaming", "longbridge", "efinance", "pytdx", "akshare")
+    assert "easyquotation" not in provider_order(Market.CN, LATEST_MARKET_SNAPSHOT)
+    assert provider_order(Market.CN, LATEST_MARKET_SNAPSHOT)[0] == "efinance"
+
+
+def test_default_registry_registers_easyquotation_snapshot_only():
+    registry = build_default_registry()
+    assert DAILY_BARS not in registry.capabilities("easyquotation")
+    assert LATEST_MARKET_SNAPSHOT in registry.capabilities("easyquotation")
 
 
 def test_default_registry_excludes_unsupported_efinance_daily():

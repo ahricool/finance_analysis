@@ -4,16 +4,29 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from time import monotonic
 from typing import Any
 
+from ..core.time import utc_isoformat, utc_now
 from ..database.repositories.trend_following import TrendFollowingRepository
 from ..database.repositories.universe import UniverseResolver
+from ..integrations.market_data.preview import (
+    CN_PREVIEW_PROVIDER,
+    PreviewQuoteError,
+    US_PREVIEW_PROVIDER,
+    collect_preview_daily_bars,
+)
 from ..integrations.market_data.service import MarketDataService
-from ..market_review.trading_calendar import get_completed_trading_days, get_trading_days_between
+from ..market_review.trading_calendar import (
+    get_completed_trading_days,
+    get_market_now,
+    get_trading_days_between,
+)
 from .config import DEFAULT_CONFIG, TrendFollowingConfig
 from .features import calculate_features
 from .models import DailyBar, StrategyDecision
+from .preview_cache import save_preview
 from .ranking import rank_candidates
 from .regime import calculate_market_regime
 from .state import (
@@ -49,6 +62,11 @@ class TrendFollowingService:
         if requested is not None:
             return requested
         return get_completed_trading_days(self.market.lower(), 1)[-1]
+
+    def resolve_preview_trade_date(self, requested: date | None = None) -> date:
+        if requested is not None:
+            return requested
+        return get_market_now(self.market.lower()).date()
 
     def _rebuild_dates(self, requested: date | None) -> list[date]:
         latest_available = self.resolve_trade_date(requested)
@@ -121,7 +139,109 @@ class TrendFollowingService:
             "rebuild_status": "completed",
         }
 
-    def _run_single_date(self, effective_date: date) -> dict[str, Any]:
+    def run_preview(
+        self,
+        trade_date: date | None = None,
+        *,
+        preview_time: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Compute today's trend using official T-1 state plus a temporary today bar.
+
+        Preview never writes ``trend_following_snapshot`` and never feeds later
+        official or preview runs. Each call reloads the previous official snapshot.
+        """
+        started = monotonic()
+        observed_at = preview_time or utc_now()
+        effective_date = self.resolve_preview_trade_date(trade_date)
+        members = get_universe(self.market)
+        universe_codes = {member.code for member in members}
+        benchmark_code = self.config.benchmark_codes[self.market]
+        requested = sorted(universe_codes | {benchmark_code})
+        provider = CN_PREVIEW_PROVIDER if self.market == "CN" else US_PREVIEW_PROVIDER
+        quote_count = 0
+        try:
+            bars, provider, quote_count = collect_preview_daily_bars(
+                self.market_data,
+                self.market,
+                requested,
+                effective_date,
+            )
+            overlay = {
+                code: DailyBar(
+                    trade_date=bar.trade_date,
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    volume=float(bar.volume),
+                    amount=bar.amount,
+                )
+                for code, bar in bars.items()
+            }
+            result = self._run_single_date(effective_date, persist=False, overlay_bars=overlay)
+        except PreviewQuoteError as exc:
+            elapsed = round(monotonic() - started, 3)
+            logger.exception(
+                "market=%s job=trend_following_preview provider=%s snapshot_failed elapsed_seconds=%s",
+                self.market,
+                provider,
+                elapsed,
+            )
+            save_preview(
+                self.market,
+                {
+                    "status": "failed",
+                    "market": self.market,
+                    "trade_date": effective_date.isoformat(),
+                    "preview_time": utc_isoformat(observed_at),
+                    "provider": provider,
+                    "quote_count": quote_count,
+                    "universe_size": len(universe_codes),
+                    "data_coverage": 0.0,
+                    "rankable_count": 0,
+                    "snapshot_count": 0,
+                    "candidate_count": 0,
+                    "snapshots": [],
+                    "warnings": [str(exc)],
+                    "elapsed_seconds": elapsed,
+                },
+            )
+            raise
+        elapsed = round(monotonic() - started, 3)
+        payload = {
+            **result,
+            "preview_time": utc_isoformat(observed_at),
+            "provider": provider,
+            "quote_count": quote_count,
+            "elapsed_seconds": elapsed,
+        }
+        payload.setdefault("snapshots", [])
+        logger.info(
+            "market=%s job=trend_following_preview preview_time=%s provider=%s universe_size=%s "
+            "quote_count=%s data_coverage=%s rankable_count=%s snapshot_count=%s candidate_count=%s "
+            "elapsed_seconds=%s status=%s",
+            self.market,
+            payload["preview_time"],
+            provider,
+            payload.get("universe_size"),
+            quote_count,
+            payload.get("data_coverage"),
+            payload.get("rankable_count"),
+            payload.get("snapshot_count"),
+            payload.get("candidate_count"),
+            elapsed,
+            payload.get("status"),
+        )
+        save_preview(self.market, payload)
+        return payload
+
+    def _run_single_date(
+        self,
+        effective_date: date,
+        *,
+        persist: bool = True,
+        overlay_bars: dict[str, DailyBar] | None = None,
+    ) -> dict[str, Any]:
         members = get_universe(self.market)
         member_by_code = {member.code: member for member in members}
         universe_codes = set(member_by_code)
@@ -132,43 +252,51 @@ class TrendFollowingService:
             if self.market == "CN"
             else set()
         )
-        requested_codes = universe_codes - csi2000_codes
-        ready_codes = self.repository.daily_codes_on_date(requested_codes, effective_date)
-        supplemental = {}
-        if csi2000_codes:
-            supplemental = self.market_data.get_daily_bars(
-                sorted(csi2000_codes),
+        if overlay_bars is None:
+            requested_codes = universe_codes - csi2000_codes
+            ready_codes = self.repository.daily_codes_on_date(requested_codes, effective_date)
+            supplemental = {}
+            if csi2000_codes:
+                supplemental = self.market_data.get_daily_bars(
+                    sorted(csi2000_codes),
+                    effective_date - timedelta(days=self.config.calendar_lookback_days),
+                    effective_date,
+                    adjustment="forward",
+                    source_policy="db_fresh",
+                ).data
+                ready_codes.update(
+                    code
+                    for code in csi2000_codes
+                    if any(bar.trade_date == effective_date for bar in supplemental.get(code, []))
+                )
+            # All other main-universe stocks remain DB-only.
+            benchmark_result = self.market_data.get_daily_bars(
+                [benchmark_code],
                 effective_date - timedelta(days=self.config.calendar_lookback_days),
                 effective_date,
                 adjustment="forward",
                 source_policy="db_fresh",
-            ).data
-            ready_codes.update(
-                code
-                for code in csi2000_codes
-                if any(bar.trade_date == effective_date for bar in supplemental.get(code, []))
             )
-        # All other main-universe stocks remain DB-only.
-        benchmark_result = self.market_data.get_daily_bars(
-            [benchmark_code],
-            effective_date - timedelta(days=self.config.calendar_lookback_days),
-            effective_date,
-            adjustment="forward",
-            source_policy="db_fresh",
-        )
-        benchmark_bars = [
-            DailyBar(
-                trade_date=bar.trade_date,
-                open=bar.open,
-                high=bar.high,
-                low=bar.low,
-                close=bar.close,
-                volume=bar.volume,
-                amount=bar.amount,
-            )
-            for bar in sorted(benchmark_result.data.get(benchmark_code, []), key=lambda bar: bar.trade_date)
-        ]
-        benchmark_ready = bool(benchmark_bars and benchmark_bars[-1].trade_date == effective_date)
+            benchmark_bars = [
+                DailyBar(
+                    trade_date=bar.trade_date,
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    volume=bar.volume,
+                    amount=bar.amount,
+                )
+                for bar in sorted(benchmark_result.data.get(benchmark_code, []), key=lambda bar: bar.trade_date)
+            ]
+            benchmark_ready = bool(benchmark_bars and benchmark_bars[-1].trade_date == effective_date)
+        else:
+            requested_codes = set(universe_codes) | {benchmark_code}
+            ready_codes = {code for code in universe_codes if code in overlay_bars}
+            supplemental = {}
+            benchmark_bars = []
+            overlay_benchmark = overlay_bars.get(benchmark_code)
+            benchmark_ready = overlay_benchmark is not None and overlay_benchmark.trade_date == effective_date
         data_coverage = len(ready_codes) / len(universe_codes) if universe_codes else 0.0
         warnings: list[str] = []
         if data_coverage < self.config.minimum_data_coverage:
@@ -214,6 +342,8 @@ class TrendFollowingService:
         for item in rows:
             if item["trade_date"] > effective_date:
                 continue
+            if overlay_bars is not None and item["trade_date"] == effective_date:
+                continue
             histories[str(item["code"])].append(
                 DailyBar(
                     trade_date=item["trade_date"],
@@ -225,12 +355,19 @@ class TrendFollowingService:
                     amount=None if item["amount"] is None else float(item["amount"]),
                 )
             )
-        for code, bars in supplemental.items():
-            histories[code] = [
-                DailyBar(bar.trade_date, bar.open, bar.high, bar.low, bar.close, bar.volume, bar.amount)
-                for bar in sorted(bars, key=lambda bar: bar.trade_date)
-                if bar.trade_date <= effective_date
-            ]
+        if overlay_bars is None:
+            for code, bars in supplemental.items():
+                histories[code] = [
+                    DailyBar(bar.trade_date, bar.open, bar.high, bar.low, bar.close, bar.volume, bar.amount)
+                    for bar in sorted(bars, key=lambda bar: bar.trade_date)
+                    if bar.trade_date <= effective_date
+                ]
+        else:
+            for code, bar in overlay_bars.items():
+                prior = [item for item in histories.get(code, []) if item.trade_date < effective_date]
+                prior.append(bar)
+                histories[code] = prior
+            benchmark_bars = histories.get(benchmark_code, [])
         benchmark_bars = benchmark_bars[-self.config.history_bars :]
         if len(benchmark_bars) < self.config.minimum_history_bars:
             warning = f"benchmark {benchmark_code} has insufficient history: {len(benchmark_bars)} bars"
@@ -509,16 +646,26 @@ class TrendFollowingService:
             "features": regime["features"],
             "score_breakdown": regime["score_breakdown"],
         }
-        snapshot_count = self.repository.replace_day(effective_date, snapshots, summary)
+        if persist:
+            snapshot_count = self.repository.replace_day(effective_date, snapshots, summary)
+        else:
+            for item in snapshots:
+                member = member_by_code.get(str(item["code"]))
+                if member is not None:
+                    item["name"] = member.name
+            snapshot_count = len(snapshots)
         result = {
             "status": "completed",
             **summary,
             "trade_date": effective_date.isoformat(),
             "snapshot_count": snapshot_count,
         }
+        if not persist:
+            result["snapshots"] = snapshots
         logger.info(
-            "market=%s job=trend_following trade_date=%s regime=%s snapshots=%s warnings=%s",
+            "market=%s job=%s trade_date=%s regime=%s snapshots=%s warnings=%s",
             self.market,
+            "trend_following" if persist else "trend_following_preview",
             effective_date,
             regime["market_regime"],
             snapshot_count,

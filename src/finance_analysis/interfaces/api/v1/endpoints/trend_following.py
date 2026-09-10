@@ -9,23 +9,24 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 
-from finance_analysis.database.models.user import User
-from finance_analysis.database.repositories.trend_following import TrendFollowingRepository
-from finance_analysis.interfaces.api.deps import require_admin, require_current_user
-from finance_analysis.interfaces.api.v1.schemas.trend_following import (
+from finance_analysis.database.models.user import User  # pragma: allowlist secret
+from finance_analysis.database.repositories.trend_following import TrendFollowingRepository  # pragma: allowlist secret
+from finance_analysis.interfaces.api.deps import require_admin, require_current_user  # pragma: allowlist secret
+from finance_analysis.interfaces.api.v1.schemas.trend_following import (  # pragma: allowlist secret
     TrendFollowingPortfolioResponse,
     TrendFollowingRunRequest,
 )
-from finance_analysis.tasks.celery.schedule import (
+from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
     JOB_TREND_FOLLOWING_CN,
     JOB_TREND_FOLLOWING_US,
     QUEUE_ANALYSIS,
     require_scheduled_task_definition,
 )
-from finance_analysis.core.ranking import calculate_rank_changes
-from finance_analysis.trend_following.config import DEFAULT_CONFIG
-from finance_analysis.trend_following.risk import theoretical_position_weight
-from finance_analysis.trend_following.universe import universe_by_code
+from finance_analysis.core.ranking import calculate_rank_changes  # pragma: allowlist secret
+from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
+from finance_analysis.trend_following.preview_cache import load_preview  # pragma: allowlist secret
+from finance_analysis.trend_following.risk import theoretical_position_weight  # pragma: allowlist secret
+from finance_analysis.trend_following.universe import universe_by_code  # pragma: allowlist secret
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -241,9 +242,17 @@ async def dates(_: User = Depends(require_current_user), market: Market = "CN"):
     return jsonable_encoder({"market": market, "latest": items[0] if items else None, "items": items})
 
 
+@router.get("/preview")
+async def preview(_: User = Depends(require_current_user), market: Market = "CN"):
+    payload = load_preview(market)
+    if payload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Trend Following preview is not available")
+    return jsonable_encoder(payload)
+
+
 @router.post("/run", status_code=status.HTTP_202_ACCEPTED)
 async def run_trend_following(body: TrendFollowingRunRequest, user: User = Depends(require_admin)):
-    from finance_analysis.tasks.celery.jobs.trend_following.tasks import (
+    from finance_analysis.tasks.celery.jobs.trend_following.tasks import (  # pragma: allowlist secret
         run_trend_following_cn,
         run_trend_following_us,
     )

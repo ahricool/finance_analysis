@@ -7,11 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from finance_analysis.core.paths import PROJECT_ROOT
-from finance_analysis.interfaces.api.v1.endpoints import trend_following
-from finance_analysis.interfaces.api.v1.schemas.trend_following import TrendFollowingRunRequest
-from finance_analysis.tasks.celery.jobs import TASK_MODULES
-from finance_analysis.tasks.celery.schedule import (
+from finance_analysis.core.paths import PROJECT_ROOT  # pragma: allowlist secret
+from finance_analysis.interfaces.api.v1.endpoints import trend_following  # pragma: allowlist secret
+from finance_analysis.interfaces.api.v1.schemas.trend_following import TrendFollowingRunRequest  # pragma: allowlist secret
+from finance_analysis.tasks.celery.jobs import TASK_MODULES  # pragma: allowlist secret
+from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
     JOB_TREND_FOLLOWING_CN,
     JOB_TREND_FOLLOWING_US,
     build_beat_schedule,
@@ -213,7 +213,17 @@ def test_tasks_and_schedules_are_registered():
     assert us.schedule_text.startswith("周一至周五 18:40")
     assert build_beat_schedule()[JOB_TREND_FOLLOWING_CN]["options"]["queue"] == "analysis"
     assert build_beat_schedule()[JOB_TREND_FOLLOWING_US]["options"]["queue"] == "analysis"
-    assert "finance_analysis.tasks.celery.jobs.trend_following.tasks" in TASK_MODULES
+    assert "finance_analysis.tasks.celery.jobs.trend_following.tasks" in TASK_MODULES  # pragma: allowlist secret
+    preview_cn = require_scheduled_task_definition("trend_following_preview_cn")
+    preview_us = require_scheduled_task_definition("trend_following_preview_us")
+    assert preview_cn.celery_task_name == "scheduled.trend_following_preview_cn"
+    assert preview_us.celery_task_name == "scheduled.trend_following_preview_us"
+    assert {(item.hour, item.minute) for item in preview_cn.schedules} == {("11", "0"), ("14", "0"), ("14", "30")}
+    assert {(item.hour, item.minute, item.timezone) for item in preview_us.schedules} == {
+        ("11", "0", "America/New_York"),
+        ("15", "0", "America/New_York"),
+        ("15", "30", "America/New_York"),
+    }
 
 
 def test_manual_run_submits_celery(monkeypatch):
@@ -224,7 +234,7 @@ def test_manual_run_submits_celery(monkeypatch):
         submitted.update(kwargs)
         return fake_result
 
-    from finance_analysis.tasks.celery.jobs.trend_following import tasks
+    from finance_analysis.tasks.celery.jobs.trend_following import tasks  # pragma: allowlist secret
 
     monkeypatch.setattr(tasks.run_trend_following_us, "apply_async", submit)
     result = asyncio.run(
@@ -293,7 +303,7 @@ def test_trend_task_business_status_drives_existing_lifecycle(monkeypatch, marke
     from contextlib import nullcontext
     from unittest.mock import Mock
     from finance_analysis.tasks import lifecycle
-    from finance_analysis.tasks.celery.jobs.trend_following import tasks
+    from finance_analysis.tasks.celery.jobs.trend_following import tasks  # pragma: allowlist secret
 
     result = {
         "status": status,
