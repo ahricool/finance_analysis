@@ -1,4 +1,8 @@
-"""Fuse Qlib model scores with market gating and a runtime risk penalty."""
+"""Fuse Qlib model scores with a runtime risk penalty.
+
+Market regime is explanatory context only. Position size is applied later by
+PortfolioBuilder through max_equity_exposure.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +21,8 @@ class FusedSignal:
 
 class SignalFusion:
     def __init__(self, config: FusionConfig | None = None):
-        self.config = config or FusionConfig(); self.config.validate()
+        self.config = config or FusionConfig()
+        self.config.validate()
 
     def fuse(
         self,
@@ -27,13 +32,11 @@ class SignalFusion:
         market_score: float | None = None,
         risk_penalty: float = 0,
     ) -> FusedSignal:
-        pre_regime_score = (
+        final_score = (
             cross_section_score * self.config.cross_section_weight
             + time_series_score * self.config.time_series_weight
             - risk_penalty
         )
-        regime_multiplier = self.config.regime_multipliers[market_regime]
-        final_score = pre_regime_score * regime_multiplier
         components = {
             "cross_section_score": cross_section_score,
             "time_series_score": time_series_score,
@@ -42,13 +45,11 @@ class SignalFusion:
             "risk_penalty": risk_penalty,
             "market_score": market_score,
             "market_regime": market_regime,
-            "pre_regime_score": pre_regime_score,
-            "regime_multiplier": regime_multiplier,
         }
         reasons = [
             f"横截面得分 {cross_section_score:.2f}",
             f"时间序列得分 {time_series_score:.2f}",
-            f"市场状态 {market_regime}",
+            f"市场状态 {market_regime}（只限制组合总仓位，不调整个股得分）",
         ]
         if risk_penalty:
             reasons.append(f"风险扣分 {risk_penalty:.2f}")

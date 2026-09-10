@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from celery.canvas import _chord
 from celery.utils.functional import arity_greater
 
 from finance_analysis.database.repositories.quant import QuantRepository
@@ -133,8 +132,34 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
     repository.get_universe.return_value = SimpleNamespace(id=9, key="cn_quant", market="CN", enabled=True)
     repository.daily_bar_codes.return_value = {"600519.SH"}
     repository.production_model.side_effect = [
-        SimpleNamespace(id=11, model_key="cross_section_lgbm", model_version="cn-v1", artifact_uri="quant://cn/cs"),
-        SimpleNamespace(id=12, model_key="time_series_lgbm", model_version="cn-v1", artifact_uri="quant://cn/ts"),
+        SimpleNamespace(
+            id=11,
+            model_key="cross_section_lgbm",
+            model_version="cn-v1",
+            artifact_uri="quant://cn/cs",
+            feature_config={"base": "Alpha158"},
+            target_config={
+                "prediction_horizon": 5,
+                "entry_price": "open",
+                "exit_price": "close",
+                "benchmark": "market",
+                "excess_return": True,
+            },
+        ),
+        SimpleNamespace(
+            id=12,
+            model_key="time_series_lgbm",
+            model_version="cn-v1",
+            artifact_uri="quant://cn/ts",
+            feature_config={"base": "Alpha158"},
+            target_config={
+                "prediction_horizon": 5,
+                "entry_price": "open",
+                "exit_price": "close",
+                "benchmark": "none",
+                "excess_return": False,
+            },
+        ),
     ]
     exporter = MagicMock()
     exporter.export.return_value = SimpleNamespace(artifact_uri="quant://cn/dataset")
@@ -157,7 +182,7 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
             }
         ),
     )
-    requests, context = QuantDailyPipeline(
+    payload, context = QuantDailyPipeline(
         repository=repository,
         exporter=exporter,
         symbol_repository=MagicMock(),
@@ -168,7 +193,8 @@ def test_cn_pipeline_queries_only_cn_production_models(monkeypatch):
     assert repository.production_model.call_args_list[1].args == ("CN", "time_series_lgbm")
     assert context["market"] == "CN"
     assert context["universe_key"] == "cn_quant"
-    assert {request["artifact_uri"] for request in requests} == {"quant://cn/cs", "quant://cn/ts"}
+    assert payload["cross_section"]["artifact_uri"] == "quant://cn/cs"
+    assert payload["time_series"]["artifact_uri"] == "quant://cn/ts"
     assert "price_mode" not in exporter.export.call_args.kwargs
 
 
@@ -183,7 +209,13 @@ def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(monkeypat
         @staticmethod
         def prepare(market):
             return (
-                [{"model_key": "cross_section_lgbm"}],
+                {
+                    "schema_version": 1,
+                    "dataset_uri": "quant://dataset",
+                    "trade_date": str(TRADE_DATE),
+                    "cross_section": {"model_run_id": 11, "model_key": "cross_section_lgbm", "artifact_uri": "quant://cs"},
+                    "time_series": {"model_run_id": 12, "model_key": "time_series_lgbm", "artifact_uri": "quant://ts"},
+                },
                 {
                     "trade_date": str(TRADE_DATE),
                     "market": market,
@@ -191,29 +223,30 @@ def test_scheduled_daily_pipeline_dispatches_the_fixed_market_universe(monkeypat
                 },
             )
 
-    def capture_chord_run(_self, header, body, _partial_args, **options):
-        captured["header"] = header
-        captured["body"] = body
-        captured["options"] = options
-        return SimpleNamespace(id="chord-id")
+    def capture_send_task(name, **kwargs):
+        captured["name"] = name
+        captured.update(kwargs)
+        return SimpleNamespace(id="qlib-daily-id")
 
     monkeypatch.setattr(quant_daily_tasks, "QuantDailyPipeline", Pipeline)
-    monkeypatch.setattr(_chord, "run", capture_chord_run)
+    monkeypatch.setattr(quant_daily_tasks.celery_app, "send_task", capture_send_task)
     monkeypatch.setattr(quant_daily_tasks, "get_current_task_id", lambda: "parent-task-id")
 
     result = quant_daily_tasks._dispatch(market)
 
     assert result["market"] == market
     assert result["universe"] == universe
-    assert len(captured["header"]) == 1
-    assert captured["body"].task == "quant.daily.finalize"
-    assert captured["body"].kwargs["context"]["lifecycle_task_id"] == "parent-task-id"
-    assert captured["body"].kwargs["_skip_task_record"] is True
-    assert captured["body"].options["queue"] == "analysis"
-    errbacks = captured["body"].options["link_error"]
-    assert len(errbacks) == 1
-    assert errbacks[0]["task"] == "quant.daily.failed"
-    assert "link_error" not in captured["options"]
+    assert captured["name"] == "qlib.daily.predict"
+    assert captured["queue"] == "qlib"
+    assert captured["kwargs"]["cross_section"]["model_key"] == "cross_section_lgbm"
+    assert captured["link"].task == "quant.daily.finalize"
+    assert captured["link"].kwargs["context"]["lifecycle_task_id"] == "parent-task-id"
+    assert captured["link"].kwargs["_skip_task_record"] is True
+    assert captured["link"].options["queue"] == "analysis"
+    errbacks = captured["link_error"]
+    assert errbacks.task == "quant.daily.failed" or (
+        isinstance(errbacks, (list, tuple)) and errbacks[0].task == "quant.daily.failed"
+    )
 
 
 def test_quant_errbacks_use_celery_legacy_task_id_signature() -> None:

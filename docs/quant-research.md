@@ -1,6 +1,6 @@
 # Qlib quant research
 
-The quant module keeps PostgreSQL as its source of truth. It reads canonical
+The quant module keeps PostgreSQL as its source of truth. It reads canonical <!-- pragma: allowlist secret -->
 `instrument` and canonical forward-adjusted `stock_daily` rows, exports immutable
 snapshots below `QUANT_ARTIFACT_ROOT`, and sends only artifact URIs and versioned
 configuration to the Qlib worker.
@@ -11,7 +11,7 @@ The application requires Python 3.13. Qlib 0.9.7 has no CPython 3.13 wheel, so
 `qlib-worker` uses Python 3.12, `pyqlib==0.9.7`, and its own `pyproject.toml`
 and `uv.lock`. The main Python 3.13 environment does not install Qlib,
 LightGBM, or scikit-learn. Both environments share only `./data/quant` and the
-Redis Celery broker/backend. PostgreSQL remains the only business database and
+Redis Celery broker/backend. PostgreSQL remains the only business database and <!-- pragma: allowlist secret -->
 the Qlib worker receives no database credentials or application source mount.
 
 The worker remains pinned to `linux/amd64` because this Qlib release has not
@@ -42,14 +42,113 @@ state from leaking into the next task.
 
 Training dispatches `qlib.model.train` and links either
 `quant.model.train.finalize` or `quant.model.train.failed` on the `analysis`
-queue. Daily prediction uses a Celery chord with two `qlib.model.predict`
-tasks; `quant.daily.finalize` performs signal fusion, final-score ranking,
-target-portfolio construction, and PostgreSQL persistence. <!-- pragma: allowlist secret --> Main workers never
-wait synchronously for Qlib.
+queue. Daily prediction dispatches a single `qlib.daily.predict` task with both
+production model artifacts. The worker initializes Qlib and loads Alpha158 once,
+then scores Cross Section and Time Series against the same feature matrix.
+`quant.daily.finalize` performs signal fusion, ranking, target-portfolio
+construction, and PostgreSQL persistence. <!-- pragma: allowlist secret --> A failed Qlib task never writes a
+partial signal/portfolio set. Main workers never wait synchronously for Qlib.
+Single-model `qlib.model.predict` remains available for isolated tests; the
+scheduled pipeline does not use it.
+
+## Model targets
+
+Model type owns production target semantics. Administrators cannot override
+benchmark or excess-return flags when creating a run.
+
+| Model | Task | Label |
+| --- | --- | --- |
+| `cross_section_lgbm` | regression | T+1 open → T+5 close excess return versus the market benchmark |
+| `time_series_lgbm` | classification | T+1 open → T+5 close absolute return `> 0` |
+
+Both models use a fixed 5-session horizon, T+1 open entry, and T+5 close exit.
+Administrators cannot set `prediction_horizon` on create-run. Daily prediction
+refuses production models whose stored `target_config` does not match this
+contract, including legacy time-series excess-return runs and any run whose
+`prediction_horizon` is not 5. Retrain and publish those models on the current
+5-session contract before enabling daily inference.
+
+Time-series `predict_proba` is a directional score from a `class_weight="balanced"`
+classifier, not a calibrated probability of an up move.
+
+## Metrics
+
+Cross-section evaluation uses daily Rank IC statistics, not a pooled global
+Rank IC as the headline number:
+
+- primary: `daily_rank_ic_mean`, `icir`, `top5_excess_return_pct`,
+  `top10_excess_return_pct`, `rank_ic_positive_day_ratio`
+- auxiliary: global `ic` / `rank_ic`, `mae`, `rmse`
+- lightweight overlapping OOS TopK stats from walk-forward test predictions:
+  `top5_oos_return_pct` / `top10_oos_return_pct` and
+  `top5_positive_period_ratio` / `top10_positive_period_ratio`. Each test date
+  selects TopK by prediction and records that date's 5-day forward-return
+  label; the metrics are the mean and positive-period ratio across OOS dates.
+  `metrics.assumptions` records `prediction_horizon=5` and `periods_overlap=true`.
+  Adjacent labels overlap, so these are not portfolio returns, Sharpe, drawdown,
+  turnover, or a backtest.
+
+Time-series evaluation uses classification metrics: ROC AUC, balanced accuracy,
+precision, recall, F1, Brier score, and directional hit rate. A fold with a
+single class records `roc_auc=null` and a warning instead of failing training.
+
+The committed production model retrains on the last fold's train+validation
+window using `median(fold best_iteration_)` as `n_estimators`. Metadata stores
+`fold_best_iterations` and `final_n_estimators`.
+
+## Signal fusion, market regime, and portfolio
+
+`SignalFusion` ranks names:
+
+```text
+final_score = cs_score * 0.60 + ts_score * 0.40 - risk_penalty
+```
+
+Market regime and market score remain in `score_components` for explanation.
+They do not multiply alpha scores. Regime only sets `max_equity_exposure` for
+`PortfolioBuilder`.
+
+The exposure curve is unchanged. `risk_off` still allows a small book (about
+10% at score 0, rising with the curve to 80% at score 1). There is no hidden
+zero-exposure gate.
+
+`buy_top_k=5` is a floor. When `max_equity_exposure / single_stock_max_weight`
+needs more names, the builder selects enough buy-eligible names to make the
+exposure reachable without breaking the 8% single-stock cap. Weights are always
+equal. If too few eligible names exist, exposure is capped and a warning is
+recorded. There is no `score_weight` path.
+
+Persisted `model_signal.score_components.lineage` and
+`portfolio_recommendation.summary.lineage` identify the Cross Section and Time
+Series run ids/versions, regime/fusion/portfolio/feature versions, dataset URI,
+and source revision. The `model_version` column remains the Cross Section
+version for the existing unique constraint.
+
+## Daily prediction lookback
+
+Alpha158 rolling windows in this project are `[5, 10, 20, 30, 60]` sessions.
+Daily prediction datasets therefore use 80 trading sessions (60 plus a 20-session
+buffer), counted on the market calendar rather than 500 calendar days. Regime
+and liquidity research still load a longer history because those rules need at
+least 61 sessions of benchmark and member bars.
+
+Empirical Alpha158 comparisons on a synthetic Qlib dataset confirmed that
+features on the target trade date match a 500-calendar-day window once the
+exported history covers those 80 sessions. Shorter calendar windows that still
+contain 80 sessions also match; the old 500-day pad was not required by the
+feature expressions.
+
+## VWAP proxy
+
+Dataset VWAP binaries are an HLC3 estimate, `(high + low + close) / 3`, not
+`amount / volume`. Provider amount quality is not trusted, so this proxy is an
+intentional design. Do not replace it with turnover-implied VWAP. Source
+revision still hashes the stored OHLCV, this VWAP proxy, and the daily
+provider.
 
 ## Business workflow
 
-1. Ensure the resolved Quant stock universe has daily bars in PostgreSQL. The small
+1. Ensure the resolved Quant stock universe has daily bars in PostgreSQL. The small <!-- pragma: allowlist secret -->
    benchmark set uses MarketDataService `db_fresh`: fresh DB history needs no remote
    request; stale history gets a batched tail, and no-history symbols get the requested
    window. Remote bars are merged in memory without persistence. Index constituents
@@ -59,7 +158,11 @@ wait synchronously for Qlib.
    Failed validation prevents training, and dataset progress remains visible in the task center.
 3. The administrator selects one of the two Qlib worker models and creates a model run. Training is asynchronous
    and becomes `candidate` only. The daily pipeline requires both `cross_section_lgbm` and `time_series_lgbm`.
-4. An administrator reviews metrics and publishes the candidate manually.
+   Walk-forward dates are generated by the worker; create-run requests no longer
+   accept fake `train_start` / `valid_*` / `test_*` windows, `run_type`,
+   `prediction_horizon`, or a caller-supplied target contract. Stored runs always
+   use `run_type=walk_forward` and `prediction_horizon=5`.
+4. An administrator reviews model-type metrics and publishes the candidate manually.
 5. The US daily pipeline runs at 19:00 America/New_York and the CN daily
    pipeline runs at 19:00 Asia/Shanghai, each one hour after its market data
    synchronization task.
@@ -109,21 +212,17 @@ Production models whose stored `feature_config` still contains legacy keys
 such as `ablation` are rejected before daily fan-out. After upgrading from a
 custom-feature release, retrain and publish both daily models with
 `{"base": "Alpha158"}` before enabling the scheduled pipeline.
-The binary fields include VWAP. Turnover/volume is used when provider units are
-valid, common legacy unit factors are checked against the daily price range,
-and missing turnover uses an explicit OHLC typical-price proxy only when volume
-is positive. Zero-volume rows remain missing rather than being zero-filled.
 `stock_daily` is the canonical forward-adjusted daily source. Dataset export,
 training, research, and prediction read its OHLC values directly and never
 apply a second adjustment. Volume and amount retain provider units. The stable
-dataset source revision hashes the stored OHLCV, VWAP, and daily provider, so a
+dataset source revision hashes the stored OHLCV, VWAP proxy, and daily provider, so a
 historical price correction invalidates the old dataset key. `source/daily.csv`
 and Qlib OHLC/VWAP binaries use the same price units; Qlib `factor.day.bin` is
 always the neutral value `1.0` to prevent downstream double adjustment.
 
 Daily inference and production training require at least 90% of the fixed
 Universe by default. `QUANT_MIN_UNIVERSE_COVERAGE` can raise or lower this
-threshold within `(0, 1]`. Falling below it fails before model fan-out or
+threshold within `(0, 1]`. Falling below it fails before Qlib prediction or
 training instead of producing rankings from a misleadingly small subset.
 
 Legacy dataset artifacts are not relabeled. Models trained before the canonical
@@ -152,3 +251,29 @@ the committed result.
 
 Quant ranking and target-portfolio queries read PostgreSQL directly; Quant no <!-- pragma: allowlist secret -->
 longer writes a separate Redis result cache.
+
+## Follow-up: point-in-time universe
+
+This release does not implement historical universe membership.
+
+`UniverseMember` is a current-time unique `(universe_id, instrument_id)` row.
+`UniverseRepository.replace_members*` replaces today's constituents in place.
+`UniverseResolver` and `get_universe_codes()` therefore return the live set.
+Dataset export covers that live set across the whole requested history, so a
+model trained on today's S&P 500 / CSI 300/500/1000 members back through the
+training window has survivorship bias: names that were added later appear in
+the past, and names that left the index disappear from history.
+
+CN index members come from AkShare current CSI lists; US members come from the
+current Wikipedia S&P 500 / Nasdaq-100 tables. Neither pipeline stores
+effective-from / effective-to dates.
+
+Supporting point-in-time membership would need at least:
+
+- a membership history table or `effective_from` / `effective_to` on members
+- resolver and exporter APIs that take an as-of date
+- training/daily jobs that request the as-of universe for each session
+- a historical constituent source; current providers do not supply one
+
+Do not retrofit this as a large Universe rewrite until a historical data source
+exists.

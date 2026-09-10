@@ -10,16 +10,18 @@ from qlib_worker.models.base import BaseLGBMRunner
 
 
 class TimeSeriesLGBMRunner(BaseLGBMRunner):
-    """Directional classifier using momentum/volatility features only."""
+    """Absolute-direction classifier using momentum/volatility features only."""
 
     name = "time_series_lgbm"
     version = "1"
+    task_type = "classification"
     model_class = lgb.LGBMClassifier
     default_parameters: dict[str, Any] = {
         **BaseLGBMRunner.default_parameters,
         "class_weight": "balanced",
     }
     allowed_parameters = BaseLGBMRunner.allowed_parameters | {"class_weight"}
+    # class_weight="balanced" is retained; predict_proba is a directional score, not a calibrated probability.
 
     def select_features(self, frame: pd.DataFrame) -> list[str]:
         tokens = ("ROC", "MA", "RSV", "STD", "BETA", "CORR")

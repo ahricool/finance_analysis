@@ -64,6 +64,7 @@ def build_task_routes() -> dict[str, dict[str, str]]:
         {
             "qlib.model.train": {"queue": "qlib"},
             "qlib.model.predict": {"queue": "qlib"},
+            "qlib.daily.predict": {"queue": "qlib"},
             "qlib.dataset.validate": {"queue": "qlib"},
             "qlib.artifact.inspect": {"queue": "qlib"},
             "quant.model.train.finalize": {"queue": "analysis"},

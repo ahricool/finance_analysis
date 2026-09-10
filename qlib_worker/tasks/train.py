@@ -41,11 +41,12 @@ def train_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
         manifest = load_manifest(dataset)
         price_mode = require_forward_adjusted_manifest(manifest)
         split_config = WalkForwardConfig.parse(payload.split_config)
-        target_config = TargetConfig.parse(payload.target_config, split_config.prediction_horizon)
+        target_config = TargetConfig.for_model(payload.model_key, payload.target_config)
         if target_config.prediction_horizon != split_config.prediction_horizon:
             raise ValueError("target_config prediction_horizon must equal split_config prediction_horizon")
         request_payload = asdict(payload)
         request_payload["feature_config"] = {"base": "Alpha158"}
+        request_payload["target_config"] = asdict(target_config)
         request_digest = store.request_digest(request_payload)
 
         def write(output: Any) -> dict[str, Any]:
@@ -75,6 +76,8 @@ def train_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
                 "split_config": training["split_config"],
                 "final_training_strategy": training["final_training_strategy"],
                 "final_training_end": training["final_training_end"],
+                "fold_best_iterations": training["fold_best_iterations"],
+                "final_n_estimators": training["final_n_estimators"],
                 "price_mode": price_mode,
                 "dataset_key": manifest.get("dataset_key"),
                 "source_revision": manifest.get("source_revision"),
@@ -86,7 +89,7 @@ def train_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
                 "model_key": payload.model_key,
                 "metrics": training["metrics"],
                 "feature_importance": training["feature_importance"],
-                "warnings": manifest.get("warnings", []),
+                "warnings": [*manifest.get("warnings", []), *training.get("warnings", [])],
             }
 
         result = store.commit_model(artifact_uri, request_digest, write)

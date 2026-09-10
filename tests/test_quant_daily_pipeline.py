@@ -15,6 +15,7 @@ from finance_analysis.quant.exceptions import (
     ModelNotPublishedError,
     PortfolioConstraintError,
     PredictionFailedError,
+    QuantDatasetMissingError,
 )
 from finance_analysis.quant.features.service import DailyResearchService
 from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
@@ -23,6 +24,27 @@ from finance_analysis.quant.pipeline.service import PROTOCOL_VERSION, QuantDaily
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder
 
 TRADE_DATE = date(2026, 7, 16)
+
+
+def _published(model_key: str, *, market: str = "US", **overrides):
+    cross_section = model_key == "cross_section_lgbm"
+    values = {
+        "id": 11 if cross_section else 12,
+        "model_key": model_key,
+        "model_version": f"{market.lower()}-v1",
+        "artifact_uri": f"quant://{market.lower()}/{'cs' if cross_section else 'ts'}",
+        "feature_config": {"base": "Alpha158"},
+        "target_config": {
+            "prediction_horizon": 5,
+            "entry_price": "open",
+            "exit_price": "close",
+            "benchmark": "market" if cross_section else "none",
+            "excess_return": cross_section,
+        },
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
 
 
 @pytest.fixture(autouse=True)
@@ -169,8 +191,8 @@ def test_prepare_rejects_research_symbol_without_target_daily_bar(monkeypatch) -
         artifact_store=MagicMock(),
     )
     repository.production_model.side_effect = [
-        SimpleNamespace(artifact_uri="quant://us/cs"),
-        SimpleNamespace(artifact_uri="quant://us/ts"),
+        _published("cross_section_lgbm"),
+        _published("time_series_lgbm"),
     ]
     monkeypatch.setattr(
         "finance_analysis.quant.pipeline.service.DailyResearchService",
@@ -192,18 +214,8 @@ def test_prepare_rejects_research_symbol_without_target_daily_bar(monkeypatch) -
 def test_prepare_does_not_require_universe_member_repository_methods(monkeypatch) -> None:
     repository = MagicMock(spec_set=["production_model", "get_universe", "daily_bar_codes"])
     repository.production_model.side_effect = [
-        SimpleNamespace(
-            id=11,
-            model_key="cross_section_lgbm",
-            model_version="v1",
-            artifact_uri="quant://us/cs",
-        ),
-        SimpleNamespace(
-            id=12,
-            model_key="time_series_lgbm",
-            model_version="v1",
-            artifact_uri="quant://us/ts",
-        ),
+        _published("cross_section_lgbm", model_version="v1"),
+        _published("time_series_lgbm", model_version="v1"),
     ]
     repository.get_universe.return_value = SimpleNamespace(id=3, key="us_quant", market="US", enabled=True)
     repository.daily_bar_codes.return_value = {"AAPL.US"}
@@ -232,15 +244,20 @@ def test_prepare_does_not_require_universe_member_repository_methods(monkeypatch
         ),
     )
 
-    requests, context = QuantDailyPipeline(
+    payload, context = QuantDailyPipeline(
         repository=repository,
         exporter=exporter,
         symbol_repository=MagicMock(),
         artifact_store=MagicMock(),
     ).prepare(market="US", trade_date=TRADE_DATE)
 
-    assert len(requests) == 2
+    assert payload["schema_version"] == PROTOCOL_VERSION
+    assert payload["cross_section"]["model_key"] == "cross_section_lgbm"
+    assert payload["time_series"]["model_key"] == "time_series_lgbm"
+    assert payload["dataset_uri"] == "quant://us/dataset"
     assert context["expected_codes"] == ["AAPL.US"]
+    assert context["lineage"]["cross_section_model_run_id"] == 11
+    assert context["lineage"]["time_series_model_run_id"] == 12
 
 
 @pytest.mark.parametrize(
@@ -273,8 +290,8 @@ def test_prepare_rejects_missing_model_before_universe_lookup(
 def test_prepare_rejects_missing_model_artifact_before_universe_lookup() -> None:
     repository = MagicMock()
     repository.production_model.side_effect = [
-        SimpleNamespace(artifact_uri="quant://us/cs"),
-        SimpleNamespace(artifact_uri="quant://us/ts"),
+        _published("cross_section_lgbm"),
+        _published("time_series_lgbm"),
     ]
     artifact_store = MagicMock()
     artifact_store.resolve_uri.side_effect = ModelArtifactMissingError("Artifact does not exist: quant://us/cs")
@@ -408,6 +425,14 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
         },
         "warnings": ["行情覆盖 2/3；已跳过缺失数据标的"],
         "coverage": {"universe_members": 3, "rankable_members": 2, "skipped_members": 1},
+        "lineage": {
+            "cross_section_model_run_id": 11,
+            "cross_section_model_version": "v1",
+            "time_series_model_run_id": 12,
+            "time_series_model_version": "v1",
+            "fusion_version": "fusion-rules-v3",
+            "portfolio_version": "portfolio-rules-v3",
+        },
         "regime": {
             "id": 8,
             "regime": "risk_on",
@@ -436,12 +461,20 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
         },
     ]
 
-    result = pipeline.finalize(responses, context)
+    result = pipeline.finalize(
+        {"schema_version": PROTOCOL_VERSION, "trade_date": str(TRADE_DATE), "results": responses},
+        context,
+    )
 
     assert result["signal_count"] == 2
     assert all(item["risk_penalty"] == 0.04 for item in captured["signals"])
     assert repository.portfolio_values["warnings"] == ["行情覆盖 2/3；已跳过缺失数据标的"]
     assert repository.portfolio_values["summary"]["coverage"]["skipped_members"] == 1
+    assert captured["signals"][0]["score_components"]["lineage"]["cross_section_model_run_id"] == 11
+    assert captured["signals"][0]["score_components"]["lineage"]["time_series_model_run_id"] == 12
+    assert captured["signals"][0]["score_components"]["lineage"] == repository.portfolio_values["summary"]["lineage"]
+    assert "regime_multiplier" not in captured["signals"][0]["score_components"]
+    assert result["lineage"]["fusion_version"] == "fusion-rules-v3"
 
 
 def test_finalize_rejects_unsupported_callback_context_before_writes() -> None:
@@ -572,7 +605,7 @@ def test_portfolio_filters_low_liquidity_without_default_pass_through() -> None:
     result = PortfolioBuilder().build(signals, 0.8)
 
     assert [item["code"] for item in result["items"]] == ["LIQUID.US"]
-    assert "THIN.US" in result["warnings"][0]
+    assert any("THIN.US" in warning for warning in result["warnings"])
     with pytest.raises(PortfolioConstraintError, match="Portfolio metadata is missing"):
         PortfolioBuilder().build([{**signals[0], "liquidity": None}], 0.8)
 
@@ -613,8 +646,9 @@ def test_portfolio_contains_only_ranked_model_target_weights() -> None:
     ]
     result = PortfolioBuilder().build(signals, 0.8)
 
-    assert [item["code"] for item in result["items"]] == [f"S{i}.US" for i in range(5)]
+    assert [item["code"] for item in result["items"]] == [f"S{i}.US" for i in range(10)]
     assert all(item["target_weight"] == pytest.approx(0.08) for item in result["items"])
+    assert result["target_equity_exposure"] == pytest.approx(0.80)
     assert all(
         not {"action", "current_weight", "weight_change", "previous_rank", "sector_key"} & item.keys()
         for item in result["items"]
@@ -626,3 +660,113 @@ def test_scheduled_daily_history_defaults_use_recent_postgres_windows() -> None:
     assert config.market_data_initial_daily_days == 5 * 365
     assert config.market_data_refresh_daily_days == 60
     assert config.market_data_retention_daily_days == 5 * 365
+
+
+def test_finalize_rejects_partial_prediction_payload() -> None:
+    repository = MagicMock()
+    pipeline = QuantDailyPipeline(
+        repository=repository,
+        exporter=MagicMock(),
+        symbol_repository=MagicMock(),
+    )
+    context = {
+        "schema_version": PROTOCOL_VERSION,
+        "trade_date": str(TRADE_DATE),
+        "market": "US",
+        "universe_key": "us_quant",
+        "universe_id": 3,
+        "cross_section_model_run_id": 11,
+        "time_series_model_run_id": 12,
+    }
+    repository.get_universe.return_value = SimpleNamespace(id=3, key="us_quant", market="US", enabled=True)
+
+    with pytest.raises(QuantDatasetMissingError, match="combined result payload"):
+        pipeline.finalize(
+            [
+                {
+                    "schema_version": PROTOCOL_VERSION,
+                    "trade_date": str(TRADE_DATE),
+                    "model_key": "cross_section_lgbm",
+                    "predictions": [],
+                }
+            ],
+            context,
+        )
+    with pytest.raises(QuantDatasetMissingError, match="Both Qlib prediction results"):
+        pipeline.finalize(
+            {
+                "schema_version": PROTOCOL_VERSION,
+                "trade_date": str(TRADE_DATE),
+                "results": [
+                    {
+                        "schema_version": PROTOCOL_VERSION,
+                        "trade_date": str(TRADE_DATE),
+                        "model_key": "cross_section_lgbm",
+                        "predictions": [],
+                    }
+                ],
+            },
+            context,
+        )
+
+    repository.replace_signals_and_save_portfolio.assert_not_called()
+
+
+def test_prepare_rejects_legacy_time_series_excess_return_target() -> None:
+    repository = MagicMock()
+    repository.production_model.side_effect = [
+        _published("cross_section_lgbm"),
+        _published(
+            "time_series_lgbm",
+            target_config={
+                "prediction_horizon": 5,
+                "entry_price": "open",
+                "exit_price": "close",
+                "benchmark": "market",
+                "excess_return": True,
+            },
+        ),
+    ]
+    artifact_store = MagicMock()
+    pipeline = QuantDailyPipeline(
+        repository=repository,
+        exporter=MagicMock(),
+        symbol_repository=MagicMock(),
+        artifact_store=artifact_store,
+    )
+
+    with pytest.raises(ModelNotPublishedError, match="5-session target contract"):
+        pipeline.prepare(market="US", trade_date=TRADE_DATE)
+
+    repository.get_universe.assert_not_called()
+    artifact_store.resolve_uri.assert_not_called()
+
+
+def test_prepare_rejects_non_five_session_production_horizon() -> None:
+    repository = MagicMock()
+    repository.production_model.side_effect = [
+        _published(
+            "cross_section_lgbm",
+            target_config={
+                "prediction_horizon": 10,
+                "entry_price": "open",
+                "exit_price": "close",
+                "benchmark": "market",
+                "excess_return": True,
+            },
+        ),
+        _published("time_series_lgbm"),
+    ]
+    artifact_store = MagicMock()
+    pipeline = QuantDailyPipeline(
+        repository=repository,
+        exporter=MagicMock(),
+        symbol_repository=MagicMock(),
+        artifact_store=artifact_store,
+    )
+
+    with pytest.raises(ModelNotPublishedError, match="5-session target contract"):
+        pipeline.prepare(market="US", trade_date=TRADE_DATE)
+
+    repository.get_universe.assert_not_called()
+    artifact_store.resolve_uri.assert_not_called()

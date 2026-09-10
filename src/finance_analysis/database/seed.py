@@ -21,14 +21,73 @@ def seed_quant_reference_data(db_manager=None) -> dict:
     with manager.session_scope() as session:
         seed_index_etf_universes(session.connection())
         definitions = [
-            ("market_regime_rules", "Market regime rules", "market_regime", "classification"),
-            ("time_series_logistic", "Shared panel logistic baseline", "time_series", "classification"),
-            ("time_series_lgbm", "Shared panel LightGBM", "time_series", "regression"),
-            ("cross_section_ridge", "Cross-sectional Ridge baseline", "cross_section", "regression"),
-            ("cross_section_lgbm", "Qlib Alpha158 LightGBM", "cross_section", "regression"),
-            ("signal_fusion", "Versioned signal fusion", "fusion", "ranking"),
+            (
+                "market_regime_rules",
+                "Market regime rules",
+                "market_regime",
+                "classification",
+                {"entry": "T+1 open", "exit": "T+5 close", "unit": "percentage_points"},
+            ),
+            (
+                "time_series_logistic",
+                "Shared panel logistic baseline",
+                "time_series",
+                "classification",
+                {
+                    "summary": "T+1 open to T+5 close absolute return direction",
+                    "benchmark": "none",
+                    "excess_return": False,
+                    "entry_price": "open",
+                    "exit_price": "close",
+                    "unit": "classification",
+                },
+            ),
+            (
+                "time_series_lgbm",
+                "Time-series Alpha158 LightGBM",
+                "time_series",
+                "classification",
+                {
+                    "summary": "Predict whether the stock itself rises over the next 5 sessions",
+                    "benchmark": "none",
+                    "excess_return": False,
+                    "entry_price": "open",
+                    "exit_price": "close",
+                    "label": "absolute_return > 0",
+                    "unit": "directional_score",
+                },
+            ),
+            (
+                "cross_section_ridge",
+                "Cross-sectional Ridge baseline",
+                "cross_section",
+                "regression",
+                {
+                    "summary": "T+1 open to T+5 close excess return versus market",
+                    "benchmark": "market",
+                    "excess_return": True,
+                    "entry_price": "open",
+                    "exit_price": "close",
+                    "unit": "percentage_points",
+                },
+            ),
+            (
+                "cross_section_lgbm",
+                "Cross-section Alpha158 LightGBM",
+                "cross_section",
+                "regression",
+                {
+                    "summary": "Predict 5-session excess return versus the market",
+                    "benchmark": "market",
+                    "excess_return": True,
+                    "entry_price": "open",
+                    "exit_price": "close",
+                    "unit": "percentage_points",
+                },
+            ),
+            ("signal_fusion", "Versioned signal fusion", "fusion", "ranking", {"unit": "score"}),
         ]
-        for key, name, model_type, task_type in definitions:
+        for key, name, model_type, task_type, target_definition in definitions:
             values = dict(
                 key=key,
                 name=name,
@@ -36,7 +95,7 @@ def seed_quant_reference_data(db_manager=None) -> dict:
                 task_type=task_type,
                 frequency="day",
                 enabled=True,
-                target_definition={"entry": "T+1 open", "exit": "T+5 close", "unit": "percentage_points"},
+                target_definition=target_definition,
                 default_config={},
                 supported_markets=["US", "CN"],
             )
@@ -45,7 +104,13 @@ def seed_quant_reference_data(db_manager=None) -> dict:
                 .values(**values)
                 .on_conflict_do_update(
                     index_elements=[ModelDefinition.key],
-                    set_={"supported_markets": values["supported_markets"], "updated_at": utc_now()},
+                    set_={
+                        "name": values["name"],
+                        "task_type": values["task_type"],
+                        "target_definition": values["target_definition"],
+                        "supported_markets": values["supported_markets"],
+                        "updated_at": utc_now(),
+                    },
                 )
             )
         universe_values = (

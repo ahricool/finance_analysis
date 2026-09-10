@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict
 
 from finance_analysis.quant.config import PortfolioConfig
@@ -37,7 +38,7 @@ class PortfolioBuilder:
             and float(item["liquidity"]) >= self.config.minimum_liquidity
             and item.get("signal") == "buy"
         ]
-        selected = eligible[: self.config.buy_top_k]
+        selected = eligible[: self._selection_count(len(eligible), max_equity_exposure)]
         target_weights = self._weights(selected, max_equity_exposure)
         rows = [
             {
@@ -47,6 +48,8 @@ class PortfolioBuilder:
                     "limits": {
                         "single_stock_max_weight": self.config.single_stock_max_weight,
                         "max_equity_exposure": max_equity_exposure,
+                        "buy_top_k": self.config.buy_top_k,
+                        "selected_count": len(selected),
                     }
                 },
             }
@@ -62,6 +65,14 @@ class PortfolioBuilder:
         warnings = []
         if not selected:
             warnings.append("当前没有满足入选阈值的 buy 信号，目标组合为空")
+        achievable = self.config.single_stock_max_weight * len(selected)
+        if selected and achievable + 1e-12 < max_equity_exposure:
+            warnings.append(
+                "max_equity_exposure "
+                f"{max_equity_exposure:.0%} exceeds {len(selected)} × "
+                f"{self.config.single_stock_max_weight:.0%} single-stock cap; "
+                f"target exposure is capped at {achievable:.0%}"
+            )
         if insufficient_data:
             warnings.append(f"Insufficient daily history: {sorted(set(insufficient_data))}")
         if insufficient_liquidity:
@@ -73,16 +84,17 @@ class PortfolioBuilder:
             "config": asdict(self.config),
         }
 
+    def _selection_count(self, eligible_count: int, max_equity_exposure: float) -> int:
+        name_cap = self.config.single_stock_max_weight
+        if name_cap <= 0:
+            raise ValueError("single_stock_max_weight must be positive")
+        required = math.ceil(max(0.0, float(max_equity_exposure)) / name_cap - 1e-12)
+        return min(eligible_count, max(self.config.buy_top_k, required))
+
     def _weights(self, selected: list[dict], exposure: float) -> dict[str, float]:
         if not selected:
             return {}
-        cap = min(exposure, self.config.single_stock_max_weight * len(selected))
-        if self.config.weighting == "equal_weight":
-            return {item["code"]: cap / len(selected) for item in selected}
-        if self.config.weighting == "score_weight":
-            total = sum(max(0, item["final_score"]) for item in selected)
-            return {
-                item["code"]: (cap * max(0, item["final_score"]) / total if total else cap / len(selected))
-                for item in selected
-            }
-        raise ValueError(f"Unknown weighting: {self.config.weighting}")
+        name_cap = self.config.single_stock_max_weight
+        total_cap = min(max(0.0, float(exposure)), name_cap * len(selected))
+        weight = total_cap / len(selected)
+        return {item["code"]: min(weight, name_cap) for item in selected}

@@ -135,9 +135,11 @@ class QlibDatasetExporter:
             if vwap_report["valid_rows"] == 0:
                 raise QuantDatasetValidationError("Dataset has no valid VWAP observations")
             if vwap_report["estimated_rows"]:
-                report["warnings"].append(f"VWAP used HLC3 estimates for {vwap_report['estimated_rows']} rows")
+                report["warnings"].append(
+                    f"VWAP proxy used HLC3 estimates for {vwap_report['estimated_rows']} rows"
+                )
             logger.info(
-                "Qlib consumer-derived VWAP quality estimated=%.2f%% missing=%.2f%%",
+                "Qlib consumer-derived VWAP proxy quality estimated=%.2f%% missing=%.2f%%",
                 vwap_report["estimated_ratio"] * 100,
                 vwap_report["missing_ratio"] * 100,
             )

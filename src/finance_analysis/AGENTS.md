@@ -220,7 +220,7 @@ Streamer 不写 `stock_daily`，也不替代日线同步。更改 Redis key/sche
 - 发布版本化 JSON Qlib 任务。
 - 接收结果后做信号融合、最终得分排名、模型目标组合及 PostgreSQL 持久化。 <!-- pragma: allowlist secret -->
 
-Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练通过 link/link_error 回调，日频预测通过 chord 汇合。协议改动必须主应用与 `qlib_worker/protocol.py` 同步，并保持 schema version 校验。 <!-- pragma: allowlist secret -->
+Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练通过 link/link_error 回调，日频预测通过单任务 `qlib.daily.predict` 加 finalize/fail 回调。协议改动必须主应用与 `qlib_worker/protocol.py` 同步，并保持 schema version 校验。 <!-- pragma: allowlist secret -->
 
 ### ETF Rotation
 

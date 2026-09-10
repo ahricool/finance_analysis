@@ -12,6 +12,7 @@ import pandas as pd
 class BaseLGBMRunner:
     name = "base"
     version = "1"
+    task_type = "regression"
     model_class = lgb.LGBMRegressor
     default_parameters: dict[str, Any] = {
         "n_estimators": 300,

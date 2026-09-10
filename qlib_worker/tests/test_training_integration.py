@@ -108,6 +108,14 @@ def test_train_retry_restart_and_predict(monkeypatch, tmp_path: Path) -> None:
     metadata_path = artifact / "metadata.json"
     metadata = json.loads(metadata_path.read_text())
     assert metadata["price_mode"] == "forward_adjusted"
+    assert metadata["target_config"]["prediction_horizon"] == 5
+    metrics = json.loads((artifact / "metrics.json").read_text())
+    assert "top5_oos_return_pct" in metrics
+    assert "top5_positive_period_ratio" in metrics
+    assert "top5_simple_sharpe" not in metrics
+    assert "top5_max_drawdown" not in metrics
+    assert "top5_turnover" not in metrics
+    assert "top5_cost_adjusted_return_pct" not in metrics
 
     predicted = predict_model.run(
         schema_version=1,
@@ -132,3 +140,46 @@ def test_train_retry_restart_and_predict(monkeypatch, tmp_path: Path) -> None:
             trade_date=metadata["final_training_end"],
             model_key="cross_section_lgbm",
         )
+
+
+def test_time_series_uses_absolute_classification_target_and_records_best_iteration(monkeypatch, tmp_path: Path) -> None:
+    root = tmp_path / "quant"
+    dataset_uri = _dataset(root, periods=520)
+    monkeypatch.setenv("QUANT_ARTIFACT_ROOT", str(root))
+    trained = train_model.run(
+        schema_version=1,
+        model_run_id=202,
+        dataset_uri=dataset_uri,
+        model_key="time_series_lgbm",
+        model_version="integration-ts",
+        parameters={"n_estimators": 12, "learning_rate": 0.1},
+        feature_config={"base": "Alpha158"},
+        target_config={
+            "prediction_horizon": 5,
+            "benchmark": "market",
+            "entry_price": "open",
+            "exit_price": "close",
+            "excess_return": True,
+        },
+        split_config={
+            "train_years": 1,
+            "valid_months": 2,
+            "test_months": 2,
+            "retrain_frequency_months": 12,
+            "prediction_horizon": 5,
+            "embargo_days": 2,
+        },
+    )
+    artifact = root / "models/time_series_lgbm/integration-ts/202"
+    metadata = json.loads((artifact / "metadata.json").read_text())
+    metrics = json.loads((artifact / "metrics.json").read_text())
+    assert metadata["target_config"]["benchmark"] == "none"
+    assert metadata["target_config"]["excess_return"] is False
+    assert metadata["target_config"]["prediction_horizon"] == 5
+    assert metrics["task_type"] == "classification"
+    assert "roc_auc" in metrics
+    assert "mae" not in metrics
+    assert "top5_simple_sharpe" not in metrics
+    assert metadata["fold_best_iterations"]
+    assert metadata["final_n_estimators"] == trained["metrics"]["final_n_estimators"]
+    assert trained["metrics"]["final_n_estimators"] <= 12

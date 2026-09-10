@@ -23,13 +23,30 @@ def _required_string(payload: Mapping[str, Any], name: str) -> str:
     return value
 
 
-def _validate_base(payload: Mapping[str, Any]) -> None:
+def _validate_schema(payload: Mapping[str, Any]) -> None:
     version = payload.get("schema_version")
     if version != SCHEMA_VERSION:
         raise ValueError(f"Unsupported schema_version {version!r}; expected {SCHEMA_VERSION}")
-    run_id = payload.get("model_run_id")
-    if not isinstance(run_id, int) or isinstance(run_id, bool) or run_id <= 0:
-        raise ValueError("model_run_id must be a positive integer")
+
+
+def _positive_int(value: Any, name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def _validate_base(payload: Mapping[str, Any]) -> None:
+    _validate_schema(payload)
+    _positive_int(payload.get("model_run_id"), "model_run_id")
+
+
+def _model_ref(raw: Any, name: str) -> "ModelArtifactRef":
+    payload = _mapping(raw, name)
+    return ModelArtifactRef(
+        model_run_id=_positive_int(payload.get("model_run_id"), f"{name}.model_run_id"),
+        model_key=_required_string(payload, "model_key"),
+        artifact_uri=_required_string(payload, "artifact_uri"),
+    )
 
 
 @dataclass(frozen=True)
@@ -79,6 +96,39 @@ class PredictPayload:
             dataset_uri=_required_string(payload, "dataset_uri"),
             trade_date=_required_string(payload, "trade_date"),
             model_key=_required_string(payload, "model_key"),
+        )
+
+
+@dataclass(frozen=True)
+class ModelArtifactRef:
+    model_run_id: int
+    model_key: str
+    artifact_uri: str
+
+
+@dataclass(frozen=True)
+class DailyPredictPayload:
+    schema_version: int
+    dataset_uri: str
+    trade_date: str
+    cross_section: ModelArtifactRef
+    time_series: ModelArtifactRef
+
+    @classmethod
+    def parse(cls, payload: Mapping[str, Any]) -> "DailyPredictPayload":
+        _validate_schema(payload)
+        cross_section = _model_ref(payload.get("cross_section"), "cross_section")
+        time_series = _model_ref(payload.get("time_series"), "time_series")
+        if cross_section.model_key != "cross_section_lgbm":
+            raise ValueError("cross_section.model_key must be cross_section_lgbm")
+        if time_series.model_key != "time_series_lgbm":
+            raise ValueError("time_series.model_key must be time_series_lgbm")
+        return cls(
+            schema_version=SCHEMA_VERSION,
+            dataset_uri=_required_string(payload, "dataset_uri"),
+            trade_date=_required_string(payload, "trade_date"),
+            cross_section=cross_section,
+            time_series=time_series,
         )
 
 

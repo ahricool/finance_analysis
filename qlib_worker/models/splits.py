@@ -7,6 +7,8 @@ from typing import Any, Iterable
 
 import pandas as pd
 
+from qlib_worker.models.targets import DEFAULT_PREDICTION_HORIZON
+
 
 @dataclass(frozen=True)
 class WalkForwardConfig:
@@ -14,7 +16,7 @@ class WalkForwardConfig:
     valid_months: int = 3
     test_months: int = 3
     retrain_frequency_months: int = 3
-    prediction_horizon: int = 5
+    prediction_horizon: int = DEFAULT_PREDICTION_HORIZON
     embargo_days: int = 2
 
     @classmethod
@@ -23,7 +25,11 @@ class WalkForwardConfig:
         unknown = sorted(set(raw) - allowed)
         if unknown:
             raise ValueError(f"Unknown split_config parameters: {unknown}")
-        config = cls(**{key: int(value) for key, value in raw.items()})
+        values = {key: int(value) for key, value in raw.items()}
+        if "prediction_horizon" in values and values["prediction_horizon"] != DEFAULT_PREDICTION_HORIZON:
+            raise ValueError("production prediction_horizon must be 5")
+        values["prediction_horizon"] = DEFAULT_PREDICTION_HORIZON
+        config = cls(**values)
         if min(asdict(config).values()) < 0 or config.train_years < 1:
             raise ValueError("Walk-forward durations must be non-negative and train_years must be positive")
         if config.valid_months < 1 or config.test_months < 1 or config.retrain_frequency_months < 1:

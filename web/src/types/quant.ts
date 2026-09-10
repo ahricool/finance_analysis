@@ -37,6 +37,7 @@ export interface QuantModelDefinition {
   frequency: string;
   enabled: boolean;
   supportedMarkets: QuantMarket[];
+  targetDefinition?: Record<string, unknown>;
 }
 export interface QuantDatasetSnapshot {
   id: number;
@@ -105,6 +106,22 @@ export interface MarketRegime {
 }
 export interface QuantSignal { id: number; tradeDate: string; market: QuantMarket; code: string; name:string|null; modelVersion: string; finalScore: number; marketScore: number|null; timeSeriesScore: number|null; crossSectionScore: number|null; riskPenalty: number; universeRank: number|null; predictedReturn: number|null; signal: string; reasons: string[]; scoreComponents: Record<string, unknown> }
 export interface SignalRanking { tradeDate: string|null; market: QuantMarket; universe: string; modelVersion: string|null; marketRegime: string|null; maxEquityExposure: number|null; items: QuantSignal[] }
-export interface ModelRun { id:number; modelKey:string; modelVersion:string; runType:string; market:string; status:string; progress:number; trainStart:string|null; trainEnd:string|null; validStart:string|null; validEnd:string|null; testStart:string|null; testEnd:string|null; metrics:Record<string,number|null>; warnings:string[]; error:string|null; artifactUri:string|null; createdAt:string }
+export interface ModelRun {
+  id: number;
+  modelKey: string;
+  modelVersion: string;
+  runType: string;
+  market: string;
+  status: string;
+  progress: number;
+  splitConfig?: Record<string, unknown>;
+  featureConfig?: Record<string, unknown>;
+  targetConfig?: Record<string, unknown>;
+  metrics: Record<string, unknown>;
+  warnings: string[];
+  error: string | null;
+  artifactUri: string | null;
+  createdAt: string;
+}
 export interface PortfolioItem { id:number; code:string; name:string|null; rank:number; targetWeight:number; finalScore:number; predictedReturn:number|null; signal:string; reasons:string[]; constraints:Record<string,unknown> }
 export interface Portfolio { id:number; tradeDate:string; market:QuantMarket; universe:string; modelVersion:string; status:string; maxEquityExposure:number; targetEquityExposure:number; summary:Record<string,unknown>; warnings:string[]; generatedAt:string; items:PortfolioItem[] }

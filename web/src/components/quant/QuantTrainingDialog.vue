@@ -22,9 +22,8 @@ import type {
   QuantModelDefinition,
 } from '@/types/quant';
 import { formatDateTimeInDisplayTimezone } from '@/utils/format';
+import { MODEL_TARGET_COPY, isTrainableModelKey, type TrainableModelKey } from '@/utils/quant';
 import { computed, ref, watch } from 'vue';
-
-type TrainableModelKey = 'cross_section_lgbm' | 'time_series_lgbm';
 
 const props = defineProps<{
   open: boolean;
@@ -67,6 +66,7 @@ const trainableDefinitions = computed(() =>
 const modelVersionValid = computed(() =>
   /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(modelVersion.value.trim()),
 );
+const selectedTarget = computed(() => MODEL_TARGET_COPY[modelKey.value]);
 const canCreateRun = computed(
   () =>
     Boolean(selectedDataset.value) &&
@@ -114,7 +114,7 @@ async function loadOptions(): Promise<void> {
 
     if (!trainableDefinitions.value.some((item) => item.key === modelKey.value)) {
       const first = trainableDefinitions.value[0]?.key;
-      if (first === 'cross_section_lgbm' || first === 'time_series_lgbm') modelKey.value = first;
+      if (isTrainableModelKey(first ?? '')) modelKey.value = first as TrainableModelKey;
     }
   } catch (err) {
     if (version === requestVersion) error.value = getParsedApiError(err);
@@ -336,7 +336,7 @@ watch(modelKey, () => {
             :options="
               trainableDefinitions.map((item) => ({
                 value: item.key,
-                label: `${item.name} · ${item.key}`,
+                label: `${MODEL_TARGET_COPY[item.key as TrainableModelKey]?.shortName ?? item.name} · ${item.key}`,
               }))
             "
             :disabled="loadingOptions || trainableDefinitions.length === 0"
@@ -417,7 +417,7 @@ watch(modelKey, () => {
                 特征
               </dt>
               <dd class="text-right">
-                Alpha158 + 自定义扩展特征
+                Alpha158
               </dd>
             </div>
             <div class="flex justify-between gap-3 sm:col-span-2">
@@ -425,9 +425,12 @@ watch(modelKey, () => {
                 标签
               </dt>
               <dd class="text-right">
-                T+1 开盘 → T+5 收盘的超额收益
+                {{ selectedTarget.target }}
               </dd>
             </div>
+            <p class="sm:col-span-2 text-xs text-muted-foreground">
+              {{ selectedTarget.detail }}
+            </p>
           </dl>
         </section>
 
