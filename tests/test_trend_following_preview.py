@@ -568,6 +568,102 @@ def test_cn_snapshot_failure_raises_and_does_not_write_snapshots(monkeypatch):
     assert saved[0]["data_as_of"] is None
 
 
+def test_preview_time_is_recorded_after_quotes_and_strategy(monkeypatch):
+    repository = PreviewRepository()
+    repository.market = "CN"
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: (UniverseMember("CN", "600519.SH", "茅台"),),
+    )
+    order = []
+    data_as_of = datetime(2026, 9, 10, 6, 34, 57, tzinfo=timezone.utc)
+
+    def collect(*args, **kwargs):
+        order.append("collect")
+        return {}, "easyquotation_tencent", 1, data_as_of
+
+    def run_single(*args, **kwargs):
+        order.append("strategy")
+        return {
+            "status": "completed",
+            "snapshots": [],
+            "universe_size": 1,
+            "data_coverage": 1,
+            "rankable_count": 0,
+            "snapshot_count": 0,
+            "candidate_count": 0,
+        }
+
+    def now():
+        order.append("now")
+        return datetime(2026, 9, 10, 6, 35, 11, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.collect_preview_daily_bars",  # pragma: allowlist secret
+        collect,
+    )
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.TrendFollowingService._run_single_date",  # pragma: allowlist secret
+        run_single,
+    )
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.utc_now",  # pragma: allowlist secret
+        now,
+    )
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.save_preview",  # pragma: allowlist secret
+        lambda *args, **kwargs: None,
+    )
+    service = TrendFollowingService("CN", repository, market_data=SimpleNamespace())
+    result = service.run_preview(TRADE_DATE)
+    assert order == ["collect", "strategy", "now"]
+    assert result["preview_time"] == "2026-09-10T06:35:11.000Z"
+    assert result["data_as_of"] == "2026-09-10T06:34:57.000Z"
+
+    order.clear()
+    overridden = service.run_preview(
+        TRADE_DATE,
+        preview_time=datetime(2026, 9, 10, 6, 40, 0, tzinfo=timezone.utc),
+    )
+    assert order == ["collect", "strategy"]
+    assert overridden["preview_time"] == "2026-09-10T06:40:00.000Z"
+
+
+def test_failed_preview_time_is_recorded_after_quote_error(monkeypatch):
+    repository = PreviewRepository()
+    repository.market = "CN"
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
+        lambda market: (UniverseMember("CN", "600519.SH", "茅台"),),
+    )
+    order = []
+
+    def collect(*args, **kwargs):
+        order.append("collect")
+        raise PreviewQuoteError("easyquotation tencent snapshot failed")
+
+    def now():
+        order.append("now")
+        return datetime(2026, 9, 10, 6, 35, 11, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.collect_preview_daily_bars",  # pragma: allowlist secret
+        collect,
+    )
+    monkeypatch.setattr("finance_analysis.trend_following.service.utc_now", now)  # pragma: allowlist secret
+    saved = []
+    monkeypatch.setattr(
+        "finance_analysis.trend_following.service.save_preview",  # pragma: allowlist secret
+        lambda market, payload: saved.append(payload),
+    )
+    service = TrendFollowingService("CN", repository, market_data=SimpleNamespace())
+    with pytest.raises(PreviewQuoteError, match="easyquotation tencent snapshot failed"):
+        service.run_preview(TRADE_DATE)
+    assert order == ["collect", "now"]
+    assert saved[0]["preview_time"] == "2026-09-10T06:35:11.000Z"
+    assert saved[0]["data_as_of"] is None
+
+
 def test_preview_task_skips_non_trading_days(monkeypatch):
     from finance_analysis.tasks.celery.jobs.trend_following import tasks  # pragma: allowlist secret
 

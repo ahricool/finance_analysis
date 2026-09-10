@@ -415,6 +415,7 @@ describe('ETFRotationPage', () => {
     expect(wrapper.get('[data-testid="rotation-candidate-vs-official"]').text()).toContain('vs 正式');
     expect(wrapper.get('[data-testid="etf-preview-change-new-buy"]').text()).toContain('半导体ETF');
     expect(wrapper.find('[data-testid="etf-rotation-date"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="etf-rotation-run"]').exists()).toBe(false);
   });
 
   it('defaults to official when the same-day official snapshot is newer', async () => {
@@ -443,6 +444,7 @@ describe('ETFRotationPage', () => {
     expect(apiMocks.candidates).toHaveBeenCalledWith('CN', '2026-08-25');
     expect(wrapper.get('[data-testid="etf-rotation-date"]').element).toHaveProperty('value', '2026-08-25');
     expect(wrapper.find('[data-testid="etf-preview-changes"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="etf-rotation-run"]').exists()).toBe(true);
   });
 
   it('keeps a manual preview/official choice after refresh', async () => {
@@ -498,5 +500,45 @@ describe('ETFRotationPage', () => {
     expect(wrapper.get('[data-testid="research-data-mode-badge"]').text()).toContain('盘中预演不可用');
     expect(wrapper.find('[data-testid="rotation-candidate"]').exists()).toBe(false);
     expect(wrapper.get('[data-testid="research-preview-reason"]').text()).toContain('easyquotation tencent real failed');
+  });
+
+  it('opens preview detail from the preview item and does not call official detail', async () => {
+    const official = snapshot({
+      tradeDate: '2026-08-25', name: '半导体ETF', code: '512480.SH',
+      compositeScore: 60, rank: 6, action: 'HOLD', isCandidate: false, state: 'TRENDING',
+    });
+    const previewItem = snapshot({
+      tradeDate: '2026-09-10', name: '半导体ETF', code: '512480.SH',
+      compositeScore: 81.3, rank: 2, candidateRank: 2, action: 'BUY', isCandidate: true, state: 'EMERGING',
+    });
+    apiMocks.ranking.mockResolvedValue(rankingPayload('CN', '2026-08-25', official));
+    apiMocks.detail.mockResolvedValue({
+      market: 'CN', metadata: official, latest: official, history: [official], marketSnapshot: null,
+    });
+    apiMocks.preview.mockResolvedValue({
+      status: 'completed',
+      market: 'CN',
+      tradeDate: '2026-09-10',
+      previewTime: '2026-09-10T06:35:06Z',
+      dataAsOf: '2026-09-10T06:34:57Z',
+      provider: 'easyquotation_tencent',
+      universeSize: 40,
+      dataCoverage: 1,
+      warnings: [],
+      marketSnapshot: rankingPayload('CN', '2026-09-10', previewItem).marketSnapshot,
+      items: [previewItem],
+    });
+    mount(ETFRotationPage, { attachTo: document.body });
+    await flushPromises();
+    (document.body.querySelector('[data-testid="rotation-candidate"]') as HTMLElement).click();
+    await flushPromises();
+
+    expect(apiMocks.detail).not.toHaveBeenCalled();
+    const modal = document.body.querySelector('[data-testid="etf-detail-modal"]');
+    expect(modal?.textContent).toContain('81.3');
+    expect(modal?.textContent).toContain('EMERGING');
+    expect(modal?.textContent).toContain('BUY');
+    expect(modal?.textContent).not.toContain('60.0');
+    expect(modal?.querySelector('[data-testid="etf-detail-history"]')).toBeNull();
   });
 });

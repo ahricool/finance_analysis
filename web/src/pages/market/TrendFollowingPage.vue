@@ -346,8 +346,24 @@ async function runLatest() {
 }
 async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: string }) {
   detailOpen.value = true;
-  detailLoading.value = true;
   detailError.value = null;
+  if (dataMode.value === 'preview') {
+    const snapshot = items.value.find(row => row.code === item.code)
+      ?? candidates.value.find(row => row.code === item.code)
+      ?? null;
+    detail.value = snapshot
+      ? {
+          market: market.value,
+          metadata: { market: market.value, code: snapshot.code, name: snapshot.name },
+          latest: snapshot,
+          history: [],
+          marketContext: summary.value,
+        }
+      : null;
+    detailLoading.value = false;
+    return;
+  }
+  detailLoading.value = true;
   detail.value = null;
   try {
     detail.value = await trendFollowingApi.detail(
@@ -439,6 +455,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           <RefreshCcw class="size-4" />刷新
         </Button>
         <LoadingButton
+          v-if="dataMode === 'official'"
           class="h-10"
           :loading="running"
           loading-text="提交中…"
@@ -983,7 +1000,10 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               {{ detail.latest.setup }}
             </Badge>
           </div>
-          <TrendRankHistoryChart :history="detail.history" />
+          <TrendRankHistoryChart
+            v-if="dataMode === 'official'"
+            :history="detail.history"
+          />
           <section>
             <h3 class="mb-2 font-semibold">
               <IndicatorLabel
@@ -1137,7 +1157,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               </div>
             </div>
           </section>
-          <section>
+          <section v-if="dataMode === 'official'">
             <h3 class="mb-2 font-semibold">
               历史 Snapshot / 状态变化
             </h3><div class="space-y-2">

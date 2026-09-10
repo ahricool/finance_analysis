@@ -575,3 +575,82 @@ def test_quote_failure_does_not_write_official_snapshots(monkeypatch):
     assert saved[0]["status"] == "failed"
     assert saved[0]["items"] == []
     assert saved[0]["data_as_of"] is None
+
+
+def test_preview_time_is_recorded_after_quotes_and_strategy(monkeypatch):
+    repository = PreviewRepository(previous_candidates={"588000.SH"})
+    monkeypatch.setattr(
+        "finance_analysis.etf_rotation.service.enabled_etfs",  # pragma: allowlist secret
+        lambda market: CN_MEMBERS,
+    )
+    overlay = _overlay_bars({"588000.SH": 1.88, "159915.SZ": 2.66, "510300.SH": 4.55})
+    order = []
+
+    def collect(*args, **kwargs):
+        order.append("collect")
+        return overlay, "easyquotation_tencent", 3, datetime(2026, 9, 10, 6, 34, 57, tzinfo=timezone.utc)
+
+    def now():
+        order.append("now")
+        return datetime(2026, 9, 10, 6, 35, 11, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        "finance_analysis.etf_rotation.service.collect_symbol_preview_daily_bars",  # pragma: allowlist secret
+        collect,
+    )
+    monkeypatch.setattr(
+        "finance_analysis.etf_rotation.service.utc_now",  # pragma: allowlist secret
+        now,
+    )
+    monkeypatch.setattr(
+        "finance_analysis.etf_rotation.service.save_preview",  # pragma: allowlist secret
+        lambda *args, **kwargs: None,
+    )
+    service = ETFRotationService("CN", repository, market_data=_history_market_data())
+    result = service.run_preview(TRADE_DATE)
+    assert order == ["collect", "now"]
+    assert result["preview_time"] == "2026-09-10T06:35:11.000Z"
+    assert result["data_as_of"] == "2026-09-10T06:34:57.000Z"
+
+    order.clear()
+    overridden = service.run_preview(
+        TRADE_DATE,
+        preview_time=datetime(2026, 9, 10, 6, 40, 0, tzinfo=timezone.utc),
+    )
+    assert order == ["collect"]
+    assert overridden["preview_time"] == "2026-09-10T06:40:00.000Z"
+    assert overridden["data_as_of"] == "2026-09-10T06:34:57.000Z"
+
+
+def test_failed_preview_time_is_recorded_after_quote_error(monkeypatch):
+    repository = PreviewRepository()
+    monkeypatch.setattr(
+        "finance_analysis.etf_rotation.service.enabled_etfs",  # pragma: allowlist secret
+        lambda market: CN_MEMBERS,
+    )
+    order = []
+
+    def collect(*args, **kwargs):
+        order.append("collect")
+        raise PreviewQuoteError("easyquotation tencent real failed")
+
+    def now():
+        order.append("now")
+        return datetime(2026, 9, 10, 6, 35, 11, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        "finance_analysis.etf_rotation.service.collect_symbol_preview_daily_bars",  # pragma: allowlist secret
+        collect,
+    )
+    monkeypatch.setattr("finance_analysis.etf_rotation.service.utc_now", now)  # pragma: allowlist secret
+    saved = []
+    monkeypatch.setattr(
+        "finance_analysis.etf_rotation.service.save_preview",  # pragma: allowlist secret
+        lambda market, payload: saved.append(payload),
+    )
+    service = ETFRotationService("CN", repository, market_data=SimpleNamespace())
+    with pytest.raises(PreviewQuoteError, match="real failed"):
+        service.run_preview(TRADE_DATE)
+    assert order == ["collect", "now"]
+    assert saved[0]["preview_time"] == "2026-09-10T06:35:11.000Z"
+    assert saved[0]["data_as_of"] is None

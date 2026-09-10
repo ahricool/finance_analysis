@@ -234,7 +234,12 @@ function selectDataMode(mode: ResearchDataMode) {
 }
 async function openDetail(item: ETFMomentumSnapshot) {
   selected.value = { market: market.value, metadata: item, latest: item, history: [], marketSnapshot: marketSnapshot.value };
-  detailLoading.value = true; detailError.value = null;
+  detailError.value = null;
+  if (dataMode.value === 'preview') {
+    detailLoading.value = false;
+    return;
+  }
+  detailLoading.value = true;
   try { selected.value = await etfRotationApi.detail(item.code, market.value); }
   catch (err) { detailError.value = getParsedApiError(err); } finally { detailLoading.value = false; }
 }
@@ -310,6 +315,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           <RefreshCcw class="size-4" />刷新
         </Button>
         <LoadingButton
+          v-if="dataMode === 'official'"
           class="h-10"
           data-testid="etf-rotation-run"
           :loading="runLoading"
@@ -812,7 +818,10 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                 </div>
               </CardContent>
             </Card>
-            <Card><CardHeader><CardTitle>History</CardTitle><CardDescription>价格/MA、Composite、Rank 与 Relative Strength；旧快照缺失字段时保留空点。</CardDescription></CardHeader><CardContent><ETFRotationHistoryCharts :history="selected.history" /></CardContent></Card>
+            <Card
+              v-if="dataMode === 'official'"
+              data-testid="etf-detail-history"
+            ><CardHeader><CardTitle>History</CardTitle><CardDescription>价格/MA、Composite、Rank 与 Relative Strength；旧快照缺失字段时保留空点。</CardDescription></CardHeader><CardContent><ETFRotationHistoryCharts :history="selected.history" /></CardContent></Card>
           </template>
         </div>
       </DialogContent>

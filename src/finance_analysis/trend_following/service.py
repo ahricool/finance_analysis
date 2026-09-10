@@ -159,7 +159,6 @@ class TrendFollowingService:
         official or preview runs. Each call reloads the previous official snapshot.
         """
         started = monotonic()
-        observed_at = preview_time or utc_now()
         effective_date = self.resolve_preview_trade_date(trade_date)
         members = get_universe(self.market)
         universe_codes = {member.code for member in members}
@@ -190,6 +189,7 @@ class TrendFollowingService:
             result = self._run_single_date(effective_date, persist=False, overlay_bars=overlay)
         except PreviewQuoteError as exc:
             elapsed = round(monotonic() - started, 3)
+            generated_at = preview_time or utc_now()
             logger.exception(
                 "market=%s job=trend_following_preview provider=%s snapshot_failed elapsed_seconds=%s",
                 self.market,
@@ -202,7 +202,7 @@ class TrendFollowingService:
                     "status": "failed",
                     "market": self.market,
                     "trade_date": effective_date.isoformat(),
-                    "preview_time": utc_isoformat(observed_at),
+                    "preview_time": utc_isoformat(generated_at),
                     "data_as_of": utc_isoformat(data_as_of),
                     "provider": provider,
                     "quote_count": quote_count,
@@ -218,9 +218,10 @@ class TrendFollowingService:
             )
             raise
         elapsed = round(monotonic() - started, 3)
+        generated_at = preview_time or utc_now()
         payload = {
             **result,
-            "preview_time": utc_isoformat(observed_at),
+            "preview_time": utc_isoformat(generated_at),
             "data_as_of": utc_isoformat(data_as_of),
             "provider": provider,
             "quote_count": quote_count,
