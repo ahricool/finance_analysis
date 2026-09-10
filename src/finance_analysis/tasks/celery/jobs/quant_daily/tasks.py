@@ -1,10 +1,8 @@
-"""Non-blocking daily Qlib fan-out and main-application chord callback."""
+"""Non-blocking daily Qlib prediction and main-application callback."""
 
 from __future__ import annotations
 
 from typing import Any
-
-from celery import chord
 
 from finance_analysis.quant.pipeline.service import QuantDailyPipeline
 from finance_analysis.tasks.celery.app import celery_app
@@ -61,24 +59,21 @@ def _mark_final_status(
 
 
 def _dispatch(market: str) -> dict[str, Any]:
-    requests, context = QuantDailyPipeline().prepare(market=market)
+    payload, context = QuantDailyPipeline().prepare(market=market)
     lifecycle_task_id = get_current_task_id()
     if lifecycle_task_id:
         context["lifecycle_task_id"] = lifecycle_task_id
-    header = [celery_app.signature("qlib.model.predict", kwargs=payload, queue=QUEUE_QLIB) for payload in requests]
-    callback = finalize_quant_daily.s(context=context, _skip_task_record=True).set(queue=QUEUE_ANALYSIS)
-    error_callback = fail_quant_daily.s(context=context, _skip_task_record=True).set(queue=QUEUE_ANALYSIS)
-    # A chord-level ``link_error`` option is forwarded to the header group by
-    # Celery and makes publication fail with "Cannot add link to group".  The
-    # body errback is also the mechanism Celery's result backend consults when
-    # a header member fails, so attach it to the callback signature instead.
-    callback.link_error(error_callback)
-    result = chord(header, body=callback).apply_async()
+    result = celery_app.send_task(
+        "qlib.daily.predict",
+        kwargs=payload,
+        queue=QUEUE_QLIB,
+        link=finalize_quant_daily.s(context=context, _skip_task_record=True).set(queue=QUEUE_ANALYSIS),
+        link_error=fail_quant_daily.s(context=context, _skip_task_record=True).set(queue=QUEUE_ANALYSIS),
+    )
     return {
         "status": "prediction_dispatched",
         "trade_date": context["trade_date"],
-        "chord_task_id": result.id,
-        "qlib_task_count": len(header),
+        "qlib_task_id": result.id,
         "market": context["market"],
         "universe": context["universe_key"],
     }
@@ -108,16 +103,16 @@ def quant_daily_pipeline_cn(**_: Any) -> Any:
 
 @celery_app.task(name="quant.daily.finalize")
 def finalize_quant_daily(
-    results: list[dict[str, Any]], context: dict[str, Any], _skip_task_record: bool = False
+    result: dict[str, Any], context: dict[str, Any], _skip_task_record: bool = False
 ) -> dict[str, Any]:
     del _skip_task_record
     try:
-        result = QuantDailyPipeline().finalize(results, context)
+        finalized = QuantDailyPipeline().finalize(result, context)
     except Exception as exc:
         _mark_final_status(context, error=exc)
         raise
-    _mark_final_status(context, result=result)
-    return result
+    _mark_final_status(context, result=finalized)
+    return finalized
 
 
 @celery_app.task(name="quant.daily.failed")

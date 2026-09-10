@@ -1,21 +1,54 @@
-"""Forward-return labels driven entirely by target_config."""
+"""Forward-return labels with model-type production semantics."""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
 
+CROSS_SECTION_MODEL_KEY = "cross_section_lgbm"
+TIME_SERIES_MODEL_KEY = "time_series_lgbm"
+DEFAULT_PREDICTION_HORIZON = 5
+SHARED_ENTRY_PRICE = "open"
+SHARED_EXIT_PRICE = "close"
+
+
+def production_target_config(model_key: str, prediction_horizon: int = DEFAULT_PREDICTION_HORIZON) -> dict[str, Any]:
+    if model_key not in {CROSS_SECTION_MODEL_KEY, TIME_SERIES_MODEL_KEY}:
+        raise ValueError(f"Unknown model_key: {model_key}")
+    horizon = int(prediction_horizon)
+    if horizon < 1:
+        raise ValueError("prediction_horizon must be positive")
+    if model_key == CROSS_SECTION_MODEL_KEY:
+        semantics = {"benchmark": "market", "excess_return": True}
+    else:
+        semantics = {"benchmark": "none", "excess_return": False}
+    return {
+        "prediction_horizon": horizon,
+        "entry_price": SHARED_ENTRY_PRICE,
+        "exit_price": SHARED_EXIT_PRICE,
+        **semantics,
+    }
+
+
+def resolve_target_config(
+    model_key: str,
+    raw: Mapping[str, Any] | None,
+    prediction_horizon: int,
+) -> dict[str, Any]:
+    del raw
+    return production_target_config(model_key, prediction_horizon)
+
 
 @dataclass(frozen=True)
 class TargetConfig:
-    prediction_horizon: int = 5
+    prediction_horizon: int = DEFAULT_PREDICTION_HORIZON
     benchmark: str = "market"
-    entry_price: str = "open"
-    exit_price: str = "close"
+    entry_price: str = SHARED_ENTRY_PRICE
+    exit_price: str = SHARED_EXIT_PRICE
     excess_return: bool = True
 
     @classmethod
@@ -39,6 +72,10 @@ class TargetConfig:
         if config.benchmark not in {"market", "none"}:
             raise ValueError("benchmark must be market or none")
         return cls(**{**asdict(config), "prediction_horizon": int(config.prediction_horizon)})
+
+    @classmethod
+    def for_model(cls, model_key: str, raw: Mapping[str, Any] | None, default_horizon: int) -> "TargetConfig":
+        return cls.parse(resolve_target_config(model_key, raw, default_horizon), default_horizon)
 
 
 def build_target(dataset: Path, manifest: dict[str, Any], config: TargetConfig) -> pd.Series:

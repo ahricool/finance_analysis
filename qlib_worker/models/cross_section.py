@@ -6,3 +6,4 @@ class CrossSectionLGBMRunner(BaseLGBMRunner):
 
     name = "cross_section_lgbm"
     version = "1"
+    task_type = "regression"

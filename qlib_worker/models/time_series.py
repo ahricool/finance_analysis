@@ -10,10 +10,11 @@ from qlib_worker.models.base import BaseLGBMRunner
 
 
 class TimeSeriesLGBMRunner(BaseLGBMRunner):
-    """Directional classifier using momentum/volatility features only."""
+    """Absolute-direction classifier using momentum/volatility features only."""
 
     name = "time_series_lgbm"
     version = "1"
+    task_type = "classification"
     model_class = lgb.LGBMClassifier
     default_parameters: dict[str, Any] = {
         **BaseLGBMRunner.default_parameters,

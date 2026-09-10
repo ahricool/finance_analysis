@@ -68,6 +68,7 @@ def test_qlib_tasks_have_explicit_queue_routes() -> None:
     assert QUEUE_QLIB == "qlib"
     assert routes["qlib.model.train"]["queue"] == QUEUE_QLIB
     assert routes["qlib.model.predict"]["queue"] == QUEUE_QLIB
+    assert routes["qlib.daily.predict"]["queue"] == QUEUE_QLIB
 
 
 def test_main_workers_do_not_consume_qlib_queue() -> None:
@@ -93,3 +94,12 @@ def test_no_http_sidecar_or_blocking_qlib_wait_remains() -> None:
     ).read_text(encoding="utf-8")
     assert ".get(" not in quant_tasks
     assert "httpx" not in quant_tasks
+
+
+def test_daily_pipeline_dispatches_combined_qlib_task() -> None:
+    daily_tasks = (
+        ROOT / "src" / "finance_analysis" / "tasks" / "celery" / "jobs" / "quant_daily" / "tasks.py"  # pragma: allowlist secret
+    ).read_text(encoding="utf-8")
+    assert "qlib.daily.predict" in daily_tasks
+    assert "chord" not in daily_tasks
+    assert "qlib.model.predict" not in daily_tasks

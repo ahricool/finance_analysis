@@ -51,7 +51,7 @@ qlib_worker/
   artifacts/store.py  URI 解析、digest、原子提交
   tasks/
     train.py          `qlib.model.train`
-    predict.py        `qlib.model.predict`
+    predict.py        `qlib.model.predict`、`qlib.daily.predict`
     artifact.py       dataset/artifact 校验与检查
   tests/              本包独立 pytest
   pyproject.toml      Python 3.12 依赖
@@ -67,6 +67,7 @@ qlib_worker/
 - URI、模型键、版本和交易日期为非空字符串。
 - 可选配置必须为 JSON object。
 - 未知 schema version 立即失败，不能猜测或静默兼容。
+- 日频预测使用 `DailyPredictPayload`：一份 dataset + Cross Section / Time Series 两个 model artifact。Worker 只 `qlib.init()` / `Alpha158.load_features()` 一次，再分别预测。
 
 主应用对应生产者/消费者在：
 
@@ -84,7 +85,11 @@ qlib_worker/
 - 价格来自 PostgreSQL canonical 前复权 `stock_daily`，Worker 不再复权。 <!-- pragma: allowlist secret -->
 - Qlib `factor.day.bin` 保持 `1.0`，避免双重复权。
 - `Alpha158` 只加载 manifest 股票 universe；benchmark 可存在于 source，但不能进入训练/横截面排名。
-- VWAP/volume 缺失和估算语义由现有 loader/测试约束，不要把零成交量填为零价特征。
+- VWAP 二进制是 HLC3 proxy（`(high+low+close)/3`），不是成交额/成交量真实 VWAP。Worker 不重新计算该字段。
+
+`cross_section_lgbm` 预测 T+1 open → T+5 close 相对市场超额收益；`time_series_lgbm` 预测同一窗口绝对上涨概率。Worker 用 `TargetConfig.for_model()` 强制该语义，忽略 payload 里冲突的 benchmark/excess_return。
+
+横截面评价指标以每日 Rank IC / ICIR / TopK 超额为主；时间序列用 ROC AUC、balanced accuracy、Brier、方向命中率等分类指标。单类 test fold 的 AUC 记为 `None` 并 warning，不让训练失败。最终模型 `n_estimators` 取各 fold `best_iteration_` 的中位数。
 
 模型工件写入临时目录，计算 digest、验证后原子 rename。相同重试可复用已提交结果；不要直接覆盖已发布目录。
 

@@ -16,7 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { useAuthStore } from '@/stores/authStore';
 import type { ModelRun, ModelRunCreateAccepted, QuantMarket } from '@/types/quant';
-import { formatScore } from '@/utils/quant';
+import { formatScore, MODEL_TARGET_COPY, isTrainableModelKey, primaryMetricValue, secondaryMetricValue } from '@/utils/quant';
 
 const router = useRouter();
 const auth = useAuthStore();
@@ -198,12 +198,15 @@ watch(
       />
     </div>
     <Card v-else-if="rows.length">
-      <CardHeader><CardTitle>模型运行列表</CardTitle><CardDescription>查看训练区间、核心指标和发布状态。</CardDescription></CardHeader>
-      <CardContent class="block">
+      <CardHeader>
+        <CardTitle>模型运行列表</CardTitle>
+        <CardDescription>Walk-forward 候选模型必须由管理员手动发布。</CardDescription>
+      </CardHeader>
+      <CardContent>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>模型</TableHead><TableHead>版本</TableHead><TableHead>状态</TableHead><TableHead>训练/测试区间</TableHead><TableHead>Rank IC</TableHead><TableHead>Top10超额</TableHead><TableHead>进度</TableHead><TableHead v-if="isAdmin">
+              <TableHead>模型</TableHead><TableHead>版本</TableHead><TableHead>状态</TableHead><TableHead>训练方式</TableHead><TableHead>核心指标</TableHead><TableHead>辅助指标</TableHead><TableHead>进度</TableHead><TableHead v-if="isAdmin">
                 操作
               </TableHead>
             </TableRow>
@@ -217,18 +220,18 @@ watch(
                   :to="{ path: `/research/quant/models/${item.id}`, query: marketQuery() }"
                   class="font-medium underline-offset-4 hover:underline"
                 >
-                  {{ item.modelKey }}
+                  {{ isTrainableModelKey(item.modelKey) ? MODEL_TARGET_COPY[item.modelKey].shortName : item.modelKey }}
                 </RouterLink>
               </TableCell><TableCell>{{ item.modelVersion }}</TableCell><TableCell>
                 <Badge variant="outline">
                   {{ item.status }}
                 </Badge>
-              </TableCell><TableCell>{{ item.trainStart ?? '—' }} → {{ item.testEnd ?? '—' }}</TableCell><TableCell>{{ formatScore(item.metrics.rankIc) }}</TableCell><TableCell>{{ formatScore(item.metrics.top10ExcessReturnPct) }}%</TableCell><TableCell>{{ item.progress }}%</TableCell><TableCell v-if="isAdmin">
+              </TableCell><TableCell>Walk-forward</TableCell><TableCell>{{ formatScore(primaryMetricValue(item.modelKey, item.metrics)) }}</TableCell><TableCell>{{ formatScore(secondaryMetricValue(item.modelKey, item.metrics)) }}</TableCell><TableCell>{{ item.progress }}%</TableCell><TableCell v-if="isAdmin">
                 <Button
                   variant="destructive"
                   size="sm"
                   :disabled="!canDelete(item) || deletingId === item.id"
-                  :title="canDelete(item) ? '删除模型运行' : '排队中、训练中或生产模型不能删除'"
+                  :aria-label="canDelete(item) ? '删除模型运行' : '排队中、训练中或生产模型不能删除'"
                   :data-testid="`delete-model-run-${item.id}`"
                   @click="requestDelete(item)"
                 >

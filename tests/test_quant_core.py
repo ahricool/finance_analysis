@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from datetime import date
+
 import json
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from finance_analysis.database.models.quant import QUANT_TABLES
-from finance_analysis.quant.portfolio.builder import PortfolioBuilder
-from finance_analysis.quant.regime.service import MarketRegimeService
-from finance_analysis.quant.signals.fusion import SignalFusion
+from finance_analysis.database.models.quant import QUANT_TABLES  # pragma: allowlist secret
+from finance_analysis.quant.lookback import PREDICTION_FEATURE_LOOKBACK_SESSIONS, prediction_dataset_start  # pragma: allowlist secret
+from finance_analysis.quant.portfolio.builder import PortfolioBuilder  # pragma: allowlist secret
+from finance_analysis.quant.regime.service import MarketRegimeService  # pragma: allowlist secret
+from finance_analysis.quant.signals.fusion import SignalFusion  # pragma: allowlist secret
+from finance_analysis.quant.targets import production_target_config, stored_target_matches_production  # pragma: allowlist secret
 
 
 def daily_frame(count=90, start="2025-01-01", drift=1.0):
@@ -125,12 +129,16 @@ def test_us_market_regime_keeps_qqq_spy_contract_and_returns_valid_breakdown() -
     assert 0.10 <= result.max_equity_exposure <= 0.80
 
 
-def test_fusion_gating_and_risk_penalty_are_explicit():
-    fused = SignalFusion().fuse(0.8, 0.7, "neutral", risk_penalty=0.1)
-    expected_pre_regime = 0.8 * 0.60 + 0.7 * 0.40 - 0.1
-    assert fused.final_score == pytest.approx(expected_pre_regime * 0.7)
-    assert fused.score_components["pre_regime_score"] == pytest.approx(expected_pre_regime)
-    assert fused.score_components["regime_multiplier"] == pytest.approx(0.7)
+def test_fusion_does_not_multiply_alpha_by_regime():
+    fused = SignalFusion().fuse(0.8, 0.7, "neutral", market_score=0.5, risk_penalty=0.1)
+    expected = 0.8 * 0.60 + 0.7 * 0.40 - 0.1
+    assert fused.final_score == pytest.approx(expected)
+    assert fused.score_components["market_regime"] == "neutral"
+    assert fused.score_components["market_score"] == pytest.approx(0.5)
+    assert "regime_multiplier" not in fused.score_components
+    assert "pre_regime_score" not in fused.score_components
+    risk_off = SignalFusion().fuse(0.8, 0.7, "risk_off", market_score=0.2, risk_penalty=0.1)
+    assert risk_off.final_score == pytest.approx(expected)
 
 
 def test_portfolio_is_a_ranked_target_allocation_with_single_stock_caps():
@@ -147,17 +155,78 @@ def test_portfolio_is_a_ranked_target_allocation_with_single_stock_caps():
         for i in range(8)
     ]
     result = PortfolioBuilder().build(signals, 0.8)
-    assert [item["rank"] for item in result["items"]] == [1, 2, 3, 4, 5]
+    assert [item["rank"] for item in result["items"]] == [1, 2, 3, 4, 5, 6, 7, 8]
     assert all(item["target_weight"] <= 0.08 for item in result["items"])
-    assert result["target_equity_exposure"] == pytest.approx(0.4)
+    assert result["target_equity_exposure"] == pytest.approx(0.64)
+    assert "exceeds 8 × 8% single-stock cap" in result["warnings"][0]
     assert all("current_weight" not in item and "action" not in item for item in result["items"])
     assert all(
-        item["constraints"]
-        == {
-            "limits": {
-                "single_stock_max_weight": 0.08,
-                "max_equity_exposure": 0.8,
-            }
-        }
+        item["constraints"]["limits"]["single_stock_max_weight"] == 0.08
+        and item["constraints"]["limits"]["max_equity_exposure"] == 0.8
+        and item["constraints"]["limits"]["selected_count"] == 8
         for item in result["items"]
     )
+
+
+def _buy_signals(count: int) -> list[dict]:
+    return [
+        {
+            "code": f"S{i}.US",
+            "instrument_id": i,
+            "final_score": 1 - i * 0.01,
+            "signal": "buy",
+            "reasons": [],
+            "has_sufficient_data": True,
+            "liquidity": 2_000_000,
+        }
+        for i in range(count)
+    ]
+
+
+def test_cross_section_and_time_series_targets_are_model_owned() -> None:
+    cs = production_target_config("cross_section_lgbm")
+    ts = production_target_config("time_series_lgbm")
+    assert cs["prediction_horizon"] == ts["prediction_horizon"] == 5
+    assert cs["entry_price"] == ts["entry_price"] == "open"
+    assert cs["exit_price"] == ts["exit_price"] == "close"
+    assert cs == {"prediction_horizon": 5, "entry_price": "open", "exit_price": "close", "benchmark": "market", "excess_return": True}
+    assert ts["benchmark"] == "none"
+    assert ts["excess_return"] is False
+    assert stored_target_matches_production("cross_section_lgbm", None)
+    assert stored_target_matches_production("cross_section_lgbm", {})
+    assert not stored_target_matches_production("time_series_lgbm", None)
+    assert not stored_target_matches_production("time_series_lgbm", {"benchmark": "market", "excess_return": True})
+    assert stored_target_matches_production("time_series_lgbm", ts)
+
+
+def test_portfolio_reaches_regime_exposure_without_breaking_single_stock_cap() -> None:
+    builder = PortfolioBuilder()
+    risk_on = builder.build(_buy_signals(20), 0.80)
+    neutral = builder.build(_buy_signals(20), 0.40)
+    risk_off = builder.build(_buy_signals(20), 0.10)
+
+    assert len(risk_on["items"]) == 10
+    assert all(item["target_weight"] == pytest.approx(0.08) for item in risk_on["items"])
+    assert risk_on["target_equity_exposure"] == pytest.approx(0.80)
+
+    assert len(neutral["items"]) == 5
+    assert all(item["target_weight"] == pytest.approx(0.08) for item in neutral["items"])
+    assert neutral["target_equity_exposure"] == pytest.approx(0.40)
+
+    assert len(risk_off["items"]) == 5
+    assert all(item["target_weight"] == pytest.approx(0.02) for item in risk_off["items"])
+    assert risk_off["target_equity_exposure"] == pytest.approx(0.10)
+    assert all(item["target_weight"] <= 0.08 for item in [*risk_on["items"], *neutral["items"], *risk_off["items"]])
+
+
+def test_prediction_dataset_lookback_uses_trading_sessions() -> None:
+    from finance_analysis.market_review.trading_calendar import get_trading_days_between  # pragma: allowlist secret
+
+    trade_date = date(2026, 7, 16)
+    start = prediction_dataset_start("US", trade_date)
+    sessions = [item for item in get_trading_days_between("us", start, trade_date) if item <= trade_date]
+    assert PREDICTION_FEATURE_LOOKBACK_SESSIONS == 80
+    assert len(sessions) == PREDICTION_FEATURE_LOOKBACK_SESSIONS
+    assert start < trade_date
+    assert sessions[-1] == trade_date
+    assert (trade_date - start).days < 500

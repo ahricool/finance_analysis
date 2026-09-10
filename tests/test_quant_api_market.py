@@ -297,8 +297,15 @@ def test_model_run_defaults_match_worker_contract_and_dispatch_explicit_run(monk
     assert response.status_code == 202
     assert response.json()["model_run_id"] == 77
     assert response.json()["status"] == "pending"
-    assert repository.created_model_run["target_config"]["benchmark"] == "market"
+    assert repository.created_model_run["target_config"] == {
+        "prediction_horizon": 5,
+        "entry_price": "open",
+        "exit_price": "close",
+        "benchmark": "market",
+        "excess_return": True,
+    }
     assert repository.created_model_run["split_config"]["prediction_horizon"] == 5
+    assert "train_start" not in repository.created_model_run
     apply_async.assert_called_once_with(
         kwargs={"model_run_id": 77, "owner_uid": 1},
         queue="analysis",
@@ -383,12 +390,18 @@ def test_model_run_does_not_depend_on_removed_price_mode(monkeypatch):
 
 
 def test_model_run_request_rejects_worker_incompatible_configuration():
-    with pytest.raises(ValidationError, match="prediction_horizon must match"):
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ModelRunCreateRequest(
-            model_version="bad-horizon",
+            model_version="legacy-dates",
             dataset_snapshot_id=5,
-            split_config={"prediction_horizon": 5},
-            target_config={"prediction_horizon": 10},
+            train_start="2021-01-01",
+        )
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ModelRunCreateRequest(
+            model_version="legacy-target",
+            dataset_snapshot_id=5,
+            target_config={"benchmark": "none", "excess_return": False},
         )
 
     with pytest.raises(ValidationError, match="String should match pattern"):
@@ -400,6 +413,34 @@ def test_model_run_request_rejects_worker_incompatible_configuration():
             dataset_snapshot_id=5,
             feature_config={"ablation": "base_plus_event"},
         )
+
+
+def test_time_series_model_run_stores_absolute_return_target(monkeypatch):
+    client, repository = _client(monkeypatch)
+    from finance_analysis.tasks.celery.jobs.quant_training import tasks as training_tasks  # pragma: allowlist secret
+
+    monkeypatch.setattr(
+        training_tasks.train_quant_model,
+        "apply_async",
+        MagicMock(return_value=SimpleNamespace(id="training-task-ts")),
+    )
+    response = client.post(
+        "/quant/model-runs",
+        json={
+            "market": "US",
+            "model_key": "time_series_lgbm",
+            "model_version": "us-time-series-20260721",
+            "dataset_snapshot_id": 5,
+        },
+    )
+    assert response.status_code == 202
+    assert repository.created_model_run["target_config"] == {
+        "prediction_horizon": 5,
+        "entry_price": "open",
+        "exit_price": "close",
+        "benchmark": "none",
+        "excess_return": False,
+    }
 
 
 def test_quant_event_upload_routes_are_removed(monkeypatch):

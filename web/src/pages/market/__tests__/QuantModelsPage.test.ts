@@ -79,13 +79,9 @@ const modelRuns: ModelRun[] = [
     market: 'CN',
     status: 'candidate',
     progress: 100,
-    trainStart: '2021-01-01',
-    trainEnd: '2025-01-01',
-    validStart: null,
-    validEnd: null,
-    testStart: null,
-    testEnd: '2026-01-01',
-    metrics: { rankIc: 0.08, top10ExcessReturnPct: 3.2 },
+    splitConfig: { predictionHorizon: 5 },
+    targetConfig: { predictionHorizon: 5, benchmark: 'market', excessReturn: true },
+    metrics: { dailyRankIcMean: 0.08, top10ExcessReturnPct: 3.2 },
     warnings: [],
     error: null,
     artifactUri: 'quant://models/21',
@@ -99,13 +95,9 @@ const modelRuns: ModelRun[] = [
     market: 'CN',
     status: 'production',
     progress: 100,
-    trainStart: '2021-01-01',
-    trainEnd: '2025-01-01',
-    validStart: null,
-    validEnd: null,
-    testStart: null,
-    testEnd: '2026-01-01',
-    metrics: {},
+    splitConfig: { predictionHorizon: 5 },
+    targetConfig: { predictionHorizon: 5, benchmark: 'none', excessReturn: false },
+    metrics: { rocAuc: 0.62, directionalHitRate: 0.55 },
     warnings: [],
     error: null,
     artifactUri: 'quant://models/22',
@@ -208,7 +200,9 @@ describe('QuantModelsPage training entry', () => {
     expect(wrapper.get('[data-testid="training-dataset-options"]').text()).not.toContain('#9');
     expect(wrapper.get('[data-testid="training-dataset-options"]').text()).not.toContain('#10');
     expect(wrapper.text()).toContain('Walk-forward');
-    expect(wrapper.text()).toContain('Alpha158 + 自定义扩展特征');
+    expect(wrapper.text()).toContain('Alpha158');
+    expect(wrapper.text()).not.toContain('自定义扩展特征');
+    expect(wrapper.text()).toContain('预测未来 5 个交易日相对市场的超额收益');
   });
 
   it('creates a training run, closes the dialog, refreshes the model list, and reports success', async () => {

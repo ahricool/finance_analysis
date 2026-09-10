@@ -27,6 +27,7 @@ def create_celery_app() -> Celery:
         task_routes={
             "qlib.model.train": {"queue": QUEUE_QLIB},
             "qlib.model.predict": {"queue": QUEUE_QLIB},
+            "qlib.daily.predict": {"queue": QUEUE_QLIB},
             "qlib.dataset.validate": {"queue": QUEUE_QLIB},
             "qlib.artifact.inspect": {"queue": QUEUE_QLIB},
         },

@@ -4,33 +4,40 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import asdict
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
-from finance_analysis.core.time import utc_now
-from finance_analysis.database.repositories.quant import QuantRepository
-from finance_analysis.database.repositories.stock import InstrumentRepository
-from finance_analysis.market_review.trading_calendar import get_effective_trading_date
-from finance_analysis.quant.config import get_quant_config
-from finance_analysis.quant.datasets.artifact_store import ArtifactStore
-from finance_analysis.quant.datasets.exporter import QlibDatasetExporter
-from finance_analysis.quant.exceptions import (
+from finance_analysis.core.time import utc_now  # pragma: allowlist secret
+from finance_analysis.database.repositories.quant import QuantRepository  # pragma: allowlist secret
+from finance_analysis.database.repositories.stock import InstrumentRepository  # pragma: allowlist secret
+from finance_analysis.market_review.trading_calendar import get_effective_trading_date  # pragma: allowlist secret
+from finance_analysis.quant.config import get_quant_config  # pragma: allowlist secret
+from finance_analysis.quant.datasets.artifact_store import ArtifactStore  # pragma: allowlist secret
+from finance_analysis.quant.datasets.exporter import QlibDatasetExporter  # pragma: allowlist secret
+from finance_analysis.quant.exceptions import (  # pragma: allowlist secret
     FeatureDataMissingError,
     ModelNotPublishedError,
     PredictionFailedError,
     QuantDatasetMissingError,
 )
-from finance_analysis.quant.features.service import DailyResearchService
-from finance_analysis.quant.markets import (
+from finance_analysis.quant.features.service import DailyResearchService  # pragma: allowlist secret
+from finance_analysis.quant.lookback import prediction_dataset_start  # pragma: allowlist secret
+from finance_analysis.quant.markets import (  # pragma: allowlist secret
     get_quant_market_config,
     get_universe_codes,
     validate_universe_for_market,
 )
-from finance_analysis.quant.portfolio.builder import PortfolioBuilder
-from finance_analysis.quant.signals.fusion import SignalFusion
+from finance_analysis.quant.models import CROSS_SECTION_MODEL_KEY, TIME_SERIES_MODEL_KEY  # pragma: allowlist secret
+from finance_analysis.quant.portfolio.builder import PortfolioBuilder  # pragma: allowlist secret
+from finance_analysis.quant.signals.fusion import SignalFusion  # pragma: allowlist secret
+from finance_analysis.quant.targets import resolve_target_config, stored_target_matches_production  # pragma: allowlist secret
 
 PROTOCOL_VERSION = 1
 SUPPORTED_QLIB_FEATURE_CONFIG = {"base": "Alpha158"}
+_PRIMARY_METRIC_KEYS = {
+    CROSS_SECTION_MODEL_KEY: ("daily_rank_ic_mean", "icir", "top10_excess_return_pct"),
+    TIME_SERIES_MODEL_KEY: ("roc_auc", "balanced_accuracy", "directional_hit_rate"),
+}
 
 
 class QuantTrainingPipeline:
@@ -68,12 +75,19 @@ class QuantTrainingPipeline:
                 f"minimum={minimum_coverage:.2%}"
             )
         (self.artifact_store or ArtifactStore()).resolve_uri(dataset.artifact_uri)
+        split_config = run.split_config or {}
+        target_config = resolve_target_config(
+            run.model_key,
+            run.target_config or {},
+            int(split_config.get("prediction_horizon") or 5),
+        )
         self.repository.update_model_run(
             run_id,
             status="training",
             progress=10,
             started_at=utc_now(),
             error=None,
+            target_config=target_config,
         )
         return {
             "schema_version": PROTOCOL_VERSION,
@@ -84,9 +98,9 @@ class QuantTrainingPipeline:
             "market": run.market,
             "universe_id": run.universe_id,
             "parameters": run.parameters or {},
-            "split_config": run.split_config or {},
+            "split_config": split_config,
             "feature_config": run.feature_config or {},
-            "target_config": run.target_config or {},
+            "target_config": target_config,
         }
 
     def mark_dispatched(self, run_id: int, task_id: str) -> None:
@@ -100,11 +114,12 @@ class QuantTrainingPipeline:
         run = self._supported_run(run_id)
         if result.get("model_key") != run.model_key:
             raise ValueError("Qlib result model_key does not match ModelRun")
+        metrics = result.get("metrics", {})
         self.repository.update_model_run(
             run_id,
             status="candidate",
             progress=100,
-            metrics=result.get("metrics", {}),
+            metrics=metrics,
             feature_importance=result.get("feature_importance", {}),
             artifact_uri=result.get("artifact_uri"),
             artifact_digest=result.get("artifact_digest"),
@@ -113,13 +128,8 @@ class QuantTrainingPipeline:
             error=None,
             finished_at=utc_now(),
         )
-        return {
-            "model_run_id": run_id,
-            "model_key": run.model_key,
-            "status": "candidate",
-            "rank_ic": result.get("metrics", {}).get("rank_ic"),
-            "top10_excess_return_pct": result.get("metrics", {}).get("top10_excess_return_pct"),
-        }
+        summary = {key: metrics.get(key) for key in _PRIMARY_METRIC_KEYS.get(run.model_key, ())}
+        return {"model_run_id": run_id, "model_key": run.model_key, "status": "candidate", **summary}
 
     def fail(self, run_id: int, reason: str) -> dict[str, Any]:
         self._supported_run(run_id)
@@ -151,8 +161,9 @@ class QuantDailyPipeline:
         market: str = "US",
         universe_key: str | None = None,
         trade_date: date | None = None,
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         config = get_quant_market_config(market)
+        quant_config = get_quant_config()
         market = config.market
         if trade_date is None:
             trade_date = get_effective_trading_date(config.calendar_market)
@@ -179,31 +190,39 @@ class QuantDailyPipeline:
         prediction_dataset = self.exporter.export(
             market,
             universe_key,
-            trade_date - timedelta(days=500),
+            prediction_dataset_start(market, trade_date),
             trade_date,
             candidate_codes=eligible_codes,
         )
         if prediction_dataset is None or not prediction_dataset.artifact_uri:
             raise QuantDatasetMissingError(f"Prediction dataset artifact is unavailable for {trade_date}")
-        common = {
+        payload = {
             "schema_version": PROTOCOL_VERSION,
             "dataset_uri": prediction_dataset.artifact_uri,
             "trade_date": str(trade_date),
-        }
-        requests = [
-            {
-                **common,
+            "cross_section": {
                 "model_run_id": cross_section.id,
-                "model_key": cross_section.model_key,
+                "model_key": CROSS_SECTION_MODEL_KEY,
                 "artifact_uri": cross_section.artifact_uri,
             },
-            {
-                **common,
+            "time_series": {
                 "model_run_id": time_series.id,
-                "model_key": time_series.model_key,
+                "model_key": TIME_SERIES_MODEL_KEY,
                 "artifact_uri": time_series.artifact_uri,
             },
-        ]
+        }
+        lineage = {
+            "cross_section_model_run_id": cross_section.id,
+            "cross_section_model_version": cross_section.model_version,
+            "time_series_model_run_id": time_series.id,
+            "time_series_model_version": time_series.model_version,
+            "regime_model_version": quant_config.regime_model_version,
+            "fusion_version": quant_config.fusion_version,
+            "portfolio_version": quant_config.portfolio_version,
+            "feature_version": quant_config.feature_version,
+            "dataset_uri": prediction_dataset.artifact_uri,
+            "dataset_source_revision": getattr(prediction_dataset, "source_revision", None),
+        }
         context = {
             "schema_version": PROTOCOL_VERSION,
             "trade_date": str(trade_date),
@@ -213,8 +232,10 @@ class QuantDailyPipeline:
             "cross_section_model_run_id": cross_section.id,
             "cross_section_model_version": cross_section.model_version,
             "time_series_model_run_id": time_series.id,
+            "time_series_model_version": time_series.model_version,
             "expected_codes": sorted(eligible_codes),
             "runtime_context": research["runtime_context"],
+            "lineage": lineage,
             "regime": {
                 "id": regime.id,
                 "regime": regime.regime,
@@ -224,9 +245,9 @@ class QuantDailyPipeline:
             "warnings": research.get("warnings", []),
             "coverage": research.get("coverage", {}),
         }
-        return requests, context
+        return payload, context
 
-    def finalize(self, responses: list[dict[str, Any]], context: dict[str, Any]) -> dict[str, Any]:
+    def finalize(self, result: dict[str, Any] | list[dict[str, Any]], context: dict[str, Any]) -> dict[str, Any]:
         if context.get("schema_version") != PROTOCOL_VERSION:
             raise ValueError("Daily callback context has unsupported schema_version")
         trade_date = date.fromisoformat(context["trade_date"])
@@ -240,17 +261,18 @@ class QuantDailyPipeline:
             or not getattr(universe, "enabled", True)
         ):
             raise ValueError("Daily callback universe no longer matches")
+        responses = self._prediction_results(result, trade_date)
         by_model = {response.get("model_key"): response for response in responses}
-        response = by_model.get("cross_section_lgbm")
-        time_series_response = by_model.get("time_series_lgbm")
+        response = by_model.get(CROSS_SECTION_MODEL_KEY)
+        time_series_response = by_model.get(TIME_SERIES_MODEL_KEY)
         if response is None or time_series_response is None:
             raise QuantDatasetMissingError("Both Qlib prediction results are required")
         for item in (response, time_series_response):
             if item.get("schema_version") != PROTOCOL_VERSION or item.get("trade_date") != str(trade_date):
                 raise ValueError("Qlib prediction result protocol or trade_date mismatch")
         expected_model_runs = {
-            "cross_section_lgbm": context["cross_section_model_run_id"],
-            "time_series_lgbm": context["time_series_model_run_id"],
+            CROSS_SECTION_MODEL_KEY: context["cross_section_model_run_id"],
+            TIME_SERIES_MODEL_KEY: context["time_series_model_run_id"],
         }
         for model_key, item in by_model.items():
             if model_key in expected_model_runs and item.get("model_run_id") not in (
@@ -270,6 +292,7 @@ class QuantDailyPipeline:
         time_series_by_code = {item["code"]: item["normalized_score"] for item in time_series_response["predictions"]}
         regime = context["regime"]
         runtime_context = context.get("runtime_context") or {}
+        lineage = dict(context.get("lineage") or {})
         fusion = SignalFusion()
         public: list[dict[str, Any]] = []
         for prediction in response.get("predictions", []):
@@ -309,7 +332,8 @@ class QuantDailyPipeline:
                 market_score=regime["market_score"],
                 risk_penalty=float(prediction.get("risk_penalty", 0)),
             )
-            item = {**prediction, **asdict(fused)}
+            score_components = {**fused.score_components, "lineage": lineage}
+            item = {**prediction, **asdict(fused), "score_components": score_components}
             public.append(item)
         public.sort(key=lambda item: item["final_score"], reverse=True)
         for rank, item in enumerate(public, 1):
@@ -346,9 +370,10 @@ class QuantDailyPipeline:
             "status": "ready",
             "max_equity_exposure": regime["max_equity_exposure"],
             "target_equity_exposure": portfolio["target_equity_exposure"],
-            "config": portfolio["config"],
+            "config": {**portfolio["config"], "version": get_quant_config().portfolio_version},
             "summary": {
                 "coverage": context.get("coverage", {}),
+                "lineage": lineage,
             },
             "warnings": warnings,
         }
@@ -384,9 +409,25 @@ class QuantDailyPipeline:
             "portfolio_item_count": len(portfolio["items"]),
             "portfolio_recommendation_id": recommendation.id,
             "market_regime": regime["regime"],
+            "lineage": lineage,
             "warnings": warnings,
             "coverage": context.get("coverage", {}),
         }
+
+    @staticmethod
+    def _prediction_results(result: dict[str, Any] | list[dict[str, Any]], trade_date: date) -> list[dict[str, Any]]:
+        if isinstance(result, list):
+            raise QuantDatasetMissingError("Daily Qlib prediction must return a combined result payload")
+        if not isinstance(result, dict):
+            raise QuantDatasetMissingError("Daily Qlib prediction result is missing")
+        if result.get("schema_version") != PROTOCOL_VERSION:
+            raise ValueError("Qlib daily prediction result has an unsupported schema_version")
+        if result.get("trade_date") not in {None, str(trade_date)}:
+            raise ValueError("Qlib daily prediction result trade_date mismatch")
+        responses = result.get("results")
+        if not isinstance(responses, list) or len(responses) != 2:
+            raise QuantDatasetMissingError("Both Qlib prediction results are required")
+        return responses
 
     def _production_model(self, market: str, model_key: str) -> Any:
         model = self.repository.production_model(market, model_key)
@@ -398,13 +439,26 @@ class QuantDailyPipeline:
                 f"Production {market} {model_key} model uses unsupported feature_config={feature_config}; "
                 "retrain and publish an Alpha158-only model"
             )
+        stored = getattr(model, "target_config", None)
+        if not stored_target_matches_production(model_key, stored):
+            raise ModelNotPublishedError(
+                f"Production {market} {model_key} model uses unsupported target_config={stored}; "
+                "retrain and publish with the model-type target semantics"
+            )
         return model
 
     def _preflight_production_models(self, market: str) -> tuple[Any, Any]:
         models = (
-            self._production_model(market, "cross_section_lgbm"),
-            self._production_model(market, "time_series_lgbm"),
+            self._production_model(market, CROSS_SECTION_MODEL_KEY),
+            self._production_model(market, TIME_SERIES_MODEL_KEY),
         )
+        cs_horizon = int((getattr(models[0], "target_config", None) or {}).get("prediction_horizon") or 5)
+        ts_horizon = int((getattr(models[1], "target_config", None) or {}).get("prediction_horizon") or 5)
+        if cs_horizon != ts_horizon:
+            raise ModelNotPublishedError(
+                f"Production {market} models must share prediction_horizon; "
+                f"cross_section={cs_horizon} time_series={ts_horizon}"
+            )
         artifact_store = self.artifact_store or ArtifactStore()
         for model in models:
             artifact_store.resolve_uri(model.artifact_uri)

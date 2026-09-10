@@ -4,7 +4,12 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Button } from '@/components/ui/button';
 import type { ModelRun } from '@/types/quant';
-import { formatScore } from '@/utils/quant';
+import {
+  formatScore,
+  MODEL_TARGET_COPY,
+  isTrainableModelKey,
+  scalarMetrics,
+} from '@/utils/quant';
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
@@ -16,6 +21,12 @@ const item = ref<ModelRun | null>(null);
 const error = ref<ParsedApiError | null>(null);
 const reason = ref('验证指标与风险检查已人工确认');
 const isAdmin = computed(() => auth.currentUser?.role === 'admin');
+const targetCopy = computed(() =>
+  item.value && isTrainableModelKey(item.value.modelKey)
+    ? MODEL_TARGET_COPY[item.value.modelKey]
+    : null,
+);
+const metricRows = computed(() => scalarMetrics(item.value?.metrics));
 let requestVersion = 0;
 watch(
   [market, () => route.params.runId],
@@ -59,7 +70,7 @@ async function publish() {
       <header class="flex items-start justify-between">
         <div>
           <h2 class="text-lg font-semibold">
-            {{ item.modelKey }}
+            {{ targetCopy?.shortName ?? item.modelKey }}
           </h2>
           <p class="text-xs text-muted-foreground">
             {{ item.modelVersion }} · {{ item.status }}
@@ -81,30 +92,36 @@ async function publish() {
       <section class="grid gap-3 md:grid-cols-3">
         <div class="rounded-xl border border-border bg-card p-3">
           <p class="text-xs text-muted-foreground">
-            训练区间
+            训练方式
           </p>
-          <p>{{ item.trainStart ?? '—' }} → {{ item.trainEnd ?? '—' }}</p>
+          <p>Walk-forward</p>
         </div>
         <div class="rounded-xl border border-border bg-card p-3">
           <p class="text-xs text-muted-foreground">
-            验证区间
+            预测目标
           </p>
-          <p>{{ item.validStart ?? '—' }} → {{ item.validEnd ?? '—' }}</p>
+          <p>{{ targetCopy?.target ?? '—' }}</p>
         </div>
         <div class="rounded-xl border border-border bg-card p-3">
           <p class="text-xs text-muted-foreground">
-            测试区间
+            预测周期
           </p>
-          <p>{{ item.testStart ?? '—' }} → {{ item.testEnd ?? '—' }}</p>
+          <p>{{ Number(item.targetConfig?.predictionHorizon ?? item.splitConfig?.predictionHorizon ?? 5) }} 个交易日</p>
         </div>
       </section>
+      <p
+        v-if="targetCopy"
+        class="text-xs text-muted-foreground"
+      >
+        {{ targetCopy.detail }}
+      </p>
       <section class="rounded-xl border bg-card p-4">
         <h3 class="text-sm font-semibold">
           评价指标
         </h3>
         <div class="mt-3 grid gap-2 sm:grid-cols-3">
           <div
-            v-for="(value, key) in item.metrics"
+            v-for="[key, value] in metricRows"
             :key="key"
             class="rounded-lg bg-background p-2"
           >

@@ -9,8 +9,8 @@ import pytest
 from qlib_worker.artifacts.store import ArtifactStore
 from qlib_worker.models.registry import get_runner
 from qlib_worker.models.splits import WalkForwardConfig, walk_forward_splits
-from qlib_worker.models.targets import TargetConfig, build_target
-from qlib_worker.protocol import PredictPayload, TrainPayload
+from qlib_worker.models.targets import TargetConfig, build_target, production_target_config
+from qlib_worker.protocol import DailyPredictPayload, PredictPayload, TrainPayload
 
 
 def train_payload(**overrides):
@@ -178,3 +178,58 @@ def test_artifact_store_rejects_traversal_and_commits_atomically(tmp_path: Path)
     final = store.path_for_uri(uri)
     assert json.loads((final / "artifact_manifest.json").read_text())["digest"] == first["artifact_digest"]
     assert not list(final.parent.glob(".42.*"))
+
+
+def test_model_type_forces_production_target_semantics() -> None:
+    cs = TargetConfig.for_model(
+        "cross_section_lgbm",
+        {"benchmark": "none", "excess_return": False, "prediction_horizon": 5},
+        5,
+    )
+    ts = TargetConfig.for_model(
+        "time_series_lgbm",
+        {"benchmark": "market", "excess_return": True, "prediction_horizon": 5},
+        5,
+    )
+    assert cs.benchmark == "market" and cs.excess_return is True
+    assert ts.benchmark == "none" and ts.excess_return is False
+    assert production_target_config("cross_section_lgbm")["prediction_horizon"] == production_target_config("time_series_lgbm")["prediction_horizon"]
+
+
+def test_daily_predict_payload_requires_both_model_artifacts() -> None:
+    payload = DailyPredictPayload.parse(
+        {
+            "schema_version": 1,
+            "dataset_uri": "quant://datasets/example",
+            "trade_date": "2026-07-16",
+            "cross_section": {
+                "model_run_id": 11,
+                "model_key": "cross_section_lgbm",
+                "artifact_uri": "quant://models/cs",
+            },
+            "time_series": {
+                "model_run_id": 12,
+                "model_key": "time_series_lgbm",
+                "artifact_uri": "quant://models/ts",
+            },
+        }
+    )
+    assert payload.cross_section.model_run_id == 11
+    with pytest.raises(ValueError, match="cross_section.model_key"):
+        DailyPredictPayload.parse(
+            {
+                "schema_version": 1,
+                "dataset_uri": "quant://datasets/example",
+                "trade_date": "2026-07-16",
+                "cross_section": {
+                    "model_run_id": 11,
+                    "model_key": "time_series_lgbm",
+                    "artifact_uri": "quant://models/cs",
+                },
+                "time_series": {
+                    "model_run_id": 12,
+                    "model_key": "time_series_lgbm",
+                    "artifact_uri": "quant://models/ts",
+                },
+            }
+        )

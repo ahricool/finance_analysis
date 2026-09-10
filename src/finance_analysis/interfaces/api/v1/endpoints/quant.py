@@ -269,6 +269,7 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
             "universe_id": universe.id,
             "status": "draft",
             "progress": 0,
+            "target_config": body.stored_target_config(),
         }
     )
     run = repo.create_model_run(values)
