@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Iterable
 
 from .models import Adjustment, Market, MarketBar, MarketQuote, market_from_value
@@ -91,6 +91,23 @@ def _easyquotation_provider(market_data: Any) -> Any | None:
     return provider
 
 
+def _aware_utc(value: datetime | None) -> datetime | None:
+    """Keep timezone-aware instants; never treat naive or missing times as now()."""
+    if value is None or value.tzinfo is None or value.utcoffset() is None:
+        return None
+    return value.astimezone(timezone.utc)
+
+
+def _quote_as_of(quote: MarketQuote) -> datetime | None:
+    return _aware_utc(quote.quote_time)
+
+
+def latest_preview_as_of(values: Iterable[datetime | None]) -> datetime | None:
+    """Return the latest timezone-aware instant that actually produced a preview bar."""
+    aware = [stamp for stamp in (_aware_utc(value) for value in values) if stamp is not None]
+    return max(aware) if aware else None
+
+
 def _bars_from_quotes(
     quotes: Any,
     wanted: set[str],
@@ -98,20 +115,25 @@ def _bars_from_quotes(
     bars: dict[str, MarketBar],
     *,
     converter,
+    as_of_times: list[datetime],
 ) -> None:
     for symbol, quote in getattr(quotes, "data", {}).items():
         if symbol not in wanted or symbol in bars:
             continue
         bar = converter(quote, trade_date)
-        if bar is not None:
-            bars[symbol] = bar
+        if bar is None:
+            continue
+        bars[symbol] = bar
+        stamp = _quote_as_of(quote)
+        if stamp is not None:
+            as_of_times.append(stamp)
 
 
 def _collect_us_preview_daily_bars(
     market_data: Any,
     wanted: tuple[str, ...],
     trade_date: date,
-) -> tuple[dict[str, MarketBar], str, int]:
+) -> tuple[dict[str, MarketBar], str, int, datetime | None]:
     provider = market_data.registry.get(US_PREVIEW_PROVIDER).provider
     result = provider.fetch_intraday_preview_daily_bars(list(wanted), trade_date)
     bars = {code: items[0] for code, items in result.data.items() if items}
@@ -121,7 +143,8 @@ def _collect_us_preview_daily_bars(
             US_PREVIEW_PROVIDER,
             len(result.failed_symbols),
         )
-    return bars, US_PREVIEW_PROVIDER, len(bars)
+    data_as_of = latest_preview_as_of(bar.bar_time for bar in bars.values())
+    return bars, US_PREVIEW_PROVIDER, len(bars), data_as_of
 
 
 def collect_preview_daily_bars(
@@ -129,7 +152,7 @@ def collect_preview_daily_bars(
     market: Market | str,
     symbols: Iterable[str],
     trade_date: date,
-) -> tuple[dict[str, MarketBar], str, int]:
+) -> tuple[dict[str, MarketBar], str, int, datetime | None]:
     resolved = market_from_value(market)
     wanted = tuple(dict.fromkeys(canonical_symbol(symbol) for symbol in symbols))
     if resolved is Market.CN:
@@ -143,7 +166,15 @@ def collect_preview_daily_bars(
             raise PreviewQuoteError(f"easyquotation tencent snapshot failed: {detail}")
         wanted_set = set(wanted)
         bars: dict[str, MarketBar] = {}
-        _bars_from_quotes(snapshot, wanted_set, trade_date, bars, converter=daily_bar_from_quote)
+        as_of_times: list[datetime] = []
+        _bars_from_quotes(
+            snapshot,
+            wanted_set,
+            trade_date,
+            bars,
+            converter=daily_bar_from_quote,
+            as_of_times=as_of_times,
+        )
         missing = [symbol for symbol in wanted if symbol not in bars]
         if missing:
             provider = _easyquotation_provider(market_data)
@@ -163,7 +194,14 @@ def collect_preview_daily_bars(
                         len(missing),
                     )
                 else:
-                    _bars_from_quotes(extra, wanted_set, trade_date, bars, converter=daily_bar_from_quote)
+                    _bars_from_quotes(
+                        extra,
+                        wanted_set,
+                        trade_date,
+                        bars,
+                        converter=daily_bar_from_quote,
+                        as_of_times=as_of_times,
+                    )
                     logger.info(
                         "market=CN provider=%s snapshot_quotes=%s real_fill_requested=%s real_fill_got=%s",
                         CN_PREVIEW_PROVIDER,
@@ -171,7 +209,7 @@ def collect_preview_daily_bars(
                         len(missing),
                         len(extra.data),
                     )
-        return bars, CN_PREVIEW_PROVIDER, len(snapshot.data)
+        return bars, CN_PREVIEW_PROVIDER, len(snapshot.data), latest_preview_as_of(as_of_times)
     if resolved is Market.US:
         return _collect_us_preview_daily_bars(market_data, wanted, trade_date)
     raise ValueError(f"Preview does not support market {resolved.value}")
@@ -182,7 +220,7 @@ def collect_symbol_preview_daily_bars(
     market: Market | str,
     symbols: Iterable[str],
     trade_date: date,
-) -> tuple[dict[str, MarketBar], str, int]:
+) -> tuple[dict[str, MarketBar], str, int, datetime | None]:
     """CN uses one Tencent real() batch for requested codes; US reuses Yahoo 5m aggregation."""
     resolved = market_from_value(market)
     wanted = tuple(dict.fromkeys(canonical_symbol(symbol) for symbol in symbols))
@@ -196,7 +234,15 @@ def collect_symbol_preview_daily_bars(
             logger.exception("market=CN provider=%s real_failed requested=%s", CN_PREVIEW_PROVIDER, len(wanted))
             raise PreviewQuoteError(f"easyquotation tencent real failed: {exc}") from exc
         bars: dict[str, MarketBar] = {}
-        _bars_from_quotes(quotes, set(wanted), trade_date, bars, converter=close_bar_from_quote)
+        as_of_times: list[datetime] = []
+        _bars_from_quotes(
+            quotes,
+            set(wanted),
+            trade_date,
+            bars,
+            converter=close_bar_from_quote,
+            as_of_times=as_of_times,
+        )
         if not bars:
             detail = quotes.failed_symbols or "empty quotes"
             raise PreviewQuoteError(f"easyquotation tencent real failed: {detail}")
@@ -206,12 +252,12 @@ def collect_symbol_preview_daily_bars(
             len(wanted),
             len(bars),
         )
-        return bars, CN_PREVIEW_PROVIDER, len(bars)
+        return bars, CN_PREVIEW_PROVIDER, len(bars), latest_preview_as_of(as_of_times)
     if resolved is Market.US:
-        bars, label, quote_count = _collect_us_preview_daily_bars(market_data, wanted, trade_date)
+        bars, label, quote_count, data_as_of = _collect_us_preview_daily_bars(market_data, wanted, trade_date)
         if not bars:
             raise PreviewQuoteError("yfinance 5m preview failed: empty bars")
-        return bars, label, quote_count
+        return bars, label, quote_count, data_as_of
     raise ValueError(f"Preview does not support market {resolved.value}")
 
 
@@ -224,4 +270,5 @@ __all__ = [
     "collect_preview_daily_bars",
     "collect_symbol_preview_daily_bars",
     "daily_bar_from_quote",
+    "latest_preview_as_of",
 ]

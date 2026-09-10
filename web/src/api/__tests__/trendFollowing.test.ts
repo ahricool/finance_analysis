@@ -107,3 +107,25 @@ it('maps ranking snapshot rank changes including null and zero with the shared c
     { rankChange1D: 0, rankChange3D: null, rankChange5D: null },
   ]);
 });
+
+it('loads preview snapshots through toCamelCase and treats 404 as null', async () => {
+  vi.mocked(apiClient.get).mockResolvedValue({ data: {
+    status: 'completed',
+    trade_date: '2026-09-10',
+    preview_time: '2026-09-10T03:00:00Z',
+    data_as_of: '2026-09-10T14:34:59-04:00',
+    provider: 'yfinance',
+    snapshots: [{ code: 'AAPL.US', alpha_score: 82, market_regime: 'RISK_ON' }],
+  } });
+  const preview = await trendFollowingApi.preview('US');
+  expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/preview', { params: { market: 'US' } });
+  expect(preview).toMatchObject({
+    tradeDate: '2026-09-10',
+    previewTime: '2026-09-10T03:00:00Z',
+    dataAsOf: '2026-09-10T14:34:59-04:00',
+    provider: 'yfinance',
+    snapshots: [{ alphaScore: 82, marketRegime: 'RISK_ON' }],
+  });
+  vi.mocked(apiClient.get).mockRejectedValue({ parsedError: { status: 404, title: 'x', message: 'missing', rawMessage: 'missing', category: 'http_error' } });
+  await expect(trendFollowingApi.preview('CN')).resolves.toBeNull();
+});

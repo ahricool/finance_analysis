@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -179,7 +179,7 @@ def test_easyquotation_snapshot_maps_tencent_fields():
 
 
 
-def _quote_row(name, now, close, open_, high, low, volume, amount):
+def _quote_row(name, now, close, open_, high, low, volume, amount, quoted_at=None):
     return {
         "name": name,
         "now": now,
@@ -189,7 +189,7 @@ def _quote_row(name, now, close, open_, high, low, volume, amount):
         "low": low,
         "volume": volume,
         "成交额(万)": amount,
-        "datetime": datetime(2026, 9, 10, 14, 30, 0),
+        "datetime": quoted_at if quoted_at is not None else datetime(2026, 9, 10, 14, 30, 0),
     }
 
 
@@ -233,7 +233,7 @@ def test_cn_preview_fills_missing_etf_via_same_provider_real_batch():
         get_market_snapshot=lambda market, providers=None: provider.fetch_market_snapshot(market),
         registry=SimpleNamespace(get=lambda name: SimpleNamespace(provider=provider)),
     )
-    bars, label, quote_count = collect_preview_daily_bars(
+    bars, label, quote_count, data_as_of = collect_preview_daily_bars(
         market_data,
         "CN",
         ["000001.SZ", "600519.SH", "510300.SH"],
@@ -250,6 +250,7 @@ def test_cn_preview_fills_missing_etf_via_same_provider_real_batch():
     assert bars["510300.SH"].volume == 1_000_000
     assert "000001.SH" not in bars
     assert real_calls == [(["sh510300"], True)]
+    assert data_as_of == datetime(2026, 9, 10, 6, 30, tzinfo=timezone.utc)
 
 
 def test_cn_preview_does_not_call_real_when_snapshot_covers_universe():
@@ -272,7 +273,7 @@ def test_cn_preview_does_not_call_real_when_snapshot_covers_universe():
         get_market_snapshot=lambda market, providers=None: provider.fetch_market_snapshot(market),
         registry=SimpleNamespace(get=lambda name: SimpleNamespace(provider=provider)),
     )
-    bars, _, _ = collect_preview_daily_bars(
+    bars, _, _, data_as_of = collect_preview_daily_bars(
         market_data,
         "CN",
         ["000001.SZ", "510300.SH"],
@@ -280,6 +281,7 @@ def test_cn_preview_does_not_call_real_when_snapshot_covers_universe():
     )
     assert set(bars) == {"000001.SZ", "510300.SH"}
     assert real_calls == []
+    assert data_as_of == datetime(2026, 9, 10, 6, 30, tzinfo=timezone.utc)
 
 
 def test_easyquotation_empty_snapshot_fails_without_fallback():
@@ -328,6 +330,46 @@ def test_yfinance_preview_aggregates_5m_batch(monkeypatch):
     assert apple.volume == 60
     assert apple.amount is None
     assert apple.adjustment is Adjustment.RAW
+    assert apple.bar_time == datetime(2026, 9, 10, 13, 40, tzinfo=timezone.utc)
+
+
+def test_cn_preview_data_as_of_ignores_quotes_that_do_not_become_bars():
+    snapshot_payload = {
+        "sz000001": _quote_row(
+            "平安银行", 11.2, 11.0, 11.05, 11.3, 10.9, 22545000, 2.0e8,
+            quoted_at=datetime(2026, 9, 10, 11, 5, 0),
+        ),
+        "sh600519": _quote_row(
+            "贵州茅台", 1800.0, 1780.0, 1785.0, 1770.0, 1810.0, 12300, 2.2e9,
+            quoted_at=datetime(2026, 9, 10, 15, 0, 0),
+        ),
+        "sh510300": _quote_row(
+            "沪深300ETF", 4.12, 4.10, 4.11, 4.15, 4.08, 1_000_000, 4.1e8,
+            quoted_at=datetime(2026, 9, 10, 14, 34, 57),
+        ),
+    }
+
+    class Client:
+        def market_snapshot(self, prefix=True):
+            return snapshot_payload
+
+        def real(self, stock_codes, prefix=True):
+            return {}
+
+    provider = EasyQuotationProvider(client_factory=lambda: Client())
+    market_data = SimpleNamespace(
+        get_market_snapshot=lambda market, providers=None: provider.fetch_market_snapshot(market),
+        registry=SimpleNamespace(get=lambda name: SimpleNamespace(provider=provider)),
+    )
+    bars, _, _, data_as_of = collect_preview_daily_bars(
+        market_data,
+        "CN",
+        ["000001.SZ", "600519.SH", "510300.SH"],
+        date(2026, 9, 10),
+    )
+    assert "600519.SH" not in bars
+    assert set(bars) == {"000001.SZ", "510300.SH"}
+    assert data_as_of == datetime(2026, 9, 10, 6, 34, 57, tzinfo=timezone.utc)
 
 
 def test_preview_reuses_previous_official_snapshot_and_does_not_persist(monkeypatch):
@@ -362,7 +404,7 @@ def test_preview_reuses_previous_official_snapshot_and_does_not_persist(monkeypa
     }
     monkeypatch.setattr(
         "finance_analysis.trend_following.service.collect_preview_daily_bars",  # pragma: allowlist secret
-        lambda *args, **kwargs: (bars, "yfinance", 3),
+        lambda *args, **kwargs: (bars, "yfinance", 3, None),
     )
     monkeypatch.setattr("finance_analysis.trend_following.service.save_preview", lambda *args, **kwargs: None)  # pragma: allowlist secret
     spy_rows = repository.load_daily_history({"SPY.US"}, TRADE_DATE, calendar_lookback_days=500)
@@ -391,7 +433,7 @@ def test_official_run_after_preview_still_inherits_previous_official_state(monke
     }
     monkeypatch.setattr(
         "finance_analysis.trend_following.service.collect_preview_daily_bars",  # pragma: allowlist secret
-        lambda *args, **kwargs: (overlay, "yfinance", 3),
+        lambda *args, **kwargs: (overlay, "yfinance", 3, None),
     )
     monkeypatch.setattr("finance_analysis.trend_following.service.save_preview", lambda *args, **kwargs: None)  # pragma: allowlist secret
 
@@ -428,7 +470,7 @@ def test_cn_preview_completes_with_csi2000_db_fresh_history(monkeypatch):
     overlay["510300.SH"] = _overlay_bar(160.0)
     monkeypatch.setattr(
         "finance_analysis.trend_following.service.collect_preview_daily_bars",  # pragma: allowlist secret
-        lambda *args, **kwargs: (overlay, "easyquotation_tencent", 4),
+        lambda *args, **kwargs: (overlay, "easyquotation_tencent", 4, None),
     )
     saved = []
     monkeypatch.setattr(
@@ -523,6 +565,7 @@ def test_cn_snapshot_failure_raises_and_does_not_write_snapshots(monkeypatch):
         service.run_preview(TRADE_DATE)
     assert repository.replace_calls == []
     assert saved[0]["status"] == "failed"
+    assert saved[0]["data_as_of"] is None
 
 
 def test_preview_task_skips_non_trading_days(monkeypatch):

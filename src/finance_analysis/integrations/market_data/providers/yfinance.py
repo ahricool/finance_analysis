@@ -262,7 +262,7 @@ class YFinanceProvider:
                         market=infer_market(symbol),
                         interval="1d",
                         trade_date=trade_date,
-                        bar_time=None,
+                        bar_time=session[-1].bar_time,
                         open=session[0].open,
                         high=max(bar.high for bar in session),
                         low=min(bar.low for bar in session),

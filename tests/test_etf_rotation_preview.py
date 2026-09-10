@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -47,7 +47,7 @@ US_MEMBERS = (
 )
 
 
-def _quote_row(name, now, close, open_, high, low, volume, amount):
+def _quote_row(name, now, close, open_, high, low, volume, amount, quoted_at=None):
     return {
         "name": name,
         "now": now,
@@ -57,7 +57,7 @@ def _quote_row(name, now, close, open_, high, low, volume, amount):
         "low": low,
         "volume": volume,
         "成交额(万)": amount,
-        "datetime": datetime(2026, 9, 10, 11, 5, 0),
+        "datetime": quoted_at if quoted_at is not None else datetime(2026, 9, 10, 11, 5, 0),
     }
 
 
@@ -160,7 +160,7 @@ def test_cn_etf_preview_uses_tencent_real_not_market_snapshot():
         get_market_snapshot=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("snapshot")),
         registry=SimpleNamespace(get=lambda name: SimpleNamespace(provider=provider)),
     )
-    bars, label, quote_count = collect_symbol_preview_daily_bars(
+    bars, label, quote_count, data_as_of = collect_symbol_preview_daily_bars(
         market_data,
         "CN",
         ["588000.SH", "159915.SZ", "510300.SH"],
@@ -174,6 +174,7 @@ def test_cn_etf_preview_uses_tencent_real_not_market_snapshot():
     assert bars["588000.SH"].volume == 8000
     assert bars["588000.SH"].amount == 9.8e7
     assert bars["510300.SH"].close == 4.12
+    assert data_as_of == datetime(2026, 9, 10, 3, 5, tzinfo=timezone.utc)
     converted = DailyBar(
         trade_date=bars["510300.SH"].trade_date,
         close=bars["510300.SH"].close,
@@ -213,7 +214,7 @@ def test_cn_symbol_preview_missing_one_etf_does_not_fail_the_batch():
 
     provider = EasyQuotationProvider(client_factory=lambda: Client())
     market_data = SimpleNamespace(registry=SimpleNamespace(get=lambda name: SimpleNamespace(provider=provider)))
-    bars, _, quote_count = collect_symbol_preview_daily_bars(
+    bars, _, quote_count, data_as_of = collect_symbol_preview_daily_bars(
         market_data,
         "CN",
         ["588000.SH", "159915.SZ", "510300.SH"],
@@ -222,6 +223,7 @@ def test_cn_symbol_preview_missing_one_etf_does_not_fail_the_batch():
     assert quote_count == 2
     assert "159915.SZ" not in bars
     assert set(bars) == {"588000.SH", "510300.SH"}
+    assert data_as_of == datetime(2026, 9, 10, 3, 5, tzinfo=timezone.utc)
 
 
 def test_cn_symbol_preview_empty_real_raises():
@@ -255,13 +257,14 @@ def test_trend_following_cn_preview_still_uses_market_snapshot():
         get_market_snapshot=lambda market, providers=None: provider.fetch_market_snapshot(market),
         registry=SimpleNamespace(get=lambda name: SimpleNamespace(provider=provider)),
     )
-    bars, label, quote_count = collect_preview_daily_bars(
+    bars, label, quote_count, data_as_of = collect_preview_daily_bars(
         market_data, "CN", ["588000.SH", "510300.SH"], date(2026, 9, 10)
     )
     assert label == "easyquotation_tencent"
     assert quote_count == 2
     assert set(bars) == {"588000.SH", "510300.SH"}
     assert real_calls == []
+    assert data_as_of == datetime(2026, 9, 10, 3, 5, tzinfo=timezone.utc)
 
 
 def test_us_etf_preview_uses_yfinance_5m_batch_not_fast_info(monkeypatch):
@@ -303,7 +306,7 @@ def test_us_etf_preview_uses_yfinance_5m_batch_not_fast_info(monkeypatch):
     codes = [member.code for member in US_MEMBERS]
     provider = YFinanceProvider(batch_size=50, max_workers=1, max_retries=0)
     market_data = SimpleNamespace(registry=SimpleNamespace(get=lambda name: SimpleNamespace(provider=provider)))
-    bars, label, quote_count = collect_symbol_preview_daily_bars(market_data, "US", codes, date(2026, 9, 10))
+    bars, label, quote_count, data_as_of = collect_symbol_preview_daily_bars(market_data, "US", codes, date(2026, 9, 10))
     assert label == "yfinance"
     assert ticker_calls == []
     assert captured["interval"] == "5m"
@@ -313,6 +316,45 @@ def test_us_etf_preview_uses_yfinance_5m_batch_not_fast_info(monkeypatch):
     assert bars["SPY.US"].close == 104.0
     assert bars["SPY.US"].volume == 30
     assert bars["SPY.US"].amount is None
+    assert data_as_of == datetime(2026, 9, 10, 13, 35, tzinfo=timezone.utc)
+
+
+def test_cn_etf_data_as_of_uses_max_converted_quote_time():
+    class Client:
+        def real(self, stock_codes, prefix=True):
+            return {
+                "sh588000": _quote_row(
+                    "科创50ETF", 1.23, 1.20, 1.21, 1.25, 1.19, 8000, 9.8e7,
+                    quoted_at=datetime(2026, 9, 10, 11, 5, 12),
+                ),
+                "sz159915": _quote_row(
+                    "创业板ETF", 2.34, 2.30, 2.31, 2.36, 2.28, 9000, 1.1e8,
+                    quoted_at=datetime(2026, 9, 10, 14, 34, 57),
+                ),
+                "sh510300": {
+                    "name": "沪深300ETF",
+                    "now": 4.12,
+                    "close": 4.10,
+                    "open": 4.11,
+                    "high": 4.15,
+                    "low": 4.08,
+                    "volume": 1_000_000,
+                    "成交额(万)": 4.1e8,
+                },
+            }
+
+        def market_snapshot(self, prefix=True):
+            raise AssertionError("must not snapshot")
+
+    provider = EasyQuotationProvider(client_factory=lambda: Client())
+    market_data = SimpleNamespace(registry=SimpleNamespace(get=lambda name: SimpleNamespace(provider=provider)))
+    _, _, _, data_as_of = collect_symbol_preview_daily_bars(
+        market_data,
+        "CN",
+        ["588000.SH", "159915.SZ", "510300.SH"],
+        date(2026, 9, 10),
+    )
+    assert data_as_of == datetime(2026, 9, 10, 6, 34, 57, tzinfo=timezone.utc)
 
 
 def test_preview_replaces_stale_today_bar_with_realtime_close(monkeypatch):
@@ -324,7 +366,7 @@ def test_preview_replaces_stale_today_bar_with_realtime_close(monkeypatch):
     overlay = _overlay_bars({"588000.SH": 1.88, "159915.SZ": 2.66, "510300.SH": 4.55})
     monkeypatch.setattr(
         "finance_analysis.etf_rotation.service.collect_symbol_preview_daily_bars",  # pragma: allowlist secret
-        lambda *args, **kwargs: (overlay, "easyquotation_tencent", 3),
+        lambda *args, **kwargs: (overlay, "easyquotation_tencent", 3, datetime(2026, 9, 10, 6, 34, 57, tzinfo=timezone.utc)),
     )
     saved = []
     monkeypatch.setattr(
@@ -335,6 +377,7 @@ def test_preview_replaces_stale_today_bar_with_realtime_close(monkeypatch):
     result = service.run_preview(TRADE_DATE)
     by_code = {item["code"]: item for item in result["items"]}
     assert result["status"] == "completed"
+    assert result["data_as_of"] == "2026-09-10T06:34:57.000Z"
     assert by_code["588000.SH"]["reference_price"] == pytest.approx(1.88)
     assert by_code["159915.SZ"]["reference_price"] == pytest.approx(2.66)
     assert repository.market_write_calls == repository.snapshot_write_calls == 0
@@ -342,6 +385,7 @@ def test_preview_replaces_stale_today_bar_with_realtime_close(monkeypatch):
     assert repository.rank_calls[0][0] == TRADE_DATE
     assert saved[0]["items"]
     assert saved[0]["provider"] == "easyquotation_tencent"
+    assert saved[0]["data_as_of"] == "2026-09-10T06:34:57.000Z"
 
 
 def test_preview_does_not_persist_but_reads_official_previous_candidates(monkeypatch):
@@ -353,7 +397,7 @@ def test_preview_does_not_persist_but_reads_official_previous_candidates(monkeyp
     overlay = _overlay_bars({"588000.SH": 1.88, "159915.SZ": 2.66, "510300.SH": 4.55})
     monkeypatch.setattr(
         "finance_analysis.etf_rotation.service.collect_symbol_preview_daily_bars",  # pragma: allowlist secret
-        lambda *args, **kwargs: (overlay, "easyquotation_tencent", 3),
+        lambda *args, **kwargs: (overlay, "easyquotation_tencent", 3, None),
     )
     monkeypatch.setattr(
         "finance_analysis.etf_rotation.service.save_preview",  # pragma: allowlist secret
@@ -380,7 +424,7 @@ def test_official_run_after_preview_still_persists(monkeypatch):
     overlay = _overlay_bars({"588000.SH": 1.88, "159915.SZ": 2.66, "510300.SH": 4.55})
     monkeypatch.setattr(
         "finance_analysis.etf_rotation.service.collect_symbol_preview_daily_bars",  # pragma: allowlist secret
-        lambda *args, **kwargs: (overlay, "easyquotation_tencent", 3),
+        lambda *args, **kwargs: (overlay, "easyquotation_tencent", 3, None),
     )
     monkeypatch.setattr(
         "finance_analysis.etf_rotation.service.save_preview",  # pragma: allowlist secret
@@ -530,3 +574,4 @@ def test_quote_failure_does_not_write_official_snapshots(monkeypatch):
     assert repository.market_write_calls == repository.snapshot_write_calls == 0
     assert saved[0]["status"] == "failed"
     assert saved[0]["items"] == []
+    assert saved[0]["data_as_of"] is None

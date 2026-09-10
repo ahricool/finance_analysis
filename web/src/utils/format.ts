@@ -75,6 +75,58 @@ export const formatDateTimeInDisplayTimezone = (value?: string | null): string =
 
 export const formatDateTime = formatDateTimeInDisplayTimezone;
 
+function dateTimePartsInDisplayTimezone(date: Date) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: getDisplayTimezone(),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  return Object.fromEntries(
+    formatter.formatToParts(date).map((part) => [part.type, part.value]),
+  ) as Record<string, string>;
+}
+
+export const formatCompactDateTimeInDisplayTimezone = (value?: string | null, now = new Date()): string => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const parts = dateTimePartsInDisplayTimezone(date);
+  const today = dateTimePartsInDisplayTimezone(now);
+  const time = `${parts.hour}:${parts.minute}:${parts.second}`;
+  if (parts.year === today.year && parts.month === today.month && parts.day === today.day) {
+    return time;
+  }
+  return `${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+};
+
+export const formatFullDateTimeWithTimezone = (value?: string | null): string => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const parts = dateTimePartsInDisplayTimezone(date);
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} ${getDisplayTimezone()}`;
+};
+
+export const formatRelativeAge = (value?: string | null, now = new Date()): string => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const deltaMs = now.getTime() - date.getTime();
+  if (deltaMs < 0) return '刚刚';
+  const minutes = Math.floor(deltaMs / 60_000);
+  if (minutes < 1) return '不到 1 分钟';
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} 小时`;
+  const days = Math.floor(hours / 24);
+  return `${days} 天`;
+};
+
 export const formatDateOnly = (value?: string | null): string => {
   if (!value) return '—';
   const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})/);

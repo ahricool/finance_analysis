@@ -165,3 +165,28 @@ export interface ETFUniverseResponse {
   size: number;
   items: ETFUniverseMember[];
 }
+
+export type PreviewJobStatus = 'completed' | 'failed' | 'incomplete' | string;
+
+export interface ETFPreviewResponse {
+  status: PreviewJobStatus;
+  market: ETFMarket;
+  tradeDate: string;
+  previewTime: string | null;
+  dataAsOf: string | null;
+  provider: string | null;
+  quoteCount?: number;
+  universeSize: number;
+  dataReadyCount?: number;
+  dataCoverage: number;
+  rankableCount?: number;
+  rankableCoverage?: number;
+  snapshotCount?: number;
+  candidateCount?: number;
+  candidateCodes?: string[];
+  regime?: MarketRegime | null;
+  warnings: string[];
+  marketSnapshot: ETFMarketRotationSnapshot | null;
+  items: ETFMomentumSnapshot[];
+  elapsedSeconds?: number;
+}

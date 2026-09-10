@@ -167,8 +167,9 @@ class TrendFollowingService:
         requested = sorted(universe_codes | {benchmark_code})
         provider = CN_PREVIEW_PROVIDER if self.market == "CN" else US_PREVIEW_PROVIDER
         quote_count = 0
+        data_as_of = None
         try:
-            bars, provider, quote_count = collect_preview_daily_bars(
+            bars, provider, quote_count, data_as_of = collect_preview_daily_bars(
                 self.market_data,
                 self.market,
                 requested,
@@ -202,6 +203,7 @@ class TrendFollowingService:
                     "market": self.market,
                     "trade_date": effective_date.isoformat(),
                     "preview_time": utc_isoformat(observed_at),
+                    "data_as_of": utc_isoformat(data_as_of),
                     "provider": provider,
                     "quote_count": quote_count,
                     "universe_size": len(universe_codes),
@@ -219,6 +221,7 @@ class TrendFollowingService:
         payload = {
             **result,
             "preview_time": utc_isoformat(observed_at),
+            "data_as_of": utc_isoformat(data_as_of),
             "provider": provider,
             "quote_count": quote_count,
             "elapsed_seconds": elapsed,

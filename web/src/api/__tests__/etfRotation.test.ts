@@ -121,4 +121,32 @@ describe('etfRotation API key conversion', () => {
       params: { market: 'US', trade_date: '2026-08-20' },
     });
   });
+
+  it('loads preview payloads through toCamelCase and treats 404 as null', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: {
+        status: 'completed',
+        trade_date: '2026-09-10',
+        preview_time: '2026-09-10T06:35:06Z',
+        data_as_of: '2026-09-10T06:34:57Z',
+        provider: 'easyquotation_tencent',
+        market_snapshot: { regime: 'RISK_ON' },
+        items: [{ code: '588000.SH', is_candidate: true, composite_score: 81.3 }],
+      },
+    });
+    const preview = await etfRotationApi.preview('CN');
+    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/etf-rotation/preview', { params: { market: 'CN' } });
+    expect(preview).toMatchObject({
+      tradeDate: '2026-09-10',
+      previewTime: '2026-09-10T06:35:06Z',
+      dataAsOf: '2026-09-10T06:34:57Z',
+      provider: 'easyquotation_tencent',
+      marketSnapshot: { regime: 'RISK_ON' },
+      items: [{ isCandidate: true, compositeScore: 81.3 }],
+    });
+
+    vi.mocked(apiClient.get).mockRejectedValue({ parsedError: { status: 404, title: 'x', message: 'missing', rawMessage: 'missing', category: 'http_error' } });
+    await expect(etfRotationApi.preview('US')).resolves.toBeNull();
+    expect(apiClient.get).toHaveBeenCalledWith('/api/v1/etf-rotation/preview', { params: { market: 'US' } });
+  });
 });

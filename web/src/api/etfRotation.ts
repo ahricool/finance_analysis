@@ -1,10 +1,12 @@
 import apiClient from './index';
+import { getParsedApiError } from './error';
 import { toCamelCase } from './utils';
 import type {
   ETFCandidatesResponse,
   ETFDatesResponse,
   ETFDetailResponse,
   ETFMarket,
+  ETFPreviewResponse,
   ETFRankingResponse,
   ETFRotationRunAccepted,
   ETFUniverseResponse,
@@ -43,5 +45,14 @@ export const etfRotationApi = {
       trade_date: tradeDate || null,
     });
     return toCamelCase(data);
+  },
+  async preview(market: ETFMarket = 'CN'): Promise<ETFPreviewResponse | null> {
+    try {
+      const { data } = await apiClient.get('/api/v1/etf-rotation/preview', { params: { market } });
+      return toCamelCase(data);
+    } catch (error) {
+      if (getParsedApiError(error).status === 404) return null;
+      throw error;
+    }
   },
 };
