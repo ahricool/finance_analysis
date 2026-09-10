@@ -12,7 +12,8 @@ from fastapi.encoders import jsonable_encoder
 from finance_analysis.database.models.user import User
 from finance_analysis.database.repositories.etf_rotation import ETFRotationRepository
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG
-from finance_analysis.etf_rotation.universe import enabled_etfs, get_etf_universe, universe_by_code
+from finance_analysis.etf_rotation.preview_cache import load_preview  # pragma: allowlist secret
+from finance_analysis.etf_rotation.universe import enabled_etfs, get_etf_universe, universe_by_code  # pragma: allowlist secret
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
 from finance_analysis.interfaces.api.v1.schemas.etf_rotation import ETFRotationRunRequest
 from finance_analysis.tasks.celery.schedule import (
@@ -206,6 +207,14 @@ async def universe(_: User = Depends(require_current_user), market: Market = "CN
 async def dates(_: User = Depends(require_current_user), market: Market = "CN"):
     items = ETFRotationRepository(market).available_trade_dates()
     return jsonable_encoder({"market": market, "latest": items[0] if items else None, "items": items})
+
+
+@router.get("/preview")
+async def preview(_: User = Depends(require_current_user), market: Market = "CN"):
+    payload = load_preview(market)
+    if payload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "ETF Rotation preview is not available")
+    return jsonable_encoder(payload)
 
 
 @router.post("/run", status_code=status.HTTP_202_ACCEPTED)
