@@ -19,6 +19,7 @@ SORT_FIELDS = {
     "rs_score": TrendFollowingSnapshot.rs_score,
     "breakout_score": TrendFollowingSnapshot.breakout_score,
     "rank": TrendFollowingSnapshot.rank,
+    "trend_duration_days": TrendFollowingSnapshot.trend_duration_days,
 }
 MEANINGFUL_STATES = {"CANDIDATE", "ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE", "EXIT"}
 ACTIVE_POSITION_STATES = {"ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE"}

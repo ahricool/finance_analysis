@@ -93,6 +93,7 @@ export interface ETFMomentumSnapshot extends ETFUniverseMember {
   overheated: boolean;
   candidateRank: number | null;
   isCandidate: boolean;
+  trendDurationDays: number | null;
   scoreComponents: Record<string, number>;
   diagnostics: Record<string, unknown>;
   generatedAt: string;

@@ -54,6 +54,7 @@ class TrendFollowingSnapshot(Base):
     suggested_initial_weight = Column(Float)
     suggested_max_weight = Column(Float)
     reasons = Column(JSON_TYPE, nullable=False, default=list)
+    trend_duration_days = Column(Integer)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
     instrument = relationship("Instrument", lazy="joined")
@@ -68,6 +69,10 @@ class TrendFollowingSnapshot(Base):
         CheckConstraint("breakout_score BETWEEN 0 AND 100", name="ck_trend_following_breakout_score"),
         CheckConstraint("alpha_score BETWEEN 0 AND 100", name="ck_trend_following_alpha_score"),
         CheckConstraint("units BETWEEN 0 AND 4", name="ck_trend_following_units"),
+        CheckConstraint(
+            "trend_duration_days IS NULL OR trend_duration_days >= 0",
+            name="ck_trend_following_trend_duration_days_non_negative",
+        ),
         Index("ix_trend_following_market_date_alpha", "market", "trade_date", "alpha_score"),
         Index("ix_trend_following_instrument_date", "instrument_id", "trade_date"),
         Index("ix_trend_following_market_date_state", "market", "trade_date", "state"),

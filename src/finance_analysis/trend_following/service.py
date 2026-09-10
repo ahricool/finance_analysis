@@ -24,6 +24,7 @@ from ..market_review.trading_calendar import (
     get_trading_days_between,
 )
 from .config import DEFAULT_CONFIG, TrendFollowingConfig
+from .duration import DURATION_CALENDAR_LOOKBACK_DAYS, count_trend_duration_days
 from .features import calculate_features
 from .models import DailyBar, StrategyDecision
 from .preview_cache import save_preview
@@ -252,13 +253,23 @@ class TrendFollowingService:
             return set()
         return {item.code for item in UniverseResolver().resolve_universe("cn_csi2000")} & universe_codes
 
-    def _forward_adjusted_histories(self, codes: set[str], effective_date: date) -> dict[str, list[DailyBar]]:
+    def _duration_calendar_lookback_days(self) -> int:
+        return max(self.config.calendar_lookback_days, DURATION_CALENDAR_LOOKBACK_DAYS)
+
+    def _forward_adjusted_histories(
+        self,
+        codes: set[str],
+        effective_date: date,
+        *,
+        calendar_lookback_days: int | None = None,
+    ) -> dict[str, list[DailyBar]]:
         """Read-only CSI2000 / benchmark tails. Official and preview share this db_fresh path."""
         if not codes:
             return {}
+        lookback = self.config.calendar_lookback_days if calendar_lookback_days is None else calendar_lookback_days
         result = self.market_data.get_daily_bars(
             sorted(codes),
-            effective_date - timedelta(days=self.config.calendar_lookback_days),
+            effective_date - timedelta(days=lookback),
             effective_date,
             adjustment="forward",
             source_policy="db_fresh",
@@ -278,10 +289,12 @@ class TrendFollowingService:
         effective_date: date,
         *,
         drop_today: bool,
+        calendar_lookback_days: int | None = None,
     ) -> dict[str, list[DailyBar]]:
         histories: dict[str, list[DailyBar]] = defaultdict(list)
+        lookback = self.config.calendar_lookback_days if calendar_lookback_days is None else calendar_lookback_days
         rows = self.repository.load_daily_history(
-            codes, effective_date, calendar_lookback_days=self.config.calendar_lookback_days
+            codes, effective_date, calendar_lookback_days=lookback
         )
         for item in rows:
             if item["trade_date"] > effective_date:
@@ -326,8 +339,13 @@ class TrendFollowingService:
         universe_key = self.config.universe_keys[self.market]
         csi2000_codes = self._csi2000_universe_codes(universe_codes)
         db_codes = universe_codes - csi2000_codes
-        supplemental = self._forward_adjusted_histories(csi2000_codes, effective_date)
-        benchmark_history = self._forward_adjusted_histories({benchmark_code}, effective_date).get(benchmark_code, [])
+        duration_lookback = self._duration_calendar_lookback_days()
+        supplemental = self._forward_adjusted_histories(
+            csi2000_codes, effective_date, calendar_lookback_days=duration_lookback
+        )
+        benchmark_history = self._forward_adjusted_histories(
+            {benchmark_code}, effective_date, calendar_lookback_days=duration_lookback
+        ).get(benchmark_code, [])
         drop_today = overlay_bars is not None
         if overlay_bars is None:
             ready_codes = self.repository.daily_codes_on_date(db_codes, effective_date)
@@ -379,7 +397,12 @@ class TrendFollowingService:
                 "warnings": warnings,
             }
 
-        histories = self._load_db_histories(db_codes, effective_date, drop_today=drop_today)
+        histories = self._load_db_histories(
+            db_codes,
+            effective_date,
+            drop_today=drop_today,
+            calendar_lookback_days=duration_lookback,
+        )
         for code, bars in supplemental.items():
             histories[code] = _bars_before(bars, effective_date) if drop_today else bars
         if overlay_bars is None:
@@ -639,6 +662,13 @@ class TrendFollowingService:
                     market_score=regime["market_score"],
                 )
                 snapshots.append(expired)
+
+        for snapshot in snapshots:
+            snapshot["trend_duration_days"] = count_trend_duration_days(
+                histories.get(str(snapshot["code"]), []),
+                as_of=effective_date,
+                minimum_bars=self.config.minimum_history_bars,
+            )
 
         counts = {
             action: sum(item["action"] == action for item in snapshots)

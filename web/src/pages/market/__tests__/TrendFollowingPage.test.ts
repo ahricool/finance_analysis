@@ -29,6 +29,7 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
     lastAddPrice: 110, highestClose: 110, entryPrice: 110, initialStop: 106, trailingStop: 105,
     nextAddPrice: 111, exitLevel: 106, units: 1, suggestedInitialWeight: 0.1,
     suggestedMaxWeight: 0.1, reasons: ['candidate thresholds passed'],
+    trendDurationDays: 12,
     scoreBreakdown: { trend: { weightedR2: 90 } }, generatedAt: '2026-08-28T12:00:00Z',
     features: {
       ma10: 108, ma20: 105, ma10Slope: 0.012, ma20Slope: 0.01, trendCandidate: true,
@@ -180,7 +181,8 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.text()).toContain('平安银行');
     expect(wrapper.text()).toContain('建议入场');
     expect(wrapper.find('table').classes()).toContain('w-full');
-    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(11);
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(12);
+    expect(wrapper.text()).toContain('持续天数');
     expect(wrapper.find('[aria-label="查看 Market Score 指标说明与计算公式"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="查看 Alpha Score 指标说明与计算公式"]').exists()).toBe(true);
   });
@@ -307,6 +309,7 @@ describe('TrendFollowingPage', () => {
     expect(dialog.classList.contains('top-1/2')).toBe(true);
     expect(dialog.querySelector('[data-testid="trend-rank-history"]')).not.toBeNull();
     expect(dialog.querySelector('[data-testid="rank-chart"]')).not.toBeNull();
+    expect(dialog.textContent).not.toContain('持续天数');
     expect(document.body.textContent).toContain('Alpha Score Breakdown');
     expect(document.body.textContent).toContain('理论风险权重');
     expect(document.body.textContent).toContain('Signal Date / Price');
@@ -433,5 +436,28 @@ describe('TrendFollowingPage', () => {
     expect(dialog.textContent).not.toContain('"alpha": 60');
     expect(dialog.querySelector('[data-testid="trend-rank-history"]')).toBeNull();
     expect(dialog.querySelector('[data-testid="trend-history"]')).toBeNull();
+  });
+
+  it('shows a sortable trend duration column in the ranking table', async () => {
+    apiMocks.ranking.mockResolvedValueOnce({
+      ...ranking('CN'),
+      items: [
+        { ...rankingSnapshot(), code: 'A.US', name: 'Alpha', rank: 1, trendDurationDays: 2 },
+        { ...rankingSnapshot(), code: 'B.US', name: 'Beta', rank: 2, trendDurationDays: 12 },
+        { ...rankingSnapshot(), code: 'C.US', name: 'Gamma', rank: 3, trendDurationDays: 0 },
+        { ...rankingSnapshot(), code: 'D.US', name: 'Delta', rank: 4, trendDurationDays: null },
+      ],
+    });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[1]!.find('span').text());
+    const header = wrapper.findAll('th button').find(button => button.text().includes('持续天数'));
+    expect(header).toBeTruthy();
+    expect(wrapper.text()).toContain('持续天数');
+    expect(order()).toEqual(['A.US', 'B.US', 'C.US', 'D.US']);
+    await header!.trigger('click');
+    expect(order()).toEqual(['B.US', 'A.US', 'C.US', 'D.US']);
+    await header!.trigger('click');
+    expect(order()).toEqual(['C.US', 'A.US', 'B.US', 'D.US']);
   });
 });

@@ -7,8 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
 from finance_analysis.core.paths import PROJECT_ROOT
+from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
+from finance_analysis.trend_following.duration import DURATION_CALENDAR_LOOKBACK_DAYS  # pragma: allowlist secret
 from finance_analysis.trend_following.models import UniverseMember
 from finance_analysis.trend_following.service import TrendFollowingService as RealTrendFollowingService
 
@@ -129,6 +130,7 @@ def test_service_reads_repository_only_and_persists_point_in_time(monkeypatch):
     for item in repository.snapshots:
         json.dumps(item["features"])
         json.dumps(item["score_breakdown"])
+        assert item["trend_duration_days"] > 40
     forbidden = {"uid", "user_id", "account_id", "position_id", "user_cost", "user_weight", "user_pnl"}
     assert all(not forbidden.intersection(item) for item in repository.snapshots)
 
@@ -480,7 +482,9 @@ def test_cn_trend_batches_csi2000_history_before_readiness_without_daily_writes(
     assert calls[0][0] == ["600002.SH", "600003.SH"]
     assert calls[1][0] == ["510300.SH"]
     assert all(call[3] == {"adjustment": "forward", "source_policy": "db_fresh"} for call in calls)
-    assert calls[0][1] == TRADE_DATE - timedelta(days=DEFAULT_CONFIG.calendar_lookback_days)
+    assert calls[0][1] == TRADE_DATE - timedelta(
+        days=max(DEFAULT_CONFIG.calendar_lookback_days, DURATION_CALENDAR_LOOKBACK_DAYS)
+    )
 
 
 def test_us_475_of_503_remains_incomplete_without_writing_snapshots(monkeypatch):

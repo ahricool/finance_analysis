@@ -26,7 +26,15 @@ from finance_analysis.tasks.celery.schedule import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 SortField = Literal[
-    "composite_score", "entry_score", "momentum_score", "ret_1d", "ret_3d", "ret_5d", "ret_10d", "ret_20d",
+    "composite_score",
+    "entry_score",
+    "momentum_score",
+    "trend_duration_days",
+    "ret_1d",
+    "ret_3d",
+    "ret_5d",
+    "ret_10d",
+    "ret_20d",
 ]
 Market = Literal["CN", "US"]
 

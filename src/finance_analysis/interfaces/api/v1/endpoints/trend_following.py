@@ -31,7 +31,9 @@ from finance_analysis.trend_following.universe import universe_by_code  # pragma
 router = APIRouter()
 logger = logging.getLogger(__name__)
 Market = Literal["CN", "US"]
-SortField = Literal["alpha_score", "trend_score", "rs_score", "breakout_score", "rank"]
+SortField = Literal[
+    "alpha_score", "trend_score", "rs_score", "breakout_score", "rank", "trend_duration_days"
+]
 
 
 def _changes(

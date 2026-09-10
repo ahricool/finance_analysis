@@ -8,6 +8,7 @@ import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
 import ResearchDataModeToggle from '@/components/research/ResearchDataModeToggle.vue';
 import ResearchDataStatusBar from '@/components/research/ResearchDataStatusBar.vue';
+import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import ETFRotationHistoryCharts from '@/components/etf-rotation/ETFRotationHistoryCharts.vue';
 import { indicatorDescriptions as descriptions } from '@/components/etf-rotation/indicatorDescriptions';
 import { Badge } from '@/components/ui/badge';
@@ -59,7 +60,8 @@ const detailLoading = ref(false);
 const detailError = ref<ParsedApiError | null>(null);
 const route = useRoute();
 const market = ref<ETFMarket>(route?.query.market === 'US' ? 'US' : 'CN');
-const sortKey = ref<'compositeScore' | 'momentumStrengthScore' | 'trendQualityScore' | 'relativeStrengthScore' | 'entryScore'>('compositeScore');
+const sortKey = ref<'compositeScore' | 'momentumStrengthScore' | 'trendQualityScore' | 'relativeStrengthScore' | 'entryScore' | 'trendDurationDays'>('compositeScore');
+const sortDirection = ref<'asc' | 'desc'>('desc');
 const dataMode = ref<ResearchDataMode>('official');
 const modeChosenByUser = ref(false);
 const preview = ref<ETFPreviewResponse | null>(null);
@@ -70,10 +72,24 @@ const previewAvailable = computed(() => preview.value != null);
 const showingPreview = computed(() => dataMode.value === 'preview' && isPreviewCompleted(preview.value?.status));
 const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
 const sortedItems = computed(() => [...items.value].sort((a, b) => {
-  const left = a[sortKey.value] ?? -Infinity;
-  const right = b[sortKey.value] ?? -Infinity;
-  return right - left || a.code.localeCompare(b.code);
+  const left = a[sortKey.value];
+  const right = b[sortKey.value];
+  if (left == null) return right == null ? 0 : 1;
+  if (right == null) return -1;
+  const comparison = Number(left) - Number(right);
+  return (sortDirection.value === 'asc' ? comparison : -comparison) || a.code.localeCompare(b.code);
 }));
+function toggleDurationSort() {
+  if (sortKey.value === 'trendDurationDays') {
+    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  sortKey.value = 'trendDurationDays';
+  sortDirection.value = 'desc';
+}
+watch(sortKey, (key) => {
+  if (key !== 'trendDurationDays') sortDirection.value = 'desc';
+});
 const changeGroups = computed(() => [
   { label: 'NEW BUY', items: changes.value?.newBuys ?? [], variant: 'success' as const, transition: 'action' as const },
   { label: 'NEW EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const, transition: 'action' as const },
@@ -98,6 +114,7 @@ function price(value: number | null) { return formatMarketCurrencyAmount(value, 
 function rankChange(value: number | null) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value}`; }
 function scoreChange(value: number | null) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(1)}`; }
 function boolText(value: boolean | null) { return value == null ? '—' : value ? '通过' : '未通过'; }
+function durationText(value: number | null | undefined) { return value == null ? '—' : String(value); }
 function stateIcon(state: ETFState) { return ({ EMERGING: '🚀', STRONG: '🟢', TRENDING: '🔵', COOLING: '🟡', EXHAUSTED: '🔴', WEAK: '⚫', NEUTRAL: '⚪' })[state]; }
 function stateVariant(state: ETFState): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
   if (state === 'STRONG' || state === 'EMERGING') return 'destructive';
@@ -625,6 +642,9 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           </NativeSelectOption><NativeSelectOption value="entryScore">
             Entry
           </NativeSelectOption>
+          <NativeSelectOption value="trendDurationDays">
+            持续天数
+          </NativeSelectOption>
         </NativeSelect>
       </CardHeader>
       <CardContent class="px-0">
@@ -634,6 +654,19 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               <TableRow>
                 <TableHead>Rank</TableHead>
                 <TableHead>ETF</TableHead>
+                <TableHead>
+                  <IndicatorLabel
+                    label="State"
+                    :description="descriptions.state"
+                  />
+                </TableHead>
+                <SortableTableHeader
+                  label="持续天数"
+                  :description="descriptions.trendDuration"
+                  :active="sortKey === 'trendDurationDays'"
+                  :direction="sortDirection"
+                  @sort="toggleDurationSort"
+                />
                 <TableHead>
                   <IndicatorLabel
                     label="Composite"
@@ -656,12 +689,6 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                   <IndicatorLabel
                     label="Relative Strength"
                     :description="descriptions.relativeStrength"
-                  />
-                </TableHead>
-                <TableHead>
-                  <IndicatorLabel
-                    label="State"
-                    :description="descriptions.state"
                   />
                 </TableHead>
                 <TableHead>
@@ -691,23 +718,25 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                 v-for="item in sortedItems"
                 :key="item.code"
                 class="cursor-pointer"
+                data-testid="etf-ranking-row"
                 @click="openDetail(item)"
               >
                 <TableCell>#{{ item.rank ?? '—' }}</TableCell>
                 <TableCell class="max-w-44">
                   <strong class="block break-words">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
                 </TableCell>
+                <TableCell>
+                  <Badge :variant="stateVariant(item.state)">
+                    {{ stateIcon(item.state) }} {{ item.state }}
+                  </Badge>
+                </TableCell>
+                <TableCell>{{ durationText(item.trendDurationDays) }}</TableCell>
                 <TableCell class="font-bold text-primary">
                   {{ score(item.compositeScore) }}
                 </TableCell>
                 <TableCell>{{ score(item.momentumStrengthScore) }}</TableCell>
                 <TableCell>{{ score(item.trendQualityScore) }}</TableCell>
                 <TableCell>{{ score(item.relativeStrengthScore) }}</TableCell>
-                <TableCell>
-                  <Badge :variant="stateVariant(item.state)">
-                    {{ stateIcon(item.state) }} {{ item.state }}
-                  </Badge>
-                </TableCell>
                 <TableCell>
                   <Badge :variant="actionVariant(item.action)">
                     {{ item.action ?? '—' }}

@@ -13,6 +13,7 @@ from finance_analysis.etf_rotation.backtest.types import OhlcvBar
 from finance_analysis.etf_rotation.classifier import classify_state
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG, ETFRotationConfig
 from finance_analysis.etf_rotation.correlation import rolling_correlations  # pragma: allowlist secret
+from finance_analysis.etf_rotation.duration import count_trend_duration_days  # pragma: allowlist secret
 from finance_analysis.etf_rotation.eligibility import is_absolute_trend_eligible, is_liquidity_eligible
 from finance_analysis.etf_rotation.features import calculate_features
 from finance_analysis.etf_rotation.models import DailyBar
@@ -125,6 +126,11 @@ def compute_entry_rankings(
             row.update(calculate_factor_scores(row, config))
             row["momentum_score"] = row["momentum_strength_score"]
             row["absolute_trend_eligible"] = is_absolute_trend_eligible(row, config)
+            row["trend_duration_days"] = count_trend_duration_days(
+                point_in_time_histories[str(row["code"])],
+                as_of=trade_date,
+                config=config,
+            )
             row["liquidity_eligible"] = is_liquidity_eligible(row, market, config)
             evaluated.append(row)
         evaluated = rank_features(evaluated, {"composite_score": True})

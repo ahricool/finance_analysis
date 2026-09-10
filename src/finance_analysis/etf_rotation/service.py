@@ -20,6 +20,10 @@ from finance_analysis.integrations.market_data.service import MarketDataService 
 from finance_analysis.etf_rotation.classifier import classify_state, is_overheated  # pragma: allowlist secret
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG, ETFRotationConfig  # pragma: allowlist secret
 from finance_analysis.etf_rotation.correlation import rolling_correlations  # pragma: allowlist secret
+from finance_analysis.etf_rotation.duration import (  # pragma: allowlist secret
+    DURATION_CALENDAR_LOOKBACK_DAYS,
+    count_trend_duration_days,
+)
 from finance_analysis.etf_rotation.eligibility import (  # pragma: allowlist secret
     is_absolute_trend_eligible,
     is_liquidity_eligible,
@@ -229,7 +233,7 @@ class ETFRotationService:
     ) -> dict[str, list[DailyBar]]:
         fetched = self.market_data.get_daily_bars(
             sorted(codes),
-            effective_date - timedelta(days=500),
+            effective_date - timedelta(days=max(500, DURATION_CALENDAR_LOOKBACK_DAYS)),
             effective_date,
             adjustment="forward",
             source_policy="db_fresh",
@@ -353,6 +357,11 @@ class ETFRotationService:
             row.update(calculate_factor_scores(row, self.config))
             row["momentum_score"] = row["momentum_strength_score"]
             row["absolute_trend_eligible"] = is_absolute_trend_eligible(row, self.config)
+            row["trend_duration_days"] = count_trend_duration_days(
+                histories[str(row["code"])],
+                as_of=effective_date,
+                config=self.config,
+            )
             row["liquidity_eligible"] = is_liquidity_eligible(row, self.market, self.config)
             evaluated.append(row)
 
