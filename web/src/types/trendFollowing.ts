@@ -174,3 +174,17 @@ export interface TrendDetailResponse {
   marketContext: TrendSummary | null;
 }
 export interface TrendRunAccepted { taskId: string; status: 'pending'; market: TrendMarket; tradeDate: string | null }
+
+export type TrendPreviewStatus = 'completed' | 'failed' | 'incomplete' | string;
+
+export interface TrendPreviewResponse extends Omit<TrendSummary, 'generatedAt'> {
+  status: TrendPreviewStatus;
+  previewTime: string | null;
+  dataAsOf: string | null;
+  provider: string | null;
+  quoteCount?: number;
+  snapshotCount?: number;
+  snapshots: TrendSnapshot[];
+  generatedAt?: string | null;
+  elapsedSeconds?: number;
+}

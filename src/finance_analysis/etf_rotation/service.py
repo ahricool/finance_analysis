@@ -138,7 +138,6 @@ class ETFRotationService:
         Each call reloads previous official candidates and historical ranks.
         """
         started = monotonic()
-        observed_at = preview_time or utc_now()
         effective_date = self.resolve_preview_trade_date(trade_date)
         members = enabled_etfs(self.market)
         universe_codes = {member.code for member in members}
@@ -146,8 +145,9 @@ class ETFRotationService:
         requested = sorted(universe_codes | {benchmark_code})
         provider = CN_PREVIEW_PROVIDER if self.market == "CN" else US_PREVIEW_PROVIDER
         quote_count = 0
+        data_as_of = None
         try:
-            bars, provider, quote_count = collect_symbol_preview_daily_bars(
+            bars, provider, quote_count, data_as_of = collect_symbol_preview_daily_bars(
                 self.market_data,
                 self.market,
                 requested,
@@ -157,6 +157,7 @@ class ETFRotationService:
             result = self._run_single_date(effective_date, persist=False, overlay_bars=overlay)
         except PreviewQuoteError as exc:
             elapsed = round(monotonic() - started, 3)
+            generated_at = preview_time or utc_now()
             logger.exception(
                 "market=%s job=etf_rotation_preview provider=%s quote_failed elapsed_seconds=%s",
                 self.market,
@@ -169,7 +170,8 @@ class ETFRotationService:
                     "status": "failed",
                     "market": self.market,
                     "trade_date": effective_date.isoformat(),
-                    "preview_time": utc_isoformat(observed_at),
+                    "preview_time": utc_isoformat(generated_at),
+                    "data_as_of": utc_isoformat(data_as_of),
                     "provider": provider,
                     "quote_count": quote_count,
                     "universe_size": len(universe_codes),
@@ -189,9 +191,11 @@ class ETFRotationService:
             )
             raise
         elapsed = round(monotonic() - started, 3)
+        generated_at = preview_time or utc_now()
         payload = {
             **result,
-            "preview_time": utc_isoformat(observed_at),
+            "preview_time": utc_isoformat(generated_at),
+            "data_as_of": utc_isoformat(data_as_of),
             "provider": provider,
             "quote_count": quote_count,
             "elapsed_seconds": elapsed,

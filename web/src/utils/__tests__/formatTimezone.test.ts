@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import {
+  formatCompactDateTimeInDisplayTimezone,
   formatDateOnly,
   formatDateTimeInDisplayTimezone,
+  formatFullDateTimeWithTimezone,
+  formatRelativeAge,
   localDateTimeToUtcIso,
   toUtcIsoString,
 } from '../format';
@@ -48,5 +51,15 @@ describe('timezone display formatting', () => {
     expect(localDateTimeToUtcIso('2026-06-10T09:30', 'Asia/Shanghai')).toBe('2026-06-10T01:30:00.000Z');
     expect(localDateTimeToUtcIso('2026-06-10T09:30', 'America/New_York')).toBe('2026-06-10T13:30:00.000Z');
     expect(localDateTimeToUtcIso('2026-01-10T09:30', 'America/New_York')).toBe('2026-01-10T14:30:00.000Z');
+  });
+
+  it('formats compact times for today and older days in the display timezone', () => {
+    const store = useTimezoneStore();
+    store.setDisplayTimezone('Asia/Shanghai');
+    const now = new Date('2026-09-10T06:40:00.000Z');
+    expect(formatCompactDateTimeInDisplayTimezone('2026-09-10T06:35:06.000Z', now)).toBe('14:35:06');
+    expect(formatCompactDateTimeInDisplayTimezone('2026-09-09T10:31:00.000Z', now)).toBe('09-09 18:31');
+    expect(formatFullDateTimeWithTimezone('2026-09-10T06:35:06.000Z')).toBe('2026-09-10 14:35:06 Asia/Shanghai');
+    expect(formatRelativeAge('2026-09-10T06:23:00.000Z', now)).toBe('17 分钟');
   });
 });

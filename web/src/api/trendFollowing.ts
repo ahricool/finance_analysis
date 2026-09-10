@@ -1,4 +1,5 @@
 import apiClient from './index';
+import { getParsedApiError } from './error';
 import { toCamelCase } from './utils';
 import type {
   TrendCandidatesResponse,
@@ -6,6 +7,7 @@ import type {
   TrendDetailResponse,
   TrendMarket,
   TrendPortfolioResponse,
+  TrendPreviewResponse,
   TrendRankingResponse,
   TrendRunAccepted,
 } from '@/types/trendFollowing';
@@ -45,5 +47,14 @@ export const trendFollowingApi = {
       trade_date: tradeDate ?? null,
     });
     return toCamelCase(data);
+  },
+  async preview(market: TrendMarket): Promise<TrendPreviewResponse | null> {
+    try {
+      const { data } = await apiClient.get('/api/v1/trend-following/preview', { params: { market } });
+      return toCamelCase(data);
+    } catch (error) {
+      if (getParsedApiError(error).status === 404) return null;
+      throw error;
+    }
   },
 };

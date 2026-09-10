@@ -5,7 +5,7 @@ import { trendIndicatorDescriptions } from '@/components/trend-following/indicat
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
 const apiMocks = vi.hoisted(() => ({
-  ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn(),
+  ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn(), preview: vi.fn(),
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
@@ -86,6 +86,7 @@ describe('TrendFollowingPage', () => {
       history: [snapshot(market)], marketContext: ranking(market),
     }));
     apiMocks.run.mockResolvedValue({ taskId: 'task-1', status: 'pending', market: 'CN', tradeDate: null });
+    apiMocks.preview.mockResolvedValue(null);
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
@@ -350,5 +351,87 @@ describe('TrendFollowingPage', () => {
     await flushPromises();
     expect(empty.text()).toContain('暂无趋势快照');
     expect(empty.text()).toContain('暂无策略候选');
+  });
+
+  it('uses preview snapshots for ranking and candidates and hides portfolio', async () => {
+    const previewSnap = {
+      ...snapshot('CN'),
+      tradeDate: '2026-09-10',
+      name: '贵州茅台',
+      code: '600519.SH',
+      state: 'CANDIDATE' as const,
+      action: 'WATCH' as const,
+    };
+    apiMocks.preview.mockResolvedValue({
+      ...ranking('CN'),
+      status: 'completed',
+      tradeDate: '2026-09-10',
+      previewTime: '2026-09-10T06:00:00Z',
+      dataAsOf: '2026-09-10T05:59:00Z',
+      provider: 'easyquotation_tencent',
+      snapshots: [previewSnap],
+    });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+
+    expect(apiMocks.preview).toHaveBeenCalledWith('CN');
+    expect(apiMocks.candidates).not.toHaveBeenCalled();
+    expect(apiMocks.portfolio).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="trend-portfolio"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('贵州茅台');
+    expect(wrapper.get('[data-testid="trend-candidate"]').text()).toContain('贵州茅台');
+    expect(wrapper.get('[data-testid="research-provider"]').text()).toBe('Tencent');
+    expect(wrapper.find('[data-testid="trend-run-latest"]').exists()).toBe(false);
+    await wrapper.get('[data-testid="research-mode-official"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.candidates).toHaveBeenCalledWith('CN', '2026-08-28');
+    expect(apiMocks.portfolio).toHaveBeenCalledWith('CN', '2026-08-28');
+    expect(wrapper.find('[data-testid="trend-portfolio"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="trend-run-latest"]').exists()).toBe(true);
+  });
+
+  it('opens preview detail from the preview snapshot and does not call official detail', async () => {
+    const previewSnap = {
+      ...snapshot('CN'),
+      tradeDate: '2026-09-10',
+      name: '贵州茅台',
+      code: '600519.SH',
+      alphaScore: 91,
+      scoreBreakdown: { alpha: 91 },
+      state: 'CANDIDATE' as const,
+      action: 'WATCH' as const,
+    };
+    apiMocks.preview.mockResolvedValue({
+      ...ranking('CN'),
+      status: 'completed',
+      tradeDate: '2026-09-10',
+      previewTime: '2026-09-10T06:00:00Z',
+      dataAsOf: '2026-09-10T05:59:00Z',
+      provider: 'easyquotation_tencent',
+      snapshots: [previewSnap],
+    });
+    apiMocks.detail.mockResolvedValue({
+      market: 'CN',
+      metadata: { market: 'CN', code: '600519.SH', name: '贵州茅台' },
+      latest: {
+        ...snapshot('CN'), code: '600519.SH', name: '贵州茅台',
+        alphaScore: 60, scoreBreakdown: { alpha: 60 }, state: 'WATCHING', action: 'WATCH',
+      },
+      history: [snapshot('CN')],
+      marketContext: ranking('CN'),
+    });
+    mount(TrendFollowingPage, { attachTo: document.body });
+    await flushPromises();
+    (document.body.querySelector('[data-testid="trend-candidate"]') as HTMLElement).click();
+    await flushPromises();
+
+    expect(apiMocks.detail).not.toHaveBeenCalled();
+    const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
+    expect(dialog.textContent).toContain('"alpha": 91');
+    expect(dialog.textContent).toContain('候选');
+    expect(dialog.textContent).toContain('观察');
+    expect(dialog.textContent).not.toContain('"alpha": 60');
+    expect(dialog.querySelector('[data-testid="trend-rank-history"]')).toBeNull();
+    expect(dialog.querySelector('[data-testid="trend-history"]')).toBeNull();
   });
 });

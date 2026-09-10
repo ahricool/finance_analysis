@@ -11,6 +11,8 @@ import AppPagination from '@/components/app/AppPagination.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
+import ResearchDataModeToggle from '@/components/research/ResearchDataModeToggle.vue';
+import ResearchDataStatusBar from '@/components/research/ResearchDataStatusBar.vue';
 import { trendIndicatorDescriptions as descriptions } from '@/components/trend-following/indicatorDescriptions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,13 +31,22 @@ import type {
   TrendMarket,
   TrendPortfolioPosition,
   TrendPortfolioResponse,
+  TrendPreviewResponse,
   TrendRankingChanges,
+  TrendRankingResponse,
   TrendSnapshot,
   TrendRankingSnapshot,
   TrendState,
   TrendSummary,
 } from '@/types/trendFollowing';
 import { formatMarketCurrencyAmount } from '@/utils/marketCurrency';
+import {
+  chooseDefaultResearchDataMode,
+  diffTrendPreviewChanges,
+  isPreviewCompleted,
+  isTrendPreviewCandidate,
+  type ResearchDataMode,
+} from '@/utils/researchPreview';
 
 const emptySummary = (): TrendSummary => ({
   market: 'CN', tradeDate: '', universeKey: 'cn_csi300_csi500', benchmarkCode: '510300.SH',
@@ -58,8 +69,13 @@ const candidates = ref<TrendSnapshot[]>([]);
 const portfolio = ref<TrendPortfolioResponse>(emptyPortfolio());
 const changes = ref<TrendRankingChanges | null>(null);
 const loading = ref(true);
+const refreshing = ref(false);
 const running = ref(false);
 const error = ref<ParsedApiError | null>(null);
+const dataMode = ref<ResearchDataMode>('official');
+const modeChosenByUser = ref(false);
+const preview = ref<TrendPreviewResponse | null>(null);
+const officialLatest = ref<TrendRankingResponse | null>(null);
 const detailOpen = ref(false);
 const detailLoading = ref(false);
 const detail = ref<TrendDetailResponse | null>(null);
@@ -150,6 +166,27 @@ const exposureProgress = computed(() => {
   if (portfolio.value.maxExposure <= 0) return 0;
   return Math.min(100, (portfolio.value.currentExposure / portfolio.value.maxExposure) * 100);
 });
+const previewAvailable = computed(() => preview.value != null);
+const showingPreview = computed(() => dataMode.value === 'preview' && isPreviewCompleted(preview.value?.status));
+const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
+const previewChangeGroups = computed(() => {
+  const diff = diffTrendPreviewChanges(items.value, officialLatest.value?.items ?? []);
+  return [
+    { label: 'NEW CANDIDATE', items: diff.newCandidates, variant: 'info' as const },
+    { label: 'NEW EXIT', items: diff.newExits, variant: 'destructive' as const },
+  ];
+});
+const previewHasChanges = computed(() => previewChangeGroups.value.some(group => group.items.length));
+
+function asRankingSnapshot(snapshot: TrendSnapshot): TrendRankingSnapshot {
+  const ranked = snapshot as TrendRankingSnapshot;
+  return {
+    ...snapshot,
+    rankChange1D: ranked.rankChange1D ?? null,
+    rankChange3D: ranked.rankChange3D ?? null,
+    rankChange5D: ranked.rankChange5D ?? null,
+  };
+}
 
 function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
 function scoreDelta(value: number | null | undefined) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(1)}`; }
@@ -178,31 +215,98 @@ function badgeVariant(value: TrendState | TrendAction | string): 'default' | 'su
 function transitionText(change: TrendChange) {
   return `${change.previousState ?? 'NEW'} → ${change.current.state}`;
 }
-async function load(refreshDates = false) {
+function applyPreviewPayload(payload: TrendPreviewResponse | null) {
+  if (!payload) {
+    items.value = [];
+    candidates.value = [];
+    changes.value = null;
+    portfolio.value = emptyPortfolio(market.value);
+    return;
+  }
+  summary.value = {
+    ...emptySummary(),
+    market: payload.market,
+    tradeDate: payload.tradeDate,
+    universeKey: payload.universeKey,
+    benchmarkCode: payload.benchmarkCode,
+    marketRegime: payload.marketRegime,
+    marketScore: payload.marketScore,
+    suggestedMaxExposure: payload.suggestedMaxExposure,
+    universeSize: payload.universeSize,
+    dataReadyCount: payload.dataReadyCount,
+    dataCoverage: payload.dataCoverage,
+    rankableCount: payload.rankableCount,
+    candidateCount: payload.candidateCount,
+    entryCount: payload.entryCount,
+    addCount: payload.addCount,
+    holdCount: payload.holdCount,
+    reduceCount: payload.reduceCount,
+    exitCount: payload.exitCount,
+    warnings: payload.warnings ?? [],
+    features: payload.features ?? {},
+    scoreBreakdown: payload.scoreBreakdown ?? {},
+    generatedAt: payload.previewTime ?? '',
+  };
+  portfolio.value = emptyPortfolio(payload.market);
+  if (!isPreviewCompleted(payload.status)) {
+    items.value = [];
+    candidates.value = [];
+    changes.value = null;
+    return;
+  }
+  items.value = payload.snapshots.map(asRankingSnapshot);
+  candidates.value = payload.snapshots.filter(isTrendPreviewCandidate);
+  changes.value = null;
+}
+async function applyOfficialRanking(current: number, requestedMarket: TrendMarket, latest: TrendRankingResponse) {
+  const requestedDate = selectedDate.value;
+  const ranking = requestedDate && requestedDate !== latest.tradeDate
+    ? await trendFollowingApi.ranking(requestedMarket, requestedDate)
+    : latest;
+  if (current !== generation) return;
+  rankingPage.value = 1;
+  summary.value = ranking;
+  items.value = ranking.items;
+  changes.value = ranking.changes ?? null;
+  selectedDate.value = ranking.tradeDate;
+  const [candidateResult, portfolioResult] = await Promise.all([
+    trendFollowingApi.candidates(requestedMarket, ranking.tradeDate),
+    trendFollowingApi.portfolio(requestedMarket, ranking.tradeDate),
+  ]);
+  if (current === generation) {
+    candidates.value = candidateResult.items;
+    portfolio.value = portfolioResult;
+  }
+}
+async function load(refreshDates = false, options: { autoSelectMode?: boolean } = {}) {
   const current = ++generation;
-  loading.value = true;
+  const autoSelectMode = options.autoSelectMode === true;
+  if (loading.value && !refreshing.value) loading.value = true;
+  else refreshing.value = true;
   error.value = null;
   try {
     const requestedMarket = market.value;
-    const [ranking, dates] = await Promise.all([
-      trendFollowingApi.ranking(requestedMarket, selectedDate.value || undefined),
+    const [latestOfficial, dates, previewPayload] = await Promise.all([
+      trendFollowingApi.ranking(requestedMarket, undefined),
       refreshDates || !availableDates.value.length ? trendFollowingApi.dates(requestedMarket) : Promise.resolve(null),
+      trendFollowingApi.preview(requestedMarket),
     ]);
     if (current !== generation) return;
     if (dates) availableDates.value = dates.items;
-    rankingPage.value = 1;
-    summary.value = ranking;
-    items.value = ranking.items;
-    changes.value = ranking.changes ?? null;
-    selectedDate.value = ranking.tradeDate;
-    const [candidateResult, portfolioResult] = await Promise.all([
-      trendFollowingApi.candidates(market.value, ranking.tradeDate),
-      trendFollowingApi.portfolio(market.value, ranking.tradeDate),
-    ]);
-    if (current === generation) {
-      candidates.value = candidateResult.items;
-      portfolio.value = portfolioResult;
+    officialLatest.value = latestOfficial;
+    preview.value = previewPayload;
+    if (autoSelectMode) {
+      dataMode.value = chooseDefaultResearchDataMode({
+        officialTradeDate: latestOfficial.tradeDate,
+        officialGeneratedAt: latestOfficial.generatedAt,
+        previewAvailable: previewPayload != null,
+        previewStatus: previewPayload?.status,
+        previewTradeDate: previewPayload?.tradeDate,
+        previewTime: previewPayload?.previewTime,
+      });
     }
+    if (dataMode.value === 'preview') applyPreviewPayload(previewPayload);
+    else await applyOfficialRanking(current, requestedMarket, latestOfficial);
   } catch (reason) {
     if (current === generation) {
       error.value = getParsedApiError(reason);
@@ -212,8 +316,22 @@ async function load(refreshDates = false) {
       changes.value = null;
     }
   } finally {
-    if (current === generation) loading.value = false;
+    if (current === generation) {
+      loading.value = false;
+      refreshing.value = false;
+    }
   }
+}
+function selectDataMode(mode: ResearchDataMode) {
+  if (mode === dataMode.value) return;
+  if (mode === 'preview' && !previewAvailable.value) return;
+  modeChosenByUser.value = true;
+  dataMode.value = mode;
+  if (mode === 'preview') {
+    applyPreviewPayload(preview.value);
+    return;
+  }
+  void load(false, { autoSelectMode: false });
 }
 async function runLatest() {
   running.value = true;
@@ -228,8 +346,24 @@ async function runLatest() {
 }
 async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: string }) {
   detailOpen.value = true;
-  detailLoading.value = true;
   detailError.value = null;
+  if (dataMode.value === 'preview') {
+    const snapshot = items.value.find(row => row.code === item.code)
+      ?? candidates.value.find(row => row.code === item.code)
+      ?? null;
+    detail.value = snapshot
+      ? {
+          market: market.value,
+          metadata: { market: market.value, code: snapshot.code, name: snapshot.name },
+          latest: snapshot,
+          history: [],
+          marketContext: summary.value,
+        }
+      : null;
+    detailLoading.value = false;
+    return;
+  }
+  detailLoading.value = true;
   detail.value = null;
   try {
     detail.value = await trendFollowingApi.detail(
@@ -253,9 +387,10 @@ watch(market, () => {
   detailOpen.value = false;
   summary.value = { ...emptySummary(), market: market.value };
   portfolio.value = emptyPortfolio(market.value);
-  void load(true);
+  modeChosenByUser.value = false;
+  void load(true, { autoSelectMode: true });
 });
-onMounted(() => void load(true));
+onMounted(() => void load(true, { autoSelectMode: true }));
 </script>
 
 <template>
@@ -286,26 +421,41 @@ onMounted(() => void load(true));
             美股
           </NativeSelectOption>
         </NativeSelect>
+        <ResearchDataModeToggle
+          :mode="dataMode"
+          :preview-available="previewAvailable"
+          preview-hint="暂无预演"
+          @update:mode="selectDataMode"
+        />
         <AppDatePicker
+          v-if="dataMode === 'official'"
           :model-value="selectedDate"
           label="交易日"
           :available-dates="availableDates"
           :clearable="false"
-          :disabled="loading"
+          :disabled="loading || refreshing"
           class="w-56"
           data-testid="trend-date"
-          @update:model-value="value => { selectedDate = value; load(); }"
+          @update:model-value="value => { selectedDate = value; load(false, { autoSelectMode: false }); }"
         />
+        <p
+          v-else
+          class="flex h-10 items-center text-sm text-muted-foreground"
+          data-testid="trend-date-readonly"
+        >
+          今日 · {{ summary.tradeDate || '—' }}
+        </p>
         <Button
           variant="outline"
           class="h-10"
           data-testid="trend-refresh"
-          :disabled="loading"
-          @click="load(true)"
+          :disabled="loading || refreshing"
+          @click="load(true, { autoSelectMode: false })"
         >
           <RefreshCcw class="size-4" />刷新
         </Button>
         <LoadingButton
+          v-if="dataMode === 'official'"
           class="h-10"
           :loading="running"
           loading-text="提交中…"
@@ -316,7 +466,17 @@ onMounted(() => void load(true));
         </LoadingButton>
       </div>
     </header>
-
+    <ResearchDataStatusBar
+      :mode="dataMode"
+      :trade-date="summary.tradeDate"
+      :data-as-of="preview?.dataAsOf"
+      :preview-time="preview?.previewTime"
+      :generated-at="dataMode === 'official' ? summary.generatedAt : preview?.previewTime"
+      :provider="preview?.provider"
+      :official-trade-date="officialLatest?.tradeDate"
+      :preview-status="preview?.status"
+      :reason="preview?.warnings?.join('；') || null"
+    />
     <AppApiErrorAlert
       v-if="error"
       :error="error"
@@ -340,6 +500,11 @@ onMounted(() => void load(true));
     </div>
     <div
       v-else
+      class="relative space-y-4"
+      :class="refreshing ? 'opacity-70' : ''"
+    >
+    <div
+      v-if="showingStrategyBody"
       class="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6"
       data-testid="trend-summary"
     >
@@ -358,7 +523,10 @@ onMounted(() => void load(true));
       </Card>
     </div>
 
-    <Card data-testid="trend-portfolio">
+    <Card
+      v-if="dataMode === 'official'"
+      data-testid="trend-portfolio"
+    >
       <CardHeader>
         <CardTitle>当前理论持仓</CardTitle>
         <CardDescription>
@@ -479,7 +647,7 @@ onMounted(() => void load(true));
       </CardContent>
     </Card>
 
-    <Card>
+    <Card v-if="showingStrategyBody">
       <CardHeader>
         <CardTitle>策略生命周期</CardTitle>
         <CardDescription>CANDIDATE、ENTRY、ADD、HOLD、REDUCE 与 EXIT 都会保留在观察区。</CardDescription>
@@ -522,7 +690,51 @@ onMounted(() => void load(true));
       </CardContent>
     </Card>
 
-    <Card>
+    <Card
+      v-if="showingPreview"
+      data-testid="trend-preview-changes"
+    >
+      <CardHeader>
+        <CardTitle>Preview Changes</CardTitle>
+        <CardDescription>相对上次正式收盘结果的对比，不参与当前 Preview 状态计算。</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <p
+          v-if="!previewHasChanges"
+          class="text-sm text-muted-foreground"
+        >
+          暂无相对上次正式收盘的新变化
+        </p>
+        <div
+          v-else
+          class="grid gap-3 md:grid-cols-2"
+        >
+          <section
+            v-for="group in previewChangeGroups"
+            :key="group.label"
+            class="rounded border p-3"
+          >
+            <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
+              {{ group.label }} <Badge :variant="group.variant">
+                {{ group.items.length }}
+              </Badge>
+            </h3>
+            <button
+              v-for="change in group.items"
+              :key="change.current.code"
+              class="mb-2 block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
+              :data-testid="`trend-preview-change-${group.label.toLowerCase().replace(' ', '-')}`"
+              @click="openDetail(change.current)"
+            >
+              <strong>{{ change.current.name }}</strong>
+              <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
+            </button>
+          </section>
+        </div>
+      </CardContent>
+    </Card>
+
+    <Card v-if="dataMode === 'official' && showingStrategyBody">
       <CardHeader>
         <CardTitle>Today's Changes</CardTitle>
         <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的市场、状态和显著分数变化。</CardDescription>
@@ -636,9 +848,9 @@ onMounted(() => void load(true));
       </CardContent>
     </Card>
 
-    <Card>
+    <Card v-if="showingStrategyBody">
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
-        <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ summary.tradeDate || '—' }} · {{ scope }} · {{ summary.dataReadyCount }}/{{ summary.universeSize }} 数据就绪</CardDescription></div>
+        <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ scope }}</CardDescription></div>
         <label class="flex items-center gap-2 text-sm text-muted-foreground">排序指标
           <select
             v-model="sortKey"
@@ -745,6 +957,7 @@ onMounted(() => void load(true));
         </div>
       </CardContent>
     </Card>
+    </div>
 
     <Dialog
       :open="detailOpen"
@@ -787,7 +1000,10 @@ onMounted(() => void load(true));
               {{ detail.latest.setup }}
             </Badge>
           </div>
-          <TrendRankHistoryChart :history="detail.history" />
+          <TrendRankHistoryChart
+            v-if="dataMode === 'official'"
+            :history="detail.history"
+          />
           <section>
             <h3 class="mb-2 font-semibold">
               <IndicatorLabel
@@ -941,7 +1157,7 @@ onMounted(() => void load(true));
               </div>
             </div>
           </section>
-          <section>
+          <section v-if="dataMode === 'official'">
             <h3 class="mb-2 font-semibold">
               历史 Snapshot / 状态变化
             </h3><div class="space-y-2">
