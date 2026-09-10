@@ -230,6 +230,8 @@ Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练�
 
 `trend_following/service.py` 对固定 CN/US Universe 计算特征、排名、仓位和状态机。大部分标的 DB-only；CN CSI2000 与 benchmark 可用 `db_fresh` 只读补尾部，远程结果不落库。支持从历史快照向后重建，因此变更规则时要考虑旧日期重算和 invalidate 行为。
 
+盘中预演 `run_preview()` 用当日临时日线复用同一套计算，结果只写入 Redis `trend_following:preview:{market}`，不写正式 snapshot。CN 固定 `easyquotation` 腾讯全市场快照，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback 到其他 realtime provider。周期任务为 `trend_following_preview_cn`（11:00/14:00/14:30 Asia/Shanghai）与 `trend_following_preview_us`（11:00/15:00/15:30 America/New_York）。API：`GET /api/v1/trend-following/preview`。
+
 ## 报告、通知和搜索
 
 - `reporting/` 定义 report 类型、schema、本地化、Markdown/Jinja 渲染和可选图片转换。

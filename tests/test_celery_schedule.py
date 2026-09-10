@@ -35,6 +35,8 @@ EXPECTED_JOBS = {
     "etf_rotation_us": ("scheduled_etf_rotation_us", "America/New_York"),
     "trend_following_cn": ("scheduled_trend_following_cn", "Asia/Shanghai"),
     "trend_following_us": ("scheduled_trend_following_us", "America/New_York"),
+    "trend_following_preview_cn": ("scheduled_trend_following_preview_cn", "Asia/Shanghai"),
+    "trend_following_preview_us": ("scheduled_trend_following_preview_us", "America/New_York"),
 }
 
 
@@ -255,6 +257,24 @@ def test_us_intraday_schedule_follows_new_york_dst():
 
     assert definition.next_run_time(now=summer) == datetime(2026, 7, 1, 13, 45, tzinfo=timezone.utc)
     assert definition.next_run_time(now=winter) == datetime(2026, 1, 5, 14, 45, tzinfo=timezone.utc)
+
+
+def test_trend_following_preview_schedules_use_market_timezones_and_dst():
+    cn = get_scheduled_task_definition("trend_following_preview_cn")
+    us = get_scheduled_task_definition("trend_following_preview_us")
+    assert cn.timezone == "Asia/Shanghai"
+    assert us.timezone == "America/New_York"
+    assert cn.queue == us.queue == "analysis"
+    beat = build_beat_schedule()
+    assert len([key for key in beat if key.startswith("trend_following_preview_cn")]) == 3
+    assert len([key for key in beat if key.startswith("trend_following_preview_us")]) == 3
+
+    # Summer EDT UTC-4: 11:00 New York == 15:00 UTC.
+    summer = datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
+    assert us.next_run_time(now=summer) == datetime(2026, 7, 1, 15, 0, tzinfo=timezone.utc)
+    # Winter EST UTC-5: 11:00 New York == 16:00 UTC.
+    winter = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
+    assert us.next_run_time(now=winter) == datetime(2026, 1, 5, 16, 0, tzinfo=timezone.utc)
 
 
 def test_compute_next_run_handles_localized_per_schedule_timezone():

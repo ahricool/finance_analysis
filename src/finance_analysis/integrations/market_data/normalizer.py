@@ -163,7 +163,7 @@ def quote_from_value(value: Any, *, symbol: str, provider: str) -> MarketQuote |
     canonical = canonical_symbol(symbol)
     market = infer_market(canonical)
     source = value if isinstance(value, Mapping) else vars(value)
-    price = _number(_value(source, "price", "last_done", "last_price", "current"))
+    price = _number(_value(source, "price", "last_done", "last_price", "current", "now"))
     if price is None or price <= 0:
         return None
     volume = _number(_value(source, "volume"))

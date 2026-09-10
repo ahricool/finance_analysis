@@ -409,6 +409,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cssselect"
+version = "1.5.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/5a/6d6fcf922709391fac986f0a03ad4546f4f45b94d10aeb6c1ee041599993/cssselect-1.5.0.tar.gz", hash = "sha256:3cbe82dd7acbee9ba9e5723b5f9e4749826912f1fb31cd7f92aabed5fde15b15", size = 47598, upload-time = "2026-07-27T09:17:34.189Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/e9/6734502f67533a752ea8b1c8f7f227c94eecf300252ba8bf23e3e59d8a36/cssselect-1.5.0-py3-none-any.whl", hash = "sha256:1d1aded98e82bdde447ded990a191fd6916177c4f0c914fb62eccd58e2ffcdcc", size = 20797, upload-time = "2026-07-27T09:17:33.04Z" },
+]
+
+[[package]]
 name = "curl-cffi"
 version = "0.15.0"
 source = { registry = "https://pypi.org/simple" }
@@ -465,6 +474,30 @@ sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
 ]
+
+[[package]]
+name = "easyquotation"
+version = "0.7.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "easyutils" },
+    { name = "requests" },
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f8/83/208337719363360d5aef61ef72af3c077b70f47ad3c45eabcf1473bc0d92/easyquotation-0.7.7.tar.gz", hash = "sha256:9951294d9577343f265e8e49e2da879c2cb0b21164ce80d57098a9a15730e4e8", size = 40617, upload-time = "2025-03-25T14:08:41.192Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/89/85bd8ec617dd2cebd2d98a2b43c49f47790d9eeeca6f4ff7213f51a12919/easyquotation-0.7.7-py3-none-any.whl", hash = "sha256:92b88cd05fc9ea6a08dbf48a0d6f2aa60092163aa64c8e0c5bc523db30b73a01", size = 34407, upload-time = "2025-03-25T14:08:38.991Z" },
+]
+
+[[package]]
+name = "easyutils"
+version = "0.1.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyquery" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f3/38/b0364c75308440c71a905b654f93a781988e1c971c3f44c4c3fe8f581292/easyutils-0.1.7.tar.gz", hash = "sha256:45b46748e20dd3c0e840fa9c1fa7d7f3dc295e58a81796d10329957c20b7f20a", size = 3231, upload-time = "2018-04-05T08:47:11.159Z" }
 
 [[package]]
 name = "efinance"
@@ -582,6 +615,7 @@ dependencies = [
     { name = "alembic" },
     { name = "baostock" },
     { name = "celery", extra = ["redis"] },
+    { name = "easyquotation" },
     { name = "efinance" },
     { name = "exchange-calendars" },
     { name = "fake-useragent" },
@@ -635,6 +669,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.14.0" },
     { name = "baostock", specifier = ">=0.9.3" },
     { name = "celery", extras = ["redis"], specifier = ">=5.6.3" },
+    { name = "easyquotation", specifier = ">=0.7.7" },
     { name = "efinance", specifier = ">=0.5.5" },
     { name = "exchange-calendars", specifier = ">=4.5.0" },
     { name = "fake-useragent", specifier = ">=1.4.0" },
@@ -1482,7 +1517,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "ptyprocess" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
@@ -1811,6 +1846,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b4/a4/784cf98c09e0dc22776b0d7d8a4a5b761218bcae4608c2416ce1e167c8af/pypinyin-0.55.0.tar.gz", hash = "sha256:b5711b3a0c6f76e67408ec6b2e3c4987a3a806b7c528076e7c7b86fcf0eaa66b", size = 839836, upload-time = "2025-07-20T12:01:50.657Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b9/7b/4cabc76fcc21c3c7d5c671d8783984d30ac9d3bb387c4ba784fca3cdfa3a/pypinyin-0.55.0-py2.py3-none-any.whl", hash = "sha256:d53b1e8ad2cdb815fb2cb604ed3123372f5a28c6f447571244aca36fc62a286f", size = 840203, upload-time = "2025-07-20T12:01:48.535Z" },
+]
+
+[[package]]
+name = "pyquery"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cssselect" },
+    { name = "lxml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c5/d8/955aef5c4ba7e01c67779a9856c4030aa89b6600b78544eae8a22a91185b/pyquery-2.1.0.tar.gz", hash = "sha256:75238388750fc6e254b7a52f771027b9beb3a6202b88048bef52a00b0abeadbb", size = 45963, upload-time = "2026-07-27T19:00:05.86Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2f/d2/5eab7f15bdb63c5281f625a003e999ef3f843c35972c936b07ea868cb854/pyquery-2.1.0-py3-none-any.whl", hash = "sha256:74c9e65ea0cfbcf644a8c3fd438a3dedbcbbd497b9cb366a4f360dba72f8aebb", size = 22907, upload-time = "2026-07-27T19:00:04.658Z" },
 ]
 
 [[package]]

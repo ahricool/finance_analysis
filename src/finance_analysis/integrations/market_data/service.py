@@ -158,6 +158,7 @@ def build_default_registry(
 ) -> ProviderRegistry:
     from .providers.akshare import AkShareProvider
     from .providers.baostock import BaoStockProvider
+    from .providers.easyquotation import EasyQuotationProvider
     from .providers.efinance import EfinanceProvider
     from .providers.pytdx import PyTDXProvider
     from .providers.tickflow import TickFlowFreeProvider
@@ -218,6 +219,11 @@ def build_default_registry(
             SECTOR_RANKINGS,
             INSTRUMENT_INFO,
         },
+    )
+    registry.register(
+        "easyquotation",
+        EasyQuotationProvider(),
+        capabilities={LATEST_MARKET_SNAPSHOT},
     )
     registry.register(
         "yfinance",
