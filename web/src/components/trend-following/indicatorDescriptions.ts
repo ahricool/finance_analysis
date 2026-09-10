@@ -40,4 +40,5 @@ export const trendIndicatorDescriptions: Record<string, string> = {
   volumeCompression: 'VolumeRatio 使用当日成交量相对前 20 日均量；压缩要求前 10 日 ATR 不高于前 20 日 ATR 的 80%，且前 10 日价格区间/前 20 日价格区间 <= 60%。',
   units: '当前理论策略单元数，初次入场为 1，每次有效加仓加 1，最多 4 个单元。',
   trailingStop: '只升不降的 ATR 跟踪止损：CandidateTrailing = HighestClose − 2.5×ATR20。',
+  trendDuration: '当前上升趋势连续成立的交易日数。趋势成立条件：价格高于MA10、MA10高于MA20、10日收益为正、15日加权趋势斜率为正，四个条件至少满足三个。任何一个交易日不再满足趋势条件，持续天数立即归零。',
 };

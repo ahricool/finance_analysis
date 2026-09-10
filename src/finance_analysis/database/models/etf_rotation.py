@@ -74,6 +74,7 @@ class ETFMomentumSnapshot(Base):
     rank = Column(Integer)
     entry_score = Column(Float, nullable=False)
     absolute_trend_eligible = Column(Boolean)
+    trend_duration_days = Column(Integer)
     liquidity_eligible = Column(Boolean)
     action = Column(String(8))
     state = Column(String(16), nullable=False)
@@ -122,6 +123,10 @@ class ETFMomentumSnapshot(Base):
             name="ck_etf_momentum_state",
         ),
         CheckConstraint("candidate_rank IS NULL OR candidate_rank > 0", name="ck_etf_candidate_rank_positive"),
+        CheckConstraint(
+            "trend_duration_days IS NULL OR trend_duration_days >= 0",
+            name="ck_etf_trend_duration_days_non_negative",
+        ),
         Index("ix_etf_momentum_snapshot_market_date_entry", "market", "trade_date", "entry_score"),
         Index("ix_etf_momentum_snapshot_instrument_date", "instrument_id", "trade_date"),
         Index("ix_etf_momentum_snapshot_market_date_composite", "market", "trade_date", "composite_score"),

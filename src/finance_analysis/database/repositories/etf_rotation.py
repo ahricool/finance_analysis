@@ -18,6 +18,7 @@ SORT_FIELDS = {
     "composite_score": ETFMomentumSnapshot.composite_score,
     "entry_score": ETFMomentumSnapshot.entry_score,
     "momentum_score": ETFMomentumSnapshot.momentum_score,
+    "trend_duration_days": ETFMomentumSnapshot.trend_duration_days,
     "ret_1d": ETFMomentumSnapshot.ret_1d,
     "ret_3d": ETFMomentumSnapshot.ret_3d,
     "ret_5d": ETFMomentumSnapshot.ret_5d,

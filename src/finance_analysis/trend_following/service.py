@@ -24,6 +24,7 @@ from ..market_review.trading_calendar import (
     get_trading_days_between,
 )
 from .config import DEFAULT_CONFIG, TrendFollowingConfig
+from .duration import count_trend_duration_days
 from .features import calculate_features
 from .models import DailyBar, StrategyDecision
 from .preview_cache import save_preview
@@ -639,6 +640,15 @@ class TrendFollowingService:
                     market_score=regime["market_score"],
                 )
                 snapshots.append(expired)
+
+        for snapshot in snapshots:
+            code = str(snapshot["code"])
+            bars = sufficient_histories.get(code) or histories.get(code, [])[-self.config.history_bars :]
+            snapshot["trend_duration_days"] = count_trend_duration_days(
+                bars,
+                as_of=effective_date,
+                minimum_bars=self.config.minimum_history_bars,
+            )
 
         counts = {
             action: sum(item["action"] == action for item in snapshots)

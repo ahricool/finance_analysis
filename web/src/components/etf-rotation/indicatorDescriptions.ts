@@ -25,4 +25,5 @@ export const indicatorDescriptions: Record<string, string> = {
   absoluteTrend: '绝对趋势门槛，防止仅因“跌得比基准少”而入选。规则：Return5>0、WeightedSlope10>0、MA10 Deviation>0 三项中至少满足两项。',
   liquidity: '流动性门槛，用最近 20 日中有限且非空的成交额均值过滤难以执行的标的。公式：AvgAmount20 = Mean(FiniteNonNullAmount, 最近 20 日)；A 股需 >= 5,000 万元，美股需 >= 500 万美元；无可用成交额时不通过。',
   stop: '建议止损参考，按 20 日年化波动率换算日波动后设定，不基于个人成本价。公式：StopPct = clamp(2.5×RealizedVol20/√252, 3%, 8%)；SuggestedStop = SnapshotClose×(1−StopPct)。',
+  trendDuration: '当前短期上升趋势连续成立的交易日数。趋势成立条件：5日收益为正、10日加权趋势斜率为正、价格高于MA10，三个条件至少满足两个。任何一个交易日不再满足趋势条件，持续天数立即归零。',
 };

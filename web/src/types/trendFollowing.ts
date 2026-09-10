@@ -71,6 +71,7 @@ export interface TrendSnapshot {
   suggestedInitialWeight: number | null;
   suggestedMaxWeight: number | null;
   reasons: string[];
+  trendDurationDays: number | null;
   generatedAt: string;
 }
 

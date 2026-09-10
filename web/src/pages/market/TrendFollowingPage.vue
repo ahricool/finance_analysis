@@ -86,6 +86,7 @@ const rankingColumns = [
   { key: 'code', label: '股票代码', description: undefined },
   { key: 'state', label: 'State', description: descriptions.state },
   { key: 'action', label: 'Action', description: descriptions.action },
+  { key: 'trendDurationDays', label: '持续天数', description: descriptions.trendDuration },
   { key: 'alphaScore', label: 'Alpha Score', description: descriptions.alpha },
   { key: 'trendScore', label: 'Trend Score', description: descriptions.trend },
   { key: 'rsScore', label: 'RS Score', description: descriptions.relativeStrength },
@@ -109,7 +110,7 @@ const rankingColumns = [
   { key: 'suggestedInitialWeight', label: '理论初始权重', description: descriptions.initialWeight },
 ] as const;
 const visibleRankingColumns = rankingColumns.filter(column =>
-  ['rank', 'name', 'state', 'action', 'alphaScore', 'trendScore', 'rsScore', 'setup', 'return5D', 'return20D', 'rankChange5D'].includes(column.key));
+  ['rank', 'name', 'state', 'action', 'trendDurationDays', 'alphaScore', 'trendScore', 'rsScore', 'setup', 'return5D', 'return20D', 'rankChange5D'].includes(column.key));
 type SortKey = typeof rankingColumns[number]['key'];
 const rankingPage = ref(1);
 const rankingPageSize = 50;
@@ -907,6 +908,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                     {{ actionText(item.action) }}
                   </Badge>
                 </TableCell>
+                <TableCell>{{ item.trendDurationDays == null ? '—' : item.trendDurationDays }}</TableCell>
                 <TableCell class="font-bold text-primary">
                   {{ score(item.alphaScore) }}
                 </TableCell>

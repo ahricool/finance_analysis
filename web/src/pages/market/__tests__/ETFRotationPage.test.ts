@@ -108,6 +108,7 @@ function snapshot(overrides: Partial<ETFMomentumSnapshot> = {}): ETFMomentumSnap
     overheated: false,
     candidateRank: 1,
     isCandidate: true,
+    trendDurationDays: 8,
     scoreComponents: { baseMomentum: 70 },
     diagnostics: {},
     generatedAt: '2026-08-25T10:40:00+00:00',
@@ -223,7 +224,8 @@ describe('ETFRotationPage', () => {
     await flushPromises();
 
     expect(document.body.textContent).toContain('科创50ETF');
-    expect(wrapper.findAll('thead th')).toHaveLength(11);
+    expect(wrapper.findAll('thead th')).toHaveLength(12);
+    expect(wrapper.text()).toContain('持续天数');
     await wrapper.get('tbody tr').trigger('click');
     await flushPromises();
     expect(document.body.textContent).toContain('+1.10%');
@@ -250,6 +252,8 @@ describe('ETFRotationPage', () => {
     expect(indicatorDescriptions.entry).toContain('BUY 阈值为 70');
     expect(indicatorDescriptions.breadth).toContain('RankableCount');
     expect(indicatorDescriptions.stop).toContain('RealizedVol20/√252');
+    expect(indicatorDescriptions.trendDuration).toContain('三个条件至少满足两个');
+    expect(indicatorDescriptions.trendDuration).toContain('立即归零');
   });
 
   it('loads the latest snapshot on mount and fills the date picker', async () => {
@@ -540,5 +544,28 @@ describe('ETFRotationPage', () => {
     expect(modal?.textContent).toContain('BUY');
     expect(modal?.textContent).not.toContain('60.0');
     expect(modal?.querySelector('[data-testid="etf-detail-history"]')).toBeNull();
+  });
+
+  it('shows a sortable trend duration column in the ranking table', async () => {
+    apiMocks.ranking.mockResolvedValueOnce({
+      ...rankingPayload('CN', '2026-08-25', snapshot()),
+      items: [
+        snapshot({ code: 'A.SH', name: '久期ETF', trendDurationDays: 2, compositeScore: 90 }),
+        snapshot({ code: 'B.SH', name: '长趋势ETF', trendDurationDays: 10, compositeScore: 80 }),
+        snapshot({ code: 'C.SH', name: '中断ETF', trendDurationDays: 0, compositeScore: 70 }),
+        snapshot({ code: 'D.SH', name: '未计算ETF', trendDurationDays: null, compositeScore: 60 }),
+      ],
+    });
+    const wrapper = mount(ETFRotationPage);
+    await flushPromises();
+    const order = () => wrapper.findAll('[data-testid="etf-ranking-row"]').map(row => row.find('span.font-mono').text());
+    const header = wrapper.findAll('th button').find(button => button.text().includes('持续天数'));
+    expect(header).toBeTruthy();
+    expect(wrapper.text()).toContain('持续天数');
+    expect(order()).toEqual(['A.SH', 'B.SH', 'C.SH', 'D.SH']);
+    await header!.trigger('click');
+    expect(order()).toEqual(['B.SH', 'A.SH', 'C.SH', 'D.SH']);
+    await header!.trigger('click');
+    expect(order()).toEqual(['C.SH', 'A.SH', 'B.SH', 'D.SH']);
   });
 });

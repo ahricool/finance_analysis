@@ -20,6 +20,7 @@ from finance_analysis.integrations.market_data.service import MarketDataService 
 from finance_analysis.etf_rotation.classifier import classify_state, is_overheated  # pragma: allowlist secret
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG, ETFRotationConfig  # pragma: allowlist secret
 from finance_analysis.etf_rotation.correlation import rolling_correlations  # pragma: allowlist secret
+from finance_analysis.etf_rotation.duration import count_trend_duration_days  # pragma: allowlist secret
 from finance_analysis.etf_rotation.eligibility import (  # pragma: allowlist secret
     is_absolute_trend_eligible,
     is_liquidity_eligible,
@@ -353,6 +354,11 @@ class ETFRotationService:
             row.update(calculate_factor_scores(row, self.config))
             row["momentum_score"] = row["momentum_strength_score"]
             row["absolute_trend_eligible"] = is_absolute_trend_eligible(row, self.config)
+            row["trend_duration_days"] = count_trend_duration_days(
+                histories[str(row["code"])],
+                as_of=effective_date,
+                config=self.config,
+            )
             row["liquidity_eligible"] = is_liquidity_eligible(row, self.market, self.config)
             evaluated.append(row)
 
