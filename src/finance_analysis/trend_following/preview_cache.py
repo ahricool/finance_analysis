@@ -41,12 +41,13 @@ def save_preview(market: str, payload: dict[str, Any], *, client: Any | None = N
     body = json.dumps(json_ready(payload), ensure_ascii=False, separators=(",", ":"))
     redis_client = client if client is not None else _redis_client()
     if redis_client is None:
-        logger.error("market=%s job=trend_following_preview cache_write_skipped redis_unavailable", market)
-        return
+        logger.error("market=%s job=trend_following_preview cache_write_failed redis_unavailable", market)
+        raise RuntimeError(f"Trend Following preview Redis unavailable for {market}")
     try:
         redis_client.set(preview_cache_key(market), body, ex=PREVIEW_TTL_SECONDS)
-    except Exception:
+    except Exception as exc:
         logger.exception("market=%s job=trend_following_preview cache_write_failed", market)
+        raise RuntimeError(f"Failed to save Trend Following preview for {market}") from exc
 
 
 def load_preview(market: str, *, client: Any | None = None) -> dict[str, Any] | None:
