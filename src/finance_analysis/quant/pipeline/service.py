@@ -30,7 +30,11 @@ from finance_analysis.quant.markets import (  # pragma: allowlist secret
 from finance_analysis.quant.models import CROSS_SECTION_MODEL_KEY, TIME_SERIES_MODEL_KEY  # pragma: allowlist secret
 from finance_analysis.quant.portfolio.builder import PortfolioBuilder  # pragma: allowlist secret
 from finance_analysis.quant.signals.fusion import SignalFusion  # pragma: allowlist secret
-from finance_analysis.quant.targets import resolve_target_config, stored_target_matches_production  # pragma: allowlist secret
+from finance_analysis.quant.targets import (  # pragma: allowlist secret
+    DEFAULT_PREDICTION_HORIZON,
+    resolve_target_config,
+    stored_target_matches_production,
+)
 
 PROTOCOL_VERSION = 1
 SUPPORTED_QLIB_FEATURE_CONFIG = {"base": "Alpha158"}
@@ -75,12 +79,12 @@ class QuantTrainingPipeline:
                 f"minimum={minimum_coverage:.2%}"
             )
         (self.artifact_store or ArtifactStore()).resolve_uri(dataset.artifact_uri)
-        split_config = run.split_config or {}
-        target_config = resolve_target_config(
-            run.model_key,
-            run.target_config or {},
-            int(split_config.get("prediction_horizon") or 5),
-        )
+        split_config = dict(run.split_config or {})
+        stored_horizon = split_config.get("prediction_horizon", DEFAULT_PREDICTION_HORIZON)
+        if int(stored_horizon) != DEFAULT_PREDICTION_HORIZON:
+            raise ValueError("production prediction_horizon must be 5")
+        split_config["prediction_horizon"] = DEFAULT_PREDICTION_HORIZON
+        target_config = resolve_target_config(run.model_key, run.target_config or {})
         self.repository.update_model_run(
             run_id,
             status="training",
@@ -442,8 +446,8 @@ class QuantDailyPipeline:
         stored = getattr(model, "target_config", None)
         if not stored_target_matches_production(model_key, stored):
             raise ModelNotPublishedError(
-                f"Production {market} {model_key} model uses unsupported target_config={stored}; "
-                "retrain and publish with the model-type target semantics"
+                f"Production {market} {model_key} uses unsupported target_config={stored}; "
+                "retrain and publish with the current 5-session target contract"
             )
         return model
 
@@ -452,11 +456,13 @@ class QuantDailyPipeline:
             self._production_model(market, CROSS_SECTION_MODEL_KEY),
             self._production_model(market, TIME_SERIES_MODEL_KEY),
         )
-        cs_horizon = int((getattr(models[0], "target_config", None) or {}).get("prediction_horizon") or 5)
-        ts_horizon = int((getattr(models[1], "target_config", None) or {}).get("prediction_horizon") or 5)
-        if cs_horizon != ts_horizon:
+        cs_target = getattr(models[0], "target_config", None) or {}
+        ts_target = getattr(models[1], "target_config", None) or {}
+        cs_horizon = int(cs_target.get("prediction_horizon") or DEFAULT_PREDICTION_HORIZON)
+        ts_horizon = int(ts_target.get("prediction_horizon") or DEFAULT_PREDICTION_HORIZON)
+        if cs_horizon != DEFAULT_PREDICTION_HORIZON or ts_horizon != DEFAULT_PREDICTION_HORIZON:
             raise ModelNotPublishedError(
-                f"Production {market} models must share prediction_horizon; "
+                f"Production {market} models must use the 5-session target contract; "
                 f"cross_section={cs_horizon} time_series={ts_horizon}"
             )
         artifact_store = self.artifact_store or ArtifactStore()

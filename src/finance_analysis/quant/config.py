@@ -105,7 +105,6 @@ class PortfolioConfig:
     buy_top_k: int = 5
     single_stock_max_weight: float = 0.08
     minimum_liquidity: float = 1_000_000
-    weighting: str = "equal_weight"
 
 
 @dataclass(frozen=True)
@@ -113,7 +112,7 @@ class QuantConfig:
     feature_version: str = "alpha158-v1"
     regime_model_version: str = "regime-rules-v2"
     fusion_version: str = "fusion-rules-v3"
-    portfolio_version: str = "portfolio-rules-v2"
+    portfolio_version: str = "portfolio-rules-v3"
     artifact_root: Path = field(
         default_factory=lambda: Path(os.getenv("QUANT_ARTIFACT_ROOT", get_data_dir() / "quant"))
     )

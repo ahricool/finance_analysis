@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-OOS_ONE_WAY_COST_BPS = 10.0
+PRODUCTION_PREDICTION_HORIZON = 5
 CROSS_SECTION_PRIMARY_METRICS = (
     "daily_rank_ic_mean",
     "icir",
@@ -78,33 +78,25 @@ def cross_section_trading_metrics(
     prediction: pd.DataFrame,
     *,
     top_ks: tuple[int, ...] = (5, 10),
-    cost_bps: float = OOS_ONE_WAY_COST_BPS,
 ) -> dict[str, Any]:
+    """Mean overlapping 5-day forward returns of daily TopK, not a portfolio backtest."""
     clean = _finite_frame(prediction)
     payload: dict[str, Any] = {
         "assumptions": {
             "label": "walk_forward_oos_forward_return",
             "label_units": "percentage_points",
+            "selection": "daily_topk_by_prediction",
             "weighting": "equal_weight",
-            "rebalance": "daily_membership",
-            "one_way_cost_bps": float(cost_bps),
+            "prediction_horizon": PRODUCTION_PREDICTION_HORIZON,
             "periods_overlap": True,
+            "not_a_backtest": True,
         }
     }
     for top_k in top_ks:
         daily = _daily_topk_mean(clean, top_k)
-        membership = _daily_topk_codes(clean, top_k)
-        turnover = _one_way_turnover(membership, top_k)
-        aligned = daily.align(turnover, join="inner")[0]
-        cost = turnover.reindex(aligned.index).fillna(0.0) * (cost_bps / 100.0)
-        net = aligned - cost
         prefix = f"top{top_k}"
-        payload[f"{prefix}_oos_return_pct"] = _finite(aligned.mean())
-        payload[f"{prefix}_positive_period_ratio"] = _finite((aligned > 0).mean()) if not aligned.empty else None
-        payload[f"{prefix}_simple_sharpe"] = _simple_sharpe(aligned / 100.0)
-        payload[f"{prefix}_max_drawdown"] = _max_drawdown(aligned / 100.0)
-        payload[f"{prefix}_turnover"] = _finite(turnover.mean()) if not turnover.empty else None
-        payload[f"{prefix}_cost_adjusted_return_pct"] = _finite(net.mean()) if not net.empty else None
+        payload[f"{prefix}_oos_return_pct"] = _finite(daily.mean()) if not daily.empty else None
+        payload[f"{prefix}_positive_period_ratio"] = _finite((daily > 0).mean()) if not daily.empty else None
     return payload
 
 
@@ -113,43 +105,6 @@ def _daily_topk_mean(frame: pd.DataFrame, top_k: int) -> pd.Series:
         lambda group: group.nlargest(min(top_k, len(group)), "prediction")["label"].mean(),
         include_groups=False,
     )
-
-
-def _daily_topk_codes(frame: pd.DataFrame, top_k: int) -> dict[pd.Timestamp, set[str]]:
-    result: dict[pd.Timestamp, set[str]] = {}
-    for day, group in frame.groupby(level="datetime"):
-        selected = group.nlargest(min(top_k, len(group)), "prediction")
-        result[day] = set(selected.index.get_level_values("instrument"))
-    return result
-
-
-def _one_way_turnover(membership: dict[pd.Timestamp, set[str]], top_k: int) -> pd.Series:
-    days = sorted(membership)
-    values: list[float] = []
-    previous: set[str] | None = None
-    for day in days:
-        current = membership[day]
-        if previous is None:
-            values.append(1.0)
-        else:
-            values.append(len(previous - current) / top_k if top_k else 0.0)
-        previous = current
-    return pd.Series(values, index=days, dtype=float)
-
-
-def _simple_sharpe(returns: pd.Series) -> float | None:
-    clean = returns.replace([np.inf, -np.inf], np.nan).dropna()
-    if len(clean) < 2 or float(clean.std()) == 0:
-        return None
-    return _finite(clean.mean() / clean.std() * math.sqrt(252))
-
-
-def _max_drawdown(returns: pd.Series) -> float | None:
-    clean = returns.replace([np.inf, -np.inf], np.nan).dropna()
-    if clean.empty:
-        return None
-    equity = (1.0 + clean).cumprod()
-    return _finite((equity / equity.cummax() - 1.0).min())
 
 
 def _finite_frame(prediction: pd.DataFrame) -> pd.DataFrame:

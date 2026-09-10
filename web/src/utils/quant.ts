@@ -22,12 +22,14 @@ export const MODEL_TARGET_COPY = {
   },
   time_series_lgbm: {
     shortName: '时间序列模型',
-    target: '预测未来 5 个交易日绝对上涨概率',
-    detail: 'T+1 开盘 → T+5 收盘，绝对收益 > 0 的分类概率',
+    target: '预测未来 5 个交易日的上涨方向分数',
+    detail: 'T+1 开盘 → T+5 收盘，绝对收益 > 0；输出为模型方向分数，不是校准概率',
     primaryMetric: 'ROC AUC',
     secondaryMetric: '方向命中率',
   },
 } as const;
+
+export const PRODUCTION_PREDICTION_HORIZON = 5;
 
 export type TrainableModelKey = keyof typeof MODEL_TARGET_COPY;
 

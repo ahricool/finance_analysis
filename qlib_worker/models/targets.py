@@ -16,31 +16,24 @@ SHARED_ENTRY_PRICE = "open"
 SHARED_EXIT_PRICE = "close"
 
 
-def production_target_config(model_key: str, prediction_horizon: int = DEFAULT_PREDICTION_HORIZON) -> dict[str, Any]:
+def production_target_config(model_key: str) -> dict[str, Any]:
     if model_key not in {CROSS_SECTION_MODEL_KEY, TIME_SERIES_MODEL_KEY}:
         raise ValueError(f"Unknown model_key: {model_key}")
-    horizon = int(prediction_horizon)
-    if horizon < 1:
-        raise ValueError("prediction_horizon must be positive")
     if model_key == CROSS_SECTION_MODEL_KEY:
         semantics = {"benchmark": "market", "excess_return": True}
     else:
         semantics = {"benchmark": "none", "excess_return": False}
     return {
-        "prediction_horizon": horizon,
+        "prediction_horizon": DEFAULT_PREDICTION_HORIZON,
         "entry_price": SHARED_ENTRY_PRICE,
         "exit_price": SHARED_EXIT_PRICE,
         **semantics,
     }
 
 
-def resolve_target_config(
-    model_key: str,
-    raw: Mapping[str, Any] | None,
-    prediction_horizon: int,
-) -> dict[str, Any]:
+def resolve_target_config(model_key: str, raw: Mapping[str, Any] | None) -> dict[str, Any]:
     del raw
-    return production_target_config(model_key, prediction_horizon)
+    return production_target_config(model_key)
 
 
 @dataclass(frozen=True)
@@ -74,8 +67,11 @@ class TargetConfig:
         return cls(**{**asdict(config), "prediction_horizon": int(config.prediction_horizon)})
 
     @classmethod
-    def for_model(cls, model_key: str, raw: Mapping[str, Any] | None, default_horizon: int) -> "TargetConfig":
-        return cls.parse(resolve_target_config(model_key, raw, default_horizon), default_horizon)
+    def for_model(cls, model_key: str, raw: Mapping[str, Any] | None) -> "TargetConfig":
+        payload = dict(raw or {})
+        if "prediction_horizon" in payload and int(payload["prediction_horizon"]) != DEFAULT_PREDICTION_HORIZON:
+            raise ValueError("production prediction_horizon must be 5")
+        return cls.parse(resolve_target_config(model_key, payload), DEFAULT_PREDICTION_HORIZON)
 
 
 def build_target(dataset: Path, manifest: dict[str, Any], config: TargetConfig) -> pd.Series:

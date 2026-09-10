@@ -108,6 +108,14 @@ def test_train_retry_restart_and_predict(monkeypatch, tmp_path: Path) -> None:
     metadata_path = artifact / "metadata.json"
     metadata = json.loads(metadata_path.read_text())
     assert metadata["price_mode"] == "forward_adjusted"
+    assert metadata["target_config"]["prediction_horizon"] == 5
+    metrics = json.loads((artifact / "metrics.json").read_text())
+    assert "top5_oos_return_pct" in metrics
+    assert "top5_positive_period_ratio" in metrics
+    assert "top5_simple_sharpe" not in metrics
+    assert "top5_max_drawdown" not in metrics
+    assert "top5_turnover" not in metrics
+    assert "top5_cost_adjusted_return_pct" not in metrics
 
     predicted = predict_model.run(
         schema_version=1,
@@ -167,9 +175,11 @@ def test_time_series_uses_absolute_classification_target_and_records_best_iterat
     metrics = json.loads((artifact / "metrics.json").read_text())
     assert metadata["target_config"]["benchmark"] == "none"
     assert metadata["target_config"]["excess_return"] is False
+    assert metadata["target_config"]["prediction_horizon"] == 5
     assert metrics["task_type"] == "classification"
     assert "roc_auc" in metrics
     assert "mae" not in metrics
+    assert "top5_simple_sharpe" not in metrics
     assert metadata["fold_best_iterations"]
     assert metadata["final_n_estimators"] == trained["metrics"]["final_n_estimators"]
     assert trained["metrics"]["final_n_estimators"] <= 12

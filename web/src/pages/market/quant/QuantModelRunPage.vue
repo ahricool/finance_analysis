@@ -7,6 +7,7 @@ import type { ModelRun } from '@/types/quant';
 import {
   formatScore,
   MODEL_TARGET_COPY,
+  PRODUCTION_PREDICTION_HORIZON,
   isTrainableModelKey,
   scalarMetrics,
 } from '@/utils/quant';
@@ -27,6 +28,16 @@ const targetCopy = computed(() =>
     : null,
 );
 const metricRows = computed(() => scalarMetrics(item.value?.metrics));
+const storedHorizon = computed(() => {
+  const raw = item.value?.targetConfig?.predictionHorizon ?? item.value?.splitConfig?.predictionHorizon;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+});
+const legacyHorizon = computed(() =>
+  storedHorizon.value != null && storedHorizon.value !== PRODUCTION_PREDICTION_HORIZON
+    ? storedHorizon.value
+    : null,
+);
 let requestVersion = 0;
 watch(
   [market, () => route.params.runId],
@@ -106,7 +117,13 @@ async function publish() {
           <p class="text-xs text-muted-foreground">
             预测周期
           </p>
-          <p>{{ Number(item.targetConfig?.predictionHorizon ?? item.splitConfig?.predictionHorizon ?? 5) }} 个交易日</p>
+          <p>{{ PRODUCTION_PREDICTION_HORIZON }} 个交易日</p>
+          <p
+            v-if="legacyHorizon != null"
+            class="mt-1 text-xs text-muted-foreground"
+          >
+            历史记录为 {{ legacyHorizon }} 个交易日，不能用于当前 production
+          </p>
         </div>
       </section>
       <p

@@ -197,6 +197,9 @@ def test_cross_section_and_time_series_targets_are_model_owned() -> None:
     assert not stored_target_matches_production("time_series_lgbm", None)
     assert not stored_target_matches_production("time_series_lgbm", {"benchmark": "market", "excess_return": True})
     assert stored_target_matches_production("time_series_lgbm", ts)
+    assert not stored_target_matches_production("cross_section_lgbm", {**cs, "prediction_horizon": 10})
+    assert not stored_target_matches_production("time_series_lgbm", {**ts, "prediction_horizon": 10})
+    assert not stored_target_matches_production("cross_section_lgbm", {**cs, "entry_price": "close"})
 
 
 def test_portfolio_reaches_regime_exposure_without_breaking_single_stock_cap() -> None:

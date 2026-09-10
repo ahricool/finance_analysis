@@ -184,16 +184,26 @@ def test_model_type_forces_production_target_semantics() -> None:
     cs = TargetConfig.for_model(
         "cross_section_lgbm",
         {"benchmark": "none", "excess_return": False, "prediction_horizon": 5},
-        5,
     )
     ts = TargetConfig.for_model(
         "time_series_lgbm",
         {"benchmark": "market", "excess_return": True, "prediction_horizon": 5},
-        5,
     )
     assert cs.benchmark == "market" and cs.excess_return is True
     assert ts.benchmark == "none" and ts.excess_return is False
-    assert production_target_config("cross_section_lgbm")["prediction_horizon"] == production_target_config("time_series_lgbm")["prediction_horizon"]
+    assert cs.prediction_horizon == ts.prediction_horizon == 5
+    assert production_target_config("cross_section_lgbm")["prediction_horizon"] == 5
+
+
+def test_worker_rejects_non_five_session_production_horizon() -> None:
+    with pytest.raises(ValueError, match="production prediction_horizon must be 5"):
+        TargetConfig.for_model("cross_section_lgbm", {"prediction_horizon": 10})
+    with pytest.raises(ValueError, match="production prediction_horizon must be 5"):
+        TargetConfig.for_model("time_series_lgbm", {"prediction_horizon": 3})
+    with pytest.raises(ValueError, match="production prediction_horizon must be 5"):
+        WalkForwardConfig.parse({"prediction_horizon": 10, "train_years": 1, "valid_months": 2, "test_months": 2})
+    parsed = WalkForwardConfig.parse({"train_years": 1, "valid_months": 2, "test_months": 2})
+    assert parsed.prediction_horizon == 5
 
 
 def test_daily_predict_payload_requires_both_model_artifacts() -> None:

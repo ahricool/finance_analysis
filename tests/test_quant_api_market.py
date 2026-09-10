@@ -305,6 +305,11 @@ def test_model_run_defaults_match_worker_contract_and_dispatch_explicit_run(monk
         "excess_return": True,
     }
     assert repository.created_model_run["split_config"]["prediction_horizon"] == 5
+    assert repository.created_model_run["run_type"] == "walk_forward"
+    assert "run_type" not in ModelRunCreateRequest(model_version="v1", dataset_snapshot_id=5).model_dump()
+    assert "prediction_horizon" not in ModelRunCreateRequest(
+        model_version="v1", dataset_snapshot_id=5
+    ).split_config.model_dump()
     assert "train_start" not in repository.created_model_run
     apply_async.assert_called_once_with(
         kwargs={"model_run_id": 77, "owner_uid": 1},
@@ -412,6 +417,16 @@ def test_model_run_request_rejects_worker_incompatible_configuration():
             model_version="legacy-event-features",
             dataset_snapshot_id=5,
             feature_config={"ablation": "base_plus_event"},
+        )
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ModelRunCreateRequest(model_version="legacy-run-type", dataset_snapshot_id=5, run_type="backtest")
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ModelRunCreateRequest(
+            model_version="legacy-horizon",
+            dataset_snapshot_id=5,
+            split_config={"prediction_horizon": 10},
         )
 
 

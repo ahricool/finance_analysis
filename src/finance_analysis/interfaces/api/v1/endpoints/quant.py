@@ -269,6 +269,8 @@ async def create_model_run(body: ModelRunCreateRequest, user: User = Depends(req
             "universe_id": universe.id,
             "status": "draft",
             "progress": 0,
+            "run_type": "walk_forward",
+            "split_config": body.stored_split_config(),
             "target_config": body.stored_target_config(),
         }
     )

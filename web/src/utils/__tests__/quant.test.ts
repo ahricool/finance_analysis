@@ -22,7 +22,7 @@ describe('quant formatters', () => {
 
   it('describes distinct CS and TS targets and headline metrics', () => {
     expect(MODEL_TARGET_COPY.cross_section_lgbm.target).toContain('超额收益');
-    expect(MODEL_TARGET_COPY.time_series_lgbm.target).toContain('绝对上涨概率');
+    expect(MODEL_TARGET_COPY.time_series_lgbm.target).toContain('上涨方向分数');
     expect(primaryMetricValue('cross_section_lgbm', { dailyRankIcMean: 0.08, rankIc: 0.01 })).toBe(0.08);
     expect(primaryMetricValue('time_series_lgbm', { rocAuc: 0.7 })).toBe(0.7);
     expect(scalarMetrics({ rocAuc: 0.7, assumptions: { cost: 10 } })).toEqual([['rocAuc', 0.7]]);

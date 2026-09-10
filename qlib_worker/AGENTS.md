@@ -87,7 +87,7 @@ qlib_worker/
 - `Alpha158` 只加载 manifest 股票 universe；benchmark 可存在于 source，但不能进入训练/横截面排名。
 - VWAP 二进制是 HLC3 proxy（`(high+low+close)/3`），不是成交额/成交量真实 VWAP。Worker 不重新计算该字段。
 
-`cross_section_lgbm` 预测 T+1 open → T+5 close 相对市场超额收益；`time_series_lgbm` 预测同一窗口绝对上涨概率。Worker 用 `TargetConfig.for_model()` 强制该语义，忽略 payload 里冲突的 benchmark/excess_return。
+`cross_section_lgbm` 预测 T+1 open → T+5 close 相对市场超额收益；`time_series_lgbm` 预测同一窗口绝对方向分数（`absolute_return > 0` 的分类输出，不是校准概率）。Worker 用 `TargetConfig.for_model()` 强制该语义和 `prediction_horizon=5`；payload 里冲突的 horizon 会直接拒绝，而不是训练成 T+10 模型。
 
 横截面评价指标以每日 Rank IC / ICIR / TopK 超额为主；时间序列用 ROC AUC、balanced accuracy、Brier、方向命中率等分类指标。单类 test fold 的 AUC 记为 `None` 并 warning，不让训练失败。最终模型 `n_estimators` 取各 fold `best_iteration_` 的中位数。
 

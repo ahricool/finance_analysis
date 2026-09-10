@@ -431,7 +431,7 @@ def test_finalize_builds_recommendation_without_personal_holdings(monkeypatch) -
             "time_series_model_run_id": 12,
             "time_series_model_version": "v1",
             "fusion_version": "fusion-rules-v3",
-            "portfolio_version": "portfolio-rules-v2",
+            "portfolio_version": "portfolio-rules-v3",
         },
         "regime": {
             "id": 8,
@@ -735,7 +735,37 @@ def test_prepare_rejects_legacy_time_series_excess_return_target() -> None:
         artifact_store=artifact_store,
     )
 
-    with pytest.raises(ModelNotPublishedError, match="time_series_lgbm"):
+    with pytest.raises(ModelNotPublishedError, match="5-session target contract"):
+        pipeline.prepare(market="US", trade_date=TRADE_DATE)
+
+    repository.get_universe.assert_not_called()
+    artifact_store.resolve_uri.assert_not_called()
+
+
+def test_prepare_rejects_non_five_session_production_horizon() -> None:
+    repository = MagicMock()
+    repository.production_model.side_effect = [
+        _published(
+            "cross_section_lgbm",
+            target_config={
+                "prediction_horizon": 10,
+                "entry_price": "open",
+                "exit_price": "close",
+                "benchmark": "market",
+                "excess_return": True,
+            },
+        ),
+        _published("time_series_lgbm"),
+    ]
+    artifact_store = MagicMock()
+    pipeline = QuantDailyPipeline(
+        repository=repository,
+        exporter=MagicMock(),
+        symbol_repository=MagicMock(),
+        artifact_store=artifact_store,
+    )
+
+    with pytest.raises(ModelNotPublishedError, match="5-session target contract"):
         pipeline.prepare(market="US", trade_date=TRADE_DATE)
 
     repository.get_universe.assert_not_called()

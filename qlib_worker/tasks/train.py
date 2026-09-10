@@ -41,9 +41,7 @@ def train_model(self: Any, **raw_payload: Any) -> dict[str, Any]:
         manifest = load_manifest(dataset)
         price_mode = require_forward_adjusted_manifest(manifest)
         split_config = WalkForwardConfig.parse(payload.split_config)
-        target_config = TargetConfig.for_model(
-            payload.model_key, payload.target_config, split_config.prediction_horizon
-        )
+        target_config = TargetConfig.for_model(payload.model_key, payload.target_config)
         if target_config.prediction_horizon != split_config.prediction_horizon:
             raise ValueError("target_config prediction_horizon must equal split_config prediction_horizon")
         request_payload = asdict(payload)

@@ -21,6 +21,7 @@ class TimeSeriesLGBMRunner(BaseLGBMRunner):
         "class_weight": "balanced",
     }
     allowed_parameters = BaseLGBMRunner.allowed_parameters | {"class_weight"}
+    # class_weight="balanced" is retained; predict_proba is a directional score, not a calibrated probability.
 
     def select_features(self, frame: pd.DataFrame) -> list[str]:
         tokens = ("ROC", "MA", "RSV", "STD", "BETA", "CORR")

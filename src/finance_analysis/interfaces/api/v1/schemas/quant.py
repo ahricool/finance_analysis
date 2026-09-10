@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from finance_analysis.quant.targets import production_target_config  # pragma: allowlist secret
+from finance_analysis.quant.targets import DEFAULT_PREDICTION_HORIZON, production_target_config  # pragma: allowlist secret
 
 
 class DatasetBuildRequest(BaseModel):
@@ -24,7 +24,6 @@ class WalkForwardSplitConfig(BaseModel):
     valid_months: int = Field(3, ge=1)
     test_months: int = Field(3, ge=1)
     retrain_frequency_months: int = Field(3, ge=1)
-    prediction_horizon: int = Field(5, ge=1)
     embargo_days: int = Field(2, ge=0)
 
 
@@ -42,13 +41,15 @@ class ModelRunCreateRequest(BaseModel):
     market: Literal["US", "CN"] = "US"
     universe: str | None = None
     dataset_snapshot_id: int
-    run_type: str = "walk_forward"
     parameters: dict[str, Any] = Field(default_factory=dict)
     split_config: WalkForwardSplitConfig = Field(default_factory=WalkForwardSplitConfig)
     feature_config: TrainingFeatureConfig = Field(default_factory=TrainingFeatureConfig)
 
+    def stored_split_config(self) -> dict[str, Any]:
+        return {**self.split_config.model_dump(), "prediction_horizon": DEFAULT_PREDICTION_HORIZON}
+
     def stored_target_config(self) -> dict[str, Any]:
-        return production_target_config(self.model_key, self.split_config.prediction_horizon)
+        return production_target_config(self.model_key)
 
 
 class PublishRequest(BaseModel):

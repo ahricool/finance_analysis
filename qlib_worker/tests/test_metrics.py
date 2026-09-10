@@ -38,8 +38,16 @@ def test_cross_section_metrics_use_daily_rank_ic_not_pooled_headline() -> None:
     assert metrics["rank_ic_positive_day_ratio"] == pytest.approx(0.5)
     assert metrics["top5_excess_return_pct"] is not None
     trading = cross_section_trading_metrics(frame, top_ks=(2,))
-    assert trading["assumptions"]["one_way_cost_bps"] == 10.0
-    assert "top2_oos_return_pct" in trading
+    assert trading["assumptions"]["prediction_horizon"] == 5
+    assert trading["assumptions"]["periods_overlap"] is True
+    assert trading["assumptions"]["not_a_backtest"] is True
+    assert "one_way_cost_bps" not in trading["assumptions"]
+    assert trading["top2_oos_return_pct"] == pytest.approx(1.0)
+    assert trading["top2_positive_period_ratio"] == pytest.approx(1.0)
+    assert "top2_simple_sharpe" not in trading
+    assert "top2_max_drawdown" not in trading
+    assert "top2_turnover" not in trading
+    assert "top2_cost_adjusted_return_pct" not in trading
     assert "mae" in metrics and "rmse" in metrics
 
 

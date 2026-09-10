@@ -54,7 +54,7 @@ def seed_quant_reference_data(db_manager=None) -> dict:
                     "entry_price": "open",
                     "exit_price": "close",
                     "label": "absolute_return > 0",
-                    "unit": "probability",
+                    "unit": "directional_score",
                 },
             ),
             (

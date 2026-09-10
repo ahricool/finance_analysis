@@ -96,17 +96,5 @@ class PortfolioBuilder:
             return {}
         name_cap = self.config.single_stock_max_weight
         total_cap = min(max(0.0, float(exposure)), name_cap * len(selected))
-        if self.config.weighting == "equal_weight":
-            weight = total_cap / len(selected)
-            return {item["code"]: min(weight, name_cap) for item in selected}
-        if self.config.weighting == "score_weight":
-            scores = [max(0.0, float(item["final_score"])) for item in selected]
-            total = sum(scores)
-            if not total:
-                weight = total_cap / len(selected)
-                return {item["code"]: min(weight, name_cap) for item in selected}
-            return {
-                item["code"]: min(total_cap * max(0.0, float(item["final_score"])) / total, name_cap)
-                for item in selected
-            }
-        raise ValueError(f"Unknown weighting: {self.config.weighting}")
+        weight = total_cap / len(selected)
+        return {item["code"]: min(weight, name_cap) for item in selected}
