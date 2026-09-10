@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
 from finance_analysis.trend_following.duration import count_trend_duration_days  # pragma: allowlist secret
 from finance_analysis.trend_following.features import calculate_features  # pragma: allowlist secret
 from finance_analysis.trend_following.models import DailyBar  # pragma: allowlist secret
@@ -73,3 +74,19 @@ def test_trend_duration_is_repeatable_and_ignores_future_bars() -> None:
     assert first == 3
     assert first == rerun == with_future
     assert count_trend_duration_days(history[:22], as_of=as_of) == 0
+
+
+def test_trend_duration_is_not_truncated_by_strategy_history_bars() -> None:
+    history = _bars([100.0 + index for index in range(120)])
+    as_of = history[-1].trade_date
+    features = calculate_features(history)
+    assert features is not None
+    assert features["trend_candidate"] is True
+    truncated = count_trend_duration_days(history[-DEFAULT_CONFIG.history_bars :], as_of=as_of)
+    full = count_trend_duration_days(history, as_of=as_of)
+    assert DEFAULT_CONFIG.history_bars == 60
+    assert DEFAULT_CONFIG.minimum_history_bars == 21
+    assert truncated == DEFAULT_CONFIG.history_bars - DEFAULT_CONFIG.minimum_history_bars + 1
+    assert truncated <= 40
+    assert full > 40
+    assert full == len(history) - DEFAULT_CONFIG.minimum_history_bars + 1

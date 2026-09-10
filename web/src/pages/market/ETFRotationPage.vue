@@ -819,13 +819,6 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               <CardHeader><CardTitle>Eligibility & Signal</CardTitle></CardHeader><CardContent class="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-3">
                 <div>
                   <IndicatorLabel
-                    label="持续天数"
-                    :description="descriptions.trendDuration"
-                    wrap
-                  /><strong class="block">{{ durationText(selected.latest.trendDurationDays) }}</strong>
-                </div>
-                <div>
-                  <IndicatorLabel
                     label="Absolute Trend"
                     :description="descriptions.absoluteTrend"
                     wrap

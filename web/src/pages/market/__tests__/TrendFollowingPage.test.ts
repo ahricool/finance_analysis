@@ -309,6 +309,7 @@ describe('TrendFollowingPage', () => {
     expect(dialog.classList.contains('top-1/2')).toBe(true);
     expect(dialog.querySelector('[data-testid="trend-rank-history"]')).not.toBeNull();
     expect(dialog.querySelector('[data-testid="rank-chart"]')).not.toBeNull();
+    expect(dialog.textContent).not.toContain('持续天数');
     expect(document.body.textContent).toContain('Alpha Score Breakdown');
     expect(document.body.textContent).toContain('理论风险权重');
     expect(document.body.textContent).toContain('Signal Date / Price');

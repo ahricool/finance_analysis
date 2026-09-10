@@ -62,3 +62,17 @@ def test_etf_duration_is_repeatable_and_ignores_future_bars() -> None:
     assert first == rerun == with_future
     missing_as_of = count_trend_duration_days(history[:22], as_of=as_of)
     assert missing_as_of == 0
+
+
+def test_etf_duration_is_not_truncated_by_strategy_history_window() -> None:
+    history = _bars([100.0 + index for index in range(120)])
+    as_of = history[-1].trade_date
+    strategy_window = 60
+    warmup = 21
+    truncated = count_trend_duration_days(history[-strategy_window:], as_of=as_of)
+    full = count_trend_duration_days(history, as_of=as_of)
+    assert is_absolute_trend_eligible(calculate_features(history).to_dict()) is True
+    assert truncated == strategy_window - warmup + 1
+    assert truncated <= 40
+    assert full > 40
+    assert full == len(history) - warmup + 1

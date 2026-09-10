@@ -365,6 +365,7 @@ describe('ETFRotationPage', () => {
     expect(document.body.querySelector('[data-testid="etf-raw-metrics-grid"]')?.className)
       .toContain('grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]');
     expect(document.body.textContent).toContain('Raw Metrics');
+    expect(modal?.textContent).not.toContain('持续天数');
     expect(document.body.textContent).toContain('Weighted Slope 15D');
     expect(document.body.textContent).toContain('RS10');
     expect(document.body.textContent).toContain('Signed ER10');
