@@ -11,7 +11,6 @@ Finance Analysis - 大盘复盘模块（支持 A 股 / 港股 / 美股）
 """
 
 import logging
-from datetime import datetime
 from typing import Optional, Protocol
 
 from finance_analysis.analysis.pipeline_config import get_pipeline_config
@@ -63,6 +62,7 @@ def run_market_review(
     send_notification: bool = True,
     merge_notification: bool = False,
     override_region: Optional[str] = None,
+    owner_uid: Optional[int] = None,
 ) -> Optional[str]:
     """
     执行大盘复盘分析
@@ -127,29 +127,18 @@ def run_market_review(
             review_report = market_analyzer.run_daily_review()
         
         if review_report:
-            # 保存报告到文件
-            date_str = datetime.now().strftime('%Y%m%d')
-            report_filename = f"market_review_{date_str}.md"
-            filepath = notifier.save_report_to_file(
-                f"{review_text['root_title']}\n\n{review_report}",
-                report_filename
-            )
-            logger.info(f"大盘复盘报告已保存: {filepath}")
-            
             # 推送通知（合并模式下跳过，由 main 层统一发送）
             if merge_notification and send_notification:
                 logger.info("合并推送模式：跳过大盘复盘单独推送，将在个股+大盘复盘后统一发送")
-            elif send_notification and notifier.is_available():
+            else:
                 # 添加标题
                 report_content = f"{review_text['push_title']}\n\n{review_report}"
 
-                success = notifier.send(report_content, email_send_to_all=True, route_type="report")
+                success = notifier.send(report_content, uid=owner_uid, route_type="report", push=send_notification)
                 if success:
                     logger.info("大盘复盘推送成功")
                 else:
                     logger.warning("大盘复盘推送失败")
-            elif not send_notification:
-                logger.info("已跳过推送通知 (--no-notify)")
             
             return review_report
         

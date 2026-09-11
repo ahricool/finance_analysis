@@ -61,13 +61,13 @@ class _CriticalSectionTrackingNotifier:
     def _send(
         self,
         content: str,
-        email_stock_codes=None,
+        uid=None,
         route_type=None,
         severity=None,
         dedup_key=None,
         cooldown_key=None,
     ) -> bool:
-        stock_code = (email_stock_codes or ["unknown"])[0]
+        stock_code = content.split(":", 1)[-1]
         self._enter("send", stock_code)
         return True
 

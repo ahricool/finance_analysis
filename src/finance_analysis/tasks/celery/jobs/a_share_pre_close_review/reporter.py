@@ -9,7 +9,6 @@ from typing import Any, Optional
 from .config import ACTION_LABELS, SECTOR_CONTINUITY_LABELS
 from .models import PreCloseReviewSummary
 
-from finance_analysis.tasks.lifecycle import get_current_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -28,26 +27,9 @@ class ASharePreCloseReporter:
         self,
         *,
         notifier: Optional[Any] = None,
-        timeline_repo: Optional[Any] = None,
     ) -> None:
         self.notifier = notifier
-        self.timeline_repo = timeline_repo
         self._notifier_provided = notifier is not None
-
-    def record_report(self, summary) -> int:
-        entry = self._get_timeline_repo().create(
-            entry_type="a_share_pre_close",
-            market="CN",
-            event_time=summary.finished_at,
-            title=f"A股收盘前复核 {summary.trading_date.isoformat()}",
-            summary=f"市场：{summary.market_state}；风险：{summary.risk_state}；成交：{summary.turnover_state}",
-            content=render_report(summary),
-            importance="high",
-            actionability="consider",
-            source_run_id=get_current_task_id(),
-            source_task="analysis_a_share_pre_close_review",
-        )
-        return entry.id
 
     def send_notification(
         self,
@@ -55,8 +37,6 @@ class ASharePreCloseReporter:
         *,
         send_notification: bool,
     ) -> bool:
-        if not send_notification:
-            return False
         if os.getenv("PYTEST_CURRENT_TEST") and not self._notifier_provided:
             logger.info("测试环境跳过真实 A 股收盘前复核通知")
             return False
@@ -65,8 +45,8 @@ class ASharePreCloseReporter:
             key = f"a_share_pre_close_review:{summary.trading_date.isoformat()}"
             sent = bool(
                 notifier.send(
-                    render_notification(summary),
-                    email_send_to_all=True,
+                    render_report(summary),
+                    push=send_notification,
                     route_type="report",
                     severity="warning" if summary.risk_state in {"high", "elevated"} else "info",
                     dedup_key=key,
@@ -88,12 +68,6 @@ class ASharePreCloseReporter:
             self.notifier = NotificationService()
         return self.notifier
 
-    def _get_timeline_repo(self) -> Any:
-        if self.timeline_repo is None:
-            from finance_analysis.database.repositories.timeline import TimelineEntryRepo
-
-            self.timeline_repo = TimelineEntryRepo()
-        return self.timeline_repo
 
 
 def render_report(summary: PreCloseReviewSummary) -> str:

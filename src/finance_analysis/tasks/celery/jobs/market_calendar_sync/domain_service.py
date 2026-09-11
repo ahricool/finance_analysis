@@ -10,12 +10,10 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Sequence
 from zoneinfo import ZoneInfo
 
-from finance_analysis.core.time import utc_now
 from finance_analysis.database.models import FinanceEvent
 from finance_analysis.database.repositories.market_calendar_event import (
     FinanceEventUpsertResult,
     MarketCalendarEventRepo,
-    notification_fingerprint,
 )
 from finance_analysis.database.repositories.universe import UniverseResolver
 from finance_analysis.integrations.market_data import MarketDataService
@@ -361,18 +359,6 @@ class MarketCalendarSyncService:
                 continue
             if not today <= _event_date(event) <= today + timedelta(days=MARKET_CALENDAR_NOTIFICATION_DAYS):
                 continue
-            fingerprint = notification_fingerprint(
-                {
-                    "calendar_type": event.calendar_type,
-                    "symbol": event.symbol,
-                    "event_date": event.event_date,
-                    "event_datetime": event.event_datetime,
-                    "market_session": event.market_session,
-                }
-            )
-            if getattr(event, "notification_fingerprint", None) == fingerprint:
-                continue
-            setattr(event, "_pending_notification_fingerprint", fingerprint)
             selected.append(event)
         return sorted(selected, key=lambda event: (_event_date(event), event.symbol or "", event.id))
 
@@ -382,14 +368,13 @@ class MarketCalendarSyncService:
         end_date = start_date + timedelta(days=MARKET_CALENDAR_NOTIFICATION_DAYS)
         digest = hashlib.sha256(
             "|".join(
-                f"{event.id}:{getattr(event, '_pending_notification_fingerprint', '')}" for event in events
+                f"{event.id}:{event.event_date}:{event.event_datetime}:{event.market_session}" for event in events
             ).encode()
         ).hexdigest()
         try:
             notifier = self._notifier()
             sent = notifier.send(
                 render_notification(events, start_date, end_date),
-                email_stock_codes=[_event_symbol(event) for event in events if _event_symbol(event)],
                 route_type="alert",
                 severity="info",
                 dedup_key=f"market_calendar:{digest}",
@@ -401,16 +386,7 @@ class MarketCalendarSyncService:
         if not sent:
             logger.info("财经日历通知未发送或无可用渠道")
             return 0
-        notified_at = utc_now()
-        marked = 0
-        for event in events:
-            fingerprint = getattr(event, "_pending_notification_fingerprint", None)
-            try:
-                if fingerprint and self.repo.mark_notified(int(event.id), fingerprint, notified_at=notified_at):
-                    marked += 1
-            except Exception as exc:
-                logger.warning("财经日历通知标记失败: event_id=%s error=%s", event.id, exc)
-        return marked
+        return len(events)
 
     def _notifier(self) -> Any:
         if self.notifier_factory is not None:

@@ -9,7 +9,6 @@ from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.news import NewsIntel, NewsIntelUsage
 from finance_analysis.database.models.news_analysis import NewsAnalysis
 from finance_analysis.database.models.timeline import TimelineEntry
-from finance_analysis.database.repositories.timeline import TimelineEntryRepo
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.timeline.cursor import TimelineCursor
 from finance_analysis.timeline.service import TimelineService  # pragma: allowlist secret
@@ -17,7 +16,7 @@ from finance_analysis.timeline.service import TimelineService  # pragma: allowli
 
 def cleanup_entries(db, ids):
     db._run_write_transaction(
-        "timeline-test.cleanup", lambda session: session.execute(delete(TimelineEntry).where(TimelineEntry.id.in_(ids)))
+        "timeline-test.cleanup", lambda session: session.execute(delete(FinanceEvent).where(FinanceEvent.id.in_(ids)))
     )
 
 
@@ -34,7 +33,7 @@ def test_migrated_postgresql_schema_has_no_calendar_or_news_context():  # pragma
 def test_postgresql_day_boundaries_all_day_events_and_cutoff_agree():  # pragma: allowlist secret
     db = DatabaseManager.get_instance()
     key = "timeline-test-" + uuid4().hex
-    repo = TimelineEntryRepo(db)
+    repo = CalendarMarkerRepo(db)
     entry = repo.create(
         entry_type="us_premarket",
         market="US",
@@ -251,7 +250,7 @@ def test_postgresql_cursor_survives_top_insert_and_deleted_anchor():
 
     db = DatabaseManager.get_instance()
     now = datetime(2099, 9, 6, 8, 0, 0, 123456, tzinfo=timezone.utc)
-    repo = TimelineEntryRepo(db)
+    repo = CalendarMarkerRepo(db)
     ids = []
     statements = []
 
@@ -272,7 +271,7 @@ def test_postgresql_cursor_survives_top_insert_and_deleted_anchor():
                 actionability="none",
             )
             ids.append(row.id)
-        query = dict(timezone_name="Asia/Shanghai", end_date=now.date(), category="analysis", market="US")
+        query = dict(timezone_name="Asia/Shanghai", end_date=now.date(), category="event", calendar_type="earnings", market="US")
         service = TimelineService(db)
         first = service.list(**query, limit=2)
         assert [item.title for item in first["items"]] == ["A", "B"]
@@ -295,3 +294,18 @@ def test_postgresql_cursor_survives_top_insert_and_deleted_anchor():
     finally:
         sqlalchemy_event.remove(db._engine, "before_cursor_execute", capture)
         cleanup_entries(db, ids)
+
+
+class CalendarMarkerRepo:
+    def __init__(self, db):
+        self.db = db
+
+    def create(self, *, event_time, title, **kwargs):
+        def write(session):
+            row = FinanceEvent(provider="test", event_key=uuid4().hex, calendar_type="earnings", market="US",
+                               symbol="TEST.US", event_date=event_time.date(), event_datetime=event_time,
+                               title=title, content="Test")
+            session.add(row)
+            session.flush()
+            return row
+        return self.db._run_write_transaction("test.seed", write)

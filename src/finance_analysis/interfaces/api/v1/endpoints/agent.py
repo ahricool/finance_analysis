@@ -257,17 +257,18 @@ class SendChatRequest(BaseModel):
 
 
 @router.post("/chat/send")
-async def send_chat_to_notification(request: SendChatRequest):
+async def send_chat_to_notification(request: SendChatRequest, http_request: Request):
     """
     Send chat session content to configured notification channels.
     Uses run_in_executor to avoid blocking the event loop.
     """
     from finance_analysis.notification.service import NotificationService
 
+    uid = get_effective_uid(http_request)
     loop = asyncio.get_running_loop()
     success = await loop.run_in_executor(
         None,
-        lambda: NotificationService().send(request.content),
+        lambda: NotificationService().send(request.content, uid=uid, title=request.title),
     )
     if not success:
         return {

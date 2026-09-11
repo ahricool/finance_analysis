@@ -299,12 +299,14 @@ class AnalysisTaskQueue:
         send_notification: bool,
         override_region: Optional[str] = None,
         bot_message: Optional[Dict[str, Any]] = None,
+        owner_uid: Optional[int] = None,
     ) -> TaskInfo:
         from finance_analysis.tasks.celery.jobs.market_review.tasks import run_market_review
 
         task = TaskInfo(
             task_id=uuid.uuid4().hex,
             stock_code="market_review",
+            owner_uid=owner_uid,
             stock_name="大盘复盘",
             status=TaskStatus.PENDING,
             message="大盘复盘任务已提交",
@@ -326,6 +328,7 @@ class AnalysisTaskQueue:
                     "send_notification": send_notification,
                     "override_region": override_region,
                     "bot_message": bot_message,
+                    "owner_uid": owner_uid,
                 },
             )
         except Exception:

@@ -14,6 +14,7 @@ class MarketReviewTaskService:
         send_notification: bool,
         override_region: Optional[str],
         bot_message: Optional[Dict[str, Any]],
+        owner_uid: Optional[int] = None,
     ) -> Dict[str, Any]:
         from finance_analysis.analysis.pipeline_config import get_pipeline_config
         from finance_analysis.market_review.runtime import build_market_review_runtime
@@ -30,10 +31,11 @@ class MarketReviewTaskService:
             search_service=search_service,
             send_notification=send_notification,
             override_region=override_region,
+            owner_uid=owner_uid,
         )
         if not report:
             raise RuntimeError("大盘复盘未返回可持久化报告")
-        return {"result": report}
+        return {"notification_id": notifier.last_notification_id}
 
 
 __all__ = ["MarketReviewTaskService"]

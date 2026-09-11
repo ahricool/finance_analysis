@@ -84,9 +84,9 @@ Macro 按中立名称类型、明确 US、日期/时间及可用报告期间匹�
 
 **created=True 仅持久化、进入 Timeline 并提交 importance scoring，不立即通知。** 只有已有事件的 event_date、event_datetime、market_session 实质变化才进入 Calendar Change Notification；EPS、Provider、content、公司名、币种或审计补充不触发。时间范围仍为今天至今天 + 30 天，文案明确写“时间调整”。不实现 T-3/T-1。
 
-删除误导性的 is_important_for_notification，不再用 watchlist/importance 做通知资格判断；watchlist 只保留 focus_events 排序价值。时间变化通知按指纹去重，发送失败不标记成功。新系统重要性评分沿用中立 v2 Prompt、US/CN 市值币种与全市场宏观影响，不依赖 star，不按 Provider 加减分；没有历史 importance 迁移。
+删除误导性的 is_important_for_notification，不再用 watchlist/importance 做通知资格判断；watchlist 只保留 focus_events 排序价值。时间变化提醒先写 notification，再由原有 Noise Control 控制外部推送；FinanceEvent 不保存发送状态或去重指纹。新系统重要性评分沿用中立 v2 Prompt、US/CN 市值币种与全市场宏观影响，不依赖 star，不按 Provider 加减分；没有历史 importance 迁移。
 
-Timeline 保留 FinanceEvent + News + TimelineEntry UNION，不写 timeline_entries；现有 detail payload 保留 market_session、reporting_period、provider 和三个 EPS 字段。旧 Calendar API 不恢复，前端不变。
+Timeline 保留 FinanceEvent + News UNION，不写 timeline_entries；现有 detail payload 保留 market_session、reporting_period、provider 和三个 EPS 字段。旧 Calendar API 不恢复，前端不变。
 
 Provider、交易所、市场、页、单行及单次写入失败分别隔离。summary.source_stats 按 provider:type:market 给出 fetched/accepted/skipped/pages_succeeded/merged/inserted/updated/errors/universe_size，Yahoo CN 附 unsupported_reason。新事件不通知不影响 importance_candidate_ids。
 
@@ -125,8 +125,6 @@ Provider、交易所、市场、页、单行及单次写入失败分别隔离。
 | `importance_scored_at` | 评分 UTC 时间 |
 | `first_seen_at` | 首次发现时间，更新保留 |
 | `last_seen_at` | 最近观察时间 |
-| `notified_at` | 最近成功通知标记 |
-| `notification_fingerprint` | 日期、准确时间、session 等有意义变化的摘要 |
 | `created_at` | 原行创建时间 |
 | `updated_at` | 原行最近更新时间 |
 
@@ -177,3 +175,5 @@ IPO/dividend/split 只从财经日历类别映射、fetch 方法、通知/排序
 2026-09-08，在独立 PostgreSQL 16 测试容器执行完整 `uv run ./scripts/ci_gate.sh`：**2012 passed、17 skipped、2 deselected、104 subtests passed**；83 条 warning 为既有依赖/弃用提示。syntax、flake8、deterministic（13 passed）均通过。显式设置 `ENV_FILE=/dev/null`，清除 LLM 环境变量，DATABASE_URL 与 CALENDAR_TEST_DATABASE_URL 均指向隔离测试库。
 
 PostgreSQL 真实迁移和 advisory lock 并发去重测试实际执行通过，未跳过；另有 SQLite 迁移覆盖。`alembic heads` 为唯一 `0045_calendar_sources`，`git diff --check` 通过。生产数据库未迁移，没有发送真实通知或执行交易。
+
+通知持久化与本次迁移边界见 [消息中心](notifications.md)。

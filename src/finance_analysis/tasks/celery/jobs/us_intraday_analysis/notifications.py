@@ -56,7 +56,6 @@ class SignalReporter:
             generation = int(signal.metrics.get("state_generation") or 1)
             return NotificationService().send(
                 render_notification(signal),
-                email_stock_codes=[signal.symbol],
                 route_type="alert",
                 severity=severity,
                 dedup_key=f"us_intraday:{signal.symbol}:{signal.signal_type}:{generation}",

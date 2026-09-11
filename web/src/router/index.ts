@@ -57,6 +57,7 @@ const router = createRouter({
       path: '/',
       component: Shell,
       children: [
+        { path: 'notifications', name: 'notifications', component: () => import('@/pages/NotificationsPage.vue'), meta: { title: '消息中心' } },
         { path: '', redirect: { name: 'dashboard' } },
         {
           path: 'dashboard',

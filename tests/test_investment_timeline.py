@@ -17,7 +17,6 @@ from finance_analysis.database.models.news import NewsIntel, NewsIntelUsage
 from finance_analysis.database.models.news_analysis import NewsAnalysis
 from finance_analysis.database.models.timeline import TimelineEntry
 from finance_analysis.database.repositories.news_analysis import NewsAnalysisRepo
-from finance_analysis.database.repositories.timeline import TimelineEntryRepo
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.timeline.cursor import TimelineCursor
 from finance_analysis.timeline.service import TimelineService  # pragma: allowlist secret
@@ -50,18 +49,14 @@ def db():
     return TestDB()
 
 
-def report(db, **overrides):
-    values = dict(
-        entry_type="us_premarket",
-        market="US",
-        event_time=NOW,
-        title="盘前分析",
-        summary="等待趋势确认。",
-        content="# Full report",
-        importance="high",
-        actionability="consider",
-    )
-    return TimelineEntryRepo(db).create(**(values | overrides))
+def calendar_marker(db, **overrides):
+    from uuid import uuid4
+    values = dict(event_key=uuid4().hex, calendar_type="earnings", symbol="NVDA.US", title="财报事件")
+    for key in ("title", "market"):
+        if key in overrides:
+            values[key] = overrides[key]
+    values["event_datetime"] = overrides.get("event_time", NOW)
+    return event(db, **values)
 
 
 def event(db, **overrides):
@@ -146,7 +141,6 @@ def test_timeline_domain_has_no_uid_or_note_left():
     assert not (TIMELINE_ROOT / "interfaces/api/v1/schemas/timeline.py").exists()
     sources = [
         TIMELINE_ROOT / "database/models/timeline.py",
-        TIMELINE_ROOT / "database/repositories/timeline.py",
         TIMELINE_ROOT / "interfaces/api/v1/endpoints/timeline.py",
         *sorted((TIMELINE_ROOT / "timeline").glob("*.py")),
     ]
@@ -186,7 +180,7 @@ def test_note_routes_are_gone():
     assert paths == {("", ("GET",))}
 
 
-def test_news_upsert_updates_structure_without_duplicate_or_report(db):
+def test_news_upsert_updates_structure_without_duplicate_or_calendar_marker(db):
     seed_news(db)
     NewsAnalysisRepo(db).persist_premarket(
         [dict(news_id_or_url="https://example.com/news", importance_score=7, related_symbols=["AMD"])],
@@ -203,15 +197,15 @@ def test_news_upsert_updates_structure_without_duplicate_or_report(db):
 
 
 def test_three_sources_filters_and_pagination(db):
-    report(db)
-    report(db, market="CN", importance="normal", actionability="none", entry_type="a_share_pre_close")
+    calendar_marker(db)
+    calendar_marker(db, market="CN", importance="normal", actionability="none", entry_type="a_share_pre_close")
     seed_news(db, score=9)
     seed_news(db, score=10, url="https://example.com/top")
     event(db)
     service = TimelineService(db)
     result = service.list(**QUERY)
     assert result["total"] == 5
-    assert {item.category for item in result["items"]} == {"event", "news", "analysis"}
+    assert {item.category for item in result["items"]} == {"event", "news"}
     news = service.list(**QUERY, category="news")["items"]
     assert [item.importance_score for item in news] == [10, 9]
     assert news[1].detail_payload["watch_points"] == ["订单"]
@@ -317,7 +311,7 @@ def test_api_is_public_and_validates_input(db, monkeypatch):
 
     assert not any(route.path.startswith("/api/v1/calendar") for route in router.routes)
     client = timeline_client(db, monkeypatch)
-    report(db)
+    calendar_marker(db)
     seed_news(db)
     path = "/api/v1/timeline"
     response = client.get(path, params=dict(market="US", category="news"))
@@ -350,11 +344,11 @@ def test_api_serves_identical_content_regardless_of_session(db, monkeypatch):
 
     assert "request" not in inspect_module.signature(timeline.timeline_query).parameters
     client = timeline_client(db, monkeypatch)
-    report(db, title="公共报告")
+    calendar_marker(db, title="公共事件")
     first = client.get("/api/v1/timeline").json()
     second = client.get("/api/v1/timeline", headers={"Cookie": "session=other-user"}).json()
     assert first == second
-    assert [item["title"] for item in first["items"]] == ["公共报告"]
+    assert [item["title"] for item in first["items"]] == ["公共事件"]
 
 
 @pytest.mark.parametrize(
@@ -370,28 +364,18 @@ def test_reporters_persist_public_reports_without_an_owner(
     import importlib
 
     module = importlib.import_module(f"finance_analysis.tasks.celery.jobs.{module_name}.reporter")
-    monkeypatch.setattr(module, "get_current_task_id", lambda: "report-run")
-    summary = SimpleNamespace(
-        finished_at=NOW,
-        trading_date=NOW.date(),
-        market_state="谨慎",
-        risk_state="high",
-        turnover_state="下降",
-        market_regime="neutral",
-        report="# Full report",
-    )
+    from unittest.mock import Mock
+    summary = SimpleNamespace(trading_date=NOW.date(), risk_state="high", report="# Full report", warnings=[])
     if market == "CN":
         monkeypatch.setattr(module, "render_report", lambda summary: "# Full report")
-    reporter = getattr(module, reporter_name)(timeline_repo=TimelineEntryRepo(db))
-    entry_id = reporter.record_report(summary)
+    notifier = Mock()
+    reporter = getattr(module, reporter_name)(notifier=notifier)
+    reporter.send_notification(summary, send_notification=False)
+    notifier.send.assert_called_once()
+    assert notifier.send.call_args.args[0] == "# Full report"
+    assert notifier.send.call_args.kwargs["push"] is False
     with db.get_session() as session:
-        row = session.get(TimelineEntry, entry_id)
-        assert row.source_run_id == "report-run"
-        assert row.entry_type == entry_type
-        assert row.market == market
-        assert row.content == "# Full report"
-        assert row.summary and not row.summary.startswith("#")
-        assert row.importance == "high"
+        assert session.scalar(select(func.count()).select_from(TimelineEntry)) == 0
 
 
 def test_us_premarket_pipeline_persists_report_and_returns_task_statistics(db, monkeypatch):
@@ -407,16 +391,11 @@ def test_us_premarket_pipeline_persists_report_and_returns_task_statistics(db, m
     monkeypatch.setattr(
         "finance_analysis.database.repositories.watch_list.get_watch_list_codes_by_market", lambda market: ["NVDA"]
     )
-    monkeypatch.setattr(
-        "finance_analysis.database.repositories.timeline.TimelineEntryRepo", lambda: TimelineEntryRepo(db)
-    )
     result = USPremarketAnalysisTaskService().run()
     assert result["success_count"] == 1
+    pipeline.run.assert_called_once()
     with db.get_session() as session:
-        row = session.scalars(select(TimelineEntry)).one()
-        assert row.entry_type == "us_premarket"
-        assert row.content == "# Full report"
-        assert row.related_symbols == ["NVDA"]
+        assert session.scalar(select(func.count()).select_from(TimelineEntry)) == 0
 
 
 def test_news_job_persists_each_selected_fact_analysis_only(db, monkeypatch):
@@ -528,9 +507,9 @@ def test_timeline_news_publication_or_analysis_time(db, published):
 
 
 def test_feed_chronology_overrides_importance_and_pagination_is_stable(db):
-    report(db, event_time=NOW - timedelta(hours=1), importance="critical", title="older critical")
-    report(db, event_time=NOW, importance="normal", title="newer normal")
-    report(db, event_time=NOW, importance="low", title="newer low")
+    calendar_marker(db, event_time=NOW - timedelta(hours=1), importance="critical", title="older critical")
+    calendar_marker(db, event_time=NOW, importance="normal", title="newer normal")
+    calendar_marker(db, event_time=NOW, importance="low", title="newer low")
     service = TimelineService(db)
     items = service.list(**QUERY)["items"]
     assert [item.title for item in items] == ["newer low", "newer normal", "older critical"]
@@ -552,17 +531,17 @@ def seed_desc_fixture(db):
     event(db, event_key="fomc", calendar_type="macro", title="FOMC",
           event_datetime=datetime(2026, 9, 20, 12, tzinfo=timezone.utc))
     seed_news(db, url="https://example.com/desc-news", published=datetime(2026, 9, 10, 12, tzinfo=timezone.utc))
-    report(db, title="Analysis", event_time=datetime(2026, 9, 9, 12, tzinfo=timezone.utc))
+    calendar_marker(db, title="Analysis", event_time=datetime(2026, 9, 9, 12, tzinfo=timezone.utc))
 
 
 @pytest.mark.parametrize(
     "filters,expected",
     [
         ({}, ["NVDA Earnings", "FOMC", "芯片需求", "Analysis"]),
-        ({"category": "event", "calendar_type": "earnings"}, ["NVDA Earnings"]),
+        ({"category": "event", "calendar_type": "earnings"}, ["NVDA Earnings", "Analysis"]),
         ({"category": "event", "calendar_type": "macro"}, ["FOMC"]),
         ({"category": "news"}, ["芯片需求"]),
-        ({"category": "analysis"}, ["Analysis"]),
+        ({"category": "analysis"}, []),
     ],
 )
 def test_every_tab_orders_future_and_past_events_newest_first(db, filters, expected):
@@ -604,9 +583,9 @@ def test_cutoff_and_cursor_paginate_without_gaps_or_duplicates(db):
 
 def test_api_returns_all_future_messages_without_a_cutoff(db, monkeypatch):
     client = timeline_client(db, monkeypatch)
-    report(db, title="today")
-    report(db, title="future", event_time=NOW + timedelta(days=40))
-    report(db, title="past", event_time=NOW - timedelta(days=400))
+    calendar_marker(db, title="today")
+    calendar_marker(db, title="future", event_time=NOW + timedelta(days=40))
+    calendar_marker(db, title="past", event_time=NOW - timedelta(days=400))
     assert [item["title"] for item in client.get("/api/v1/timeline").json()["items"]] == ["future", "today", "past"]
     cutoff = client.get("/api/v1/timeline", params={"end_date": "2026-09-06"}).json()
     assert [item["title"] for item in cutoff["items"]] == ["today", "past"]
@@ -670,16 +649,16 @@ def test_cursor_continues_after_loaded_position_despite_feed_changes(db, mutatio
     from sqlalchemy import delete
 
     for index, title in enumerate("ABCD"):
-        report(db, title=title, event_time=NOW - timedelta(hours=index))
+        calendar_marker(db, title=title, event_time=NOW - timedelta(hours=index))
     service = TimelineService(db)
     first = service.list(**QUERY, limit=2)
     assert [item.title for item in first["items"]] == ["A", "B"]
     assert first["has_more"] is True
     if mutation == "insert":
-        report(db, title="X", event_time=NOW + timedelta(minutes=5))
+        calendar_marker(db, title="X", event_time=NOW + timedelta(minutes=5))
     elif mutation == "delete":
         db._run_write_transaction(
-            "delete", lambda session: session.execute(delete(TimelineEntry).where(TimelineEntry.title.in_(["A", "B"])))
+            "delete", lambda session: session.execute(delete(FinanceEvent).where(FinanceEvent.title.in_(["A", "B"])))
         )
     second = service.list(**QUERY, limit=2, cursor=TimelineCursor.decode(first["next_cursor"]))
     assert [item.title for item in second["items"]] == ["C", "D"]
@@ -689,15 +668,15 @@ def test_cursor_continues_after_loaded_position_despite_feed_changes(db, mutatio
 
 
 def test_cursor_ties_across_all_sources(db):
-    report(db)
-    report(db, entry_type="a_share_pre_close")
+    calendar_marker(db)
+    calendar_marker(db, entry_type="a_share_pre_close")
     seed_news(db)
     seed_news(db, url="https://example.com/second")
     event(db, event_key="ties")
     service = TimelineService(db)
     expected = service.list(**QUERY)["items"]
-    assert [item.source_type for item in expected] == ["finance_event", "news", "news", "report", "report"]
-    assert expected[1].source_id > expected[2].source_id
+    assert [item.source_type for item in expected] == ["finance_event", "finance_event", "finance_event", "news", "news"]
+    assert expected[3].source_id > expected[4].source_id
     loaded = []
     cursor = None
     while True:
@@ -756,8 +735,8 @@ def test_invalid_cursor_payload_returns_422_before_query(monkeypatch, payload):
 
 def test_cursor_api_contract_and_round_trip(db, monkeypatch):
     client = timeline_client(db, monkeypatch)
-    report(db, title="newer", event_time=NOW + timedelta(microseconds=1))
-    report(db, title="older")
+    calendar_marker(db, title="newer", event_time=NOW + timedelta(microseconds=1))
+    calendar_marker(db, title="older")
     first = client.get("/api/v1/timeline", params={"limit": 1}).json()
     assert set(first) == {"items", "total", "limit", "next_cursor", "has_more"}
     assert first["has_more"] is True
@@ -772,7 +751,13 @@ def test_cursor_api_contract_and_round_trip(db, monkeypatch):
 @pytest.mark.parametrize("importance", ["critical", "high", "normal", "low"])
 def test_importance_filters_unified_sources_and_cursor(db, monkeypatch, importance):
     for index, level in enumerate(("critical", "high", "normal", "low")):
-        report(db, title=level, importance=level, event_time=NOW - timedelta(minutes=index))
+        seed_news(db, score={"critical": 10, "high": 7, "normal": 5, "low": 1}[level],
+                  url=f"https://example.com/{level}", published=NOW - timedelta(minutes=index))
+        with db.get_session() as session, session.begin():
+            row = session.scalar(select(NewsIntel).where(NewsIntel.url == f"https://example.com/{level}"))
+            row.title = level
+            analysis = session.scalar(select(NewsAnalysis).where(NewsAnalysis.news_intel_id == row.id))
+            analysis.importance = level
     event(db)
     seed_news(db)
     client = timeline_client(db, monkeypatch)
@@ -799,9 +784,19 @@ def test_importance_combines_with_calendar_type_market_and_cutoff(db, monkeypatc
     event(db, event_key="macro", title="CPI")
     event(db, event_key="cn", title="CN", calendar_type="earnings", symbol="NVDA", market="CN", importance_score=9)
     seed_news(db)
-    report(db, importance="critical")
+    calendar_marker(db, importance="critical")
     response = timeline_client(db, monkeypatch).get("/api/v1/timeline", params=dict(
         market="US", category="event", calendar_type="earnings", importance="critical", end_date="2026-09-06",
     ))
     assert response.status_code == 200
     assert [item["title"] for item in response.json()["items"]] == ["earnings"]
+
+
+def test_legacy_reports_never_appear_in_timeline(db):
+    db._run_write_transaction("seed-legacy", lambda session: session.add(TimelineEntry(
+        entry_type="us_premarket", event_time=NOW, title="Legacy report", summary="old", content="old",
+    )))
+    event(db)
+    result = TimelineService(db).list(**QUERY)
+    assert result["total"] == 1
+    assert result["items"][0].source_type == "finance_event"

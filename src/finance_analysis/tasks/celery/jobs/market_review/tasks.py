@@ -25,11 +25,13 @@ def run_market_review(
     send_notification: bool,
     override_region: Optional[str] = None,
     bot_message: Optional[Dict[str, Any]] = None,
+    owner_uid: Optional[int] = None,
 ) -> Dict[str, Any]:
     return MarketReviewTaskService().run(
         send_notification=send_notification,
         override_region=override_region,
         bot_message=bot_message,
+        owner_uid=owner_uid,
     )
 
 

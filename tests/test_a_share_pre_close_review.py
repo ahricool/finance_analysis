@@ -281,7 +281,7 @@ def test_trading_day_1430_completes_and_sends_one_notification():
     assert summary.decision["holdings"][0]["percent_min"] == 20
     assert summary.notification_sent is True
     assert reporter.notification_calls == 1
-    assert reporter.report_calls == 1
+    assert reporter.report_calls == 0
 
 
 def test_non_trading_day_skips(monkeypatch):
@@ -384,7 +384,6 @@ def test_notification_failure_does_not_fail_review_or_retry_send():
     summary = _service(reporter=reporter).run(now=NOW)
 
     assert summary.notification_sent is False
-    assert summary.timeline_entry_id == 123
     assert reporter.notification_calls == 1
 
 

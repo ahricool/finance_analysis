@@ -103,8 +103,6 @@ class USPostmarketReviewService:
         summary.report = self._ensure_required_sections(report, context)
 
         summary.finished_at = self._market_now()
-        summary.report_file = self.reporter.save_report_file(summary)
-        summary.timeline_entry_id = self.reporter.record_report(summary)
         summary.notification_sent = self.reporter.send_notification(
             summary,
             send_notification=send_notification,

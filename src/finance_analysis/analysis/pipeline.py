@@ -15,7 +15,6 @@ import logging
 import threading
 import time
 import uuid
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple, Callable
@@ -37,7 +36,7 @@ from finance_analysis.analysis.stock_report_analyzer import (
     stabilize_decision_with_structure,
 )
 from finance_analysis.stocks.reference_data.mapping import STOCK_NAME_MAP
-from finance_analysis.notification.service import NotificationService, NotificationChannel
+from finance_analysis.notification.service import NotificationService
 from finance_analysis.reporting.localization import (
     get_unknown_text,
     infer_decision_type_from_advice,
@@ -108,6 +107,7 @@ class StockAnalysisPipeline(AgentResultMixin):
         self.progress_callback = progress_callback
         from finance_analysis.users.ownership import resolve_owner_uid
 
+        self.notification_uid = owner_uid
         self.owner_uid = resolve_owner_uid(owner_uid)
         
         # 初始化各模块
@@ -1357,23 +1357,15 @@ class StockAnalysisPipeline(AgentResultMixin):
         logger.info("===== 分析完成 =====")
         logger.info(f"成功: {success_count}, 失败: {fail_count}, 耗时: {elapsed_time:.2f} 秒")
         
-        # 保存报告到本地文件（无论是否推送通知都保存）
+        # A single-report mode stores each report; aggregate mode stores only the aggregate.
         if results and not dry_run:
-            self._save_local_report(results, report_type)
-
-        # 发送通知（单股推送模式下跳过汇总推送，避免重复）
-        if results and send_notification and not dry_run:
-            if single_stock_notify:
-                # 单股推送模式：只保存汇总报告，不再重复推送
-                logger.info("单股推送模式：跳过汇总推送，仅保存报告到本地")
+            if single_stock_notify and send_notification:
                 self._send_notifications(results, report_type, skip_push=True)
-            elif merge_notification:
-                # 合并模式（Issue #190）：仅保存，不推送，由 main 层合并个股+大盘后统一发送
-                logger.info("合并推送模式：跳过本次推送，将在个股+大盘复盘后统一发送")
+            elif merge_notification and send_notification:
                 self._send_notifications(results, report_type, skip_push=True)
             else:
-                self._send_notifications(results, report_type)
-        
+                self._send_notifications(results, report_type, push=send_notification)
+
         return results
 
     def _send_single_stock_notification(
@@ -1383,9 +1375,6 @@ class StockAnalysisPipeline(AgentResultMixin):
         fallback_code: Optional[str] = None,
     ) -> None:
         """发送单股通知，供直接单股入口和批量串行推送共用。"""
-        if not self.notifier.is_available():
-            return
-
         stock_code = getattr(result, "code", None) or fallback_code or "unknown"
         notify_lock = getattr(self, "_single_stock_notify_lock", None)
         if notify_lock is None:
@@ -1409,7 +1398,7 @@ class StockAnalysisPipeline(AgentResultMixin):
 
                 if self.notifier.send(
                     report_content,
-                    email_stock_codes=[stock_code],
+                    uid=getattr(self, "notification_uid", None),
                     route_type="report",
                     severity="info",
                     dedup_key=f"report:single:{stock_code}:{report_type.value}",
@@ -1421,279 +1410,22 @@ class StockAnalysisPipeline(AgentResultMixin):
             except Exception as e:
                 logger.exception(f"[{stock_code}] 单股推送异常: {e}")
 
-    def _save_local_report(
-        self,
-        results: List[AnalysisResult],
-        report_type: ReportType = ReportType.SIMPLE,
-    ) -> None:
-        """保存分析报告到本地文件（与通知推送解耦）"""
-        try:
-            report = self._generate_aggregate_report(results, report_type)
-            filepath = self.notifier.save_report_to_file(report)
-            logger.info(f"决策仪表盘日报已保存: {filepath}")
-        except Exception as e:
-            logger.exception(f"保存本地报告失败: {e}")
-
-    def _md2img_install_hint(self) -> str:
-        try:
-            engine = getattr(self.config, "md2img_engine", "wkhtmltoimage")
-        except Exception:
-            engine = "wkhtmltoimage"
-        return (
-            "npm i -g markdown-to-file" if engine == "markdown-to-file"
-            else "wkhtmltopdf (apt install wkhtmltopdf / brew install wkhtmltopdf)"
-        )
-
-    def _send_notification_channel_safely(
-        self,
-        channel_label: str,
-        send_func: Callable[[], bool],
-    ) -> bool:
-        try:
-            return bool(send_func())
-        except Exception as e:
-            logger.exception(
-                "通知渠道 %s 推送异常，继续尝试其他渠道: %s",
-                channel_label,
-                e,
-            )
-            return False
-
-    def _prepare_aggregate_image_bytes(
-        self,
-        report: str,
-        channels_needing_image: set,
-    ) -> Optional[bytes]:
-        from finance_analysis.reporting.md2img import markdown_to_image
-
-        if not channels_needing_image:
-            return None
-
-        image_bytes = markdown_to_image(
-            report, max_chars=self.notifier._markdown_to_image_max_chars
-        )
-        if image_bytes:
-            logger.info(
-                "Markdown 已转换为图片，将向 %s 发送图片",
-                [ch.value for ch in channels_needing_image],
-            )
-            return image_bytes
-
-        logger.warning(
-            "Markdown 转图片失败，将回退为文本发送。请检查 MARKDOWN_TO_IMAGE_CHANNELS 配置并安装 %s",
-            self._md2img_install_hint(),
-        )
-        return None
-
-    def _send_grouped_email_notifications(
-        self,
-        channel: NotificationChannel,
-        report: str,
-        image_bytes: Optional[bytes],
-        results: List[AnalysisResult],
-        report_type: ReportType,
-    ) -> bool:
-        from finance_analysis.reporting.md2img import markdown_to_image
-
-        stock_email_groups = getattr(self.config, "stock_email_groups", []) or []
-        code_to_emails: Dict[str, Optional[List[str]]] = {}
-        for result in results:
-            if result.code not in code_to_emails:
-                canonical = normalize_stock_code(result.code)
-                emails = []
-                for stocks, emails_list in stock_email_groups:
-                    if canonical in stocks:
-                        emails.extend(emails_list)
-                code_to_emails[result.code] = list(dict.fromkeys(emails)) if emails else None
-
-        emails_to_results: Dict[Optional[Tuple], List] = defaultdict(list)
-        for result in results:
-            receivers = code_to_emails.get(result.code)
-            key = tuple(receivers) if receivers else None
-            emails_to_results[key].append(result)
-
-        all_success = False
-        for key, group_results in emails_to_results.items():
-            receivers = list(key) if key is not None else None
-
-            def _send_email_group(
-                group_results=group_results,
-                receivers=receivers,
-            ) -> bool:
-                grp_report = self._generate_aggregate_report(group_results, report_type)
-                grp_image_bytes = None
-                if channel.value in self.notifier._markdown_to_image_channels:
-                    grp_image_bytes = markdown_to_image(
-                        grp_report,
-                        max_chars=self.notifier._markdown_to_image_max_chars,
-                    )
-                use_image = self.notifier._should_use_image_for_channel(channel, grp_image_bytes)
-                if use_image:
-                    return self.notifier._send_email_with_inline_image(
-                        grp_image_bytes, receivers=receivers
-                    )
-                return self.notifier.send_to_email(grp_report, receivers=receivers)
-
-            email_label = (
-                f"{channel.value}:{','.join(receivers)}"
-                if receivers else f"{channel.value}:default"
-            )
-            all_success = self._send_notification_channel_safely(
-                email_label,
-                _send_email_group,
-            ) or all_success
-        return all_success
-
-    def _send_aggregate_channel(
-        self,
-        channel: NotificationChannel,
-        report: str,
-        image_bytes: Optional[bytes],
-        results: List[AnalysisResult],
-        report_type: ReportType,
-    ) -> bool:
-        if channel == NotificationChannel.TELEGRAM:
-            def _send_telegram_report() -> bool:
-                use_image = self.notifier._should_use_image_for_channel(channel, image_bytes)
-                if use_image:
-                    return self.notifier._send_telegram_photo(image_bytes)
-                return self.notifier.send_to_telegram(report)
-
-            return self._send_notification_channel_safely(channel.value, _send_telegram_report)
-
-        if channel == NotificationChannel.EMAIL:
-            stock_email_groups = getattr(self.config, "stock_email_groups", []) or []
-            if stock_email_groups:
-                return self._send_grouped_email_notifications(
-                    channel, report, image_bytes, results, report_type
-                )
-
-            def _send_email_report() -> bool:
-                use_image = self.notifier._should_use_image_for_channel(channel, image_bytes)
-                if use_image:
-                    return self.notifier._send_email_with_inline_image(image_bytes)
-                return self.notifier.send_to_email(report)
-
-            return self._send_notification_channel_safely(channel.value, _send_email_report)
-
-        if channel == NotificationChannel.CUSTOM:
-            def _send_custom_report() -> bool:
-                use_image = self.notifier._should_use_image_for_channel(channel, image_bytes)
-                if use_image:
-                    return self.notifier._send_custom_webhook_image(
-                        image_bytes, fallback_content=report
-                    )
-                return self.notifier.send_to_custom(report)
-
-            return self._send_notification_channel_safely(channel.value, _send_custom_report)
-
-        if channel == NotificationChannel.NTFY:
-            return self._send_notification_channel_safely(
-                channel.value,
-                lambda: self.notifier.send_to_ntfy(report),
-            )
-
-        if channel == NotificationChannel.ASTRBOT:
-            return self._send_notification_channel_safely(
-                channel.value,
-                lambda: self.notifier.send_to_astrbot(report),
-            )
-
-        logger.warning(f"未知通知渠道: {channel}")
-        return False
-
     def _send_notifications(
-        self,
-        results: List[AnalysisResult],
-        report_type: ReportType = ReportType.SIMPLE,
-        skip_push: bool = False,
+        self, results: List[AnalysisResult], report_type: ReportType = ReportType.SIMPLE,
+        skip_push: bool = False, push: bool = True,
     ) -> None:
-        """
-        发送分析结果通知
-        
-        生成决策仪表盘格式的报告
-        
-        Args:
-            results: 分析结果列表
-            skip_push: 是否跳过推送（仅保存到本地，用于单股推送模式）
-        """
-        noise_decision = None
-        noise_finalized = False
+        if skip_push:
+            return
         try:
-            logger.info("生成决策仪表盘日报...")
             report = self._generate_aggregate_report(results, report_type)
-            
-            # 跳过推送（单股推送模式 / 合并模式：报告已由 _save_local_report 保存）
-            if skip_push:
-                return
-            
-            # 推送通知
-            if self.notifier.is_available():
-                channels = self.notifier.get_available_channels()
-                channels = self.notifier.get_channels_for_route("report", channels=channels)
-                if channels and hasattr(self.notifier, "evaluate_noise_control"):
-                    report_type_key = report_type.value if isinstance(report_type, ReportType) else str(report_type)
-                    codes_key = ",".join(
-                        sorted(str(getattr(result, "code", "") or "") for result in results)
-                    )
-                    noise_key = f"report:aggregate:{report_type_key}:{codes_key}"
-                    noise_decision = self.notifier.evaluate_noise_control(
-                        report,
-                        route_type="report",
-                        severity="info",
-                        dedup_key=noise_key,
-                        cooldown_key=noise_key,
-                    )
-                    if not noise_decision.should_send:
-                        logger.info(noise_decision.message)
-                        return
-
-                channels_needing_image = {
-                    ch for ch in channels
-                    if ch.value in self.notifier._markdown_to_image_channels
-                    and ch != NotificationChannel.NTFY
-                }
-                image_bytes = self._prepare_aggregate_image_bytes(report, channels_needing_image)
-
-                all_channels_success = False
-                for channel in channels:
-                    all_channels_success = self._send_aggregate_channel(
-                        channel,
-                        report,
-                        image_bytes,
-                        results,
-                        report_type,
-                    ) or all_channels_success
-
-                success = all_channels_success
-                if (
-                    all_channels_success
-                    and noise_decision is not None
-                    and hasattr(self.notifier, "record_noise_control")
-                ):
-                    self.notifier.record_noise_control(noise_decision)
-                    noise_finalized = True
-                elif (
-                    noise_decision is not None
-                    and hasattr(self.notifier, "release_noise_control")
-                ):
-                    self.notifier.release_noise_control(noise_decision)
-                    noise_finalized = True
-                if success:
-                    logger.info("决策仪表盘推送成功")
-                else:
-                    logger.warning("决策仪表盘推送失败")
-            else:
-                logger.info("通知渠道未配置，跳过推送")
-                
-        except Exception as e:
-            if (
-                noise_decision is not None
-                and not noise_finalized
-                and hasattr(self.notifier, "release_noise_control")
-            ):
-                self.notifier.release_noise_control(noise_decision)
-            logger.exception("发送通知失败: %s", e)
+            codes = ",".join(sorted(str(result.code) for result in results))
+            key = f"report:aggregate:{report_type.value}:{codes}"
+            self.notifier.send(
+                report, uid=getattr(self, "notification_uid", None), route_type="report", severity="info",
+                dedup_key=key, cooldown_key=key, push=push,
+            )
+        except Exception:
+            logger.exception("发送通知失败")
 
     def _generate_aggregate_report(
         self,

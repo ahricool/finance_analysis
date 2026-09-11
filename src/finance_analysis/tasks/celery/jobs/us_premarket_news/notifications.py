@@ -61,7 +61,6 @@ class PremarketNewsReporter:
 
             return NotificationService().send(
                 render_notification(summary),
-                email_stock_codes=summary.symbols,
                 route_type="report",
                 severity="info",
                 dedup_key=f"us_premarket_news:{summary.started_at.strftime('%Y%m%d')}",

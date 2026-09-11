@@ -238,7 +238,7 @@ Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练�
 
 - `reporting/` 定义 report 类型、schema、本地化、Markdown/Jinja 渲染和可选图片转换。
 - 根 `templates/report_*.j2` 是报告模板；昂贵查询在调用方完成后注入模板。
-- `notification/` 检测 Telegram、SMTP、ntfy、自定义 Webhook、AstrBot，按 route 过滤并执行去重/冷却。
+- `notification/` 先将消息写入 `notification`，再按 route 过滤 Telegram/ntfy 并执行原有去重/冷却；推送状态不入库。
 - 通知失败通常应隔离到单渠道，不应抹掉成功分析；保持现有 fail-open/finalize 语义。
 - `search/` 对 Anspire、Bocha、Brave、MiniMax、SearXNG、SerpAPI、Tavily 做统一结果模型、fallback 和并发控制；默认测试不得调用公网。
 

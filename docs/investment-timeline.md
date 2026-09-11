@@ -1,7 +1,7 @@
 # Investment Timeline / 投资时间线
 
 Investment Timeline 是一个**公共市场信息看板**：所有用户访问 `GET /api/v1/timeline` 看到的内容完全相同。
-它聚合财经事件（财报 / 宏观）、逐条新闻分析和公共市场分析报告，没有用户笔记、没有用户隔离、没有
+它聚合财经事件（财报 / 宏观）和逐条新闻分析，没有用户笔记、没有用户隔离、没有
 Portfolio / WatchList 私人数据。盘中异动只发送 Notification，任务执行统计仍由 TaskRecord 保存。
 
 ## 数据来源
@@ -11,34 +11,8 @@ Portfolio / WatchList 私人数据。盘中异动只发送 Notification，任务
 | `finance_events`（`calendar_type = earnings`） | `event` | 财报日历 |
 | `finance_events`（`calendar_type = macro`） | `event` | 宏观事件 |
 | `news_analysis` JOIN `news_intel` | `news` | 每条新闻的结构化模型判断 |
-| `timeline_entries` | `analysis` | A股收盘前复核、美股盘前分析、美股盘后复盘 |
 
-`timeline_entries` 只承载**公共市场报告**。`manual_note` 已正式下线，相关行在迁移中删除。
-
-## timeline_entries 最终 schema
-
-| 字段 | PostgreSQL 类型 | 约束/语义 |
-| --- | --- | --- |
-| `id` | INTEGER | 自增主键 |
-| `entry_type` | VARCHAR(32) | 必填；`a_share_pre_close` / `us_premarket` / `us_postmarket` |
-| `market` | VARCHAR(16) | 可空；CN / US |
-| `event_time` | TIMESTAMPTZ | 必填；报告完成时间 |
-| `title` | VARCHAR(300) | 必填 |
-| `summary` | VARCHAR(500) | 必填；简短业务摘要，不截取完整 Markdown |
-| `content` | TEXT | 必填；完整报告 |
-| `importance` | VARCHAR(16) | 必填；low / normal / high / critical |
-| `actionability` | VARCHAR(24) | 必填；none / watch / consider / action_required |
-| `symbol` | VARCHAR(32) | 可空 |
-| `related_symbols` | JSONB | 必填；字符串数组，默认 `[]` |
-| `source_task` | VARCHAR(128) | 可空；生成任务 |
-| `source_run_id` | VARCHAR(64) | 可空；TaskRecord 生命周期的 `task_id` |
-| `created_at` / `updated_at` | TIMESTAMPTZ | 必填 |
-
-**不存在 `uid` 列**。CHECK 约束 `ck_timeline_type` 只允许上面三种公共报告类型。
-
-`TimelineEntryRepo` 只有 `create()`；没有 `update_note()` / `delete_note()`，也不接受 `uid`。三个报告任务
-（`ASharePreCloseReporter`、`USPostmarketReviewReporter`、`USPremarketAnalysisTaskService`）直接写公共条目，
-不再调用 `UserRepository().ensure_default_admin()` 造一个 owner。
+市场报告已迁入 [消息中心](notifications.md)。`timeline_entries` 表保留但不再读写；`0049_notification_center` 清空全部旧行，不迁入 notification。TimelineEntryRepo 已删除。
 
 ## 排序：永远 event_time DESC
 
@@ -85,7 +59,7 @@ DESC Timeline。API 没有隐藏的默认日期；Timeline 页面首次进入明
 不再存在 `date` / `start_date` 范围参数、`/timeline/summary`，以及 `POST|PUT|DELETE /timeline/notes*`。
 endpoint 是纯公共查询，不读取 `request.state.uid`，也不依赖 `get_effective_uid`。
 
-统一 item 字段：`id`、`source_type`（`finance_event` / `news` / `report`）、`source_id`、`event_time`、
+统一 item 字段：`id`、`source_type`（`finance_event` / `news`）、`source_id`、`event_time`、
 `category`（`event` / `news` / `analysis`）、`calendar_type`（`earnings` / `macro`，仅财经事件）、`market`、
 `title`、`summary`、`symbol`、`related_symbols`、`importance`、`actionability`、`importance_score`、`impact`、
 `impact_score`、`event_type`、`detail_type`、`detail_payload`。
@@ -113,11 +87,11 @@ CPI/FOMC、非农和利率决议等核心宏观标题映射为 critical；其他
 一级 Tab 固定为：
 
 ```text
-全部 | 财报 | 宏观 | 新闻 | 市场分析
+全部 | 财报 | 宏观 | 新闻
 ```
 
 映射到后端 filter：财报 = `category=event & calendar_type=earnings`，宏观 = `category=event & calendar_type=macro`，
-新闻 = `category=news`，市场分析 = `category=analysis`，全部 = 无 filter。没有“财经事件”一级 Tab，
+新闻 = `category=news`，全部 = 无 filter。旧 `category=analysis` 查询返回空集。没有“财经事件”一级 Tab，
 没有财经事件二级筛选，没有笔记 Tab。
 
 筛选区只有三行元素：市场按钮组、类型 Tab、截止日期 DatePicker；市场按钮与 DatePicker 统一 `h-10`。
@@ -150,13 +124,13 @@ CSS Columns 按列流动而非逐行左右交替；追加数据或高度变化�
 
 | 任务 | 长期业务写入 | 执行信息/通知 |
 | --- | --- | --- |
-| `analysis_a_share_pre_close_review` | timeline_entries：a_share_pre_close，CN，high/consider | TaskRecord + 原聚合通知 |
-| `analysis_us_premarket` | timeline_entries：us_premarket，US，high/consider | TaskRecord + 原分析流程通知 |
-| `analysis_us_postmarket_review` | timeline_entries：us_postmarket，US，high/watch | TaskRecord + 原报告通知 |
-| A股/美股盘中 | 不保存盘中业务结果 | TaskRecord + Notification |
+| `analysis_a_share_pre_close_review` | notification | TaskRecord + 原聚合通知 |
+| `analysis_us_premarket` | notification | TaskRecord + 原分析流程通知 |
+| `analysis_us_postmarket_review` | notification | TaskRecord + 原报告通知 |
+| A股/美股盘中 | notification | TaskRecord 统计 |
 | 财经同步/重要度任务 | finance_events | TaskRecord；同步摘要不进入 Timeline |
 | `analysis_us_premarket_news` | news_intel + usage + news_analysis | TaskRecord 统计 + Top 新闻通知 |
-| `analysis_daily` | 不新增 Timeline 报告 | 执行摘要只进 TaskRecord |
+| `analysis_daily` | notification | 执行统计只进 TaskRecord |
 
 ## 迁移
 

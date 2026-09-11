@@ -2,7 +2,7 @@
 import type { AcceptableValue } from 'reka-ui';
 import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import { ChevronDown, Clock3, LogOut, Monitor, Moon, Palette, Sun, User, UserRound } from 'lucide-vue-next';
+import { Bell, ChevronDown, Clock3, LogOut, Monitor, Moon, Palette, Sun, User, UserRound } from 'lucide-vue-next';
 import { RouterLink, RouterView, useRoute } from 'vue-router';
 import AppConfirmDialog from '@/components/app/AppConfirmDialog.vue';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -206,6 +206,11 @@ async function onLogoutConfirm() {
               <DropdownMenuItem as-child>
                 <RouterLink to="/profile/info">
                   <UserRound />个人中心
+                </RouterLink>
+              </DropdownMenuItem>
+              <DropdownMenuItem as-child>
+                <RouterLink to="/notifications" data-testid="notification-center-link">
+                  <Bell />消息中心
                 </RouterLink>
               </DropdownMenuItem>
               <DropdownMenuSub>

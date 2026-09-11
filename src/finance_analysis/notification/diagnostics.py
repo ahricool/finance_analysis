@@ -82,40 +82,12 @@ CHANNEL_SPECS: Tuple[NotificationChannelSpec, ...] = (
         advanced_keys=("TELEGRAM_MESSAGE_THREAD_ID",),
     ),
     NotificationChannelSpec(
-        channel=NotificationChannel.EMAIL.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.EMAIL),
-        kind="configured",
-        minimal_keys=("EMAIL_SENDER", "EMAIL_PASSWORD"),
-        advanced_keys=("EMAIL_RECEIVERS", "EMAIL_SENDER_NAME"),
-    ),
-    NotificationChannelSpec(
         channel=NotificationChannel.NTFY.value,
         display_name=ChannelDetector.get_channel_name(NotificationChannel.NTFY),
         kind="configured",
         minimal_keys=("NTFY_URL",),
         advanced_keys=("NTFY_TOKEN", "WEBHOOK_VERIFY_SSL"),
         note="NTFY_URL must include the topic path, e.g. https://ntfy.sh/my-topic.",
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.CUSTOM.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.CUSTOM),
-        kind="configured",
-        minimal_keys=("CUSTOM_WEBHOOK_URLS",),
-        advanced_keys=("CUSTOM_WEBHOOK_BEARER_TOKEN", "CUSTOM_WEBHOOK_BODY_TEMPLATE", "WEBHOOK_VERIFY_SSL"),
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.ASTRBOT.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.ASTRBOT),
-        kind="configured",
-        minimal_keys=("ASTRBOT_URL",),
-        advanced_keys=("ASTRBOT_TOKEN", "WEBHOOK_VERIFY_SSL"),
-    ),
-    NotificationChannelSpec(
-        channel=NotificationChannel.UNKNOWN.value,
-        display_name=ChannelDetector.get_channel_name(NotificationChannel.UNKNOWN),
-        kind="fallback",
-        minimal_keys=(),
-        note="Fallback enum value only; it is not configured from static environment keys.",
     ),
 )
 
@@ -149,7 +121,6 @@ KEY_SPECS: Tuple[NotificationKeySpec, ...] = tuple(
 )
 
 P0_ACTIONS_ENV_KEYS: Tuple[str, ...] = (
-    "CUSTOM_WEBHOOK_BODY_TEMPLATE",
     "WEBHOOK_VERIFY_SSL",
 )
 
@@ -266,15 +237,6 @@ def run_notification_diagnostics(config: object) -> NotificationDiagnosticResult
         channel_name="Telegram",
         errors=errors,
     )
-    _require_pair(
-        config,
-        left_attr="email_sender",
-        right_attr="email_password",
-        left_key="EMAIL_SENDER",
-        right_key="EMAIL_PASSWORD",
-        channel_name="邮件",
-        errors=errors,
-    )
     if _has(config, "ntfy_token") and not _has(config, "ntfy_url"):
         warnings.append(
             _issue(
@@ -284,28 +246,6 @@ def run_notification_diagnostics(config: object) -> NotificationDiagnosticResult
                 key="NTFY_URL",
             )
         )
-    if (
-        _has(config, "custom_webhook_bearer_token")
-        or _has(config, "custom_webhook_body_template")
-    ) and not _has(config, "custom_webhook_urls"):
-        warnings.append(
-            _issue(
-                "warning",
-                "advanced_without_minimal",
-                "已配置自定义 Webhook 高级项，但缺少 CUSTOM_WEBHOOK_URLS，自定义 Webhook 渠道不会启用。",
-                key="CUSTOM_WEBHOOK_URLS",
-            )
-        )
-    if _has(config, "astrbot_token") and not _has(config, "astrbot_url"):
-        warnings.append(
-            _issue(
-                "warning",
-                "advanced_without_minimal",
-                "已配置 ASTRBOT_TOKEN，但缺少 ASTRBOT_URL，AstrBot 渠道不会启用。",
-                key="ASTRBOT_URL",
-            )
-        )
-
     configured_set = set(configured)
     for route_type, route_config in NOTIFICATION_ROUTE_CONFIGS.items():
         route_channels = getattr(config, route_config["config_attr"], []) or []

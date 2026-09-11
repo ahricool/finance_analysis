@@ -206,7 +206,6 @@ class ASharePreCloseReviewService:
             fallback_used=fallback_used,
             llm_calls=self.web_llm.call_count,
         )
-        summary.timeline_entry_id = self.reporter.record_report(summary)
         summary.notification_sent = self.reporter.send_notification(
             summary,
             send_notification=send_notification,

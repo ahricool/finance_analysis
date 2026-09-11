@@ -117,12 +117,9 @@ class AShareIntradayReporter:
             return False
         severity = self._aggregate_severity(signals)
         content = render_aggregated_notification(summary, snapshot, signals)
-        if not send_notification:
-            return False
         service = self._build_service()
         if service is None:
             return False
-        codes = [signal.code for signal in signals]
         state_parts = sorted(
             f"{signal.code}:{signal.signal_type}:{int(signal.metrics.get('state_generation') or 1)}"
             for signal in signals
@@ -133,7 +130,7 @@ class AShareIntradayReporter:
             return bool(
                 service.send(
                     content,
-                    email_stock_codes=codes,
+                    push=send_notification,
                     route_type="alert",
                     severity=severity,
                     dedup_key=dedup,

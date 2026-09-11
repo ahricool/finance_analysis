@@ -225,10 +225,8 @@ def test_normal_trading_day_after_close_generates_report_and_sends_notification(
     assert summary.watchlist_count == 3
     assert summary.watchlist_up_count == 2
     assert summary.watchlist_down_count == 1
-    assert summary.timeline_entry_id == 123
     assert summary.notification_sent is True
     assert summary.fallback_used is False
-    assert summary.report_file.endswith("us_postmarket_review_20260623.md")
     assert reporter.send_calls == 1
     json.dumps(summary.to_dict(), ensure_ascii=False)
 
@@ -360,35 +358,11 @@ def test_reporter_creates_investment_report_and_uses_notification_dedup_key() ->
             sent.update(kwargs)
             return True
 
-    class Repo:
-        def __init__(self):
-            self.updated = False
-            self.created = False
-
-        def get_by_type_and_date(self, **kwargs):
-            return SimpleNamespace(id=7)
-
-        def update(self, item_id, **kwargs):
-            self.updated = True
-            return SimpleNamespace(id=item_id)
-
-        def create(self, **kwargs):
-            self.created = True
-            return SimpleNamespace(id=99)
-
-    repo = Repo()
-    reporter = USPostmarketReviewReporter(
-        notifier=Notifier(),
-        timeline_repo=repo,
-    )
+    reporter = USPostmarketReviewReporter(notifier=Notifier())
     summary = _service(reporter=FakeReporter()).run(now=TRADING_DATE, send_notification=False)
     summary.report = _complete_markdown()
-    summary.timeline_entry_id = reporter.record_report(summary)
     summary.notification_sent = reporter.send_notification(summary, send_notification=True)
 
-    assert summary.timeline_entry_id == 99
-    assert repo.updated is False
-    assert repo.created is True
     assert sent["dedup_key"] == "us_postmarket_review:2026-06-23"
     assert sent["cooldown_key"] == "us_postmarket_review:2026-06-23"
 

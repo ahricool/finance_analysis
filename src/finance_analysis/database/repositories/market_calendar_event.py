@@ -61,28 +61,9 @@ def _json_text(value: Any) -> Optional[str]:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
 
-def _digest(value: str, length: int = 24) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:length]
-
-
 def _new_event_key(event: Mapping[str, Any]) -> str:
     """Allocate an opaque identity once; subsequent writes match business candidates."""
     return str(event.get("event_key") or f"{event['calendar_type']}:{uuid4().hex}")
-
-
-def notification_fingerprint(event: Mapping[str, Any]) -> str:
-    payload = {
-        "calendar_type": event.get("calendar_type"),
-        "symbol": event.get("symbol"),
-        "event_date": _date_value(event["event_date"]).isoformat(),
-        "event_datetime": (
-            _datetime_value(event.get("event_datetime")).isoformat()
-            if _datetime_value(event.get("event_datetime"))
-            else None
-        ),
-        "market_session": event.get("market_session") or "unknown",
-    }
-    return _digest(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str), 48)
 
 
 def _sort_events_for_display(events: List[FinanceEvent]) -> List[FinanceEvent]:
@@ -325,21 +306,6 @@ class MarketCalendarEventRepo:
                 .group_by(FinanceEvent.calendar_type)
             ).all()
             return {str(calendar_type): int(count or 0) for calendar_type, count in rows}
-
-    def mark_notified(self, event_id: int, fingerprint: str, notified_at: Optional[datetime] = None) -> bool:
-        now = ensure_aware_datetime(notified_at) or utc_now()
-
-        def _write(session: Session) -> bool:
-            obj = session.get(FinanceEvent, event_id)
-            if obj is None:
-                return False
-            obj.notified_at = now
-            obj.notification_fingerprint = fingerprint
-            obj.updated_at = now
-            session.flush()
-            return True
-
-        return self.db._run_write_transaction("finance_events.mark_notified", _write)
 
     def update_importance_assessment(
         self,

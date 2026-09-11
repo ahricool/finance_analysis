@@ -121,14 +121,14 @@ def test_enrichment_silent_date_and_session_changes_notify_once(setup_service):
     assert len(repo.list_events_by_date_range(date(2026, 6, 18), date(2026, 7, 18))) == 1
 
 
-def test_failed_send_does_not_mark_notified(setup_service):
+def test_failed_send_preserves_calendar_event(setup_service):
     build, repo, _, notifier = setup_service
     notifier.send.return_value = False
     build(source([event()]), source()).run(NOW)
     summary = build(source([event(market_session="amc")]), source()).run(NOW)
     assert summary.notification_sent_count == 0
     notifier.send.assert_called_once()
-    assert repo.list_events_by_date(date(2026, 6, 20))[0].notified_at is None
+    assert repo.list_events_by_date(date(2026, 6, 20))[0].market_session == "amc"
 
 
 def test_single_write_error_does_not_stop_other_market(setup_service):

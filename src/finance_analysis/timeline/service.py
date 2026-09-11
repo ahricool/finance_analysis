@@ -1,4 +1,4 @@
-"""One public, paginated feed across finance events, news judgments and market reports."""
+"""One public, paginated feed across finance events and news judgments."""
 
 from sqlalchemy import DateTime, String, and_, case, cast, func, literal, null, or_, select, union_all
 
@@ -6,7 +6,6 @@ from finance_analysis.core.time import coerce_aware_utc, day_bounds_utc  # pragm
 from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.news import NewsIntel
 from finance_analysis.database.models.news_analysis import NewsAnalysis
-from finance_analysis.database.models.timeline import TimelineEntry
 from finance_analysis.database.session import DatabaseManager
 from finance_analysis.market_calendar.events import source_payloads  # pragma: allowlist secret
 from finance_analysis.timeline.cursor import TimelineCursor
@@ -20,7 +19,7 @@ class TimelineService:
         self.db = db or DatabaseManager.get_instance()
 
     def _projection(self, session, *, end_date=None, timezone_name, **filters):
-        f, n, a, t = FinanceEvent, NewsIntel, NewsAnalysis, TimelineEntry
+        f, n, a = FinanceEvent, NewsIntel, NewsAnalysis
         critical_macro = (f.calendar_type == "macro") & (
             func.lower(f.title).like("%cpi%")
             | func.lower(f.title).like("%fomc%")
@@ -64,17 +63,6 @@ class TimelineService:
                 a.actionability,
                 a.importance_score,
             ).join(n, n.id == a.news_intel_id),
-            select(
-                literal("report"),
-                t.id,
-                t.event_time,
-                literal("analysis"),
-                cast(null(), String),
-                t.market,
-                t.importance,
-                t.actionability,
-                literal(0),
-            ),
         ).subquery()
         stmt = select(projection)
         if end_date is not None:
@@ -127,9 +115,9 @@ class TimelineService:
 
     @staticmethod
     def _load_details(session, rows):
-        """Hydrate only the selected page, with at most three source queries."""
+        """Hydrate only the selected page, with at most two source queries."""
         entries = {}
-        for source, model in (("finance_event", FinanceEvent), ("report", TimelineEntry)):
+        for source, model in (("finance_event", FinanceEvent),):
             ids = [row["source_id"] for row in rows if row["source_type"] == source]
             if ids:
                 for item in session.scalars(select(model).where(model.id.in_(ids))):
@@ -149,18 +137,7 @@ class TimelineService:
         base = dict(row)
         base["id"] = f"{source}:{row['source_id']}"
         base["event_time"] = coerce_aware_utc(base["event_time"])
-        if source == "report":
-            item = entries[(source, row["source_id"])]
-            base.update(
-                title=item.title,
-                summary=item.summary,
-                symbol=item.symbol,
-                related_symbols=item.related_symbols or [],
-                event_type=item.entry_type,
-                detail_type="report",
-                detail_payload={"content": item.content},
-            )
-        elif source == "news":
+        if source == "news":
             analysis, news = entries[(source, row["source_id"])]
             payload = {
                 key: getattr(analysis, key)
