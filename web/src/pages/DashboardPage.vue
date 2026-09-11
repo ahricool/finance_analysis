@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router';
 import { ArrowUpRight, Bitcoin } from 'lucide-vue-next';
 import { useMarketDashboard } from '@/composables/useMarketDashboard';
 import { useCurrentTime } from '@/composables/useCurrentTime';
+import MarketStructureCard from '@/components/dashboard/MarketStructureCard.vue';
 import DashboardState from '@/components/dashboard/DashboardState.vue';
 import StrategyChanges from '@/components/dashboard/StrategyChanges.vue';
 import { feedSummary, regimeText, regimeTone, upcomingEvents } from '@/components/dashboard/dashboardFormat';
@@ -92,6 +93,46 @@ const number = (value: string | undefined) => value && Number.isFinite(Number(va
               </div>
             </div>
           </DashboardState>
+        </div>
+      </div>
+    </section>
+
+    <section
+      aria-label="Market Structure"
+      class="rounded-xl border"
+    >
+      <h2 class="border-b px-6 py-3 text-sm font-semibold">
+        市场结构 / Market Structure
+      </h2>
+      <div class="grid grid-cols-2 divide-x">
+        <div
+          v-for="entry in markets"
+          :key="entry.market"
+          class="p-6"
+        >
+          <DashboardState
+            :state="entry.structure"
+            :empty="false"
+            @retry="entry.structure.refresh"
+          >
+            <MarketStructureCard
+              v-if="entry.structure.data"
+              :snapshot="entry.structure.data"
+            />
+            <p
+              v-else
+              class="text-sm text-muted-foreground"
+            >
+              {{ entry.market }} · 暂无今日市场结构数据
+            </p>
+          </DashboardState>
+          <div v-if="entry.trend.data?.features?.lifecycleCounts" class="mt-4 border-t pt-3 text-xs text-muted-foreground">
+            <p class="mb-2">趋势概览 · {{ entry.trend.data.tradeDate }}</p>
+            <div class="flex flex-wrap gap-x-4 gap-y-2">
+              <span v-for="(count, stage) in entry.trend.data.features.lifecycleCounts" :key="stage">{{ stage.toUpperCase() }} <strong class="text-foreground">{{ count }}</strong></span>
+            </div>
+            <p class="mt-2">High Fragility Trends: {{ entry.trend.data.features.highFragilityCount ?? '—' }}</p>
+          </div>
         </div>
       </div>
     </section>

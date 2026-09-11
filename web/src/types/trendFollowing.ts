@@ -4,6 +4,9 @@ export type TrendState = 'IDLE' | 'WATCHING' | 'CANDIDATE' | 'ENTRY' | 'PYRAMIDI
 export type TrendAction = 'WATCH' | 'PENDING_ENTRY' | 'PENDING_ADD' | 'PENDING_REDUCE' | 'PENDING_EXIT' | 'ENTRY' | 'ADD' | 'HOLD' | 'STOP_ADD' | 'REDUCE' | 'EXIT' | 'EXPOSURE_BLOCKED';
 
 export interface TrendFeatures {
+  trendQuality?: number | null;
+  trendAcceleration?: number | null;
+  signedEfficiencyRatio10D?: number | null;
   ma10: number;
   ma20: number;
   ma10Slope: number;
@@ -71,6 +74,9 @@ export interface TrendSnapshot {
   suggestedInitialWeight: number | null;
   suggestedMaxWeight: number | null;
   reasons: string[];
+  trendLifecycle?: 'IGNITION' | 'EMERGING' | 'EXPANSION' | 'MATURE' | 'EXHAUSTION' | 'BROKEN' | null;
+  fragilityScore?: number | null;
+  fragilityBreakdown?: Record<string, number | null> | null;
   trendDurationDays: number | null;
   generatedAt: string;
 }
@@ -79,7 +85,7 @@ export type TrendCandidate = Pick<TrendSnapshot, 'code' | 'name' | 'rank' | 'sta
 
 // Only scalar columns used by the table, its sort menu and preview comparisons.
 export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
-  'code' | 'name' | 'rank' | 'state' | 'action' | 'pendingAction' | 'trendDurationDays' |
+  'code' | 'name' | 'rank' | 'state' | 'action' | 'pendingAction' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' |
   'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore' | 'setup' | 'atr' |
   'referencePrice' | 'signalDate' | 'signalPrice' | 'openedAt' | 'entryPrice' |
   'initialStop' | 'nextAddPrice' | 'exitLevel' | 'suggestedInitialWeight'> {
@@ -108,7 +114,7 @@ export interface TrendSummary {
   reduceCount: number;
   exitCount: number;
   warnings: string[];
-  features: Record<string, number>;
+  features: { [key: string]: number | Record<string, number> | undefined; lifecycleCounts?: Record<string, number>; highFragilityCount?: number };
   scoreBreakdown: Record<string, number>;
   generatedAt: string;
 }

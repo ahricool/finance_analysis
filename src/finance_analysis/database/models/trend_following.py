@@ -54,6 +54,9 @@ class TrendFollowingSnapshot(Base):
     suggested_initial_weight = Column(Float)
     suggested_max_weight = Column(Float)
     reasons = Column(JSON_TYPE, nullable=False, default=list)
+    trend_lifecycle = Column(String(16))
+    fragility_score = Column(Float)
+    fragility_breakdown = Column(JSON_TYPE)
     trend_duration_days = Column(Integer)
     generated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 

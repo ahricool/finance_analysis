@@ -39,6 +39,9 @@ def _completed_day(monkeypatch):
 
 
 class FakeRepository:
+    def health_history(self, trade_date, codes):
+        return {}
+
     market = "US"
 
     def __init__(self, *, benchmark_ready=True):

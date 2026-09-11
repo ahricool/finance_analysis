@@ -20,6 +20,7 @@ SORT_FIELDS = {
     "breakout_score": TrendFollowingSnapshot.breakout_score,
     "rank": TrendFollowingSnapshot.rank,
     "trend_duration_days": TrendFollowingSnapshot.trend_duration_days,
+    "fragility_score": TrendFollowingSnapshot.fragility_score,
 }
 MEANINGFUL_STATES = {"CANDIDATE", "ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE", "EXIT"}
 ACTIVE_POSITION_STATES = {"ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE"}
@@ -127,6 +128,30 @@ class TrendFollowingRepository:
                 .where(ranked.c.row_rank == 1)
             ).scalars()
             return {row.code: self._snapshot_payload(row) for row in rows}
+
+    def health_history(self, trade_date: date, codes: Iterable[str]) -> dict[str, dict[int, dict[str, Any]]]:
+        """One scalar query over the previous five market snapshot dates, never per symbol."""
+        model = TrendFollowingSnapshot
+        selected = set(codes)
+        dates = (
+            select(model.trade_date)
+            .where(model.market == self.market, model.trade_date < trade_date)
+            .distinct().order_by(model.trade_date.desc()).limit(5).scalar_subquery()
+        )
+        with self.db.get_session() as session:
+            rows = list(session.execute(
+                select(model.code, model.trade_date, model.features, model.trend_lifecycle)
+                .where(model.market == self.market, model.trade_date.in_(dates))
+            ).mappings())
+        offsets = {day: i + 1 for i, day in enumerate(sorted({r["trade_date"] for r in rows}, reverse=True))}
+        result = {}
+        for row in rows:
+            if row["code"] in selected:
+                result.setdefault(row["code"], {})[offsets[row["trade_date"]]] = {
+                    "trade_date": row["trade_date"],
+                    "features": row["features"] if row["trend_lifecycle"] is not None else {},
+                }
+        return result
 
     def latest_snapshot_date(self) -> date | None:
         with self.db.get_session() as session:
