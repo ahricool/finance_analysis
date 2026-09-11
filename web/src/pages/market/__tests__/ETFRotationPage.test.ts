@@ -262,7 +262,7 @@ describe('ETFRotationPage', () => {
 
     expect(apiMocks.dates).toHaveBeenCalledWith('CN');
     expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined);
-    expect(apiMocks.candidates).toHaveBeenCalledWith('CN', '2026-08-25');
+    expect(apiMocks.candidates).not.toHaveBeenCalled();
     expect(wrapper.get('[data-testid="etf-rotation-trade-date"]').text()).toBe('2026-08-25');
     expect(wrapper.get('[data-testid="etf-rotation-date"]').element).toHaveProperty('value', '2026-08-25');
     expect(wrapper.text()).toContain('科创50ETF');
@@ -283,7 +283,7 @@ describe('ETFRotationPage', () => {
   it('separates current candidates from unlimited exits and renders today changes', async () => {
     const current = snapshot({ state: 'EMERGING' });
     const change = {
-      current,
+      code: current.code, name: current.name, currentState: current.state, currentAction: current.action, currentRank: current.rank,
       previousState: 'NEUTRAL' as const,
       previousAction: null,
       previousRank: 8,
@@ -292,6 +292,7 @@ describe('ETFRotationPage', () => {
     };
     apiMocks.ranking.mockResolvedValueOnce({
       ...rankingPayload('CN', '2026-08-25', current),
+      items: [current, snapshot({ code: '510050.SH', name: '上证50ETF', action: 'EXIT', isCandidate: false })],
       changes: {
         previousTradeDate: '2026-08-22',
         newBuys: [change],
@@ -320,11 +321,14 @@ describe('ETFRotationPage', () => {
     await wrapper.get('[data-testid="etf-rotation-date"]').setValue('2026-08-21');
     await flushPromises();
 
-    expect(apiMocks.ranking).toHaveBeenLastCalledWith('CN', '2026-08-21');
-    expect(apiMocks.candidates).toHaveBeenLastCalledWith('CN', '2026-08-21');
+    expect(apiMocks.ranking.mock.calls).toEqual([['CN', undefined], ['CN', '2026-08-21']]);
+    expect(apiMocks.candidates).not.toHaveBeenCalled();
     expect(wrapper.get('[data-testid="etf-rotation-trade-date"]').text()).toBe('2026-08-21');
     expect(wrapper.text()).toContain('创业板ETF');
     expect(wrapper.text()).not.toContain('科创50ETF');
+    await wrapper.get('[data-testid="rotation-candidate"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.detail).toHaveBeenLastCalledWith('159915.SZ', 'CN', 60, '2026-08-21');
   });
 
   it('resets the selected date and reloads US snapshots when switching markets', async () => {
@@ -340,7 +344,7 @@ describe('ETFRotationPage', () => {
     expect(apiMocks.ranking).toHaveBeenCalledWith('US', undefined);
     expect(apiMocks.ranking).not.toHaveBeenCalledWith('US', '2026-08-21');
     expect(apiMocks.ranking).toHaveBeenLastCalledWith('US', undefined);
-    expect(apiMocks.candidates).toHaveBeenLastCalledWith('US', '2026-08-20');
+    expect(apiMocks.candidates).not.toHaveBeenCalled();
     expect(wrapper.get('[data-testid="etf-rotation-trade-date"]').text()).toBe('2026-08-20');
     expect(wrapper.get('[data-testid="etf-rotation-date"]').element).toHaveProperty('value', '2026-08-20');
     expect(wrapper.text()).toContain('SPDR S&P 500 ETF');
@@ -369,7 +373,7 @@ describe('ETFRotationPage', () => {
     expect(document.body.textContent).toContain('Weighted Slope 15D');
     expect(document.body.textContent).toContain('RS10');
     expect(document.body.textContent).toContain('Signed ER10');
-    expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN');
+    expect(apiMocks.detail).toHaveBeenCalledWith('588000.SH', 'CN', 60, '2026-08-25');
   });
 
   it('renders nullable actions and snapshot warnings without treating them as signals', async () => {
@@ -446,7 +450,7 @@ describe('ETFRotationPage', () => {
     await flushPromises();
 
     expect(wrapper.get('[data-testid="research-data-mode-badge"]').text()).toContain('正式收盘');
-    expect(apiMocks.candidates).toHaveBeenCalledWith('CN', '2026-08-25');
+    expect(apiMocks.candidates).not.toHaveBeenCalled();
     expect(wrapper.get('[data-testid="etf-rotation-date"]').element).toHaveProperty('value', '2026-08-25');
     expect(wrapper.find('[data-testid="etf-preview-changes"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="etf-rotation-run"]').exists()).toBe(true);
@@ -469,7 +473,7 @@ describe('ETFRotationPage', () => {
     await wrapper.get('[data-testid="research-mode-official"]').trigger('click');
     await flushPromises();
     expect(wrapper.get('[data-testid="research-data-mode-badge"]').text()).toContain('正式收盘');
-    expect(apiMocks.candidates).toHaveBeenCalled();
+    expect(apiMocks.candidates).not.toHaveBeenCalled();
     await wrapper.get('[data-testid="etf-rotation-refresh"]').trigger('click');
     await flushPromises();
     expect(wrapper.get('[data-testid="research-data-mode-badge"]').text()).toContain('正式收盘');

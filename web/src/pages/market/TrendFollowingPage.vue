@@ -7,7 +7,6 @@ import { trendFollowingApi } from '@/api/trendFollowing';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
-import AppPagination from '@/components/app/AppPagination.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
 import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
@@ -26,6 +25,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type {
   TrendAction,
+  TrendCandidate,
   TrendChange,
   TrendDetailResponse,
   TrendMarket,
@@ -65,7 +65,7 @@ const selectedDate = ref('');
 const availableDates = ref<string[]>([]);
 const summary = ref<TrendSummary>(emptySummary());
 const items = shallowRef<TrendRankingSnapshot[]>([]);
-const candidates = ref<TrendSnapshot[]>([]);
+const candidates = shallowRef<TrendCandidate[]>([]);
 const portfolio = ref<TrendPortfolioResponse>(emptyPortfolio());
 const changes = ref<TrendRankingChanges | null>(null);
 const loading = ref(true);
@@ -75,7 +75,8 @@ const error = ref<ParsedApiError | null>(null);
 const dataMode = ref<ResearchDataMode>('official');
 const modeChosenByUser = ref(false);
 const preview = ref<TrendPreviewResponse | null>(null);
-const officialLatest = ref<TrendRankingResponse | null>(null);
+const officialLatest = shallowRef<TrendRankingResponse | null>(null);
+const officialSelected = shallowRef<TrendRankingResponse | null>(null);
 const detailOpen = ref(false);
 const detailLoading = ref(false);
 const detail = ref<TrendDetailResponse | null>(null);
@@ -112,8 +113,7 @@ const rankingColumns = [
 const visibleRankingColumns = rankingColumns.filter(column =>
   ['rank', 'name', 'state', 'action', 'trendDurationDays', 'alphaScore', 'trendScore', 'rsScore', 'setup', 'return5D', 'return20D', 'rankChange5D'].includes(column.key));
 type SortKey = typeof rankingColumns[number]['key'];
-const rankingPage = ref(1);
-const rankingPageSize = 50;
+const rankingSearch = ref('');
 const sortKey = ref<SortKey>('rank');
 const sortDirection = ref<'asc' | 'desc'>('asc');
 let generation = 0;
@@ -125,13 +125,17 @@ function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | 
   return item[key];
 }
 function toggleSort(key: SortKey) {
-  rankingPage.value = 1;
   sortDirection.value = sortKey.value === key
     ? (sortDirection.value === 'asc' ? 'desc' : 'asc')
     : (['rank', 'code', 'name', 'setup', 'state', 'action', 'signalDate', 'openedAt'].includes(key) ? 'asc' : 'desc');
   sortKey.value = key;
 }
-const sortedItems = computed(() => [...items.value].sort((left, right) => {
+const filteredItems = computed(() => {
+  const query = rankingSearch.value.trim().toLocaleLowerCase();
+  return query ? items.value.filter(item => item.code.toLocaleLowerCase().includes(query)
+    || item.name.toLocaleLowerCase().includes(query)) : items.value;
+});
+const sortedItems = computed(() => [...filteredItems.value].sort((left, right) => {
   const a = sortValue(left, sortKey.value);
   const b = sortValue(right, sortKey.value);
   if (a == null) return b == null ? 0 : 1;
@@ -139,10 +143,22 @@ const sortedItems = computed(() => [...items.value].sort((left, right) => {
   const comparison = typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b));
   return comparison * (sortDirection.value === 'asc' ? 1 : -1) || left.code.localeCompare(right.code);
 }));
-const rankingTotalPages = computed(() => Math.ceil(sortedItems.value.length / rankingPageSize));
-const visibleItems = computed(() => sortedItems.value.slice(
-  (rankingPage.value - 1) * rankingPageSize, rankingPage.value * rankingPageSize,
-));
+// Production CN currently has ~3,800 rows. Keep one sortable dataset, but only
+// mount the scroll viewport plus overscan; this is not business pagination.
+const rankingViewport = ref<HTMLElement | null>(null);
+const rankingScrollTop = ref(0);
+const virtualRanking = computed(() => sortedItems.value.length > 300);
+const rankingRowHeight = 64;
+const virtualStart = computed(() => virtualRanking.value
+  ? Math.min(Math.max(0, sortedItems.value.length - 28), Math.max(0, Math.floor((rankingScrollTop.value - 40) / rankingRowHeight) - 8)) : 0);
+const renderedRankingRows = computed(() => virtualRanking.value
+  ? sortedItems.value.slice(virtualStart.value, virtualStart.value + 28) : sortedItems.value);
+const rankingBottomSpace = computed(() => virtualRanking.value
+  ? Math.max(0, sortedItems.value.length - virtualStart.value - renderedRankingRows.value.length) * rankingRowHeight : 0);
+watch(sortedItems, () => {
+  rankingScrollTop.value = 0;
+  if (rankingViewport.value) rankingViewport.value.scrollTop = 0;
+});
 const cards = computed(() => [
   ['Market Regime', summary.value.marketRegime, descriptions.marketRegime],
   ['Market Score', score(summary.value.marketScore), descriptions.marketScore],
@@ -180,7 +196,7 @@ const previewChangeGroups = computed(() => {
 const previewHasChanges = computed(() => previewChangeGroups.value.some(group => group.items.length));
 
 function asRankingSnapshot(snapshot: TrendSnapshot): TrendRankingSnapshot {
-  const ranked = snapshot as TrendRankingSnapshot;
+  const ranked = snapshot as TrendSnapshot & Partial<TrendRankingSnapshot>;
   return {
     ...snapshot,
     rankChange1D: ranked.rankChange1D ?? null,
@@ -214,7 +230,7 @@ function badgeVariant(value: TrendState | TrendAction | string): 'default' | 'su
   return 'outline';
 }
 function transitionText(change: TrendChange) {
-  return `${change.previousState ?? 'NEW'} → ${change.current.state}`;
+  return `${change.previousState ?? 'NEW'} → ${change.currentState}`;
 }
 function applyPreviewPayload(payload: TrendPreviewResponse | null) {
   if (!payload) {
@@ -259,55 +275,54 @@ function applyPreviewPayload(payload: TrendPreviewResponse | null) {
   candidates.value = payload.snapshots.filter(isTrendPreviewCandidate);
   changes.value = null;
 }
-async function applyOfficialRanking(current: number, requestedMarket: TrendMarket, latest: TrendRankingResponse) {
-  const requestedDate = selectedDate.value;
-  const ranking = requestedDate && requestedDate !== latest.tradeDate
-    ? await trendFollowingApi.ranking(requestedMarket, requestedDate)
-    : latest;
-  if (current !== generation) return;
-  rankingPage.value = 1;
+function applyOfficialRanking(ranking: TrendRankingResponse) {
   summary.value = ranking;
   items.value = ranking.items;
   changes.value = ranking.changes ?? null;
   selectedDate.value = ranking.tradeDate;
-  const [candidateResult, portfolioResult] = await Promise.all([
-    trendFollowingApi.candidates(requestedMarket, ranking.tradeDate),
-    trendFollowingApi.portfolio(requestedMarket, ranking.tradeDate),
-  ]);
-  if (current === generation) {
-    candidates.value = candidateResult.items;
-    portfolio.value = portfolioResult;
-  }
+  candidates.value = ranking.candidates;
+  portfolio.value = ranking.portfolio;
 }
 async function load(refreshDates = false, options: { autoSelectMode?: boolean } = {}) {
   const current = ++generation;
+  const requestedMarket = market.value;
+  const requestedDate = selectedDate.value || undefined;
   const autoSelectMode = options.autoSelectMode === true;
-  if (loading.value && !refreshing.value) loading.value = true;
-  else refreshing.value = true;
+  refreshing.value = !loading.value;
   error.value = null;
+  const auxiliary = refreshDates || !availableDates.value.length;
+  // Auxiliaries update independently; a slow/failed preview must not block official data.
+  const datesTask = auxiliary ? trendFollowingApi.dates(requestedMarket).then(result => {
+    if (current === generation) availableDates.value = result.items;
+  }).catch(() => undefined) : Promise.resolve();
+  const previewTask = auxiliary ? trendFollowingApi.preview(requestedMarket).then(result => {
+    if (current === generation) {
+      preview.value = result;
+      if (dataMode.value === 'preview') applyPreviewPayload(result);
+    }
+  }).catch(() => { if (current === generation) preview.value = null; }) : Promise.resolve();
   try {
-    const requestedMarket = market.value;
-    const [latestOfficial, dates, previewPayload] = await Promise.all([
-      trendFollowingApi.ranking(requestedMarket, undefined),
-      refreshDates || !availableDates.value.length ? trendFollowingApi.dates(requestedMarket) : Promise.resolve(null),
-      trendFollowingApi.preview(requestedMarket),
-    ]);
+    const ranking = await trendFollowingApi.ranking(requestedMarket, requestedDate);
     if (current !== generation) return;
-    if (dates) availableDates.value = dates.items;
-    officialLatest.value = latestOfficial;
-    preview.value = previewPayload;
-    if (autoSelectMode) {
+    officialSelected.value = ranking;
+    if (!requestedDate || requestedDate === availableDates.value[0]) officialLatest.value = ranking;
+    selectedDate.value = ranking.tradeDate;
+    if (dataMode.value === 'official') applyOfficialRanking(ranking);
+    loading.value = false;
+    refreshing.value = false;
+    await Promise.all([datesTask, previewTask]);
+    if (current !== generation) return;
+    if (autoSelectMode && !modeChosenByUser.value) {
       dataMode.value = chooseDefaultResearchDataMode({
-        officialTradeDate: latestOfficial.tradeDate,
-        officialGeneratedAt: latestOfficial.generatedAt,
-        previewAvailable: previewPayload != null,
-        previewStatus: previewPayload?.status,
-        previewTradeDate: previewPayload?.tradeDate,
-        previewTime: previewPayload?.previewTime,
+        officialTradeDate: ranking.tradeDate,
+        officialGeneratedAt: ranking.generatedAt,
+        previewAvailable: preview.value != null,
+        previewStatus: preview.value?.status,
+        previewTradeDate: preview.value?.tradeDate,
+        previewTime: preview.value?.previewTime,
       });
     }
-    if (dataMode.value === 'preview') applyPreviewPayload(previewPayload);
-    else await applyOfficialRanking(current, requestedMarket, latestOfficial);
+    if (dataMode.value === 'preview') applyPreviewPayload(preview.value);
   } catch (reason) {
     if (current === generation) {
       error.value = getParsedApiError(reason);
@@ -315,6 +330,7 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
       candidates.value = [];
       portfolio.value = emptyPortfolio(market.value);
       changes.value = null;
+      officialSelected.value = null;
     }
   } finally {
     if (current === generation) {
@@ -332,7 +348,8 @@ function selectDataMode(mode: ResearchDataMode) {
     applyPreviewPayload(preview.value);
     return;
   }
-  void load(false, { autoSelectMode: false });
+  if (officialSelected.value) applyOfficialRanking(officialSelected.value);
+  else void load(false, { autoSelectMode: false });
 }
 async function runLatest() {
   running.value = true;
@@ -349,8 +366,7 @@ async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: stri
   detailOpen.value = true;
   detailError.value = null;
   if (dataMode.value === 'preview') {
-    const snapshot = items.value.find(row => row.code === item.code)
-      ?? candidates.value.find(row => row.code === item.code)
+    const snapshot = preview.value?.snapshots.find(row => row.code === item.code)
       ?? null;
     detail.value = snapshot
       ? {
@@ -384,6 +400,13 @@ function openPositionDetail(position: TrendPortfolioPosition) {
 }
 watch(market, () => {
   selectedDate.value = '';
+  rankingSearch.value = '';
+  officialSelected.value = null;
+  officialLatest.value = null;
+  preview.value = null;
+  items.value = [];
+  candidates.value = [];
+  changes.value = null;
   availableDates.value = [];
   detailOpen.value = false;
   summary.value = { ...emptySummary(), market: market.value };
@@ -782,13 +805,13 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               </h3>
               <button
                 v-for="change in group.items"
-                :key="change.current.code"
+                  :key="change.code"
                 class="mb-2 block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
                 :data-testid="`trend-change-${group.label.toLowerCase().replace(' ', '-')}`"
-                @click="openDetail(change.current)"
+                  @click="openDetail(change)"
               >
-                <strong>{{ change.current.name }}</strong>
-                <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
+                  <strong>{{ change.name }}</strong>
+                  <span class="ml-1 font-mono text-muted-foreground">{{ change.code }}</span>
                 <span class="mt-1 block">{{ transitionText(change) }} · Alpha Δ {{ scoreDelta(change.alphaScoreChange) }}</span>
               </button>
               <p
@@ -806,14 +829,14 @@ onMounted(() => void load(true, { autoSelectMode: true }));
             <div class="flex flex-wrap gap-2">
               <button
                 v-for="change in changes?.transitions ?? []"
-                :key="change.current.code"
+                  :key="change.code"
                 data-testid="trend-transition"
                 class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
-                @click="openDetail(change.current)"
+                  @click="openDetail(change)"
               >
-                <strong>{{ change.current.name }}</strong>
+                  <strong>{{ change.name }}</strong>
                 <span class="ml-2">{{ transitionText(change) }}</span>
-                <span class="ml-2">{{ change.previousAction ?? '—' }} → {{ change.current.action }}</span>
+                  <span class="ml-2">{{ change.previousAction ?? '—' }} → {{ change.currentAction }}</span>
               </button>
               <span
                 v-if="!changes?.transitions?.length"
@@ -828,12 +851,12 @@ onMounted(() => void load(true, { autoSelectMode: true }));
             <div class="flex flex-wrap gap-2">
               <button
                 v-for="change in changes?.movers ?? []"
-                :key="change.current.code"
+                  :key="change.code"
                 data-testid="trend-mover"
                 class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
-                @click="openDetail(change.current)"
+                  @click="openDetail(change)"
               >
-                <strong>{{ change.current.name }}</strong>
+                  <strong>{{ change.name }}</strong>
                 <span class="ml-2">Rank {{ rankDelta(change.rankChange) }}</span>
                 <span class="ml-2">Trend {{ scoreDelta(change.trendScoreChange) }}</span>
                 <span class="ml-2">RS {{ scoreDelta(change.rsScoreChange) }}</span>
@@ -852,6 +875,16 @@ onMounted(() => void load(true, { autoSelectMode: true }));
     <Card v-if="showingStrategyBody">
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
         <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ scope }}</CardDescription></div>
+          <label class="flex items-center gap-2 text-sm text-muted-foreground">搜索
+            <input
+              v-model="rankingSearch"
+              type="search"
+              aria-label="按名称或代码搜索趋势股票"
+              placeholder="股票名称或代码"
+              class="h-9 w-56 rounded-md border bg-background px-3 text-foreground"
+              data-testid="trend-ranking-search"
+            >
+          </label>
         <label class="flex items-center gap-2 text-sm text-muted-foreground">排序指标
           <select
             v-model="sortKey"
@@ -870,11 +903,20 @@ onMounted(() => void load(true, { autoSelectMode: true }));
         <Empty v-if="!loading && !items.length">
           <EmptyHeader><EmptyTitle>暂无趋势快照</EmptyTitle><EmptyDescription>请确认所选日期已完成收盘行情同步和策略计算。</EmptyDescription></EmptyHeader>
         </Empty>
-        <ScrollArea
+          <div
           v-else
+            ref="rankingViewport"
+            class="w-full overflow-auto"
+            :class="virtualRanking ? 'max-h-[680px]' : ''"
+            data-testid="trend-ranking-scroll"
+            tabindex="0"
+            aria-label="完整趋势排名，滚动查看全部股票"
+            @scroll="rankingScrollTop = ($event.target as HTMLElement).scrollTop"
+          >
+            <Table
           class="w-full"
+              :aria-rowcount="sortedItems.length + 1"
         >
-          <Table class="w-full">
             <TableHeader>
               <TableRow>
                 <SortableTableHeader
@@ -889,11 +931,23 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               </TableRow>
             </TableHeader>
             <TableBody>
+                <tr
+                  v-if="virtualStart"
+                  aria-hidden="true"
+                  :style="{ height: `${virtualStart * rankingRowHeight}px` }"
+                >
+                  <td
+                    colspan="12"
+                    class="p-0"
+                  />
+                </tr>
               <TableRow
-                v-for="item in visibleItems"
+                  v-for="(item, index) in renderedRankingRows"
                 :key="item.code"
                 class="cursor-pointer"
                 data-testid="trend-row"
+                  :aria-rowindex="virtualStart + index + 2"
+                  :style="virtualRanking ? { height: `${rankingRowHeight}px` } : undefined"
                 @click="openDetail(item)"
               >
                 <TableCell>#{{ item.rank }}</TableCell>
@@ -935,28 +989,33 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                   </div>
                 </TableCell>
               </TableRow>
+                <tr
+                  v-if="rankingBottomSpace"
+                  aria-hidden="true"
+                  :style="{ height: `${rankingBottomSpace}px` }"
+                >
+                  <td
+                    colspan="12"
+                    class="p-0"
+                  />
+                </tr>
             </TableBody>
           </Table>
-          <template #horizontal-scrollbar>
-            <ScrollBar orientation="horizontal" />
-          </template>
-        </ScrollArea>
-        <div
-          v-if="items.length"
-          class="flex flex-wrap items-center justify-between gap-3 px-6 pt-4"
-        >
+          </div>
           <p
-            class="text-sm text-muted-foreground"
-            data-testid="trend-ranking-page-info"
+            v-if="items.length && !sortedItems.length"
+            class="px-6 pt-4 text-sm text-muted-foreground"
+            role="status"
           >
-            共 {{ items.length }} 条 · 每页 {{ rankingPageSize }} 条 · 第 {{ rankingPage }}/{{ rankingTotalPages }} 页
+            没有匹配的股票，请尝试其他名称或代码。
           </p>
-          <AppPagination
-            :current-page="rankingPage"
-            :total-pages="rankingTotalPages"
-            @page-change="rankingPage = $event"
-          />
-        </div>
+          <p
+          v-if="items.length"
+            class="px-6 pt-4 text-sm text-muted-foreground"
+            data-testid="trend-ranking-count"
+        >
+            显示 {{ sortedItems.length }} / {{ items.length }} 条
+          </p>
       </CardContent>
     </Card>
     </div>

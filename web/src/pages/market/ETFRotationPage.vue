@@ -39,10 +39,10 @@ import {
   type ResearchDataMode,
 } from '@/utils/researchPreview';
 import { RefreshCcw } from 'lucide-vue-next';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import { toast } from 'vue-sonner';
 
-const items = ref<ETFMomentumSnapshot[]>([]);
+const items = shallowRef<ETFMomentumSnapshot[]>([]);
 const candidates = ref<ETFMomentumSnapshot[]>([]);
 const exits = ref<ETFMomentumSnapshot[]>([]);
 const changes = ref<ETFRankingChanges | null>(null);
@@ -65,7 +65,8 @@ const sortDirection = ref<'asc' | 'desc'>('desc');
 const dataMode = ref<ResearchDataMode>('official');
 const modeChosenByUser = ref(false);
 const preview = ref<ETFPreviewResponse | null>(null);
-const officialLatest = ref<ETFRankingResponse | null>(null);
+const officialLatest = shallowRef<ETFRankingResponse | null>(null);
+const officialSelected = shallowRef<ETFRankingResponse | null>(null);
 let generation = 0;
 
 const previewAvailable = computed(() => preview.value != null);
@@ -132,8 +133,8 @@ function correlationText(item: ETFMomentumSnapshot) {
   return `最高相关性 ${(value.max_with_universe * 100).toFixed(0)}%`;
 }
 function changeTransition(change: ETFChange, transition: 'action' | 'state') {
-  if (transition === 'action') return `${change.previousAction ?? 'NEW'} → ${change.current.action}`;
-  return `${change.previousState ?? 'NEW'} → ${change.current.state}`;
+  if (transition === 'action') return `${change.previousAction ?? 'NEW'} → ${change.currentAction}`;
+  return `${change.previousState ?? 'NEW'} → ${change.currentState}`;
 }
 function vsOfficial(item: ETFMomentumSnapshot) {
   if (!showingPreview.value) return null;
@@ -178,58 +179,68 @@ function applyPreviewPayload(payload: ETFPreviewResponse | null) {
   exits.value = payload.items.filter(item => item.action === 'EXIT');
   changes.value = null;
 }
-async function applyOfficialRanking(current: number, requestedMarket: ETFMarket, latest: ETFRankingResponse) {
-  const requestedDate = selectedDate.value;
-  const ranking = requestedDate && requestedDate !== latest.tradeDate
-    ? await etfRotationApi.ranking(requestedMarket, requestedDate)
-    : latest;
-  if (current !== generation) return;
+function applyOfficialRanking(ranking: ETFRankingResponse) {
   Object.assign(summary.value, ranking);
   marketSnapshot.value = ranking.marketSnapshot;
   items.value = ranking.items;
   changes.value = ranking.changes ?? null;
-  if (!selectedDate.value) selectedDate.value = ranking.tradeDate;
-  const result = await etfRotationApi.candidates(requestedMarket, ranking.tradeDate);
-  if (current !== generation) return;
-  candidates.value = result.candidates ?? result.items.filter(item => item.action === 'BUY' || item.action === 'HOLD');
-  exits.value = result.exits ?? result.items.filter(item => item.action === 'EXIT');
+  selectedDate.value = ranking.tradeDate;
+  // Match the compatibility endpoint's candidate ordering and configured display limit.
+  const ordered = [...ranking.items].sort((a, b) =>
+    (a.candidateRank ?? Infinity) - (b.candidateRank ?? Infinity)
+    || (b.compositeScore ?? -Infinity) - (a.compositeScore ?? -Infinity)
+    || a.code.localeCompare(b.code));
+  candidates.value = ordered.filter(item => item.action === 'BUY' || item.action === 'HOLD').slice(0, ranking.candidateLimit ?? 6);
+  exits.value = ordered.filter(item => item.action === 'EXIT');
 }
 async function load(refreshDates = false, options: { autoSelectMode?: boolean } = {}) {
   const current = ++generation;
+  const requestedMarket = market.value;
+  const requestedDate = selectedDate.value || undefined;
   const autoSelectMode = options.autoSelectMode === true;
-  if (loading.value && !refreshing.value) loading.value = true;
-  else refreshing.value = true;
+  refreshing.value = !loading.value;
   error.value = null;
+  const auxiliary = refreshDates || !availableDates.value.length;
+  // Auxiliaries update independently; a slow/failed preview must not block official data.
+  const datesTask = auxiliary ? etfRotationApi.dates(requestedMarket).then(result => {
+    if (current === generation) availableDates.value = result.items;
+  }).catch(() => undefined) : Promise.resolve();
+  const previewTask = auxiliary ? etfRotationApi.preview(requestedMarket).then(result => {
+    if (current === generation) {
+      preview.value = result;
+      if (dataMode.value === 'preview') applyPreviewPayload(result);
+    }
+  }).catch(() => { if (current === generation) preview.value = null; }) : Promise.resolve();
   try {
-    const requestedMarket = market.value;
-    const [dates, latestOfficial, previewPayload] = await Promise.all([
-      refreshDates || !availableDates.value.length ? etfRotationApi.dates(requestedMarket) : Promise.resolve(null),
-      etfRotationApi.ranking(requestedMarket, undefined),
-      etfRotationApi.preview(requestedMarket),
-    ]);
+    const ranking = await etfRotationApi.ranking(requestedMarket, requestedDate);
     if (current !== generation) return;
-    if (dates) availableDates.value = dates.items;
-    officialLatest.value = latestOfficial;
-    preview.value = previewPayload;
-    if (autoSelectMode) {
+    officialSelected.value = ranking;
+    if (!requestedDate || requestedDate === availableDates.value[0]) officialLatest.value = ranking;
+    selectedDate.value = ranking.tradeDate;
+    if (dataMode.value === 'official') applyOfficialRanking(ranking);
+    loading.value = false;
+    refreshing.value = false;
+    await Promise.all([datesTask, previewTask]);
+    if (current !== generation) return;
+    if (autoSelectMode && !modeChosenByUser.value) {
       dataMode.value = chooseDefaultResearchDataMode({
-        officialTradeDate: latestOfficial.tradeDate,
-        officialGeneratedAt: latestOfficial.generatedAt,
-        previewAvailable: previewPayload != null,
-        previewStatus: previewPayload?.status,
-        previewTradeDate: previewPayload?.tradeDate,
-        previewTime: previewPayload?.previewTime,
+        officialTradeDate: ranking.tradeDate,
+        officialGeneratedAt: ranking.generatedAt,
+        previewAvailable: preview.value != null,
+        previewStatus: preview.value?.status,
+        previewTradeDate: preview.value?.tradeDate,
+        previewTime: preview.value?.previewTime,
       });
     }
-    if (dataMode.value === 'preview') applyPreviewPayload(previewPayload);
-    else await applyOfficialRanking(current, requestedMarket, latestOfficial);
-  } catch (err) {
+    if (dataMode.value === 'preview') applyPreviewPayload(preview.value);
+  } catch (reason) {
     if (current === generation) {
-      error.value = getParsedApiError(err);
+      error.value = getParsedApiError(reason);
       items.value = [];
       candidates.value = [];
       exits.value = [];
       changes.value = null;
+      officialSelected.value = null;
     }
   } finally {
     if (current === generation) {
@@ -247,9 +258,12 @@ function selectDataMode(mode: ResearchDataMode) {
     applyPreviewPayload(preview.value);
     return;
   }
-  void load(false, { autoSelectMode: false });
+  if (officialSelected.value) applyOfficialRanking(officialSelected.value);
+  else void load(false, { autoSelectMode: false });
 }
-async function openDetail(item: ETFMomentumSnapshot) {
+async function openDetail(target: Pick<ETFMomentumSnapshot, 'code'>) {
+  const item = items.value.find(row => row.code === target.code);
+  if (!item) return;
   selected.value = { market: market.value, metadata: item, latest: item, history: [], marketSnapshot: marketSnapshot.value };
   detailError.value = null;
   if (dataMode.value === 'preview') {
@@ -257,13 +271,20 @@ async function openDetail(item: ETFMomentumSnapshot) {
     return;
   }
   detailLoading.value = true;
-  try { selected.value = await etfRotationApi.detail(item.code, market.value); }
+  try { selected.value = await etfRotationApi.detail(item.code, market.value, 60, selectedDate.value || undefined); }
   catch (err) { detailError.value = getParsedApiError(err); } finally { detailLoading.value = false; }
 }
 async function runRotation() { runLoading.value = true; try { const result = await etfRotationApi.run(market.value); toast.success(`任务已提交：${result.taskId}`); }
   catch (err) { error.value = getParsedApiError(err); } finally { runLoading.value = false; } }
 watch(market, () => {
   selectedDate.value = '';
+  officialSelected.value = null;
+  officialLatest.value = null;
+  preview.value = null;
+  items.value = [];
+  candidates.value = [];
+  exits.value = [];
+  changes.value = null;
   availableDates.value = [];
   selected.value = null;
   modeChosenByUser.value = false;
@@ -581,13 +602,13 @@ onMounted(() => void load(true, { autoSelectMode: true }));
             <div class="space-y-2">
               <button
                 v-for="change in group.items"
-                :key="change.current.code"
+                  :key="change.code"
                 class="block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
                 :data-testid="`etf-change-${group.label.toLowerCase().replace(' ', '-')}`"
-                @click="openDetail(change.current)"
+                  @click="openDetail(change)"
               >
-                <strong>{{ change.current.name }}</strong>
-                <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
+                  <strong>{{ change.name }}</strong>
+                  <span class="ml-1 font-mono text-muted-foreground">{{ change.code }}</span>
                 <span class="mt-1 block">{{ changeTransition(change, group.transition) }} · Composite Δ {{ scoreChange(change.compositeScoreChange) }}</span>
               </button>
               <p
@@ -606,13 +627,13 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           <div class="flex flex-wrap gap-2">
             <button
               v-for="change in changes?.rankMovers ?? []"
-              :key="change.current.code"
+                :key="change.code"
               data-testid="etf-rank-mover"
               class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
-              @click="openDetail(change.current)"
+                @click="openDetail(change)"
             >
-              <strong>{{ change.current.name }}</strong>
-              <span class="ml-2">#{{ change.previousRank ?? '—' }} → #{{ change.current.rank ?? '—' }} ({{ rankChange(change.rankChange) }})</span>
+                <strong>{{ change.name }}</strong>
+                <span class="ml-2">#{{ change.previousRank ?? '—' }} → #{{ change.currentRank ?? '—' }} ({{ rankChange(change.rankChange) }})</span>
               <span class="ml-2">Composite Δ {{ scoreChange(change.compositeScoreChange) }}</span>
             </button>
             <span
@@ -850,7 +871,9 @@ onMounted(() => void load(true, { autoSelectMode: true }));
             <Card
               v-if="dataMode === 'official'"
               data-testid="etf-detail-history"
-            ><CardHeader><CardTitle>History</CardTitle><CardDescription>价格/MA、Composite、Rank 与 Relative Strength；旧快照缺失字段时保留空点。</CardDescription></CardHeader><CardContent><ETFRotationHistoryCharts :history="selected.history" /></CardContent></Card>
+            >
+              <CardHeader><CardTitle>History</CardTitle><CardDescription>价格/MA、Composite、Rank 与 Relative Strength；旧快照缺失字段时保留空点。</CardDescription></CardHeader><CardContent><ETFRotationHistoryCharts :history="selected.history" /></CardContent>
+            </Card>
           </template>
         </div>
       </DialogContent>

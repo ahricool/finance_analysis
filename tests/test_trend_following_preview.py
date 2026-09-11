@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -714,7 +713,7 @@ def test_preview_api_returns_cached_payload(monkeypatch):
         "load_preview",
         lambda market: {"market": market, "status": "completed", "snapshots": [], "trade_date": "2026-09-10"},
     )
-    payload = asyncio.run(trend_following.preview(SimpleNamespace(id=1), "CN"))
+    payload = trend_following.preview(SimpleNamespace(id=1), "CN")
     assert payload["status"] == "completed"
     assert payload["market"] == "CN"
 
@@ -724,7 +723,7 @@ def test_preview_api_404_when_missing(monkeypatch):
 
     monkeypatch.setattr(trend_following, "load_preview", lambda market: None)
     with pytest.raises(HTTPException) as error:
-        asyncio.run(trend_following.preview(SimpleNamespace(id=1), "US"))
+        trend_following.preview(SimpleNamespace(id=1), "US")
     assert error.value.status_code == 404
 
 

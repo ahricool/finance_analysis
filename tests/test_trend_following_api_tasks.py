@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import json
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -41,10 +41,17 @@ class FakeRepository:
             "market_regime": "RISK_ON",
             "market_score": 80,
             "suggested_max_exposure": 0.5,
+            "data_coverage": 1,
         }
 
     def snapshots_by_date(self, trade_date, *, sort_by, limit):
         return [{"code": "AAPL.US", "trade_date": trade_date, "alpha_score": 80, "rank": 1}]
+
+    def dashboard_rows(self, trade_date):
+        return self.snapshots_by_date(trade_date, sort_by="rank", limit=None)
+
+    def change_rows(self, trade_date):
+        return self.snapshots_by_date(trade_date, sort_by="rank", limit=None)
 
     def candidates_by_date(self, trade_date, *, limit):
         return [{"code": "AAPL.US", "trade_date": trade_date, "state": "ENTRY"}]
@@ -94,17 +101,17 @@ def test_snapshot_api_contracts(monkeypatch):
         },
     )
     user = SimpleNamespace(id=1)
-    ranking = asyncio.run(trend_following.ranking(None, "alpha_score", None, user, "US"))
-    candidates = asyncio.run(trend_following.candidates(None, 100, user, "US"))
-    dates = asyncio.run(trend_following.dates(user, "US"))
-    detail = asyncio.run(trend_following.detail("AAPL.US", 60, TRADE_DATE, user, "US"))
+    ranking = json.loads(trend_following.ranking(None, "alpha_score", None, user, "US").body)
+    candidates = trend_following.candidates(None, 100, user, "US")
+    dates = trend_following.dates(user, "US")
+    detail = trend_following.detail("AAPL.US", 60, TRADE_DATE, user, "US")
     assert ranking["items"][0]["code"] == "AAPL.US"
     assert candidates["items"][0]["state"] == "ENTRY"
     assert dates["latest"] == "2026-08-29"
     assert detail["latest"]["state"] == "ENTRY"
     assert detail["latest"]["trade_date"] == "2026-08-28"
     assert all(item["trade_date"] <= "2026-08-28" for item in detail["history"])
-    latest = asyncio.run(trend_following.detail("AAPL.US", 60, None, user, "US"))
+    latest = trend_following.detail("AAPL.US", 60, None, user, "US")
     assert latest["latest"]["trade_date"] == "2026-08-29"
 
 
@@ -117,7 +124,7 @@ def test_portfolio_rebuilds_theoretical_positions_for_requested_date(monkeypatch
         lambda units, unit_weight, max_weight: calls.append((units, unit_weight, max_weight)) or 0.06,
     )
 
-    payload = asyncio.run(trend_following.portfolio(TRADE_DATE, SimpleNamespace(id=1), "US"))
+    payload = trend_following.portfolio(TRADE_DATE, SimpleNamespace(id=1), "US")
 
     assert payload["market"] == "US"
     assert payload["trade_date"] == "2026-08-28"
@@ -145,6 +152,7 @@ def test_ranking_reuses_previous_snapshots_for_daily_changes(monkeypatch):
                 "trade_date": trade_date,
                 "market_regime": "RISK_ON",
                 "market_score": 75 if trade_date == TRADE_DATE else 70,
+                "suggested_max_exposure": 1,
                 "score_breakdown": {"breadth": 65 if trade_date == TRADE_DATE else 60},
             }
 
@@ -179,11 +187,11 @@ def test_ranking_reuses_previous_snapshots_for_daily_changes(monkeypatch):
             ]
 
     monkeypatch.setattr(trend_following, "TrendFollowingRepository", ChangesRepository)
-    payload = asyncio.run(trend_following.ranking(TRADE_DATE, "alpha_score", None, SimpleNamespace(id=1), "US"))
+    payload = json.loads(trend_following.ranking(TRADE_DATE, "alpha_score", None, SimpleNamespace(id=1), "US").body)
     changes = payload["changes"]
     assert changes["market_score_change"] == 5
     assert changes["breadth_score_change"] == 5
-    assert changes["new_candidates"][0]["current"]["code"] == "AAPL.US"
+    assert changes["new_candidates"][0]["code"] == "AAPL.US"
     assert changes["transitions"][0]["previous_state"] == "WATCHING"
     assert changes["movers"][0]["rank_change"] == 9
 
@@ -192,15 +200,13 @@ def test_historical_detail_requires_an_exact_snapshot_date(monkeypatch):
     monkeypatch.setattr(trend_following, "universe_by_code", lambda market: {"AAPL.US": {}})
     monkeypatch.setattr(trend_following, "TrendFollowingRepository", FakeRepository)
     with pytest.raises(HTTPException) as error:
-        asyncio.run(
-            trend_following.detail(
+        trend_following.detail(
                 "AAPL.US",
                 60,
                 date(2026, 8, 27),
                 SimpleNamespace(id=1),
                 "US",
             )
-        )
     assert error.value.status_code == 404
 
 
@@ -237,20 +243,16 @@ def test_manual_run_submits_celery(monkeypatch):
     from finance_analysis.tasks.celery.jobs.trend_following import tasks  # pragma: allowlist secret
 
     monkeypatch.setattr(tasks.run_trend_following_us, "apply_async", submit)
-    result = asyncio.run(
-        trend_following.run_trend_following(
+    result = trend_following.run_trend_following(
             TrendFollowingRunRequest(market="US", trade_date=TRADE_DATE), SimpleNamespace(id=7)
         )
-    )
     assert result["task_id"] == "trend-task"
     assert submitted["kwargs"]["trade_date"] == "2026-08-28"
     assert submitted["queue"] == "analysis"
     submitted.clear()
-    latest = asyncio.run(
-        trend_following.run_trend_following(
+    latest = trend_following.run_trend_following(
             TrendFollowingRunRequest(market="US", trade_date=None), SimpleNamespace(id=7)
         )
-    )
     assert latest["task_id"] == "trend-task"
     assert submitted["kwargs"]["trade_date"] is None
 
@@ -291,7 +293,7 @@ def test_ranking_includes_rank_changes_for_limited_items(monkeypatch):
             return {"AAPL.US": {1: 6, 3: 18, 5: 33}}
 
     monkeypatch.setattr(trend_following, "TrendFollowingRepository", HistoryRepository)
-    result = asyncio.run(trend_following.ranking(TRADE_DATE, "rank", 1, SimpleNamespace(id=1), "US"))
+    result = json.loads(trend_following.ranking(TRADE_DATE, "rank", 1, SimpleNamespace(id=1), "US").body)
     assert {key: value for key, value in result["items"][0].items() if key.startswith("rank_change")} == {
         "rank_change_1d": 5, "rank_change_3d": 17, "rank_change_5d": 32,
     }
@@ -336,3 +338,72 @@ def test_trend_task_business_status_drives_existing_lifecycle(monkeypatch, marke
         service.mark_completed.assert_not_called()
         notification.assert_called_once()
     domain.run.assert_called_once_with(date(2026, 9, 8))
+
+
+@pytest.fixture(autouse=True)
+def offline_ranking_cache(monkeypatch):
+    monkeypatch.setattr(trend_following.RankingCache, "load", lambda self: None)
+    monkeypatch.setattr(trend_following.RankingCache, "save", lambda self, body: None)
+
+
+def test_ranking_cache_hit_only_resolves_latest_date(monkeypatch):
+    calls = []
+
+    class CachedRepository(FakeRepository):
+        def latest_trade_date(self):
+            calls.append("latest")
+            return TRADE_DATE
+
+        def dashboard_rows(self, trade_date):
+            pytest.fail("cache hit queried snapshots")
+
+    monkeypatch.setattr(trend_following, "TrendFollowingRepository", CachedRepository)
+    monkeypatch.setattr(trend_following.RankingCache, "load", lambda self: b'{"cached":true}')
+    assert json.loads(trend_following.ranking(None, "alpha_score", None, None, "CN").body) == {"cached": True}
+    assert calls == ["latest"]
+    calls.clear()
+    trend_following.ranking(TRADE_DATE, "alpha_score", None, None, "CN")
+    assert calls == []
+
+
+def test_changes_classification_uses_lightweight_fields():
+    previous = [{"code": code, "state": "WATCHING", "action": "WATCH", "rank": 9}
+                for code in ("A", "B", "C", "D")]
+    current = [
+        {"code": "A", "state": "CANDIDATE", "rank": 1},
+        {"code": "B", "state": "WEAKENING", "rank": 2},
+        {"code": "C", "state": "HOLDING", "pending_action": "REDUCE", "rank": 3},
+        {"code": "D", "state": "EXIT", "action": "EXIT", "rank": 4},
+    ]
+    repo = SimpleNamespace(previous_trade_date=lambda day: TRADE_DATE,
+                           change_rows=lambda day: previous,
+                           summary_by_date=lambda day: {"market_score": 70})
+    result = trend_following._changes(repo, TRADE_DATE, current, {"market_score": 75})
+    for category, code in [("new_candidates", "A"), ("new_weakening", "B"), ("new_reduces", "C"), ("new_exits", "D")]:
+        assert [item["code"] for item in result[category]] == [code]
+    assert len(result["transitions"]) == 4
+    assert all("current" not in item for key, value in result.items() if isinstance(value, list) for item in value)
+
+
+def test_ranking_aggregates_without_compatibility_queries_and_does_not_cache_incomplete(monkeypatch):
+    saves = []
+
+    class ProjectionRepository(FakeRepository):
+        def dashboard_rows(self, trade_date):
+            assert trade_date == TRADE_DATE
+            return [{**self.positions_by_date(trade_date)[0], "rank": 1}]
+
+        def candidates_by_date(self, *args, **kwargs):
+            pytest.fail("ranking must reuse projection")
+
+        def summary_by_date(self, trade_date):
+            return {**super().summary_by_date(trade_date), "data_coverage": 0.5}
+
+    monkeypatch.setattr(trend_following, "TrendFollowingRepository", ProjectionRepository)
+    monkeypatch.setattr(trend_following.RankingCache, "save", lambda self, body: saves.append(body))
+    result = json.loads(trend_following.ranking(TRADE_DATE, "alpha_score", None, None, "US").body)
+    assert result["portfolio"]["position_count"] == 1
+    assert result["candidates"][0]["code"] == result["items"][0]["code"]
+    assert "score_breakdown" not in result["items"][0]
+    assert "reasons" not in result["items"][0]
+    assert saves == []

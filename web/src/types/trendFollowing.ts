@@ -75,7 +75,15 @@ export interface TrendSnapshot {
   generatedAt: string;
 }
 
-export interface TrendRankingSnapshot extends TrendSnapshot {
+export type TrendCandidate = Pick<TrendSnapshot, 'code' | 'name' | 'rank' | 'state' | 'action' | 'alphaScore'>;
+
+// Only scalar columns used by the table, its sort menu and preview comparisons.
+export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
+  'code' | 'name' | 'rank' | 'state' | 'action' | 'pendingAction' | 'trendDurationDays' |
+  'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore' | 'setup' | 'atr' |
+  'referencePrice' | 'signalDate' | 'signalPrice' | 'openedAt' | 'entryPrice' |
+  'initialStop' | 'nextAddPrice' | 'exitLevel' | 'suggestedInitialWeight'> {
+  features: Pick<TrendFeatures, 'return5D' | 'return10D' | 'return20D' | 'volumeRatio' | 'distanceFromMa20'>;
   rankChange1D: number | null;
   rankChange3D: number | null;
   rankChange5D: number | null;
@@ -106,7 +114,12 @@ export interface TrendSummary {
 }
 
 export interface TrendChange {
-  current: TrendSnapshot;
+  code: string;
+  name: string;
+  currentState: TrendState;
+  currentAction: TrendAction;
+  currentPendingAction: TrendSnapshot['pendingAction'];
+  currentRank: number;
   previousState: TrendState | null;
   previousAction: TrendAction | null;
   previousPendingAction: TrendSnapshot['pendingAction'] | null;
@@ -133,6 +146,8 @@ export interface TrendRankingChanges {
 
 export interface TrendRankingResponse extends TrendSummary {
   items: TrendRankingSnapshot[];
+  candidates: TrendCandidate[];
+  portfolio: TrendPortfolioResponse;
   changes?: TrendRankingChanges | null;
 }
 export interface TrendPortfolioPosition {

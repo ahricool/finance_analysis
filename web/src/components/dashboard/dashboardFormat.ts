@@ -11,15 +11,15 @@ export function regimeTone(value?: string | null) {
 export function etfHighlights(changes?: ETFRankingChanges | null): ETFChange[] {
   const seen = new Set<string>();
   return [...(changes?.newBuys ?? []), ...(changes?.newExits ?? [])].filter(change => {
-    if (seen.has(change.current.code)) return false;
-    seen.add(change.current.code);
+    if (seen.has(change.code)) return false;
+    seen.add(change.code);
     return true;
   }).slice(0, 3);
 }
 export function trendHighlights(changes?: TrendRankingChanges | null) {
   return (changes?.transitions ?? []).filter(change =>
-    ['ENTRY', 'ADD', 'REDUCE', 'EXIT'].includes(change.current.action)
-    || (change.current.state === 'WEAKENING' && change.previousState !== 'WEAKENING'),
+    ['ENTRY', 'ADD', 'REDUCE', 'EXIT'].includes(change.currentAction)
+    || (change.currentState === 'WEAKENING' && change.previousState !== 'WEAKENING'),
   );
 }
 export function upcomingEvents(items: TimelineItem[], now: Date) {

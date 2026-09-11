@@ -181,6 +181,13 @@ class ETFRotationRepository:
                 )
             )
 
+        self._invalidate_ranking_cache()
+
+    def _invalidate_ranking_cache(self) -> None:
+        from finance_analysis.etf_rotation.ranking_cache import invalidate_market
+
+        invalidate_market(self.market)
+
     def market_snapshot_by_date(self, trade_date: date) -> dict[str, Any] | None:
         with self.db.get_session() as session:
             snapshot = session.execute(
@@ -242,6 +249,7 @@ class ETFRotationRepository:
                     ETFMomentumSnapshot.instrument_id.not_in(set(symbol_ids[code] for code in codes)),
                 )
             )
+        self._invalidate_ranking_cache()
         return len(records)
 
     def latest_trade_date(self) -> date | None:
@@ -338,6 +346,15 @@ class ETFRotationRepository:
             ).all()
             return [self._payload(snapshot, str(code)) for snapshot, code in rows]
 
+    def change_rows(self, trade_date: date) -> list[dict]:
+        snapshot = ETFMomentumSnapshot
+        with self.db.get_session() as session:
+            return [dict(row) for row in session.execute(
+                select(Instrument.code, snapshot.state, snapshot.action, snapshot.rank, snapshot.composite_score)
+                .join(Instrument, Instrument.id == snapshot.instrument_id)
+                .where(snapshot.market == self.market, snapshot.trade_date == trade_date)
+            ).mappings()]
+
     def previous_trade_date(self, trade_date: date) -> date | None:
         with self.db.get_session() as session:
             return session.execute(
@@ -347,7 +364,7 @@ class ETFRotationRepository:
                 )
             ).scalar_one()
 
-    def snapshot_history(self, code: str, *, limit: int = 60) -> list[dict[str, Any]]:
+    def snapshot_history(self, code: str, *, limit: int = 60, as_of: date | None = None) -> list[dict[str, Any]]:
         canonical = str(code).strip().upper()
         with self.db.get_session() as session:
             rows = session.execute(
@@ -357,6 +374,7 @@ class ETFRotationRepository:
                     ETFMomentumSnapshot.market == self.market,
                     Instrument.market == self.market,
                     Instrument.code == canonical,
+                    *([ETFMomentumSnapshot.trade_date <= as_of] if as_of is not None else []),
                 )
                 .order_by(desc(ETFMomentumSnapshot.trade_date))
                 .limit(limit)

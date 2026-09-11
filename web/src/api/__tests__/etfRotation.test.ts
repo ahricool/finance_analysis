@@ -21,7 +21,7 @@ const rankingPayload = {
   changes: {
     previous_trade_date: '2026-08-22',
     new_buys: [{
-      current: { code: '588000.SH', name: '科创50ETF', state: 'EMERGING', action: 'BUY' },
+      code: '588000.SH', name: '科创50ETF', current_state: 'EMERGING', current_action: 'BUY', current_rank: 3,
       previous_state: 'NEUTRAL',
       previous_action: null,
       previous_rank: 8,
@@ -148,5 +148,13 @@ describe('etfRotation API key conversion', () => {
     vi.mocked(apiClient.get).mockRejectedValue({ parsedError: { status: 404, title: 'x', message: 'missing', rawMessage: 'missing', category: 'http_error' } });
     await expect(etfRotationApi.preview('US')).resolves.toBeNull();
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/etf-rotation/preview', { params: { market: 'US' } });
+  });
+});
+
+it('passes the selected date to ETF detail', async () => {
+  vi.mocked(apiClient.get).mockResolvedValue({ data: {} });
+  await etfRotationApi.detail('588000.SH', 'CN', 60, '2026-08-21');
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/etf-rotation/588000.SH', {
+    params: { market: 'CN', limit: 60, trade_date: '2026-08-21' },
   });
 });

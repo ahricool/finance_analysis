@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -544,12 +543,12 @@ def test_preview_api_returns_cached_payload_and_404(monkeypatch):
         "load_preview",
         lambda market: {"market": market, "status": "completed", "items": [{"code": "588000.SH"}]},
     )
-    payload = asyncio.run(etf_rotation.preview(SimpleNamespace(id=1), "CN"))
+    payload = etf_rotation.preview(SimpleNamespace(id=1), "CN")
     assert payload["items"][0]["code"] == "588000.SH"
 
     monkeypatch.setattr(etf_rotation, "load_preview", lambda market: None)
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(etf_rotation.preview(SimpleNamespace(id=1), "US"))
+        etf_rotation.preview(SimpleNamespace(id=1), "US")
     assert exc_info.value.status_code == 404
 
 
