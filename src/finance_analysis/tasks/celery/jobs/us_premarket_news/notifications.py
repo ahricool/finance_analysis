@@ -6,7 +6,10 @@ from __future__ import annotations
 import logging
 from typing import Dict
 
+from finance_analysis.notification.service import NotificationResult
+
 from .models import PremarketNewsSummary
+
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +58,12 @@ def render_notification(summary: PremarketNewsSummary) -> str:
 class PremarketNewsReporter:
     """Sends the Top news notification."""
 
-    def send_notification(self, summary: PremarketNewsSummary) -> bool:
+    def send_notification(self, summary: PremarketNewsSummary) -> NotificationResult:
         try:
             from finance_analysis.notification.service import NotificationService
 
             return NotificationService().send(
                 render_notification(summary),
-                email_stock_codes=summary.symbols,
                 route_type="report",
                 severity="info",
                 dedup_key=f"us_premarket_news:{summary.started_at.strftime('%Y%m%d')}",
@@ -69,4 +71,4 @@ class PremarketNewsReporter:
             )
         except Exception as exc:
             logger.warning("发送美股盘前新闻情报通知失败: %s", exc, exc_info=True)
-            return False
+            return NotificationResult()

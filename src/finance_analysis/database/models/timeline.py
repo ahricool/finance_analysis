@@ -1,4 +1,4 @@
-"""Durable public market reports shown on the investment timeline."""
+"""Legacy report table retained after notification migration; no business read/write path."""
 
 from sqlalchemy import JSON, CheckConstraint, Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB

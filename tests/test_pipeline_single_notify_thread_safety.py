@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import unittest
+
 from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -16,6 +17,7 @@ from tests.litellm_stub import ensure_litellm_stub
 
 ensure_litellm_stub()
 
+from finance_analysis.notification.service import NotificationResult
 from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
 from finance_analysis.analysis.pipeline import StockAnalysisPipeline
 
@@ -61,15 +63,15 @@ class _CriticalSectionTrackingNotifier:
     def _send(
         self,
         content: str,
-        email_stock_codes=None,
+        uid=None,
         route_type=None,
         severity=None,
         dedup_key=None,
         cooldown_key=None,
     ) -> bool:
-        stock_code = (email_stock_codes or ["unknown"])[0]
+        stock_code = content.split(":", 1)[-1]
         self._enter("send", stock_code)
-        return True
+        return NotificationResult(1, True, True)
 
 
 class TestPipelineSingleNotifyThreadSafety(unittest.TestCase):

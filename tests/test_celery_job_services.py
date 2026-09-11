@@ -46,7 +46,6 @@ def test_daily_task_service_records_then_reraises_pipeline_failure():
         daily_module.DailyAnalysisTaskService().run()
 
 
-
 def test_us_premarket_service_runs_pipeline_for_us_watch_list():
     pipeline = MagicMock()
     pipeline.run.return_value = []
@@ -73,7 +72,6 @@ def test_us_premarket_service_skips_empty_watch_list():
         pytest.raises(TaskSkipped),
     ):
         premarket_module.USPremarketAnalysisTaskService().run()
-
 
 
 def test_us_premarket_news_service_runs_domain_service():
@@ -186,7 +184,7 @@ def test_market_calendar_service_runs_sync_and_submits_importance():
         inserted_count=1,
         updated_count=0,
         skipped_duplicate_count=0,
-        notification_sent_count=1,
+        notification_created_count=1,
         importance_candidate_ids=[11, 12],
     )
     summary.to_dict.return_value = {"importance_candidate_ids": [11, 12]}

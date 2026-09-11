@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -7,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from finance_analysis.notification.service import NotificationResult
 from finance_analysis.integrations.market_data.realtime_types import UnifiedRealtimeQuote
 from finance_analysis.tasks.celery.jobs.intraday_signal_state import IntradaySignalStateStore
 from finance_analysis.tasks.celery.jobs.us_intraday_analysis.bars import aggregate_bars
@@ -625,7 +627,7 @@ class _UnavailableJudge:
 
 class _FakeReporter:
     def send_notification(self, signal):
-        return True
+        return NotificationResult(1, True, True)
 
 
 def _service(now: datetime, bars_by_symbol: dict[str, list[dict]], missing_quotes: set[str] | None = None):
@@ -728,7 +730,7 @@ def test_bearish_signal_types_use_existing_bearish_notification_severity(monkeyp
     class _NotificationService:
         def send(self, _content, **kwargs):
             sent.append(kwargs)
-            return True
+            return NotificationResult(1, True, True)
 
     monkeypatch.setattr(
         "finance_analysis.notification.service.NotificationService",
@@ -743,7 +745,7 @@ def test_bearish_signal_types_use_existing_bearish_notification_severity(monkeyp
             llm_result={},
             metrics={"severity": "high"},
         )
-        assert reporter.send_notification(signal) is True
+        assert reporter.send_notification(signal).push_sent is True
         assert sent[-1]["severity"] == "error"
 
 
@@ -756,6 +758,11 @@ def test_service_notification_eligibility_uses_new_final_decisions(decision, exp
         datetime(2026, 6, 10, 10, 0, tzinfo=US_EASTERN),
         {},
     )
+    from unittest.mock import Mock
+
+    service.reporter.send_notification = Mock(return_value=NotificationResult(1, True, False))
+    candidate = {"symbol": "NVDA", "signal_type": "relative_strength_breakout", "metrics": {}}
+    verdict = {"final_decision": decision, "direction": "bearish", "need_notification": True}
     signal = service._build_signal(
         {
             "symbol": "NVDA",
@@ -771,7 +778,11 @@ def test_service_notification_eligibility_uses_new_final_decisions(decision, exp
 
     assert signal is not None
     assert signal.need_notification is expected
-    assert signal.notification_sent is expected
+    assert (signal.notification_id is not None) is expected
+    assert signal.push_sent is False
+    repeated = service._build_signal(candidate, verdict)
+    assert repeated.notification_id is None
+    assert service.reporter.send_notification.call_count == int(expected)
 
 
 def test_service_processes_0946_with_15_complete_bars():

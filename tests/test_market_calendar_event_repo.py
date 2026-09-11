@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from finance_analysis.database.models import FinanceEvent
 from finance_analysis.database.repositories.market_calendar_event import (
     MarketCalendarEventRepo,
-    notification_fingerprint,
 )
 from finance_analysis.market_calendar.events import macro_type, merge_events, with_source
 
@@ -161,14 +160,6 @@ def test_macro_same_period_date_adjustment_updates(repo):
         ),
     )
     assert moved.event.id == first.id
-
-
-def test_notification_fingerprint_ignores_enrichment_but_detects_session_and_date():
-    data = event()
-    original = notification_fingerprint(data)
-    assert notification_fingerprint(data | dict(provider="longbridge", currency="USD", eps_estimate=3)) == original
-    assert notification_fingerprint(data | dict(market_session="amc")) != original
-    assert notification_fingerprint(data | dict(event_date="2026-06-19")) != original
 
 
 @pytest.mark.parametrize("kind", ["ipo", "dividend", "split"])

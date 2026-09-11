@@ -26,20 +26,16 @@ class NotificationDiagnosticsTestCase(unittest.TestCase):
         expected = {
             channel.value
             for channel in NotificationChannel
-            if channel is not NotificationChannel.UNKNOWN
         }
 
         self.assertTrue(expected.issubset(spec_channels))
-        self.assertIn(NotificationChannel.UNKNOWN.value, spec_channels)
+        self.assertEqual(spec_channels, {"telegram", "ntfy"})
 
     def test_key_specs_include_minimal_and_advanced_keys(self):
         key_tiers = {(spec.key, spec.tier) for spec in KEY_SPECS}
 
-        self.assertIn(("ASTRBOT_URL", "minimal"), key_tiers)
-        self.assertIn(("ASTRBOT_TOKEN", "advanced"), key_tiers)
         self.assertIn(("NTFY_URL", "minimal"), key_tiers)
         self.assertIn(("NTFY_TOKEN", "advanced"), key_tiers)
-        self.assertIn(("CUSTOM_WEBHOOK_BODY_TEMPLATE", "advanced"), key_tiers)
         self.assertIn(("WEBHOOK_VERIFY_SSL", "advanced"), key_tiers)
         for key in P3_ROUTE_ENV_KEYS:
             self.assertIn((key, "advanced"), key_tiers)

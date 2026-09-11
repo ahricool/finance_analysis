@@ -7,7 +7,6 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import ApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import LoadingButton from '@/components/app/LoadingButton.vue';
-import TimelineAnalysisCard from '@/components/timeline/TimelineAnalysisCard.vue';
 import TimelineEarningsCard from '@/components/timeline/TimelineEarningsCard.vue';
 import TimelineEventDetail from '@/components/timeline/TimelineEventDetail.vue';
 import TimelineMacroCard from '@/components/timeline/TimelineMacroCard.vue';
@@ -16,15 +15,14 @@ import { dayHeading, dayKey, importanceNames, kindLabel, marketLabel, tabQuery }
 import { Dialog, DialogDescription, DialogHeader, DialogScrollContent, DialogTitle } from '@/components/ui/dialog';
 import { useTimezoneStore } from '@/stores/timezoneStore';
 import { formatDateTimeInDisplayTimezone, getTodayInDisplayTimezone } from '@/utils/format';
-import { renderMarkdownToHtml } from '@/utils/renderMarkdown';
 
 const { displayTimezone } = storeToRefs(useTimezoneStore());
 const markets = [{ value: '', label: '全部市场' }, { value: 'CN', label: 'A股' }, { value: 'US', label: '美股' }] as const;
 const tabs = [
   { value: 'all', label: '全部' }, { value: 'earnings', label: '财报' }, { value: 'macro', label: '宏观' },
-  { value: 'news', label: '新闻' }, { value: 'analysis', label: '市场分析' },
+  { value: 'news', label: '新闻' },
 ] as const;
-const cards = { earnings: TimelineEarningsCard, macro: TimelineMacroCard, news: TimelineNewsCard, analysis: TimelineAnalysisCard };
+const cards = { earnings: TimelineEarningsCard, macro: TimelineMacroCard, news: TimelineNewsCard };
 
 const market = ref('');
 const tab = ref<TimelineTab>('all');
@@ -77,7 +75,7 @@ const groups = computed(() => {
 
 function cardFor(item: TimelineItem) {
   if (item.category === 'event') return item.calendarType === 'earnings' ? cards.earnings : cards.macro;
-  return item.category === 'news' ? cards.news : cards.analysis;
+  return cards.news;
 }
 
 let requestId = 0;
@@ -340,11 +338,7 @@ function safeUrl(value: unknown) { return typeof value === 'string' && /^https?:
               </div>
             </dl>
           </template>
-          <div
-            v-else
-            class="prose prose-sm max-w-none break-words dark:prose-invert"
-            v-html="renderMarkdownToHtml(String(detail.detailPayload.content || ''))"
-          />
+
         </template>
       </DialogScrollContent>
     </Dialog>

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+
 import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -9,6 +10,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
+from finance_analysis.notification.service import NotificationResult
 from finance_analysis.tasks.celery.jobs.us_postmarket_review.models import (
     US_POSTMARKET_BENCHMARKS,
     US_POSTMARKET_SECTOR_ETFS,
@@ -133,12 +135,9 @@ class FakeReporter:
 
     def send_notification(self, summary, *, send_notification: bool):
         self.last_summary = summary
-        if not send_notification:
-            return False
-        self.send_calls += 1
-        if not self.send_result:
-            summary.warnings.append("通知发送失败或无可用通知渠道")
-        return self.send_result
+        if send_notification:
+            self.send_calls += 1
+        return NotificationResult(1, send_notification, send_notification and self.send_result)
 
 
 class EmptyDb:
@@ -225,10 +224,8 @@ def test_normal_trading_day_after_close_generates_report_and_sends_notification(
     assert summary.watchlist_count == 3
     assert summary.watchlist_up_count == 2
     assert summary.watchlist_down_count == 1
-    assert summary.timeline_entry_id == 123
-    assert summary.notification_sent is True
+    assert summary.push_sent is True
     assert summary.fallback_used is False
-    assert summary.report_file.endswith("us_postmarket_review_20260623.md")
     assert reporter.send_calls == 1
     json.dumps(summary.to_dict(), ensure_ascii=False)
 
@@ -331,15 +328,16 @@ def test_send_notification_false_does_not_send() -> None:
     reporter = FakeReporter()
     summary = _service(reporter=reporter).run(now=TRADING_DATE, send_notification=False)
 
-    assert summary.notification_sent is False
+    assert summary.push_sent is False
     assert reporter.send_calls == 0
 
 
 def test_notification_failure_records_warning() -> None:
     summary = _service(reporter=FakeReporter(send_result=False)).run(now=TRADING_DATE)
 
-    assert summary.notification_sent is False
-    assert any("通知发送失败" in item for item in summary.warnings)
+    assert summary.push_sent is False
+    assert not any("通知发送失败" in item for item in summary.warnings)
+    assert summary.notification_id == 1
 
 
 def test_news_search_failure_records_warning_and_completes() -> None:
@@ -358,37 +356,14 @@ def test_reporter_creates_investment_report_and_uses_notification_dedup_key() ->
 
         def send(self, content, **kwargs):
             sent.update(kwargs)
-            return True
+            return NotificationResult(1, True, True)
 
-    class Repo:
-        def __init__(self):
-            self.updated = False
-            self.created = False
-
-        def get_by_type_and_date(self, **kwargs):
-            return SimpleNamespace(id=7)
-
-        def update(self, item_id, **kwargs):
-            self.updated = True
-            return SimpleNamespace(id=item_id)
-
-        def create(self, **kwargs):
-            self.created = True
-            return SimpleNamespace(id=99)
-
-    repo = Repo()
-    reporter = USPostmarketReviewReporter(
-        notifier=Notifier(),
-        timeline_repo=repo,
-    )
+    reporter = USPostmarketReviewReporter(notifier=Notifier())
     summary = _service(reporter=FakeReporter()).run(now=TRADING_DATE, send_notification=False)
     summary.report = _complete_markdown()
-    summary.timeline_entry_id = reporter.record_report(summary)
-    summary.notification_sent = reporter.send_notification(summary, send_notification=True)
+    notification_result = reporter.send_notification(summary, send_notification=True)
+    assert notification_result.notification_id == 1
 
-    assert summary.timeline_entry_id == 99
-    assert repo.updated is False
-    assert repo.created is True
     assert sent["dedup_key"] == "us_postmarket_review:2026-06-23"
     assert sent["cooldown_key"] == "us_postmarket_review:2026-06-23"
 

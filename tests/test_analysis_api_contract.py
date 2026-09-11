@@ -75,6 +75,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         task_queue.submit_market_review.assert_called_once_with(
             send_notification=True,
             override_region=None,
+            owner_uid=None,
         )
 
     def test_market_review_request_rejects_send_notification_parameter(self) -> None:
@@ -134,7 +135,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
         task = queue.submit_market_review(send_notification=False, override_region="cn,us")
 
-        runtime_notifier = MagicMock()
+        runtime_notifier = MagicMock(last_notification_id=123)
         runtime_search = MagicMock()
         runtime_analyzer = MagicMock()
         with patch(
@@ -148,13 +149,14 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                 override_region="cn,us",
             )
 
-        self.assertEqual(result, {"result": "report"})
+        self.assertEqual(result, {"notification_id": 123})
         run_market_review_pipeline.assert_called_once_with(
             notifier=runtime_notifier,
             analyzer=runtime_analyzer,
             search_service=runtime_search,
             send_notification=False,
             override_region="cn,us",
+            owner_uid=None,
         )
         reset_task_state_for_tests()
 
@@ -180,7 +182,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
 
         reset_task_state_for_tests()
 
-    def test_get_analysis_status_returns_market_review_report_from_task_record(self) -> None:
+    def test_get_analysis_status_resolves_message_reference_with_user_scope(self) -> None:
         if get_analysis_status is None or analysis_endpoint_module is None:
             self.skipTest("analysis endpoint helpers unavailable in this environment")
 
@@ -191,7 +193,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             status="completed",
             progress=100,
             payload=None,
-            result='{"result": "市场复盘报告示例文本"}',
+            result='{"notification_id": 123}',
             error=None,
         )
         repository = MagicMock()
@@ -199,9 +201,14 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         mock_db = MagicMock()
         mock_db.get_analysis_history.return_value = []
 
+        message_repo = MagicMock()
+        message_repo.get_message.return_value = SimpleNamespace(content="市场复盘报告示例文本")
         with patch("finance_analysis.interfaces.api.v1.endpoints.analysis.TaskRecordRepository", return_value=repository), \
-             patch("finance_analysis.database.DatabaseManager.get_instance", return_value=mock_db):
-            status = get_analysis_status("market-task-1")
+             patch("finance_analysis.database.DatabaseManager.get_instance", return_value=mock_db), \
+             patch("finance_analysis.interfaces.api.v1.endpoints.analysis.get_effective_uid", return_value=1), \
+             patch("finance_analysis.database.repositories.notification.NotificationRepository", return_value=message_repo):
+            status = get_analysis_status("market-task-1", http_request=MagicMock())
+        message_repo.get_message.assert_called_once_with(123, uid=1)
 
         self.assertEqual(status.status, "completed")
         self.assertEqual(status.market_review_report, "市场复盘报告示例文本")

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Tests for localized market review wrappers."""
 
+from finance_analysis.notification.service import NotificationResult
+
 import importlib
 import sys
 import unittest
@@ -46,7 +48,7 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
         notifier = MagicMock()
         notifier.save_report_to_file.return_value = "/tmp/market_review.md"
         notifier.is_available.return_value = True
-        notifier.send.return_value = True
+        notifier.send.return_value = NotificationResult(1, True, True)
         return notifier
 
     def test_run_market_review_uses_english_notification_title(self) -> None:
@@ -62,11 +64,10 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
             result = run_market_review(notifier, send_notification=True)
 
         self.assertEqual(result, "## 2026-04-10 A-share Market Recap\n\nBody")
-        saved_content = notifier.save_report_to_file.call_args.args[0]
-        self.assertTrue(saved_content.startswith("# 🎯 Market Review\n\n"))
+        notifier.save_report_to_file.assert_not_called()
         sent_content = notifier.send.call_args.args[0]
         self.assertTrue(sent_content.startswith("🎯 Market Review\n\n"))
-        self.assertTrue(notifier.send.call_args.kwargs["email_send_to_all"])
+        self.assertTrue(notifier.send.call_args.kwargs["push"])
         self.assertEqual(notifier.send.call_args.kwargs["route_type"], "report")
 
     def test_run_market_review_merges_both_regions_with_english_wrappers(self) -> None:
@@ -87,15 +88,14 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
             "MarketAnalyzer",
             side_effect=[cn_analyzer, hk_analyzer, us_analyzer],
         ):
-            result = run_market_review(notifier, send_notification=False)
+            result = run_market_review(notifier, send_notification=False, merge_notification=True)
 
         self.assertIn("# A-share Market Recap\n\nCN body", result)
         self.assertIn("# HK Market Recap\n\nHK body", result)
         self.assertIn("> Next market recap follows", result)
         self.assertIn("# US Market Recap\n\nUS body", result)
-        saved_content = notifier.save_report_to_file.call_args.args[0]
-        self.assertTrue(saved_content.startswith("# 🎯 Market Review\n\n"))
-        notifier.send.assert_not_called()
+        notifier.save_report_to_file.assert_not_called()
+        self.assertFalse(notifier.send.call_args.kwargs["push"])
 
     def test_run_market_review_comma_joined_subset_cn_us(self) -> None:
         """Regression: compute_effective_region("both", {"cn","us"}) -> "cn,us"

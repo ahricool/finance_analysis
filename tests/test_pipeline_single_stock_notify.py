@@ -17,6 +17,7 @@ from tests.litellm_stub import ensure_litellm_stub
 
 ensure_litellm_stub()
 
+from finance_analysis.notification.service import NotificationResult
 from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
 from finance_analysis.analysis.pipeline import StockAnalysisPipeline
 from finance_analysis.reporting.types import ReportType
@@ -25,7 +26,7 @@ from finance_analysis.reporting.types import ReportType
 class _TrackingNotifier:
     def __init__(self):
         self.thread_names = []
-        self.email_stock_codes = []
+        self.message_uids = []
         self.sent_reports = []
         self._lock = threading.Lock()
         self._inflight = 0
@@ -45,7 +46,7 @@ class _TrackingNotifier:
     def _send(
         self,
         content,
-        email_stock_codes=None,
+        uid=None,
         route_type=None,
         severity=None,
         dedup_key=None,
@@ -56,14 +57,14 @@ class _TrackingNotifier:
             self.max_inflight = max(self.max_inflight, self._inflight)
 
         self.thread_names.append(threading.current_thread().name)
-        self.email_stock_codes.append(email_stock_codes)
+        self.message_uids.append(uid)
         self.sent_reports.append(content)
         time.sleep(0.01)
 
         with self._lock:
             self._inflight -= 1
 
-        return True
+        return NotificationResult(1, True, True)
 
 
 def _make_result(code: str, success: bool = True) -> AnalysisResult:
@@ -104,7 +105,7 @@ class TestPipelineSingleStockNotify(unittest.TestCase):
         def _process(code, skip_analysis=False, single_stock_notify=False, report_type=None, analysis_query_id=None, current_time=None):
             worker_calls.append((code, single_stock_notify, threading.current_thread().name))
             if single_stock_notify:
-                pipeline.notifier.send(f"worker:{code}", email_stock_codes=[code])
+                pipeline.notifier.send(f"worker:{code}", uid=None)
             return _make_result(code)
 
         pipeline.process_single_stock = MagicMock(side_effect=_process)
@@ -123,8 +124,8 @@ class TestPipelineSingleStockNotify(unittest.TestCase):
         )
         self.assertEqual(pipeline.notifier.max_inflight, 1)
         self.assertCountEqual(pipeline.notifier.sent_reports, ["single:000001", "single:600519"])
-        self.assertCountEqual(pipeline.notifier.email_stock_codes, [["000001"], ["600519"]])
-        pipeline._save_local_report.assert_called_once()
+        self.assertEqual(pipeline.notifier.message_uids, [None, None])
+        pipeline._save_local_report.assert_not_called()
         pipeline._send_notifications.assert_called_once()
         _, kwargs = pipeline._send_notifications.call_args
         self.assertTrue(kwargs["skip_push"])
@@ -147,7 +148,7 @@ class TestPipelineSingleStockNotify(unittest.TestCase):
         pipeline.notifier.generate_brief_report.assert_called_once_with([result])
         pipeline.notifier.send.assert_called_once_with(
             "brief:600519.SH",
-            email_stock_codes=["600519.SH"],
+            uid=None,
             route_type="report",
             severity="info",
             dedup_key="report:single:600519.SH:brief",

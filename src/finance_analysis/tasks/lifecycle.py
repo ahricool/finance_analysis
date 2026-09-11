@@ -437,6 +437,7 @@ def _send_task_failure_notification(
         notification_key = f"task_failure:{task_id}"
         NotificationService().send(
             content,
+            uid=metadata.uid,
             route_type="system_error",
             severity="error",
             dedup_key=notification_key,

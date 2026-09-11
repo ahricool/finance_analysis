@@ -72,7 +72,7 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
   search/                  多搜索 Provider 及统一搜索服务
   llm/                     LiteLLM 配置、调用、fallback 与模型视图
   reporting/               报告 schema、本地化、Jinja/Markdown/图片渲染
-  notification/            路由、降噪及 Telegram/SMTP/ntfy/Webhook/AstrBot
+  notification/            路由、降噪及 Telegram/ntfy 与消息持久化
   stock_lists/             CSV/Excel/文本股票代码导入解析
   patches/                 受配置控制的第三方兼容补丁
   users/                   会话 JWT、用户配置和数据归属
@@ -151,7 +151,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - 搜索：`ANSPIRE_*`、`BOCHA_*`、`MINIMAX_*`、`TAVILY_*`、`BRAVE_*`、`SERPAPI_*`、`SEARXNG_*`。
 - 行情：`TICKFLOW_*`、`LONGBRIDGE_*`、`MARKET_DATA_*`、`REALTIME_REDIS_URL`、`MARKET_STREAM_*`。
 - 量化：`QUANT_ARTIFACT_ROOT`、`QUANT_MIN_UNIVERSE_COVERAGE`。
-- 通知：`TELEGRAM_*`、`EMAIL_*`、`NTFY_*`、`CUSTOM_WEBHOOK_*`、`ASTRBOT_*`。
+- 通知：`TELEGRAM_*`、`NTFY_*`。
 
 以各领域 `config.py` 与 `.env.example` 为准。不要提交 `.env`、token、数据库密码或真实通知地址。
 
@@ -297,3 +297,7 @@ pnpm run test:smoke
 `crypto/` 是独立 BTCUSDT Spot 领域，`integrations/crypto/binance.py` 仅负责公开Binance传输；不要接股票 Provider 链。
 `finance-analysis-crypto-stream` / Compose `crypto-streamer` 独立采集，PostgreSQL保存1m闭合K线和策略状态/快照，Redis仅为实时视图。
 API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`，详见 `docs/crypto-btc.md`；测试位于 `tests/crypto/`。
+
+## 消息边界
+
+所有系统消息先写 `notification`（`uid` 非空为用户消息，空为全局消息），再执行现有 Noise Control 和 Telegram/ntfy 推送；不保存 delivery 状态。读取仅限本人 + 全局。报告不再写 Timeline 或本地文件；Calendar 只保存 earnings/macro 真实事件。详见 `docs/notifications.md`。

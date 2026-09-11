@@ -32,7 +32,7 @@ class MarketCalendarSyncTaskService:
                 summary.inserted_count,
                 summary.updated_count,
                 summary.skipped_duplicate_count,
-                summary.notification_sent_count,
+                summary.notification_created_count,
                 len(importance_candidate_ids),
             )
             if hasattr(summary, "to_dict"):
@@ -42,7 +42,7 @@ class MarketCalendarSyncTaskService:
                 "inserted_count": int(getattr(summary, "inserted_count", 0) or 0),
                 "updated_count": int(getattr(summary, "updated_count", 0) or 0),
                 "skipped_duplicate_count": int(getattr(summary, "skipped_duplicate_count", 0) or 0),
-                "notification_sent_count": int(getattr(summary, "notification_sent_count", 0) or 0),
+                "notification_created_count": int(getattr(summary, "notification_created_count", 0) or 0),
                 "importance_candidate_ids": importance_candidate_ids,
             }
         except Exception as exc:

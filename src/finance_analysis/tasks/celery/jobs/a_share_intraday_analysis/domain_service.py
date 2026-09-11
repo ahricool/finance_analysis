@@ -597,19 +597,23 @@ class AShareIntradayAnalysisService:
             trading_date=summary.trading_date.isoformat(),
             phase=summary.market_phase,
         )
-        notified = False
+        notification_id = None
+        push_sent = False
         if to_notify:
-            notified = self.reporter.send_aggregated_notification(
+            notification_result = self.reporter.send_aggregated_notification(
                 summary, snapshot, to_notify, send_notification=send_notification
             )
-            if notified:
+            notification_id = notification_result.notification_id
+            push_sent = notification_result.push_sent
+            if notification_id is not None:
                 self.reporter.mark_notified(to_notify)
                 for signal in to_notify:
                     self._mark_notification_state(signal, summary.snapshot_time)
                 summary.notification_count = len(to_notify)
 
         for signal in signals:
-            signal.notification_sent = notified and signal in to_notify
+            signal.notification_id = notification_id if signal in to_notify else None
+            signal.push_sent = push_sent and signal in to_notify
 
     def _should_notify_state_change(self, signal: AShareSignalResult, now: datetime) -> bool:
         if not signal.need_notification:

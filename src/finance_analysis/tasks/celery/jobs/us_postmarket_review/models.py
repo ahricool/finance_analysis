@@ -138,9 +138,8 @@ class USPostmarketReviewSummary:
     watchlist_down_count: int = 0
     market_regime: str = "neutral"
     report: str = ""
-    report_file: Optional[str] = None
-    timeline_entry_id: Optional[int] = None
-    notification_sent: bool = False
+    notification_id: int | None = None
+    push_sent: bool = False
     fallback_used: bool = False
     warnings: List[str] = field(default_factory=list)
 
@@ -153,8 +152,8 @@ class USPostmarketReviewSummary:
             "watchlist_count": self.watchlist_count,
             "watchlist_up_count": self.watchlist_up_count,
             "watchlist_down_count": self.watchlist_down_count,
-            "timeline_entry_id": self.timeline_entry_id,
-            "notification_sent": self.notification_sent,
+            "notification_id": self.notification_id,
+            "push_sent": self.push_sent,
             "fallback_used": self.fallback_used,
             "warnings": list(self.warnings),
         }

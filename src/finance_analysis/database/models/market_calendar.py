@@ -41,8 +41,6 @@ class FinanceEvent(Base):
     importance_scored_at = Column(DateTime(timezone=True), nullable=True)
     first_seen_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     last_seen_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
-    notified_at = Column(DateTime(timezone=True), nullable=True)
-    notification_fingerprint = Column(String(96), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 

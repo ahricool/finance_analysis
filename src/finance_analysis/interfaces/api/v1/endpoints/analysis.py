@@ -423,6 +423,7 @@ def _handle_sync_analysis(
 def trigger_market_review(
     request: Optional[MarketReviewRequest] = Body(None),
     config: PipelineConfig = Depends(get_config_dep),
+    http_request: Request = None,
 ) -> MarketReviewAccepted:
     """Trigger market review from Web/API without blocking the request."""
     request = request or MarketReviewRequest()
@@ -438,11 +439,12 @@ def trigger_market_review(
     task = get_task_queue().submit_market_review(
         send_notification=True,
         override_region=override_region,
+        owner_uid=get_effective_uid(http_request) if http_request is not None else None,
     )
 
     return MarketReviewAccepted(
         status="accepted",
-        message="大盘复盘任务已提交，完成后会保存报告并按配置推送通知",
+        message="大盘复盘任务已提交，完成后可在消息中心查看，并按配置推送通知",
         send_notification=True,
         task_id=task.task_id,
     )
@@ -645,9 +647,13 @@ def get_analysis_status(task_id: str, http_request: Request = None) -> TaskStatu
             kwargs = {}
         market_review_report = None
         if task_record.task_type == "market_review" and isinstance(result_payload, dict):
-            report_text = result_payload.get("result")
-            if isinstance(report_text, str) and report_text.strip():
-                market_review_report = report_text
+            notification_id = result_payload.get("notification_id")
+            if isinstance(notification_id, int) and http_request is not None:
+                from finance_analysis.database.repositories.notification import NotificationRepository
+
+                message = NotificationRepository().get_message(notification_id, uid=get_effective_uid(http_request))
+                if message is not None:
+                    market_review_report = message.content
         return TaskStatus(
             task_id=task_id,
             status=task_record.status,

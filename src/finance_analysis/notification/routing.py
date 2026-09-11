@@ -12,10 +12,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 ROUTABLE_NOTIFICATION_CHANNELS: Tuple[str, ...] = (
     "telegram",
-    "email",
     "ntfy",
-    "custom",
-    "astrbot",
 )
 ROUTABLE_NOTIFICATION_CHANNEL_SET = frozenset(ROUTABLE_NOTIFICATION_CHANNELS)
 

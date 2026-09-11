@@ -6,10 +6,11 @@ import logging
 import os
 from typing import Any, Optional
 
+from finance_analysis.notification.service import NotificationResult
+
 from .config import ACTION_LABELS, SECTOR_CONTINUITY_LABELS
 from .models import PreCloseReviewSummary
 
-from finance_analysis.tasks.lifecycle import get_current_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -28,58 +29,37 @@ class ASharePreCloseReporter:
         self,
         *,
         notifier: Optional[Any] = None,
-        timeline_repo: Optional[Any] = None,
     ) -> None:
         self.notifier = notifier
-        self.timeline_repo = timeline_repo
         self._notifier_provided = notifier is not None
-
-    def record_report(self, summary) -> int:
-        entry = self._get_timeline_repo().create(
-            entry_type="a_share_pre_close",
-            market="CN",
-            event_time=summary.finished_at,
-            title=f"A股收盘前复核 {summary.trading_date.isoformat()}",
-            summary=f"市场：{summary.market_state}；风险：{summary.risk_state}；成交：{summary.turnover_state}",
-            content=render_report(summary),
-            importance="high",
-            actionability="consider",
-            source_run_id=get_current_task_id(),
-            source_task="analysis_a_share_pre_close_review",
-        )
-        return entry.id
 
     def send_notification(
         self,
         summary: PreCloseReviewSummary,
         *,
         send_notification: bool,
-    ) -> bool:
-        if not send_notification:
-            return False
+    ) -> NotificationResult:
         if os.getenv("PYTEST_CURRENT_TEST") and not self._notifier_provided:
             logger.info("测试环境跳过真实 A 股收盘前复核通知")
-            return False
+            return NotificationResult()
         try:
             notifier = self._get_notifier()
             key = f"a_share_pre_close_review:{summary.trading_date.isoformat()}"
-            sent = bool(
-                notifier.send(
-                    render_notification(summary),
-                    email_send_to_all=True,
-                    route_type="report",
-                    severity="warning" if summary.risk_state in {"high", "elevated"} else "info",
-                    dedup_key=key,
-                    cooldown_key=key,
-                )
+            result = notifier.send(
+                content=render_report(summary),
+                push_content=render_notification(summary),
+                push=send_notification,
+                route_type="report",
+                severity="warning" if summary.risk_state in {"high", "elevated"} else "info",
+                dedup_key=key,
+                cooldown_key=key,
             )
-            if not sent:
-                summary.warnings.append("通知发送失败或无可用通知渠道")
-            return sent
+            if result.notification_id is None:
+                logger.warning("消息未能写入 notification")
+            return result
         except Exception as exc:
             logger.warning("发送 A 股收盘前复核通知失败: %s", exc, exc_info=True)
-            summary.warnings.append(f"通知发送失败: {str(exc)[:160]}")
-            return False
+            return NotificationResult()
 
     def _get_notifier(self) -> Any:
         if self.notifier is None:
@@ -87,13 +67,6 @@ class ASharePreCloseReporter:
 
             self.notifier = NotificationService()
         return self.notifier
-
-    def _get_timeline_repo(self) -> Any:
-        if self.timeline_repo is None:
-            from finance_analysis.database.repositories.timeline import TimelineEntryRepo
-
-            self.timeline_repo = TimelineEntryRepo()
-        return self.timeline_repo
 
 
 def render_report(summary: PreCloseReviewSummary) -> str:

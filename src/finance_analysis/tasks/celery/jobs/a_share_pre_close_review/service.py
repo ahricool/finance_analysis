@@ -206,11 +206,12 @@ class ASharePreCloseReviewService:
             fallback_used=fallback_used,
             llm_calls=self.web_llm.call_count,
         )
-        summary.timeline_entry_id = self.reporter.record_report(summary)
-        summary.notification_sent = self.reporter.send_notification(
+        notification_result = self.reporter.send_notification(
             summary,
             send_notification=send_notification,
         )
+        summary.notification_id = notification_result.notification_id
+        summary.push_sent = notification_result.push_sent
         return summary
 
     def _validate_trading_time(self, now: datetime) -> None:

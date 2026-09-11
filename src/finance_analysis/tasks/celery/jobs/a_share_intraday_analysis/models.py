@@ -73,7 +73,8 @@ class AShareSignalResult:
     final_decision: str
     metrics: Dict[str, Any]
     llm_result: Dict[str, Any]
-    notification_sent: bool = False
+    notification_id: int | None = None
+    push_sent: bool = False
     fallback_used: bool = False
     severity: str = "info"
 
@@ -85,7 +86,8 @@ class AShareSignalResult:
             "board": self.board,
             "need_notification": self.need_notification,
             "final_decision": self.final_decision,
-            "notification_sent": self.notification_sent,
+            "notification_id": self.notification_id,
+            "push_sent": self.push_sent,
             "fallback_used": self.fallback_used,
             "severity": self.severity,
             "summary": str(self.llm_result.get("summary", "") or "")[:300],

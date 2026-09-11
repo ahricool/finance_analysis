@@ -253,3 +253,7 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 
 `/research/crypto/btc` 位于研究导航，`useCryptoBtc()` 统一后端REST与WS，断线后60秒轮询并尝试重连；不得直接访问Binance。
 `BtcKlineChart` 复用ECharts，已闭合history与单根current分开更新。VChart的固定高度放外层；manual-update配合autoresize时，应等初始nextTick提交完整option，再增量更新series。
+
+## 消息中心
+
+`/notifications` 仅从头像菜单进入，使用 `/api/v1/notifications` 列表/详情，不显示 uid 或推送状态。Timeline 仅展示财经事件与新闻，不提供报告消息。

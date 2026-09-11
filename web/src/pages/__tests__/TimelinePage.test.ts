@@ -59,7 +59,7 @@ describe('Public investment timeline', () => {
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();
     const labels = wrapper.get('[aria-label="内容类型筛选"]').findAll('button').map(button => button.text());
-    expect(labels).toEqual(['全部', '财报', '宏观', '新闻', '市场分析']);
+    expect(labels).toEqual(['全部', '财报', '宏观', '新闻']);
     expect(wrapper.text()).not.toContain('财经事件');
     expect(wrapper.text()).not.toContain('笔记');
     wrapper.unmount();
@@ -69,7 +69,6 @@ describe('Public investment timeline', () => {
     ['财报', { category: 'event', calendar_type: 'earnings' }],
     ['宏观', { category: 'event', calendar_type: 'macro' }],
     ['新闻', { category: 'news' }],
-    ['市场分析', { category: 'analysis' }],
   ])('maps the %s tab to a backend filter', async (label, expected) => {
     const wrapper = mount(TimelinePage, { global: { plugins: [createPinia()] } });
     await flushPromises();

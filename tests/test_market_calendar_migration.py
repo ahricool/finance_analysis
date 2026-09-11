@@ -29,6 +29,8 @@ def old_table(connection):
         columns.append(sa.Column(name, col.type, primary_key=col.primary_key, nullable=col.nullable))
     columns.extend(
         [
+            sa.Column("notified_at", sa.DateTime(timezone=True)),
+            sa.Column("notification_fingerprint", sa.String(96)),
             sa.Column("activity_type", sa.String(64)),
             sa.Column("date_type", sa.String(32)),
             sa.Column("star", sa.Integer),
@@ -86,7 +88,7 @@ def exercise_migration(connection, monkeypatch):
     monkeypatch.setattr(module, "op", Operations(MigrationContext.configure(connection)))
     module.upgrade()
     new = sa.Table("finance_events", sa.MetaData(), autoload_with=connection)
-    assert set(new.c.keys()) == set(FinanceEvent.__table__.c.keys())
+    assert set(new.c.keys()) == set(FinanceEvent.__table__.c.keys()) | {"notified_at", "notification_fingerprint"}
     assert not any("star" in index["column_names"] for index in sa.inspect(connection).get_indexes("finance_events"))
     assert connection.scalar(sa.select(sa.func.count()).select_from(new)) == 0
     constraints = {item["name"] for item in sa.inspect(connection).get_check_constraints("finance_events")}

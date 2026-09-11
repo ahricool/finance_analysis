@@ -46,7 +46,8 @@ class PremarketNewsSummary:
     impact_results: List[Dict[str, Any]] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
-    notification_sent: bool = False
+    notification_id: int | None = None
+    push_sent: bool = False
 
     @property
     def symbols_count(self) -> int:
