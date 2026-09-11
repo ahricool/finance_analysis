@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 import inspect
 import json
 from datetime import datetime, timedelta
@@ -10,6 +11,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
+from finance_analysis.notification.service import NotificationResult
 from finance_analysis.tasks.celery.jobs.a_share_pre_close_review.config import PreCloseReviewConfig
 from finance_analysis.tasks.celery.jobs.a_share_pre_close_review.data_source import (
     ALLOWED_DATA_SOURCES,
@@ -218,8 +220,8 @@ class FakeReporter:
     def send_notification(self, summary, *, send_notification):
         if send_notification:
             self.notification_calls += 1
-            return self.send_result
-        return False
+            return NotificationResult(1, True, self.send_result)
+        return NotificationResult(1)
 
 
 def _holding():
@@ -279,7 +281,7 @@ def test_trading_day_1430_completes_and_sends_one_notification():
     assert summary.holdings[0].code == "600001"
     assert summary.decision["holdings"][0]["action"] == "reduce"
     assert summary.decision["holdings"][0]["percent_min"] == 20
-    assert summary.notification_sent is True
+    assert summary.push_sent is True
     assert reporter.notification_calls == 1
     assert reporter.report_calls == 0
 
@@ -369,7 +371,7 @@ def test_web_llm_failure_still_completes_with_fallback():
     assert summary.fallback_used is True
     assert {item["action"] for item in summary.decision["holdings"]} <= {"maintain", "watch"}
     assert reporter.notification_calls == 1
-    assert summary.notification_sent is True
+    assert summary.push_sent is True
 
 
 def test_malformed_final_llm_output_uses_validated_fallback():
@@ -383,7 +385,7 @@ def test_notification_failure_does_not_fail_review_or_retry_send():
     reporter = FakeReporter(send_result=False)
     summary = _service(reporter=reporter).run(now=NOW)
 
-    assert summary.notification_sent is False
+    assert summary.push_sent is False
     assert reporter.notification_calls == 1
 
 

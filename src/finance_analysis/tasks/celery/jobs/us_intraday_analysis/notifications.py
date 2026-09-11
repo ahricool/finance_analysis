@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import logging
 
+from finance_analysis.notification.service import NotificationResult
+
 from .config import BEARISH_SIGNAL_TYPES
 from .models import IntradaySignalResult
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,7 @@ def render_notification(signal: IntradaySignalResult) -> str:
 class SignalReporter:
     """Pushes user-facing notifications."""
 
-    def send_notification(self, signal: IntradaySignalResult) -> bool:
+    def send_notification(self, signal: IntradaySignalResult) -> NotificationResult:
         """Send the alert through the notification service; report success."""
         try:
             from finance_analysis.notification.service import NotificationService
@@ -63,4 +66,4 @@ class SignalReporter:
             )
         except Exception as exc:
             logger.warning("发送美股盘中信号通知失败: %s", exc)
-            return False
+            return NotificationResult()

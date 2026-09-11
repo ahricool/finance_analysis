@@ -368,11 +368,14 @@ def test_reporters_persist_public_reports_without_an_owner(
     summary = SimpleNamespace(trading_date=NOW.date(), risk_state="high", report="# Full report", warnings=[])
     if market == "CN":
         monkeypatch.setattr(module, "render_report", lambda summary: "# Full report")
+        monkeypatch.setattr(module, "render_notification", lambda summary: "Short push")
     notifier = Mock()
     reporter = getattr(module, reporter_name)(notifier=notifier)
     reporter.send_notification(summary, send_notification=False)
     notifier.send.assert_called_once()
-    assert notifier.send.call_args.args[0] == "# Full report"
+    assert (
+        notifier.send.call_args.kwargs["content"] if market == "CN" else notifier.send.call_args.args[0]
+    ) == "# Full report"
     assert notifier.send.call_args.kwargs["push"] is False
     with db.get_session() as session:
         assert session.scalar(select(func.count()).select_from(TimelineEntry)) == 0

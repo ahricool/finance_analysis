@@ -2,6 +2,14 @@
 
 `notification` 是系统消息的唯一持久化事实源。业务产生消息后，`NotificationService.send()` 先写入 PostgreSQL，再调用原有 Noise Control，并向 Telegram / ntfy best-effort 推送。没有渠道、路由未命中、降噪抑制或外部推送失败，都不会删除已保存的消息。入库失败记录异常，不阻断核心分析或任务。
 
+## 入库与外部推送结果
+
+`send()` 返回 `NotificationResult`：`notification_id` 非空表示消息已入库；`push_attempted` 表示实际尝试了外推；`push_sent` 表示至少一个渠道成功。后两个字段只存在于返回值中，不写入数据库。
+
+业务状态仅依据 `notification_id is not None` 推进。A股/美股盘中信号入库后即标记已处理，同一 generation 不会因为推送失败而再次生成消息。`push=False`、无渠道和 Noise Control suppress 均返回未尝试推送，不产生任务异常；外推失败仅记录日志。入库失败仍可尝试推送，但不能标记业务消息已处理。
+
+`content` 始终保存完整正文；可选 `push_content` 供渠道推送及原有 Noise Control 内容哈希使用，未传则使用 `content`。显式 dedup/cooldown key 语义不变。A股收盘前保存完整报告，外推简版摘要。
+
 ## 数据与用户范围
 
 | 字段 | 类型 | 含义 |

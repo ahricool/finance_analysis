@@ -17,6 +17,7 @@ from tests.litellm_stub import ensure_litellm_stub
 
 ensure_litellm_stub()
 
+from finance_analysis.notification.service import NotificationResult
 from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
 from finance_analysis.analysis.pipeline import StockAnalysisPipeline
 from finance_analysis.reporting.types import ReportType
@@ -63,7 +64,7 @@ class _TrackingNotifier:
         with self._lock:
             self._inflight -= 1
 
-        return True
+        return NotificationResult(1, True, True)
 
 
 def _make_result(code: str, success: bool = True) -> AnalysisResult:

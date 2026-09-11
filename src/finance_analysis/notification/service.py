@@ -14,6 +14,7 @@ Finance Analysis - 通知层
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from enum import Enum
 
@@ -52,6 +53,15 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
+
+
+@dataclass
+class NotificationResult:
+    """Persistence establishes the message; push fields describe optional side effects only."""
+
+    notification_id: Optional[int] = None
+    push_attempted: bool = False
+    push_sent: bool = False
 
 
 class NotificationChannel(Enum):
@@ -127,7 +137,7 @@ class NotificationService(
         self._available_channels = self._detect_all_channels()
 
         if not self._available_channels:
-            logger.warning("未配置有效的通知渠道，将不发送推送通知")
+            logger.info("未配置有效的通知渠道，将不发送推送通知")
         else:
             channel_names = [ChannelDetector.get_channel_name(ch) for ch in self._available_channels]
             logger.info(f"已配置 {len(channel_names)} 个通知渠道：{', '.join(channel_names)}")
@@ -233,12 +243,9 @@ class NotificationService(
         ):
             channels.append(NotificationChannel.TELEGRAM)
 
-
         ntfy_server_url, ntfy_topic = resolve_ntfy_endpoint(getattr(config, "ntfy_url", None))
         if ntfy_server_url and ntfy_topic:
             channels.append(NotificationChannel.NTFY)
-
-
 
         return channels
 
@@ -372,40 +379,47 @@ class NotificationService(
         uid: Optional[int] = None,
         title: Optional[str] = None,
         push: bool = True,
-    ) -> bool:
+        push_content: Optional[str] = None,
+    ) -> NotificationResult:
+        """Persist the full message, then attempt optional delivery without changing its outcome.
+
+        Business callers must use notification_id, never push_sent, to mark a
+        message handled. Noise control and image rendering use the actual push body.
         """
-        统一发送接口 - 向所有已配置的渠道发送
+        notification_id = self.persist(content, uid=uid, title=title, route_type=route_type, severity=severity)
+        self.last_notification_id = notification_id
+        result = NotificationResult(notification_id=notification_id)
+        if push:
+            try:
+                self._push_message(
+                    result,
+                    content if push_content is None else push_content,
+                    route_type=route_type,
+                    severity=severity,
+                    dedup_key=dedup_key,
+                    cooldown_key=cooldown_key,
+                )
+            except Exception:
+                logger.exception("External notification delivery failed")
+        return result
 
-        遍历所有已配置的渠道，逐一发送消息
-
-        Fallback rules (Markdown-to-image, Issue #289):
-        - When image_bytes is None (conversion failed / imgkit not installed /
-          content over max_chars): all channels configured for image will send
-          as Markdown text instead.
-
-        Args:
-            content: 消息内容（Markdown 格式）
-            route_type: 通知路由类型；None 保持旧行为，report/alert/system_error 按配置过滤静态渠道
-            severity: 通知严重级别；未设置时按路由类型推断
-            dedup_key: 可选稳定去重 key；未设置时使用内容 hash
-            cooldown_key: 可选冷却 key；未设置时使用路由/级别默认 key
-
-        Returns:
-            是否至少有一个渠道发送成功
-        """
-        self.last_notification_id = self.persist(content, uid=uid, title=title, route_type=route_type, severity=severity)
-        if not push:
-            return False
-
+    def _push_message(
+        self,
+        result: NotificationResult,
+        content: str,
+        *,
+        route_type: Optional[str],
+        severity: Optional[str],
+        dedup_key: Optional[str],
+        cooldown_key: Optional[str],
+    ) -> None:
         if not self._available_channels:
-            logger.warning("通知服务不可用，跳过推送")
-            return False
-
+            logger.info("未配置外部通知渠道，跳过推送")
+            return
         target_channels = self.get_channels_for_route(route_type)
         if not target_channels:
-            logger.warning("通知路由 %s 未命中任何已配置渠道，跳过静态通知渠道", route_type)
-            return False
-
+            logger.info("通知路由 %s 未命中外部渠道，跳过推送", route_type)
+            return
         noise_decision = self.evaluate_noise_control(
             content,
             route_type=route_type,
@@ -415,75 +429,39 @@ class NotificationService(
         )
         if not noise_decision.should_send:
             logger.info(noise_decision.message)
-            return False
-
-        # Markdown to image (Issue #289): convert once if any channel needs it.
-        # Per-channel decision via _should_use_image_for_channel (see send() docstring for fallback rules).
-        image_bytes = None
-        channels_needing_image = {
-            ch for ch in target_channels
-            if ch.value in self._markdown_to_image_channels
-            and ch != NotificationChannel.NTFY
-        }
-        if channels_needing_image:
-            from finance_analysis.reporting.md2img import markdown_to_image
-            try:
-                image_bytes = markdown_to_image(
-                    content, max_chars=self._markdown_to_image_max_chars
-                )
-            except Exception:
-                logger.exception("Markdown image conversion failed; falling back to text")
-            if image_bytes:
-                logger.info("Markdown 已转换为图片，将向 %s 发送图片",
-                            [ch.value for ch in channels_needing_image])
-            elif channels_needing_image:
+            return
+        try:
+            image_bytes = None
+            if any(
+                ch.value in self._markdown_to_image_channels and ch != NotificationChannel.NTFY
+                for ch in target_channels
+            ):
                 try:
-                    engine = get_report_config().md2img_engine
+                    from finance_analysis.reporting.md2img import markdown_to_image
+
+                    image_bytes = markdown_to_image(content, max_chars=self._markdown_to_image_max_chars)
                 except Exception:
-                    engine = "wkhtmltoimage"
-                hint = (
-                    "npm i -g markdown-to-file" if engine == "markdown-to-file"
-                    else "wkhtmltopdf (apt install wkhtmltopdf / brew install wkhtmltopdf)"
-                )
-                logger.warning(
-                    "Markdown 转图片失败，将回退为文本发送。请检查 MARKDOWN_TO_IMAGE_CHANNELS 配置并安装 %s",
-                    hint,
-                )
-
-        channel_names = ', '.join(ChannelDetector.get_channel_name(ch) for ch in target_channels)
-        logger.info(f"正在向 {len(target_channels)} 个渠道发送通知：{channel_names}")
-
-        success_count = 0
-        fail_count = 0
-
-        for channel in target_channels:
-            channel_name = ChannelDetector.get_channel_name(channel)
-            use_image = self._should_use_image_for_channel(channel, image_bytes)
-            try:
-                if channel == NotificationChannel.TELEGRAM:
-                    if use_image:
-                        result = self._send_telegram_photo(image_bytes)
+                    logger.exception("Markdown image conversion failed; falling back to text")
+            for channel in target_channels:
+                try:
+                    use_image = self._should_use_image_for_channel(channel, image_bytes)
+                    result.push_attempted = True
+                    if channel == NotificationChannel.TELEGRAM:
+                        push_sent = (
+                            self._send_telegram_photo(image_bytes) if use_image else self.send_to_telegram(content)
+                        )
                     else:
-                        result = self.send_to_telegram(content)
-                else:
-                    result = self.send_to_ntfy(content)
-
-                if result:
-                    success_count += 1
-                else:
-                    fail_count += 1
-
-            except Exception as e:
-                logger.exception(f"{channel_name} 发送失败: {e}")
-                fail_count += 1
-
-        logger.info(f"通知发送完成：成功 {success_count} 个，失败 {fail_count} 个")
-        if success_count > 0:
-            self.record_noise_control(noise_decision)
-        else:
-            self.release_noise_control(noise_decision)
-        return success_count > 0
-   
+                        push_sent = self.send_to_ntfy(content)
+                    result.push_sent = bool(push_sent) or result.push_sent
+                    if not push_sent:
+                        logger.warning("%s 外部推送失败", channel.value)
+                except Exception:
+                    logger.exception("%s 外部推送失败", channel.value)
+        finally:
+            if result.push_sent:
+                self.record_noise_control(noise_decision)
+            else:
+                self.release_noise_control(noise_decision)
 
 
 class NotificationBuilder:
@@ -547,7 +525,7 @@ def get_notification_service() -> NotificationService:
     return NotificationService()
 
 
-def send_daily_report(results: List[AnalysisResult]) -> bool:
+def send_daily_report(results: List[AnalysisResult]) -> NotificationResult:
     """
     发送每日报告的快捷方式
     

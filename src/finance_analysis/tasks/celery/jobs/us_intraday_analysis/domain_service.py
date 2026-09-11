@@ -220,7 +220,7 @@ class USIntradayAnalysisService:
                 result = self._build_signal(candidate, verdict)
                 if result:
                     summary.signal_results.append(result)
-                    if result.notification_sent:
+                    if result.notification_id is not None:
                         summary.notification_count += 1
                     else:
                         summary.notification_suppressed_count += 1
@@ -303,8 +303,10 @@ class USIntradayAnalysisService:
                 now=now,
             )
             if should_notify:
-                signal.notification_sent = self.reporter.send_notification(signal)
-                if signal.notification_sent:
+                notification_result = self.reporter.send_notification(signal)
+                signal.notification_id = notification_result.notification_id
+                signal.push_sent = notification_result.push_sent
+                if signal.notification_id is not None:
                     self.signal_state_store.mark_notified(
                         "us",
                         symbol=signal.symbol,
@@ -354,7 +356,6 @@ def _notification_severity(candidate: Dict[str, Any]) -> str:
     if candidate.get("signal_type") in BEARISH_SIGNAL_TYPES:
         return "error" if candidate.get("severity") == "high" else "warning"
     return "warning" if candidate.get("severity") == "high" else "info"
-
 
 
 if __name__ == "__main__":

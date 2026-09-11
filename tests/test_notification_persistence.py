@@ -69,13 +69,19 @@ def test_one_business_message_one_row_before_delivery(repo, service, mode):
         service._config.notification_min_severity = "critical"
 
     def delivered(content):
+        assert content == "Short push"
         assert repo.list_messages(uid=1)["total"] == 1
         return True
 
     if mode == "success":
         service.send_to_telegram.side_effect = delivered
         service.send_to_ntfy.side_effect = delivered
-    service.send("# Report\n\nFull content", uid=1, route_type="report", push=mode != "push_disabled")
+    result = service.send(
+        "# Report\n\nFull content", push_content="Short push", uid=1, route_type="report", push=mode != "push_disabled"
+    )
+    assert result.notification_id is not None
+    assert result.push_attempted is (mode in {"success", "failure"})
+    assert result.push_sent is (mode == "success")
     rows = repo.list_messages(uid=1)["items"]
     assert len(rows) == 1 and rows[0]["title"] == "Report"
     assert repo.get_message(rows[0]["id"], uid=1).content == "# Report\n\nFull content"
@@ -95,15 +101,18 @@ def test_one_business_message_one_row_before_delivery(repo, service, mode):
 
 def test_persistence_failure_does_not_stop_delivery(repo, service, monkeypatch):
     monkeypatch.setattr(repo, "create", Mock(side_effect=RuntimeError("database unavailable")))
-    assert service.send("still deliver", uid=1)
+    result = service.send("still deliver", uid=1)
+    assert result.notification_id is None
+    assert result.push_attempted and result.push_sent
     service.send_to_telegram.assert_called_once()
     service.send_to_ntfy.assert_called_once()
 
 
 def test_dedup_suppresses_push_only(repo, service):
     service._config.notification_dedup_ttl_seconds = 60
-    assert service.send("same", uid=1)
-    assert not service.send("same", uid=1)
+    assert service.send("same", uid=1).push_sent
+    result = service.send("different persisted body", push_content="same", uid=1)
+    assert result.notification_id is not None and not result.push_attempted and not result.push_sent
     assert repo.list_messages(uid=1)["total"] == 2
     service.send_to_telegram.assert_called_once()
 

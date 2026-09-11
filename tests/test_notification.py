@@ -94,17 +94,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
 
         self.assertFalse(service.is_available())
         result = service.send("test content")
-        self.assertFalse(result)
-
-
-
-
-
-
-
-
-
-
+        self.assertFalse(result.push_sent)
 
     @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
@@ -121,7 +111,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
 
         ok = service.send("discord content")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
 
     @mock.patch("finance_analysis.notification.service.get_notification_config")
@@ -139,7 +129,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
 
         ok = service.send("discord content")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
         
     @mock.patch("finance_analysis.notification.service.get_notification_config")
@@ -159,7 +149,7 @@ class TestNotificationServiceSendToMethods(unittest.TestCase):
 
         ok = service.send("A" * 6000)
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         self.assertAlmostEqual(mock_post.call_count, 4, delta=1)
 
 
@@ -347,8 +337,6 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertEqual(second, {"history_by_code": {"600519": []}})
         mock_batch.assert_called_once()
 
-
-
     @mock.patch("finance_analysis.notification.service.get_notification_config")
     @mock.patch("requests.post")
     @unittest.skip("channel removed")
@@ -362,7 +350,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         ok = service.send("hello feishu")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
         
     @mock.patch("finance_analysis.notification.service.get_notification_config")
@@ -378,7 +366,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         ok = service.send("A" * 6000)
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         self.assertAlmostEqual(mock_post.call_count, 4, delta=1)
 
     @mock.patch("finance_analysis.notification.service.get_notification_config")
@@ -396,7 +384,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         ok = service.send("gotify content")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
         self.assertEqual(mock_post.call_args.args[0], "https://gotify.example/message")
         self.assertEqual(mock_post.call_args.kwargs["headers"]["X-Gotify-Key"], "secret-token")
@@ -460,7 +448,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         with mock.patch("finance_analysis.reporting.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
             ok = service.send("gotify content")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_md2img.assert_not_called()
         mock_post.assert_called_once()
 
@@ -478,7 +466,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         ok = service.send("ntfy content")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
         self.assertEqual(mock_post.call_args.args[0], "https://ntfy.sh")
         self.assertEqual(mock_post.call_args.kwargs["json"]["topic"], "fa-topic")
@@ -518,7 +506,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         with mock.patch("finance_analysis.reporting.md2img.markdown_to_image", return_value=b"png") as mock_md2img:
             ok = service.send("ntfy content")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_md2img.assert_not_called()
         mock_post.assert_called_once()
 
@@ -540,7 +528,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         ok = service.send("pushover content")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
 
     @mock.patch("finance_analysis.notification.service.get_notification_config")
@@ -558,7 +546,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         ok = service.send("pushplus content")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
 
     @mock.patch("finance_analysis.notification.senders.pushplus_sender.time.sleep")
@@ -580,7 +568,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         ok = service.send("A" * 25000)
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         self.assertGreaterEqual(mock_post.call_count, 2)
 
     @mock.patch("finance_analysis.notification.service.get_notification_config")
@@ -601,7 +589,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         ok = service.send("slack content")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
 
     @mock.patch("finance_analysis.notification.service.get_notification_config")
@@ -619,7 +607,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         ok = service.send("slack bot content")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
 
     @mock.patch("finance_analysis.notification.service.get_notification_config")
@@ -637,7 +625,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         ok = service.send("serverchan content")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
 
     @mock.patch("finance_analysis.notification.service.get_notification_config")
@@ -654,7 +642,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
 
         ok = service.send("hello telegram")
 
-        self.assertTrue(ok)
+        self.assertTrue(ok.push_sent)
         mock_post.assert_called_once()
 
 if __name__ == "__main__":

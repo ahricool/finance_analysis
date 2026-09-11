@@ -1396,17 +1396,16 @@ class StockAnalysisPipeline(AgentResultMixin):
                     report_content = self.notifier.generate_single_stock_report(result)
                     logger.info(f"[{stock_code}] 使用精简报告格式")
 
-                if self.notifier.send(
+                notification_result = self.notifier.send(
                     report_content,
                     uid=getattr(self, "notification_uid", None),
                     route_type="report",
                     severity="info",
                     dedup_key=f"report:single:{stock_code}:{report_type.value}",
                     cooldown_key=f"report:single:{stock_code}:{report_type.value}",
-                ):
-                    logger.info(f"[{stock_code}] 单股推送成功")
-                else:
-                    logger.warning(f"[{stock_code}] 单股推送失败")
+                )
+                if notification_result.notification_id is None:
+                    logger.warning(f"[{stock_code}] 消息未能写入 notification")
             except Exception as e:
                 logger.exception(f"[{stock_code}] 单股推送异常: {e}")
 

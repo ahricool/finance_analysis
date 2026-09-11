@@ -103,10 +103,12 @@ class USPostmarketReviewService:
         summary.report = self._ensure_required_sections(report, context)
 
         summary.finished_at = self._market_now()
-        summary.notification_sent = self.reporter.send_notification(
+        notification_result = self.reporter.send_notification(
             summary,
             send_notification=send_notification,
         )
+        summary.notification_id = notification_result.notification_id
+        summary.push_sent = notification_result.push_sent
         logger.info(
             "美股收盘复盘完成: trading_date=%s regime=%s benchmarks=%s sectors=%s watchlist=%s warnings=%s",
             trading_date.isoformat(),

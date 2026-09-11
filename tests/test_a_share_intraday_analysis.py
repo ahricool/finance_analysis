@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
+
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from finance_analysis.notification.service import NotificationResult
 from finance_analysis.tasks.celery.jobs.a_share_intraday_analysis.llm import (
     AShareIntradayLLMJudge,
     build_batch_prompt,
@@ -144,7 +146,7 @@ class FakeNotifier:
         self.calls.append({"content": content, **kwargs})
         if self.raises:
             raise RuntimeError("notify boom")
-        return self.result
+        return NotificationResult(1, True, self.result)
 
 
 def _make_reporter(notifier=None):
@@ -609,7 +611,7 @@ def test_signal_state_generation_change_bypasses_process_cooldown():
 def test_five_minute_repeat_does_not_repeat_llm_or_notification_for_unchanged_signal():
     rows, bars_by_code = _scenario_with_watchlist_signal()
     data = FakeDataSource(rows, bars_by_code)
-    notifier = FakeNotifier()
+    notifier = FakeNotifier(result=False)
     llm = FakeLLM(
         {
             candidate_id("600519", "near_limit_down_risk"): {
@@ -630,6 +632,9 @@ def test_five_minute_repeat_does_not_repeat_llm_or_notification_for_unchanged_si
     assert repeated.llm_candidate_count == 0
     assert len(llm.batches) == 1
     assert len(notifier.calls) == 1
+    assert first.notification_count > 0
+    assert any(signal.notification_id is not None for signal in first.signal_results)
+    assert not any(signal.push_sent for signal in first.signal_results)
 
 
 def test_aggregated_notification_failure_does_not_raise():
@@ -643,10 +648,16 @@ def test_aggregated_notification_failure_does_not_raise():
         }
     }
     reporter = _make_reporter(FakeNotifier(raises=True))
+    reporter.send_aggregated_notification = MagicMock(return_value=NotificationResult(None, True, True))
+    reporter.mark_notified = MagicMock()
     service = _make_service(data, FakeLLM(verdicts), reporter, ["600519"])
+    service._mark_notification_state = MagicMock()
     with patch(f"{SERVICE_MODULE}.is_a_share_trading_day", return_value=True):
         summary = service.run(now=_run_now())  # must not raise
     assert summary.market_open is True
+    assert summary.notification_count == 0
+    reporter.mark_notified.assert_not_called()
+    service._mark_notification_state.assert_not_called()
 
 
 def test_notification_only_summary_is_json_serializable():
@@ -669,7 +680,7 @@ def test_notification_only_summary_is_json_serializable():
 
     assert summary.notification_count == 1
     assert len(notifier.calls) == 1
-    assert summary.signal_results[0].notification_sent is True
+    assert summary.signal_results[0].push_sent is True
     # TaskRecord.result must be JSON serializable.
     json.dumps(summary.to_dict())
 

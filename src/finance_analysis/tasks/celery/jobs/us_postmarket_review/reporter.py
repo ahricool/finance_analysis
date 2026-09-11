@@ -7,6 +7,8 @@ import logging
 import os
 from typing import Optional
 
+from finance_analysis.notification.service import NotificationResult
+
 from .models import (
     USPostmarketReviewSummary,
 )
@@ -40,30 +42,27 @@ class USPostmarketReviewReporter:
         summary: USPostmarketReviewSummary,
         *,
         send_notification: bool,
-    ) -> bool:
+    ) -> NotificationResult:
         if os.getenv("PYTEST_CURRENT_TEST") and not self._notifier_provided:
             logger.info("测试环境跳过真实美股收盘复盘通知")
-            return False
+            return NotificationResult()
         try:
             notifier = self._get_notifier()
             key = f"us_postmarket_review:{summary.trading_date.isoformat()}"
-            sent = bool(
-                notifier.send(
-                    summary.report,
-                    push=send_notification,
-                    route_type="report",
-                    severity="info",
-                    dedup_key=key,
-                    cooldown_key=key,
-                )
+            result = notifier.send(
+                summary.report,
+                push=send_notification,
+                route_type="report",
+                severity="info",
+                dedup_key=key,
+                cooldown_key=key,
             )
-            if not sent:
-                summary.warnings.append("通知发送失败或无可用通知渠道")
-            return sent
+            if result.notification_id is None:
+                logger.warning("消息未能写入 notification")
+            return result
         except Exception as exc:
             logger.warning("发送美股收盘复盘通知失败: %s", exc, exc_info=True)
-            summary.warnings.append(f"通知发送失败: {exc}")
-            return False
+            return NotificationResult()
 
     def _get_notifier(self) -> object:
         if self.notifier is None:

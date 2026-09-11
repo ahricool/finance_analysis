@@ -134,11 +134,11 @@ def run_market_review(
                 # 添加标题
                 report_content = f"{review_text['push_title']}\n\n{review_report}"
 
-                success = notifier.send(report_content, uid=owner_uid, route_type="report", push=send_notification)
-                if success:
-                    logger.info("大盘复盘推送成功")
-                else:
-                    logger.warning("大盘复盘推送失败")
+                notification_result = notifier.send(
+                    report_content, uid=owner_uid, route_type="report", push=send_notification
+                )
+                if notification_result.notification_id is None:
+                    logger.warning("市场复盘消息未能写入 notification")
             
             return review_report
         

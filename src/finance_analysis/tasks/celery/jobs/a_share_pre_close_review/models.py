@@ -103,7 +103,8 @@ class PreCloseReviewSummary:
     decision: dict[str, Any]
     data_quality: DataQuality
     warnings: list[str] = field(default_factory=list)
-    notification_sent: bool = False
+    notification_id: int | None = None
+    push_sent: bool = False
     fallback_used: bool = False
     llm_calls: int = 0
 
@@ -126,7 +127,8 @@ class PreCloseReviewSummary:
             "decision": self.decision,
             "data_quality": self.data_quality.to_dict(),
             "warnings": self.warnings[:50],
-            "notification_sent": self.notification_sent,
+            "notification_id": self.notification_id,
+            "push_sent": self.push_sent,
             "fallback_used": self.fallback_used,
             "llm_calls": self.llm_calls,
         }
@@ -170,7 +172,8 @@ class PreCloseReviewSummary:
             "decision": compact_decision,
             "data_quality": self.data_quality.to_dict(),
             "warnings": self.warnings[:20],
-            "notification_sent": self.notification_sent,
+            "notification_id": self.notification_id,
+            "push_sent": self.push_sent,
             "fallback_used": self.fallback_used,
             "llm_calls": self.llm_calls,
         }

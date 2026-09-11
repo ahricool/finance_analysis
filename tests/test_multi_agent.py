@@ -10,6 +10,7 @@ Covers:
 - StrategyAggregator: weighted consensus, empty input
 """
 
+
 import json
 import sys
 import os
@@ -25,6 +26,7 @@ try:
 except ModuleNotFoundError:
     sys.modules["litellm"] = MagicMock()
 
+from finance_analysis.notification.service import NotificationResult
 from finance_analysis.agent.orchestrator import _extract_stock_code, _COMMON_WORDS
 from finance_analysis.agent.protocols import (
     AgentContext,
@@ -1233,7 +1235,7 @@ class TestEventMonitorConfigIntegration(unittest.TestCase):
             agent_event_alert_rules_json='[{"stock_code":"600519","alert_type":"price_cross","direction":"above","price":1800}]',
         )
         notifier = MagicMock()
-        notifier.send.return_value = True
+        notifier.send.return_value = NotificationResult(1, True, True)
 
         monitor = build_event_monitor_from_config(config=config, notifier=notifier)
 

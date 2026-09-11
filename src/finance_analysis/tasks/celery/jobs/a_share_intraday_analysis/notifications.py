@@ -14,11 +14,14 @@ import logging
 import time as _time
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from finance_analysis.notification.service import NotificationResult
+
 from .config import (
     ASIA_SHANGHAI,
     MAX_AGGREGATED_SIGNALS,
 )
 from .models import AShareIntradayTaskSummary, AShareMarketSnapshot, AShareSignalResult
+
 
 logger = logging.getLogger(__name__)
 
@@ -112,14 +115,14 @@ class AShareIntradayReporter:
         signals: Sequence[AShareSignalResult],
         *,
         send_notification: bool = True,
-    ) -> bool:
+    ) -> NotificationResult:
         if not signals:
-            return False
+            return NotificationResult()
         severity = self._aggregate_severity(signals)
         content = render_aggregated_notification(summary, snapshot, signals)
         service = self._build_service()
         if service is None:
-            return False
+            return NotificationResult()
         state_parts = sorted(
             f"{signal.code}:{signal.signal_type}:{int(signal.metrics.get('state_generation') or 1)}"
             for signal in signals
@@ -127,19 +130,17 @@ class AShareIntradayReporter:
         state_digest = hashlib.sha256("|".join(state_parts).encode("utf-8")).hexdigest()[:16]
         dedup = f"a_share_intraday_agg:{summary.trading_date.isoformat()}:{state_digest}"
         try:
-            return bool(
-                service.send(
-                    content,
-                    push=send_notification,
-                    route_type="alert",
-                    severity=severity,
-                    dedup_key=dedup,
-                    cooldown_key=f"a_share_intraday_agg:{state_digest}",
-                )
+            return service.send(
+                content,
+                push=send_notification,
+                route_type="alert",
+                severity=severity,
+                dedup_key=dedup,
+                cooldown_key=f"a_share_intraday_agg:{state_digest}",
             )
         except Exception as exc:
             logger.warning("发送 A 股盘中聚合通知失败: %s", exc)
-            return False
+            return NotificationResult()
 
     def _build_service(self) -> Optional[Any]:
         try:

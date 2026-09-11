@@ -39,7 +39,8 @@ class USPremarketNewsTaskService:
             "important_news_count": len(summary.important_news),
             "warnings": summary.warnings,
             "errors": summary.errors,
-            "notification_sent": summary.notification_sent,
+            "notification_id": summary.notification_id,
+            "push_sent": summary.push_sent,
             "started_at": summary.started_at.isoformat(),
             "finished_at": summary.finished_at.isoformat(),
         }

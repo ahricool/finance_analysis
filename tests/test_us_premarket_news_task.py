@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
+from finance_analysis.notification.service import NotificationResult
 from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsRecord
 from finance_analysis.tasks.celery.jobs.us_premarket_news.llm import (
     normalize_impact_results,
@@ -118,7 +120,7 @@ def test_service_run_continues_when_single_symbol_fetch_fails():
     service._load_candidate_news = MagicMock(return_value=[])
     service.llm_analyzer.select_important_news.return_value = []
     service.llm_analyzer.judge_impact.return_value = []
-    service.reporter.send_notification.return_value = True
+    service.reporter.send_notification.return_value = NotificationResult(1, True, True)
 
     def _fake_fetch(symbol, *, query_id):
         del query_id
@@ -147,4 +149,4 @@ def test_service_run_continues_when_single_symbol_fetch_fails():
     assert summary.fetched_news_count == 1
     assert summary.inserted_news_count == 1
     assert any("BROKEN" in warning for warning in summary.warnings)
-    assert summary.notification_sent is True
+    assert summary.push_sent is True

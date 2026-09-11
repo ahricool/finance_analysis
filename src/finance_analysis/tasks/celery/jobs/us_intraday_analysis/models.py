@@ -31,7 +31,8 @@ class IntradaySignalResult:
     need_notification: bool
     llm_result: Dict[str, Any]
     metrics: Dict[str, Any]
-    notification_sent: bool = False
+    notification_id: int | None = None
+    push_sent: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Return a JSON-serializable representation."""
@@ -41,7 +42,8 @@ class IntradaySignalResult:
             "need_notification": bool(self.need_notification),
             "llm_result": _jsonable(self.llm_result),
             "metrics": _jsonable(self.metrics),
-            "notification_sent": bool(self.notification_sent),
+            "notification_id": self.notification_id,
+            "push_sent": self.push_sent,
         }
 
 

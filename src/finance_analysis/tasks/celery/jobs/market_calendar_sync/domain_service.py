@@ -55,7 +55,7 @@ class MarketCalendarSyncSummary:
     inserted_count: int = 0
     updated_count: int = 0
     skipped_duplicate_count: int = 0
-    notification_sent_count: int = 0
+    notification_created_count: int = 0
     errors: List[str] = field(default_factory=list)
     time_changed_events: List[FinanceEvent] = field(default_factory=list)
     focus_events: List[FinanceEvent] = field(default_factory=list)
@@ -90,7 +90,7 @@ class MarketCalendarSyncSummary:
             "inserted_count": self.inserted_count,
             "updated_count": self.updated_count,
             "skipped_duplicate_count": self.skipped_duplicate_count,
-            "notification_sent_count": self.notification_sent_count,
+            "notification_created_count": self.notification_created_count,
             "errors": list(self.errors),
             "importance_candidate_ids": list(self.importance_candidate_ids),
             "all_interfaces_failed": self.all_interfaces_failed,
@@ -318,7 +318,7 @@ class MarketCalendarSyncService:
                     logger.warning("Calendar upsert failed: %s", exc, exc_info=True)
         candidates = self._notification_candidates(upsert_results, start_date)
         summary.time_changed_events = candidates
-        summary.notification_sent_count = self._send_notification(candidates, start_date)
+        summary.notification_created_count = self._send_notification(candidates, start_date)
         try:
             summary.focus_events = sort_focus_events(
                 self.repo.list_events_by_date_range(start_date, end_date),
@@ -373,7 +373,7 @@ class MarketCalendarSyncService:
         ).hexdigest()
         try:
             notifier = self._notifier()
-            sent = notifier.send(
+            notification_result = notifier.send(
                 render_notification(events, start_date, end_date),
                 route_type="alert",
                 severity="info",
@@ -383,10 +383,10 @@ class MarketCalendarSyncService:
         except Exception as exc:
             logger.warning("发送财经日历通知失败: %s", exc, exc_info=True)
             return 0
-        if not sent:
-            logger.info("财经日历通知未发送或无可用渠道")
+        if notification_result.notification_id is None:
+            logger.warning("财经日历消息未能写入 notification")
             return 0
-        return len(events)
+        return 1
 
     def _notifier(self) -> Any:
         if self.notifier_factory is not None:

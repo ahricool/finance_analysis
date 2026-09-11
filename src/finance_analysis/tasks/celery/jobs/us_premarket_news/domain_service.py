@@ -131,7 +131,9 @@ class USPremarketNewsService:
             model=self.llm_analyzer.model_used,
             analyzed_at=summary.finished_at,
         )
-        summary.notification_sent = self.reporter.send_notification(summary)
+        notification_result = self.reporter.send_notification(summary)
+        summary.notification_id = notification_result.notification_id
+        summary.push_sent = notification_result.push_sent
         logger.info(
             "美股盘前新闻情报任务完成: symbols=%s fetched=%s inserted=%s candidates=%s top=%s warnings=%s",
             summary.symbols_count,

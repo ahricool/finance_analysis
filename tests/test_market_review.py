@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Tests for localized market review wrappers."""
 
+from finance_analysis.notification.service import NotificationResult
+
 import importlib
 import sys
 import unittest
@@ -46,7 +48,7 @@ class MarketReviewLocalizationTestCase(unittest.TestCase):
         notifier = MagicMock()
         notifier.save_report_to_file.return_value = "/tmp/market_review.md"
         notifier.is_available.return_value = True
-        notifier.send.return_value = True
+        notifier.send.return_value = NotificationResult(1, True, True)
         return notifier
 
     def test_run_market_review_uses_english_notification_title(self) -> None:

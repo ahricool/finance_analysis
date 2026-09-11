@@ -1,11 +1,13 @@
 """Dual-provider orchestration, Universe filtering, and notification regression tests."""
 
+
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
+from finance_analysis.notification.service import NotificationResult
 from finance_analysis.database.repositories.market_calendar_event import MarketCalendarEventRepo
 from finance_analysis.integrations.market_data.calendar import CalendarFetchResult
 from finance_analysis.tasks.celery.jobs.market_calendar_sync.domain_service import MarketCalendarSyncService
@@ -40,7 +42,7 @@ def setup_service(monkeypatch):
         SimpleNamespace(code=value) for value in (["NVDA.US"] if key == "us_sp500" else ["600519.SH"])
     )
     notifier = MagicMock()
-    notifier.send.return_value = True
+    notifier.send.return_value = NotificationResult(1, True, True)
 
     def build(yahoo, lb):
         return MarketCalendarSyncService(
@@ -59,7 +61,7 @@ def test_both_sources_both_markets_and_macro_always_requested(setup_service):
     lb = source([event("longbridge", market_session="amc"), event("longbridge", symbol="600519.SH", market="CN")])
     result = build(yahoo, lb).run(NOW)
     assert result.inserted_count == 2 and result.merged_count == 2
-    assert result.notification_sent_count == 0
+    assert result.notification_created_count == 0
     assert not result.all_interfaces_failed
     assert set(result.source_stats) == {
         f"{p}:{t}:{m}"
@@ -109,24 +111,24 @@ def test_universe_failure_isolated_and_never_unrestricted_earnings(setup_service
 def test_enrichment_silent_date_and_session_changes_notify_once(setup_service):
     build, repo, _, notifier = setup_service
     first = build(source([event()]), source()).run(NOW)
-    assert first.notification_sent_count == 0
+    assert first.notification_created_count == 0
     second = build(source([event(eps_estimate=1.2)]), source([event("longbridge", currency="USD")])).run(NOW)
-    assert second.notification_sent_count == 0
+    assert second.notification_created_count == 0
     third = build(
         source([event(event_date="2026-06-19", market_session="bmo")]),
         source([event("longbridge", market_session="amc")]),
     ).run(NOW)
-    assert third.inserted_count == 0 and third.notification_sent_count == 1
+    assert third.inserted_count == 0 and third.notification_created_count == 1
     assert notifier.send.call_count == 1
     assert len(repo.list_events_by_date_range(date(2026, 6, 18), date(2026, 7, 18))) == 1
 
 
 def test_failed_send_preserves_calendar_event(setup_service):
     build, repo, _, notifier = setup_service
-    notifier.send.return_value = False
+    notifier.send.return_value = NotificationResult(1, True, False)
     build(source([event()]), source()).run(NOW)
     summary = build(source([event(market_session="amc")]), source()).run(NOW)
-    assert summary.notification_sent_count == 0
+    assert summary.notification_created_count == 1
     notifier.send.assert_called_once()
     assert repo.list_events_by_date(date(2026, 6, 20))[0].market_session == "amc"
 
@@ -187,15 +189,15 @@ def test_only_existing_time_changes_notify(setup_service, change, kind):
     if kind == "macro":
         base.update(symbol=None, event_type="cpi_yoy", reporting_period="2026-05")
     first = build(provider(event(**base)), source()).run(NOW)
-    assert first.notification_sent_count == 0 and first.importance_candidate_ids
+    assert first.notification_created_count == 0 and first.importance_candidate_ids
     notifier.send.assert_not_called()
     second = build(provider(event(**(base | change))), source()).run(NOW)
-    assert second.notification_sent_count == 1 and second.inserted_count == 0
+    assert second.notification_created_count == 1 and second.inserted_count == 0
     assert "时间调整" in notifier.send.call_args.args[0]
     assert "新增" not in notifier.send.call_args.args[0]
     assert "2026-07-18" in notifier.send.call_args.args[0]
     repeated = build(provider(event(**(base | change))), source()).run(NOW)
-    assert repeated.notification_sent_count == 0
+    assert repeated.notification_created_count == 0
 
 
 @pytest.mark.parametrize(
@@ -211,7 +213,7 @@ def test_non_time_enrichment_does_not_notify(setup_service, change):
     build, _, _, notifier = setup_service
     build(source([event()]), source()).run(NOW)
     summary = build(source([event(**change)]), source([event("longbridge", currency="USD")])).run(NOW)
-    assert summary.notification_sent_count == 0
+    assert summary.notification_created_count == 0
     notifier.send.assert_not_called()
 
 
