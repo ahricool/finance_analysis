@@ -35,6 +35,9 @@ def _overlay_bar(close: float) -> DailyBar:
 
 
 class PreviewRepository:
+    def health_history(self, trade_date, codes):
+        return {}
+
     market = "US"
 
     def __init__(self):
@@ -417,6 +420,11 @@ def test_preview_reuses_previous_official_snapshot_and_does_not_persist(monkeypa
     assert [item[0] for item in repository.previous_calls] == [TRADE_DATE, TRADE_DATE]
     assert first["provider"] == "yfinance"
     assert "snapshots" in first
+    for row in first["snapshots"]:
+        assert row["trend_lifecycle"] is not None
+        assert "fragility_score" in row
+        assert "acceleration_decay" in row["fragility_breakdown"]
+    assert first["snapshots"] == second["snapshots"]
 
 
 def test_official_run_after_preview_still_inherits_previous_official_state(monkeypatch):

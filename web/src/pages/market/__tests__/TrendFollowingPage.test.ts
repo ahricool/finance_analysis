@@ -213,7 +213,9 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.text()).toContain('建议入场');
     expect(wrapper.find('table').classes()).toContain('w-full');
     expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(12);
-    expect(wrapper.text()).toContain('持续天数');
+    expect(wrapper.text()).toContain('Lifecycle / Age');
+    expect(wrapper.text()).toContain('12D');
+    expect(wrapper.text()).toContain('Fragility');
     expect(wrapper.find('[aria-label="查看 Market Score 指标说明与计算公式"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="查看 Alpha Score 指标说明与计算公式"]').exists()).toBe(true);
   });
@@ -469,7 +471,7 @@ describe('TrendFollowingPage', () => {
     expect(dialog.querySelector('[data-testid="trend-history"]')).toBeNull();
   });
 
-  it('shows a sortable trend duration column in the ranking table', async () => {
+  it('shows lifecycle with age and keeps age sorting in the ranking table', async () => {
     apiMocks.ranking.mockResolvedValueOnce({
       ...ranking('CN'),
       items: [
@@ -482,9 +484,11 @@ describe('TrendFollowingPage', () => {
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
     const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[1]!.find('span').text());
-    const header = wrapper.findAll('th button').find(button => button.text().includes('持续天数'));
+    const header = wrapper.findAll('th button').find(button => button.text().includes('Lifecycle / Age'));
     expect(header).toBeTruthy();
-    expect(wrapper.text()).toContain('持续天数');
+    expect(wrapper.text()).toContain('Lifecycle / Age');
+    expect(wrapper.text()).toContain('12D');
+    expect(wrapper.text()).toContain('Fragility');
     expect(order()).toEqual(['A.US', 'B.US', 'C.US', 'D.US']);
     await header!.trigger('click');
     expect(order()).toEqual(['B.US', 'A.US', 'C.US', 'D.US']);

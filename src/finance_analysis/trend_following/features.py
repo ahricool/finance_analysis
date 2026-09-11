@@ -139,7 +139,16 @@ def calculate_features(bars: Sequence[DailyBar], minimum_bars: int = 21) -> dict
         setup = "BREAKOUT_20D"
     elif breakout_10:
         setup = "BREAKOUT_10D"
+    # Explanatory features share the existing price array and weighted regression.
+    short_slope, _ = weighted_log_regression(closes, 5)
+    travel = float(np.sum(np.abs(np.diff(closes[-11:]))))
+    efficiency = float((closes[-1] - closes[-11]) / travel) if travel > 0 else 0.0
     return {
+        "health_version": 1,
+        "trend_quality": r_squared * 100.0,
+        "trend_acceleration": (short_slope - slope) * 252.0,
+        "signed_efficiency_ratio_10d": efficiency,
+        "distance_from_recent_high": float(closes[-1] / np.max(closes[-20:]) - 1.0),
         "open": float(ordered[-1].open),
         "reference_price": float(closes[-1]),
         "ma10": ma10,

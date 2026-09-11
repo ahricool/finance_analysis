@@ -33,8 +33,10 @@ describe('public market dashboard', () => {
   it('uses only public endpoints and preserves the API feed order including future events', async () => {
     const { wrapper } = await render();
     const paths = get.mock.calls.map(([path]) => path);
-    expect(new Set(paths)).toEqual(new Set(['/api/v1/quant/market-regime/latest', '/api/v1/quant/signals/ranking', '/api/v1/etf-rotation/ranking', '/api/v1/trend-following/ranking', '/api/v1/crypto/btc/overview', '/api/v1/timeline']));
+    expect(new Set(paths)).toEqual(new Set(['/api/v1/market-structure', '/api/v1/quant/market-regime/latest', '/api/v1/quant/signals/ranking', '/api/v1/etf-rotation/ranking', '/api/v1/trend-following/ranking', '/api/v1/crypto/btc/overview', '/api/v1/timeline']));
     expect(paths.join()).not.toMatch(/portfolio|holdings|watch-list|history|preferences/);
+    expect(wrapper.get('[aria-label="Market Structure"]').text()).toContain('Breadth Divergence');
+    expect(wrapper.get('[aria-label="Market Structure"]').text()).toContain('High Fragility Trends: 23');
     const feed = wrapper.findAll('[data-testid="dashboard-feed-item"]');
     expect(feed).toHaveLength(8);
     expect(feed.slice(0, 4).map(row => row.get('h3').text())).toEqual(['ORCL FY27 Q1 财报', '美国消费者价格指数 CPI', 'NVIDIA 上调 AI Server 需求预期', '科技板块继续强于大盘']);

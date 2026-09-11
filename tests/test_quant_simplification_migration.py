@@ -21,7 +21,7 @@ def test_quant_simplification_is_in_the_single_head_chain_and_matches_current_or
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "alembic"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_current_head() == "0049_notification_center"
+    assert script.get_current_head() == "0050_market_structure_health"
     assert "0046_simplify_quant" in {revision.revision for revision in script.walk_revisions()}
 
     table_names = {model.__tablename__ for model in QUANT_TABLES}
