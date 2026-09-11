@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router';
+import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
 import { etfRotationApi } from '@/api/etfRotation';
 import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
@@ -27,6 +28,7 @@ import type {
   ETFMarketRotationSnapshot,
   ETFMomentumSnapshot,
   ETFPreviewResponse,
+  ETFPreviewStatusResponse,
   ETFRankingChanges,
   ETFRankingResponse,
   ETFState,
@@ -64,13 +66,15 @@ const sortKey = ref<'compositeScore' | 'momentumStrengthScore' | 'trendQualitySc
 const sortDirection = ref<'asc' | 'desc'>('desc');
 const dataMode = ref<ResearchDataMode>('official');
 const modeChosenByUser = ref(false);
-const preview = ref<ETFPreviewResponse | null>(null);
+const { previewStatus, previewPayload, previewLoading, previewError, refreshPreviewStatus, loadPreview, resetPreview } =
+  useLazyResearchPreview<ETFMarket, ETFPreviewStatusResponse, ETFPreviewResponse>(() => market.value, etfRotationApi);
+const previewInfo = computed(() => previewPayload.value ?? previewStatus.value);
 const officialLatest = shallowRef<ETFRankingResponse | null>(null);
 const officialSelected = shallowRef<ETFRankingResponse | null>(null);
 let generation = 0;
 
-const previewAvailable = computed(() => preview.value != null);
-const showingPreview = computed(() => dataMode.value === 'preview' && isPreviewCompleted(preview.value?.status));
+const previewAvailable = computed(() => previewStatus.value != null);
+const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
 const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
 const sortedItems = computed(() => [...items.value].sort((a, b) => {
   const left = a[sortKey.value];
@@ -193,6 +197,14 @@ function applyOfficialRanking(ranking: ETFRankingResponse) {
   candidates.value = ordered.filter(item => item.action === 'BUY' || item.action === 'HOLD').slice(0, ranking.candidateLimit ?? 6);
   exits.value = ordered.filter(item => item.action === 'EXIT');
 }
+async function showPreview() {
+  const current = generation;
+  const requestedMarket = market.value;
+  await loadPreview();
+  if (current === generation && requestedMarket === market.value && dataMode.value === 'preview') {
+    applyPreviewPayload(previewPayload.value);
+  }
+}
 async function load(refreshDates = false, options: { autoSelectMode?: boolean } = {}) {
   const current = ++generation;
   const requestedMarket = market.value;
@@ -201,16 +213,12 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
   refreshing.value = !loading.value;
   error.value = null;
   const auxiliary = refreshDates || !availableDates.value.length;
+  const refreshVisiblePreview = refreshDates && dataMode.value === 'preview';
   // Auxiliaries update independently; a slow/failed preview must not block official data.
-  const datesTask = auxiliary ? etfRotationApi.dates(requestedMarket).then(result => {
+  if (auxiliary) void etfRotationApi.dates(requestedMarket).then(result => {
     if (current === generation) availableDates.value = result.items;
-  }).catch(() => undefined) : Promise.resolve();
-  const previewTask = auxiliary ? etfRotationApi.preview(requestedMarket).then(result => {
-    if (current === generation) {
-      preview.value = result;
-      if (dataMode.value === 'preview') applyPreviewPayload(result);
-    }
-  }).catch(() => { if (current === generation) preview.value = null; }) : Promise.resolve();
+  }).catch(() => undefined);
+  const previewTask = auxiliary ? refreshPreviewStatus(refreshVisiblePreview) : Promise.resolve();
   try {
     const ranking = await etfRotationApi.ranking(requestedMarket, requestedDate);
     if (current !== generation) return;
@@ -220,19 +228,20 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
     if (dataMode.value === 'official') applyOfficialRanking(ranking);
     loading.value = false;
     refreshing.value = false;
-    await Promise.all([datesTask, previewTask]);
+    await previewTask;
     if (current !== generation) return;
     if (autoSelectMode && !modeChosenByUser.value) {
       dataMode.value = chooseDefaultResearchDataMode({
         officialTradeDate: ranking.tradeDate,
         officialGeneratedAt: ranking.generatedAt,
-        previewAvailable: preview.value != null,
-        previewStatus: preview.value?.status,
-        previewTradeDate: preview.value?.tradeDate,
-        previewTime: preview.value?.previewTime,
+        previewAvailable: previewStatus.value != null,
+        previewStatus: previewStatus.value?.status,
+        previewTradeDate: previewStatus.value?.tradeDate,
+        previewTime: previewStatus.value?.previewTime,
       });
     }
-    if (dataMode.value === 'preview') applyPreviewPayload(preview.value);
+    if (dataMode.value === 'preview') await showPreview();
+    else applyOfficialRanking(ranking);
   } catch (reason) {
     if (current === generation) {
       error.value = getParsedApiError(reason);
@@ -255,7 +264,7 @@ function selectDataMode(mode: ResearchDataMode) {
   modeChosenByUser.value = true;
   dataMode.value = mode;
   if (mode === 'preview') {
-    applyPreviewPayload(preview.value);
+    void showPreview();
     return;
   }
   if (officialSelected.value) applyOfficialRanking(officialSelected.value);
@@ -280,7 +289,7 @@ watch(market, () => {
   selectedDate.value = '';
   officialSelected.value = null;
   officialLatest.value = null;
-  preview.value = null;
+  resetPreview();
   items.value = [];
   candidates.value = [];
   exits.value = [];
@@ -337,7 +346,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           class="flex h-10 items-center text-sm text-muted-foreground"
           data-testid="etf-rotation-date-readonly"
         >
-          今日 · {{ summary.tradeDate || '—' }}
+          今日 · {{ previewInfo?.tradeDate || '—' }}
         </p>
         <span
           data-testid="etf-rotation-trade-date"
@@ -366,19 +375,30 @@ onMounted(() => void load(true, { autoSelectMode: true }));
     </header>
     <ResearchDataStatusBar
       :mode="dataMode"
-      :trade-date="summary.tradeDate"
-      :data-as-of="preview?.dataAsOf"
-      :preview-time="preview?.previewTime"
-      :generated-at="dataMode === 'official' ? summary.generatedAt : preview?.previewTime"
-      :provider="preview?.provider"
+      :trade-date="dataMode === 'preview' ? previewInfo?.tradeDate : summary.tradeDate"
+      :data-as-of="previewInfo?.dataAsOf"
+      :preview-time="previewInfo?.previewTime"
+      :generated-at="dataMode === 'official' ? summary.generatedAt : previewInfo?.previewTime"
+      :provider="previewInfo?.provider"
       :official-trade-date="officialLatest?.tradeDate"
-      :preview-status="preview?.status"
-      :reason="preview?.warnings?.join('；') || null"
+      :preview-status="previewInfo?.status"
+      :reason="previewInfo?.warnings?.join('；') || null"
     />
     <AppApiErrorAlert
       v-if="error"
       :error="error"
     />
+    <AppApiErrorAlert
+      v-if="dataMode === 'preview' && previewError"
+      :error="previewError"
+    />
+    <p
+      v-if="dataMode === 'preview' && previewLoading"
+      role="status"
+      class="text-sm text-muted-foreground"
+    >
+      正在加载盘中预演…
+    </p>
     <div
       v-if="summary.warnings.length && showingStrategyBody"
       class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
@@ -387,7 +407,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
       {{ summary.warnings.join('；') }}
     </div>
     <div
-      v-if="loading"
+      v-if="loading || (dataMode === 'preview' && previewLoading)"
       class="grid gap-3 sm:grid-cols-4"
     >
       <Skeleton

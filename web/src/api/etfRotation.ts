@@ -7,6 +7,7 @@ import type {
   ETFDetailResponse,
   ETFMarket,
   ETFPreviewResponse,
+  ETFPreviewStatusResponse,
   ETFRankingResponse,
   ETFRotationRunAccepted,
   ETFUniverseResponse,
@@ -45,6 +46,15 @@ export const etfRotationApi = {
       trade_date: tradeDate || null,
     });
     return toCamelCase(data);
+  },
+  async previewStatus(market: ETFMarket): Promise<ETFPreviewStatusResponse | null> {
+    try {
+      const { data } = await apiClient.get('/api/v1/etf-rotation/preview/status', { params: { market } });
+      return toCamelCase(data);
+    } catch (error) {
+      if (getParsedApiError(error).status === 404) return null;
+      throw error;
+    }
   },
   async preview(market: ETFMarket = 'CN'): Promise<ETFPreviewResponse | null> {
     try {

@@ -129,3 +129,16 @@ it('loads preview snapshots through toCamelCase and treats 404 as null', async (
   vi.mocked(apiClient.get).mockRejectedValue({ parsedError: { status: 404, title: 'x', message: 'missing', rawMessage: 'missing', category: 'http_error' } });
   await expect(trendFollowingApi.preview('CN')).resolves.toBeNull();
 });
+
+it('loads lightweight preview status and preserves missing-cache null semantics', async () => {
+  vi.mocked(apiClient.get).mockResolvedValueOnce({ data: {
+    status: 'completed', market: 'CN', trade_date: '2026-09-11', preview_time: '2026-09-11T06:00:00Z',
+    data_as_of: null, provider: 'yfinance', snapshot_count: 3794, warnings: [],
+  } });
+  const status = await trendFollowingApi.previewStatus('CN');
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/preview/status', { params: { market: 'CN' } });
+  expect(status).toMatchObject({ tradeDate: '2026-09-11', snapshotCount: 3794 });
+  expect(status).not.toHaveProperty('snapshots');
+  vi.mocked(apiClient.get).mockRejectedValueOnce({ response: { status: 404 } });
+  await expect(trendFollowingApi.previewStatus('US')).resolves.toBeNull();
+});

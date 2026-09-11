@@ -23,6 +23,10 @@ for (const width of [1280, 1440]) {
       await page.addInitScript(value => localStorage.setItem('theme', value), theme);
       await page.route('**/api/v1/**', async route => {
         const pathname = new URL(route.request().url()).pathname;
+        if (pathname.endsWith('/preview/status') || pathname.endsWith('/preview')) {
+          await route.fulfill({ status: 404, json: {} });
+          return;
+        }
         let body: object = {};
         if (pathname === '/api/v1/auth/status') {
           body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
@@ -91,7 +95,7 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
     let body: object = {};
     if (path.endsWith('/auth/status')) body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
     if (path.endsWith('/dates')) body = { items: [snapshot.tradeDate] };
-    if (path.endsWith('/preview')) { await route.fulfill({ status: 404, json: {} }); return; }
+    if (path.endsWith('/preview/status') || path.endsWith('/preview')) { await route.fulfill({ status: 404, json: {} }); return; }
     if (path.endsWith('/ranking')) {
       body = { ...summary, items: Array.from({ length: 3800 }, (_, rank) => ({ ...snapshot, code: `TEST${rank}`, name: `Stock ${rank}`, rank: rank + 1, alphaScore: rank / 38 })), candidates: [], portfolio: { positions: [], maxExposure: 0, currentExposure: 0, remainingExposure: 0, positionCount: 0 } };
       rankingStarted = Date.now();

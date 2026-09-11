@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
+from finance_analysis.core.preview_metadata import preview_metadata
 from finance_analysis.database.models.user import User  # pragma: allowlist secret
 from finance_analysis.database.repositories.trend_following import (  # pragma: allowlist secret
     ACTIVE_POSITION_STATES,
@@ -285,6 +286,14 @@ def _portfolio_payload(market: str, resolved: date, summary: dict, rows: list[di
 def dates(_: User = Depends(require_current_user), market: Market = "CN"):
     items = TrendFollowingRepository(market).available_trade_dates()
     return jsonable_encoder({"market": market, "latest": items[0] if items else None, "items": items})
+
+
+@router.get("/preview/status")
+def preview_status(_: User = Depends(require_current_user), market: Market = "CN"):
+    payload = load_preview(market)
+    if payload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Trend Following preview is not available")
+    return jsonable_encoder(preview_metadata(payload, rows_key="snapshots"))
 
 
 @router.get("/preview")

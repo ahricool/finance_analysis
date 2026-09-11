@@ -9,6 +9,7 @@ import type {
   TrendMarket,
   TrendPortfolioResponse,
   TrendPreviewResponse,
+  TrendPreviewStatusResponse,
   TrendRankingResponse,
   TrendRunAccepted,
 } from '@/types/trendFollowing';
@@ -68,6 +69,15 @@ export const trendFollowingApi = {
       trade_date: tradeDate ?? null,
     });
     return toCamelCase(data);
+  },
+  async previewStatus(market: TrendMarket): Promise<TrendPreviewStatusResponse | null> {
+    try {
+      const { data } = await apiClient.get('/api/v1/trend-following/preview/status', { params: { market } });
+      return toCamelCase(data);
+    } catch (error) {
+      if (getParsedApiError(error).status === 404) return null;
+      throw error;
+    }
   },
   async preview(market: TrendMarket): Promise<TrendPreviewResponse | null> {
     try {

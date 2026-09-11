@@ -204,3 +204,15 @@ export interface TrendPreviewResponse extends Omit<TrendSummary, 'generatedAt'> 
   generatedAt?: string | null;
   elapsedSeconds?: number;
 }
+
+/** Metadata only; complete strategy rows are fetched separately on entering Preview. */
+export interface TrendPreviewStatusResponse {
+  status: string;
+  market: TrendMarket;
+  tradeDate: string;
+  previewTime: string | null;
+  dataAsOf: string | null;
+  provider: string | null;
+  snapshotCount: number;
+  warnings: string[];
+}

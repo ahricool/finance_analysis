@@ -8,16 +8,16 @@
 
 | 操作 | 修改前 | 修改后 |
 | --- | --- | --- |
-| Trend 首次进入 / 切换市场 | latest ranking + dates + preview；再 candidates + portfolio | latest ranking + dates + preview；ranking 已含轻量 candidates 和 portfolio |
+| Trend 首次进入 / 切换市场 | latest ranking + dates + preview；再 candidates + portfolio | latest ranking + dates + preview/status；ranking 已含轻量 candidates 和 portfolio |
 | Trend 选择历史日期 D | latest ranking + preview；再 ranking(D) + candidates(D) + portfolio(D) | 仅 ranking(D) |
-| ETF 首次进入 / 切换市场 | latest ranking + dates + preview；再 candidates | latest ranking + dates + preview；前端从 ranking.items 派生 candidates / exits |
+| ETF 首次进入 / 切换市场 | latest ranking + dates + preview；再 candidates | latest ranking + dates + preview/status；前端从 ranking.items 派生 candidates / exits |
 | ETF 选择历史日期 D | latest ranking + preview；再 ranking(D) + candidates(D) | 仅 ranking(D) |
-| 两页刷新 | latest ranking + dates + preview；历史模式再 ranking(D)，以及候选/组合接口 | ranking(selectedDate) + dates + preview，保持选定日期 |
-| official → preview | 使用已加载 Preview | 使用已加载 Preview |
+| 两页刷新 | latest ranking + dates + preview；历史模式再 ranking(D)，以及候选/组合接口 | ranking(selectedDate) + dates + preview/status；仅当前 Preview 模式再加载完整 preview |
+| official → preview | 使用已加载 Preview | 首次请求完整 preview，之后复用内存；status 版本变更或 Preview 刷新后重新获取 |
 | preview → official | 重新加载 ranking / preview / candidates 等 | 使用已加载的 officialSelected，无额外请求；尚无结果时才请求选定日期 |
 | 历史详情 | Trend 已带日期；ETF 取最新历史 | 两页均明确带 trade_date；ETF 在 SQL 中先过滤 as_of，再 LIMIT |
 
-首次加载后，`selectedDate` 取 ranking 返回的 `tradeDate`。辅助 dates / preview 独立更新，慢 Preview 不再阻止正式结果展示。请求序号保护跨市场/日期的异步结果；用户手动选择模式后，迟到的 Preview 不覆盖选择。
+首次加载后，`selectedDate` 取 ranking 返回的 `tradeDate`。辅助 dates / preview status 独立更新，慢 Preview 不再阻止正式结果展示。请求序号保护跨市场/日期的异步结果；用户手动选择模式后，迟到的 Preview 不覆盖选择。
 
 Trend 首次 official 页面由 13 条领域 SQL 降到 9 条（冷缓存）/ 2 条（热缓存，含 dates）；选择历史日期由 19 条降到 7 条 / 0 条。
 
@@ -79,23 +79,44 @@ Trend ranking 使用只遍历 DTO 已知容器的浅字段转换，其他 API �
 | 瘦身后 Trend DTO mapping | 5.15 ms | 10.58 ms |
 | 瘦身后 ETF deep | 0.25 ms | 1.02 ms |
 
-ETF 没有明显 mapping 热点，按要求保留 `toCamelCase`。Trend Preview 仍返回完整快照供盘中详情使用，约 10 MB，仍可能有 deep mapping 开销；本次未改变 Preview 数据契约/计算，通过 gzip 和独立加载降低其对正式首屏的影响。
+ETF 没有明显 mapping 热点，按要求保留 `toCamelCase`。完整 Preview 保留原有 deep mapping，但仅实际进入 Preview 时执行；official 首屏只转换轻量 metadata，不再转换完整 Preview。
 
 实际 CN Universe 有约 3,800 行。Chromium mock 请求测量，一次创建完整表格约 3,015 ms；虚拟表格约 161 ms（包括校验滚动末尾）。大于 300 行时只挂载 28 行和占位空间，所有数据仍一次加载、全量排序，没有业务分页。较小结果直接显示全部行。
 
 搜索框按名称或代码进行大小写不敏感过滤，覆盖全部已加载记录；先过滤再排序再虚拟渲染，支持空结果提示，排序/搜索会回到顶部，不产生 API 请求。
 
+## Preview status 与懒加载
+
+两个领域新增 `GET /preview/status`，从原有 Preview Redis payload 只提取 status、market、trade_date、preview_time、data_as_of、provider、snapshot_count、warnings。不含 snapshots/items；不存在时 404。原 `/preview`、缓存保存格式、计算和 Celery task 均未改动。
+
+首次 official 加载以 status 判断默认模式。只有 completed 且比 official 更新、或用户手动进入可用 Preview，才下载完整 `/preview`。failed/incomplete 只展示 metadata 中的原因。两个页面共享 `useLazyResearchPreview`，分别保存 status / payload / loading；重复切换复用 payload，市场切换、metadata 版本变化或 Preview 刷新会使其失效。并发下载合并，迟到的旧市场/旧版本响应不能覆盖当前状态。
+
+刷新 official 只更新 ranking、dates、status；刷新 Preview 先更新 status，再刷新完整 payload。选择历史日期仍只读 ranking(D)，不会触发完整 Preview。status 已读取但完整请求期间缓存过期时保留合理的不可用提示。
+
+2026-09-11 当前生产 CN Preview 只读样本，通过原 loader 读取 Redis 后，对原响应和 metadata 以相同 FastAPI JSON 序列化计数（gzip level 5）：
+
+| Preview | 快照数 | 原完整 JSON 字节 | 原完整 gzip 字节 | status JSON 字节 | 留在 official 时减少 JSON 字节 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Trend | 3,794 | 10,285,543 | 1,702,418 | 215 | 10,285,328 |
+| ETF | 42 | 134,181 | 29,429 | 213 | 133,968 |
+
+status 小于 nginx gzip_min_length，默认不压缩。因此启用 gzip 后，两页分别减少约 1.70 MB / 29.2 KB 响应传输（不计 HTTP headers）。自动默认进入 Preview 时仍需要下载完整数据，仅判断过程使用 status。
+
+缓存 JSON 保存格式未改变，status 服务端仍读取并解析整份 Redis JSON，然后提取 metadata；此次没有声称消除这部分服务端开销。完整 Preview 实际打开时的 JSON.parse/deep mapping 成本仍存在，但 official 首屏不再承担。
+
 ## 验证
 
-- 完整后端 `ci_gate.sh`：使用独立临时 PostgreSQL 测试容器，2,129 passed、19 skipped、104 subtests passed；语法、flake8 和 deterministic 阶段通过。
-- 前端 Vitest：61 个文件、500 tests passed。
+- 完整后端 `ci_gate.sh`：使用独立临时 PostgreSQL 测试容器，2,137 passed、19 skipped、104 subtests passed；语法、flake8 和 deterministic 阶段通过。
+- 前端 Vitest：62 个文件、512 tests passed。
 - `vue-tsc -b` 通过；Vite build 输出到临时目录，未修改 `static/`。
-- Playwright：14 passed，包含两页详情、Dashboard、虚拟滚动末尾、全量排序、名称/代码搜索。
+- Playwright 全套：26 passed、5 skipped，包含两页详情、Dashboard、虚拟滚动末尾、全量排序、名称/代码搜索，以及两页 Preview 请求次数、内存复用与刷新行为。
 - 离线回归覆盖缓存 hit/miss、市场/日期隔离、提交后失效、旧请求回填保护、轻量 changes、Universe 单次加载、历史日期直达和 detail as_of。
-- 首次全门禁使用默认本机 DB 凭据时失败；随后在隔离测试库完整重跑通过。
+- 首次全门禁使用默认本机 DB 凭据时失败；随后在隔离测试库完整重跑通过。全站 Playwright 首轮发现旧导航文案断言缺少空格，修正测试后完整重跑通过。
+- Preview 回归覆盖 metadata-only / 404、原完整响应不变、默认模式选择、历史日期、首次下载与内存复用、版本失效、请求去重和过期异步响应保护。
 
 ## 涉及文件
 
+- Preview metadata：[core/preview_metadata.py](../src/finance_analysis/core/preview_metadata.py)；共享懒加载：[useLazyResearchPreview.ts](../web/src/composables/useLazyResearchPreview.ts)。
 - 共享缓存：[core/snapshot_cache.py](../src/finance_analysis/core/snapshot_cache.py)，两个领域各自的 `ranking_cache.py`。
 - Trend 投影 DTO：[read_models.py](../src/finance_analysis/trend_following/read_models.py)。
 - API：[trend_following.py](../src/finance_analysis/interfaces/api/v1/endpoints/trend_following.py)、[etf_rotation.py](../src/finance_analysis/interfaces/api/v1/endpoints/etf_rotation.py)。

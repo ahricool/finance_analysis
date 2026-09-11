@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router';
+import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
 import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import { RefreshCcw } from 'lucide-vue-next';
 import { toast } from 'vue-sonner';
@@ -32,6 +33,7 @@ import type {
   TrendPortfolioPosition,
   TrendPortfolioResponse,
   TrendPreviewResponse,
+  TrendPreviewStatusResponse,
   TrendRankingChanges,
   TrendRankingResponse,
   TrendSnapshot,
@@ -74,7 +76,9 @@ const running = ref(false);
 const error = ref<ParsedApiError | null>(null);
 const dataMode = ref<ResearchDataMode>('official');
 const modeChosenByUser = ref(false);
-const preview = ref<TrendPreviewResponse | null>(null);
+const { previewStatus, previewPayload, previewLoading, previewError, refreshPreviewStatus, loadPreview, resetPreview } =
+  useLazyResearchPreview<TrendMarket, TrendPreviewStatusResponse, TrendPreviewResponse>(() => market.value, trendFollowingApi);
+const previewInfo = computed(() => previewPayload.value ?? previewStatus.value);
 const officialLatest = shallowRef<TrendRankingResponse | null>(null);
 const officialSelected = shallowRef<TrendRankingResponse | null>(null);
 const detailOpen = ref(false);
@@ -183,8 +187,8 @@ const exposureProgress = computed(() => {
   if (portfolio.value.maxExposure <= 0) return 0;
   return Math.min(100, (portfolio.value.currentExposure / portfolio.value.maxExposure) * 100);
 });
-const previewAvailable = computed(() => preview.value != null);
-const showingPreview = computed(() => dataMode.value === 'preview' && isPreviewCompleted(preview.value?.status));
+const previewAvailable = computed(() => previewStatus.value != null);
+const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
 const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
 const previewChangeGroups = computed(() => {
   const diff = diffTrendPreviewChanges(items.value, officialLatest.value?.items ?? []);
@@ -283,6 +287,14 @@ function applyOfficialRanking(ranking: TrendRankingResponse) {
   candidates.value = ranking.candidates;
   portfolio.value = ranking.portfolio;
 }
+async function showPreview() {
+  const current = generation;
+  const requestedMarket = market.value;
+  await loadPreview();
+  if (current === generation && requestedMarket === market.value && dataMode.value === 'preview') {
+    applyPreviewPayload(previewPayload.value);
+  }
+}
 async function load(refreshDates = false, options: { autoSelectMode?: boolean } = {}) {
   const current = ++generation;
   const requestedMarket = market.value;
@@ -291,16 +303,12 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
   refreshing.value = !loading.value;
   error.value = null;
   const auxiliary = refreshDates || !availableDates.value.length;
+  const refreshVisiblePreview = refreshDates && dataMode.value === 'preview';
   // Auxiliaries update independently; a slow/failed preview must not block official data.
-  const datesTask = auxiliary ? trendFollowingApi.dates(requestedMarket).then(result => {
+  if (auxiliary) void trendFollowingApi.dates(requestedMarket).then(result => {
     if (current === generation) availableDates.value = result.items;
-  }).catch(() => undefined) : Promise.resolve();
-  const previewTask = auxiliary ? trendFollowingApi.preview(requestedMarket).then(result => {
-    if (current === generation) {
-      preview.value = result;
-      if (dataMode.value === 'preview') applyPreviewPayload(result);
-    }
-  }).catch(() => { if (current === generation) preview.value = null; }) : Promise.resolve();
+  }).catch(() => undefined);
+  const previewTask = auxiliary ? refreshPreviewStatus(refreshVisiblePreview) : Promise.resolve();
   try {
     const ranking = await trendFollowingApi.ranking(requestedMarket, requestedDate);
     if (current !== generation) return;
@@ -310,19 +318,20 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
     if (dataMode.value === 'official') applyOfficialRanking(ranking);
     loading.value = false;
     refreshing.value = false;
-    await Promise.all([datesTask, previewTask]);
+    await previewTask;
     if (current !== generation) return;
     if (autoSelectMode && !modeChosenByUser.value) {
       dataMode.value = chooseDefaultResearchDataMode({
         officialTradeDate: ranking.tradeDate,
         officialGeneratedAt: ranking.generatedAt,
-        previewAvailable: preview.value != null,
-        previewStatus: preview.value?.status,
-        previewTradeDate: preview.value?.tradeDate,
-        previewTime: preview.value?.previewTime,
+        previewAvailable: previewStatus.value != null,
+        previewStatus: previewStatus.value?.status,
+        previewTradeDate: previewStatus.value?.tradeDate,
+        previewTime: previewStatus.value?.previewTime,
       });
     }
-    if (dataMode.value === 'preview') applyPreviewPayload(preview.value);
+    if (dataMode.value === 'preview') await showPreview();
+    else applyOfficialRanking(ranking);
   } catch (reason) {
     if (current === generation) {
       error.value = getParsedApiError(reason);
@@ -345,7 +354,7 @@ function selectDataMode(mode: ResearchDataMode) {
   modeChosenByUser.value = true;
   dataMode.value = mode;
   if (mode === 'preview') {
-    applyPreviewPayload(preview.value);
+    void showPreview();
     return;
   }
   if (officialSelected.value) applyOfficialRanking(officialSelected.value);
@@ -366,7 +375,7 @@ async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: stri
   detailOpen.value = true;
   detailError.value = null;
   if (dataMode.value === 'preview') {
-    const snapshot = preview.value?.snapshots.find(row => row.code === item.code)
+    const snapshot = previewPayload.value?.snapshots.find(row => row.code === item.code)
       ?? null;
     detail.value = snapshot
       ? {
@@ -403,7 +412,7 @@ watch(market, () => {
   rankingSearch.value = '';
   officialSelected.value = null;
   officialLatest.value = null;
-  preview.value = null;
+  resetPreview();
   items.value = [];
   candidates.value = [];
   changes.value = null;
@@ -467,7 +476,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           class="flex h-10 items-center text-sm text-muted-foreground"
           data-testid="trend-date-readonly"
         >
-          今日 · {{ summary.tradeDate || '—' }}
+          今日 · {{ previewInfo?.tradeDate || '—' }}
         </p>
         <Button
           variant="outline"
@@ -492,28 +501,39 @@ onMounted(() => void load(true, { autoSelectMode: true }));
     </header>
     <ResearchDataStatusBar
       :mode="dataMode"
-      :trade-date="summary.tradeDate"
-      :data-as-of="preview?.dataAsOf"
-      :preview-time="preview?.previewTime"
-      :generated-at="dataMode === 'official' ? summary.generatedAt : preview?.previewTime"
-      :provider="preview?.provider"
+      :trade-date="dataMode === 'preview' ? previewInfo?.tradeDate : summary.tradeDate"
+      :data-as-of="previewInfo?.dataAsOf"
+      :preview-time="previewInfo?.previewTime"
+      :generated-at="dataMode === 'official' ? summary.generatedAt : previewInfo?.previewTime"
+      :provider="previewInfo?.provider"
       :official-trade-date="officialLatest?.tradeDate"
-      :preview-status="preview?.status"
-      :reason="preview?.warnings?.join('；') || null"
+      :preview-status="previewInfo?.status"
+      :reason="previewInfo?.warnings?.join('；') || null"
     />
     <AppApiErrorAlert
       v-if="error"
       :error="error"
     />
+    <AppApiErrorAlert
+      v-if="dataMode === 'preview' && previewError"
+      :error="previewError"
+    />
+    <p
+      v-if="dataMode === 'preview' && previewLoading"
+      role="status"
+      class="text-sm text-muted-foreground"
+    >
+      正在加载盘中预演…
+    </p>
     <div
-      v-if="summary.warnings.length"
+      v-if="summary.warnings.length && showingStrategyBody"
       role="alert"
       class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
     >
       {{ summary.warnings.join('；') }}
     </div>
     <div
-      v-if="loading"
+      v-if="loading || (dataMode === 'preview' && previewLoading)"
       class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
     >
       <Skeleton

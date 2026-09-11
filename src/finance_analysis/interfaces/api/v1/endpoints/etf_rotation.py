@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
+from finance_analysis.core.preview_metadata import preview_metadata
 from finance_analysis.database.models.user import User
 from finance_analysis.database.repositories.etf_rotation import ETFRotationRepository
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG
@@ -245,6 +246,14 @@ def universe(_: User = Depends(require_current_user), market: Market = "CN"):
 def dates(_: User = Depends(require_current_user), market: Market = "CN"):
     items = ETFRotationRepository(market).available_trade_dates()
     return jsonable_encoder({"market": market, "latest": items[0] if items else None, "items": items})
+
+
+@router.get("/preview/status")
+def preview_status(_: User = Depends(require_current_user), market: Market = "CN"):
+    payload = load_preview(market)
+    if payload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "ETF Rotation preview is not available")
+    return jsonable_encoder(preview_metadata(payload, rows_key="items"))
 
 
 @router.get("/preview")

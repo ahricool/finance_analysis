@@ -197,3 +197,15 @@ export interface ETFPreviewResponse {
   items: ETFMomentumSnapshot[];
   elapsedSeconds?: number;
 }
+
+/** Metadata only; complete strategy rows are fetched separately on entering Preview. */
+export interface ETFPreviewStatusResponse {
+  status: string;
+  market: ETFMarket;
+  tradeDate: string;
+  previewTime: string | null;
+  dataAsOf: string | null;
+  provider: string | null;
+  snapshotCount: number;
+  warnings: string[];
+}

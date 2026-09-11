@@ -158,3 +158,16 @@ it('passes the selected date to ETF detail', async () => {
     params: { market: 'CN', limit: 60, trade_date: '2026-08-21' },
   });
 });
+
+it('loads metadata from preview/status and returns null for a missing preview', async () => {
+  vi.mocked(apiClient.get).mockResolvedValueOnce({ data: {
+    status: 'completed', market: 'US', trade_date: '2026-09-11', preview_time: '2026-09-11T18:00:00Z',
+    data_as_of: null, provider: 'yfinance', snapshot_count: 49, warnings: [],
+  } });
+  const status = await etfRotationApi.previewStatus('US');
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/etf-rotation/preview/status', { params: { market: 'US' } });
+  expect(status).toMatchObject({ tradeDate: '2026-09-11', snapshotCount: 49 });
+  expect(status).not.toHaveProperty('items');
+  vi.mocked(apiClient.get).mockRejectedValueOnce({ response: { status: 404 } });
+  await expect(etfRotationApi.previewStatus('CN')).resolves.toBeNull();
+});

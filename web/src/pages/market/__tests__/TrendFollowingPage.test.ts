@@ -5,7 +5,7 @@ import { trendIndicatorDescriptions } from '@/components/trend-following/indicat
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
 const apiMocks = vi.hoisted(() => ({
-  ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn(), preview: vi.fn(),
+  ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
@@ -77,6 +77,16 @@ function portfolio(market: TrendMarket): TrendPortfolioResponse {
   };
 }
 
+function mockPreview(payload: Record<string, unknown> | null) {
+  apiMocks.preview.mockResolvedValue(payload);
+  const rows = payload?.snapshots ?? payload?.items;
+  apiMocks.previewStatus.mockResolvedValue(payload ? {
+    status: payload.status, market: payload.market, tradeDate: payload.tradeDate,
+    previewTime: payload.previewTime, dataAsOf: payload.dataAsOf, provider: payload.provider,
+    snapshotCount: Array.isArray(rows) ? rows.length : 0, warnings: payload.warnings ?? [],
+  } : null);
+}
+
 describe('TrendFollowingPage', () => {
   beforeEach(() => {
     apiMocks.dates.mockImplementation(async (market: TrendMarket) => ({ market, latest: '2026-08-28', items: ['2026-08-28'] }));
@@ -88,7 +98,7 @@ describe('TrendFollowingPage', () => {
       history: [snapshot(market)], marketContext: ranking(market),
     }));
     apiMocks.run.mockResolvedValue({ taskId: 'task-1', status: 'pending', market: 'CN', tradeDate: null });
-    apiMocks.preview.mockResolvedValue(null);
+    mockPreview(null);
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
@@ -386,7 +396,7 @@ describe('TrendFollowingPage', () => {
       state: 'CANDIDATE' as const,
       action: 'WATCH' as const,
     };
-    apiMocks.preview.mockResolvedValue({
+    mockPreview({
       ...ranking('CN'),
       status: 'completed',
       tradeDate: '2026-09-10',
@@ -425,7 +435,7 @@ describe('TrendFollowingPage', () => {
       state: 'CANDIDATE' as const,
       action: 'WATCH' as const,
     };
-    apiMocks.preview.mockResolvedValue({
+    mockPreview({
       ...ranking('CN'),
       status: 'completed',
       tradeDate: '2026-09-10',
@@ -481,4 +491,43 @@ describe('TrendFollowingPage', () => {
     await header!.trigger('click');
     expect(order()).toEqual(['C.US', 'A.US', 'B.US', 'D.US']);
   });
+  it('loads only status for official, lazily downloads Preview once, and refreshes the visible mode', async () => {
+    mockPreview({ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z', dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined);
+    expect(apiMocks.previewStatus).toHaveBeenCalledTimes(1);
+    expect(apiMocks.preview).not.toHaveBeenCalled();
+    expect(wrapper.get('[data-testid="research-data-mode-badge"]').text()).toContain('正式收盘');
+    await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.preview).toHaveBeenCalledTimes(1);
+    expect(wrapper.get('[data-testid="research-provider"]').text()).toBe('Yahoo Finance');
+    await wrapper.get('[data-testid="research-mode-official"]').trigger('click');
+    await wrapper.get('[data-testid="trend-refresh"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.previewStatus).toHaveBeenCalledTimes(2);
+    expect(apiMocks.preview).toHaveBeenCalledTimes(1);
+    await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.preview).toHaveBeenCalledTimes(1);
+    await wrapper.get('[data-testid="trend-refresh"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.previewStatus).toHaveBeenCalledTimes(3);
+    expect(apiMocks.preview).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it.each(['failed', 'incomplete'])('shows %s Preview metadata without downloading rows', async (status) => {
+    mockPreview({ ...{ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z', dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] }, status, warnings: ['预演数据不完整'] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    expect(apiMocks.preview).not.toHaveBeenCalled();
+    await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[data-testid="research-preview-reason"]').text()).toContain('预演数据不完整');
+    expect(apiMocks.preview).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
 });
