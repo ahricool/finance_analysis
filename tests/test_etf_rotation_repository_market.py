@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 
@@ -99,3 +101,47 @@ def test_snapshot_queries_and_historical_dates_are_isolated_by_market() -> None:
     assert {row["market"] for row in cn.snapshot_history("588000.SH")} == {"CN"}
     assert {row["market"] for row in us.snapshot_history("SPY.US")} == {"US"}
     assert us.historical_composite_ranks(date(2026, 8, 26), {"SPY.US"}) == {"SPY.US": {1: 10, 3: 30}}
+
+
+@pytest.fixture(autouse=True)
+def offline_ranking_cache(monkeypatch):
+    from finance_analysis.etf_rotation import ranking_cache
+    monkeypatch.setattr(ranking_cache, "invalidate_market", lambda market: None)
+
+
+def test_history_filters_as_of_before_limit():
+    database = _Database()
+    with database.session_scope() as session:
+        session.add(Instrument(id=1, market="CN", code="588000.SH", name="ETF"))
+        for index in range(3):
+            session.add(_snapshot(index + 1, "CN", 1, date(2026, 8, 24 + index), index + 1))
+    repository = ETFRotationRepository("CN", database)
+    history = repository.snapshot_history("588000.SH", limit=1, as_of=date(2026, 8, 25))
+    assert len(history) == 1 and history[0]["trade_date"] == date(2026, 8, 25)
+    assert repository.snapshot_history("588000.SH", as_of=date(2026, 8, 23)) == []
+    assert set(repository.change_rows(date(2026, 8, 25))[0]) == {"code", "state", "action", "rank", "composite_score"}
+
+
+def test_market_and_snapshot_overwrite_invalidate_after_commit(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from finance_analysis.etf_rotation import ranking_cache
+
+    committed = []
+    session = MagicMock()
+    session.execute.return_value.all.return_value = [("588000.SH", 1)]
+
+    @contextmanager
+    def transaction():
+        yield session
+        committed.append("commit")
+
+    def invalidate(market):
+        assert committed[-1] == "commit"
+        committed.append(market)
+
+    monkeypatch.setattr(ranking_cache, "invalidate_market", invalidate)
+    repo = ETFRotationRepository("CN", SimpleNamespace(session_scope=transaction))
+    repo.upsert_market_snapshot({"market": "CN", "trade_date": date(2026, 9, 10)})
+    repo.upsert_snapshots([{"code": "588000.SH", "market": "CN", "trade_date": date(2026, 9, 10)}])
+    assert committed == ["commit", "CN", "commit", "CN"]

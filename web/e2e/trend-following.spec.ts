@@ -23,15 +23,19 @@ for (const width of [1280, 1440]) {
       await page.addInitScript(value => localStorage.setItem('theme', value), theme);
       await page.route('**/api/v1/**', async route => {
         const pathname = new URL(route.request().url()).pathname;
+        if (pathname.endsWith('/preview/status') || pathname.endsWith('/preview')) {
+          await route.fulfill({ status: 404, json: {} });
+          return;
+        }
         let body: object = {};
         if (pathname === '/api/v1/auth/status') {
           body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
         } else if (pathname.endsWith('/trend-following/dates')) {
           body = { market: 'CN', latest: snapshot.tradeDate, items: [snapshot.tradeDate] };
         } else if (pathname.endsWith('/trend-following/ranking')) {
-          body = { ...summary, items: [snapshot] };
+          body = { ...summary, items: [snapshot], candidates: [snapshot], portfolio: { ...summary, positions: [], maxExposure: 0.8, currentExposure: 0, positionCount: 0 } };
         } else if (pathname.endsWith('/trend-following/candidates')) {
-          body = { ...summary, items: [snapshot] };
+          body = { ...summary, items: [snapshot], candidates: [snapshot], portfolio: { ...summary, positions: [], maxExposure: 0.8, currentExposure: 0, positionCount: 0 } };
         } else if (pathname.endsWith('/trend-following/portfolio')) {
           body = { ...summary, positions: [], maxExposure: 0.8, currentExposure: 0, positionCount: 0 };
         } else if (pathname.endsWith('/trend-following/000001.SZ')) {
@@ -83,3 +87,36 @@ for (const width of [1280, 1440]) {
     });
   }
 }
+
+test('full universe has no pagination and remains sortable', async ({ page }) => {
+  let rankingStarted = 0;
+  await page.route('**/api/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    let body: object = {};
+    if (path.endsWith('/auth/status')) body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
+    if (path.endsWith('/dates')) body = { items: [snapshot.tradeDate] };
+    if (path.endsWith('/preview/status') || path.endsWith('/preview')) { await route.fulfill({ status: 404, json: {} }); return; }
+    if (path.endsWith('/ranking')) {
+      body = { ...summary, items: Array.from({ length: 3800 }, (_, rank) => ({ ...snapshot, code: `TEST${rank}`, name: `Stock ${rank}`, rank: rank + 1, alphaScore: rank / 38 })), candidates: [], portfolio: { positions: [], maxExposure: 0, currentExposure: 0, remainingExposure: 0, positionCount: 0 } };
+      rankingStarted = Date.now();
+    }
+    await route.fulfill({ json: body });
+  });
+  await page.goto('/research/trend-following');
+  await expect(page.getByTestId('trend-row')).toHaveCount(28);
+  await expect(page.getByTestId('trend-ranking-count')).toContainText('3800');
+  const scroll = page.getByTestId('trend-ranking-scroll');
+  await scroll.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  await expect(page.getByTestId('trend-row').last()).toContainText('TEST3799');
+  await scroll.evaluate(el => { el.scrollTop = 0; });
+  console.log('full-universe render milliseconds', Date.now() - rankingStarted);
+  await expect(page.getByRole('button', { name: '下一页' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Alpha Score', exact: true }).click();
+  await expect(page.getByTestId('trend-row').first()).toContainText('TEST3799');
+  await page.getByTestId('trend-ranking-search').fill('test2700');
+  await expect(page.getByTestId('trend-row')).toHaveCount(1);
+  await expect(page.getByTestId('trend-row')).toContainText('TEST2700');
+  await page.getByTestId('trend-ranking-search').fill('Stock 1800');
+  await expect(page.getByTestId('trend-row')).toHaveCount(1);
+  await expect(page.getByTestId('trend-row')).toContainText('TEST1800');
+});

@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import Response
 
+from finance_analysis.core.preview_metadata import preview_metadata
 from finance_analysis.database.models.user import User  # pragma: allowlist secret
-from finance_analysis.database.repositories.trend_following import TrendFollowingRepository  # pragma: allowlist secret
+from finance_analysis.database.repositories.trend_following import (  # pragma: allowlist secret
+    ACTIVE_POSITION_STATES,
+    MEANINGFUL_STATES,
+    TrendFollowingRepository,
+)
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user  # pragma: allowlist secret
 from finance_analysis.interfaces.api.v1.schemas.trend_following import (  # pragma: allowlist secret
     TrendFollowingPortfolioResponse,
@@ -23,6 +31,8 @@ from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
     require_scheduled_task_definition,
 )
 from finance_analysis.core.ranking import calculate_rank_changes  # pragma: allowlist secret
+from finance_analysis.trend_following.ranking_cache import RankingCache
+from finance_analysis.trend_following.read_models import CANDIDATE_FIELDS, ranking_item
 from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
 from finance_analysis.trend_following.preview_cache import load_preview  # pragma: allowlist secret
 from finance_analysis.trend_following.risk import theoretical_position_weight  # pragma: allowlist secret
@@ -45,7 +55,7 @@ def _changes(
     previous_date_loader = getattr(repository, "previous_trade_date", None)
     previous_date = previous_date_loader(trade_date) if previous_date_loader is not None else None
     previous_rows = (
-        repository.snapshots_by_date(previous_date, sort_by="rank", limit=None)
+        repository.change_rows(previous_date)
         if previous_date is not None
         else []
     )
@@ -67,7 +77,12 @@ def _changes(
         current_rank = row.get("rank")
         previous_rank = previous.get("rank")
         return {
-            "current": row,
+            "code": row["code"],
+            "name": row.get("name"),
+            "current_state": row.get("state"),
+            "current_action": row.get("action"),
+            "current_pending_action": row.get("pending_action"),
+            "current_rank": current_rank,
             "previous_state": previous.get("state"),
             "previous_action": previous.get("action"),
             "previous_pending_action": previous.get("pending_action"),
@@ -101,30 +116,30 @@ def _changes(
         "breadth_score_change": breadth_score_change,
         "new_candidates": [
             item for item in changes
-            if item["current"].get("state") == "CANDIDATE" and item["previous_state"] != "CANDIDATE"
+            if item.get("current_state") == "CANDIDATE" and item["previous_state"] != "CANDIDATE"
         ],
         "new_weakening": [
             item for item in changes
-            if item["current"].get("state") == "WEAKENING" and item["previous_state"] != "WEAKENING"
+            if item.get("current_state") == "WEAKENING" and item["previous_state"] != "WEAKENING"
         ],
         "new_reduces": [
             item for item in changes
             if (
-                item["current"].get("action") == "REDUCE"
-                or item["current"].get("pending_action") == "REDUCE"
+                item.get("current_action") == "REDUCE"
+                or item.get("current_pending_action") == "REDUCE"
             ) and item["previous_action"] != "REDUCE" and item["previous_pending_action"] != "REDUCE"
         ],
         "new_exits": [
             item for item in changes
             if (
-                item["current"].get("action") == "EXIT"
-                or item["current"].get("pending_action") == "EXIT"
+                item.get("current_action") == "EXIT"
+                or item.get("current_pending_action") == "EXIT"
             ) and item["previous_action"] != "EXIT" and item["previous_pending_action"] != "EXIT"
         ],
         "transitions": [
             item for item in changes
             if item["previous_state"] is not None
-            and item["previous_state"] != item["current"].get("state")
+            and item["previous_state"] != item.get("current_state")
         ],
         "movers": sorted(
             [
@@ -150,30 +165,53 @@ def _resolve_date(repository: TrendFollowingRepository, requested: date | None) 
 
 
 @router.get("/ranking")
-async def ranking(
+def ranking(
     trade_date: date | None = None,
     sort_by: SortField = "alpha_score",
     limit: int | None = Query(default=None, ge=1, le=1000),
     _: User = Depends(require_current_user),
     market: Market = "CN",
 ):
+    started = time.perf_counter()
     repository = TrendFollowingRepository(market)
     resolved = _resolve_date(repository, trade_date)
-    rows = repository.snapshots_by_date(resolved, sort_by=sort_by, limit=limit)
+    cache = RankingCache(market, resolved)
+    body = cache.load() if sort_by == "alpha_score" and limit is None else None
+    if body is not None:
+        logger.info("trend_ranking market=%s date=%s cache=hit seconds=%.3f bytes=%s",
+                    market, resolved, time.perf_counter() - started, len(body))
+        return Response(body, media_type="application/json")
+    rows = repository.dashboard_rows(resolved)
     summary = repository.summary_by_date(resolved)
     if not rows or summary is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Trend Following snapshot not found for {resolved}")
-    change_rows = rows
-    if limit is not None:
-        change_rows = repository.snapshots_by_date(resolved, sort_by="rank", limit=None)
-    historical = repository.historical_composite_ranks(resolved, [str(row["code"]) for row in rows])
-    for row in rows:
+    ordered = sorted(rows, key=lambda row: (
+        row.get(sort_by) is None,
+        (row.get(sort_by) or 0) * (1 if sort_by == "rank" else -1), row["code"],
+    ))
+    items = [ranking_item(row) for row in (ordered if limit is None else ordered[:limit])]
+    historical = repository.historical_composite_ranks(resolved, [str(row["code"]) for row in items])
+    for row in items:
         row.update(calculate_rank_changes(row["rank"], historical.get(str(row["code"]), {})))
-    return jsonable_encoder({**summary, "changes": _changes(repository, resolved, change_rows, summary), "items": rows})
+    candidate_rows = [row for row in rows if row.get("state") in MEANINGFUL_STATES or row.get("action") == "ADD"]
+    payload = {
+        **summary, "changes": _changes(repository, resolved, rows, summary), "items": items,
+        "candidates": [{key: row.get(key) for key in CANDIDATE_FIELDS} for row in candidate_rows[:100]],
+        "portfolio": _portfolio_payload(market, resolved, summary, rows),
+    }
+    body = json.dumps(jsonable_encoder(payload), ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
+    if (
+        sort_by == "alpha_score" and limit is None
+        and summary.get("data_coverage", 0) >= DEFAULT_CONFIG.minimum_data_coverage
+    ):
+        cache.save(body)
+    logger.info("trend_ranking market=%s date=%s cache=miss seconds=%.3f bytes=%s items=%s",
+                market, resolved, time.perf_counter() - started, len(body), len(items))
+    return Response(body, media_type="application/json")
 
 
 @router.get("/candidates")
-async def candidates(
+def candidates(
     trade_date: date | None = None,
     limit: int = Query(default=100, ge=1, le=1000),
     _: User = Depends(require_current_user),
@@ -190,7 +228,7 @@ async def candidates(
 
 
 @router.get("/portfolio", response_model=TrendFollowingPortfolioResponse)
-async def portfolio(
+def portfolio(
     trade_date: date | None = None,
     _: User = Depends(require_current_user),
     market: Market = "CN",
@@ -200,8 +238,14 @@ async def portfolio(
     summary = repository.summary_by_date(resolved)
     if summary is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Trend Following summary not found for {resolved}")
+    return _portfolio_payload(market, resolved, summary, repository.positions_by_date(resolved))
+
+
+def _portfolio_payload(market: str, resolved: date, summary: dict, rows: list[dict]) -> dict:
     positions = []
-    for row in repository.positions_by_date(resolved):
+    for row in sorted(rows, key=lambda row: (-float(row.get("alpha_score") or 0), row["code"])):
+        if row.get("state") not in ACTIVE_POSITION_STATES or (row.get("units") or 0) <= 0:
+            continue
         unit_weight = float(row.get("suggested_initial_weight") or 0.0)
         max_weight = float(row.get("suggested_max_weight") or 0.0)
         position_weight = theoretical_position_weight(row.get("units"), unit_weight, max_weight)
@@ -239,13 +283,21 @@ async def portfolio(
 
 
 @router.get("/dates")
-async def dates(_: User = Depends(require_current_user), market: Market = "CN"):
+def dates(_: User = Depends(require_current_user), market: Market = "CN"):
     items = TrendFollowingRepository(market).available_trade_dates()
     return jsonable_encoder({"market": market, "latest": items[0] if items else None, "items": items})
 
 
+@router.get("/preview/status")
+def preview_status(_: User = Depends(require_current_user), market: Market = "CN"):
+    payload = load_preview(market)
+    if payload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Trend Following preview is not available")
+    return jsonable_encoder(preview_metadata(payload, rows_key="snapshots"))
+
+
 @router.get("/preview")
-async def preview(_: User = Depends(require_current_user), market: Market = "CN"):
+def preview(_: User = Depends(require_current_user), market: Market = "CN"):
     payload = load_preview(market)
     if payload is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trend Following preview is not available")
@@ -253,7 +305,7 @@ async def preview(_: User = Depends(require_current_user), market: Market = "CN"
 
 
 @router.post("/run", status_code=status.HTTP_202_ACCEPTED)
-async def run_trend_following(body: TrendFollowingRunRequest, user: User = Depends(require_admin)):
+def run_trend_following(body: TrendFollowingRunRequest, user: User = Depends(require_admin)):
     from finance_analysis.tasks.celery.jobs.trend_following.tasks import (  # pragma: allowlist secret
         run_trend_following_cn,
         run_trend_following_us,
@@ -280,7 +332,7 @@ async def run_trend_following(body: TrendFollowingRunRequest, user: User = Depen
 
 
 @router.get("/{code}")
-async def detail(
+def detail(
     code: str,
     limit: int = Query(default=DEFAULT_CONFIG.history_limit_default, ge=1, le=DEFAULT_CONFIG.history_limit_max),
     trade_date: date | None = None,

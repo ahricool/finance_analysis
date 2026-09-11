@@ -97,14 +97,14 @@ describe('trendFollowingApi', () => {
   });
 });
 
-it('maps ranking snapshot rank changes including null and zero with the shared camel-case mapper', async () => {
+it('maps ranking snapshot rank changes including null and zero with the bounded DTO mapper', async () => {
   vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [
     { rank_change_1d: 5, rank_change_3d: -17, rank_change_5d: 32 },
     { rank_change_1d: 0, rank_change_3d: null, rank_change_5d: null },
   ] } });
   expect((await trendFollowingApi.ranking('CN')).items).toEqual([
-    { rankChange1D: 5, rankChange3D: -17, rankChange5D: 32 },
-    { rankChange1D: 0, rankChange3D: null, rankChange5D: null },
+    { rankChange1D: 5, rankChange3D: -17, rankChange5D: 32, features: {} },
+    { rankChange1D: 0, rankChange3D: null, rankChange5D: null, features: {} },
   ]);
 });
 
@@ -128,4 +128,17 @@ it('loads preview snapshots through toCamelCase and treats 404 as null', async (
   });
   vi.mocked(apiClient.get).mockRejectedValue({ parsedError: { status: 404, title: 'x', message: 'missing', rawMessage: 'missing', category: 'http_error' } });
   await expect(trendFollowingApi.preview('CN')).resolves.toBeNull();
+});
+
+it('loads lightweight preview status and preserves missing-cache null semantics', async () => {
+  vi.mocked(apiClient.get).mockResolvedValueOnce({ data: {
+    status: 'completed', market: 'CN', trade_date: '2026-09-11', preview_time: '2026-09-11T06:00:00Z',
+    data_as_of: null, provider: 'yfinance', snapshot_count: 3794, warnings: [],
+  } });
+  const status = await trendFollowingApi.previewStatus('CN');
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/preview/status', { params: { market: 'CN' } });
+  expect(status).toMatchObject({ tradeDate: '2026-09-11', snapshotCount: 3794 });
+  expect(status).not.toHaveProperty('snapshots');
+  vi.mocked(apiClient.get).mockRejectedValueOnce({ response: { status: 404 } });
+  await expect(trendFollowingApi.previewStatus('US')).resolves.toBeNull();
 });

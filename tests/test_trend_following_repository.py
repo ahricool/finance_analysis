@@ -360,3 +360,58 @@ def test_bulk_paths_validate_required_fields_before_opening_transaction():
             ):
                 with pytest.raises(ValueError, match=f"required field '{field}' is missing or null"):
                     write()
+
+
+# Repository tests remain offline even though successful writes now invalidate Redis.
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def offline_cache(monkeypatch):
+    from finance_analysis.trend_following import ranking_cache
+    monkeypatch.setattr(ranking_cache, "invalidate_market", lambda market: None)
+
+
+def test_read_projections_do_not_load_full_snapshot_or_instrument_json():
+    from sqlalchemy import event
+    database = _Database()
+    with database.session_scope() as session:
+        session.add(Instrument(id=1, market="US", code="AAPL.US", name="Apple"))
+        row = _snapshot(snapshot_id=1, code="AAPL.US", instrument_id=1, trade_date=date(2026, 9, 10))
+        row.features = {"return_5d": 0.15, "unused": {"large": "detail only"}}
+        session.add(row)
+    statements = []
+    event.listen(database.engine, "before_cursor_execute", lambda conn, cursor, statement, *args: statements.append(statement))
+    repository = TrendFollowingRepository("US", database)
+    items = repository.dashboard_rows(date(2026, 9, 10))
+    assert items[0]["return_5d"] == 0.15
+    assert "features" not in items[0] and "score_breakdown" not in items[0]
+    changes = repository.change_rows(date(2026, 9, 10))
+    assert set(changes[0]) == {"code", "state", "action", "pending_action", "rank", "trend_score", "rs_score", "alpha_score"}
+    assert len(statements) == 2
+    assert 'instrument_1' not in statements[0]
+    assert 'metadata' not in statements[0]
+    assert 'features' not in statements[1]
+
+
+def test_replace_and_invalidate_clear_cache_only_after_commit(monkeypatch):
+    from finance_analysis.trend_following import ranking_cache
+    database = _Database()
+    repository = TrendFollowingRepository("US", database)
+    trade_date = date(2026, 8, 28)
+    calls = []
+
+    def invalidated(market):
+        # A separate session observes the committed result.
+        calls.append((market, repository.latest_trade_date()))
+
+    monkeypatch.setattr(ranking_cache, "invalidate_market", invalidated)
+    repository.replace_day(trade_date, [], _summary(trade_date))
+    assert calls == [("US", trade_date)]
+    repository.replace_day(trade_date, [], _summary(trade_date))
+    assert len(calls) == 2
+    repository.invalidate_from(trade_date)
+    assert calls[-1] == ("US", None)
+    with pytest.raises(Exception):
+        repository.replace_day(trade_date, [], {"market": "US", "trade_date": trade_date})
+    assert len(calls) == 3

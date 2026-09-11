@@ -21,7 +21,7 @@ const rankingPayload = {
   changes: {
     previous_trade_date: '2026-08-22',
     new_buys: [{
-      current: { code: '588000.SH', name: '科创50ETF', state: 'EMERGING', action: 'BUY' },
+      code: '588000.SH', name: '科创50ETF', current_state: 'EMERGING', current_action: 'BUY', current_rank: 3,
       previous_state: 'NEUTRAL',
       previous_action: null,
       previous_rank: 8,
@@ -149,4 +149,25 @@ describe('etfRotation API key conversion', () => {
     await expect(etfRotationApi.preview('US')).resolves.toBeNull();
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/etf-rotation/preview', { params: { market: 'US' } });
   });
+});
+
+it('passes the selected date to ETF detail', async () => {
+  vi.mocked(apiClient.get).mockResolvedValue({ data: {} });
+  await etfRotationApi.detail('588000.SH', 'CN', 60, '2026-08-21');
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/etf-rotation/588000.SH', {
+    params: { market: 'CN', limit: 60, trade_date: '2026-08-21' },
+  });
+});
+
+it('loads metadata from preview/status and returns null for a missing preview', async () => {
+  vi.mocked(apiClient.get).mockResolvedValueOnce({ data: {
+    status: 'completed', market: 'US', trade_date: '2026-09-11', preview_time: '2026-09-11T18:00:00Z',
+    data_as_of: null, provider: 'yfinance', snapshot_count: 49, warnings: [],
+  } });
+  const status = await etfRotationApi.previewStatus('US');
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/etf-rotation/preview/status', { params: { market: 'US' } });
+  expect(status).toMatchObject({ tradeDate: '2026-09-11', snapshotCount: 49 });
+  expect(status).not.toHaveProperty('items');
+  vi.mocked(apiClient.get).mockRejectedValueOnce({ response: { status: 404 } });
+  await expect(etfRotationApi.previewStatus('CN')).resolves.toBeNull();
 });

@@ -108,7 +108,7 @@ test.describe('web smoke', () => {
     expect(initialBox).not.toBeNull();
     const dropdownItems: Record<string, string[]> = {
       '市场': ['自选股', '投资组合'],
-      '研究': ['量化研究', 'ETF动量轮动', '趋势跟踪'],
+      '研究': ['量化研究', 'ETF 动量轮动', '趋势跟踪'],
     };
 
     for (const label of ['市场', '研究', '打开用户菜单']) {

@@ -18,6 +18,10 @@ for (const width of [1280, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.route('**/api/v1/**', async route => {
       const pathname = new URL(route.request().url()).pathname;
+      if (pathname.endsWith('/preview/status') || pathname.endsWith('/preview')) {
+        await route.fulfill({ status: 404, json: {} });
+        return;
+      }
       let body: object = {};
       if (pathname === '/api/v1/auth/status') {
         body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };

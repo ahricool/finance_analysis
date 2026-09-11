@@ -111,11 +111,16 @@ export interface ETFRankingResponse {
   warnings: string[];
   marketSnapshot: ETFMarketRotationSnapshot | null;
   items: ETFMomentumSnapshot[];
+  candidateLimit?: number;
   changes?: ETFRankingChanges | null;
 }
 
 export interface ETFChange {
-  current: ETFMomentumSnapshot;
+  code: string;
+  name: string;
+  currentState: ETFState | null;
+  currentAction: ETFAction | null;
+  currentRank: number | null;
   previousState: ETFState | null;
   previousAction: ETFAction | null;
   previousRank: number | null;
@@ -148,6 +153,7 @@ export interface ETFCandidatesResponse {
 }
 export interface ETFDatesResponse { market: ETFMarket; latest: string | null; items: string[] }
 export interface ETFDetailResponse {
+  tradeDate?: string;
   market: ETFMarket;
   metadata: ETFUniverseMember;
   latest: ETFMomentumSnapshot;
@@ -190,4 +196,16 @@ export interface ETFPreviewResponse {
   marketSnapshot: ETFMarketRotationSnapshot | null;
   items: ETFMomentumSnapshot[];
   elapsedSeconds?: number;
+}
+
+/** Metadata only; complete strategy rows are fetched separately on entering Preview. */
+export interface ETFPreviewStatusResponse {
+  status: string;
+  market: ETFMarket;
+  tradeDate: string;
+  previewTime: string | null;
+  dataAsOf: string | null;
+  provider: string | null;
+  snapshotCount: number;
+  warnings: string[];
 }

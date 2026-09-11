@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,7 +36,6 @@ def enabled_etfs(market: str = "CN"):
 
 @pytest.fixture(autouse=True)
 def _database_universe(monkeypatch):
-    monkeypatch.setattr(etf_rotation, "enabled_etfs", enabled_etfs)
     monkeypatch.setattr(etf_rotation, "get_etf_universe", enabled_etfs)
     monkeypatch.setattr(
         etf_rotation,
@@ -102,9 +101,12 @@ class FakeRepository:
     def exits_by_date(self, trade_date):
         return [{**_snapshot("510300.SH"), "action": "EXIT", "is_candidate": False}]
 
-    def snapshot_history(self, code, *, limit=60):
+    def snapshot_history(self, code, *, limit=60, as_of=None):
         assert code == "588000.SH"
         return [_snapshot(code)][:limit]
+
+    def change_rows(self, trade_date):
+        return self.snapshots_by_date(trade_date)
 
     def available_trade_dates(self):
         return [date(2026, 8, 25), date(2026, 8, 24)]
@@ -113,9 +115,9 @@ class FakeRepository:
 def test_ranking_candidates_and_detail_use_rotation_repository(monkeypatch) -> None:
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", FakeRepository)
     user = SimpleNamespace(id=1)
-    ranking = asyncio.run(etf_rotation.ranking(None, "entry_score", None, user))
-    candidates = asyncio.run(etf_rotation.candidates(None, 5, user))
-    detail = asyncio.run(etf_rotation.detail("588000.SH", 60, user))
+    ranking = json.loads(etf_rotation.ranking(None, "entry_score", None, user).body)
+    candidates = etf_rotation.candidates(None, 5, user)
+    detail = etf_rotation.detail("588000.SH", 60, user)
     assert ranking["items"][0]["name"] == "科创50ETF"
     assert ranking["universe_size"] == len(enabled_etfs("CN"))
     assert candidates["items"][0]["code"] == "588000.SH"
@@ -154,8 +156,8 @@ def test_ranking_uses_requested_trade_date(monkeypatch) -> None:
 
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", DatedRepository)
     user = SimpleNamespace(id=1)
-    ranking = asyncio.run(etf_rotation.ranking(requested, "entry_score", None, user))
-    candidates = asyncio.run(etf_rotation.candidates(requested, 5, user))
+    ranking = json.loads(etf_rotation.ranking(requested, "entry_score", None, user).body)
+    candidates = etf_rotation.candidates(requested, 5, user)
     assert ranking["trade_date"] == "2026-08-21"
     assert candidates["trade_date"] == requested
 
@@ -173,7 +175,7 @@ def test_candidate_limit_never_hides_exits(monkeypatch) -> None:
             ]
 
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", SplitRepository)
-    payload = asyncio.run(etf_rotation.candidates(None, 2, SimpleNamespace(id=1)))
+    payload = etf_rotation.candidates(None, 2, SimpleNamespace(id=1))
     assert len(payload["candidates"]) == 2
     assert {item["action"] for item in payload["candidates"]} == {"HOLD"}
     assert len(payload["exits"]) == 4
@@ -218,9 +220,9 @@ def test_ranking_builds_daily_changes_from_previous_snapshot(monkeypatch) -> Non
             }
 
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", ChangesRepository)
-    payload = asyncio.run(etf_rotation.ranking(None, "composite_score", None, SimpleNamespace(id=1)))
+    payload = json.loads(etf_rotation.ranking(None, "composite_score", None, SimpleNamespace(id=1)).body)
     changes = payload["changes"]
-    assert changes["new_exits"][0]["current"]["code"] == "588000.SH"
+    assert changes["new_exits"][0]["code"] == "588000.SH"
     assert changes["new_cooling"][0]["previous_state"] == "STRONG"
     assert changes["regime_change"] == {"from": "NEUTRAL", "to": "RISK_OFF"}
     assert changes["rank_movers"][0]["rank_change"] == 9
@@ -233,13 +235,13 @@ def test_ranking_serializes_absent_public_action_as_null(monkeypatch) -> None:
             return [{**_snapshot(), "action": None, "is_candidate": False, "candidate_rank": None}]
 
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", NullActionRepository)
-    payload = asyncio.run(etf_rotation.ranking(None, "composite_score", None, SimpleNamespace(id=1)))
+    payload = json.loads(etf_rotation.ranking(None, "composite_score", None, SimpleNamespace(id=1)).body)
     assert payload["items"][0]["action"] is None
 
 
 def test_dates_lists_available_snapshot_trade_dates(monkeypatch) -> None:
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", FakeRepository)
-    payload = asyncio.run(etf_rotation.dates(SimpleNamespace(id=1)))
+    payload = etf_rotation.dates(SimpleNamespace(id=1))
     assert payload["market"] == "CN"
     assert payload["latest"] == "2026-08-25"
     assert payload["items"] == ["2026-08-25", "2026-08-24"]
@@ -254,7 +256,7 @@ def test_dates_returns_empty_payload_when_no_snapshots(monkeypatch) -> None:
             return []
 
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", EmptyRepository)
-    payload = asyncio.run(etf_rotation.dates(SimpleNamespace(id=1)))
+    payload = etf_rotation.dates(SimpleNamespace(id=1))
     assert payload == {"market": "CN", "latest": None, "items": []}
 
 
@@ -267,8 +269,8 @@ def test_dates_are_scoped_to_requested_market(monkeypatch) -> None:
 
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", MarketRepository)
     user = SimpleNamespace(id=1)
-    cn = asyncio.run(etf_rotation.dates(user))
-    us = asyncio.run(etf_rotation.dates(user, "US"))
+    cn = etf_rotation.dates(user)
+    us = etf_rotation.dates(user, "US")
     assert cn["market"] == "CN" and cn["items"] == ["2026-08-25", "2026-08-24"]
     assert us["market"] == "US" and us["latest"] == "2026-08-20" and us["items"] == ["2026-08-20"]
 
@@ -298,8 +300,8 @@ def test_api_is_authenticated_and_market_aware_with_cn_default() -> None:
 
 def test_universe_api_separates_cn_and_us_with_cn_default() -> None:
     user = SimpleNamespace(id=1)
-    cn = asyncio.run(etf_rotation.universe(user))
-    us = asyncio.run(etf_rotation.universe(user, "US"))
+    cn = etf_rotation.universe(user)
+    us = etf_rotation.universe(user, "US")
     assert cn["market"] == "CN" and cn["size"] == len(enabled_etfs("CN"))
     assert us["market"] == "US" and us["size"] == 49
     assert {"SPY.US", "QQQ.US", "IWM.US"} <= {item["code"] for item in us["items"]}
@@ -332,7 +334,7 @@ def test_manual_us_run_submits_the_us_task(monkeypatch) -> None:
     monkeypatch.setattr(tasks.run_etf_rotation_cn, "apply_async", cn_submit)
     monkeypatch.setattr(tasks.run_etf_rotation_us, "apply_async", us_submit)
 
-    response = asyncio.run(etf_rotation.run_rotation(ETFRotationRunRequest(market="US"), SimpleNamespace(id=7)))
+    response = etf_rotation.run_rotation(ETFRotationRunRequest(market="US"), SimpleNamespace(id=7))
 
     assert response["market"] == "US"
     assert response["task_id"] == "us-task-id"
@@ -363,3 +365,68 @@ def test_migration_creates_only_snapshot_table_with_required_constraints() -> No
     assert 'create_table(\n        "etf_' not in migration.replace(
         'create_table(\n        "etf_momentum_snapshot"', "expected_snapshot_table"
     )
+
+
+@pytest.fixture(autouse=True)
+def offline_ranking_cache(monkeypatch):
+    monkeypatch.setattr(etf_rotation.RankingCache, "load", lambda self: None)
+    monkeypatch.setattr(etf_rotation.RankingCache, "save", lambda self, body: None)
+
+
+def test_ranking_loads_universe_once_and_reuses_current_market(monkeypatch):
+    loads = []
+    market_dates = []
+
+    class ManyRepository(FakeRepository):
+        def snapshots_by_date(self, trade_date, *, sort_by="composite_score"):
+            return [{**_snapshot(f"TEST{i}.US"), "rank": i + 1} for i in range(49)]
+
+        def previous_trade_date(self, trade_date):
+            return date(2026, 8, 24)
+
+        def change_rows(self, trade_date):
+            return []
+
+        def market_snapshot_by_date(self, trade_date):
+            market_dates.append(trade_date)
+            return {"regime": "NEUTRAL"}
+
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", ManyRepository)
+    monkeypatch.setattr(etf_rotation, "get_etf_universe", lambda market: loads.append(market) or TEST_ETFS[market])
+    result = json.loads(etf_rotation.ranking(None, "composite_score", None, None, "US").body)
+    assert loads == ["US"]
+    assert market_dates == [date(2026, 8, 25), date(2026, 8, 24)]
+    assert len(result["items"]) == 49
+    assert all("current" not in row for value in result["changes"].values() if isinstance(value, list) for row in value)
+
+
+def test_detail_is_anchored_to_requested_date_and_rejects_missing_date(monkeypatch):
+    requested = date(2026, 8, 21)
+
+    class HistoryRepository(FakeRepository):
+        def latest_trade_date(self):
+            pytest.fail("historical request must not load latest")
+
+        def snapshot_history(self, code, *, limit, as_of=None):
+            assert as_of == requested
+            return [{**_snapshot(code), "trade_date": requested}]
+
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", HistoryRepository)
+    payload = etf_rotation.detail("588000.SH", 60, None, "CN", trade_date=requested)
+    assert payload["latest"]["trade_date"] == "2026-08-21"
+    monkeypatch.setattr(HistoryRepository, "snapshot_history", lambda *a, **k: [_snapshot()])
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as error:
+        etf_rotation.detail("588000.SH", 60, None, "CN", trade_date=requested)
+    assert error.value.status_code == 404
+
+
+def test_latest_cache_hit_skips_universe_and_snapshot_queries(monkeypatch):
+    class CachedRepository(FakeRepository):
+        def snapshots_by_date(self, *a, **k):
+            pytest.fail("cache hit queried snapshots")
+
+    monkeypatch.setattr(etf_rotation, "ETFRotationRepository", CachedRepository)
+    monkeypatch.setattr(etf_rotation, "get_etf_universe", lambda market: pytest.fail("cache hit queried universe"))
+    monkeypatch.setattr(etf_rotation.RankingCache, "load", lambda self: b'{"cached":true}')
+    assert json.loads(etf_rotation.ranking(None, "composite_score", None, None, "CN").body) == {"cached": True}

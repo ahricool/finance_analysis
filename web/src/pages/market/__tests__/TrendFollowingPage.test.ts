@@ -1,11 +1,11 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TrendMarket, TrendSnapshot, TrendRankingSnapshot, TrendRankingResponse } from '@/types/trendFollowing';
+import type { TrendMarket, TrendSnapshot, TrendRankingSnapshot, TrendRankingResponse, TrendPortfolioResponse } from '@/types/trendFollowing';
 import { trendIndicatorDescriptions } from '@/components/trend-following/indicatorDescriptions';
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
 const apiMocks = vi.hoisted(() => ({
-  ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn(), preview: vi.fn(),
+  ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
@@ -55,6 +55,7 @@ function ranking(market: TrendMarket): TrendRankingResponse {
     dataCoverage: market === 'CN' ? 0.9875 : 1, rankableCount: 480, candidateCount: 1,
     entryCount: 1, addCount: 0, holdCount: 0, reduceCount: 0, exitCount: 0, warnings: [],
     features: {}, scoreBreakdown: {}, generatedAt: '2026-08-28T12:00:00Z', items: [rankingSnapshot(market)],
+    candidates: [snapshot(market)], portfolio: portfolio(market),
     changes: {
       previousTradeDate: '2026-08-27', marketScoreChange: 2.5, breadthScoreChange: 4,
       newCandidates: [], newWeakening: [], newReduces: [], newExits: [], transitions: [], movers: [],
@@ -62,7 +63,7 @@ function ranking(market: TrendMarket): TrendRankingResponse {
   };
 }
 
-function portfolio(market: TrendMarket) {
+function portfolio(market: TrendMarket): TrendPortfolioResponse {
   const item = snapshot(market);
   return {
     market, tradeDate: '2026-08-28', marketRegime: 'RISK_ON', maxExposure: 0.5,
@@ -76,6 +77,16 @@ function portfolio(market: TrendMarket) {
   };
 }
 
+function mockPreview(payload: Record<string, unknown> | null) {
+  apiMocks.preview.mockResolvedValue(payload);
+  const rows = payload?.snapshots ?? payload?.items;
+  apiMocks.previewStatus.mockResolvedValue(payload ? {
+    status: payload.status, market: payload.market, tradeDate: payload.tradeDate,
+    previewTime: payload.previewTime, dataAsOf: payload.dataAsOf, provider: payload.provider,
+    snapshotCount: Array.isArray(rows) ? rows.length : 0, warnings: payload.warnings ?? [],
+  } : null);
+}
+
 describe('TrendFollowingPage', () => {
   beforeEach(() => {
     apiMocks.dates.mockImplementation(async (market: TrendMarket) => ({ market, latest: '2026-08-28', items: ['2026-08-28'] }));
@@ -87,34 +98,54 @@ describe('TrendFollowingPage', () => {
       history: [snapshot(market)], marketContext: ranking(market),
     }));
     apiMocks.run.mockResolvedValue({ taskId: 'task-1', status: 'pending', market: 'CN', tradeDate: null });
-    apiMocks.preview.mockResolvedValue(null);
+    mockPreview(null);
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
-  it('bounds ranking rendering for a full CN universe and sorts across pages', async () => {
-    const items = Array.from({ length: 3800 }, (_, index) => ({
-      ...rankingSnapshot(), code: `STOCK${index}`, rank: index + 1, alphaScore: index / 38,
+  it('virtualizes the full ranking without pagination and sorts the whole result', async () => {
+    const items = Array.from({ length: 800 }, (_, index) => ({
+      ...rankingSnapshot(), code: `STOCK${index}`, rank: index + 1, alphaScore: index / 8,
     }));
     apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    const rows = () => wrapper.findAll('[data-testid="trend-row"]');
-    expect(rows()).toHaveLength(50);
-    expect(rows()[0]!.text()).toContain('STOCK0');
-    await wrapper.get('button[aria-label="下一页"]').trigger('click');
-    expect(rows()).toHaveLength(50);
-    expect(rows()[0]!.text()).toContain('STOCK50');
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(28);
+    expect(wrapper.get('[data-testid="trend-ranking-count"]').text()).toContain('800');
+    expect(wrapper.find('button[aria-label="下一页"]').exists()).toBe(false);
     const sort = wrapper.findAll('th button').find(button => button.text() === 'Alpha Score')!;
     await sort.trigger('click');
-    expect(rows()[0]!.text()).toContain('STOCK3799');
-    expect(wrapper.get('[data-testid="trend-ranking-page-info"]').text()).toContain('第 1/76 页');
-    await wrapper.get('button[aria-label="下一页"]').trigger('click');
-    await rows()[0]!.trigger('click');
-    expect(apiMocks.detail).toHaveBeenCalledWith('STOCK3749', 'CN', 60, '2026-08-28');
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.text()).toContain('STOCK799');
+    await wrapper.get('[data-testid="trend-ranking-search"]').setValue('stock700');
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('STOCK700');
+    await wrapper.get('[data-testid="trend-ranking-search"]').setValue('不存在');
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(0);
+    expect(wrapper.text()).toContain('没有匹配的股票');
+    await wrapper.get('[data-testid="trend-ranking-search"]').setValue('平安银行');
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(28);
+    expect(wrapper.get('[data-testid="trend-ranking-count"]').text()).toContain('800 / 800');
     expect(apiMocks.ranking).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('requests only the selected historical date and preserves it for detail and refresh', async () => {
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    apiMocks.ranking.mockClear();
+    apiMocks.preview.mockClear();
+    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), tradeDate: '2026-08-27' });
+    await wrapper.get('[data-testid="trend-date-input"]').setValue('2026-08-27');
+    await flushPromises();
+    expect(apiMocks.ranking.mock.calls).toEqual([['CN', '2026-08-27']]);
+    expect(apiMocks.preview).not.toHaveBeenCalled();
+    expect(apiMocks.candidates).not.toHaveBeenCalled();
+    expect(apiMocks.portfolio).not.toHaveBeenCalled();
+    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.detail).toHaveBeenLastCalledWith('000001.SZ', 'CN', 60, '2026-08-27');
     await wrapper.get('[data-testid="trend-refresh"]').trigger('click');
     await flushPromises();
-    expect(wrapper.get('[data-testid="trend-ranking-page-info"]').text()).toContain('第 1/1 页');
+    expect(apiMocks.ranking).toHaveBeenLastCalledWith('CN', '2026-08-27');
     wrapper.unmount();
   });
 
@@ -195,12 +226,12 @@ describe('TrendFollowingPage', () => {
         previousTradeDate: '2026-08-27',
         marketScoreChange: 2.5,
         breadthScoreChange: -1.5,
-        newCandidates: [{ current, previousState: 'WATCHING', previousAction: 'WATCH', previousRank: 4,
+        newCandidates: [{ code: current.code, name: current.name, currentState: current.state, currentAction: current.action, previousState: 'WATCHING', previousAction: 'WATCH', previousRank: 4,
           rankChange: 3, trendScoreChange: 4, rsScoreChange: 2, alphaScoreChange: 3 }],
         newWeakening: [], newReduces: [], newExits: [],
-        transitions: [{ current, previousState: 'CANDIDATE', previousAction: 'PENDING_ENTRY', previousRank: 2,
+        transitions: [{ code: current.code, name: current.name, currentState: current.state, currentAction: current.action, previousState: 'CANDIDATE', previousAction: 'PENDING_ENTRY', previousRank: 2,
           rankChange: 1, trendScoreChange: 2, rsScoreChange: 1, alphaScoreChange: 2 }],
-        movers: [{ current, previousState: 'CANDIDATE', previousAction: 'WATCH', previousRank: 6,
+        movers: [{ code: current.code, name: current.name, currentState: current.state, currentAction: current.action, previousState: 'CANDIDATE', previousAction: 'WATCH', previousRank: 6,
           rankChange: 5, trendScoreChange: 7, rsScoreChange: 6, alphaScoreChange: 8 }],
       },
     });
@@ -222,7 +253,7 @@ describe('TrendFollowingPage', () => {
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
 
-    expect(apiMocks.portfolio).toHaveBeenCalledWith('CN', '2026-08-28');
+    expect(apiMocks.portfolio).not.toHaveBeenCalled();
     expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('当前理论持仓');
     expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('当前理论仓位6.0%');
     expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('最大允许敞口50.0%');
@@ -235,10 +266,10 @@ describe('TrendFollowingPage', () => {
   });
 
   it('labels exposure-blocked actions as risk limits', async () => {
-    apiMocks.portfolio.mockResolvedValueOnce({
+    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), portfolio: {
       ...portfolio('CN'),
       positions: [{ ...portfolio('CN').positions[0], action: 'EXPOSURE_BLOCKED' }],
-    });
+    } });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
 
@@ -348,7 +379,7 @@ describe('TrendFollowingPage', () => {
     await flushPromises();
     expect(errored.text()).toContain('snapshot missing');
     errored.unmount();
-    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items: [] });
+    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items: [], candidates: [] });
     apiMocks.candidates.mockResolvedValueOnce({ market: 'CN', tradeDate: '2026-08-28', summary: ranking('CN'), items: [] });
     const empty = mount(TrendFollowingPage);
     await flushPromises();
@@ -365,7 +396,7 @@ describe('TrendFollowingPage', () => {
       state: 'CANDIDATE' as const,
       action: 'WATCH' as const,
     };
-    apiMocks.preview.mockResolvedValue({
+    mockPreview({
       ...ranking('CN'),
       status: 'completed',
       tradeDate: '2026-09-10',
@@ -387,8 +418,8 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.find('[data-testid="trend-run-latest"]').exists()).toBe(false);
     await wrapper.get('[data-testid="research-mode-official"]').trigger('click');
     await flushPromises();
-    expect(apiMocks.candidates).toHaveBeenCalledWith('CN', '2026-08-28');
-    expect(apiMocks.portfolio).toHaveBeenCalledWith('CN', '2026-08-28');
+    expect(apiMocks.candidates).not.toHaveBeenCalled();
+    expect(apiMocks.portfolio).not.toHaveBeenCalled();
     expect(wrapper.find('[data-testid="trend-portfolio"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="trend-run-latest"]').exists()).toBe(true);
   });
@@ -404,7 +435,7 @@ describe('TrendFollowingPage', () => {
       state: 'CANDIDATE' as const,
       action: 'WATCH' as const,
     };
-    apiMocks.preview.mockResolvedValue({
+    mockPreview({
       ...ranking('CN'),
       status: 'completed',
       tradeDate: '2026-09-10',
@@ -460,4 +491,43 @@ describe('TrendFollowingPage', () => {
     await header!.trigger('click');
     expect(order()).toEqual(['C.US', 'A.US', 'B.US', 'D.US']);
   });
+  it('loads only status for official, lazily downloads Preview once, and refreshes the visible mode', async () => {
+    mockPreview({ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z', dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    expect(apiMocks.ranking).toHaveBeenCalledWith('CN', undefined);
+    expect(apiMocks.previewStatus).toHaveBeenCalledTimes(1);
+    expect(apiMocks.preview).not.toHaveBeenCalled();
+    expect(wrapper.get('[data-testid="research-data-mode-badge"]').text()).toContain('正式收盘');
+    await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.preview).toHaveBeenCalledTimes(1);
+    expect(wrapper.get('[data-testid="research-provider"]').text()).toBe('Yahoo Finance');
+    await wrapper.get('[data-testid="research-mode-official"]').trigger('click');
+    await wrapper.get('[data-testid="trend-refresh"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.previewStatus).toHaveBeenCalledTimes(2);
+    expect(apiMocks.preview).toHaveBeenCalledTimes(1);
+    await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.preview).toHaveBeenCalledTimes(1);
+    await wrapper.get('[data-testid="trend-refresh"]').trigger('click');
+    await flushPromises();
+    expect(apiMocks.previewStatus).toHaveBeenCalledTimes(3);
+    expect(apiMocks.preview).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
+  });
+
+  it.each(['failed', 'incomplete'])('shows %s Preview metadata without downloading rows', async (status) => {
+    mockPreview({ ...{ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z', dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] }, status, warnings: ['预演数据不完整'] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    expect(apiMocks.preview).not.toHaveBeenCalled();
+    await wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[data-testid="research-preview-reason"]').text()).toContain('预演数据不完整');
+    expect(apiMocks.preview).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
 });

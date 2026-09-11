@@ -217,6 +217,7 @@ class TrendFollowingRepository:
                     },
                 )
             )
+        self._invalidate_ranking_cache()
         return len(records)
 
     def replace_day(
@@ -282,6 +283,7 @@ class TrendFollowingRepository:
                     int(session.execute(select(func.coalesce(func.max(TrendFollowingSummary.id), 0))).scalar_one()) + 1
                 )
             session.execute(TrendFollowingSummary.__table__.insert().values(**summary_record))
+        self._invalidate_ranking_cache()
         return len(records)
 
     def invalidate_from(self, trade_date: date) -> None:
@@ -300,6 +302,8 @@ class TrendFollowingRepository:
                 )
             )
 
+        self._invalidate_ranking_cache()
+
     def upsert_summary(self, summary: dict[str, Any]) -> None:
         columns = {column.name for column in TrendFollowingSummary.__table__.columns}
         record = {key: value for key, value in summary.items() if key in columns and key != "id"}
@@ -317,6 +321,14 @@ class TrendFollowingRepository:
                     },
                 )
             )
+
+        self._invalidate_ranking_cache()
+
+    def _invalidate_ranking_cache(self) -> None:
+        # Rankings depend on prior dates too (changes and 1/3/5D ranks).
+        from finance_analysis.trend_following.ranking_cache import invalidate_market
+
+        invalidate_market(self.market)
 
     def latest_trade_date(self) -> date | None:
         with self.db.get_session() as session:
@@ -401,6 +413,33 @@ class TrendFollowingRepository:
         if name is not None:
             payload["name"] = name
         return payload
+
+    def dashboard_rows(self, trade_date: date) -> list[dict]:
+        """One scalar projection for ranking, lifecycle and portfolio; no eager ORM joins."""
+        from finance_analysis.trend_following.read_models import DASHBOARD_FIELDS, FEATURE_FIELDS
+
+        snapshot = TrendFollowingSnapshot
+        query = (
+            select(
+                *(getattr(snapshot, key) for key in DASHBOARD_FIELDS),
+                Instrument.name,
+                *(snapshot.features[key].as_float().label(key) for key in FEATURE_FIELDS),
+            )
+            .join(Instrument, Instrument.id == snapshot.instrument_id)
+            .where(snapshot.market == self.market, snapshot.trade_date == trade_date)
+            .order_by(snapshot.rank, snapshot.code)
+        )
+        with self.db.get_session() as session:
+            return [dict(row) for row in session.execute(query).mappings()]
+
+    def change_rows(self, trade_date: date) -> list[dict]:
+        snapshot = TrendFollowingSnapshot
+        fields = ("code", "state", "action", "pending_action", "rank", "trend_score", "rs_score", "alpha_score")
+        with self.db.get_session() as session:
+            return [dict(row) for row in session.execute(
+                select(*(getattr(snapshot, key) for key in fields))
+                .where(snapshot.market == self.market, snapshot.trade_date == trade_date)
+            ).mappings()]
 
     def snapshots_by_date(
         self, trade_date: date, *, sort_by: str = "alpha_score", limit: int | None = None
