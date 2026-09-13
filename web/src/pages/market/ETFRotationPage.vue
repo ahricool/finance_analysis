@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
 import { etfRotationApi } from '@/api/etfRotation';
@@ -17,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type {
@@ -316,25 +318,11 @@ onMounted(() => void load(true, { autoSelectMode: true }));
         </p>
       </div>
       <div class="flex flex-wrap items-end gap-2">
-        <div
-          class="h-10 flex items-center gap-1 rounded-lg bg-muted p-1"
-          role="radiogroup"
-          aria-label="市场"
+        <ResearchMarketToggle
+          :model-value="market"
           data-testid="etf-market-switcher"
-        >
-          <Button
-            v-for="option in [{ value: 'US', label: '美股' }, { value: 'CN', label: 'A股' }]"
-            :key="option.value"
-            size="sm"
-            :variant="market === option.value ? 'default' : 'ghost'"
-            role="radio"
-            :aria-checked="market === option.value"
-            class="h-full"
-            @click="setMarket(option.value as ETFMarket)"
-          >
-            {{ option.label }}
-          </Button>
-        </div>
+          @update:model-value="setMarket"
+        />
         <ResearchDataModeToggle
           :mode="dataMode"
           :preview-available="previewAvailable"

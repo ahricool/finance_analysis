@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
 import { computed, onMounted, ref, shallowRef, watch } from 'vue';
@@ -448,25 +449,11 @@ onMounted(() => void load(true, { autoSelectMode: true }));
         </p>
       </div>
       <div class="flex flex-wrap items-end gap-2">
-        <div
-          class="h-10 flex items-center gap-1 rounded-lg bg-muted p-1"
-          role="radiogroup"
-          aria-label="市场"
+        <ResearchMarketToggle
+          :model-value="market"
           data-testid="trend-market"
-        >
-          <Button
-            v-for="option in [{ value: 'US', label: '美股' }, { value: 'CN', label: 'A股' }]"
-            :key="option.value"
-            size="sm"
-            :variant="market === option.value ? 'default' : 'ghost'"
-            role="radio"
-            :aria-checked="market === option.value"
-            class="h-full"
-            @click="setMarket(option.value as TrendMarket)"
-          >
-            {{ option.label }}
-          </Button>
-        </div>
+          @update:model-value="setMarket"
+        />
         <ResearchDataModeToggle
           :mode="dataMode"
           :preview-available="previewAvailable"

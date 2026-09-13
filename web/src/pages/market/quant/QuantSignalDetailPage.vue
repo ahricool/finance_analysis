@@ -9,22 +9,22 @@ import { ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 const route = useRoute();
-const { market, marketQuery } = useQuantMarket();
+const { market, marketQuery, tradeDate } = useQuantMarket();
 const item = ref<QuantSignal | null>(null);
 const history = ref<QuantSignal[]>([]);
 const error = ref<ParsedApiError | null>(null);
 let requestVersion = 0;
 watch(
-  [market, () => route.params.code],
-  async ([current, code]) => {
+  [market, () => route.params.code, tradeDate],
+  async ([current, code, date]) => {
     const version = ++requestVersion;
     item.value = null;
     history.value = [];
     error.value = null;
     try {
       const values = await Promise.all([
-        quantApi.signal(String(code), current),
-        quantApi.signalHistory(String(code), current),
+        (date ? quantApi.signal(String(code), current, date) : quantApi.signal(String(code), current)),
+        (date ? quantApi.signalHistory(String(code), current, date) : quantApi.signalHistory(String(code), current)),
       ]);
       if (version === requestVersion) [item.value, history.value] = values;
     } catch (e) {
@@ -50,7 +50,7 @@ watch(
           {{ formatSecurityLabel(item.code, item.name) }}
         </h2>
         <p class="text-xs text-muted-foreground">
-          排名 {{ item.universeRank ?? '—' }} · {{ item.signal }} · 预测
+          {{ item.tradeDate }} · 排名 {{ item.universeRank ?? '—' }} · {{ item.signal }} · 预测
           {{ formatPredictedReturn(item.predictedReturn) }}
         </p>
       </header>

@@ -14,7 +14,7 @@ import { formatPredictedReturn, formatScore } from '@/utils/quant';
 import { formatSecurityLabel } from '@/utils/security';
 import { computed, ref, watch } from 'vue';
 
-const { market, marketQuery } = useQuantMarket();
+const { market, marketQuery, tradeDate } = useQuantMarket();
 const ranking = ref<SignalRanking | null>(null);
 const error = ref<ParsedApiError | null>(null);
 const loading = ref(false);
@@ -31,14 +31,14 @@ const items = computed(
 let requestVersion = 0;
 
 watch(
-  market,
-  async (current) => {
+  [market, tradeDate],
+  async ([current, date]) => {
     const version = ++requestVersion;
     ranking.value = null;
     error.value = null;
     loading.value = true;
     try {
-      const value = await quantApi.signals(current);
+      const value = await (date ? quantApi.signals(current, date) : quantApi.signals(current));
       if (version === requestVersion) ranking.value = value;
     } catch (err) {
       if (version === requestVersion) error.value = getParsedApiError(err);
@@ -87,7 +87,7 @@ watch(
       <Card
         v-if="items.length"
       >
-        <CardHeader><CardTitle>模型排名</CardTitle><CardDescription>共 {{ items.length }} 个标的。</CardDescription></CardHeader>
+        <CardHeader><CardTitle>模型排名</CardTitle><CardDescription>{{ ranking?.tradeDate || '—' }} · 共 {{ items.length }} 个标的。</CardDescription></CardHeader>
         <CardContent class="block">
           <Table>
             <TableHeader>
@@ -120,7 +120,7 @@ watch(
         </CardContent>
       </Card>
       <Empty v-else>
-        <EmptyHeader><EmptyTitle>{{ market === 'CN' ? 'A股模型尚未就绪' : '暂无模型排名' }}</EmptyTitle><EmptyDescription>当前市场没有可展示的生产模型信号。</EmptyDescription></EmptyHeader>
+        <EmptyHeader><EmptyTitle>{{ tradeDate ? '所选日期暂无模型排名' : market === 'CN' ? 'A股模型尚未就绪' : '暂无模型排名' }}</EmptyTitle><EmptyDescription>{{ tradeDate ? '请选择其他交易日，或清空日期查看最新数据。' : '当前市场没有可展示的生产模型信号。' }}</EmptyDescription></EmptyHeader>
       </Empty>
     </template>
   </div>
