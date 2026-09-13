@@ -64,7 +64,8 @@ def engine(monkeypatch):
     rows = [dict(code=code, trade_date=d, close=100 + i) for code in ["A.US", "B.US"] for i, d in enumerate(sessions)]
     # A defensive service boundary must exclude even a broken adapter's future rows.
     rows.append(dict(code="A.US", trade_date=DAY + timedelta(days=1), close=9999))
-    repo = Mock(spec=["load_daily_history", "etf_rankings", "save"])
+    repo = Mock(spec=["first_daily_dates", "load_daily_history", "etf_rankings", "save"])
+    repo.first_daily_dates.return_value = {code: sessions[0] for code in ("A.US", "B.US")}
     repo.load_daily_history.return_value = rows
     repo.etf_rankings.return_value = {DAY: {"ETF1": 1, "ETF2": 2}}
     market_data = Mock(spec=["get_daily_bars"])
@@ -209,7 +210,7 @@ def test_cn_unpersisted_benchmark_uses_calculation_only_db_fresh(engine, monkeyp
         source_policy="db_fresh",
     )
     assert repo.save.call_args.args[0]["benchmark_return_5d"] == pytest.approx(bars[-1].close / bars[-6].close - 1)
-    assert [call[0] for call in repo.mock_calls] == ["etf_rankings", "load_daily_history", "save"]
+    assert [call[0] for call in repo.mock_calls] == ["etf_rankings", "first_daily_dates", "load_daily_history", "save"]
     assert [call[0] for call in market_data.mock_calls] == ["get_daily_bars"]
 
 
@@ -226,5 +227,51 @@ def test_benchmark_failure_never_writes_snapshot(engine, failure):
     else:
         service.market_data.get_daily_bars.side_effect = RuntimeError("benchmark unavailable")
     with pytest.raises((ValueError, RuntimeError), match="[Bb]enchmark"):
+        service.run(DAY)
+    repo.save.assert_not_called()
+
+
+def test_history_excludes_members_with_first_trade_after_target(engine, monkeypatch):
+    import finance_analysis.market_structure.service as module
+
+    service, repo = engine
+    monkeypatch.setattr(module, "get_universe_codes", lambda market: {"A.US", "B.US", "C.US"})
+    repo.first_daily_dates.return_value["C.US"] = DAY + timedelta(days=180)
+    assert service.run(DAY)["status"] == "completed"
+    repo.first_daily_dates.assert_called_once_with({"A.US", "B.US", "C.US"})
+    repo.load_daily_history.assert_called_once_with({"A.US", "B.US"}, DAY, calendar_lookback_days=90)
+    metadata = repo.save.call_args.args[0]["metrics_json"]
+    assert metadata["current_universe_size"] == 3
+    assert metadata["eligible_universe_size"] == metadata["universe_size"] == metadata["member_count"] == 2
+    assert metadata["data_coverage"] == 1
+
+
+@pytest.mark.parametrize("missing_day", [DAY, DAY - timedelta(days=10)])
+def test_existing_member_with_missing_required_session_stays_in_denominator(engine, missing_day):
+    service, repo = engine
+    repo.first_daily_dates.return_value["B.US"] = DAY - timedelta(days=500)
+    repo.load_daily_history.return_value = [
+        r for r in repo.load_daily_history.return_value if not (r["code"] == "B.US" and r["trade_date"] == missing_day)
+    ]
+    with pytest.raises(ValueError, match="1/2 eligible"):
+        service.run(DAY)
+    repo.save.assert_not_called()
+    service.market_data.get_daily_bars.assert_not_called()
+
+
+@pytest.mark.parametrize("first_date", [None, DAY])
+def test_unknown_or_first_trading_day_member_is_not_excluded(engine, first_date):
+    service, repo = engine
+    repo.first_daily_dates.return_value["B.US"] = first_date
+    repo.load_daily_history.return_value = [r for r in repo.load_daily_history.return_value if r["code"] == "A.US"]
+    with pytest.raises(ValueError, match="1/2 eligible"):
+        service.run(DAY)
+    repo.save.assert_not_called()
+
+
+def test_no_eligible_members_does_not_divide_by_zero_or_write(engine):
+    service, repo = engine
+    repo.first_daily_dates.return_value = {code: DAY + timedelta(days=1) for code in ("A.US", "B.US")}
+    with pytest.raises(ValueError, match="0/0 eligible"):
         service.run(DAY)
     repo.save.assert_not_called()

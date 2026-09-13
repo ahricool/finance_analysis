@@ -93,7 +93,8 @@ def test_real_queries_are_constant_count_and_point_in_time():
         statements.clear()
         assert repository.load_daily_history([f"{i}.US" for i in range(size)], DAY, calendar_lookback_days=90) == []
         rankings = repository.etf_rankings(DAY)
-        assert len(statements) == 2
+        assert repository.first_daily_dates([f"{i}.US" for i in range(size)]) == {}
+        assert len(statements) == 3
         assert max(rankings) == DAY
         assert len(rankings) == 6
     statements.clear()
@@ -161,3 +162,55 @@ def test_postgresql_migration_and_idempotent_upsert():
         finally:
             transaction.rollback()
     engine.dispose()
+
+
+def test_first_daily_dates_aggregate_full_history_and_include_missing_history():
+    db = Database()
+    Instrument.__table__.create(db.engine)
+    StockDaily.__table__.create(db.engine)
+    with db.engine.begin() as connection:
+        for ident, code in enumerate(("A.US", "B.US", "C.US", "600000.SH"), 1):
+            market = "CN" if code.endswith("SH") else "US"
+            connection.execute(
+                Instrument.__table__.insert().values(
+                    id=ident,
+                    code=code,
+                    native_code=code.split(".")[0],
+                    name=code,
+                    market=market,
+                    instrument_type="STOCK",
+                    currency="CNY" if market == "CN" else "USD",
+                    source="TEST",
+                )
+            )
+        for ident, instrument, day in (
+            (1, 1, DAY - timedelta(days=800)),
+            (2, 1, DAY - timedelta(days=1)),
+            (3, 2, DAY + timedelta(days=180)),
+            (4, 4, DAY - timedelta(days=100)),
+        ):
+            connection.execute(
+                StockDaily.__table__.insert().values(
+                    id=ident,
+                    instrument_id=instrument,
+                    date=day,
+                    open=10,
+                    high=10,
+                    low=10,
+                    close=10,
+                    volume=1,
+                    data_source="TEST",
+                )
+            )
+    statements = []
+    event.listen(
+        db.engine, "before_cursor_execute", lambda conn, cursor, stmt, params, context, many: statements.append(stmt)
+    )
+    repo = MarketStructureRepository("US", db)
+    assert repo.first_daily_dates({"A.US", "B.US", "C.US", "600000.SH"}) == {
+        "A.US": DAY - timedelta(days=800),
+        "B.US": DAY + timedelta(days=180),
+        "C.US": None,
+    }
+    assert len(statements) == 1
+    assert "min(" in statements[0].lower() and "GROUP BY" in statements[0]

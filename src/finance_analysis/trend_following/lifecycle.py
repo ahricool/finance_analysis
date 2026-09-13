@@ -24,7 +24,9 @@ def classify_lifecycle(snapshot, config=DEFAULT_CONFIG):
     healthy = quality >= config.healthy_quality and efficiency > 0 and features["distance_from_ma20"] > 0
     if duration <= config.ignition_days and acceleration > 0 and quality >= config.ignition_quality:
         return "IGNITION"
-    if duration >= config.mature_days and healthy and acceleration >= config.stable_acceleration:
+    if duration <= config.emerging_days:
+        return "EMERGING"
+    if duration >= config.mature_days:
         return "MATURE"
     if (
         duration > config.emerging_days
@@ -35,5 +37,6 @@ def classify_lifecycle(snapshot, config=DEFAULT_CONFIG):
         and healthy
     ):
         return "EXPANSION"
-    # A candidate can be tentative or stalled without meeting the exhaustion evidence threshold.
-    return "EMERGING"
+    # Past early formation, an intact non-expanding trend is established, not emerging.
+    # MATURE describes lifecycle, not strength or a trading recommendation.
+    return "MATURE"

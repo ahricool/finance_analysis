@@ -7,7 +7,7 @@
 - Market Structure 复用现有 Daily Sync 的 `cn_daily_sync` / `us_daily_sync` Universe，仅选择同市场 ACTIVE STOCK 成员（排除 ETF），以及 `TrendFollowingConfig.benchmark_codes`（当前 CN `510300.SH`、US `SPY.US`）。没有第二套 benchmark 配置或新增 Provider。
 - CN Trend Universe 另含中证 2000，现有 Daily Sync 不覆盖它，因此没有直接把全部 `cn_trend` 作为 DB-only 市场结构样本。现有 CN 日线范围为 CSI300/500/1000，US 为 S&P500；Quant Universe 则可能依赖已有数据库成员配置。快照明确保存 Universe key、样本数及覆盖率；若现有 Daily Sync 股票 Universe 为空或其行情不足，任务失败，不偷偷切换范围。
 - `UniverseResolver` 沿用现有当前成员语义，不重构历史成员。Market Structure 的样本应解读为这个 Universe 的结构，而非交易所全部股票。
-- `stock_daily` 批量历史读取复用 `TrendFollowingRepository.load_daily_history`；股票成员仅接受数据库前复权日线。每个成员对齐同一组最近 20 个交易所交易日，缺少任一日的标的不纳入本次样本。至少 95% Universe 覆盖才写快照。
+- `stock_daily` 批量历史读取复用 `TrendFollowingRepository.load_daily_history`；股票成员仅接受数据库前复权日线。每个成员对齐同一组最近 20 个交易所交易日，缺少任一日的标的不纳入本次样本。至少 95% eligible Universe 覆盖才写快照（eligibility 规则见回填章节）。
 - Benchmark 通过 `MarketDataService.get_daily_bars(..., adjustment="forward", source_policy="db_fresh")` 读取，复用数据库历史并按需补远程 tail。它是 calculation-only dependency，不要求属于任何 Daily Sync / ETF Universe；远程数据仅参与本次计算，不写 `stock_daily`。目标日及前五个交易日必须全部存在有效收盘价，否则任务失败，不使用 stale benchmark。
 - Market Regime 已有 MA20 breadth，但 Quant 采用至少 61 根历史的样本门槛，Trend 使用另一个 Universe 且可有只读远程尾部；两者没有持久化本次同样本的 5D 中位收益与正收益贡献。因此不直接混用其 breadth 数值；从本次 leadership 必须加载的同一批收盘序列计算广度，不再读取第二批 Universe 历史。
 - Trend Health 复用现有 `calculate_features`、15D weighted regression、RS、ranking、`count_trend_duration_days`、历史 snapshot、正式/preview 共用 `_run_single_date`。新字段不参与 `rank_candidates` 和交易决策。
@@ -139,9 +139,12 @@ Fragility 不使用 trend_score 或 alpha_score 的补数。稳定的 90 分趋�
 2. 当前没有可用 feature/duration（包括仅携带旧状态的标的）→ null。
 3. 至少两项 Fragility 分量 ≥ 50 → EXHAUSTION；candidate 此时仍成立。
 4. duration ≤ 3，acceleration > 0，quality ≥ 50 → IGNITION。
-5. duration ≥ 20，quality ≥ 65，efficiency > 0，价格高于 MA20，acceleration ≥ -0.05 → MATURE。
-6. duration > 7，quality ≥ 80，efficiency ≥ 0.55，RS5 ≥ 0，价格高于 MA20，acceleration ≥ -0.05 → EXPANSION。
-7. 其余尚有效、但未达到强扩张/健康成熟标准的趋势 → EMERGING（包含仍在形成或停滞、尚无充分衰竭证据的情况）。
+5. 未满足 IGNITION 且 duration ≤ 7 → EMERGING（硬年龄上限）。
+6. duration ≥ 20 → MATURE，不再要求高质量/正效率/加速度阈值。仍有效且没有充分衰竭证据的老趋势不会退回 EMERGING。
+7. 7 < duration < 20，quality ≥ 80，efficiency ≥ 0.55，RS5 ≥ 0，价格高于 MA20，acceleration ≥ -0.05 → EXPANSION。
+8. 7 < duration < 20 的其余有效趋势 → MATURE。这里表示已过早期形成、处于存续阶段，不为了年龄强行标成强扩张，也不退回早期 EMERGING。
+
+原实现把 MATURE 与严格 healthy 条件绑定，并对未匹配的所有年龄统一 fallback EMERGING，导致 30D / 35D 趋势仅因 acceleration=-0.08 就被标成早期趋势。本修复只增加当前 snapshot 的年龄约束，不依赖前日 lifecycle，不创建状态机，不调整 Fragility 定义或权重。MATURE 不代表强趋势、买入或卖出。
 
 MATURE 不产生 SELL。生命周期只增加解释字段，不修改 state/setup/action。
 
@@ -155,11 +158,27 @@ MATURE 不产生 SELL。生命周期只增加解释字段，不修改 state/setu
 
 ## 查询数、Point-in-time 与回填
 
-Universe 使用已有 resolver（按 Universe 结构批量成员查询），不对每只股票查询。Market Structure 的股票历史日线和 ETF 横截面各一条 SQL；benchmark 另做一次 MarketDataService db_fresh 批请求；ETF 日期子查询限制最多六个日期。仓储测试在 1/500 个请求标的下都验证是两条股票行情/snapshot 查询，benchmark 的补尾部走已有门面。写入一个原子 upsert。
+Universe 使用已有 resolver（按 Universe 结构批量成员查询），不对每只股票查询。Market Structure 的股票历史日线、ETF 横截面、全历史 `MIN(stock_daily.date) GROUP BY instrument/code` 各一条 SQL；benchmark 另做一次 MarketDataService db_fresh 批请求；ETF 日期子查询限制最多六个日期。仓储测试在 1/500 个请求标的下都验证是三条股票行情/eligibility/snapshot 查询，benchmark 的补尾部走已有门面。写入一个原子 upsert。
 
 Trend 新增一次市场级历史查询，最多前五个正式日期；内存按 code/date-offset 建索引。日期偏移按市场日期集计算，不随个股缺失重新编号。现有策略需要的 previous-state 查询继续保留。
 
-日线条件 `date <= trade_date`，ETF 条件 `trade_date <= requested`，Trend 基准严格 `< requested`；计算函数再次排除未来数据。历史查询直接读取存量 JSON/列，不扫描旧 K 线。没有历史 Universe 改造，因此当前成员筛选及现有前复权存储的既有历史语义仍然适用。
+用于收益计算的日线条件 `date <= trade_date`，ETF 条件 `trade_date <= requested`，Trend 基准严格 `< requested`；计算函数再次排除未来数据。历史查询直接读取存量 JSON/列，不扫描旧 K 线。没有历史 Universe 改造，因此当前成员筛选及现有前复权存储的既有历史语义仍然适用。
+
+### Historical eligible universe
+
+继续解析当前配置的 Universe，不查询历史指数成员。`Instrument.listing_date` 虽然存在，但允许空值：TickFlow 目录读取可选 ext，证券补录/其他 fallback 路径不保证带上市日期；没有统一的日期可靠性标记。因此采用同一个批量查询的首条 `stock_daily.date` 作为开始交易的代理：
+
+- first_trade_date > target_date：排除在 eligible 集合之外，不进入分母。
+- first_trade_date ≤ target_date（包括恰好当天）：保留在分母。缺目标日、20-session 中任何一根 bar、或上市不满20个交易日均使其不 ready，但不删除它。
+- 无日线/没有查到首次日期：无法证明尚未开始交易，保守保留分母，不以缺数据提高覆盖率。
+
+`eligible_universe_size` 是上述集合人数；`member_count` 是其中满足原完整 session 要求的股票数；`data_coverage = member_count / eligible_universe_size`，仍要求 ≥95%。eligible 为空时失败，不除零、不保存快照。此规则对正式计算和手动回填使用同一条路径。
+
+`metrics_json` 保存 `current_universe_size`、`eligible_universe_size`、`member_count`、`data_coverage`，以及 `eligibility_basis=first_available_stock_daily`。已有 `universe_size` 字段作为 eligible 分母的兼容别名，让现有 UI 的样本数/覆盖率分母一致，不改 Dashboard 设计。旧 snapshot 不自动改写。
+
+Historical Market Structure uses the currently configured universe, excluding members that had not started trading by the target date. It does not reconstruct historical point-in-time index membership.
+
+首次本地日线仅是交易开始的代理：历史存储本身被截短时，可能晚于真实上市日期。本次不修复历史数据缺口，也不恢复已退出当前 Universe 的成员。首日聚合允许看到目标日期之后的首次日期，但仅用于用户要求的 eligibility 筛选，未来价格与排名不参与指标计算。
 
 管理员手动回填例子：
 
@@ -183,3 +202,5 @@ Market Structure 可以在已有股票 DB 日线、当日 ETF snapshot 和 db_fr
 本次验证结果：后端完整门禁 2134 passed、20 skipped、2 deselected（含专用 PostgreSQL 迁移/upsert 测试）；Web build 通过，lint 0 errors（既有格式警告），Vitest 514 passed，Dashboard / Trend Following 桌面 Playwright 12 passed。检查了 1280/1440/1920px Dashboard 以及 1280/1440px Trend Detail 深浅色截图。
 
 PR #295 review 修复：benchmark 改走 db_fresh；新增 CN 未持久化 benchmark 成功、失败不写快照、未来数据排除和只读调用契约测试。
+
+Lifecycle Age / historical eligibility review 验证：相关 Market Structure、Trend Health、Trend service/preview、API、Celery schedule/task 聚焦回归 142 passed、1 skipped；独立临时 PostgreSQL/Redis 上完整 `scripts/ci_gate.sh` 2162 passed、20 skipped、2 deselected，104 subtests passed（包含专用 PostgreSQL 测试）。Benchmark db_fresh 修复及其回归测试保持通过。

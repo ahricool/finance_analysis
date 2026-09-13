@@ -1,15 +1,38 @@
 """Bounded batch reads and atomic, idempotent market snapshot persistence."""
 
-from sqlalchemy import select
+from collections.abc import Iterable
+from datetime import date
+
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.etf_rotation import ETFMomentumSnapshot
 from finance_analysis.database.models.market_structure import MarketStructureSnapshot
+from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.repositories.trend_following import TrendFollowingRepository
 
 
 class MarketStructureRepository(TrendFollowingRepository):
+    def first_daily_dates(self, codes: Iterable[str]) -> dict[str, date | None]:
+        """One whole-history aggregate for eligibility, not a per-symbol/window lookup.
+
+        listing_date is not populated consistently by security-master adapters.
+        A future first stored date excludes a member; no stored history remains
+        unknown and must not silently remove a member from the coverage denominator.
+        """
+        selected = sorted(set(codes))
+        if not selected:
+            return {}
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(Instrument.code, func.min(StockDaily.date))
+                .outerjoin(StockDaily, StockDaily.instrument_id == Instrument.id)
+                .where(Instrument.market == self.market, Instrument.code.in_(selected))
+                .group_by(Instrument.code)
+            ).all()
+            return dict(rows)
+
     def etf_rankings(self, trade_date):
         model = ETFMomentumSnapshot
         dates = (

@@ -104,3 +104,30 @@ def test_available_component_weights_renormalize():
     result = calculate_fragility(current, old, as_of=DAY)
     assert result["fragility_score"] == pytest.approx(100 * 0.2 / 0.7, abs=0.01)
     assert result["fragility_breakdown"]["rank_decay"] is None
+
+
+@pytest.mark.parametrize("duration", [20, 30, 35, 50])
+def test_old_intact_trend_is_mature_even_with_weaker_current_quality(duration):
+    current = snapshot(trend_duration_days=duration)
+    current["features"].update(trend_quality=70, signed_efficiency_ratio_10d=0.4, trend_acceleration=-0.08)
+    assert classify_lifecycle(current) == "MATURE"
+
+
+@pytest.mark.parametrize("duration", [2, 10, 30, 50])
+def test_exhaustion_evidence_precedes_age_and_broken_precedes_exhaustion(duration):
+    current = snapshot(
+        trend_duration_days=duration, fragility_breakdown={"quality_decay": 50, "acceleration_decay": 50}
+    )
+    assert classify_lifecycle(current) == "EXHAUSTION"
+    current["features"]["trend_candidate"] = False
+    assert classify_lifecycle(current) == "BROKEN"
+
+
+@pytest.mark.parametrize("duration", [1, 2, 3, 4, 7, 8, 19, 20])
+def test_lifecycle_age_boundaries_do_not_force_weak_trends_into_expansion(duration):
+    current = snapshot(trend_duration_days=duration)
+    assert classify_lifecycle(current) == (
+        "IGNITION" if duration <= 3 else "EMERGING" if duration <= 7 else "EXPANSION" if duration < 20 else "MATURE"
+    )
+    current["features"].update(trend_quality=40, signed_efficiency_ratio_10d=0.1, trend_acceleration=-0.08)
+    assert classify_lifecycle(current) == ("EMERGING" if duration <= 7 else "MATURE")

@@ -39,7 +39,9 @@ class MarketStructureService:
         rankings = self.repository.etf_rankings(day)
         if day not in rankings:
             raise ValueError(f"ETF Rotation snapshot is not ready for {day}")
-        rows = self.repository.load_daily_history(codes, day, calendar_lookback_days=self.config.lookback_days)
+        first_dates = self.repository.first_daily_dates(codes)
+        eligible_codes = {code for code in codes if first_dates.get(code) is None or first_dates[code] <= day}
+        rows = self.repository.load_daily_history(eligible_codes, day, calendar_lookback_days=self.config.lookback_days)
         histories = defaultdict(dict)
         for row in rows:
             value = row["close"]
@@ -53,11 +55,13 @@ class MarketStructureService:
             raise ValueError("Insufficient calendar history")
         ready = {
             code: [histories[code][d] for d in sessions]
-            for code in codes
+            for code in eligible_codes
             if all(d in histories[code] for d in sessions)
         }
-        if not codes or len(ready) / len(codes) < self.config.minimum_coverage:
-            raise ValueError(f"Market Structure daily coverage insufficient: {len(ready)}/{len(codes)}")
+        if not eligible_codes or len(ready) / len(eligible_codes) < self.config.minimum_coverage:
+            raise ValueError(
+                f"Market Structure daily coverage insufficient: {len(ready)}/{len(eligible_codes)} eligible"
+            )
         # Benchmark is a calculation-only dependency. db_fresh may supplement its
         # missing DB tail in memory; member readiness above remains strictly DB-only.
         benchmark_result = self.market_data.get_daily_bars(
@@ -95,9 +99,12 @@ class MarketStructureService:
                 "version": self.config.version,
                 "universe_key": universe_key(self.market),
                 "benchmark_code": benchmark,
-                "universe_size": len(codes),
+                "universe_size": len(eligible_codes),  # Existing clients display this coverage denominator.
+                "current_universe_size": len(codes),
+                "eligible_universe_size": len(eligible_codes),
+                "eligibility_basis": "first_available_stock_daily",
                 "member_count": len(ready),
-                "data_coverage": len(ready) / len(codes),
+                "data_coverage": len(ready) / len(eligible_codes),
                 "states": states(metrics, self.config),
                 "rotation_dates": [d.isoformat() for d in sorted(rankings, reverse=True) if d <= day],
                 "positive_member_count_5d": sum(r > 0 for r in returns5),
