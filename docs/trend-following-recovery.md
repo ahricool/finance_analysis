@@ -5,7 +5,7 @@
 - CN：普通快照包含 `entry_price` 等字段，候选过期记录缺少这些字段。混合批量 INSERT
   报 `A value is required for bind parameter 'entry_price'`，整日事务回滚。
   09-08 的 catch-up 从 09-07 开始，因此再次失败，两个日期均未生成。
-- US：09-07 非交易日；09-08 只有 475/503 只成分股有当日日线，94.43% 低于 95% 门槛。
+- US：09-07 非交易日；09-08 只有 475/503 只成分股有当日日线，94.43% 低于当时的 95% 门槛。
 - `TrendFollowingService.run()` 将业务失败转换为返回值；原 Task 未将该状态转换为异常，
   所以任务中心错误显示 completed。
 
@@ -19,7 +19,8 @@ Repository 根据 `TrendFollowingSnapshot` ORM 列统一所有写入记录：缺
 
 CN / US Trend Following Task 只接受 `status=completed`；failed / incomplete 抛出带市场、
 日期、业务状态、warnings 和可用 coverage 的异常，复用原生命周期记录失败并发送失败通知。
-全局 `track_task` 不变，95% coverage 门槛不变。
+全局 `track_task` 不变。当前 CN / US 正式计算及盘中预演的最低数据覆盖率为 90%；
+历史覆盖率检查也复用该配置，benchmark 及其他计算条件仍须满足。
 
 日线同步行为：
 
@@ -35,7 +36,7 @@ CN / US Trend Following Task 只接受 `status=completed`；failed / incomplete 
 6. 补缺批次之间仍等待 10 秒；五分钟等待后的首批不再额外等 10 秒。
 7. 重新查库，记录 retry_requested、retry_success、remaining_missing 和 final_coverage。
    仍有缺失就结束并返回 partial；全体请求失败仍遵循原同步错误语义。没有无限循环。
-   Trend Following 再按自己的 Universe 和 95% 门槛判断，低于门槛即 incomplete / Task failed。
+   Trend Following 再按自己的 Universe 和 90% 门槛判断，低于门槛即 incomplete / Task failed。
 
 同步 scope 比趋势 Universe 大，两个 coverage 分母不能混用。
 CN 继续 TickFlow 优先，US 继续 yfinance 优先；未恢复 Longbridge 为普通日线主来源。
@@ -98,7 +99,7 @@ print({"requested": len(members), "ready": len(ready),
 PY
 ```
 
-503 只的 Universe 至少需要 478 只有当日日线；benchmark 及历史长度检查也必须通过。
+503 只的 Universe 至少需要 453 只有当日日线；benchmark 及历史长度检查也必须通过。
 满足数据条件后提交趋势任务：
 
 ```bash
@@ -112,4 +113,4 @@ PY
 ```
 
 09-07 非交易日，不生成 US 快照。若任务仍 failed，检查 warnings 和 remaining missing；
-不要降低门槛。最终检查数据库 summary / snapshot 日期及任务结果，再验证页面显示。
+按当前 90% 门槛核对覆盖率及其他数据条件。最终检查数据库 summary / snapshot 日期及任务结果，再验证页面显示。
