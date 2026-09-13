@@ -7,7 +7,8 @@
 - Market Structure 复用现有 Daily Sync 的 `cn_daily_sync` / `us_daily_sync` Universe，仅选择同市场 ACTIVE STOCK 成员（排除 ETF），以及 `TrendFollowingConfig.benchmark_codes`（当前 CN `510300.SH`、US `SPY.US`）。没有第二套 benchmark 配置或新增 Provider。
 - CN Trend Universe 另含中证 2000，现有 Daily Sync 不覆盖它，因此没有直接把全部 `cn_trend` 作为 DB-only 市场结构样本。现有 CN 日线范围为 CSI300/500/1000，US 为 S&P500；Quant Universe 则可能依赖已有数据库成员配置。快照明确保存 Universe key、样本数及覆盖率；若现有 Daily Sync 股票 Universe 为空或其行情不足，任务失败，不偷偷切换范围。
 - `UniverseResolver` 沿用现有当前成员语义，不重构历史成员。Market Structure 的样本应解读为这个 Universe 的结构，而非交易所全部股票。
-- `stock_daily` 批量历史读取复用 `TrendFollowingRepository.load_daily_history`；仅接受数据库前复权日线。每个成员对齐同一组最近 20 个交易所交易日，缺少任一日的标的不纳入本次样本。至少 95% Universe 覆盖才写快照。
+- `stock_daily` 批量历史读取复用 `TrendFollowingRepository.load_daily_history`；股票成员仅接受数据库前复权日线。每个成员对齐同一组最近 20 个交易所交易日，缺少任一日的标的不纳入本次样本。至少 95% Universe 覆盖才写快照。
+- Benchmark 通过 `MarketDataService.get_daily_bars(..., adjustment="forward", source_policy="db_fresh")` 读取，复用数据库历史并按需补远程 tail。它是 calculation-only dependency，不要求属于任何 Daily Sync / ETF Universe；远程数据仅参与本次计算，不写 `stock_daily`。目标日及前五个交易日必须全部存在有效收盘价，否则任务失败，不使用 stale benchmark。
 - Market Regime 已有 MA20 breadth，但 Quant 采用至少 61 根历史的样本门槛，Trend 使用另一个 Universe 且可有只读远程尾部；两者没有持久化本次同样本的 5D 中位收益与正收益贡献。因此不直接混用其 breadth 数值；从本次 leadership 必须加载的同一批收盘序列计算广度，不再读取第二批 Universe 历史。
 - Trend Health 复用现有 `calculate_features`、15D weighted regression、RS、ranking、`count_trend_duration_days`、历史 snapshot、正式/preview 共用 `_run_single_date`。新字段不参与 `rank_candidates` 和交易决策。
 
@@ -19,7 +20,8 @@ Daily Sync（已有）
   → Market Structure（新增，18:50 市场当地时间）
       → 校验交易日已经收盘
       → 读取当日及最多 5 个历史 ETF 横截面
-      → 批量读取 Universe + benchmark 日线
+      → 批量读取股票 Universe 的 DB-only 日线并验证 readiness
+      → MarketDataService db_fresh 读取 benchmark（只读补尾部）
       → 计算 breadth / rotation / leadership
       → 单行原子 upsert
 ```
@@ -153,7 +155,7 @@ MATURE 不产生 SELL。生命周期只增加解释字段，不修改 state/setu
 
 ## 查询数、Point-in-time 与回填
 
-Universe 使用已有 resolver（按 Universe 结构批量成员查询），不对每只股票查询。Market Structure 的历史日线和 ETF 横截面各一条 SQL；ETF 日期子查询限制最多六个日期。测试在 1/500 个请求标的下都验证是两条行情/snapshot 查询。写入一个原子 upsert。
+Universe 使用已有 resolver（按 Universe 结构批量成员查询），不对每只股票查询。Market Structure 的股票历史日线和 ETF 横截面各一条 SQL；benchmark 另做一次 MarketDataService db_fresh 批请求；ETF 日期子查询限制最多六个日期。仓储测试在 1/500 个请求标的下都验证是两条股票行情/snapshot 查询，benchmark 的补尾部走已有门面。写入一个原子 upsert。
 
 Trend 新增一次市场级历史查询，最多前五个正式日期；内存按 code/date-offset 建索引。日期偏移按市场日期集计算，不随个股缺失重新编号。现有策略需要的 previous-state 查询继续保留。
 
@@ -170,7 +172,7 @@ Content-Type: application/json
 
 也可以传 `{"market":"US","trade_date":"2026-09-10"}`，或在 Task Center 手动运行最新日期。范围内按交易日依次处理，单日原子写入；遇到不完整日期停止并让任务失败，已完成日期保留，可补齐上游后重试。历史 ETF 不足仅使 rotation 对应 horizon 为 null；当日 ETF 缺失则整日不写。迁移和服务启动不会自动回填。
 
-Market Structure 可以在已有 DB 日线和当日 ETF snapshot 足够时回填。旧 Trend snapshot 未保存短窗斜率、signed efficiency、高点距离和新定义版本，不能可靠直接重建完整 health；本次不提供伪造的 Trend 历史回填，也不调用现有交易状态重放来覆盖历史策略结果。新版本上线后自然积累，至少出现一个可用 3D 基准后才有完整分数的可能。
+Market Structure 可以在已有股票 DB 日线、当日 ETF snapshot 和 db_fresh benchmark 历史足够时回填。旧 Trend snapshot 未保存短窗斜率、signed efficiency、高点距离和新定义版本，不能可靠直接重建完整 health；本次不提供伪造的 Trend 历史回填，也不调用现有交易状态重放来覆盖历史策略结果。新版本上线后自然积累，至少出现一个可用 3D 基准后才有完整分数的可能。
 
 ## 验证
 
@@ -179,3 +181,5 @@ Market Structure 可以在已有 DB 日线和当日 ETF snapshot 足够时回填
 - 完整后端门禁使用独立临时 PostgreSQL/Redis，避免连接开发库。Web 执行 build、lint、Vitest 和 Dashboard/Trend 的桌面 Playwright 检查。
 
 本次验证结果：后端完整门禁 2134 passed、20 skipped、2 deselected（含专用 PostgreSQL 迁移/upsert 测试）；Web build 通过，lint 0 errors（既有格式警告），Vitest 514 passed，Dashboard / Trend Following 桌面 Playwright 12 passed。检查了 1280/1440/1920px Dashboard 以及 1280/1440px Trend Detail 深浅色截图。
+
+PR #295 review 修复：benchmark 改走 db_fresh；新增 CN 未持久化 benchmark 成功、失败不写快照、未来数据排除和只读调用契约测试。

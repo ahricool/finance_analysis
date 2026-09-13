@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 from unittest.mock import Mock
+from types import SimpleNamespace
 
 import pytest
 
@@ -60,23 +61,26 @@ def engine(monkeypatch):
     monkeypatch.setattr(module, "is_market_open", lambda *args: True)
     monkeypatch.setattr(module, "is_market_session_closed", lambda *args, **kwargs: True)
     monkeypatch.setattr(module, "get_universe_codes", lambda market: {"A.US", "B.US"})
-    rows = [
-        dict(code=code, trade_date=d, close=100 + i)
-        for code in ["A.US", "B.US", "SPY.US"]
-        for i, d in enumerate(sessions)
-    ]
+    rows = [dict(code=code, trade_date=d, close=100 + i) for code in ["A.US", "B.US"] for i, d in enumerate(sessions)]
     # A defensive service boundary must exclude even a broken adapter's future rows.
     rows.append(dict(code="A.US", trade_date=DAY + timedelta(days=1), close=9999))
-    repo = Mock()
+    repo = Mock(spec=["load_daily_history", "etf_rankings", "save"])
     repo.load_daily_history.return_value = rows
     repo.etf_rankings.return_value = {DAY: {"ETF1": 1, "ETF2": 2}}
-    return MarketStructureService("US", repo), repo
+    market_data = Mock(spec=["get_daily_bars"])
+    market_data.get_daily_bars.return_value = SimpleNamespace(
+        data={"SPY.US": [SimpleNamespace(trade_date=d, close=100 + i) for i, d in enumerate(sessions)]}
+    )
+    return MarketStructureService("US", repo, market_data=market_data), repo
 
 
 def test_service_batches_and_persists_once(engine):
     service, repo = engine
     assert service.run(DAY)["status"] == "completed"
-    repo.load_daily_history.assert_called_once()
+    repo.load_daily_history.assert_called_once_with({"A.US", "B.US"}, DAY, calendar_lookback_days=90)
+    service.market_data.get_daily_bars.assert_called_once_with(
+        ["SPY.US"], DAY - timedelta(days=90), DAY, adjustment="forward", source_policy="db_fresh"
+    )
     repo.etf_rankings.assert_called_once_with(DAY)
     repo.save.assert_called_once()
     payload = repo.save.call_args.args[0]
@@ -174,3 +178,53 @@ def test_market_tasks_follow_etf_schedule_and_are_independent():
         assert int(current.schedules[0].minute) > int(etf.schedules[0].minute)
         assert current.celery_task_name != etf.celery_task_name
         assert current.allow_manual_run
+
+
+def test_cn_unpersisted_benchmark_uses_calculation_only_db_fresh(engine, monkeypatch):
+    import finance_analysis.market_structure.service as module
+
+    old_service, repo = engine
+    codes = {"600000.SH", "600001.SH"}
+    monkeypatch.setattr(module, "get_universe_codes", lambda market: codes)
+    for row in repo.load_daily_history.return_value:
+        row["code"] = "600000.SH" if row["code"] == "A.US" else "600001.SH"
+    market_data = old_service.market_data
+    bars = market_data.get_daily_bars.return_value.data["SPY.US"]
+    market_data.get_daily_bars.return_value = SimpleNamespace(
+        data={
+            "510300.SH": [
+                *bars,
+                SimpleNamespace(trade_date=DAY + timedelta(days=1), close=99999),
+            ]
+        }
+    )
+    service = MarketStructureService("CN", repo, market_data=market_data)
+    assert service.run(DAY)["status"] == "completed"
+    repo.load_daily_history.assert_called_once_with(codes, DAY, calendar_lookback_days=90)
+    market_data.get_daily_bars.assert_called_once_with(
+        ["510300.SH"],
+        DAY - timedelta(days=90),
+        DAY,
+        adjustment="forward",
+        source_policy="db_fresh",
+    )
+    assert repo.save.call_args.args[0]["benchmark_return_5d"] == pytest.approx(bars[-1].close / bars[-6].close - 1)
+    assert [call[0] for call in repo.mock_calls] == ["etf_rankings", "load_daily_history", "save"]
+    assert [call[0] for call in market_data.mock_calls] == ["get_daily_bars"]
+
+
+@pytest.mark.parametrize("failure", ["stale", "empty", "exception", "invalid"])
+def test_benchmark_failure_never_writes_snapshot(engine, failure):
+    service, repo = engine
+    result = service.market_data.get_daily_bars.return_value
+    if failure == "stale":
+        result.data["SPY.US"] = result.data["SPY.US"][:-1]
+    elif failure == "empty":
+        result.data = {}
+    elif failure == "invalid":
+        result.data["SPY.US"][-1].close = float("nan")
+    else:
+        service.market_data.get_daily_bars.side_effect = RuntimeError("benchmark unavailable")
+    with pytest.raises((ValueError, RuntimeError), match="[Bb]enchmark"):
+        service.run(DAY)
+    repo.save.assert_not_called()

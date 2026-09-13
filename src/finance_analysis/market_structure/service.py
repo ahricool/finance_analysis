@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from statistics import fmean
 
 from finance_analysis.database.repositories.market_structure import MarketStructureRepository
+from finance_analysis.integrations.market_data.service import MarketDataService
 from finance_analysis.market_review.trading_calendar import (
     get_effective_trading_date,
     get_trading_days_between,
@@ -19,12 +20,13 @@ from .universe import get_universe_codes, universe_key
 
 
 class MarketStructureService:
-    def __init__(self, market, repository=None, config=DEFAULT_CONFIG):
+    def __init__(self, market, repository=None, config=DEFAULT_CONFIG, *, market_data=None):
         self.market = market.upper()
         if self.market not in {"CN", "US"}:
             raise ValueError("market must be CN or US")
         self.repository = repository or MarketStructureRepository(self.market)
         self.config = config
+        self.market_data = market_data or MarketDataService()
 
     def run(self, trade_date=None):
         day = trade_date or get_effective_trading_date(self.market.lower())
@@ -37,9 +39,7 @@ class MarketStructureService:
         rankings = self.repository.etf_rankings(day)
         if day not in rankings:
             raise ValueError(f"ETF Rotation snapshot is not ready for {day}")
-        rows = self.repository.load_daily_history(
-            codes | {benchmark}, day, calendar_lookback_days=self.config.lookback_days
-        )
+        rows = self.repository.load_daily_history(codes, day, calendar_lookback_days=self.config.lookback_days)
         histories = defaultdict(dict)
         for row in rows:
             value = row["close"]
@@ -58,11 +58,25 @@ class MarketStructureService:
         }
         if not codes or len(ready) / len(codes) < self.config.minimum_coverage:
             raise ValueError(f"Market Structure daily coverage insufficient: {len(ready)}/{len(codes)}")
-        if any(d not in histories[benchmark] for d in (day, sessions[-6])):
-            raise ValueError("Benchmark daily history is incomplete")
+        # Benchmark is a calculation-only dependency. db_fresh may supplement its
+        # missing DB tail in memory; member readiness above remains strictly DB-only.
+        benchmark_result = self.market_data.get_daily_bars(
+            [benchmark],
+            day - timedelta(days=self.config.lookback_days),
+            day,
+            adjustment="forward",
+            source_policy="db_fresh",
+        )
+        benchmark_closes = {
+            bar.trade_date: float(bar.close)
+            for bar in benchmark_result.data.get(benchmark, [])
+            if bar.trade_date <= day and bar.close is not None and math.isfinite(bar.close) and bar.close > 0
+        }
+        if any(d not in benchmark_closes for d in sessions[-6:]):
+            raise ValueError(f"Benchmark {benchmark} db_fresh history is incomplete for {day}")
         returns5 = [prices[-1] / prices[-6] - 1 for prices in ready.values()]
         returns1 = [prices[-1] / prices[-2] - 1 for prices in ready.values()]
-        benchmark_return = histories[benchmark][day] / histories[benchmark][sessions[-6]] - 1
+        benchmark_return = benchmark_closes[day] / benchmark_closes[sessions[-6]] - 1
         metrics = breadth(benchmark_return, returns5)
         metrics.update(
             {
