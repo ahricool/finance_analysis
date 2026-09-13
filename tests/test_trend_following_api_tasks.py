@@ -311,7 +311,7 @@ def test_trend_task_business_status_drives_existing_lifecycle(monkeypatch, marke
         "status": status,
         "market": market,
         "trade_date": "2026-09-08",
-        "warnings": ["daily data coverage below 95%"],
+        "warnings": ["daily data coverage below 90%"],
         "data_coverage": 475 / 503,
     }
     service = Mock()

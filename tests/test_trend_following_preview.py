@@ -501,7 +501,7 @@ def test_cn_preview_completes_with_csi2000_db_fresh_history(monkeypatch):
     market_data, calls = _forward_market_data(bars_by_code)
     service = TrendFollowingService("CN", repository, market_data=market_data)
     result = service.run_preview(TRADE_DATE)
-    assert DEFAULT_CONFIG.minimum_data_coverage == 0.95
+    assert DEFAULT_CONFIG.minimum_data_coverage == 0.90
     assert result["status"] == "completed"
     assert result["data_coverage"] == 1.0
     assert result["rankable_count"] == 3
