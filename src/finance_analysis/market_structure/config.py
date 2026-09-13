@@ -6,7 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class MarketStructureConfig:
     version: str = "1"
-    minimum_coverage: float = 0.95
+    minimum_coverage: float = 0.90
     lookback_days: int = 90
     top_fraction: float = 0.10
     mild_divergence: float = 0.01
