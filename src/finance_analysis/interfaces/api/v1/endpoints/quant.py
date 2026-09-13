@@ -211,8 +211,13 @@ async def build_dataset(body: DatasetBuildRequest, user: User = Depends(require_
 
 
 @router.get("/market-regime/latest")
-async def latest_market_regime(market: QuantMarket = "US", _: User = Depends(require_current_user)):
-    rows = QuantRepository().market_regimes(market, limit=1)
+async def latest_market_regime(
+    market: QuantMarket = "US",
+    trade_date: date | None = None,
+    _: User = Depends(require_current_user),
+):
+    date_filter = {"date_from": trade_date, "date_to": trade_date} if trade_date else {}
+    rows = QuantRepository().market_regimes(market, limit=1, **date_filter)
     if not rows:
         raise HTTPException(404, f"{market} market regime not available")
     return _market_regime_payload(rows[0])
@@ -357,11 +362,14 @@ async def signals(
     market: QuantMarket = "US",
     universe: str | None = None,
     model_version: str | None = None,
+    trade_date: date | None = None,
     _: User = Depends(require_current_user),
 ):
     repo = QuantRepository()
     definition = _universe(repo, market, universe)
-    rows = repo.latest_signals(market, definition.id, model_version=model_version)
+    rows = repo.latest_signals(
+        market, definition.id, model_version=model_version, **({"trade_date": trade_date} if trade_date else {})
+    )
     regimes = (
         repo.market_regimes(market, date_from=rows[0].trade_date, date_to=rows[0].trade_date, limit=1) if rows else []
     )
@@ -381,6 +389,7 @@ async def signal(
     code: str,
     market: QuantMarket = "US",
     model_version: str | None = None,
+    trade_date: date | None = None,
     _: User = Depends(require_current_user),
 ):
     repo = QuantRepository()
@@ -390,6 +399,7 @@ async def signal(
         universe.id,
         code=code,
         model_version=model_version,
+        **({"trade_date": trade_date} if trade_date else {}),
     )
     if not rows:
         raise HTTPException(404, f"{market} signal not found")
@@ -401,6 +411,7 @@ async def signal_history(
     code: str,
     market: QuantMarket = "US",
     model_version: str | None = None,
+    date_to: date | None = None,
     _: User = Depends(require_current_user),
 ):
     repo = QuantRepository()
@@ -412,6 +423,7 @@ async def signal_history(
             code,
             universe.id,
             model_version=model_version,
+            **({"date_to": date_to} if date_to else {}),
         ),
     )
 
@@ -421,6 +433,7 @@ async def latest_portfolio(
     market: QuantMarket = "US",
     universe: str | None = None,
     model_version: str | None = None,
+    trade_date: date | None = None,
     _: User = Depends(require_current_user),
 ):
     repo = QuantRepository()
@@ -430,6 +443,7 @@ async def latest_portfolio(
         definition.id,
         1,
         model_version=model_version,
+        **({"trade_date": trade_date} if trade_date else {}),
     )
     if not rows:
         raise HTTPException(404, f"{market} portfolio recommendation not found")

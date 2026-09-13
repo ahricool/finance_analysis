@@ -15,7 +15,7 @@ import { formatPercent, formatPredictedReturn, formatScore, regimeLabels } from 
 import { formatSecurityLabel } from '@/utils/security';
 import { ref, watch } from 'vue';
 
-const { market, marketQuery } = useQuantMarket();
+const { market, marketQuery, tradeDate } = useQuantMarket();
 const capability = ref<QuantCapabilities | null>(null);
 const regime = ref<MarketRegime | null>(null);
 const history = ref<MarketRegime[]>([]);
@@ -25,8 +25,8 @@ const error = ref<ParsedApiError | null>(null);
 let requestVersion = 0;
 
 watch(
-  market,
-  async (current) => {
+  [market, tradeDate],
+  async ([current, date]) => {
     const version = ++requestVersion;
     capability.value = null;
     regime.value = null;
@@ -36,9 +36,9 @@ watch(
     loading.value = true;
     const results = await Promise.allSettled([
       quantApi.capabilities(current),
-      quantApi.marketRegime(current),
-      quantApi.marketRegimeHistory(current),
-      quantApi.signals(current),
+      (date ? quantApi.marketRegime(current, date) : quantApi.marketRegime(current)),
+      (date ? quantApi.marketRegimeHistory(current, date) : quantApi.marketRegimeHistory(current)),
+      (date ? quantApi.signals(current, date) : quantApi.signals(current)),
     ]);
     if (version !== requestVersion) return;
     if (results[0].status === 'fulfilled') capability.value = results[0].value;
@@ -154,7 +154,7 @@ watch(
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>个股排名</CardTitle><CardDescription>生产模型生成的最新股票评分。</CardDescription><CardAction>
+          <CardTitle>个股排名</CardTitle><CardDescription>{{ tradeDate ? `${tradeDate} 的股票评分。` : '生产模型生成的最新股票评分。' }}</CardDescription><CardAction>
             <RouterLink
               :to="{ path: '/research/quant/signals', query: marketQuery() }"
               class="text-xs font-medium underline-offset-4 hover:underline"
@@ -214,7 +214,7 @@ watch(
             v-else
             data-testid="quant-empty-state"
           >
-            <EmptyHeader><EmptyTitle>{{ market === 'CN' ? 'A股模型尚未就绪' : '暂无模型排名' }}</EmptyTitle><EmptyDescription>{{ market === 'CN' ? '请先完成A股数据集构建、模型训练、人工发布和日频流水线。' : '生产模型、数据集或当日预测尚不可用。' }}</EmptyDescription></EmptyHeader>
+            <EmptyHeader><EmptyTitle>{{ tradeDate ? '所选日期暂无模型排名' : market === 'CN' ? 'A股模型尚未就绪' : '暂无模型排名' }}</EmptyTitle><EmptyDescription>{{ tradeDate ? '请选择其他交易日，或清空日期查看最新数据。' : market === 'CN' ? '请先完成A股数据集构建、模型训练、人工发布和日频流水线。' : '生产模型、数据集或当日预测尚不可用。' }}</EmptyDescription></EmptyHeader>
           </Empty>
         </CardContent>
       </Card>

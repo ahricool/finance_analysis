@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
 import { etfRotationApi } from '@/api/etfRotation';
@@ -16,8 +17,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type {
@@ -299,6 +300,10 @@ watch(market, () => {
   modeChosenByUser.value = false;
   void load(true, { autoSelectMode: true });
 });
+function setMarket(target: ETFMarket) {
+  if (market.value === target) return;
+  market.value = target;
+}
 onMounted(() => void load(true, { autoSelectMode: true }));
 </script>
 
@@ -313,17 +318,11 @@ onMounted(() => void load(true, { autoSelectMode: true }));
         </p>
       </div>
       <div class="flex flex-wrap items-end gap-2">
-        <NativeSelect
-          v-model="market"
-          class="h-10"
-          aria-label="市场"
-        >
-          <NativeSelectOption value="CN">
-            A股
-          </NativeSelectOption><NativeSelectOption value="US">
-            美股
-          </NativeSelectOption>
-        </NativeSelect>
+        <ResearchMarketToggle
+          :model-value="market"
+          data-testid="etf-market-switcher"
+          @update:model-value="setMarket"
+        />
         <ResearchDataModeToggle
           :mode="dataMode"
           :preview-available="previewAvailable"

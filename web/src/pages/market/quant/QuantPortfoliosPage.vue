@@ -13,20 +13,20 @@ import { formatPercent, formatPredictedReturn, formatScore } from '@/utils/quant
 import { formatSecurityLabel } from '@/utils/security';
 import { ref, watch } from 'vue';
 
-const { market } = useQuantMarket();
+const { market, tradeDate } = useQuantMarket();
 const item = ref<Portfolio | null>(null);
 const error = ref<ParsedApiError | null>(null);
 const loading = ref(false);
 let requestVersion = 0;
 
 watch(
-  market,
-  async (current) => {
+  [market, tradeDate],
+  async ([current, date]) => {
     const version = ++requestVersion;
     item.value = null;
     error.value = null;
     loading.value = true;
-    const results = await Promise.allSettled([quantApi.portfolio(current)]);
+    const results = await Promise.allSettled([(date ? quantApi.portfolio(current, date) : quantApi.portfolio(current))]);
     if (version !== requestVersion) return;
     if (results[0].status === 'fulfilled') item.value = results[0].value;
     else error.value = getParsedApiError(results[0].reason);
@@ -111,7 +111,7 @@ watch(
       </Card>
     </template>
     <Empty v-else>
-      <EmptyHeader><EmptyTitle>{{ market === 'CN' ? 'A股目标组合尚未就绪' : '暂无目标组合' }}</EmptyTitle><EmptyDescription>当前市场尚未生成可展示的模型目标组合。</EmptyDescription></EmptyHeader>
+      <EmptyHeader><EmptyTitle>{{ tradeDate ? '所选日期暂无目标组合' : market === 'CN' ? 'A股目标组合尚未就绪' : '暂无目标组合' }}</EmptyTitle><EmptyDescription>{{ tradeDate ? '请选择其他交易日，或清空日期查看最新数据。' : '当前市场尚未生成可展示的模型目标组合。' }}</EmptyDescription></EmptyHeader>
     </Empty>
   </div>
 </template>

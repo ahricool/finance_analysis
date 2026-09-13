@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import ModuleTabs from '@/components/layout/ModuleTabs.vue';
-import { Button } from '@/components/ui/button';
 import { useQuantMarket } from '@/composables/useQuantMarket';
 import { BarChart3, Bot, BriefcaseBusiness, Database, LayoutDashboard } from 'lucide-vue-next';
 import { computed } from 'vue';
@@ -9,7 +10,7 @@ import { RouterView, useRoute } from 'vue-router';
 type QuantTab = 'dashboard' | 'signals' | 'datasets' | 'models' | 'portfolios';
 
 const route = useRoute();
-const { market, setMarket, marketQuery } = useQuantMarket();
+const { market, setMarket, marketQuery, tradeDate, setTradeDate } = useQuantMarket();
 const scopeDescription = computed(() =>
   market.value === 'US' ? '当前范围：标普500' : '当前范围：沪深300',
 );
@@ -45,37 +46,37 @@ const activeTab = computed<QuantTab>(() => {
 
 <template>
   <div class="min-w-0 space-y-4">
-    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
       <ModuleTabs
         :items="navItems"
         :active-key="activeTab"
         label="量化研究导航"
       />
-      <div class="flex items-center gap-3">
+      <div class="flex shrink-0 items-end gap-3">
         <p
-          class="text-xs text-muted-foreground"
+          class="flex h-10 items-center text-xs text-muted-foreground"
           data-testid="quant-scope-description"
         >
           {{ scopeDescription }}
         </p>
         <div
-          class="flex items-center gap-1 rounded-lg bg-muted p-1"
-          role="radiogroup"
-          aria-label="量化市场"
-          data-testid="quant-market-switcher"
+          v-if="activeTab !== 'datasets' && activeTab !== 'models'"
+          class="w-56"
         >
-          <Button
-            v-for="option in [{ value: 'US', label: '美股' }, { value: 'CN', label: 'A股' }]"
-            :key="option.value"
-            size="sm"
-            :variant="market === option.value ? 'default' : 'ghost'"
-            role="radio"
-            :aria-checked="market === option.value"
-            @click="setMarket(option.value as 'US' | 'CN')"
-          >
-            {{ option.label }}
-          </Button>
+          <AppDatePicker
+            label="交易日"
+            :model-value="tradeDate"
+            placeholder="最新数据"
+            data-testid="quant-trade-date"
+            class="w-full"
+            @update:model-value="setTradeDate"
+          />
         </div>
+        <ResearchMarketToggle
+          :model-value="market"
+          data-testid="quant-market-switcher"
+          @update:model-value="setMarket"
+        />
       </div>
     </div>
     <section class="min-w-0">

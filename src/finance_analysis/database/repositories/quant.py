@@ -462,8 +462,11 @@ class QuantRepository:
         code: str | None = None,
         limit: int = 200,
         model_version: str | None = None,
+        trade_date: date | None = None,
     ) -> list[ModelSignal]:
         scope = [ModelSignal.market == market]
+        if trade_date is not None:
+            scope.append(ModelSignal.trade_date == trade_date)
         if universe_id:
             scope.append(ModelSignal.universe_id == universe_id)
         if code:
@@ -504,8 +507,11 @@ class QuantRepository:
         universe_id: int | None = None,
         limit: int = 365,
         model_version: str | None = None,
+        date_to: date | None = None,
     ) -> list[ModelSignal]:
         clauses = [ModelSignal.market == market.upper(), ModelSignal.code == code.upper()]
+        if date_to is not None:
+            clauses.append(ModelSignal.trade_date <= date_to)
         if universe_id is not None:
             clauses.append(ModelSignal.universe_id == universe_id)
         if model_version:
@@ -541,8 +547,11 @@ class QuantRepository:
         universe_id: int | None = None,
         limit: int = 50,
         model_version: str | None = None,
+        trade_date: date | None = None,
     ) -> list[PortfolioRecommendation]:
         clauses = [PortfolioRecommendation.market == market]
+        if trade_date is not None:
+            clauses.append(PortfolioRecommendation.trade_date == trade_date)
         if universe_id:
             clauses.append(PortfolioRecommendation.universe_id == universe_id)
         if model_version:
