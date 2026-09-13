@@ -7,7 +7,7 @@
 - Market Structure 复用现有 Daily Sync 的 `cn_daily_sync` / `us_daily_sync` Universe，仅选择同市场 ACTIVE STOCK 成员（排除 ETF），以及 `TrendFollowingConfig.benchmark_codes`（当前 CN `510300.SH`、US `SPY.US`）。没有第二套 benchmark 配置或新增 Provider。
 - CN Trend Universe 另含中证 2000，现有 Daily Sync 不覆盖它，因此没有直接把全部 `cn_trend` 作为 DB-only 市场结构样本。现有 CN 日线范围为 CSI300/500/1000，US 为 S&P500；Quant Universe 则可能依赖已有数据库成员配置。快照明确保存 Universe key、样本数及覆盖率；若现有 Daily Sync 股票 Universe 为空或其行情不足，任务失败，不偷偷切换范围。
 - `UniverseResolver` 沿用现有当前成员语义，不重构历史成员。Market Structure 的样本应解读为这个 Universe 的结构，而非交易所全部股票。
-- `stock_daily` 批量历史读取复用 `TrendFollowingRepository.load_daily_history`；股票成员仅接受数据库前复权日线。每个成员对齐同一组最近 20 个交易所交易日，缺少任一日的标的不纳入本次样本。至少 95% eligible Universe 覆盖才写快照（eligibility 规则见回填章节）。
+- `stock_daily` 批量历史读取复用 `TrendFollowingRepository.load_daily_history`；股票成员仅接受数据库前复权日线。每个成员对齐同一组最近 20 个交易所交易日，缺少任一日的标的不纳入本次样本。至少 90% eligible Universe 覆盖才写快照（eligibility 规则见回填章节）。
 - Benchmark 通过 `MarketDataService.get_daily_bars(..., adjustment="forward", source_policy="db_fresh")` 读取，复用数据库历史并按需补远程 tail。它是 calculation-only dependency，不要求属于任何 Daily Sync / ETF Universe；远程数据仅参与本次计算，不写 `stock_daily`。目标日及前五个交易日必须全部存在有效收盘价，否则任务失败，不使用 stale benchmark。
 - Market Regime 已有 MA20 breadth，但 Quant 采用至少 61 根历史的样本门槛，Trend 使用另一个 Universe 且可有只读远程尾部；两者没有持久化本次同样本的 5D 中位收益与正收益贡献。因此不直接混用其 breadth 数值；从本次 leadership 必须加载的同一批收盘序列计算广度，不再读取第二批 Universe 历史。
 - Trend Health 复用现有 `calculate_features`、15D weighted regression、RS、ranking、`count_trend_duration_days`、历史 snapshot、正式/preview 共用 `_run_single_date`。新字段不参与 `rank_candidates` 和交易决策。
@@ -172,7 +172,7 @@ Trend 新增一次市场级历史查询，最多前五个正式日期；内存�
 - first_trade_date ≤ target_date（包括恰好当天）：保留在分母。缺目标日、20-session 中任何一根 bar、或上市不满20个交易日均使其不 ready，但不删除它。
 - 无日线/没有查到首次日期：无法证明尚未开始交易，保守保留分母，不以缺数据提高覆盖率。
 
-`eligible_universe_size` 是上述集合人数；`member_count` 是其中满足原完整 session 要求的股票数；`data_coverage = member_count / eligible_universe_size`，仍要求 ≥95%。eligible 为空时失败，不除零、不保存快照。此规则对正式计算和手动回填使用同一条路径。
+`eligible_universe_size` 是上述集合人数；`member_count` 是其中满足原完整 session 要求的股票数；`data_coverage = member_count / eligible_universe_size`，仍要求 ≥90%。eligible 为空时失败，不除零、不保存快照。此规则对正式计算和手动回填使用同一条路径。
 
 `metrics_json` 保存 `current_universe_size`、`eligible_universe_size`、`member_count`、`data_coverage`，以及 `eligibility_basis=first_available_stock_daily`。已有 `universe_size` 字段作为 eligible 分母的兼容别名，让现有 UI 的样本数/覆盖率分母一致，不改 Dashboard 设计。旧 snapshot 不自动改写。
 
