@@ -5,7 +5,9 @@ const snapshot = {
   rank: 12, rankChange1D: 5, rankChange3D: -2, rankChange5D: 0,
   state: 'ENTRY', action: 'ENTRY', setup: 'BREAKOUT_20D', alphaScore: 79,
   trendScore: 80, rsScore: 78, breakoutScore: 76, referencePrice: 110, atr: 2,
-  features: {}, scoreBreakdown: { trend: 80, relativeStrength: 78 }, reasons: ['趋势走强'],
+  trendDurationDays: 13, trendLifecycle: 'EXPANSION', fragilityScore: 18,
+  fragilityBreakdown: { accelerationDecay: 12, qualityDecay: 15, efficiencyDecay: 20, relativeStrengthDecay: 18, rankDecay: 24, priceStructureRisk: 15 },
+  features: { trendQuality: 87, trendAcceleration: 0.12, signedEfficiencyRatio10D: 0.71 }, scoreBreakdown: { trend: 80, relativeStrength: 78 }, reasons: ['趋势走强'],
 };
 const summary = {
   market: 'CN', tradeDate: snapshot.tradeDate, marketRegime: 'RISK_ON', marketScore: 82,
@@ -13,7 +15,7 @@ const summary = {
   rankableCount: 480, candidateCount: 1, entryCount: 1, warnings: [], features: {},
 };
 const history = [12, 17, 14, 28, 35, 31, 46, 40, 52, 63].map((rank, index) => ({
-  ...snapshot, rank, tradeDate: `2026-08-${28 - index}`,
+  ...snapshot, rank, fragilityScore: index === 3 ? null : 18 + index * 4, tradeDate: `2026-08-${28 - index}`,
 }));
 
 for (const width of [1280, 1440]) {
@@ -57,6 +59,8 @@ for (const width of [1280, 1440]) {
       await expect(dialog.getByRole('heading', { name: '平安银行' })).toBeVisible();
       const canvas = dialog.getByTestId('trend-rank-history').locator('canvas');
       await expect(canvas).toBeVisible();
+      await expect(dialog.getByTestId('trend-fragility-history').locator('canvas')).toBeVisible();
+      await expect(dialog.getByText('EXPANSION', { exact: true })).toBeVisible();
       // Wait for the opening scale animation before measuring the centered panel.
       await expect.poll(async () => {
         const box = (await dialog.boundingBox())!;

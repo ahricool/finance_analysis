@@ -18,6 +18,8 @@ from finance_analysis.tasks.celery.schedule import (
 from finance_analysis.tasks.celery.schedule.cron import LocalizedCrontab, compute_next_run, next_run_for_crontab
 
 EXPECTED_JOBS = {
+    "market_structure_cn": ("scheduled_market_structure_cn", "Asia/Shanghai"),
+    "market_structure_us": ("scheduled_market_structure_us", "America/New_York"),
     "analysis_daily": ("scheduled_daily", "Asia/Shanghai"),
     "market_calendar": ("scheduled_market_calendar", "America/New_York"),
     "analysis_us_premarket_news": ("scheduled_us_premarket_news", "America/New_York"),

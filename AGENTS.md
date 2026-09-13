@@ -301,3 +301,7 @@ API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`�
 ## 消息边界
 
 所有系统消息先写 `notification`（`uid` 非空为用户消息，空为全局消息），再执行现有 Noise Control 和 Telegram/ntfy 推送；不保存 delivery 状态。读取仅限本人 + 全局。报告不再写 Timeline 或本地文件；Calendar 只保存 earnings/macro 真实事件。详见 `docs/notifications.md`。
+
+## Market Structure / Trend Health
+
+`market_structure/` 独立计算 CN/US 收盘市场结构，任务 `market_structure_cn/us` 在当地 18:50 读取已存 ETF Ranking 与 DB 日线；API `/api/v1/market-structure` 只读 PostgreSQL snapshot。手动回填复用 `/market-structure/run` 的日期范围任务。Trend lifecycle/fragility 集成现有正式/preview 计算链，分别保存 PostgreSQL/Redis，不改交易规则。范围、公式、缺失数据语义见 `docs/market-structure.md`。

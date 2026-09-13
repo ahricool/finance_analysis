@@ -2,6 +2,7 @@
 
 RANKING_FIELDS = (
     "code", "rank", "state", "action", "pending_action", "trend_duration_days",
+    "trend_lifecycle", "fragility_score",
     "alpha_score", "trend_score", "rs_score", "breakout_score", "setup",
     "atr", "reference_price", "signal_date", "signal_price", "opened_at", "entry_price",
     "initial_stop", "next_add_price", "exit_level", "suggested_initial_weight",

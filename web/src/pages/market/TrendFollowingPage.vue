@@ -21,6 +21,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/u
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import TrendFragilityHistoryChart from '@/components/trend-following/TrendFragilityHistoryChart.vue';
 import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistoryChart.vue';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -91,6 +92,8 @@ const rankingColumns = [
   { key: 'code', label: '股票代码', description: undefined },
   { key: 'state', label: 'State', description: descriptions.state },
   { key: 'action', label: 'Action', description: descriptions.action },
+  { key: 'trendLifecycle', label: 'Lifecycle / Age', description: '趋势阶段与持续交易日数。MATURE 表示成熟健康，不代表卖出。' },
+  { key: 'fragilityScore', label: 'Fragility', description: '0–100；越高表示内部恶化越快。历史不足显示 —，并不代表稳定。' },
   { key: 'trendDurationDays', label: '持续天数', description: descriptions.trendDuration },
   { key: 'alphaScore', label: 'Alpha Score', description: descriptions.alpha },
   { key: 'trendScore', label: 'Trend Score', description: descriptions.trend },
@@ -115,7 +118,7 @@ const rankingColumns = [
   { key: 'suggestedInitialWeight', label: '理论初始权重', description: descriptions.initialWeight },
 ] as const;
 const visibleRankingColumns = rankingColumns.filter(column =>
-  ['rank', 'name', 'state', 'action', 'trendDurationDays', 'alphaScore', 'trendScore', 'rsScore', 'setup', 'return5D', 'return20D', 'rankChange5D'].includes(column.key));
+  ['rank', 'name', 'state', 'action', 'trendLifecycle', 'alphaScore', 'trendScore', 'rsScore', 'fragilityScore', 'return5D', 'return20D', 'rankChange5D'].includes(column.key));
 type SortKey = typeof rankingColumns[number]['key'];
 const rankingSearch = ref('');
 const sortKey = ref<SortKey>('rank');
@@ -124,6 +127,7 @@ let generation = 0;
 
 const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
 function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | null | undefined {
+  if (key === 'trendLifecycle') return item.trendDurationDays;
   if (key === 'rankChange5D') return item.rankChange5D ?? item.rankChange3D ?? item.rankChange1D;
   if (key === 'return5D' || key === 'return10D' || key === 'return20D' || key === 'volumeRatio' || key === 'distanceFromMa20') return item.features[key];
   return item[key];
@@ -982,13 +986,13 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                     {{ actionText(item.action) }}
                   </Badge>
                 </TableCell>
-                <TableCell>{{ item.trendDurationDays == null ? '—' : item.trendDurationDays }}</TableCell>
+                  <TableCell><span class="text-xs">{{ item.trendLifecycle ?? '—' }}</span><span class="block text-xs text-muted-foreground">{{ item.trendDurationDays == null ? '—' : `${item.trendDurationDays}D` }}</span></TableCell>
                 <TableCell class="font-bold text-primary">
                   {{ score(item.alphaScore) }}
                 </TableCell>
                 <TableCell>{{ score(item.trendScore) }}</TableCell>
                 <TableCell>{{ score(item.rsScore) }}</TableCell>
-                <TableCell>{{ item.setup }}</TableCell>
+                  <TableCell>{{ score(item.fragilityScore) }}</TableCell>
                 <TableCell>{{ pct(item.features.return5D) }}</TableCell>
                 <TableCell>{{ pct(item.features.return20D) }}</TableCell>
                 <TableCell>
@@ -1081,6 +1085,34 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               {{ detail.latest.setup }}
             </Badge>
           </div>
+          <div class="grid grid-cols-3 gap-3 rounded-lg border p-4 text-sm">
+            <div>Trend Age<strong class="block">{{ detail.latest.trendDurationDays == null ? '—' : `${detail.latest.trendDurationDays}D` }}</strong></div>
+            <div>Lifecycle<strong class="block">{{ detail.latest.trendLifecycle ?? '—' }}</strong></div>
+            <div>Fragility<strong class="block">{{ score(detail.latest.fragilityScore) }} / 100</strong></div>
+            <div>Trend Quality<strong class="block">{{ score(detail.latest.features.trendQuality) }}</strong></div>
+            <div>Acceleration<strong class="block">{{ score(detail.latest.features.trendAcceleration) }}</strong></div>
+            <div>Signed Efficiency<strong class="block">{{ score(detail.latest.features.signedEfficiencyRatio10D) }}</strong></div>
+          </div>
+          <details class="rounded-lg border p-4 text-sm">
+            <summary class="cursor-pointer">
+              Fragility Breakdown
+            </summary>
+            <p class="my-2 text-xs text-muted-foreground">
+              与 3 / 5 个历史正式快照日比较；缺失项不计权重，数据不足不生成总分。
+            </p>
+            <dl class="grid grid-cols-2 gap-2">
+              <div
+                v-for="(value, key) in detail.latest.fragilityBreakdown"
+                :key="key"
+              >
+                <dt>{{ key }}</dt><dd>{{ score(value) }}</dd>
+              </div>
+            </dl>
+          </details>
+          <TrendFragilityHistoryChart
+            v-if="detail.history.length"
+            :history="detail.history"
+          />
           <TrendRankHistoryChart
             v-if="dataMode === 'official'"
             :history="detail.history"

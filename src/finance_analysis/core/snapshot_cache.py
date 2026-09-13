@@ -21,6 +21,7 @@ def redis_client():
 
 class SnapshotRankingCache:
     namespace: str
+    schema_version = SCHEMA_VERSION
 
     def __init__(self, market: str, trade_date: date):
         self.key = f"{self.namespace}:ranking:{market}:{trade_date}"
@@ -34,7 +35,7 @@ class SnapshotRankingCache:
             # old value appear to belong to a newer generation.
             revision, value = client.mget(self.revision_key, self.key)
             self.revision = revision or b"0"
-            prefix = SCHEMA_VERSION.encode() + b":" + self.revision + b"\n"
+            prefix = self.schema_version.encode() + b":" + self.revision + b"\n"
             return value[len(prefix):] if value and value.startswith(prefix) else None
         except Exception:
             logger.warning("Snapshot ranking cache read unavailable", exc_info=True)
@@ -44,7 +45,7 @@ class SnapshotRankingCache:
         if self.revision is None:
             return
         try:
-            prefix = SCHEMA_VERSION.encode() + b":" + self.revision + b"\n"
+            prefix = self.schema_version.encode() + b":" + self.revision + b"\n"
             redis_client().eval(
                 "if (redis.call('GET', KEYS[1]) or '0') == ARGV[1] then "
                 "return redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3]) end return 0",

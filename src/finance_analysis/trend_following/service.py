@@ -663,12 +663,26 @@ class TrendFollowingService:
                 )
                 snapshots.append(expired)
 
+        from .fragility import calculate_fragility
+        from .lifecycle import classify_lifecycle
+        from .health_config import DEFAULT_CONFIG as HEALTH_CONFIG
+
+        health_history = self.repository.health_history(effective_date, universe_codes)
         for snapshot in snapshots:
             snapshot["trend_duration_days"] = count_trend_duration_days(
                 histories.get(str(snapshot["code"]), []),
                 as_of=effective_date,
                 minimum_bars=self.config.minimum_history_bars,
             )
+
+            code = str(snapshot["code"])
+            if code not in ranked_codes:
+                # Carried strategy state has stale prices; do not label it as today's healthy trend.
+                snapshot.update(trend_lifecycle=None, fragility_score=None, fragility_breakdown=None)
+                continue
+            snapshot["features"]["rank_percentile"] = (snapshot["rank"] - 1) / max(len(ranked) - 1, 1)
+            snapshot.update(calculate_fragility(snapshot, health_history.get(code, {}), as_of=effective_date))
+            snapshot["trend_lifecycle"] = classify_lifecycle(snapshot)
 
         counts = {
             action: sum(item["action"] == action for item in snapshots)
@@ -693,7 +707,14 @@ class TrendFollowingService:
             "reduce_count": counts["REDUCE"],
             "exit_count": counts["EXIT"],
             "warnings": warnings,
-            "features": regime["features"],
+            "features": {
+                **regime["features"],
+                "lifecycle_counts": {stage: sum(s.get("trend_lifecycle") == stage for s in snapshots)
+                                     for stage in ("IGNITION", "EMERGING", "EXPANSION", "MATURE", "EXHAUSTION", "BROKEN")},
+                "high_fragility_count": sum(s.get("fragility_score") is not None
+                                            and s["fragility_score"] >= HEALTH_CONFIG.high_fragility
+                                            and s.get("trend_lifecycle") != "BROKEN" for s in snapshots),
+            },
             "score_breakdown": regime["score_breakdown"],
         }
         if persist:

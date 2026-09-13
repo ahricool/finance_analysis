@@ -84,3 +84,6 @@ router.include_router(trend_following.router, prefix="/trend-following", tags=["
 router.include_router(crypto.router, prefix="/crypto", tags=["Crypto"])
 
 router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+
+from .endpoints import market_structure
+router.include_router(market_structure.router, prefix="/market-structure", tags=["Market Structure"])

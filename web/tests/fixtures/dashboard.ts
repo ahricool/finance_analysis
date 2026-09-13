@@ -6,6 +6,15 @@ export function dashboardResponse(url: URL): object {
   const current = { code, name, action: 'ENTRY', state: 'ENTRY' };
   const change = { current, previousAction: 'WATCH', previousState: 'CANDIDATE' };
   const path = url.pathname;
+  if (url.pathname === '/api/v1/market-structure') return {
+    market: url.searchParams.get('market') || 'CN', trade_date: '2026-09-08', expected_trade_date: '2026-09-08',
+    breadth: { breadth_divergence_5d: 0.028, benchmark_return_5d: 0.035, median_member_return_5d: 0.007,
+      member_positive_ratio_5d: 0.6, member_above_ma10_ratio: 0.7, member_above_ma20_ratio: 0.75 },
+    rotation: { rotation_velocity_1d: 20, rotation_velocity_3d: 76, rotation_velocity_5d: null },
+    leadership: { leadership_concentration_1d: 0.6, leadership_concentration_5d: 0.68, leadership_hhi_5d: 12 },
+    metrics: { states: { breadth: 'STRONG_DIVERGENCE', rotation: 'EXTREME' }, universe_key: 'cn_daily_sync',
+      member_count: 800, universe_size: 800, data_coverage: 1, benchmark_code: '510300.SH' },
+  };
   if (path === '/api/v1/auth/status') return { loggedIn: true, user: { uid: 1, username: 'Reviewer', role: 'user', extra: {} } };
   if (path === '/api/v1/quant/market-regime/latest') return {
     market, trade_date: '2026-09-09', regime: market === 'CN' ? 'risk_on' : 'neutral', market_score: market === 'CN' ? 0.724 : 0.532, max_equity_exposure: market === 'CN' ? 0.7 : 0.5,
@@ -19,6 +28,7 @@ export function dashboardResponse(url: URL): object {
   };
   if (path === '/api/v1/trend-following/ranking') return {
     market, trade_date: '2026-09-09', market_regime: 'RISK_ON', items: [],
+    features: { lifecycle_counts: { IGNITION: 12, EMERGING: 35, EXPANSION: 64, MATURE: 81, EXHAUSTION: 17, BROKEN: 40 }, high_fragility_count: 23 },
     changes: { previous_trade_date: '2026-09-08', transitions: [change, { ...change, current: { code: 'watch', name: 'Ordinary Watch', state: 'WATCHING', action: 'WATCH' } }, { ...change, previousState: 'HOLDING', previousAction: 'HOLD', current: { code: 'weak', name: market === 'CN' ? '贵州茅台' : 'Apple', action: 'STOP_ADD', state: 'WEAKENING' } }] },
   };
   if (path === '/api/v1/crypto/btc/overview') return {
