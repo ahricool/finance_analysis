@@ -16,7 +16,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -299,6 +298,10 @@ watch(market, () => {
   modeChosenByUser.value = false;
   void load(true, { autoSelectMode: true });
 });
+function setMarket(target: ETFMarket) {
+  if (market.value === target) return;
+  market.value = target;
+}
 onMounted(() => void load(true, { autoSelectMode: true }));
 </script>
 
@@ -313,17 +316,25 @@ onMounted(() => void load(true, { autoSelectMode: true }));
         </p>
       </div>
       <div class="flex flex-wrap items-end gap-2">
-        <NativeSelect
-          v-model="market"
-          class="h-10"
+        <div
+          class="h-10 flex items-center gap-1 rounded-lg bg-muted p-1"
+          role="radiogroup"
           aria-label="市场"
+          data-testid="etf-market-switcher"
         >
-          <NativeSelectOption value="CN">
-            A股
-          </NativeSelectOption><NativeSelectOption value="US">
-            美股
-          </NativeSelectOption>
-        </NativeSelect>
+          <Button
+            v-for="option in [{ value: 'US', label: '美股' }, { value: 'CN', label: 'A股' }]"
+            :key="option.value"
+            size="sm"
+            :variant="market === option.value ? 'default' : 'ghost'"
+            role="radio"
+            :aria-checked="market === option.value"
+            class="h-full"
+            @click="setMarket(option.value as ETFMarket)"
+          >
+            {{ option.label }}
+          </Button>
+        </div>
         <ResearchDataModeToggle
           :mode="dataMode"
           :preview-available="previewAvailable"
