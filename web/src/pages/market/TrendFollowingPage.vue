@@ -126,6 +126,7 @@ const sortKey = ref<SortKey>('rank');
 const sortDirection = ref<'asc' | 'desc'>('asc');
 let generation = 0;
 const stateHistoryRefreshKey = ref(0);
+const stateHistoryReady = ref(false);
 const detailMode = ref<ResearchDataMode>('official');
 
 const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
@@ -304,6 +305,8 @@ async function showPreview() {
 }
 async function load(refreshDates = false, options: { autoSelectMode?: boolean } = {}) {
   const current = ++generation;
+  // Mount history only after the anchor date and automatic data mode have settled.
+  stateHistoryReady.value = false;
   if (refreshDates) stateHistoryRefreshKey.value++;
   const requestedMarket = market.value;
   const requestedDate = selectedDate.value || undefined;
@@ -351,6 +354,7 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
     }
   } finally {
     if (current === generation) {
+      stateHistoryReady.value = true;
       loading.value = false;
       refreshing.value = false;
     }
@@ -898,6 +902,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
     </Card>
 
     <TrendStateHeatmap
+      v-if="!loading && stateHistoryReady"
       :market="market"
       :as-of="dataMode === 'official' ? selectedDate || undefined : undefined"
       :include-preview="dataMode === 'preview'"
