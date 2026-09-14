@@ -37,6 +37,7 @@ describe('main navigation', () => {
     expect(researchNavItems).toMatchObject([
       { key: 'etf-rotation', to: '/research/etf-rotation' },
       { key: 'trend-following', to: '/research/trend-following' },
+      { key: 'macro', label: '宏观', to: '/research/macro' },
       { key: 'quant', to: '/research/quant', activePathPrefix: '/research/quant' },
       { key: 'crypto-btc', to: '/research/crypto/btc' },
     ]);
@@ -45,6 +46,7 @@ describe('main navigation', () => {
       'timeline',
       'etf-rotation',
       'trend-following',
+      'macro',
       'quant',
       'crypto-btc',
       'analysis',
