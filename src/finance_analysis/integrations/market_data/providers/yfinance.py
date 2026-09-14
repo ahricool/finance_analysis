@@ -49,6 +49,9 @@ _HK_INDICES = (
 )
 
 
+YFINANCE_SYMBOL_OVERRIDES = {symbol: ticker for symbol, ticker, _ in (*_US_INDICES, *_HK_INDICES)}
+
+
 class YFinanceProvider:
     name = "yfinance"
 
@@ -65,7 +68,11 @@ class YFinanceProvider:
 
     @staticmethod
     def to_yfinance_symbol(code: str) -> str:
-        canonical = canonical_symbol(code)
+        # HK index identities are nonnumeric and cannot use the stock normalizer.
+        value = str(code).strip().upper()
+        canonical = value if value in YFINANCE_SYMBOL_OVERRIDES else canonical_symbol(code)
+        if canonical in YFINANCE_SYMBOL_OVERRIDES:
+            return YFINANCE_SYMBOL_OVERRIDES[canonical]
         if canonical.endswith(".US"):
             return canonical[:-3].replace(".", "-")
         if canonical.endswith(".HK"):
@@ -175,6 +182,7 @@ class YFinanceProvider:
                             provider=self.name,
                             interval="1d",
                             adjustment=Adjustment.FORWARD,
+                            instrument_type="INDEX" if symbol in YFINANCE_SYMBOL_OVERRIDES else None,
                         )
                     except Exception as exc:
                         reason = f"parse_failed: {str(exc) or type(exc).__name__}"
@@ -342,9 +350,9 @@ class YFinanceProvider:
 
         mappings = _US_INDICES if market is Market.US else _HK_INDICES if market is Market.HK else ()
         result: list[MarketIndex] = []
-        for symbol, provider_symbol, name in mappings:
+        for symbol, _provider_symbol, name in mappings:
             try:
-                fast = dict(yf.Ticker(provider_symbol).fast_info)
+                fast = dict(yf.Ticker(self.to_yfinance_symbol(symbol)).fast_info)
                 price = float(fast.get("last_price") or 0)
                 previous = float(fast.get("previous_close") or 0)
                 if price <= 0:

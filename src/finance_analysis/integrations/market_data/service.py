@@ -301,6 +301,16 @@ class MarketDataService:
         if not canonical:
             return BatchBarResult()
         request = DailyBarsRequest(canonical, start_date, end_date, Adjustment.FORWARD)
+        if source_policy == "db_only":
+            # One bulk history query, with no existence probes or provider routing.
+            _, stocks = self._repositories()
+            histories = stocks.get_daily_ranges(canonical, start_date, end_date)
+            data = {code: [self._stored_bar(row) for row in rows] for code, rows in histories.items() if rows}
+            return BatchBarResult(
+                data=data,
+                providers_used={code: "database" for code in data},
+                missing_symbols=[code for code in canonical if code not in data],
+            )
         if source_policy == "remote_only":
             return self.router.route_daily(request, providers)
         if source_policy == "db_fresh":

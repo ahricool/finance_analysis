@@ -101,6 +101,7 @@ def bars_from_frame(
     adjustment: Adjustment | str = Adjustment.RAW,
     volume_multiplier: int = 1,
     amount_estimated: bool = False,
+    instrument_type: str | None = None,
 ) -> list[MarketBar]:
     canonical = canonical_symbol(symbol)
     market = infer_market(canonical)
@@ -131,6 +132,8 @@ def bars_from_frame(
         low = _number(_value(row, "low", "Low", "最低"))
         close = _number(_value(row, "close", "Close", "收盘"))
         volume = _number(_value(row, "volume", "Volume", "成交量"))
+        if volume is None and instrument_type == "INDEX":
+            volume = 0
         if None in (open_price, high, low, close, volume):
             continue
         amount = _number(_value(row, "amount", "turnover", "Turnover", "成交额"))

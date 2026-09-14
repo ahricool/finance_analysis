@@ -11,6 +11,7 @@ def seed_quant_reference_data(db_manager=None) -> dict:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     from finance_analysis.database.index_etf import seed_index_etf_universes
+    from finance_analysis.database.us_macro import seed_us_macro
 
     from finance_analysis.database.models.quant import ModelDefinition
     from finance_analysis.database.models.universe import Universe, UniverseInclude
@@ -20,6 +21,7 @@ def seed_quant_reference_data(db_manager=None) -> dict:
     manager = db_manager or DatabaseManager.get_instance()
     with manager.session_scope() as session:
         seed_index_etf_universes(session.connection())
+        seed_us_macro(session.connection())
         definitions = [
             (
                 "market_regime_rules",
@@ -123,6 +125,7 @@ def seed_quant_reference_data(db_manager=None) -> dict:
             ("us_nasdaq100", "Nasdaq 100", "US", "INDEX"),
             ("cn_daily_sync", "A股日线同步", "CN", "STRATEGY"),
             ("us_daily_sync", "美股日线同步", "US", "STRATEGY"),
+            ("us_macro", "US Macro", "US", "STRATEGY"),
             ("cn_trend", "A股趋势跟踪", "CN", "STRATEGY"),
             ("us_trend", "美股趋势跟踪", "US", "STRATEGY"),
             ("cn_index_etf", "CN Index ETF", "CN", "STRATEGY"),
@@ -169,6 +172,7 @@ def seed_quant_reference_data(db_manager=None) -> dict:
             ("cn_daily_sync", "cn_index_etf"),
             ("us_daily_sync", "us_sp500"),
             ("us_daily_sync", "us_index_etf"),
+            ("us_daily_sync", "us_macro"),
             ("cn_trend", "cn_csi300"),
             ("cn_trend", "cn_csi500"),
             ("cn_trend", "cn_csi1000"),
