@@ -64,7 +64,10 @@ onBeforeUnmount(() => { sequence++; });
       />
     </div>
     <template v-if="dashboard">
-      <MacroDataQuality :quality="dashboard.dataQuality" /><MacroStateCards :dashboard="dashboard" />
+      <MacroDataQuality
+        :quality="dashboard.dataQuality"
+        :ratios="dashboard.ratios"
+      /><MacroStateCards :dashboard="dashboard" />
     </template>
     <MacroPerformanceChart />
     <MacroPerformanceChart ratios />
