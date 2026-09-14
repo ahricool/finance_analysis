@@ -98,10 +98,17 @@ class MacroService:
         context, histories = self._load(as_of, 21)
         instruments = []
         all_metrics = {}
+        history_lengths = {}
+
+        def eligible(key):
+            metric = all_metrics[key]
+            return metric.trade_date == context.trade_date and metric.trend is not None and history_lengths[key] >= 21
+
         for code, config in MACRO_INSTRUMENTS.items():
             history = histories.get(code, {})
             metric = metrics(history)
             all_metrics[code] = metric
+            history_lengths[code] = len(history)
             instruments.append(
                 InstrumentMetrics(
                     code=code,
@@ -117,6 +124,7 @@ class MacroService:
             history = divide(numerator, denominator)
             metric = metrics(history)
             all_metrics[key] = metric
+            history_lengths[key] = len(history)
             fresh = metric.trade_date is not None and metric.trade_date == context.trade_date
             ratios.append(
                 RatioMetrics(
@@ -124,7 +132,7 @@ class MacroService:
                     name=config.name,
                     value=history.get(metric.trade_date),
                     **metric.model_dump(),
-                    signal=self._regime_for_trend(metric.trend) if fresh else None,
+                    signal=self._regime_for_trend(metric.trend) if eligible(key) else None,
                     partial=not fresh or len(history) < 21 or numerator.keys() != denominator.keys(),
                 )
             )
@@ -133,7 +141,7 @@ class MacroService:
             metric = all_metrics[key]
             trend = metric.trend if metric.trade_date == context.trade_date else None
             contribution = (
-                None if trend is None else weight * (0.5 if trend == "NEUTRAL" else 1 if trend == risk_on else 0)
+                None if not eligible(key) else weight * (0.5 if trend == "NEUTRAL" else 1 if trend == risk_on else 0)
             )
             signals.append(
                 RiskSignal(
@@ -155,7 +163,7 @@ class MacroService:
 
         def state(key, up, down):
             metric = all_metrics[key]
-            if metric.trade_date != context.trade_date or metric.trend is None:
+            if not eligible(key):
                 return None
             return up if metric.trend == "UP" else down if metric.trend == "DOWN" else "NEUTRAL"
 
