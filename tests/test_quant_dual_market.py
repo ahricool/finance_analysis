@@ -104,6 +104,7 @@ def test_quant_seed_initializes_unified_universe_definitions():
         "us_nasdaq100",
         "cn_daily_sync",
         "us_daily_sync",
+        "us_macro",
         "cn_trend",
         "us_trend",
         "cn_index_etf",

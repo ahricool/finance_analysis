@@ -22,6 +22,7 @@ from finance_analysis.interfaces.api.v1.endpoints import (
     etf_rotation,
     history,
     market_data,
+    macro,
     quant,
     stocks,
     tasks,
@@ -87,3 +88,5 @@ router.include_router(notifications.router, prefix="/notifications", tags=["Noti
 
 from .endpoints import market_structure
 router.include_router(market_structure.router, prefix="/market-structure", tags=["Market Structure"])
+
+router.include_router(macro.router, prefix="/macro", tags=["US Macro"])
