@@ -269,6 +269,31 @@ class ETFRotationRepository:
                 ).scalars()
             )
 
+    def rank_history(self, codes: Iterable[str], *, days: int, as_of: date) -> list[dict[str, Any]]:
+        """One statement: select sessions before filtering the current universe.
+
+        The outer join preserves sessions containing only former universe members.
+        No rank or score is recomputed, including legacy NULL ranks.
+        """
+        snapshot = ETFMomentumSnapshot
+        sessions = (
+            select(snapshot.trade_date).where(snapshot.market == self.market, snapshot.trade_date <= as_of)
+            .distinct().order_by(snapshot.trade_date.desc()).limit(days).subquery()
+        )
+        ranks = (
+            select(snapshot.trade_date, Instrument.code, snapshot.rank, snapshot.generated_at)
+            .join(Instrument, Instrument.id == snapshot.instrument_id)
+            .where(snapshot.market == self.market, Instrument.market == self.market, Instrument.code.in_(list(codes)))
+            .subquery()
+        )
+        query = (
+            select(sessions.c.trade_date, ranks.c.code, ranks.c.rank, ranks.c.generated_at)
+            .outerjoin(ranks, ranks.c.trade_date == sessions.c.trade_date)
+            .order_by(sessions.c.trade_date, ranks.c.code)
+        )
+        with self.db.get_session() as session:
+            return [dict(row) for row in session.execute(query).mappings()]
+
     @staticmethod
     def _payload(snapshot: ETFMomentumSnapshot, code: str) -> dict[str, Any]:
         return {

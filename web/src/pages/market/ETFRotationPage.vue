@@ -11,6 +11,7 @@ import LoadingButton from '@/components/app/LoadingButton.vue';
 import ResearchDataModeToggle from '@/components/research/ResearchDataModeToggle.vue';
 import ResearchDataStatusBar from '@/components/research/ResearchDataStatusBar.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
+import ETFRankHistoryChart from '@/components/etf-rotation/ETFRankHistoryChart.vue';
 import ETFRotationHistoryCharts from '@/components/etf-rotation/ETFRotationHistoryCharts.vue';
 import { indicatorDescriptions as descriptions } from '@/components/etf-rotation/indicatorDescriptions';
 import { Badge } from '@/components/ui/badge';
@@ -73,6 +74,7 @@ const previewInfo = computed(() => previewPayload.value ?? previewStatus.value);
 const officialLatest = shallowRef<ETFRankingResponse | null>(null);
 const officialSelected = shallowRef<ETFRankingResponse | null>(null);
 let generation = 0;
+const rankHistoryRefreshKey = ref(0);
 
 const previewAvailable = computed(() => previewStatus.value != null);
 const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
@@ -208,6 +210,7 @@ async function showPreview() {
 }
 async function load(refreshDates = false, options: { autoSelectMode?: boolean } = {}) {
   const current = ++generation;
+  if (refreshDates) rankHistoryRefreshKey.value++;
   const requestedMarket = market.value;
   const requestedDate = selectedDate.value || undefined;
   const autoSelectMode = options.autoSelectMode === true;
@@ -663,6 +666,14 @@ onMounted(() => void load(true, { autoSelectMode: true }));
         </section>
       </CardContent>
     </Card>
+
+    <ETFRankHistoryChart
+      v-if="!loading"
+      :market="market"
+      :as-of="dataMode === 'official' ? selectedDate || undefined : undefined"
+      :include-preview="dataMode === 'preview'"
+      :refresh-key="rankHistoryRefreshKey"
+    />
 
     <Card v-if="showingStrategyBody">
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">

@@ -209,3 +209,14 @@ export interface ETFPreviewStatusResponse {
   snapshotCount: number;
   warnings: string[];
 }
+
+
+export interface ETFRankHistoryResponse {
+  market: ETFMarket;
+  dates: string[];
+  officialCount: number;
+  previewDate: string | null;
+  previewTime: string | null;
+  generatedAt: string | null;
+  series: Array<{ code: string; name: string; ranks: Array<number | null> }>;
+}

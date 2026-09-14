@@ -171,3 +171,16 @@ it('loads metadata from preview/status and returns null for a missing preview', 
   vi.mocked(apiClient.get).mockRejectedValueOnce({ response: { status: 404 } });
   await expect(etfRotationApi.previewStatus('CN')).resolves.toBeNull();
 });
+
+it('loads all rank history in one request and preserves null ranks and preview metadata', async () => {
+  vi.mocked(apiClient.get).mockResolvedValue({ data: {
+    market: 'US', dates: ['2026-09-10', '2026-09-11'], official_count: 1,
+    preview_date: '2026-09-11', preview_time: null, generated_at: null,
+    series: [{ code: 'QQQ.US', name: 'Nasdaq', ranks: [null, 2] }],
+  } });
+  const result = await etfRotationApi.rankHistory('US', '2026-09-11', false);
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/etf-rotation/rank-history', {
+    params: { market: 'US', days: 30, as_of: '2026-09-11', include_preview: false },
+  });
+  expect(result).toMatchObject({ officialCount: 1, previewDate: '2026-09-11', series: [{ ranks: [null, 2] }] });
+});

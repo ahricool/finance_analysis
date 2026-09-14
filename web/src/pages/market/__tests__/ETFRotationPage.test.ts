@@ -5,6 +5,7 @@ import { indicatorDescriptions } from '@/components/etf-rotation/indicatorDescri
 import ETFRotationPage from '../ETFRotationPage.vue';
 
 const apiMocks = vi.hoisted(() => ({
+  rankHistory: vi.fn(),
   ranking: vi.fn(),
   candidates: vi.fn(),
   dates: vi.fn(),
@@ -153,6 +154,7 @@ function mockPreview(payload: Record<string, unknown> | null) {
 
 describe('ETFRotationPage', () => {
   beforeEach(() => {
+    apiMocks.rankHistory.mockResolvedValue({ market: 'CN', dates: [], series: [], officialCount: 0 });
     apiMocks.dates.mockImplementation(async (market: ETFMarket = 'CN') => (
       market === 'US'
         ? { market: 'US', latest: '2026-08-20', items: ['2026-08-20'] }
@@ -349,7 +351,7 @@ describe('ETFRotationPage', () => {
     await wrapper.get('[data-testid="etf-rotation-date"]').setValue('2026-08-21');
     await flushPromises();
 
-    await wrapper.get('[aria-label="市场"]').setValue('US');
+    await wrapper.get('[aria-label="市场"] [role="radio"]').trigger('click');
     await flushPromises();
 
     expect(apiMocks.dates).toHaveBeenLastCalledWith('US');
@@ -624,4 +626,17 @@ describe('ETFRotationPage', () => {
     wrapper.unmount();
   });
 
+});
+
+
+it('keeps the ranking table usable when rank history fails', async () => {
+  apiMocks.ranking.mockResolvedValue({ market: 'CN', tradeDate: '2026-08-25', items: [snapshot()], warnings: [] });
+  apiMocks.dates.mockResolvedValue({ items: ['2026-08-25'] });
+  apiMocks.previewStatus.mockResolvedValue(null);
+  apiMocks.rankHistory.mockRejectedValue(new Error('history unavailable'));
+  const wrapper = mount(ETFRotationPage);
+  await flushPromises();
+  expect(wrapper.get('[data-testid="etf-rank-history"]').text()).toContain('重试排名历史');
+  expect(wrapper.findAll('tr').some(row => row.text().includes('588000.SH'))).toBe(true);
+  wrapper.unmount();
 });

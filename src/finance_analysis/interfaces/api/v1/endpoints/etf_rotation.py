@@ -16,11 +16,12 @@ from finance_analysis.core.preview_metadata import preview_metadata
 from finance_analysis.database.models.user import User
 from finance_analysis.database.repositories.etf_rotation import ETFRotationRepository
 from finance_analysis.etf_rotation.config import DEFAULT_CONFIG
+from finance_analysis.etf_rotation.rank_history import get_rank_history
 from finance_analysis.etf_rotation.ranking_cache import RankingCache
 from finance_analysis.etf_rotation.preview_cache import load_preview  # pragma: allowlist secret
 from finance_analysis.etf_rotation.universe import get_etf_universe, universe_by_code  # pragma: allowlist secret
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user
-from finance_analysis.interfaces.api.v1.schemas.etf_rotation import ETFRotationRunRequest
+from finance_analysis.interfaces.api.v1.schemas.etf_rotation import ETFRankHistoryResponse, ETFRotationRunRequest
 from finance_analysis.tasks.celery.schedule import (
     JOB_ETF_ROTATION_CN,
     JOB_ETF_ROTATION_US,
@@ -212,6 +213,17 @@ def ranking(
     logger.info("etf_ranking market=%s date=%s cache=miss seconds=%.3f bytes=%s items=%s",
                 market, resolved, time.perf_counter() - started, len(body), len(all_rows))
     return Response(body, media_type="application/json")
+
+
+@router.get("/rank-history", response_model=ETFRankHistoryResponse)
+def rank_history(
+    days: int = Query(default=30, ge=1, le=120),
+    as_of: date | None = None,
+    include_preview: bool = True,
+    _: User = Depends(require_current_user),
+    market: Market = "CN",
+):
+    return get_rank_history(market, days=days, as_of=as_of, include_preview=include_preview)
 
 
 @router.get("/candidates")
