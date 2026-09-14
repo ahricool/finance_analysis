@@ -22,6 +22,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/u
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import TrendFragilityHistoryChart from '@/components/trend-following/TrendFragilityHistoryChart.vue';
+import TrendStateHeatmap from '@/components/trend-following/TrendStateHeatmap.vue';
 import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistoryChart.vue';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -124,6 +125,9 @@ const rankingSearch = ref('');
 const sortKey = ref<SortKey>('rank');
 const sortDirection = ref<'asc' | 'desc'>('asc');
 let generation = 0;
+const stateHistoryRefreshKey = ref(0);
+const stateHistoryReady = ref(false);
+const detailMode = ref<ResearchDataMode>('official');
 
 const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
 function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | null | undefined {
@@ -301,6 +305,9 @@ async function showPreview() {
 }
 async function load(refreshDates = false, options: { autoSelectMode?: boolean } = {}) {
   const current = ++generation;
+  // Mount history only after the anchor date and automatic data mode have settled.
+  stateHistoryReady.value = false;
+  if (refreshDates) stateHistoryRefreshKey.value++;
   const requestedMarket = market.value;
   const requestedDate = selectedDate.value || undefined;
   const autoSelectMode = options.autoSelectMode === true;
@@ -347,6 +354,7 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
     }
   } finally {
     if (current === generation) {
+      stateHistoryReady.value = true;
       loading.value = false;
       refreshing.value = false;
     }
@@ -375,10 +383,11 @@ async function runLatest() {
     running.value = false;
   }
 }
-async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: string }) {
+async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: string; preview?: boolean }) {
+  detailMode.value = item.preview === undefined ? dataMode.value : item.preview ? 'preview' : 'official';
   detailOpen.value = true;
   detailError.value = null;
-  if (dataMode.value === 'preview') {
+  if (detailMode.value === 'preview') {
     const snapshot = previewPayload.value?.snapshots.find(row => row.code === item.code)
       ?? null;
     detail.value = snapshot
@@ -400,7 +409,7 @@ async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: stri
       item.code,
       market.value,
       60,
-      selectedDate.value || item.tradeDate,
+      item.preview === undefined ? selectedDate.value || item.tradeDate : item.tradeDate,
     );
   } catch (reason) {
     detailError.value = getParsedApiError(reason);
@@ -892,6 +901,15 @@ onMounted(() => void load(true, { autoSelectMode: true }));
       </CardContent>
     </Card>
 
+    <TrendStateHeatmap
+      v-if="!loading && stateHistoryReady"
+      :market="market"
+      :as-of="dataMode === 'official' ? selectedDate || undefined : undefined"
+      :include-preview="dataMode === 'preview'"
+      :refresh-key="stateHistoryRefreshKey"
+      @select="openDetail"
+    />
+
     <Card v-if="showingStrategyBody">
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
         <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ scope }}</CardDescription></div>
@@ -1110,7 +1128,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
             :history="detail.history"
           />
           <TrendRankHistoryChart
-            v-if="dataMode === 'official'"
+            v-if="detailMode === 'official'"
             :history="detail.history"
           />
           <section>
@@ -1266,7 +1284,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               </div>
             </div>
           </section>
-          <section v-if="dataMode === 'official'">
+          <section v-if="detailMode === 'official'">
             <h3 class="mb-2 font-semibold">
               历史 Snapshot / 状态变化
             </h3><div class="space-y-2">

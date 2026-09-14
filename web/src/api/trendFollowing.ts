@@ -12,6 +12,7 @@ import type {
   TrendPreviewStatusResponse,
   TrendRankingResponse,
   TrendRunAccepted,
+  TrendStateHistoryResponse,
 } from '@/types/trendFollowing';
 
 // Walk only the DTO's known containers, never recurse through arbitrary snapshot JSON.
@@ -35,6 +36,12 @@ function rankingDto(data: Record<string, unknown>): TrendRankingResponse {
 }
 
 export const trendFollowingApi = {
+  async stateHistory(market: TrendMarket, asOf?: string, includePreview = false): Promise<TrendStateHistoryResponse> {
+    const { data } = await apiClient.get('/api/v1/trend-following/state-history', {
+      params: { market, days: 30, limit: 50, include_preview: includePreview, ...(asOf ? { as_of: asOf } : {}) },
+    });
+    return toCamelCase(data);
+  },
   async ranking(market: TrendMarket, tradeDate?: string): Promise<TrendRankingResponse> {
     const { data } = await apiClient.get('/api/v1/trend-following/ranking', {
       params: { market, ...(tradeDate ? { trade_date: tradeDate } : {}) },
