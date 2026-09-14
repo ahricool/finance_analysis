@@ -222,3 +222,27 @@ export interface TrendPreviewStatusResponse {
   snapshotCount: number;
   warnings: string[];
 }
+
+
+export interface TrendStateHistoryCell {
+  rank: number;
+  state: TrendState;
+  action: string | null;
+  alphaScore: number | null;
+  trendScore: number | null;
+  rsScore: number | null;
+  fragilityScore: number | null;
+  trendDurationDays: number | null;
+}
+
+export interface TrendStateHistoryResponse {
+  market: TrendMarket;
+  anchorDate: string | null;
+  dates: string[];
+  officialCount: number;
+  previewDate: string | null;
+  previewTime: string | null;
+  generatedAt: string | null;
+  warnings: string[];
+  items: Array<{ code: string; name: string; currentRank: number; history: Array<TrendStateHistoryCell | null> }>;
+}

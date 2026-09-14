@@ -17,3 +17,8 @@ def ranking_item(row: dict) -> dict:
         **{key: row.get(key) for key in (*RANKING_FIELDS, "name")},
         "features": {key: row.get(key) for key in FEATURE_FIELDS},
     }
+
+
+STATE_HISTORY_FIELDS = (
+    "rank", "state", "action", "alpha_score", "trend_score", "rs_score", "fragility_score", "trend_duration_days",
+)

@@ -204,3 +204,35 @@ Market Structure 可以在已有股票 DB 日线、当日 ETF snapshot 和 db_fr
 PR #295 review 修复：benchmark 改走 db_fresh；新增 CN 未持久化 benchmark 成功、失败不写快照、未来数据排除和只读调用契约测试。
 
 Lifecycle Age / historical eligibility review 验证：相关 Market Structure、Trend Health、Trend service/preview、API、Celery schedule/task 聚焦回归 142 passed、1 skipped；独立临时 PostgreSQL/Redis 上完整 `scripts/ci_gate.sh` 2162 passed、20 skipped、2 deselected，104 subtests passed（包含专用 PostgreSQL 测试）。Benchmark db_fresh 修复及其回归测试保持通过。
+
+### Trend State Heatmap（趋势状态轨迹）
+
+趋势跟踪页面排名表格上方增加独立加载的状态热力图，使用 ECharts Heatmap、现有主题和详情弹窗。
+纵轴固定为锚点日期按 `snapshot.rank ASC, code ASC` 选出的 Top 50；不是每天重新选择 Top 50，
+也不受页面表格搜索/排序影响。横轴取 DB 中最近 30 个存在 `trend_following_snapshot` 的 session，
+缺失快照或无有效 Rank 的历史格子保留 null，不填充、不重算 State。纵向滚轮/滑块默认查看约 20 行，
+可浏览全部 50 行；单元格和股票标签可打开锚点日期的现有 Detail。
+
+接口为 `GET /api/v1/trend-following/state-history`，参数 `market=CN|US`、`days=30`（1–120）、
+`limit=50`（1–100）、可选 `as_of=YYYY-MM-DD` 和 `include_preview=false`。
+返回 `anchor_date`、升序 `dates`、`official_count`、`preview_date/time`、`generated_at`、`warnings`，
+以及 `items[{code,name,current_rank,history}]`。每只股票的 `history` 与 `dates` 按位置对应；
+单元格附带原始 rank/state/action、Alpha/Trend/RS Score、Fragility 和持续天数。
+
+正常历史读取固定两次 SQL：先取市场 snapshot session，再在 SQL 内选锚点 Top N 并批量读取其历史标量字段。
+Preview 模式从 Redis `snapshots` 按 Rank 选 Top N 后走同一个批量历史查询，不加载全 Universe 的历史 JSON。
+没有历史或显式日期无快照时可提前返回，最多两次 SQL，无逐股票/逐格查询。
+
+`as_of` 是精确锚点，所选日期无快照时不暗中替换成前一日 Top N；超过市场当地今天返回 422。
+历史日期不读取 Preview。只有当地当天已完成的 Preview 可作为额外第 31 列，并以 Preview 的 Rank 选股；
+当天已有任何正式 snapshot 时全列和 Top N 都使用正式数据。Preview 用 `P` 日期后缀、列边框和说明标识。
+无可用 Preview 时提示并展示可用正式历史（未指定 `as_of` 时锚点为最新正式 session）。
+
+颜色表示现有策略 State：IDLE 灰、WATCHING 蓝、CANDIDATE 青、ENTRY 亮绿、PYRAMIDING 深绿、
+HOLDING 稳定绿、WEAKENING 黄、REDUCE 橙、EXIT 红；不是数值评分或额外的 `trend_lifecycle` 分类。
+注意现有策略可能在行情缺失时**持久化**延续的持仓状态/Rank，热力图忠实读取这些已有快照；
+它本身不做前向填充，也不据此判定行情一定新鲜。旧快照缺失 Fragility/持续天数显示 `—`。
+
+历史锚点中的股票即使已退出当前 Universe，仍可通过带明确 `trade_date` 的现有 Detail 接口查看；
+必须存在该日真实 snapshot 及 summary，否则返回 404。Preview 详情保持现有模式；
+若热力图因同日正式快照而优先展示正式列，点击会打开正式详情及其 Rank / Fragility 历史图。

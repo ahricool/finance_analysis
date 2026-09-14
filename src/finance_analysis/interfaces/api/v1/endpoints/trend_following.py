@@ -23,6 +23,7 @@ from finance_analysis.interfaces.api.deps import require_admin, require_current_
 from finance_analysis.interfaces.api.v1.schemas.trend_following import (  # pragma: allowlist secret
     TrendFollowingPortfolioResponse,
     TrendFollowingRunRequest,
+    TrendStateHistoryResponse,
 )
 from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
     JOB_TREND_FOLLOWING_CN,
@@ -210,6 +211,23 @@ def ranking(
     return Response(body, media_type="application/json")
 
 
+@router.get("/state-history", response_model=TrendStateHistoryResponse)
+def state_history(
+    days: int = Query(default=30, ge=1, le=120),
+    limit: int = Query(default=50, ge=1, le=100),
+    as_of: date | None = None,
+    include_preview: bool = False,
+    _: User = Depends(require_current_user),
+    market: Market = "CN",
+):
+    from finance_analysis.trend_following.state_history import get_state_history
+
+    try:
+        return get_state_history(market, days=days, limit=limit, as_of=as_of, include_preview=include_preview)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+
 @router.get("/candidates")
 def candidates(
     trade_date: date | None = None,
@@ -341,7 +359,7 @@ def detail(
 ):
     canonical = str(code).strip().upper()
     member = universe_by_code(market).get(canonical)
-    if member is None:
+    if member is None and trade_date is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stock is not in the Trend Following universe")
     repository = TrendFollowingRepository(market)
     resolved = _resolve_date(repository, trade_date)
@@ -352,7 +370,11 @@ def detail(
             status.HTTP_404_NOT_FOUND,
             f"Trend Following snapshot not found for {canonical} on {resolved}",
         )
-    metadata = {**member.to_dict(), "name": history[0].get("name") or member.name}
+    # Historical heatmap anchors can contain a stock that has since left the universe.
+    metadata = {
+        **(member.to_dict() if member is not None else {"market": market, "code": canonical}),
+        "name": history[0].get("name") or (member.name if member is not None else canonical),
+    }
     return jsonable_encoder({
         "market": market,
         "trade_date": resolved,

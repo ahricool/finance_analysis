@@ -407,3 +407,14 @@ def test_ranking_aggregates_without_compatibility_queries_and_does_not_cache_inc
     assert "score_breakdown" not in result["items"][0]
     assert "reasons" not in result["items"][0]
     assert saves == []
+
+
+def test_historical_heatmap_detail_can_open_a_former_universe_member(monkeypatch):
+    monkeypatch.setattr(trend_following, "universe_by_code", lambda market: {})
+    monkeypatch.setattr(trend_following, "TrendFollowingRepository", FakeRepository)
+    result = trend_following.detail("AAPL.US", 60, TRADE_DATE, SimpleNamespace(id=1), "US")
+    assert result["metadata"] == {"market": "US", "code": "AAPL.US", "name": "Apple"}
+    assert result["latest"]["trade_date"] == TRADE_DATE.isoformat()
+    with pytest.raises(HTTPException) as error:
+        trend_following.detail("AAPL.US", 60, date(2026, 1, 1), SimpleNamespace(id=1), "US")
+    assert error.value.status_code == 404

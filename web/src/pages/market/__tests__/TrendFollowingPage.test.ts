@@ -5,7 +5,7 @@ import { trendIndicatorDescriptions } from '@/components/trend-following/indicat
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
 const apiMocks = vi.hoisted(() => ({
-  ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
+  stateHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
@@ -89,6 +89,7 @@ function mockPreview(payload: Record<string, unknown> | null) {
 
 describe('TrendFollowingPage', () => {
   beforeEach(() => {
+    apiMocks.stateHistory.mockResolvedValue({ market: 'CN', dates: [], items: [], officialCount: 0, warnings: [] });
     apiMocks.dates.mockImplementation(async (market: TrendMarket) => ({ market, latest: '2026-08-28', items: ['2026-08-28'] }));
     apiMocks.ranking.mockImplementation(async (market: TrendMarket) => ranking(market));
     apiMocks.candidates.mockImplementation(async (market: TrendMarket) => ({ market, tradeDate: '2026-08-28', summary: ranking(market), items: [snapshot(market)] }));
@@ -323,7 +324,7 @@ describe('TrendFollowingPage', () => {
   it('switches to US S&P 500 snapshots', async () => {
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    await wrapper.get('[aria-label="市场"]').setValue('US');
+    await wrapper.get('[aria-label="市场"] [role="radio"]').trigger('click');
     await flushPromises();
     expect(apiMocks.dates).toHaveBeenLastCalledWith('US');
     expect(apiMocks.ranking).toHaveBeenLastCalledWith('US', undefined);
@@ -534,4 +535,33 @@ describe('TrendFollowingPage', () => {
     wrapper.unmount();
   });
 
+});
+
+
+it('keeps the ranking and candidates when the heatmap request fails', async () => {
+  apiMocks.ranking.mockResolvedValue(ranking('CN'));
+  apiMocks.dates.mockResolvedValue({ items: ['2026-08-28'] });
+  apiMocks.previewStatus.mockResolvedValue(null);
+  apiMocks.stateHistory.mockRejectedValue(new Error('history failed'));
+  const wrapper = mount(TrendFollowingPage);
+  await flushPromises();
+  expect(wrapper.get('[data-testid="trend-state-heatmap"]').text()).toContain('状态历史加载失败');
+  expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
+  expect(wrapper.text()).toContain('平安银行');
+  wrapper.unmount();
+});
+
+it('opens the existing detail at the heatmap anchor instead of the selected table date', async () => {
+  apiMocks.ranking.mockResolvedValue(ranking('CN'));
+  apiMocks.dates.mockResolvedValue({ items: ['2026-08-28'] });
+  apiMocks.previewStatus.mockResolvedValue(null);
+  apiMocks.stateHistory.mockResolvedValue({ items: [], dates: [], officialCount: 0, warnings: [] });
+  const wrapper = mount(TrendFollowingPage);
+  await flushPromises();
+  const heatmap = wrapper.findComponent({ name: 'TrendStateHeatmap' });
+  heatmap.vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-27', preview: false });
+  await flushPromises();
+  expect(apiMocks.detail).toHaveBeenLastCalledWith('000001.SZ', 'CN', 60, '2026-08-27');
+  expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
+  wrapper.unmount();
 });
