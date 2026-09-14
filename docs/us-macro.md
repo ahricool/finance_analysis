@@ -58,6 +58,7 @@ Ratio 也按有效共同 bar 计算收益和 MA20 趋势；缺失交集、历史
 
 TLT 仅作为小权重的防御需求代理，并非利率因果模型；以上均为可解释的 V1 规则。
 历史不足和最新日期落后于 dashboard 基准的信号不计入分子或分母。
+信号资格至少需要 21 根有效 bar；Ratio 按日期对齐后的有效点数判断，Ratio signal 与 states 同样遵守此要求。
 `signal_coverage = 可用权重 / 100`；小于 65% 时 risk_score、regime 均为 null。
 否则 `risk_score = 已获贡献 / 可用权重 × 100`，
 `>=65 RISK_ON`、`35<=score<65 NEUTRAL`、`<35 RISK_OFF`。

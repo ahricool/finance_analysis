@@ -309,3 +309,85 @@ def test_api_auth_dashboard_series_validation(database):
         ):
             assert client.get(f"/api/v1/macro/series?{query}").status_code == 422
         assert client.post("/api/v1/macro/sync").status_code == 404
+
+
+@pytest.mark.parametrize("count", [20, 21])
+@pytest.mark.parametrize(
+    "code,state_name",
+    [
+        ("SPY.US", None),
+        ("QQQ.US", None),
+        ("VIX.US", "volatility"),
+        ("TLT.US", "rates"),
+        ("UUP.US", "dollar"),
+    ],
+)
+def test_instrument_signal_requires_21_bars_without_hiding_trend(database, count, code, state_name):
+    add_history(database, code, sessions(count), list(range(100, 100 + count)))
+    result = service(database).dashboard()
+    instrument = next(item for item in result.instruments if item.code == code)
+    signal = next(item for item in result.signals if item.key == code)
+    assert instrument.trade_date == result.trade_date
+    assert instrument.trend == signal.trend == "UP"
+    assert (code in result.data_quality.insufficient_history_symbols) == (count == 20)
+    if count == 20:
+        assert signal.contribution is None
+        assert result.signal_coverage == 0
+    else:
+        assert signal.contribution == (signal.weight if signal.risk_on_trend == "UP" else 0)
+        assert result.signal_coverage == signal.weight / 100
+    if state_name:
+        assert (getattr(result.states, state_name) is None) == (count == 20)
+
+
+@pytest.mark.parametrize("common_count,stale", [(20, False), (21, False), (21, True)])
+def test_ratio_signal_uses_aligned_history_count_and_freshness(database, common_count, stale):
+    days = sessions(common_count + 10 + int(stale))
+    common_days = days[10:-1] if stale else days[10:]
+    hyg_days, lqd_days = days[:5] + common_days, days[5:10] + common_days
+    assert len(hyg_days) >= 25 and len(lqd_days) >= 25
+    assert len(set(hyg_days) & set(lqd_days)) == common_count
+    add_history(database, "HYG.US", hyg_days, list(range(100, 100 + len(hyg_days))))
+    add_history(database, "LQD.US", lqd_days, [100] * len(lqd_days))
+    if stale:
+        add_history(database, "SPY.US", days[-1:], [100])
+    result = service(database).dashboard()
+    ratio = next(item for item in result.ratios if item.key == "HYG_LQD")
+    signal = next(item for item in result.signals if item.key == "HYG_LQD")
+    assert ratio.trend == "UP"
+    if common_count == 20 or stale:
+        assert ratio.partial and ratio.signal is None
+        assert signal.contribution is None
+        assert result.states.credit is None
+        assert result.signal_coverage == 0
+    else:
+        assert ratio.signal == "RISK_ON" and signal.contribution == 15
+        assert result.states.credit == "HEALTHY"
+        assert result.signal_coverage == 0.15
+
+
+@pytest.mark.parametrize(
+    "short_symbols,coverage",
+    [
+        ({"QQQ.US", "VIX.US", "TLT.US", "UUP.US"}, 0.60),
+        ({"VIX.US", "TLT.US"}, 0.75),
+    ],
+)
+def test_signal_coverage_and_score_exclude_insufficient_history(database, short_symbols, coverage):
+    for code in MACRO_INSTRUMENTS:
+        count = 20 if code in short_symbols else 21
+        add_history(database, code, sessions(count), list(range(100, 100 + count)))
+    result = service(database).dashboard()
+    assert set(result.data_quality.insufficient_history_symbols) == short_symbols
+    assert result.signal_coverage == pytest.approx(coverage)
+    for signal in result.signals:
+        if signal.key in short_symbols:
+            assert signal.trend == "UP" and signal.contribution is None
+    supported = sum(signal.weight for signal in result.signals if signal.contribution is not None)
+    assert result.signal_coverage == supported / 100
+    if coverage < 0.65:
+        assert result.risk_score is None and result.regime is None
+    else:
+        earned = sum(signal.contribution for signal in result.signals if signal.contribution is not None)
+        assert result.risk_score == pytest.approx(earned / supported * 100)
+        assert result.regime == "NEUTRAL"
