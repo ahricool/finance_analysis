@@ -45,6 +45,7 @@ export const researchNavItems: NavDestination[] = [
     to: '/research/trend-following',
     icon: TrendingUp,
   },
+  { key: 'macro', label: '宏观', to: '/research/macro', icon: Activity },
   {
     key: 'quant',
     label: '量化研究',

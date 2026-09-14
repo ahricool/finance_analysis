@@ -84,6 +84,7 @@ const router = createRouter({
               component: TrendFollowingPage,
               meta: { title: '趋势跟踪' },
             },
+            { path: 'macro', name: 'research-macro', component: () => import('@/pages/market/MacroPage.vue'), meta: { title: '宏观' } },
             {
               path: 'quant',
               component: QuantPage,

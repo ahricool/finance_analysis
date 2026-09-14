@@ -7,6 +7,7 @@ async function mountResearch(path: string) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
+      { path: '/research/macro', component: { template: '<div>宏观内容</div>' } },
       { path: '/research/quant', component: { template: '<div>量化内容</div>' } },
       { path: '/research/etf-rotation', component: { template: '<div>ETF 轮动内容</div>' } },
       { path: '/research/trend-following', component: { template: '<div>趋势跟踪内容</div>' } },
@@ -33,4 +34,10 @@ describe('ResearchPage', () => {
     expect(wrapper.findAll('a[href="/research/crypto/btc"]')).toHaveLength(1);
     expect(wrapper.text()).toContain('ETF 轮动内容');
   });
+});
+
+it('selects the Macro research navigation tab', async () => {
+  const wrapper = await mountResearch('/research/macro');
+  expect(wrapper.get('a[href="/research/macro"]').attributes('data-state')).toBe('active');
+  expect(wrapper.text()).toContain('宏观内容');
 });
