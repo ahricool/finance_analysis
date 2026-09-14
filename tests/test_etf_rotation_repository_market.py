@@ -145,3 +145,31 @@ def test_market_and_snapshot_overwrite_invalidate_after_commit(monkeypatch):
     repo.upsert_market_snapshot({"market": "CN", "trade_date": date(2026, 9, 10)})
     repo.upsert_snapshots([{"code": "588000.SH", "market": "CN", "trade_date": date(2026, 9, 10)}])
     assert committed == ["commit", "CN", "commit", "CN"]
+
+
+def test_rank_history_limits_sessions_before_universe_and_uses_one_query():
+    from datetime import timedelta
+    from sqlalchemy import event
+
+    database = _Database()
+    sessions = [date(2026, 6, 1) + timedelta(days=index * 2) for index in range(35)]
+    with database.session_scope() as session:
+        session.add_all([
+            Instrument(id=1, market="CN", code="588000.SH", name="Current"),
+            Instrument(id=2, market="CN", code="510300.SH", name="Former"),
+            Instrument(id=3, market="US", code="SPY.US", name="US"),
+        ])
+        for index, day in enumerate(sessions):
+            session.add(_snapshot(index + 1, "CN", 2 if index == 33 else 1, day, index + 1))
+        session.add(_snapshot(100, "US", 3, sessions[-1] + timedelta(days=1), 1))
+    statements = []
+    event.listen(database.engine, "before_cursor_execute", lambda *args: statements.append(args[2]))
+    rows = ETFRotationRepository("CN", database).rank_history(
+        ["588000.SH"], days=30, as_of=sessions[-1] + timedelta(days=1),
+    )
+    assert len(statements) == 1
+    assert [row["trade_date"] for row in rows] == sessions[-30:]
+    assert rows[-2]["code"] is None and rows[-2]["rank"] is None
+    assert rows[-1]["rank"] == 35  # Persisted rank, never renumbered for the filtered universe.
+    older = ETFRotationRepository("CN", database).rank_history(["588000.SH"], days=2, as_of=sessions[10])
+    assert [row["trade_date"] for row in older] == sessions[9:11]

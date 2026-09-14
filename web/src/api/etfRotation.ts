@@ -9,11 +9,18 @@ import type {
   ETFPreviewResponse,
   ETFPreviewStatusResponse,
   ETFRankingResponse,
+  ETFRankHistoryResponse,
   ETFRotationRunAccepted,
   ETFUniverseResponse,
 } from '@/types/etfRotation';
 
 export const etfRotationApi = {
+  async rankHistory(market: ETFMarket, asOf?: string, includePreview = true): Promise<ETFRankHistoryResponse> {
+    const { data } = await apiClient.get('/api/v1/etf-rotation/rank-history', {
+      params: { market, days: 30, include_preview: includePreview, ...(asOf ? { as_of: asOf } : {}) },
+    });
+    return toCamelCase(data);
+  },
   async ranking(market: ETFMarket = 'CN', tradeDate?: string): Promise<ETFRankingResponse> {
     const { data } = await apiClient.get('/api/v1/etf-rotation/ranking', {
       params: { market, ...(tradeDate ? { trade_date: tradeDate } : {}) },

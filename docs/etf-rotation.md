@@ -149,3 +149,23 @@ Content-Type: application/json
 `items` 继续映射到当前 candidates。`dates` 按市场返回已持久化 snapshot 的交易日，降序排列；
 `ranking` / `candidates` 不传 `trade_date` 时回落到该市场最新交易日。前端入口为“研究 → ETF动量轮动”，
 可用 A股/美股切换和日期选择器查看某一市场某一日的排名与候选。
+
+### Rank 排名走势
+
+排名表格上方使用 ECharts 展示当前 Universe 全部 ETF 的历史 `rank`，Rank 1 位于顶部，
+缺失值保留断点，图例分页且可切换显示。正式模式随所选日期截断，Preview 模式允许追加当天预演。
+图表独立加载与重试，失败不影响排名表格。
+
+`GET /api/v1/etf-rotation/rank-history?market=CN&days=30` 返回升序 `dates`、
+`series[{code,name,ranks}]`、`official_count`、`generated_at`、`preview_date` 和 `preview_time`。
+可选 `as_of=YYYY-MM-DD` 指定截止日，`include_preview=false` 仅取正式数据；`days` 范围 1–120。
+
+正式历史直接读取 `etf_momentum_snapshot.rank`，通过 Instrument 关联代码，不重新计算排名。
+单条 SQL 先按市场选择最近 N 个存在正式快照的不同交易日，再外连接当前 Universe 的排名，
+因此退出 Universe 的历史 ETF 不会重新显示，只有历史成员的 session 仍保留为空点。
+不足 N 个 session 时返回实际数量；旧版本 NULL rank 不补算、不前向填充。
+
+只有市场当地当天、状态为 completed 且有条目的 Redis Preview 可以追加，历史 Preview 不纳入。
+当天存在正式 ETF 快照时整日优先正式数据，即使单只 ETF 的正式 Rank 缺失也不用 Preview 补值。
+Preview 是最多一个额外数据点，不占用 N 个正式 session；以空心点、Tooltip 和页面文字说明标识。
+本图不将排名门槛解释为最终候选区：入场/持有门槛、市场状态候选数量上限和风控筛选含义不同。
