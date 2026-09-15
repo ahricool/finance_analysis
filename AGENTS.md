@@ -67,7 +67,6 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
   etf_rotation/            ETF 动量轮动领域模型与服务
   trend_following/         多市场趋势跟踪领域模型与服务
   market_review/           市场复盘、交易日历、运行时配置
-  market_intelligence/     美股社交舆情适配
   llm/                     API / SSH CLI 调用、重试、审计日志与用量统计
   reporting/               报告 schema、本地化、Jinja/Markdown/图片渲染
   notification/            路由、降噪及 Telegram/ntfy 与消息持久化
@@ -92,7 +91,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 
 1. Web 调 `POST /api/v1/analysis/analyze`；异步请求由 `tasks/queue.py` 发布 Celery 任务，同步请求直接走 `AnalysisService`。
 2. `StockAnalysisPipeline` 要求 PostgreSQL 已有目标前复权日线；普通分析不负责补写历史行情。 <!-- pragma: allowlist secret -->
-3. `MarketDataService` 聚合实时 Quote、证券信息及可选基本面；分析还会执行技术指标和可选社交舆情。
+3. `MarketDataService` 聚合实时 Quote、证券信息及可选基本面；分析还会执行技术指标。
 4. StockReportAnalyzer 构造 prompt，经 LLMClient 调用并解析为 `AnalysisResult`。
 5. 分析历史、上下文和 LLM 用量写 PostgreSQL；报告经 `reporting/` 渲染，并可由 `notification/` 保存或推送。 <!-- pragma: allowlist secret -->
 6. 任务状态始终读 PostgreSQL `task` 记录，不从 Redis 推断。 <!-- pragma: allowlist secret -->
@@ -302,7 +301,7 @@ API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`�
 
 ## 信息输入边界
 
-个股分析使用行情、技术、基本面及可选社交舆情，大盘复盘只使用市场结构化数据。
-系统不负责通用互联网检索。Longbridge 金融新闻保留给美股盘前新闻与盘中分析；
+个股分析使用行情、技术、基本面，大盘复盘只使用市场结构化数据。
+系统不负责通用互联网检索。Longbridge 是唯一的外部新闻消息源，用于美股盘前新闻与盘中分析；
 美股收盘复盘只读已持久化新闻，空新闻不阻断报告或通知。新闻存储与调用方见
 `docs/investment-timeline.md` 的“新闻数据边界”。

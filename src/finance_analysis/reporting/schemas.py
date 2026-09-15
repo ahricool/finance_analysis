@@ -83,7 +83,6 @@ class Intelligence(BaseModel):
 
     risk_alerts: Optional[List[str]] = None
     earnings_outlook: Optional[str] = None
-    sentiment_summary: Optional[str] = None
 
 
 class SniperPoints(BaseModel):
@@ -153,6 +152,5 @@ class AnalysisReportSchema(BaseModel):
     sector_position: Optional[str] = None
     company_highlights: Optional[str] = None
     market_sentiment: Optional[str] = None
-    hot_topics: Optional[str] = None
 
     data_sources: Optional[str] = None

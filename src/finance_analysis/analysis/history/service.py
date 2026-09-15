@@ -492,7 +492,6 @@ class HistoryService:
                 sector_position=raw_result.get("sector_position", ""),
                 company_highlights=raw_result.get("company_highlights", ""),
                 market_sentiment=raw_result.get("market_sentiment", ""),
-                hot_topics=raw_result.get("hot_topics", ""),
                 analysis_summary=raw_result.get("analysis_summary", record.analysis_summary or ""),
                 key_points=raw_result.get("key_points", ""),
                 risk_warning=raw_result.get("risk_warning", ""),
@@ -558,16 +557,13 @@ class HistoryService:
             "",
         ]
 
-        # ========== 舆情与基本面概览（放在最前面）==========
+        # ========== 风险与基本面概览（放在最前面）==========
         intel = dashboard.get('intelligence', {}) if dashboard else {}
         if intel:
             report_lines.extend([
                 f"### 📰 {labels['info_heading']}",
                 "",
             ])
-            # 舆情情绪总结
-            if intel.get('sentiment_summary'):
-                report_lines.append(f"**💭 {labels['sentiment_summary_label']}**: {intel['sentiment_summary']}")
             # 业绩预期
             if intel.get('earnings_outlook'):
                 report_lines.append(f"**📊 {labels['earnings_outlook_label']}**: {intel['earnings_outlook']}")
@@ -744,7 +740,6 @@ class HistoryService:
                 if result.volume_analysis:
                     report_lines.append(f"**{volume_analysis_label}**: {result.volume_analysis}")
                 report_lines.append("")
-            # 消息面
 
         # ========== 底部 ==========
         report_lines.extend([

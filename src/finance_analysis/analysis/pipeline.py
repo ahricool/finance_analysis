@@ -40,7 +40,6 @@ from finance_analysis.reporting.localization import (
     normalize_report_language,
 )
 from finance_analysis.stocks.classification import is_index_or_etf
-from finance_analysis.market_intelligence.social_sentiment import SocialSentimentService
 from finance_analysis.reporting.types import ReportType
 from finance_analysis.analysis.technical.analyzer import StockTrendAnalyzer, TrendAnalysisResult
 from finance_analysis.market_review.trading_calendar import (
@@ -49,7 +48,6 @@ from finance_analysis.market_review.trading_calendar import (
     get_market_now,
     is_market_open,
 )
-from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code
 from finance_analysis.notification.messages import BotMessage
 
 
@@ -124,22 +122,6 @@ class StockAnalysisPipeline:
             logger.info("筹码分布分析已启用")
         else:
             logger.info("筹码分布分析已禁用")
-        # 初始化社交舆情服务（仅美股，可选）
-        try:
-            self.social_sentiment_service = SocialSentimentService(
-                api_key=self.config.social_sentiment_api_key,
-                api_url=self.config.social_sentiment_api_url,
-            )
-            if self.social_sentiment_service.is_available:
-                logger.info("Social sentiment service enabled (Reddit/X/Polymarket, US stocks only)")
-        except Exception as exc:
-            logger.warning(
-                "社交舆情服务初始化失败，将跳过舆情分析: %s",
-                exc,
-                exc_info=True,
-            )
-            self.social_sentiment_service = None
-
     def _emit_progress(self, progress: int, message: str) -> None:
         """Best-effort bridge from pipeline stages to persisted task progress."""
         callback = getattr(self, "progress_callback", None)
@@ -211,15 +193,14 @@ class StockAnalysisPipeline:
 
     def analyze_stock(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
         """
-        分析单只股票（增强版：含量比、换手率、筹码分析、多维度情报）
+        分析单只股票（增强版：含量比、换手率、筹码分析、基本面）
         
         流程：
         1. 获取实时行情（量比、换手率）- 通过 MarketDataService 回退
         2. 获取筹码分布 - 通过 MarketDataService
         3. 进行趋势分析（基于交易理念）
-        4. 获取可选社交舆情
-        5. 从数据库获取分析上下文
-        6. 调用 AI 进行综合分析
+        4. 从数据库获取分析上下文
+        5. 调用 AI 进行综合分析
         
         Args:
             query_id: 查询链路关联 id
@@ -329,18 +310,6 @@ class StockAnalysisPipeline:
             except Exception as e:
                 logger.warning(f"{stock_name}({code}) 趋势分析失败: {e}", exc_info=True)
 
-            social_context = None
-            self._emit_progress(46, f"{stock_name}：正在获取社交舆情")
-
-            # Step 4.5: Social sentiment intelligence (US stocks only)
-            if self.social_sentiment_service is not None and self.social_sentiment_service.is_available and is_us_stock_code(code):
-                try:
-                    social_context = self.social_sentiment_service.get_social_context(code)
-                    if social_context:
-                        logger.info(f"{stock_name}({code}) Social sentiment data retrieved")
-                except Exception as e:
-                    logger.warning(f"{stock_name}({code}) Social sentiment fetch failed: {e}")
-
             # Step 5: 获取分析上下文（技术面数据）
             self._emit_progress(58, f"{stock_name}：正在整理分析上下文")
             context = self.db.get_analysis_context(code)
@@ -369,11 +338,10 @@ class StockAnalysisPipeline:
                 fundamental_context,
             )
             
-            # Step 7: 调用 AI 分析（传入增强上下文和社交舆情）
+            # Step 7: 调用 AI 分析（传入增强上下文）
             self._emit_progress(64, f"{stock_name}：正在请求 LLM 生成报告")
             result = self.analyzer.analyze(
                 enhanced_context,
-                social_context=social_context,
                 progress_callback=self._emit_progress,
             )
 
@@ -400,7 +368,6 @@ class StockAnalysisPipeline:
                     self._emit_progress(97, f"{stock_name}：正在保存分析报告")
                     context_snapshot = self._build_context_snapshot(
                         enhanced_context=enhanced_context,
-                        news_content=social_context,
                         realtime_quote=realtime_quote,
                         chip_data=chip_data
                     )
@@ -408,7 +375,7 @@ class StockAnalysisPipeline:
                         result=result,
                         query_id=query_id,
                         report_type=report_type.value,
-                        news_content=social_context,
+                        news_content=None,
                         context_snapshot=context_snapshot,
                         save_snapshot=self.save_context_snapshot,
                         uid=self.owner_uid,
@@ -772,7 +739,6 @@ class StockAnalysisPipeline:
     def _build_context_snapshot(
         self,
         enhanced_context: Dict[str, Any],
-        news_content: Optional[str],
         realtime_quote: Any,
         chip_data: Optional[ChipDistribution]
     ) -> Dict[str, Any]:
@@ -781,7 +747,6 @@ class StockAnalysisPipeline:
         """
         return {
             "enhanced_context": enhanced_context,
-            "news_content": news_content,
             "realtime_quote_raw": self._safe_to_dict(realtime_quote),
             "chip_distribution_raw": self._safe_to_dict(chip_data),
         }

@@ -111,9 +111,8 @@ class AnalysisResult:
     sector_position: str = ""  # 板块地位和行业趋势
     company_highlights: str = ""  # 公司亮点/风险点
 
-    # ========== 情绪面/消息面分析 ==========
+    # ========== 市场情绪分析 ==========
     market_sentiment: str = ""  # 市场情绪分析
-    hot_topics: str = ""  # 相关热点话题
 
     # ========== 综合分析 ==========
     analysis_summary: str = ""  # 综合分析摘要
@@ -161,7 +160,6 @@ class AnalysisResult:
             'sector_position': self.sector_position,
             'company_highlights': self.company_highlights,
             'market_sentiment': self.market_sentiment,
-            'hot_topics': self.hot_topics,
             'analysis_summary': self.analysis_summary,
             'key_points': self.key_points,
             'risk_warning': self.risk_warning,
@@ -235,19 +233,19 @@ class StockReportAnalyzer:
 
     职责：
     1. 调用 LiteLLM 进行股票分析
-    2. 结合已有行情、基本面和社交舆情数据生成分析报告
+    2. 结合已有行情、技术和基本面数据生成分析报告
     3. 解析 AI 返回的 JSON 格式结果
 
     使用方式：
         analyzer = StockReportAnalyzer()
-        result = analyzer.analyze(context, social_context)
+        result = analyzer.analyze(context)
     """
 
     # ========================================
     # 系统提示词 - 决策仪表盘 v2.0
     # ========================================
     # 输出格式升级：从简单信号升级为决策仪表盘
-    # 核心模块：核心结论 + 数据透视 + 舆情情报 + 作战计划
+    # 核心模块：核心结论 + 数据透视 + 风险与基本面 + 作战计划
     # ========================================
 
     SYSTEM_PROMPT = """你是一位专注于趋势交易的{market_placeholder}投资分析师，负责生成专业的【决策仪表盘】分析报告。
@@ -344,9 +342,8 @@ class StockReportAnalyzer:
         },
 
         "intelligence": {
-            "risk_alerts": ["仅根据已提供的技术、基本面或舆情数据说明风险；无依据则留空"],
-            "earnings_outlook": "仅根据已提供的财报或基本面数据分析业绩；缺失时说明无法判断",
-            "sentiment_summary": "仅总结提供的社交舆情；未提供时留空"
+            "risk_alerts": ["仅根据已提供的技术或基本面数据说明风险；无依据则留空"],
+            "earnings_outlook": "仅根据已提供的财报或基本面数据分析业绩；缺失时说明无法判断"
         },
 
         "battle_plan": {
@@ -387,8 +384,7 @@ class StockReportAnalyzer:
     "fundamental_analysis": "基本面分析",
     "sector_position": "板块行业分析",
     "company_highlights": "公司亮点/风险",
-    "market_sentiment": "根据已有量价或社交舆情数据判断情绪，说明依据",
-    "hot_topics": "仅提取提供的社交舆情中的话题；未提供时留空",
+    "market_sentiment": "根据已有量价数据判断情绪，说明依据",
 
     "data_sources": "数据来源说明"
 }
@@ -426,7 +422,7 @@ class StockReportAnalyzer:
 2. **分持仓建议**：空仓者和持仓者给不同建议
 3. **精确狙击点**：必须给出具体价格，不说模糊的话
 4. **检查清单可视化**：用 ✅⚠️❌ 明确显示每项检查结果
-5. **风险优先级**：舆情中的风险点要醒目标出
+5. **风险优先级**：已提供数据中的风险点要醒目标出
 
 ## 可操作性与稳定性约束
 
@@ -494,7 +490,6 @@ class StockReportAnalyzer:
     def analyze(
         self, 
         context: Dict[str, Any],
-        social_context: Optional[str] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> AnalysisResult:
         """
@@ -508,7 +503,6 @@ class StockReportAnalyzer:
         
         Args:
             context: 从 storage.get_analysis_context() 获取的上下文数据
-            social_context: 已有社交舆情内容（可选）
             
         Returns:
             AnalysisResult 对象
@@ -554,8 +548,8 @@ class StockReportAnalyzer:
             )
         
         try:
-            # 格式化输入（包含技术面数据和新闻）
-            prompt = self._format_prompt(context, name, social_context, report_language=report_language)
+            # 格式化输入（包含行情、技术和基本面数据）
+            prompt = self._format_prompt(context, name, report_language=report_language)
             
             config = self._get_runtime_config()
             _emit_progress(68, f"{name}：正在请求 LLM 生成报告")
@@ -602,7 +596,6 @@ class StockReportAnalyzer:
         self, 
         context: Dict[str, Any], 
         name: str,
-        social_context: Optional[str] = None,
         report_language: str = "zh",
     ) -> str:
         """
@@ -613,7 +606,6 @@ class StockReportAnalyzer:
         Args:
             context: 技术面数据上下文（包含增强数据）
             name: 股票名称（默认值，可能被上下文覆盖）
-            social_context: 已有社交舆情内容
         """
         code = context.get('code', 'Unknown')
         report_language = normalize_report_language(report_language)
@@ -840,9 +832,7 @@ class StockReportAnalyzer:
 - ⚠️ 量能异常提示：成交量较昨日放大超过10倍，可能受异常数据或一次性冲量影响，必须降权解读，不能机械视为强确认信号
 """
         
-        prompt += "\n仅依据提供的行情、技术、基本面与社交舆情数据分析。没有数据时明确说明，禁止编造新闻、公告、评级或目标价。\n"
-        if social_context:
-            prompt += f"\n## 社交舆情（观点不等于已证实事实）\n{social_context}\n"
+        prompt += "\n仅依据提供的行情、技术和基本面数据分析。没有数据时明确说明，禁止编造新闻、公告、评级或目标价。\n"
 
         # 注入缺失数据警告
         if context.get('data_missing'):
@@ -1102,9 +1092,8 @@ class StockReportAnalyzer:
                     fundamental_analysis=data.get('fundamental_analysis', ''),
                     sector_position=data.get('sector_position', ''),
                     company_highlights=data.get('company_highlights', ''),
-                    # 情绪面/消息面
+                    # 市场情绪
                     market_sentiment=data.get('market_sentiment', ''),
-                    hot_topics=data.get('hot_topics', ''),
                     # 综合
                     analysis_summary=data.get('analysis_summary', 'Analysis completed' if report_language == "en" else '分析完成'),
                     key_points=data.get('key_points', ''),

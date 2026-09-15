@@ -17,7 +17,6 @@ from finance_analysis.llm.config import get_llm_config
 from finance_analysis.notification.config import get_notification_config
 from finance_analysis.reporting.config import get_report_config
 from finance_analysis.market_review.config import get_market_review_config
-from finance_analysis.market_intelligence.config import get_social_sentiment_config
 from finance_analysis.tasks.config import get_task_config
 
 
@@ -39,7 +38,6 @@ def get_pipeline_config() -> PipelineConfig:
         get_market_review_config(),
         get_notification_config(),
         get_report_config(),
-        get_social_sentiment_config(),
         get_task_config(),
     ):
         values.update(_asdict(config))

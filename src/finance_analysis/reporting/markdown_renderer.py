@@ -188,16 +188,14 @@ class ReportRenderingMixin:
                         "",
                     ])
                 
-                # 消息面/情绪面
-                news_lines = []
+                # 市场情绪
+                sentiment_lines = []
                 if hasattr(result, 'market_sentiment') and result.market_sentiment:
-                    news_lines.append(f"**市场情绪**：{result.market_sentiment}")
-                if hasattr(result, 'hot_topics') and result.hot_topics:
-                    news_lines.append(f"**相关热点**：{result.hot_topics}")
-                if news_lines:
+                    sentiment_lines.append(f"**市场情绪**：{result.market_sentiment}")
+                if sentiment_lines:
                     report_lines.extend([
-                        "#### 📰 消息面/情绪面",
-                        *news_lines,
+                        "#### 📰 市场情绪",
+                        *sentiment_lines,
                         "",
                     ])
                 
@@ -367,16 +365,13 @@ class ReportRenderingMixin:
                     "",
                 ])
                 
-                # ========== 舆情与基本面概览（放在最前面）==========
+                # ========== 风险与基本面概览（放在最前面）==========
                 intel = dashboard.get('intelligence', {}) if dashboard else {}
                 if intel:
                     report_lines.extend([
                         f"### 📰 {labels['info_heading']}",
                         "",
                     ])
-                    # 舆情情绪总结
-                    if intel.get('sentiment_summary'):
-                        report_lines.append(f"**💭 {labels['sentiment_summary_label']}**: {intel['sentiment_summary']}")
                     # 业绩预期
                     if intel.get('earnings_outlook'):
                         report_lines.append(f"**📊 {labels['earnings_outlook_label']}**: {intel['earnings_outlook']}")
@@ -542,7 +537,6 @@ class ReportRenderingMixin:
                         if result.volume_analysis:
                             report_lines.append(f"**{volume_analysis_label}**: {result.volume_analysis}")
                         report_lines.append("")
-                    # 消息面
                 
                 report_lines.extend([
                     "---",
@@ -659,7 +653,7 @@ class ReportRenderingMixin:
                 "",
             ])
         
-        # 重要信息（舆情+基本面）
+        # 重要信息（风险与基本面）
         info_added = False
         if intel:
             if intel.get('earnings_outlook'):
@@ -669,12 +663,6 @@ class ReportRenderingMixin:
                     info_added = True
                 lines.append(f"📊 **{labels['earnings_outlook_label']}**: {str(intel['earnings_outlook'])[:100]}")
             
-            if intel.get('sentiment_summary'):
-                if not info_added:
-                    lines.append(f"### 📰 {labels['info_heading']}")
-                    lines.append("")
-                    info_added = True
-                lines.append(f"💭 **{labels['sentiment_summary_label']}**: {str(intel['sentiment_summary'])[:80]}")
             
             # 风险警报
             risks = intel.get('risk_alerts', [])

@@ -84,7 +84,7 @@ API/Celery
   → AnalysisService
   → StockAnalysisPipeline
   → PostgreSQL 历史 + Redis/Provider 实时状态 <!-- pragma: allowlist secret -->
-  → 技术分析 + 基本面 + 可选社交舆情
+  → 技术分析 + 基本面
   → StockReportAnalyzer → LLMClient
   → AnalysisHistory + 报告 + 通知
 ```

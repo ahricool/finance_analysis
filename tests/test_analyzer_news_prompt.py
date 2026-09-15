@@ -118,7 +118,7 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
             },
         }
 
-        prompt = analyzer._format_prompt(context, "恩捷股份", social_context=None)
+        prompt = analyzer._format_prompt(context, "恩捷股份")
 
         self.assertIn("主力资金流向（操作建议过滤器）", prompt)
         self.assertIn("主力净流入", prompt)
@@ -158,7 +158,6 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         prompt = analyzer._format_prompt(
             context,
             "药明康德",
-            social_context="2026-04-27 一季报超预期，订单增长。",
         )
 
         self.assertIn("空头排列 MA5<MA10<MA20", prompt)
@@ -194,7 +193,7 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
             },
         }
 
-        prompt = analyzer._format_prompt(context, "贵州茅台", social_context=None)
+        prompt = analyzer._format_prompt(context, "贵州茅台")
 
         self.assertIn("多头排列 MA5>MA10>MA20", prompt)
         self.assertIn("财报披露前波动可能放大", prompt)
@@ -232,7 +231,6 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         prompt = analyzer._format_prompt(
             context,
             "宁德时代",
-            social_context="2026-04-27 新产品发布，市场情绪回暖。",
         )
 
         self.assertIn("弱势空头，MA5<MA10 但 MA10≥MA20", prompt)
@@ -265,15 +263,12 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_prompt_limits_claims_to_supplied_evidence_and_keeps_social_context():
+def test_prompt_limits_claims_to_supplied_evidence():
     analyzer = StockReportAnalyzer(config=SimpleNamespace(report_language="zh"))
     context = {"code": "AAPL.US", "stock_name": "Apple", "date": "2026-09-15", "today": {}, "data_missing": True}
-    prompt = analyzer._format_prompt(context, "Apple", social_context="投资者讨论成交量放大")
+    prompt = analyzer._format_prompt(context, "Apple")
 
-    assert "投资者讨论成交量放大" in prompt
-    assert "观点不等于已证实事实" in prompt
     assert "禁止编造新闻、公告、评级或目标价" in prompt
     assert "数据缺失，无法判断" in prompt
     system_prompt = analyzer._get_analysis_system_prompt("zh", "AAPL.US")
-    assert "未提供时留空" in system_prompt
     assert "缺失时说明无法判断" in system_prompt
