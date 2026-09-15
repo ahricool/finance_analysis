@@ -18,17 +18,6 @@ class TestMarketReviewRuntimeCompatibility(unittest.TestCase):
     def _base_config() -> SimpleNamespace:
         return SimpleNamespace(
             llm=LLMConfig(),
-            bocha_api_keys=None,
-            tavily_api_keys=None,
-            anspire_api_keys=None,
-            brave_api_keys=None,
-            serpapi_api_keys=None,
-            minimax_api_keys=None,
-            searxng_base_urls=None,
-            searxng_public_instances_enabled=True,
-            news_max_age_days=3,
-            news_strategy_profile="short",
-            has_search_capability_enabled=lambda: False,
         )
 
     def test_build_market_review_runtime_with_unified_llm_config(self) -> None:
@@ -41,19 +30,15 @@ class TestMarketReviewRuntimeCompatibility(unittest.TestCase):
 
         import finance_analysis.analysis.stock_report_analyzer
         import finance_analysis.notification
-        import finance_analysis.search
 
         with patch.object(finance_analysis.analysis.stock_report_analyzer, "StockReportAnalyzer", return_value=analyzer) as analyzer_cls, \
-             patch.object(finance_analysis.notification.service, "NotificationService", return_value=notifier) as notifier_cls, \
-             patch.object(finance_analysis.search.service, "SearchService") as search_cls:
-            runtime_notifier, runtime_analyzer, runtime_search = build_market_review_runtime(config)
+             patch.object(finance_analysis.notification.service, "NotificationService", return_value=notifier) as notifier_cls:
+            runtime_notifier, runtime_analyzer = build_market_review_runtime(config)
 
         notifier_cls.assert_called_once_with(source_message=None)
         analyzer_cls.assert_called_once_with(config=config)
-        search_cls.assert_not_called()
         self.assertIs(runtime_notifier, notifier)
         self.assertIs(runtime_analyzer, analyzer)
-        self.assertIsNone(runtime_search)
 
     def test_has_configured_llm_runtime_returns_false_without_model_or_key(self) -> None:
         config = self._base_config()

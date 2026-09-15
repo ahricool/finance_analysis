@@ -152,3 +152,18 @@ cd web && pnpm run build && pnpm run lint && pnpm run test
 summary 路由返回 404；五个 Tab 全部 DESC（含未来事件）；cutoff 过滤 + 时区边界；无 cutoff 时保留未来消息；
 cutoff 与 cursor 联合分页无重复无遗漏；PostgreSQL 迁移删除笔记与 uid 并保留公共报告； <!-- pragma: allowlist secret -->
 前端 Tab 结构、Tab → filter 映射、DatePicker → `end_date`、四类圆角 Card 与财报详情 provider。
+
+## 新闻数据边界
+
+系统不维护通用互联网搜索，也不通过 LLM 或外部 Agent 自动补齐信息。
+
+- 个股分析使用已有行情、技术、基本面和可选社交舆情。风险判断必须有输入依据；
+  业绩信息或社交舆情缺失时直接说明，不生成无来源的新闻摘要、利好催化或分析师评级。
+- 大盘复盘仅使用行情、市场宽度、板块和内部结构化数据；数据缺失直接说明，仍可生成报告。
+- 美股收盘复盘只读取已持久化的新闻，空列表是正常状态，不阻断 LLM、报告或通知。
+- Longbridge 新闻由美股盘前新闻与美股盘中分析任务直接调用。
+  盘前任务持久化原文与使用关联，再写逐条结构化判断；盘中任务使用 Longbridge 新闻上下文。
+- `NewsIntel` 保存原始新闻，`NewsIntelUsage` 保存使用关联，`NewsAnalysis` 保存逐条分析。
+  Timeline 读取新闻及逐条分析；美股盘前、收盘和历史关联查询继续使用新闻存储。
+- 新闻入库接收 `database.news.NewsItem` 列表和来源，保留 URL 去重与观察时间语义。
+  历史分析仅按真实 query_id 关联读取新闻，不再按附近时间推测关联；已有历史数据无需迁移。

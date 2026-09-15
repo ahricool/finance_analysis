@@ -190,8 +190,6 @@ class ReportRenderingMixin:
                 
                 # 消息面/情绪面
                 news_lines = []
-                if result.news_summary:
-                    news_lines.append(f"**新闻摘要**：{result.news_summary}")
                 if hasattr(result, 'market_sentiment') and result.market_sentiment:
                     news_lines.append(f"**市场情绪**：{result.market_sentiment}")
                 if hasattr(result, 'hot_topics') and result.hot_topics:
@@ -219,8 +217,6 @@ class ReportRenderingMixin:
                     ])
                 
                 # 数据来源说明
-                if hasattr(result, 'search_performed') and result.search_performed:
-                    report_lines.append("*🔍 已执行联网搜索*")
                 if hasattr(result, 'data_sources') and result.data_sources:
                     report_lines.append(f"*📋 数据来源：{result.data_sources}*")
                 
@@ -302,7 +298,6 @@ class ReportRenderingMixin:
         technical_heading = "Technicals" if report_language == "en" else "技术面"
         ma_label = "Moving Averages" if report_language == "en" else "均线"
         volume_analysis_label = "Volume" if report_language == "en" else "量能"
-        news_heading = "News Flow" if report_language == "en" else "消息面"
         if getattr(config, 'report_renderer_enabled', False) and results:
             from finance_analysis.reporting.template_renderer import render
             out = render(
@@ -393,16 +388,7 @@ class ReportRenderingMixin:
                         for alert in risk_alerts:
                             report_lines.append(f"- {alert}")
                     # 利好催化
-                    catalysts = intel.get('positive_catalysts', [])
-                    if catalysts:
-                        report_lines.append("")
-                        report_lines.append(f"**✨ {labels['positive_catalysts_label']}**:")
-                        for cat in catalysts:
-                            report_lines.append(f"- {cat}")
                     # 最新消息
-                    if intel.get('latest_news'):
-                        report_lines.append("")
-                        report_lines.append(f"**📢 {labels['latest_news_label']}**: {intel['latest_news']}")
                     report_lines.append("")
                 
                 # ========== 核心结论 ==========
@@ -557,12 +543,6 @@ class ReportRenderingMixin:
                             report_lines.append(f"**{volume_analysis_label}**: {result.volume_analysis}")
                         report_lines.append("")
                     # 消息面
-                    if result.news_summary:
-                        report_lines.extend([
-                            f"### 📰 {news_heading}",
-                            f"{result.news_summary}",
-                            "",
-                        ])
                 
                 report_lines.extend([
                     "---",
@@ -709,13 +689,6 @@ class ReportRenderingMixin:
                     lines.append(f"- {str(risk)[:60]}")
             
             # 利好催化
-            catalysts = intel.get('positive_catalysts', [])
-            if catalysts:
-                lines.append("")
-                lines.append(f"✨ **{labels['positive_catalysts_label']}**:")
-                for cat in catalysts[:3]:
-                    lines.append(f"- {str(cat)[:60]}")
-        
         if info_added:
             lines.append("")
         

@@ -37,17 +37,6 @@
 - {{ alert }}
 {% endfor %}
 {% endif %}
-{% if intel.get('positive_catalysts') %}
-
-**✨ {{ labels.positive_catalysts_label }}**:
-{% for cat in intel.positive_catalysts %}
-- {{ cat }}
-{% endfor %}
-{% endif %}
-{% if intel.get('latest_news') %}
-
-**📢 {{ labels.latest_news_label }}**: {{ intel.latest_news }}
-{% endif %}
 
 {% endif %}
 

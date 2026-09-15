@@ -12,15 +12,6 @@ def _make_config() -> SimpleNamespace:
     return SimpleNamespace(
         max_workers=2,
         save_context_snapshot=False,
-        bocha_api_keys=[],
-        tavily_api_keys=[],
-        brave_api_keys=[],
-        serpapi_keys=[],
-        minimax_api_keys=[],
-        searxng_base_urls=[],
-        searxng_public_instances_enabled=False,
-        news_max_age_days=7,
-        news_strategy_profile="short",
         enable_realtime_quote=False,
         enable_chip_distribution=False,
         social_sentiment_api_key="",
@@ -37,34 +28,12 @@ def _build_pipeline(config: SimpleNamespace) -> StockAnalysisPipeline:
         return StockAnalysisPipeline(config=config, owner_uid=1)
 
 
-def test_search_service_init_failure_logs_traceback_and_failure_state(caplog):
-    config = _make_config()
-    social_service = MagicMock()
-    social_service.is_available = False
-
-    with patch("finance_analysis.analysis.pipeline.SearchService", side_effect=RuntimeError("search init boom")), \
-         patch("finance_analysis.analysis.pipeline.SocialSentimentService", return_value=social_service), \
-         caplog.at_level(logging.WARNING, logger="finance_analysis.analysis.pipeline"):
-        pipeline = _build_pipeline(config)
-
-    assert pipeline.search_service is None
-
-    init_failure_records = [
-        record for record in caplog.records if "搜索服务初始化失败，将以无搜索模式运行" in record.message
-    ]
-    assert len(init_failure_records) == 1
-    assert init_failure_records[0].exc_info is not None
-    assert "搜索服务未启用（初始化失败或依赖缺失）" in caplog.text
-    assert "搜索服务未启用（未配置搜索能力）" not in caplog.text
 
 
 def test_social_sentiment_init_failure_logs_traceback(caplog):
     config = _make_config()
-    search_service = MagicMock()
-    search_service.is_available = False
 
-    with patch("finance_analysis.analysis.pipeline.SearchService", return_value=search_service), \
-         patch("finance_analysis.analysis.pipeline.SocialSentimentService", side_effect=RuntimeError("social init boom")), \
+    with patch("finance_analysis.analysis.pipeline.SocialSentimentService", side_effect=RuntimeError("social init boom")), \
          caplog.at_level(logging.WARNING, logger="finance_analysis.analysis.pipeline"):
         pipeline = _build_pipeline(config)
 

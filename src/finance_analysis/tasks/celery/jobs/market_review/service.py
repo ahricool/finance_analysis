@@ -21,14 +21,13 @@ class MarketReviewTaskService:
         from finance_analysis.market_review.service import run_market_review
 
         config = get_pipeline_config()
-        notifier, analyzer, search_service = build_market_review_runtime(
+        notifier, analyzer = build_market_review_runtime(
             config,
             source_message=bot_message_from_payload(bot_message),
         )
         report = run_market_review(
             notifier=notifier,
             analyzer=analyzer,
-            search_service=search_service,
             send_notification=send_notification,
             override_region=override_region,
             owner_uid=owner_uid,

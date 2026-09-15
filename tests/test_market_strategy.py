@@ -34,14 +34,14 @@ class TestMarketAnalyzerStrategyPrompt(unittest.TestCase):
 
     def test_cn_prompt_contains_strategy_plan_section(self):
         analyzer = MarketAnalyzer(region="cn")
-        prompt = analyzer._build_review_prompt(MarketOverview(date="2026-02-24"), [])
+        prompt = analyzer._build_review_prompt(MarketOverview(date="2026-02-24"))
 
         self.assertIn("明日交易计划", prompt)
         self.assertIn("A股市场三段式复盘策略", prompt)
 
     def test_us_prompt_contains_strategy_plan_section(self):
         analyzer = MarketAnalyzer(region="us")
-        prompt = analyzer._build_review_prompt(MarketOverview(date="2026-02-24"), [])
+        prompt = analyzer._build_review_prompt(MarketOverview(date="2026-02-24"))
 
         self.assertIn("Strategy Plan", prompt)
         self.assertIn("US Market Regime Strategy", prompt)
@@ -50,7 +50,7 @@ class TestMarketAnalyzerStrategyPrompt(unittest.TestCase):
         with patch("finance_analysis.market_review.analyzer.get_pipeline_config", return_value=SimpleNamespace(report_language="en")):
             analyzer = MarketAnalyzer(region="cn")
 
-        prompt = analyzer._build_review_prompt(MarketOverview(date="2026-02-24"), [])
+        prompt = analyzer._build_review_prompt(MarketOverview(date="2026-02-24"))
 
         self.assertIn("# Today's Market Data", prompt)
         self.assertIn("### 1. Market Summary", prompt)

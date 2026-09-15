@@ -58,7 +58,7 @@ CN_BLUEPRINT = MarketStrategyBlueprint(
     principles=[
         "先看指数方向，再看量能结构，最后看板块持续性。",
         "结论必须映射到仓位、节奏与风险控制动作。",
-        "判断使用当日数据与近3日新闻，不臆测未验证信息。",
+        "判断使用已提供的当日结构化数据，不臆测未验证信息。",
     ],
     dimensions=[
         StrategyDimension(
@@ -136,7 +136,7 @@ HK_BLUEPRINT = MarketStrategyBlueprint(
     principles=[
         "先看恒指/恒科/国企指数方向，再看南向资金情绪，最后看板块持续性。",
         "结论必须映射到仓位、节奏与风险控制动作。",
-        "判断使用当日数据与近3日新闻，不臆测未验证信息。",
+        "判断使用已提供的当日结构化数据，不臆测未验证信息。",
     ],
     dimensions=[
         StrategyDimension(

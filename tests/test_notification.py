@@ -262,7 +262,6 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
             risk_warning="Watch for a failed breakout.",
             ma_analysis="Price remains above MA20.",
             volume_analysis="Volume is steady.",
-            news_summary="Product cycle remains supportive.",
         )
 
         out = service.generate_dashboard_report([result], report_date="2026-03-19")
@@ -272,7 +271,7 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertIn("Technicals", out)
         self.assertIn("Moving Averages", out)
         self.assertIn("Volume", out)
-        self.assertIn("News Flow", out)
+        self.assertNotIn("News Flow", out)
         self.assertNotIn("操作理由", out)
         self.assertNotIn("风险提示", out)
         self.assertNotIn("技术面", out)

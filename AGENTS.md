@@ -68,7 +68,6 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
   trend_following/         多市场趋势跟踪领域模型与服务
   market_review/           市场复盘、交易日历、运行时配置
   market_intelligence/     美股社交舆情适配
-  search/                  多搜索 Provider 及统一搜索服务
   llm/                     API / SSH CLI 调用、重试、审计日志与用量统计
   reporting/               报告 schema、本地化、Jinja/Markdown/图片渲染
   notification/            路由、降噪及 Telegram/ntfy 与消息持久化
@@ -93,7 +92,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 
 1. Web 调 `POST /api/v1/analysis/analyze`；异步请求由 `tasks/queue.py` 发布 Celery 任务，同步请求直接走 `AnalysisService`。
 2. `StockAnalysisPipeline` 要求 PostgreSQL 已有目标前复权日线；普通分析不负责补写历史行情。 <!-- pragma: allowlist secret -->
-3. `MarketDataService` 聚合实时 Quote、证券信息及可选基本面；分析还会执行技术指标、新闻搜索和可选社交舆情。
+3. `MarketDataService` 聚合实时 Quote、证券信息及可选基本面；分析还会执行技术指标和可选社交舆情。
 4. StockReportAnalyzer 构造 prompt，经 LLMClient 调用并解析为 `AnalysisResult`。
 5. 分析历史、上下文和 LLM 用量写 PostgreSQL；报告经 `reporting/` 渲染，并可由 `notification/` 保存或推送。 <!-- pragma: allowlist secret -->
 6. 任务状态始终读 PostgreSQL `task` 记录，不从 Redis 推断。 <!-- pragma: allowlist secret -->
@@ -145,7 +144,6 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 - 基础设施：`DATABASE_URL`（只支持 PostgreSQL）、`REDIS_URL`、`DATA_DIR`、`SECRET_KEY`。 <!-- pragma: allowlist secret -->
 - 服务/CORS：`SERVER_HOST`、`SERVER_PORT`、`CORS_ORIGINS`、`CORS_ALLOW_ALL`。
 - LLM：`LLM_*`；统一调用在 `llm/`，不要在业务模块直接创建厂商 SDK client。
-- 搜索：`ANSPIRE_*`、`BOCHA_*`、`MINIMAX_*`、`TAVILY_*`、`BRAVE_*`、`SERPAPI_*`、`SEARXNG_*`。
 - 行情：`TICKFLOW_*`、`LONGBRIDGE_*`、`MARKET_DATA_*`、`REALTIME_REDIS_URL`、`MARKET_STREAM_*`。
 - 量化：`QUANT_ARTIFACT_ROOT`、`QUANT_MIN_UNIVERSE_COVERAGE`。
 - 通知：`TELEGRAM_*`、`NTFY_*`。
@@ -301,3 +299,10 @@ API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`�
 ## Market Structure / Trend Health
 
 `market_structure/` 独立计算 CN/US 收盘市场结构，任务 `market_structure_cn/us` 在当地 18:50 读取已存 ETF Ranking 与 DB 日线；API `/api/v1/market-structure` 只读 PostgreSQL snapshot。手动回填复用 `/market-structure/run` 的日期范围任务。Trend lifecycle/fragility 集成现有正式/preview 计算链，分别保存 PostgreSQL/Redis，不改交易规则。范围、公式、缺失数据语义见 `docs/market-structure.md`。
+
+## 信息输入边界
+
+个股分析使用行情、技术、基本面及可选社交舆情，大盘复盘只使用市场结构化数据。
+系统不负责通用互联网检索。Longbridge 金融新闻保留给美股盘前新闻与盘中分析；
+美股收盘复盘只读已持久化新闻，空新闻不阻断报告或通知。新闻存储与调用方见
+`docs/investment-timeline.md` 的“新闻数据边界”。

@@ -267,23 +267,18 @@ def test_source_providers_fall_back_to_the_primary_provider(db):
 
 
 def test_news_usage_preserves_multiple_symbols_and_queries(db):
-    from finance_analysis.search import SearchResponse, SearchResult
+    from finance_analysis.database.news import NewsItem
 
     manager = object.__new__(DatabaseManager)
     manager._run_write_transaction = db._run_write_transaction
     manager.get_session = db.get_session
-    response = SearchResponse(
-        query="chips",
-        provider="test",
-        success=True,
-        results=[SearchResult(title="Chip demand", snippet="Growth", url="https://example.com/shared", source="test")],
-    )
+    response = [NewsItem(title="Chip demand", snippet="Growth", url="https://example.com/shared", source="test")]
     for symbol, usage, query in [
         ("NVDA", "premarket_news", "q1"),
         ("AMD", "intraday_news", "q2"),
         ("AMD", "intraday_news", "q2"),
     ]:
-        manager.save_news_intel(code=symbol, usage_type=usage, response=response, query_context={"query_id": query})
+        manager.save_news_intel(code=symbol, usage_type=usage, items=response, provider="longbridge", query_context={"query_id": query})
     with db.get_session() as session:
         assert session.scalar(select(func.count()).select_from(NewsIntel)) == 1
         assert session.scalar(select(func.count()).select_from(NewsIntelUsage)) == 2
@@ -405,7 +400,7 @@ def test_news_job_persists_each_selected_fact_analysis_only(db, monkeypatch):
     from unittest.mock import MagicMock
 
     from finance_analysis.integrations.market_data.providers.longbridge.news import LongbridgeNewsRecord
-    from finance_analysis.search import SearchResponse, SearchResult
+    from finance_analysis.database.news import NewsItem
     from finance_analysis.tasks.celery.jobs.us_premarket_news.domain_service import USPremarketNewsService
 
     manager = object.__new__(DatabaseManager)
@@ -418,16 +413,11 @@ def test_news_job_persists_each_selected_fact_analysis_only(db, monkeypatch):
         manager.save_news_intel(
             code=symbol,
             usage_type="premarket_news",
-            response=SearchResponse(
-                query="chips",
-                provider="test",
-                success=True,
-                results=[
-                    SearchResult(
+            provider="longbridge", items=[
+                    NewsItem(
                         title="Growth", snippet="Orders", url=url, source="test", published_date=NOW.isoformat()
                     )
                 ],
-            ),
             query_context={"query_id": kwargs["query_id"]},
         )
         return [LongbridgeNewsRecord(news_id="job", title="Growth", description="Orders", url=url, published_at=NOW)]

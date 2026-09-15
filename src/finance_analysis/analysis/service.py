@@ -169,7 +169,6 @@ class AnalysisService:
                 "take_profit": sniper_points.get("take_profit"),
             },
             "details": {
-                "news_summary": result.news_summary,
                 "technical_analysis": result.technical_analysis,
                 "fundamental_analysis": result.fundamental_analysis,
                 "risk_warning": result.risk_warning,
