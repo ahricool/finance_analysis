@@ -21,7 +21,7 @@ def build_command(config: LLMConfig, timeout: float) -> str:
     else:
         command = (
             "codex exec --json --sandbox read-only --skip-git-repo-check --ephemeral"
-            " --ignore-user-config --ignore-rules -c approval_policy='\"never\"'"
+            " --ignore-user-config --ignore-rules -c approval_policy=never"
         )
         if config.cli_model:
             command += " --model " + shlex.quote(config.cli_model)

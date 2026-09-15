@@ -219,7 +219,8 @@ class PremarketNewsLLMAnalyzer:
                     temperature=0.1,
                     max_tokens=5000,
                     call_type="us_premarket_news_importance",
-                )
+                ),
+                validator=lambda text: parse_llm_batch_results(text, strict=True),
             )
             self.model_used = result.model
             return normalize_importance_results(parse_llm_batch_results(result.text))
@@ -246,7 +247,8 @@ class PremarketNewsLLMAnalyzer:
                     temperature=0.1,
                     max_tokens=6000,
                     call_type="us_premarket_news_impact",
-                )
+                ),
+                validator=lambda text: parse_llm_batch_results(text, strict=True),
             )
             self.model_used = result.model
             return normalize_impact_results(parse_llm_batch_results(result.text))

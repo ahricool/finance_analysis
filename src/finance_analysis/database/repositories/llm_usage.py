@@ -84,15 +84,16 @@ class LLMUsageMixin:
                 .order_by(desc(func.sum(LLMUsage.total_tokens)))
             ).all()
 
-            # Breakdown by model
+            # Normalize missing models before grouping to avoid duplicate unknown rows.
+            model = func.coalesce(LLMUsage.model, "unknown")
             by_model_rows = session.execute(
                 select(
-                    LLMUsage.model,
+                    model.label("model"),
                     func.count(LLMUsage.id).label("calls"),
                     func.coalesce(func.sum(LLMUsage.total_tokens), 0).label("tokens"),
                 )
                 .where(base_filter)
-                .group_by(LLMUsage.model)
+                .group_by(model)
                 .order_by(desc(func.sum(LLMUsage.total_tokens)))
             ).all()
 
@@ -104,7 +105,7 @@ class LLMUsageMixin:
             ],
             "by_model": [
                 {
-                    "model": r.model or "unknown",
+                    "model": r.model,
                     "calls": r.calls,
                     "total_tokens": r.tokens,
                 }

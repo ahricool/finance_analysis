@@ -288,7 +288,8 @@ class MarketCalendarImportanceService:
                 temperature=0.1,
                 max_tokens=6000,
                 call_type="market_calendar_importance",
-            )
+            ),
+            validator=lambda text: parse_llm_batch_results(text, strict=True),
         )
         expected_ids = [int(item["event"].id) for item in batch]
         normalized = normalize_importance_results(parse_llm_batch_results(result.text), expected_ids)

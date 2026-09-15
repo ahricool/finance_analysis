@@ -75,14 +75,15 @@ def parse_llm_json_response(text: Optional[str]) -> Optional[Dict[str, Any]]:
     return parsed if isinstance(parsed, dict) else None
 
 
-def parse_llm_batch_results(text: Optional[str]) -> List[Dict[str, Any]]:
-    """Parse a batched response into a list of per-candidate verdict dicts."""
+def parse_llm_batch_results(text: Optional[str], *, strict: bool = False) -> List[Dict[str, Any]]:
+    """Parse verdicts; strict mode raises on parse failure for the shared retry validator."""
     parsed = parse_llm_json_response(text)
     if isinstance(parsed, dict):
         results = parsed.get("results")
         if isinstance(results, list):
             return [item for item in results if isinstance(item, dict)]
-        return []
+    if strict:
+        raise ValueError("LLM response is not a JSON batch")
     return []
 
 
@@ -220,7 +221,8 @@ class AShareIntradayLLMJudge:
                     max_tokens=max_tokens,
                     timeout=LLM_TIMEOUT,
                     call_type="a_share_intraday_judge",
-                )
+                ),
+                validator=lambda text: parse_llm_batch_results(text, strict=True),
             )
             results = parse_llm_batch_results(getattr(result, "text", None))
         except Exception as exc:

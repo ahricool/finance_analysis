@@ -168,21 +168,26 @@ def parse_llm_json_response(text: Optional[str]) -> Optional[Dict[str, Any]]:
     return parsed if isinstance(parsed, dict) else None
 
 
-def parse_llm_batch_results(text: Optional[str]) -> List[Dict[str, Any]]:
+def parse_llm_batch_results(text: Optional[str], *, strict: bool = False) -> List[Dict[str, Any]]:
     """Parse a batched response into a list of per-candidate verdict dicts.
 
     Accepts either ``{"results": [...]}`` or a bare JSON array, and tolerates
     fenced/malformed output via :func:`parse_llm_json_response`'s repair path.
+    Strict mode raises on parse failure; valid empty batches still return [].
     """
     parsed = parse_llm_json_response(text)
     if isinstance(parsed, dict):
         results = parsed.get("results")
         if isinstance(results, list):
             return [item for item in results if isinstance(item, dict)]
+        if strict:
+            raise ValueError("LLM response is not a JSON batch")
         return []
 
     # ``parse_llm_json_response`` only returns dicts; retry for a bare array.
     if not text:
+        if strict:
+            raise ValueError("LLM response is empty")
         return []
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -200,9 +205,13 @@ def parse_llm_batch_results(text: Optional[str]) -> List[Dict[str, Any]]:
 
             loaded = json.loads(repair_json(snippet))
         except Exception:
+            if strict:
+                raise ValueError("LLM response is not a JSON batch") from None
             return []
     if isinstance(loaded, list):
         return [item for item in loaded if isinstance(item, dict)]
+    if strict:
+        raise ValueError("LLM response is not a JSON batch")
     return []
 
 
@@ -279,7 +288,8 @@ class IntradayLLMJudge:
                     temperature=0.2,
                     max_tokens=max_tokens,
                     call_type="intraday_judge",
-                )
+                ),
+                validator=lambda text: parse_llm_batch_results(text, strict=True),
             )
 
             results = parse_llm_batch_results(result.text)
@@ -335,6 +345,11 @@ class IntradayLLMJudge:
                     "market_context": market_context,
                 },
             )
+
+            def validate_response(text: str) -> None:
+                if parse_llm_json_response(text) is None:
+                    raise ValueError("LLM response is not a JSON object")
+
             result = client.complete_text(
                 LLMRequest(
                     system_prompt="你是美股盘中异动提醒系统的 JSON 判定器，只输出 JSON。",
@@ -342,8 +357,8 @@ class IntradayLLMJudge:
                     temperature=0.2,
                     max_tokens=1200,
                     call_type="intraday_judge",
-
-                )
+                ),
+                validator=validate_response,
             )
             parsed = parse_llm_json_response(result.text)
             if parsed is None:

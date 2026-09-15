@@ -64,7 +64,7 @@ stdin 发送一条 `{"event":"user","message":{"content":"完整 prompt"}}` JSON
 ### Codex（已实现）
 
 ```sh
-umask 077; mkdir -p /tmp/finance-analysis-llm && cd /tmp/finance-analysis-llm && exec codex exec --json --sandbox read-only --skip-git-repo-check --ephemeral --ignore-user-config --ignore-rules -c approval_policy='"never"' -
+umask 077; mkdir -p /tmp/finance-analysis-llm && cd /tmp/finance-analysis-llm && exec codex exec --json --sandbox read-only --skip-git-repo-check --ephemeral --ignore-user-config --ignore-rules -c approval_policy=never -
 ```
 
 可选追加 `--model` 和 `-c model_reasoning_effort='"high"'`（在结尾 `-` 之前）。
