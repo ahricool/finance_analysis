@@ -38,7 +38,10 @@ export const trendFollowingApi = {
     const { data } = await apiClient.get('/api/v1/trend-following/breadth-history', {
       params: { market, days: 30, include_preview: includePreview, ...(asOf ? { as_of: asOf } : {}) },
     });
-    return toCamelCase(data);
+    const result = toCamelCase<TrendBreadthResponse>(data);
+    // State names are enum keys, not DTO field names.
+    result.points.forEach((point, index) => { point.stateCounts = data.points[index].state_counts; });
+    return result;
   },
   async transitions(market: TrendMarket, days: 1 | 3 | 5 = 3, direction: TransitionDirection = 'all',
     asOf?: string, includePreview = false): Promise<TrendTransitionsResponse> {

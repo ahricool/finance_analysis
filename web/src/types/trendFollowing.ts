@@ -164,6 +164,7 @@ export interface TrendPreviewStatusResponse {
 
 
 export interface TrendBreadthPoint {
+  stateCounts: Record<TrendState, number>;
   tradeDate: string;
   rankableCount: number | null;
   trendBreadth: number | null;

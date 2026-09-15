@@ -115,17 +115,20 @@ it('loads lightweight preview status and preserves missing-cache null semantics'
 });
 
 it('loads aggregated breadth with market, cutoff and preview mode', async () => {
+  const counts = { IDLE: 10, WATCHING: 20, CANDIDATE: 10, TRENDING: 50, WEAKENING: 5, BROKEN: 5 };
   vi.mocked(apiClient.get).mockResolvedValue({ data: {
     market: 'US', dates: ['2026-09-11', '2026-09-14'], official_count: 1,
     preview_date: '2026-09-14', preview_time: null, generated_at: null, warnings: [],
-    points: [{ trade_date: '2026-09-14', trend_breadth: 0.5, is_preview: true }],
+    points: [{ trade_date: '2026-09-14', trend_breadth: 0.5, is_preview: true, state_counts: counts }],
   } });
   const result = await trendFollowingApi.breadthHistory('US', '2026-09-14', true);
   expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/breadth-history', {
     params: { market: 'US', days: 30, as_of: '2026-09-14', include_preview: true },
   });
   expect(result).toMatchObject({ officialCount: 1, previewDate: '2026-09-14',
-    points: [{ tradeDate: '2026-09-14', trendBreadth: 0.5, isPreview: true }] });
+    points: [{ tradeDate: '2026-09-14', trendBreadth: 0.5, isPreview: true, stateCounts: counts }] });
+  expect(result.points[0]!.stateCounts.TRENDING).toBe(50);
+  expect(result.points[0]!.stateCounts).not.toHaveProperty('trending');
 });
 it('sends bounded transition filters and maps rank delta', async () => {
   vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [{ rank_delta: 9, is_preview: false }] } });

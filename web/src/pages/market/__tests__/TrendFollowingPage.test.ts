@@ -457,6 +457,51 @@ describe('TrendFollowingPage', () => {
     await header!.trigger('click');
     expect(order()).toEqual(['C.US', 'A.US', 'B.US', 'D.US']);
   });
+  it('waits for an in-flight Preview when a transition opens detail without another download', async () => {
+    const payload = { ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z',
+      dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] };
+    mockPreview(payload);
+    let resolvePreview!: (value: typeof payload) => void;
+    apiMocks.preview.mockReturnValueOnce(new Promise(resolve => { resolvePreview = resolve; }));
+    apiMocks.detailHistory.mockResolvedValue({ history: [] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    const overview = wrapper.getComponent({ name: 'TrendMarketOverview' });
+    // Deliver the transition click during the mode switch, before the loading render.
+    void wrapper.get('[data-testid="research-mode-preview"]').trigger('click');
+    overview.vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-28', preview: true });
+    await flushPromises();
+    expect(apiMocks.preview).toHaveBeenCalledTimes(1);
+    expect(apiMocks.detailHistory).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
+    resolvePreview(payload);
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-detail"]')!.textContent).toContain('平安银行');
+    expect(apiMocks.detailHistory).toHaveBeenCalledWith('000001.SZ', 'CN', '2026-08-28');
+    expect(apiMocks.detail).not.toHaveBeenCalled();
+    wrapper.getComponent({ name: 'TrendMarketOverview' }).vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-28', preview: true });
+    await flushPromises();
+    expect(apiMocks.preview).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('reports an explicit error when the loaded Preview has no matching transition stock', async () => {
+    mockPreview({ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z',
+      dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    wrapper.getComponent({ name: 'TrendMarketOverview' }).vm.$emit('select', {
+      code: 'MISSING.US', tradeDate: '2026-08-28', preview: true,
+    });
+    await flushPromises();
+    const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
+    expect(dialog.textContent).toContain('Preview 详情不可用');
+    expect(dialog.textContent).toContain('当前 Preview 中未找到 MISSING.US');
+    expect(apiMocks.preview).toHaveBeenCalledTimes(1);
+    expect(apiMocks.detail).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it('loads only status for official, lazily downloads Preview once, and refreshes the visible mode', async () => {
     mockPreview({ ...ranking('CN'), status: 'completed', previewTime: '2026-08-28T10:00:00Z', dataAsOf: null, provider: 'yfinance', snapshots: [snapshot()] });
     const wrapper = mount(TrendFollowingPage);

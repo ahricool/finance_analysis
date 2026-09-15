@@ -7,7 +7,7 @@ import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import { RefreshCcw } from 'lucide-vue-next';
 import { toast } from 'vue-sonner';
 import { trendFollowingApi } from '@/api/trendFollowing';
-import { getParsedApiError, type ParsedApiError } from '@/api/error';
+import { createParsedApiError, getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import SortableTableHeader from '@/components/stocks/SortableTableHeader.vue';
@@ -351,24 +351,31 @@ async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: stri
   detailMode.value = item.preview === undefined ? dataMode.value : item.preview ? 'preview' : 'official';
   detailOpen.value = true;
   detailError.value = null;
+  detailLoading.value = true;
+  detail.value = null;
   if (detailMode.value === 'preview') {
-    const snapshot = previewPayload.value?.snapshots.find(row => row.code === item.code)
-      ?? null;
-    detail.value = snapshot
-      ? {
-          market: market.value,
-          metadata: { market: market.value, code: snapshot.code, name: snapshot.name },
-          latest: snapshot,
-          history: [],
-          marketContext: summary.value,
-        }
-      : null;
+    if (item.preview === true && !previewPayload.value) await loadPreview();
+    if (requestId !== detailRequestId) return;
+    const snapshot = previewPayload.value?.snapshots.find(row => row.code === item.code);
+    if (!snapshot) {
+      detailError.value = previewError.value ?? createParsedApiError({
+        title: 'Preview 详情不可用',
+        message: `当前 Preview 中未找到 ${item.code}，请刷新后重试。`,
+      });
+      detailLoading.value = false;
+      return;
+    }
+    detail.value = {
+      market: market.value,
+      metadata: { market: market.value, code: snapshot.code, name: snapshot.name },
+      latest: snapshot,
+      history: [],
+      marketContext: summary.value,
+    };
     detailLoading.value = false;
     void loadDetailHistory();
     return;
   }
-  detailLoading.value = true;
-  detail.value = null;
   try {
     const response = await trendFollowingApi.detail(
       item.code,

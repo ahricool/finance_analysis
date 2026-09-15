@@ -11,6 +11,7 @@ vi.mock('vue-echarts', () => ({ default: { name: 'VChart', props: ['option', 'au
 const history: TrendBreadthResponse = {
   market: 'US', dates: [], officialCount: 6, previewDate: null, previewTime: null, generatedAt: null, warnings: [],
   points: Array.from({ length: 6 }, (_, i) => ({ tradeDate: `2026-09-${String(i * 2 + 1).padStart(2, '0')}`,
+    stateCounts: { IDLE: 20 - i, WATCHING: 10, CANDIDATE: 10, TRENDING: 40 + i * 2, WEAKENING: 10 - i, BROKEN: 10 },
     rankableCount: 100, trendBreadth: 0.4 + i * 0.02, participation: 0.5 + i * 0.02,
     deteriorationBreadth: 0.2 - i * 0.01, inactive: 0.3 - i * 0.01, emerging: 0.1,
     healthy: 0.4 + i * 0.02, deteriorating: 0.2 - i * 0.01, coverage: 1, warning: null, isPreview: false })),
