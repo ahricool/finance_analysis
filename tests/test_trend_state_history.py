@@ -35,7 +35,7 @@ def source(monkeypatch):
                 if i == 59 and day == sessions[-2]:
                     continue
                 row = _snapshot(snapshot_id=snapshot_id, code=f"S{i:02}.US", instrument_id=i + 1,
-                                trade_date=day, state="WEAKENING" if i == 59 else "ENTRY")
+                                trade_date=day, state="WEAKENING" if i == 59 else "CANDIDATE")
                 row.rank = 60 - i if day == sessions[-1] else i + 1
                 row.fragility_score = 18.5
                 row.trend_duration_days = 14
@@ -89,7 +89,7 @@ def make_preview(sessions):
     return {
         "market": "US", "trade_date": TODAY.isoformat(), "status": "completed", "preview_time": None,
         "snapshots": [
-            {"code": f"S{i:02}.US", "name": f"Stock {i}", "rank": i + 1, "state": "HOLDING", "action": "HOLD"}
+            {"code": f"S{i:02}.US", "name": f"Stock {i}", "rank": i + 1, "state": "TRENDING"}
             for i in reversed(range(60))
         ],
     }
@@ -104,20 +104,20 @@ def test_preview_top_50_with_extra_31st_column_and_bounded_batch(source):
     assert result["official_count"] == 30 and result["preview_date"] == TODAY
     assert result["anchor_date"] == TODAY
     assert [item["code"] for item in result["items"]] == [f"S{i:02}.US" for i in range(50)]
-    assert result["items"][0]["history"][-1]["state"] == "HOLDING"
-    assert result["items"][0]["history"][-2]["state"] == "ENTRY"
+    assert result["items"][0]["history"][-1]["state"] == "TRENDING"
+    assert result["items"][0]["history"][-2]["state"] == "CANDIDATE"
 
 
 def test_same_day_official_wins_for_entire_column_and_top_list(source):
     database, sessions, preview, _ = source
     preview.return_value = make_preview(sessions)
     with database.session_scope() as session:
-        row = _snapshot(snapshot_id=5001, code="S59.US", instrument_id=60, trade_date=TODAY, state="EXIT")
+        row = _snapshot(snapshot_id=5001, code="S59.US", instrument_id=60, trade_date=TODAY, state="BROKEN")
         session.add(row)
     result = state_history.get_state_history("US", include_preview=True)
     assert result["preview_date"] is None and len(result["dates"]) == 30
     assert [item["code"] for item in result["items"]] == ["S59.US"]
-    assert result["items"][0]["history"][-1]["state"] == "EXIT"
+    assert result["items"][0]["history"][-1]["state"] == "BROKEN"
     preview.assert_not_called()
 
 

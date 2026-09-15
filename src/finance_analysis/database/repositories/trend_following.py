@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import delete, desc, func, or_, select
+from sqlalchemy import delete, desc, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from finance_analysis.core.time import utc_now
@@ -22,8 +22,7 @@ SORT_FIELDS = {
     "trend_duration_days": TrendFollowingSnapshot.trend_duration_days,
     "fragility_score": TrendFollowingSnapshot.fragility_score,
 }
-MEANINGFUL_STATES = {"CANDIDATE", "ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE", "EXIT"}
-ACTIVE_POSITION_STATES = {"ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE"}
+MEANINGFUL_STATES = {"CANDIDATE", "TRENDING", "WEAKENING", "BROKEN"}
 
 
 class TrendFollowingRepository:
@@ -231,7 +230,7 @@ class TrendFollowingRepository:
     @staticmethod
     def _normalize_snapshot(item: dict[str, Any]) -> dict[str, Any]:
         """Materialize the ORM schema before either bulk INSERT path sees a record."""
-        defaults = {"features": dict, "score_breakdown": dict, "reasons": list, "units": lambda: 0}
+        defaults = {"features": dict, "score_breakdown": dict, "reasons": list}
         record: dict[str, Any] = {}
         for column in TrendFollowingSnapshot.__table__.columns:
             name = column.name
@@ -480,7 +479,7 @@ class TrendFollowingRepository:
         return payload
 
     def dashboard_rows(self, trade_date: date) -> list[dict]:
-        """One scalar projection for ranking, lifecycle and portfolio; no eager ORM joins."""
+        """One scalar projection for ranking and lifecycle; no eager ORM joins."""
         from finance_analysis.trend_following.read_models import DASHBOARD_FIELDS, FEATURE_FIELDS
 
         snapshot = TrendFollowingSnapshot
@@ -499,7 +498,7 @@ class TrendFollowingRepository:
 
     def change_rows(self, trade_date: date) -> list[dict]:
         snapshot = TrendFollowingSnapshot
-        fields = ("code", "state", "action", "pending_action", "rank", "trend_score", "rs_score", "alpha_score")
+        fields = ("code", "state", "rank", "trend_score", "rs_score", "alpha_score")
         with self.db.get_session() as session:
             return [dict(row) for row in session.execute(
                 select(*(getattr(snapshot, key) for key in fields))
@@ -532,26 +531,10 @@ class TrendFollowingRepository:
                 .where(
                     TrendFollowingSnapshot.market == self.market,
                     TrendFollowingSnapshot.trade_date == trade_date,
-                    or_(TrendFollowingSnapshot.state.in_(MEANINGFUL_STATES), TrendFollowingSnapshot.action == "ADD"),
+                    TrendFollowingSnapshot.state.in_(MEANINGFUL_STATES),
                 )
                 .order_by(TrendFollowingSnapshot.rank, TrendFollowingSnapshot.code)
                 .limit(limit)
-            ).all()
-            return [self._snapshot_payload(row, str(name)) for row, name in rows]
-
-    def positions_by_date(self, trade_date: date) -> list[dict]:
-        """Return the strategy's active theoretical positions for one exact market date."""
-        with self.db.get_session() as session:
-            rows = session.execute(
-                select(TrendFollowingSnapshot, Instrument.name)
-                .join(Instrument, Instrument.id == TrendFollowingSnapshot.instrument_id)
-                .where(
-                    TrendFollowingSnapshot.market == self.market,
-                    TrendFollowingSnapshot.trade_date == trade_date,
-                    TrendFollowingSnapshot.state.in_(ACTIVE_POSITION_STATES),
-                    TrendFollowingSnapshot.units > 0,
-                )
-                .order_by(desc(TrendFollowingSnapshot.alpha_score), TrendFollowingSnapshot.code)
             ).all()
             return [self._snapshot_payload(row, str(name)) for row, name in rows]
 

@@ -1,6 +1,6 @@
 # Market Structure 与 Trend Health
 
-这两组能力用于市场结构解释和趋势风险感知。正式指标在后台计算并写 PostgreSQL；请求只读取、组装和格式化 snapshot，不扫描日线、不重跑 feature/ranking。不修改现有交易状态机、仓位规则或 Qlib 模型。
+这两组能力用于市场结构解释和趋势风险感知。正式指标在后台计算并写 PostgreSQL；请求只读取、组装和格式化 snapshot，不扫描日线、不重跑 feature/ranking。趋势状态仅描述股票趋势；Qlib 模型不变。
 
 ## 复用与业务边界
 
@@ -135,7 +135,7 @@ Fragility 不使用 trend_score 或 alpha_score 的补数。稳定的 90 分趋�
 
 ### Lifecycle 最终规则（按优先级）
 
-1. `trend_candidate=False` → BROKEN。复用现有四条件至少三项通过的绝对趋势定义；不把资金/风险原因的 EXIT 自动当成绝对趋势破坏。
+1. `trend_candidate=False` → BROKEN。复用现有四条件至少三项通过的绝对趋势定义；它与六态 state 的 BROKEN 判断独立。
 2. 当前没有可用 feature/duration（包括仅携带旧状态的标的）→ null。
 3. 至少两项 Fragility 分量 ≥ 50 → EXHAUSTION；candidate 此时仍成立。
 4. duration ≤ 3，acceleration > 0，quality ≥ 50 → IGNITION。
@@ -146,7 +146,7 @@ Fragility 不使用 trend_score 或 alpha_score 的补数。稳定的 90 分趋�
 
 原实现把 MATURE 与严格 healthy 条件绑定，并对未匹配的所有年龄统一 fallback EMERGING，导致 30D / 35D 趋势仅因 acceleration=-0.08 就被标成早期趋势。本修复只增加当前 snapshot 的年龄约束，不依赖前日 lifecycle，不创建状态机，不调整 Fragility 定义或权重。MATURE 不代表强趋势、买入或卖出。
 
-MATURE 不产生 SELL。生命周期只增加解释字段，不修改 state/setup/action。
+MATURE 仅描述成熟阶段。生命周期为解释字段，不改变 state/setup。
 
 ## 页面与 Preview
 
@@ -217,7 +217,7 @@ Lifecycle Age / historical eligibility review 验证：相关 Market Structure�
 `limit=50`（1–100）、可选 `as_of=YYYY-MM-DD` 和 `include_preview=false`。
 返回 `anchor_date`、升序 `dates`、`official_count`、`preview_date/time`、`generated_at`、`warnings`，
 以及 `items[{code,name,current_rank,history}]`。每只股票的 `history` 与 `dates` 按位置对应；
-单元格附带原始 rank/state/action、Alpha/Trend/RS Score、Fragility 和持续天数。
+单元格附带原始 rank/state、Alpha/Trend/RS Score、Fragility 和持续天数。
 
 正常历史读取固定两次 SQL：先取市场 snapshot session，再在 SQL 内选锚点 Top N 并批量读取其历史标量字段。
 Preview 模式从 Redis `snapshots` 按 Rank 选 Top N 后走同一个批量历史查询，不加载全 Universe 的历史 JSON。
@@ -228,8 +228,8 @@ Preview 模式从 Redis `snapshots` 按 Rank 选 Top N 后走同一个批量历�
 当天已有任何正式 snapshot 时全列和 Top N 都使用正式数据。Preview 用 `P` 日期后缀、列边框和说明标识。
 无可用 Preview 时提示并展示可用正式历史（未指定 `as_of` 时锚点为最新正式 session）。
 
-颜色表示现有策略 State：IDLE 灰、WATCHING 蓝、CANDIDATE 青、ENTRY 亮绿、PYRAMIDING 深绿、
-HOLDING 稳定绿、WEAKENING 黄、REDUCE 橙、EXIT 红；不是数值评分或额外的 `trend_lifecycle` 分类。
+颜色表示股票趋势 State：IDLE 灰、WATCHING 蓝、CANDIDATE 青、TRENDING 绿、
+WEAKENING 黄、BROKEN 红；不是数值评分或额外的 `trend_lifecycle` 分类。
 注意现有策略可能在行情缺失时**持久化**延续的持仓状态/Rank，热力图忠实读取这些已有快照；
 它本身不做前向填充，也不据此判定行情一定新鲜。旧快照缺失 Fragility/持续天数显示 `—`。
 

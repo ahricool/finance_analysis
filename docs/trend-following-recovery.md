@@ -1,21 +1,50 @@
-# Trend Following 缺失快照恢复
+# Trend Following 趋势状态与快照恢复
 
-## 2026-09-07 / 09-08 故障原因
+## 趋势状态（0053 起）
 
-- CN：普通快照包含 `entry_price` 等字段，候选过期记录缺少这些字段。混合批量 INSERT
-  报 `A value is required for bind parameter 'entry_price'`，整日事务回滚。
-  09-08 的 catch-up 从 09-07 开始，因此再次失败，两个日期均未生成。
-- US：09-07 非交易日；09-08 只有 475/503 只成分股有当日日线，94.43% 低于当时的 95% 门槛。
-- `TrendFollowingService.run()` 将业务失败转换为返回值；原 Task 未将该状态转换为异常，
-  所以任务中心错误显示 completed。
+趋势跟踪只描述股票趋势，不维护实际或理论持仓。正式收盘和盘中预演使用同一分类函数，
+预演仍只写 Redis。市场 Regime 保留为环境指标，不参与个股状态或仓位限制。
 
-## 修复行为
+按以下优先顺序判断：
+
+1. 前次状态为 CANDIDATE / TRENDING / WEAKENING（已确认趋势），或已为 BROKEN，
+   且收盘价低于前 10 日最低价，或低于 MA20 且 MA20 斜率不大于 0：BROKEN（趋势破坏）。
+2. 已确认趋势中，TrendCandidate 不成立、Trend Score < 60、RS Score < 55、收盘价低于 MA10
+   任一成立：WEAKENING（趋势弱化）。恢复健康后回到 TRENDING。
+3. 已确认趋势且无上述破坏/弱化条件：TRENDING（趋势明确且健康）。
+4. 其他状态满足既有候选条件：CANDIDATE。条件为 TrendCandidate、Trend >= 62、RS >= 60、
+   ValidSetup、Alpha >= 67；下一有效快照健康时转为 TRENDING，不要求再次出现突破形态。
+5. 仅 TrendCandidate 成立：WATCHING（趋势形成）；否则 IDLE（无明显趋势）。
+
+TrendCandidate 继续使用 Close>MA10、MA10>MA20、10 日收益>0、15 日加权斜率>0 四项至少三项通过。
+BROKEN 恢复时重新经过候选/观察判断。前次快照只提供趋势状态，不携带交易价格或持仓信息。
+无当日日线或历史不足的股票不生成当日快照，历史格留空；下一有效日期参考此前最近的正式状态。
+Fragility、trend_lifecycle 和持续天数继续作为独立解释指标，不额外增加分类分支。
+
+### 存储与接口清理
+
+迁移 `0053_trend_states` 删除 Snapshot 的 `action`、`units`、`entry_price`、`last_add_price`、
+`opened_at`、`highest_close`、`initial_stop`、`trailing_stop`、`next_add_price`、`exit_level`、
+`signal_date`、`signal_price`、全部 `pending_*` 字段及 `suggested_initial_weight` / `suggested_max_weight`。
+Summary 删除 `suggested_max_exposure` 和 entry/add/hold/reduce/exit 计数，保留候选状态计数。
+
+已存历史按当时保存的价格、评分与指标顺序重建六态和候选计数，移除沿用旧行情或缺少必要指标的行。
+迁移不读取外部行情、不生成模拟成交。删除的数据不可由 downgrade 还原。
+部署需更新 API、普通 Worker、Web，并执行 `uv run alembic upgrade head`；不要让旧 Worker 在迁移后继续写入。
+正式排名缓存版本为 v3，Preview key 为 `trend_following:preview:v2:{market}`，旧缓存不再读取。
+
+删除 `/trend-following/portfolio`、ranking 的 portfolio、所有 action 和 pending 字段。
+changes 仅比较状态/排名/评分，以 `new_broken` 替代旧动作分类。前端删除理论组合、敞口进度、
+交易日期/价格/止损/加减仓展示；排名、详情、历史、热力图、Dashboard 统一使用六态。
+没有新增 Portfolio/Holding 抽象，也没有接入 Google Sheet。
+
+## 快照写入与失败恢复
 
 Repository 根据 `TrendFollowingSnapshot` ORM 列统一所有写入记录：缺失 nullable 列填 None，
-`features` / `score_breakdown` 默认 `{}`，`reasons` 默认 `[]`，`units` 默认 0。
+`features` / `score_breakdown` 默认 `{}`，`reasons` 默认 `[]`。
 其他非空必填列缺失或为 None 时，在开启事务前抛出包含证券代码和列名的 ValueError。
 `instrument_id` 由证券主数据解析，`generated_at` 由 Repository 生成。
-`upsert_snapshots()` 和 `replace_day()` 共用该保护层，无 schema migration。
+`upsert_snapshots()` 和 `replace_day()` 共用该保护层。
 
 CN / US Trend Following Task 只接受 `status=completed`；failed / incomplete 抛出带市场、
 日期、业务状态、warnings 和可用 coverage 的异常，复用原生命周期记录失败并发送失败通知。

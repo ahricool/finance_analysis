@@ -40,7 +40,6 @@ class FakeRepository:
             "trade_date": trade_date,
             "market_regime": "RISK_ON",
             "market_score": 80,
-            "suggested_max_exposure": 0.5,
             "data_coverage": 1,
         }
 
@@ -54,35 +53,24 @@ class FakeRepository:
         return self.snapshots_by_date(trade_date, sort_by="rank", limit=None)
 
     def candidates_by_date(self, trade_date, *, limit):
-        return [{"code": "AAPL.US", "trade_date": trade_date, "state": "ENTRY"}]
+        return [{"code": "AAPL.US", "trade_date": trade_date, "state": "CANDIDATE"}]
 
-    def positions_by_date(self, trade_date):
+    def snapshot_rows(self, trade_date):
         return [
             {
                 "code": "AAPL.US",
                 "name": "Apple",
                 "trade_date": trade_date,
-                "state": "HOLDING",
-                "action": "HOLD",
-                "pending_action": None,
-                "units": 2,
-                "suggested_initial_weight": 0.03,
-                "suggested_max_weight": 0.1,
-                "entry_price": 180.0,
+                "state": "TRENDING",
                 "reference_price": 195.0,
-                "opened_at": date(2026, 8, 20),
-                "initial_stop": 172.0,
-                "trailing_stop": 188.0,
-                "next_add_price": 198.0,
-                "exit_level": 188.0,
                 "alpha_score": 82.5,
             }
         ]
 
     def snapshot_history(self, code, *, limit, as_of=None, before_trade_date=None):
         rows = [
-            {"code": code, "name": "Apple", "trade_date": date(2026, 8, 29), "state": "HOLDING"},
-            {"code": code, "name": "Apple", "trade_date": TRADE_DATE, "state": "ENTRY"},
+            {"code": code, "name": "Apple", "trade_date": date(2026, 8, 29), "state": "TRENDING"},
+            {"code": code, "name": "Apple", "trade_date": TRADE_DATE, "state": "CANDIDATE"},
         ]
         if as_of is not None:
             rows = [row for row in rows if row["trade_date"] <= as_of]
@@ -108,9 +96,9 @@ def test_snapshot_api_contracts(monkeypatch):
     dates = trend_following.dates(user, "US")
     detail = trend_following.detail("AAPL.US", 60, TRADE_DATE, user, "US")
     assert ranking["items"][0]["code"] == "AAPL.US"
-    assert candidates["items"][0]["state"] == "ENTRY"
+    assert candidates["items"][0]["state"] == "CANDIDATE"
     assert dates["latest"] == "2026-08-29"
-    assert detail["latest"]["state"] == "ENTRY"
+    assert detail["latest"]["state"] == "CANDIDATE"
     assert detail["latest"]["trade_date"] == "2026-08-28"
     assert all(item["trade_date"] <= "2026-08-28" for item in detail["history"])
     latest = trend_following.detail("AAPL.US", 60, None, user, "US")
@@ -124,27 +112,7 @@ def test_snapshot_api_contracts(monkeypatch):
     assert error.value.status_code == 422
 
 
-def test_portfolio_rebuilds_theoretical_positions_for_requested_date(monkeypatch):
-    calls = []
-    monkeypatch.setattr(trend_following, "TrendFollowingRepository", FakeRepository)
-    monkeypatch.setattr(
-        trend_following,
-        "theoretical_position_weight",
-        lambda units, unit_weight, max_weight: calls.append((units, unit_weight, max_weight)) or 0.06,
-    )
 
-    payload = trend_following.portfolio(TRADE_DATE, SimpleNamespace(id=1), "US")
-
-    assert payload["market"] == "US"
-    assert payload["trade_date"] == "2026-08-28"
-    assert payload["market_regime"] == "RISK_ON"
-    assert payload["max_exposure"] == 0.5
-    assert payload["current_exposure"] == 0.06
-    assert payload["remaining_exposure"] == 0.44
-    assert payload["position_count"] == 1
-    assert payload["positions"][0]["code"] == "AAPL.US"
-    assert payload["positions"][0]["position_weight"] == 0.06
-    assert calls == [(2, 0.03, 0.1)]
 
 
 def test_ranking_reuses_previous_snapshots_for_daily_changes(monkeypatch):
@@ -161,7 +129,6 @@ def test_ranking_reuses_previous_snapshots_for_daily_changes(monkeypatch):
                 "trade_date": trade_date,
                 "market_regime": "RISK_ON",
                 "market_score": 75 if trade_date == TRADE_DATE else 70,
-                "suggested_max_exposure": 1,
                 "score_breakdown": {"breadth": 65 if trade_date == TRADE_DATE else 60},
             }
 
@@ -174,8 +141,6 @@ def test_ranking_reuses_previous_snapshots_for_daily_changes(monkeypatch):
                         "trade_date": trade_date,
                         "rank": 12,
                         "state": "WATCHING",
-                        "action": "WATCH",
-                        "pending_action": None,
                         "trend_score": 60,
                         "rs_score": 58,
                         "alpha_score": 62,
@@ -187,8 +152,6 @@ def test_ranking_reuses_previous_snapshots_for_daily_changes(monkeypatch):
                     "trade_date": trade_date,
                     "rank": 3,
                     "state": "CANDIDATE",
-                    "action": "WATCH",
-                    "pending_action": "ENTRY",
                     "trend_score": 69,
                     "rs_score": 66,
                     "alpha_score": 70,
@@ -267,31 +230,86 @@ def test_manual_run_submits_celery(monkeypatch):
 
 
 def test_migration_and_snapshot_have_no_user_columns():
-    migration = (Path(PROJECT_ROOT) / "alembic/versions/0031_trend_following.py").read_text(encoding="utf-8")
-    assert 'revision: str = "0031_trend_following"' in migration
-    assert 'down_revision: Union[str, Sequence[str], None] = "0030_etf_rotation_v2"' in migration
-    for column in ("uid", "user_id", "account_id", "position_id", "user_cost", "user_weight", "user_pnl"):
-        assert f'Column("{column}"' not in migration
-    signal = (Path(PROJECT_ROOT) / "alembic/versions/0032_trend_following_signal.py").read_text(encoding="utf-8")
-    assert 'revision: str = "0032_trend_following_signal"' in signal
-    assert 'down_revision: Union[str, Sequence[str], None] = "0031_trend_following"' in signal
-    assert "signal_date" in signal
-    assert "signal_price" in signal
-    assert "0031_trend_following" in migration
-    pending = (Path(PROJECT_ROOT) / "alembic/versions/0033_trend_following_pending_action.py").read_text(
-        encoding="utf-8"
+    import importlib.util
+
+    import sqlalchemy as sa
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary
+    from finance_analysis.trend_following.state import transition_state
+
+    path = Path(PROJECT_ROOT) / "alembic/versions/0053_trend_states.py"
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    metadata = sa.MetaData()
+    snapshot = sa.Table(
+        "trend_following_snapshot", metadata,
+        sa.Column("id", sa.Integer, primary_key=True), sa.Column("market", sa.String),
+        sa.Column("code", sa.String), sa.Column("trade_date", sa.Date), sa.Column("state", sa.String),
+        sa.Column("reference_price", sa.Float), sa.Column("trend_score", sa.Float),
+        sa.Column("rs_score", sa.Float), sa.Column("alpha_score", sa.Float),
+        sa.Column("features", sa.JSON), sa.Column("reasons", sa.JSON),
+        *(sa.Column(key, sa.Float) for key in migration.SNAPSHOT_COLUMNS),
+        sa.CheckConstraint("units BETWEEN 0 AND 4", name="ck_trend_following_units"),
     )
-    assert 'revision: str = "0033_trend_pending_action"' in pending
-    assert 'down_revision: Union[str, Sequence[str], None] = "0032_trend_following_signal"' in pending
-    assert "pending_action" in pending
-    assert "pending_since" in pending
-    execution = (Path(PROJECT_ROOT) / "alembic/versions/0034_trend_following_execution_context.py").read_text(
-        encoding="utf-8"
+    summary = sa.Table(
+        "trend_following_summary", metadata,
+        sa.Column("market", sa.String), sa.Column("trade_date", sa.Date), sa.Column("candidate_count", sa.Integer),
+        *(sa.Column(key, sa.Float) for key in migration.SUMMARY_COLUMNS),
     )
-    assert 'revision: str = "0034_trend_execution_context"' in execution
-    assert 'down_revision: Union[str, Sequence[str], None] = "0033_trend_pending_action"' in execution
-    assert "pending_regime" in execution
-    assert "pending_max_exposure" in execution
+    engine = sa.create_engine("sqlite://")
+    metadata.create_all(engine)
+    features = {"ma10": 108, "ma20": 104, "ma20_slope": 0.01, "previous_low_10": 100,
+                "trend_candidate": True, "valid_setup": True}
+    days = [date(2026, 9, day) for day in (7, 8, 9)]
+    with engine.begin() as connection:
+        for index, (day, price) in enumerate(zip(days, (110, 111, 99)), 1):
+            connection.execute(snapshot.insert(), {"id": index, "market": "US", "code": "AAA.US",
+                "trade_date": day, "state": "HOLDING", "reference_price": price, "trend_score": 80,
+                "rs_score": 80, "alpha_score": 80, "features": features, "reasons": ["old execution context"]})
+            connection.execute(summary.insert(), {"market": "US", "trade_date": day, "candidate_count": 0})
+        connection.execute(snapshot.insert(), {"id": 4, "market": "US", "code": "BBB.US",
+            "trade_date": days[-1], "state": "HOLDING", "reference_price": 110, "trend_score": 80,
+            "rs_score": 80, "alpha_score": 80, "features": features,
+            "reasons": ["current daily data unavailable; active state carried forward"]})
+        operations = Operations(MigrationContext.configure(connection))
+
+        class SQLiteOperations:
+            get_bind = staticmethod(lambda: connection)
+            execute = staticmethod(operations.execute)
+
+            def drop_constraint(self, name, table, **kwargs):
+                with operations.batch_alter_table(table) as batch:
+                    batch.drop_constraint(name, **kwargs)
+
+            def drop_column(self, table, column):
+                with operations.batch_alter_table(table) as batch:
+                    batch.drop_column(column)
+
+            def create_check_constraint(self, name, table, condition):
+                with operations.batch_alter_table(table) as batch:
+                    batch.create_check_constraint(name, condition)
+
+        migration.op = SQLiteOperations()
+        migration.upgrade()
+        actual = connection.execute(sa.text("SELECT state FROM trend_following_snapshot ORDER BY trade_date")).scalars().all()
+        expected, previous = [], None
+        for price in (110, 111, 99):
+            previous = transition_state({**features, "reference_price": price, "trend_score": 80,
+                                         "rs_score": 80, "is_candidate": True}, previous).to_dict()
+            expected.append(previous["state"])
+        assert actual == expected == ["CANDIDATE", "TRENDING", "BROKEN"]
+        assert connection.execute(sa.select(summary.c.candidate_count).order_by(summary.c.trade_date)).scalars().all() == [1, 0, 0]
+        for table, removed, model in (
+            ("trend_following_snapshot", migration.SNAPSHOT_COLUMNS, TrendFollowingSnapshot),
+            ("trend_following_summary", migration.SUMMARY_COLUMNS, TrendFollowingSummary),
+        ):
+            columns = {column["name"] for column in sa.inspect(connection).get_columns(table)}
+            assert not set(removed) & columns
+            assert not set(removed) & set(model.__table__.c.keys())
+        assert not {"uid", "user_id", "account_id", "position_id"} & set(TrendFollowingSnapshot.__table__.c.keys())
+        assert "old execution context" not in str(connection.execute(sa.text("SELECT reasons FROM trend_following_snapshot")).all())
 
 
 def test_ranking_includes_rank_changes_for_limited_items(monkeypatch):
@@ -376,19 +394,19 @@ def test_ranking_cache_hit_only_resolves_latest_date(monkeypatch):
 
 
 def test_changes_classification_uses_lightweight_fields():
-    previous = [{"code": code, "state": "WATCHING", "action": "WATCH", "rank": 9}
+    previous = [{"code": code, "state": "WATCHING", "rank": 9}
                 for code in ("A", "B", "C", "D")]
     current = [
         {"code": "A", "state": "CANDIDATE", "rank": 1},
         {"code": "B", "state": "WEAKENING", "rank": 2},
-        {"code": "C", "state": "HOLDING", "pending_action": "REDUCE", "rank": 3},
-        {"code": "D", "state": "EXIT", "action": "EXIT", "rank": 4},
+        {"code": "C", "state": "TRENDING", "rank": 3},
+        {"code": "D", "state": "BROKEN", "rank": 4},
     ]
     repo = SimpleNamespace(previous_trade_date=lambda day: TRADE_DATE,
                            change_rows=lambda day: previous,
                            summary_by_date=lambda day: {"market_score": 70})
     result = trend_following._changes(repo, TRADE_DATE, current, {"market_score": 75})
-    for category, code in [("new_candidates", "A"), ("new_weakening", "B"), ("new_reduces", "C"), ("new_exits", "D")]:
+    for category, code in [("new_candidates", "A"), ("new_weakening", "B"), ("new_broken", "D")]:
         assert [item["code"] for item in result[category]] == [code]
     assert len(result["transitions"]) == 4
     assert all("current" not in item for key, value in result.items() if isinstance(value, list) for item in value)
@@ -400,7 +418,7 @@ def test_ranking_aggregates_without_compatibility_queries_and_does_not_cache_inc
     class ProjectionRepository(FakeRepository):
         def dashboard_rows(self, trade_date):
             assert trade_date == TRADE_DATE
-            return [{**self.positions_by_date(trade_date)[0], "rank": 1}]
+            return [{**self.snapshot_rows(trade_date)[0], "rank": 1}]
 
         def candidates_by_date(self, *args, **kwargs):
             pytest.fail("ranking must reuse projection")
@@ -411,7 +429,7 @@ def test_ranking_aggregates_without_compatibility_queries_and_does_not_cache_inc
     monkeypatch.setattr(trend_following, "TrendFollowingRepository", ProjectionRepository)
     monkeypatch.setattr(trend_following.RankingCache, "save", lambda self, body: saves.append(body))
     result = json.loads(trend_following.ranking(TRADE_DATE, "alpha_score", None, None, "US").body)
-    assert result["portfolio"]["position_count"] == 1
+    assert "portfolio" not in result
     assert result["candidates"][0]["code"] == result["items"][0]["code"]
     assert "score_breakdown" not in result["items"][0]
     assert "reasons" not in result["items"][0]

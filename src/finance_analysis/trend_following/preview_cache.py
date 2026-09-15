@@ -13,7 +13,7 @@ from finance_analysis.trend_following.universe import normalize_market  # pragma
 
 logger = logging.getLogger(__name__)
 
-PREVIEW_KEY_TEMPLATE = "trend_following:preview:{market}"
+PREVIEW_KEY_TEMPLATE = "trend_following:preview:v2:{market}"
 PREVIEW_TTL_SECONDS = 24 * 60 * 60
 
 
