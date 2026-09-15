@@ -308,12 +308,19 @@ def detail(
     _: User = Depends(require_current_user),
     market: Market = "CN",
     trade_date: date | None = None,
+    before_trade_date: date | None = None,
 ):
+    """Return exact-date detail, or official history only strictly before before_trade_date."""
+    if trade_date is not None and before_trade_date is not None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "trade_date and before_trade_date are mutually exclusive")
     canonical = str(code).strip().upper()
     member = universe_by_code(market).get(canonical)
     if member is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ETF is not in the Rotation universe")
     repository = ETFRotationRepository(market)
+    if before_trade_date is not None:
+        history = repository.snapshot_history(canonical, limit=limit, before_trade_date=before_trade_date)
+        return jsonable_encoder({"history": history})
     resolved = _resolve_date(repository, trade_date)
     history = repository.snapshot_history(canonical, limit=limit, as_of=resolved)
     if not history or history[0]["trade_date"] != resolved:

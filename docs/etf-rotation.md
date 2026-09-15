@@ -169,3 +169,18 @@ Content-Type: application/json
 当天存在正式 ETF 快照时整日优先正式数据，即使单只 ETF 的正式 Rank 缺失也不用 Preview 补值。
 Preview 是最多一个额外数据点，不占用 N 个正式 session；以空心点、Tooltip 和页面文字说明标识。
 本图不将排名门槛解释为最终候选区：入场/持有门槛、市场状态候选数量上限和风控筛选含义不同。
+
+### 个股详情的 Preview 历史图
+
+ETF Rotation 和 Trend Following 详情在 Preview 模式下立即展示当前 Redis item/snapshot，
+再通过原 detail 路由的 `before_trade_date=Preview tradeDate` 参数读取最近 60 个正式快照。
+此参数与 `trade_date` 互斥，只返回 `{history: [...]}`；SQL 在 limit 之前应用严格 `<` 条件，
+无历史时返回空数组。普通 `trade_date` detail 的精确日期校验与 `<=` 历史截断保持不变。
+
+前端 `detail.history` 只保存正式数据，`detailChartHistory` 追加带 `isPreview` 的临时展示点。
+ETF Price/MA、Composite、Rank、RS 和 Trend Rank/Fragility 图均通过日期、Tooltip 的 Preview
+文字及空心点标识；Trend 历史状态列表只显示正式快照。历史加载失败保留 Preview 顶部和临时点，
+并提供单独重试。Heatmap 历史格子继续按格子日期打开 Official detail。
+
+全局 Rank History / State Heatmap 的同日正式优先逻辑不变；显式 Preview 详情则排除同日正式快照，
+保证顶部和图表末点均为用户当前查看的 Preview。不修改 Redis payload，也不写正式历史表。

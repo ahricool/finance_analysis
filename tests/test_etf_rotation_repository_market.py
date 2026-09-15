@@ -119,6 +119,9 @@ def test_history_filters_as_of_before_limit():
     history = repository.snapshot_history("588000.SH", limit=1, as_of=date(2026, 8, 25))
     assert len(history) == 1 and history[0]["trade_date"] == date(2026, 8, 25)
     assert repository.snapshot_history("588000.SH", as_of=date(2026, 8, 23)) == []
+    history = repository.snapshot_history("588000.SH", limit=1, before_trade_date=date(2026, 8, 25))
+    assert [row["trade_date"] for row in history] == [date(2026, 8, 24)]
+    assert repository.snapshot_history("588000.SH", before_trade_date=date(2026, 8, 24)) == []
     assert set(repository.change_rows(date(2026, 8, 25))[0]) == {"code", "state", "action", "rank", "composite_score"}
 
 

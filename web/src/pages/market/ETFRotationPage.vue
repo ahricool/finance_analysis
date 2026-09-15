@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailChartHistory';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
@@ -62,6 +63,14 @@ const error = ref<ParsedApiError | null>(null);
 const selected = ref<ETFDetailResponse | null>(null);
 const detailLoading = ref(false);
 const detailError = ref<ParsedApiError | null>(null);
+
+const historyLoading = ref(false);
+const historyError = ref<ParsedApiError | null>(null);
+let detailRequestId = 0;
+const detailChartHistory = computed(() => selected.value
+  ? buildDetailChartHistory(selected.value.history, selected.value.latest, detailMode.value === 'preview')
+  : []);
+const detailMode = ref<ResearchDataMode>('official');
 const route = useRoute();
 const market = ref<ETFMarket>(route?.query.market === 'US' ? 'US' : 'CN');
 const sortKey = ref<'compositeScore' | 'momentumStrengthScore' | 'trendQualityScore' | 'relativeStrengthScore' | 'entryScore' | 'trendDurationDays'>('compositeScore');
@@ -274,22 +283,48 @@ function selectDataMode(mode: ResearchDataMode) {
   if (officialSelected.value) applyOfficialRanking(officialSelected.value);
   else void load(false, { autoSelectMode: false });
 }
+async function loadDetailHistory() {
+  const current = selected.value;
+  if (!current || detailMode.value !== 'preview') return;
+  const requestId = ++detailRequestId;
+  historyLoading.value = true;
+  historyError.value = null;
+  try {
+    const response = await etfRotationApi.detailHistory(current.latest.code, current.market, current.latest.tradeDate);
+    if (requestId === detailRequestId && selected.value === current) {
+      current.history = response.history.filter(row => row.tradeDate < current.latest.tradeDate);
+    }
+  } catch (reason) {
+    if (requestId === detailRequestId && selected.value === current) historyError.value = getParsedApiError(reason);
+  } finally {
+    if (requestId === detailRequestId) historyLoading.value = false;
+  }
+}
 async function openDetail(target: Pick<ETFMomentumSnapshot, 'code'>) {
+  const requestId = ++detailRequestId;
+  historyLoading.value = false;
+  historyError.value = null;
+  detailMode.value = dataMode.value;
   const item = items.value.find(row => row.code === target.code);
   if (!item) return;
   selected.value = { market: market.value, metadata: item, latest: item, history: [], marketSnapshot: marketSnapshot.value };
   detailError.value = null;
-  if (dataMode.value === 'preview') {
+  if (detailMode.value === 'preview') {
     detailLoading.value = false;
+    void loadDetailHistory();
     return;
   }
   detailLoading.value = true;
-  try { selected.value = await etfRotationApi.detail(item.code, market.value, 60, selectedDate.value || undefined); }
-  catch (err) { detailError.value = getParsedApiError(err); } finally { detailLoading.value = false; }
+  try {
+    const response = await etfRotationApi.detail(item.code, market.value, 60, selectedDate.value || undefined);
+    if (requestId === detailRequestId) selected.value = response;
+  }
+  catch (err) { if (requestId === detailRequestId) detailError.value = getParsedApiError(err); } finally { if (requestId === detailRequestId) detailLoading.value = false; }
 }
 async function runRotation() { runLoading.value = true; try { const result = await etfRotationApi.run(market.value); toast.success(`任务已提交：${result.taskId}`); }
   catch (err) { error.value = getParsedApiError(err); } finally { runLoading.value = false; } }
 watch(market, () => {
+  ++detailRequestId;
   selectedDate.value = '';
   officialSelected.value = null;
   officialLatest.value = null;
@@ -812,7 +847,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
 
     <Dialog
       :open="selected !== null"
-      @update:open="open => { if (!open) selected = null; }"
+      @update:open="open => { if (!open) { selected = null; ++detailRequestId; } }"
     >
       <DialogContent
         data-testid="etf-detail-modal"
@@ -832,6 +867,25 @@ onMounted(() => void load(true, { autoSelectMode: true }));
             class="h-48"
           />
           <template v-else-if="selected">
+            <p
+              v-if="detailMode === 'preview'"
+              class="text-xs text-muted-foreground"
+            >
+              当前详情为 Preview；图表最后一个空心点为 Preview，不属于正式历史。
+            </p>
+            <p
+              v-if="historyLoading"
+              class="text-sm text-muted-foreground"
+            >
+              正在加载正式历史…
+            </p>
+            <AppApiErrorAlert
+              v-if="historyError"
+              :error="historyError"
+              action-label="重试历史加载"
+              @action="loadDetailHistory"
+              @dismiss="historyError = null"
+            />
             <div
               data-testid="etf-factor-grid"
               class="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-3"
@@ -899,10 +953,9 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               </CardContent>
             </Card>
             <Card
-              v-if="dataMode === 'official'"
               data-testid="etf-detail-history"
             >
-              <CardHeader><CardTitle>History</CardTitle><CardDescription>价格/MA、Composite、Rank 与 Relative Strength；旧快照缺失字段时保留空点。</CardDescription></CardHeader><CardContent><ETFRotationHistoryCharts :history="selected.history" /></CardContent>
+              <CardHeader><CardTitle>History</CardTitle><CardDescription>价格/MA、Composite、Rank 与 Relative Strength；旧快照缺失字段时保留空点。</CardDescription></CardHeader><CardContent><ETFRotationHistoryCharts :history="detailChartHistory" /></CardContent>
             </Card>
           </template>
         </div>

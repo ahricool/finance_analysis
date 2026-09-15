@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { chartDate, type DetailChartPoint } from '@/utils/detailChartHistory';
 import { computed } from 'vue';
 import { LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
@@ -12,7 +13,7 @@ import type { TrendSnapshot } from '@/types/trendFollowing';
 
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent]);
 
-const props = defineProps<{ history: Pick<TrendSnapshot, 'tradeDate' | 'fragilityScore'>[] }>();
+const props = defineProps<{ history: DetailChartPoint<Pick<TrendSnapshot, 'tradeDate' | 'fragilityScore'>>[] }>();
 const { resolvedTheme } = useTheme();
 const ordered = computed(() => [...props.history].sort((a, b) => a.tradeDate.localeCompare(b.tradeDate)));
 const ranks = computed(() => ordered.value.map(row => row.fragilityScore ?? null));
@@ -33,7 +34,7 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | T
     grid: { left: 12, right: 16, top: 16, bottom: 8, containLabel: true },
     xAxis: {
       type: 'category',
-      data: ordered.value.map(row => row.tradeDate),
+      data: ordered.value.map(chartDate),
       axisLabel: { color: muted, hideOverlap: true, fontSize: 11, formatter: (value: string) => value.slice(5) },
       axisLine: { lineStyle: { color: split } },
       axisTick: { show: false },
@@ -49,7 +50,8 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | T
       showSymbol: true, symbolSize: 6,
       itemStyle: { color: dark ? '#60a5fa' : '#2563eb' },
       lineStyle: { width: 2 },
-      data: ranks.value,
+      data: ranks.value.map((value, index) => ordered.value[index]?.isPreview
+        ? { value, symbol: 'emptyCircle', symbolSize: 9 } : value),
     }],
   };
 });
@@ -65,7 +67,7 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | T
       趋势脆弱性走势
     </h3>
     <p class="mt-1 text-xs text-muted-foreground">
-      Fragility · 截至所选交易日最近 {{ history.length }} 个快照 · 分数越高越脆弱
+      Fragility · 截至所选交易日最近 {{ history.length }} 个展示点（含可能的 Preview） · 分数越高越脆弱
     </p>
     <div
       v-if="hasRanks"

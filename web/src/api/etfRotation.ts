@@ -41,6 +41,12 @@ export const etfRotationApi = {
     const { data } = await apiClient.get('/api/v1/etf-rotation/universe', { params: { market } });
     return toCamelCase(data);
   },
+  async detailHistory(code: string, market: ETFMarket, beforeTradeDate: string, limit = 60): Promise<Pick<ETFDetailResponse, 'history'>> {
+    const { data } = await apiClient.get(`/api/v1/etf-rotation/${encodeURIComponent(code)}`, {
+      params: { market, limit, before_trade_date: beforeTradeDate },
+    });
+    return toCamelCase(data);
+  },
   async detail(code: string, market: ETFMarket = 'CN', limit = 60, tradeDate?: string): Promise<ETFDetailResponse> {
     const { data } = await apiClient.get(`/api/v1/etf-rotation/${encodeURIComponent(code)}`, {
       params: { market, limit, ...(tradeDate ? { trade_date: tradeDate } : {}) },

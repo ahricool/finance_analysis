@@ -64,6 +64,12 @@ export const trendFollowingApi = {
     const { data } = await apiClient.get('/api/v1/trend-following/dates', { params: { market } });
     return toCamelCase(data);
   },
+  async detailHistory(code: string, market: TrendMarket, beforeTradeDate: string, limit = 60): Promise<Pick<TrendDetailResponse, 'history'>> {
+    const { data } = await apiClient.get(`/api/v1/trend-following/${encodeURIComponent(code)}`, {
+      params: { market, limit, before_trade_date: beforeTradeDate },
+    });
+    return toCamelCase(data);
+  },
   async detail(code: string, market: TrendMarket, limit = 60, tradeDate?: string): Promise<TrendDetailResponse> {
     const { data } = await apiClient.get(`/api/v1/trend-following/${encodeURIComponent(code)}`, {
       params: { market, limit, ...(tradeDate ? { trade_date: tradeDate } : {}) },

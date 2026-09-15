@@ -555,7 +555,10 @@ class TrendFollowingRepository:
             ).all()
             return [self._snapshot_payload(row, str(name)) for row, name in rows]
 
-    def snapshot_history(self, code: str, *, limit: int, as_of: date | None = None) -> list[dict]:
+    def snapshot_history(
+        self, code: str, *, limit: int, as_of: date | None = None,
+        before_trade_date: date | None = None,
+    ) -> list[dict]:
         canonical = str(code).strip().upper()
         filters = [
             TrendFollowingSnapshot.market == self.market,
@@ -563,6 +566,8 @@ class TrendFollowingRepository:
         ]
         if as_of is not None:
             filters.append(TrendFollowingSnapshot.trade_date <= as_of)
+        if before_trade_date is not None:
+            filters.append(TrendFollowingSnapshot.trade_date < before_trade_date)
         with self.db.get_session() as session:
             rows = session.execute(
                 select(TrendFollowingSnapshot, Instrument.name)

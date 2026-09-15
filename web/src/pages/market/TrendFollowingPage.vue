@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailChartHistory';
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
@@ -87,6 +88,13 @@ const detailOpen = ref(false);
 const detailLoading = ref(false);
 const detail = ref<TrendDetailResponse | null>(null);
 const detailError = ref<ParsedApiError | null>(null);
+
+const historyLoading = ref(false);
+const historyError = ref<ParsedApiError | null>(null);
+let detailRequestId = 0;
+const detailChartHistory = computed(() => detail.value
+  ? buildDetailChartHistory(detail.value.history, detail.value.latest, detailMode.value === 'preview')
+  : []);
 const rankingColumns = [
   { key: 'rank', label: 'Alpha Rank', description: descriptions.rank },
   { key: 'name', label: '股票名称', description: undefined },
@@ -383,7 +391,27 @@ async function runLatest() {
     running.value = false;
   }
 }
+async function loadDetailHistory() {
+  const current = detail.value;
+  if (!current || detailMode.value !== 'preview') return;
+  const requestId = ++detailRequestId;
+  historyLoading.value = true;
+  historyError.value = null;
+  try {
+    const response = await trendFollowingApi.detailHistory(current.latest.code, current.market, current.latest.tradeDate);
+    if (requestId === detailRequestId && detail.value === current) {
+      current.history = response.history.filter(row => row.tradeDate < current.latest.tradeDate);
+    }
+  } catch (reason) {
+    if (requestId === detailRequestId && detail.value === current) historyError.value = getParsedApiError(reason);
+  } finally {
+    if (requestId === detailRequestId) historyLoading.value = false;
+  }
+}
 async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: string; preview?: boolean }) {
+  const requestId = ++detailRequestId;
+  historyLoading.value = false;
+  historyError.value = null;
   detailMode.value = item.preview === undefined ? dataMode.value : item.preview ? 'preview' : 'official';
   detailOpen.value = true;
   detailError.value = null;
@@ -400,27 +428,30 @@ async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: stri
         }
       : null;
     detailLoading.value = false;
+    void loadDetailHistory();
     return;
   }
   detailLoading.value = true;
   detail.value = null;
   try {
-    detail.value = await trendFollowingApi.detail(
+    const response = await trendFollowingApi.detail(
       item.code,
       market.value,
       60,
       item.preview === undefined ? selectedDate.value || item.tradeDate : item.tradeDate,
     );
+    if (requestId === detailRequestId) detail.value = response;
   } catch (reason) {
-    detailError.value = getParsedApiError(reason);
+    if (requestId === detailRequestId) detailError.value = getParsedApiError(reason);
   } finally {
-    detailLoading.value = false;
+    if (requestId === detailRequestId) detailLoading.value = false;
   }
 }
 function openPositionDetail(position: TrendPortfolioPosition) {
   void openDetail({ code: position.code, tradeDate: portfolio.value.tradeDate });
 }
 watch(market, () => {
+  ++detailRequestId;
   selectedDate.value = '';
   rankingSearch.value = '';
   officialSelected.value = null;
@@ -1060,7 +1091,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
 
     <Dialog
       :open="detailOpen"
-      @update:open="value => { detailOpen = value; }"
+      @update:open="value => { detailOpen = value; if (!value) ++detailRequestId; }"
     >
       <DialogContent
         class="max-h-[calc(100dvh-2rem)] min-w-0 overflow-y-auto p-4 sm:max-w-4xl sm:p-6"
@@ -1123,13 +1154,31 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               </div>
             </dl>
           </details>
+          <p
+            v-if="detailMode === 'preview'"
+            class="text-xs text-muted-foreground"
+          >
+            当前详情为 Preview；图表最后一个空心点为 Preview，不属于正式历史。
+          </p>
+          <p
+            v-if="historyLoading"
+            class="text-sm text-muted-foreground"
+          >
+            正在加载正式历史…
+          </p>
+          <AppApiErrorAlert
+            v-if="historyError"
+            :error="historyError"
+            action-label="重试历史加载"
+            @action="loadDetailHistory"
+            @dismiss="historyError = null"
+          />
           <TrendFragilityHistoryChart
-            v-if="detail.history.length"
-            :history="detail.history"
+            v-if="detailChartHistory.length"
+            :history="detailChartHistory"
           />
           <TrendRankHistoryChart
-            v-if="detailMode === 'official'"
-            :history="detail.history"
+            :history="detailChartHistory"
           />
           <section>
             <h3 class="mb-2 font-semibold">
@@ -1284,7 +1333,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               </div>
             </div>
           </section>
-          <section v-if="detailMode === 'official'">
+          <section>
             <h3 class="mb-2 font-semibold">
               历史 Snapshot / 状态变化
             </h3><div class="space-y-2">

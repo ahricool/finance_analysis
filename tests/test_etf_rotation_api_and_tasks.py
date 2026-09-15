@@ -407,13 +407,15 @@ def test_detail_is_anchored_to_requested_date_and_rejects_missing_date(monkeypat
         def latest_trade_date(self):
             pytest.fail("historical request must not load latest")
 
-        def snapshot_history(self, code, *, limit, as_of=None):
-            assert as_of == requested
+        def snapshot_history(self, code, *, limit, as_of=None, before_trade_date=None):
+            assert (as_of == requested) != (before_trade_date == requested)
             return [{**_snapshot(code), "trade_date": requested}]
 
     monkeypatch.setattr(etf_rotation, "ETFRotationRepository", HistoryRepository)
     payload = etf_rotation.detail("588000.SH", 60, None, "CN", trade_date=requested)
     assert payload["latest"]["trade_date"] == "2026-08-21"
+    history = etf_rotation.detail("588000.SH", 60, None, "CN", before_trade_date=requested)
+    assert set(history) == {"history"}
     monkeypatch.setattr(HistoryRepository, "snapshot_history", lambda *a, **k: [_snapshot()])
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as error:
