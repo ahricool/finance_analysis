@@ -256,7 +256,7 @@ def test_ssh_stdin_and_command(config, monkeypatch):
     assert channel.closed
     client.close.assert_called_once()
     assert client.connect.call_args.kwargs["allow_agent"] is False
-    assert isinstance(client.set_missing_host_key_policy.call_args.args[0], paramiko.RejectPolicy)
+    assert isinstance(client.set_missing_host_key_policy.call_args.args[0], paramiko.AutoAddPolicy)
 
 
 @pytest.mark.parametrize("error", [paramiko.AuthenticationException(), paramiko.SSHException(), OSError()])

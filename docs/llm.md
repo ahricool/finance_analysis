@@ -24,7 +24,7 @@
 - API：`LLM_MODEL`、`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_TEMPERATURE`。
 - CLI：`LLM_CLI_ENGINE`、`LLM_CLI_SSH_HOST`、`LLM_CLI_SSH_PORT`、
   `LLM_CLI_SSH_USERNAME`、`LLM_CLI_SSH_PASSWORD`、`LLM_CLI_REMOTE_WORKDIR`、
-  `LLM_CLI_MODEL`、`LLM_CLI_EFFORT`、`LLM_CLI_KNOWN_HOSTS`。
+  `LLM_CLI_MODEL`、`LLM_CLI_EFFORT`。
 
 API model 使用 LiteLLM 的 `provider/model` 命名，如 `openai/<model>`；默认 base URL 为
 `https://openrouter.ai/api/v1`。API key 必须配置。Kimi K2.6 默认 thinking 模式所需的固定 temperature=1
@@ -41,9 +41,9 @@ AGY effort 支持 low/medium/high；Codex 也支持 xhigh，模型是否接受�
 3. Docker Desktop 使用 `host.docker.internal:22`；Linux 如需此名称，可在本地 compose override
    为调用 LLM 的 server/worker 增加 `extra_hosts: ["host.docker.internal:host-gateway"]`。
 4. 在 `.env` 配置用户名和密码。容器不执行 CLI 登录，不挂载 CLI binary 或 Docker socket。
-5. 将**核验过 Host fingerprint** 的 known_hosts 文件放入 `data/ssh_known_hosts`，配置
-   `LLM_CLI_KNOWN_HOSTS=/workspace/data/ssh_known_hosts`。现有 compose 已挂载 data。
-   默认也读取容器用户的系统 known_hosts；未知或变更的 host key 会拒绝连接，不自动信任。
+
+当前部署固定为可信的本机 Docker → Host SSH，使用 `paramiko.AutoAddPolicy()` 自动接受 Host Key，
+无需提前配置 `known_hosts`。
 
 远程命令先创建并进入 `LLM_CLI_REMOTE_WORKDIR`（默认 `/tmp/finance-analysis-llm`）。
 不要配置为应用仓库。目录和可选 model/effort 均做 shell quoting，prompt 不进入 SSH command 字符串。
