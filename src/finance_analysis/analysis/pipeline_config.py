@@ -2,7 +2,7 @@
 """Configuration view used by the analysis pipeline.
 
 The owning modules still define the actual settings. This view exists because
-the pipeline coordinates LLM, search, data providers, reporting, and
+the pipeline coordinates LLM, data providers, reporting, and
 notification in one workflow.
 """
 
@@ -17,20 +17,12 @@ from finance_analysis.llm.config import get_llm_config
 from finance_analysis.notification.config import get_notification_config
 from finance_analysis.reporting.config import get_report_config
 from finance_analysis.market_review.config import get_market_review_config
-from finance_analysis.market_intelligence.config import get_social_sentiment_config
-from finance_analysis.search.config import get_search_config
 from finance_analysis.tasks.config import get_task_config
 
 
 @dataclass
 class PipelineConfig:
     pass
-
-    def has_searxng_enabled(self) -> bool:
-        return get_search_config().has_searxng_enabled()
-
-    def has_search_capability_enabled(self) -> bool:
-        return get_search_config().has_search_capability_enabled()
 
 
 def _asdict(obj: object) -> dict[str, Any]:
@@ -42,12 +34,10 @@ def get_pipeline_config() -> PipelineConfig:
     values: dict[str, Any] = {}
     llm_config = get_llm_config()
     for config in (
-        get_search_config(),
         get_data_provider_config(),
         get_market_review_config(),
         get_notification_config(),
         get_report_config(),
-        get_social_sentiment_config(),
         get_task_config(),
     ):
         values.update(_asdict(config))

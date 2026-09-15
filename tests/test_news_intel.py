@@ -16,7 +16,7 @@ import unittest
 from datetime import datetime
 
 from finance_analysis.database import DatabaseManager, NewsIntel
-from finance_analysis.search import SearchResponse, SearchResult
+from finance_analysis.database.news import NewsItem
 
 
 class NewsIntelStorageTestCase(unittest.TestCase):
@@ -38,25 +38,16 @@ class NewsIntelStorageTestCase(unittest.TestCase):
         DatabaseManager.reset_instance()
         self._temp_dir.cleanup()
 
-    def _build_response(self, results) -> SearchResponse:
-        """构造 SearchResponse 快捷函数"""
-        return SearchResponse(
-            query="贵州茅台 最新消息",
-            results=results,
-            provider="Bocha",
-            success=True,
-        )
-
     def test_save_news_intel_with_url_dedup(self) -> None:
         """相同 URL 去重，仅保留一条记录"""
-        result = SearchResult(
+        result = NewsItem(
             title="茅台发布新产品",
             snippet="公司发布新品...",
             url="https://news.example.com/a",
             source="example.com",
             published_date="2025-01-02"
         )
-        response = self._build_response([result])
+        response = [result]
 
         query_context = {
             "query_id": "task_001",
@@ -70,10 +61,10 @@ class NewsIntelStorageTestCase(unittest.TestCase):
         }
 
         saved_first = self.db.save_news_intel(
-            code="600519", usage_type="latest_news", response=response, query_context=query_context
+            code="600519", usage_type="premarket_news", items=response, provider="longbridge", query_context=query_context
         )
         saved_second = self.db.save_news_intel(
-            code="600519", usage_type="latest_news", response=response, query_context=query_context
+            code="600519", usage_type="premarket_news", items=response, provider="longbridge", query_context=query_context
         )
 
         self.assertEqual(saved_first, 1)
@@ -94,17 +85,17 @@ class NewsIntelStorageTestCase(unittest.TestCase):
 
     def test_save_news_intel_without_url_fallback_key(self) -> None:
         """无 URL 时使用兜底键去重"""
-        result = SearchResult(
+        result = NewsItem(
             title="茅台业绩预告",
             snippet="业绩大幅增长...",
             url="",
             source="example.com",
             published_date="2025-01-03"
         )
-        response = self._build_response([result])
+        response = [result]
 
-        saved_first = self.db.save_news_intel(code="600519", usage_type="earnings", response=response)
-        saved_second = self.db.save_news_intel(code="600519", usage_type="earnings", response=response)
+        saved_first = self.db.save_news_intel(code="600519", usage_type="earnings", items=response, provider="longbridge")
+        saved_second = self.db.save_news_intel(code="600519", usage_type="earnings", items=response, provider="longbridge")
 
         self.assertEqual(saved_first, 1)
         self.assertEqual(saved_second, 0)
@@ -118,16 +109,16 @@ class NewsIntelStorageTestCase(unittest.TestCase):
     def test_get_recent_news(self) -> None:
         """可按时间范围查询最新新闻"""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        result = SearchResult(
+        result = NewsItem(
             title="茅台股价震荡",
             snippet="盘中波动较大...",
             url="https://news.example.com/b",
             source="example.com",
             published_date=now
         )
-        response = self._build_response([result])
+        response = [result]
 
-        self.db.save_news_intel(code="600519", usage_type="market_analysis", response=response)
+        self.db.save_news_intel(code="600519", usage_type="intraday_analysis", items=response, provider="longbridge")
 
         recent_news = self.db.get_recent_news(code="600519", days=7, limit=10)
         self.assertEqual(len(recent_news), 1)
@@ -148,17 +139,12 @@ def test_news_first_seen_stays_fixed_while_usage_refreshes(monkeypatch):
     first = datetime(2026, 9, 5, tzinfo=timezone.utc)
     last = first + timedelta(days=1)
     url = "https://example.com/first-seen/" + uuid4().hex
-    response = SearchResponse(
-        query="test",
-        provider="test",
-        success=True,
-        results=[SearchResult(title="test", snippet="test", url=url, source="test")],
-    )
+    response = [NewsItem(title="test", snippet="test", url=url, source="test")]
     try:
         monkeypatch.setattr("finance_analysis.database.session.utc_now", lambda: first)
-        assert db.save_news_intel("NVDA", "premarket_news", response) == 1
+        assert db.save_news_intel("NVDA", "premarket_news", response, "longbridge") == 1
         monkeypatch.setattr("finance_analysis.database.session.utc_now", lambda: last)
-        assert db.save_news_intel("NVDA", "premarket_news", response) == 0
+        assert db.save_news_intel("NVDA", "premarket_news", response, "longbridge") == 0
         with db.get_session() as session:
             fact = session.scalars(select(NewsIntel).where(NewsIntel.url == url)).one()
             usage = session.scalars(select(NewsIntelUsage).where(NewsIntelUsage.news_intel_id == fact.id)).one()

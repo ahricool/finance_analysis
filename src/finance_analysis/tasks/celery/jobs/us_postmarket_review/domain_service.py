@@ -49,7 +49,6 @@ class USPostmarketReviewService:
         *,
         config: Optional[Any] = None,
         history_loader: Optional[Callable[..., Any]] = None,
-        search_service: Optional[Any] = None,
         llm_client: Optional[Any] = None,
         reporter: Optional[USPostmarketReviewReporter] = None,
         watch_symbols_provider: Optional[Callable[[], Sequence[str]]] = None,
@@ -61,14 +60,11 @@ class USPostmarketReviewService:
 
             history_loader = load_history_df
         self.history_loader = history_loader
-        self.search_service = search_service
         self.llm_client = llm_client
         self.reporter = reporter or USPostmarketReviewReporter()
         self.watch_symbols_provider = watch_symbols_provider
         self.db = db or DatabaseManager.get_instance()
 
-        if self.search_service is None:
-            self.search_service = self._build_search_service()
 
     def run(
         self,
@@ -164,7 +160,7 @@ class USPostmarketReviewService:
             spy_change,
             warnings,
         )
-        news = self._load_news(trading_date, watch_symbols, warnings)
+        news = self._load_news(watch_symbols, warnings)
         return USPostmarketReviewContext(
             trading_date=trading_date,
             benchmarks=benchmarks,
@@ -336,13 +332,10 @@ class USPostmarketReviewService:
 
     def _load_news(
         self,
-        trading_date: date,
         watch_symbols: Sequence[str],
         warnings: List[str],
     ) -> List[Dict[str, Any]]:
         news = self._load_persisted_news(watch_symbols, warnings)
-        if len(news) < 10:
-            news.extend(self._search_news(watch_symbols, warnings))
         return self._dedupe_news(news)[:_NEWS_LIMIT]
 
     def _load_persisted_news(
@@ -382,43 +375,6 @@ class USPostmarketReviewService:
             warnings.append(f"读取已保存新闻失败: {exc}")
             return []
 
-    def _search_news(self, watch_symbols: Sequence[str], warnings: List[str]) -> List[Dict[str, Any]]:
-        if self.search_service is None:
-            warnings.append("搜索服务未配置，跳过新闻搜索")
-            return []
-        queries = [
-            "S&P 500 Nasdaq Dow close today performance",
-            "US stocks close market drivers today",
-            "Federal Reserve rates inflation US stocks today",
-            "US technology stocks sectors market close today",
-        ]
-        if watch_symbols:
-            queries.append(" ".join([*watch_symbols[:8], "stock news today earnings guidance"]))
-
-        results: List[Dict[str, Any]] = []
-        for query in queries:
-            try:
-                response = self.search_service.search_stock_news(
-                    stock_code="market",
-                    stock_name="US market",
-                    max_results=3,
-                    focus_keywords=query.split(),
-                )
-                for item in getattr(response, "results", []) or []:
-                    results.append(
-                        {
-                            "title": self._field(item, "title")[:180],
-                            "summary": self._field(item, "snippet")[:500],
-                            "source": self._field(item, "source")[:80],
-                            "published_at": self._field(item, "published_date")[:80],
-                            "url": self._field(item, "url")[:500],
-                            "related_symbols": [],
-                        }
-                    )
-            except Exception as exc:
-                logger.warning("美股收盘复盘新闻搜索失败 query=%s: %s", query, exc, exc_info=True)
-                warnings.append(f"新闻搜索失败: {exc}")
-        return results
 
     @staticmethod
     def _dedupe_news(news: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -674,13 +630,6 @@ class USPostmarketReviewService:
             symbol = symbol[1:]
         return symbol if symbol.endswith(".US") else ""
 
-    @staticmethod
-    def _field(item: Any, field: str) -> str:
-        if hasattr(item, field):
-            return str(getattr(item, field) or "").strip()
-        if isinstance(item, dict):
-            return str(item.get(field) or "").strip()
-        return ""
 
     @staticmethod
     def _format_dt(value: Optional[datetime]) -> Optional[str]:
@@ -691,16 +640,3 @@ class USPostmarketReviewService:
         from finance_analysis.analysis.pipeline_config import get_pipeline_config
 
         return get_pipeline_config()
-
-    def _build_search_service(self) -> Optional[Any]:
-        try:
-            has_search_capability = getattr(self.config, "has_search_capability_enabled", None)
-            if callable(has_search_capability) and not has_search_capability():
-                return None
-            from finance_analysis.market_review.runtime import build_market_review_runtime
-
-            _, _, search_service = build_market_review_runtime(self.config)
-            return search_service
-        except Exception as exc:
-            logger.warning("初始化美股收盘复盘搜索服务失败: %s", exc, exc_info=True)
-            return None

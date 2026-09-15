@@ -17,7 +17,6 @@ from finance_analysis.analysis.pipeline_config import get_pipeline_config
 from finance_analysis.notification.service import NotificationService
 from finance_analysis.market_review.analyzer import MarketAnalyzer
 from finance_analysis.reporting.localization import normalize_report_language
-from finance_analysis.search import SearchService
 
 
 logger = logging.getLogger(__name__)
@@ -58,7 +57,6 @@ def _get_market_review_text(language: str) -> dict[str, str]:
 def run_market_review(
     notifier: NotificationService,
     analyzer: Optional[TextGenerator] = None,
-    search_service: Optional[SearchService] = None,
     send_notification: bool = True,
     merge_notification: bool = False,
     override_region: Optional[str] = None,
@@ -70,7 +68,6 @@ def run_market_review(
     Args:
         notifier: 通知服务
         analyzer: AI分析器（可选）
-        search_service: 搜索服务（可选）
         send_notification: 是否发送通知
         merge_notification: 是否合并推送（跳过本次推送，由 main 层合并个股+大盘后统一发送，Issue #190）
         override_region: 覆盖 config 的 market_review_region（Issue #373 交易日过滤后有效子集）
@@ -109,7 +106,7 @@ def run_market_review(
                     continue
                 logger.info("生成 %s 大盘复盘报告...", label)
                 mkt_analyzer = MarketAnalyzer(
-                    search_service=search_service, analyzer=analyzer, region=mkt
+                    analyzer=analyzer, region=mkt
                 )
                 mkt_report = mkt_analyzer.run_daily_review()
                 if mkt_report:
@@ -120,7 +117,6 @@ def run_market_review(
                 review_report = None
         else:
             market_analyzer = MarketAnalyzer(
-                search_service=search_service,
                 analyzer=analyzer,
                 region=region,
             )

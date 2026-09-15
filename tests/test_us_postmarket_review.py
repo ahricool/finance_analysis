@@ -86,26 +86,6 @@ class FakeDataManager:
         return pd.DataFrame(rows), "FakeSource"
 
 
-class FakeSearchService:
-    def __init__(self, fail: bool = False) -> None:
-        self.fail = fail
-
-    def search_stock_news(self, *args, **kwargs):
-        if self.fail:
-            raise RuntimeError("search down")
-        return SimpleNamespace(
-            results=[
-                SimpleNamespace(
-                    title="S&P 500 closes higher as tech leads",
-                    snippet="Large-cap tech helped US stocks close higher.",
-                    url="https://example.com/market",
-                    source="Example",
-                    published_date="2026-06-23T20:00:00Z",
-                )
-            ]
-        )
-
-
 class FakeLLM:
     def __init__(self, text: str | None = None, available: bool = True, fail: bool = False) -> None:
         self.text = text
@@ -149,7 +129,7 @@ class EmptyDb:
             return False
 
         def execute(self, stmt):
-            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+            return SimpleNamespace(all=list, scalars=lambda: SimpleNamespace(all=list))
 
     def get_session(self):
         return self.Session()
@@ -162,7 +142,6 @@ def _service(
     watch_symbols: list[str] | None = None,
     llm: FakeLLM | None = None,
     reporter: FakeReporter | None = None,
-    search: FakeSearchService | None = None,
 ) -> USPostmarketReviewService:
     default_changes = {
         "SPY.US": 0.8,
@@ -187,9 +166,8 @@ def _service(
     if changes:
         default_changes.update(changes)
     return USPostmarketReviewService(
-        config=SimpleNamespace(report_language="zh", has_search_capability_enabled=lambda: True),
+        config=SimpleNamespace(report_language="zh"),
         history_loader=FakeDataManager(default_changes, fail).load_history_df,
-        search_service=search or FakeSearchService(),
         llm_client=llm or FakeLLM(_complete_markdown()),
         reporter=reporter or FakeReporter(),
         watch_symbols_provider=lambda: watch_symbols if watch_symbols is not None else ["AAPL.US", "NVDA.US", "TSLA.US"],
@@ -340,11 +318,12 @@ def test_notification_failure_records_warning() -> None:
     assert summary.notification_id == 1
 
 
-def test_news_search_failure_records_warning_and_completes() -> None:
-    summary = _service(search=FakeSearchService(fail=True)).run(now=TRADING_DATE)
+def test_empty_persisted_news_completes() -> None:
+    summary = _service().run(now=TRADING_DATE)
 
     assert summary.benchmark_count == 4
-    assert any("新闻搜索失败" in item for item in summary.warnings)
+    assert summary.report
+    assert not summary.warnings
 
 
 def test_reporter_creates_investment_report_and_uses_notification_dedup_key() -> None:
@@ -371,3 +350,27 @@ def test_reporter_creates_investment_report_and_uses_notification_dedup_key() ->
 def test_required_symbols_constants_are_complete() -> None:
     assert set(US_POSTMARKET_BENCHMARKS) == {"SPY.US", "QQQ.US", "DIA.US", "IWM.US"}
     assert {"XLK.US", "SOXX.US", "XLF.US", "XLE.US", "XLRE.US"}.issubset(US_POSTMARKET_SECTOR_ETFS)
+
+
+def test_persisted_financial_news_is_used_without_a_minimum_count():
+    service = _service()
+    row = SimpleNamespace(
+        title="Company reports quarterly results",
+        snippet="Revenue rose compared with the prior year.",
+        source="longbridge",
+        provider="longbridge",
+        published_date=None,
+        url="https://example.com/quarterly-results",
+    )
+    session = EmptyDb.Session()
+    session.execute = lambda stmt: SimpleNamespace(all=lambda: [(row, "AAPL.US")])
+    service.db = SimpleNamespace(get_session=lambda: session)
+    warnings = []
+
+    news = service._load_news(["AAPL.US"], warnings)
+
+    assert len(news) == 1
+    assert news[0]["source"] == "longbridge"
+    assert news[0]["related_symbols"] == ["AAPL.US"]
+    assert news[0]["url"] == row.url
+    assert warnings == []

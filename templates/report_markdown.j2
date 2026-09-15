@@ -24,9 +24,6 @@
 {% if intel %}
 ### 📰 {{ labels.info_heading }}
 
-{% if intel.get('sentiment_summary') %}
-**💭 {{ labels.sentiment_summary_label }}**: {{ intel.sentiment_summary }}
-{% endif %}
 {% if intel.get('earnings_outlook') %}
 **📊 {{ labels.earnings_outlook_label }}**: {{ intel.earnings_outlook }}
 {% endif %}
@@ -36,17 +33,6 @@
 {% for alert in intel.risk_alerts %}
 - {{ alert }}
 {% endfor %}
-{% endif %}
-{% if intel.get('positive_catalysts') %}
-
-**✨ {{ labels.positive_catalysts_label }}**:
-{% for cat in intel.positive_catalysts %}
-- {{ cat }}
-{% endfor %}
-{% endif %}
-{% if intel.get('latest_news') %}
-
-**📢 {{ labels.latest_news_label }}**: {{ intel.latest_news }}
 {% endif %}
 
 {% endif %}

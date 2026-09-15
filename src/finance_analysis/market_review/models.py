@@ -15,7 +15,6 @@ _CHINESE_SECTION_PATTERNS = {
     "index_commentary": r"###\s*二、(?:指数结构|指数点评|主要指数)",
     "sector_highlights": r"###\s*三、(?:板块主线|热点解读|板块表现)",
     "funds_sentiment": r"###\s*四、(?:资金与情绪|资金动向)",
-    "news_catalysts": r"###\s*五、(?:消息催化|后市展望)",
 }
 
 

@@ -16,7 +16,7 @@ from finance_analysis.integrations.market_data.providers.longbridge.news import 
     LongbridgeNewsRecord,
     _canonical_news_url,
     _normalize_news_item,
-    news_records_to_search_response,
+    news_records_to_items,
 )
 
 
@@ -53,7 +53,7 @@ class TestLongbridgeNewsNormalization(unittest.TestCase):
         self.assertEqual(record.title, "Apple launches new product")
         self.assertEqual(record.published_at, datetime.fromtimestamp(1773805586, tz=timezone.utc))
 
-    def test_news_records_to_search_response_provider(self):
+    def test_news_records_to_items_provider(self):
         records = [
             LongbridgeNewsRecord(
                 news_id="1",
@@ -63,11 +63,10 @@ class TestLongbridgeNewsNormalization(unittest.TestCase):
                 published_at=datetime(2026, 6, 10, tzinfo=timezone.utc),
             )
         ]
-        response = news_records_to_search_response("AAPL", records)
+        response = news_records_to_items(records)
 
-        self.assertEqual(response.provider, "longbridge")
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].source, "longbridge")
+        self.assertEqual(len(response), 1)
+        self.assertEqual(response[0].source, "longbridge")
 
 
 class TestLongbridgeNewsFetcher(unittest.TestCase):
@@ -132,7 +131,7 @@ class TestLongbridgeNewsFetcher(unittest.TestCase):
             kwargs = mock_db.save_news_intel.call_args.kwargs
             self.assertEqual(kwargs["code"], "NVDA")
             self.assertEqual(kwargs["usage_type"], "premarket_news")
-            self.assertEqual(kwargs["response"].provider, "longbridge")
+            self.assertEqual(kwargs["provider"], "longbridge")
 
 
 if __name__ == "__main__":

@@ -6,20 +6,18 @@
 
 职责：
 1. 获取大盘指数数据（上证、深证、创业板）
-2. 搜索市场新闻形成复盘情报
+2. 汇总市场结构化数据
 3. 使用大模型生成每日大盘复盘报告
 """
 
 import logging
-import time
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, List
 
 import pandas as pd
 
 from finance_analysis.analysis.pipeline_config import get_pipeline_config
 from finance_analysis.reporting.localization import normalize_report_language
-from finance_analysis.search import SearchService
 from finance_analysis.market_review.profile import get_profile, MarketProfile
 from finance_analysis.market_review.strategy import get_market_strategy_blueprint
 from finance_analysis.integrations.market_data import MarketDataService
@@ -41,13 +39,11 @@ class MarketAnalyzer:
     1. 获取大盘指数实时行情
     2. 获取市场涨跌统计
     3. 获取板块涨跌榜
-    4. 搜索市场新闻
     5. 生成大盘复盘报告
     """
     
     def __init__(
         self,
-        search_service: Optional[SearchService] = None,
         analyzer=None,
         region: str = "cn",
     ):
@@ -55,12 +51,10 @@ class MarketAnalyzer:
         初始化大盘分析器
 
         Args:
-            search_service: 搜索服务实例
             analyzer: AI分析器实例（用于调用LLM）
             region: 市场区域 cn=A股 us=美股
         """
         self.config = get_pipeline_config()
-        self.search_service = search_service
         self.analyzer = analyzer
         self.data_manager = MarketDataService()
         self.region = region if region in ("cn", "us", "hk") else "cn"
@@ -160,7 +154,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 ### Strategy Principles
 - Read index direction first, then confirm liquidity structure, and finally test sector persistence.
 - Every conclusion must map to position sizing, trading pace, and risk-control actions.
-- Base judgments on today's data and the latest 3-day news flow without inventing unverified information.
+- Base judgments on the supplied market data without inventing unverified information.
 
 ### Analysis Dimensions
 - Trend Structure: Determine whether the market is in an uptrend, range, or defensive phase.
@@ -274,7 +268,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                     indices.append(index)
 
             if not indices:
-                logger.warning("[大盘] 所有行情数据源失败，将依赖新闻搜索进行分析")
+                logger.warning("[大盘] 所有行情数据源失败，将明确标注行情缺失")
             else:
                 logger.info(f"[大盘] 获取到 {len(indices)} 个指数行情")
 
@@ -345,63 +339,22 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
     #     except Exception as e:
     #         logger.warning(f"[大盘] 获取北向资金失败: {e}")
     
-    def search_market_news(self) -> List[Dict]:
-        """
-        搜索市场新闻
-        
-        Returns:
-            新闻列表
-        """
-        if not self.search_service:
-            logger.warning("[大盘] 搜索服务未配置，跳过新闻搜索")
-            return []
-        
-        all_news = []
-
-        # 按 region 使用不同的新闻搜索词
-        search_queries = self.profile.news_queries
-        
-        try:
-            logger.info("[大盘] 开始搜索市场新闻...")
-            
-            # 根据 region 设置搜索上下文名称，避免美股搜索被解读为 A 股语境
-            market_names = {"cn": "大盘", "us": "US market", "hk": "HK market"}
-            market_name = market_names.get(self.region, "大盘")
-            for query in search_queries:
-                response = self.search_service.search_stock_news(
-                    stock_code="market",
-                    stock_name=market_name,
-                    max_results=3,
-                    focus_keywords=query.split()
-                )
-                if response and response.results:
-                    all_news.extend(response.results)
-                    logger.info(f"[大盘] 搜索 '{query}' 获取 {len(response.results)} 条结果")
-            
-            logger.info(f"[大盘] 共获取 {len(all_news)} 条市场新闻")
-            
-        except Exception as e:
-            logger.exception(f"[大盘] 搜索市场新闻失败: {e}")
-        
-        return all_news
-    
-    def generate_market_review(self, overview: MarketOverview, news: List) -> str:
+    def generate_market_review(self, overview: MarketOverview) -> str:
         """
         使用大模型生成大盘复盘报告
         
         Args:
             overview: 市场概览数据
-            news: 市场新闻列表 (SearchResult 对象列表)
             
         Returns:
             大盘复盘报告文本
         """
         if not self.analyzer or not callable(getattr(self.analyzer, "generate_text", None)):
             logger.warning("[大盘] AI分析器未配置或不可用，使用模板生成报告")
-            return self._generate_template_review(overview, news)
+            return self._generate_template_review(overview)
         
         # 构建 Prompt
-        prompt = self._build_review_prompt(overview, news)
+        prompt = self._build_review_prompt(overview)
         
         logger.info("[大盘] 调用大模型生成复盘报告...")
         # Use the public generate_text() entry point — never access private analyzer attributes.
@@ -410,23 +363,21 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         if review:
             logger.info("[大盘] 复盘报告生成成功，长度: %d 字符", len(review))
             # Inject structured data tables into LLM prose sections
-            return self._inject_data_into_review(review, overview, news)
+            return self._inject_data_into_review(review, overview)
         else:
             logger.warning("[大盘] 大模型返回为空，使用模板报告")
-            return self._generate_template_review(overview, news)
+            return self._generate_template_review(overview)
     
     def _inject_data_into_review(
         self,
         review: str,
         overview: MarketOverview,
-        news: Optional[List] = None,
     ) -> str:
         """Inject structured data tables into the corresponding LLM prose sections."""
         # Build data blocks
         stats_block = self._build_stats_block(overview)
         indices_block = self._build_indices_block(overview)
         sector_block = self._build_sector_block(overview)
-        news_block = self._build_news_block(news or [])
         patterns = (
             _ENGLISH_SECTION_PATTERNS
             if self._get_review_language() == "en"
@@ -454,12 +405,6 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 sector_block,
             )
 
-        if news_block and "news_catalysts" in patterns:
-            review = self._insert_after_section(
-                review,
-                patterns["news_catalysts"],
-                news_block,
-            )
 
         return review
 
@@ -670,61 +615,6 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 )
         return "\n".join(lines)
 
-    def _build_news_block(self, news: List) -> str:
-        """Build a source-aware news catalyst table for the rendered report."""
-        if not news:
-            return ""
-        if self._get_review_language() == "en":
-            lines = [
-                "#### News Catalysts",
-                "| # | Headline | Snippet / Lead | Source |",
-                "|---|----------|----------------|--------|",
-            ]
-        else:
-            lines = [
-                "#### 近三日催化线索",
-                "| 序号 | 事件/标题 | 摘要/线索片段 | 来源 |",
-                "|------|-----------|----------------|------|",
-            ]
-
-        for idx, item in enumerate(news[:5], 1):
-            title = self._escape_table_cell(
-                self._compact_news_text(self._get_news_field(item, "title"), limit=80) or "-"
-            )
-            snippet = self._escape_table_cell(
-                self._compact_news_text(self._get_news_field(item, "snippet"), limit=180) or "-"
-            )
-            source = self._escape_table_cell(self._format_news_source_cell(item) or "-")
-            lines.append(f"| {idx} | {title} | {snippet} | {source} |")
-        return "\n".join(lines)
-
-    @staticmethod
-    def _get_news_field(item: Any, field: str) -> str:
-        if hasattr(item, field):
-            value = getattr(item, field, "") or ""
-        elif isinstance(item, dict):
-            value = item.get(field, "") or ""
-        else:
-            value = ""
-        return str(value).strip()
-
-    @classmethod
-    def _format_news_source_cell(cls, item: Any) -> str:
-        source = cls._compact_news_text(cls._get_news_field(item, "source"), limit=40)
-        date_text = cls._compact_news_text(cls._get_news_field(item, "published_date"), limit=24)
-        url = cls._compact_news_text(cls._get_news_field(item, "url"), limit=0)
-        label_parts = [part for part in (source, date_text) if part]
-        label = " / ".join(label_parts)
-        if url:
-            return f"[{label or 'URL'}]({url})"
-        return label
-
-    @staticmethod
-    def _compact_news_text(value: str, *, limit: int) -> str:
-        text = " ".join(str(value or "").split())
-        if limit <= 0 or len(text) <= limit:
-            return text
-        return text[: max(0, limit - 3)].rstrip() + "..."
 
     @staticmethod
     def _format_optional_number(value: float) -> str:
@@ -799,7 +689,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 label = "偏弱"
         return score, label
 
-    def _build_review_prompt(self, overview: MarketOverview, news: List) -> str:
+    def _build_review_prompt(self, overview: MarketOverview) -> str:
         """构建复盘报告 Prompt"""
         review_language = self._get_review_language()
 
@@ -812,20 +702,6 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         # 板块信息
         top_sectors_text = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.top_sectors[:3]])
         bottom_sectors_text = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.bottom_sectors[:3]])
-        
-        # 新闻信息 - 支持 SearchResult 对象或字典
-        news_text = ""
-        for i, n in enumerate(news[:6], 1):
-            # 兼容 SearchResult 对象和字典
-            title = self._compact_news_text(self._get_news_field(n, "title"), limit=90)
-            snippet = self._compact_news_text(self._get_news_field(n, "snippet"), limit=220)
-            source = self._compact_news_text(self._get_news_field(n, "source"), limit=60)
-            published_date = self._compact_news_text(self._get_news_field(n, "published_date"), limit=30)
-            url = self._compact_news_text(self._get_news_field(n, "url"), limit=180)
-            meta_parts = [part for part in (source, published_date) if part]
-            meta = f" ({' / '.join(meta_parts)})" if meta_parts else ""
-            url_line = f"\n   URL: {url}" if url else ""
-            news_text += f"{i}. {title}{meta}\n   {snippet or '-'}{url_line}\n"
         
         # 按 region 组装市场概况与板块区块（美股无涨跌家数、板块数据）
         stats_block = ""
@@ -862,21 +738,19 @@ Lagging: {bottom_sectors_text if bottom_sectors_text else "N/A"}"""
                 sector_block = "## 板块表现\n（该市场暂无板块涨跌数据）"
 
         data_no_indices_hint = (
-            "注意：由于行情数据获取失败，请主要根据【市场新闻】进行定性分析和总结，不要编造具体的指数点位。"
+            "注意：由于行情数据获取失败，请仅依据仍可用的结构化数据总结，明确说明缺失项，不要编造具体的指数点位。"
             if not indices_text
             else ""
         )
         if review_language == "en":
             data_no_indices_hint = (
-                "Note: Market data fetch failed. Rely mainly on [Market News] for qualitative analysis. Do not invent index levels."
+                "Note: Market data fetch failed. Use only available structured data and state what is missing. Do not invent index levels."
                 if not indices_text
                 else ""
             )
             indices_placeholder = indices_text if indices_text else "No index data (API error)"
-            news_placeholder = news_text if news_text else "No relevant news"
         else:
             indices_placeholder = indices_text if indices_text else "暂无指数数据（接口异常）"
-            news_placeholder = news_text if news_text else "暂无相关新闻"
 
         if review_language == "en":
             report_title = self._get_review_title(overview.date).removeprefix("## ").strip()
@@ -891,6 +765,8 @@ Lagging: {bottom_sectors_text if bottom_sectors_text else "N/A"}"""
 
 ---
 
+Use only supplied data. Do not invent news, policy events, fund flows, or causes.
+
 # Today's Market Data
 
 ## Date
@@ -902,9 +778,6 @@ Lagging: {bottom_sectors_text if bottom_sectors_text else "N/A"}"""
 {stats_block}
 
 {sector_block}
-
-## Market News
-{news_placeholder}
 
 {data_no_indices_hint}
 
@@ -929,7 +802,7 @@ Lagging: {bottom_sectors_text if bottom_sectors_text else "N/A"}"""
 (Analyze the drivers behind the leading and lagging sectors or themes.)
 
 ### 5. Outlook
-(Provide the near-term outlook based on price action and news.)
+(Provide the near-term outlook based on price action and market breadth.)
 
 ### 6. Risk Alerts
 (List the main risks to monitor.)
@@ -946,11 +819,12 @@ Output the report content directly, no extra commentary.
         return f"""你是一位专业的A/H/美股市场分析师，请根据以下数据生成一份结构化的{self._get_market_scope_name('zh')}大盘复盘报告。
 
 【重要】输出要求：
+- 仅依据提供的数据，禁止编造新闻、政策、资金流或事件原因
 - 必须输出纯 Markdown 文本格式
 - 禁止输出 JSON 格式
 - 禁止输出代码块
 - emoji 仅在标题处少量使用（每个标题最多1个）
-- 报告要像交易员盘后工作台：先给结论，再按数据表、主线、催化、计划展开
+- 报告要像交易员盘后工作台：先给结论，再按数据表、主线、展望、计划展开
 - 不要重复列出已由系统注入的表格数据；正文负责解释表格背后的含义
 
 ---
@@ -966,9 +840,6 @@ Output the report content directly, no extra commentary.
 {stats_block}
 
 {sector_block}
-
-## 市场新闻
-{news_placeholder}
 
 {data_no_indices_hint}
 
@@ -994,8 +865,8 @@ Output the report content directly, no extra commentary.
 ### 四、资金与情绪
 （解读成交额、涨跌停结构、市场宽度和风险偏好）
 
-### 五、消息催化
-（结合近三日新闻，提炼真正影响明日交易的催化或扰动）
+### 五、后市展望
+（根据指数结构、市场宽度与板块表现判断后续需要确认的信号）
 
 ### 六、明日交易计划
 （给出进攻/均衡/防守结论、仓位区间、关注方向、回避方向和一个触发失效条件）
@@ -1008,7 +879,7 @@ Output the report content directly, no extra commentary.
 请直接输出复盘报告内容，不要输出其他说明文字。
 """
     
-    def _generate_template_review(self, overview: MarketOverview, news: List) -> str:
+    def _generate_template_review(self, overview: MarketOverview) -> str:
         """使用模板生成复盘报告（无大模型时的备选方案）"""
         template_language = self._get_template_review_language()
         mood_code = self.profile.mood_index_code
@@ -1108,8 +979,8 @@ Market conditions can change quickly. The data above is for reference only and d
 ### 四、资金与情绪
 - 结合成交额和涨跌家数看，当前更适合等待确认，避免仅凭单一热点追高。
 
-### 五、消息催化
-- 暂无可用新闻时，应降低对题材持续性的确定性判断。
+### 五、后市展望
+- 观察指数结构与市场宽度能否持续改善。
 
 ### 六、明日交易计划
 - **结论**：均衡观察。
@@ -1136,11 +1007,9 @@ Market conditions can change quickly. The data above is for reference only and d
         # 1. 获取市场概览
         overview = self.get_market_overview()
         
-        # 2. 搜索市场新闻
-        news = self.search_market_news()
         
         # 3. 生成复盘报告
-        report = self.generate_market_review(overview, news)
+        report = self.generate_market_review(overview)
         
         logger.info("========== 大盘复盘分析完成 ==========")
         

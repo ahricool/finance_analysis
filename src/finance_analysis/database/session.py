@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 if TYPE_CHECKING:
-    from finance_analysis.search import SearchResponse
+    from finance_analysis.database.news import NewsItem
 
 
 class DatabaseManager(LLMUsageMixin):
@@ -282,7 +282,12 @@ class DatabaseManager(LLMUsageMixin):
         return StockRepository(self).get_latest(code, days, market)
 
     def save_news_intel(
-        self, code: str, usage_type: str, response: "SearchResponse", query_context: Optional[Dict[str, str]] = None
+        self,
+        code: str,
+        usage_type: str,
+        items: list["NewsItem"],
+        provider: str,
+        query_context: Optional[Dict[str, str]] = None,
     ) -> int:
         """
         保存新闻情报到数据库
@@ -294,7 +299,7 @@ class DatabaseManager(LLMUsageMixin):
         关联策略：
         - news_intel_usage 保存 usage_type、symbol、query_id 和 uid，重复抓取不覆盖原始事实
         """
-        if not response or not response.results:
+        if not items:
             return 0
 
         saved_count = 0
@@ -311,7 +316,7 @@ class DatabaseManager(LLMUsageMixin):
         def _write(session: Session) -> int:
             local_saved_count = 0
 
-            for item in response.results:
+            for item in items:
                 title = (item.title or '').strip()
                 url = (item.url or '').strip()
                 source = (item.source or '').strip()
@@ -337,7 +342,7 @@ class DatabaseManager(LLMUsageMixin):
                             url=url_key,
                             source=source,
                             published_date=published_date,
-                    provider=response.provider,
+                    provider=provider,
                             fetched_at=utc_now(),
                         )
                 record_id = session.execute(

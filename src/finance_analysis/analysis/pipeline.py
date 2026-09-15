@@ -6,7 +6,7 @@ Finance Analysis - 核心分析流水线
 
 职责：
 1. 管理整个分析流程
-2. 协调数据获取、存储、搜索、分析、通知等模块
+2. 协调数据获取、存储、分析、通知等模块
 3. 实现并发控制和异常处理
 4. 提供股票分析的核心功能
 """
@@ -39,8 +39,7 @@ from finance_analysis.notification.service import NotificationService
 from finance_analysis.reporting.localization import (
     normalize_report_language,
 )
-from finance_analysis.search import SearchService
-from finance_analysis.market_intelligence.social_sentiment import SocialSentimentService
+from finance_analysis.stocks.classification import is_index_or_etf
 from finance_analysis.reporting.types import ReportType
 from finance_analysis.analysis.technical.analyzer import StockTrendAnalyzer, TrendAnalysisResult
 from finance_analysis.market_review.trading_calendar import (
@@ -49,7 +48,6 @@ from finance_analysis.market_review.trading_calendar import (
     get_market_now,
     is_market_open,
 )
-from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code
 from finance_analysis.notification.messages import BotMessage
 
 
@@ -66,7 +64,7 @@ class StockAnalysisPipeline:
     
     职责：
     1. 管理整个分析流程
-    2. 协调数据获取、存储、搜索、分析、通知等模块
+    2. 协调数据获取、存储、分析、通知等模块
     3. 实现并发控制和异常处理
     """
     
@@ -113,24 +111,6 @@ class StockAnalysisPipeline:
         self.notifier = NotificationService(source_message=source_message)
         self._single_stock_notify_lock = threading.Lock()
         
-        # 初始化搜索服务（可选，初始化失败不应阻断主分析流程）
-        try:
-            self.search_service = SearchService(
-                bocha_keys=self.config.bocha_api_keys,
-                tavily_keys=self.config.tavily_api_keys,
-                anspire_keys=self.config.anspire_api_keys,
-                brave_keys=self.config.brave_api_keys,
-                serpapi_keys=self.config.serpapi_keys,
-                minimax_keys=self.config.minimax_api_keys,
-                searxng_base_urls=self.config.searxng_base_urls,
-                searxng_public_instances_enabled=self.config.searxng_public_instances_enabled,
-                news_max_age_days=self.config.news_max_age_days,
-                news_strategy_profile=getattr(self.config, "news_strategy_profile", "short"),
-            )
-        except Exception as exc:
-            logger.warning("搜索服务初始化失败，将以无搜索模式运行: %s", exc, exc_info=True)
-            self.search_service = None
-        
         logger.info(f"调度器初始化完成，最大并发数: {self.max_workers}")
         logger.info("已启用技术分析引擎（均线/趋势/量价指标）")
         # 打印实时行情/筹码配置状态
@@ -142,29 +122,6 @@ class StockAnalysisPipeline:
             logger.info("筹码分布分析已启用")
         else:
             logger.info("筹码分布分析已禁用")
-        if self.search_service is None:
-            logger.warning("搜索服务未启用（初始化失败或依赖缺失）")
-        elif self.search_service.is_available:
-            logger.info("搜索服务已启用")
-        else:
-            logger.warning("搜索服务未启用（未配置搜索能力）")
-
-        # 初始化社交舆情服务（仅美股，可选）
-        try:
-            self.social_sentiment_service = SocialSentimentService(
-                api_key=self.config.social_sentiment_api_key,
-                api_url=self.config.social_sentiment_api_url,
-            )
-            if self.social_sentiment_service.is_available:
-                logger.info("Social sentiment service enabled (Reddit/X/Polymarket, US stocks only)")
-        except Exception as exc:
-            logger.warning(
-                "社交舆情服务初始化失败，将跳过舆情分析: %s",
-                exc,
-                exc_info=True,
-            )
-            self.social_sentiment_service = None
-
     def _emit_progress(self, progress: int, message: str) -> None:
         """Best-effort bridge from pipeline stages to persisted task progress."""
         callback = getattr(self, "progress_callback", None)
@@ -236,15 +193,14 @@ class StockAnalysisPipeline:
 
     def analyze_stock(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
         """
-        分析单只股票（增强版：含量比、换手率、筹码分析、多维度情报）
+        分析单只股票（增强版：含量比、换手率、筹码分析、基本面）
         
         流程：
         1. 获取实时行情（量比、换手率）- 通过 MarketDataService 回退
         2. 获取筹码分布 - 通过 MarketDataService
         3. 进行趋势分析（基于交易理念）
-        4. 多维度情报搜索（最新消息+风险排查+业绩预期）
-        5. 从数据库获取分析上下文
-        6. 调用 AI 进行综合分析
+        4. 从数据库获取分析上下文
+        5. 调用 AI 进行综合分析
         
         Args:
             query_id: 查询链路关联 id
@@ -301,7 +257,6 @@ class StockAnalysisPipeline:
                 logger.warning(f"{stock_name}({code}) 获取筹码分布失败: {e}")
 
 
-
             self._emit_progress(32, f"{stock_name}：正在聚合基本面与趋势数据")
 
             # Step 2.5: 基本面能力聚合（统一入口，异常降级）
@@ -355,59 +310,12 @@ class StockAnalysisPipeline:
             except Exception as e:
                 logger.warning(f"{stock_name}({code}) 趋势分析失败: {e}", exc_info=True)
 
-            news_context = None
-            self._emit_progress(46, f"{stock_name}：正在检索新闻与舆情")
-            if self.search_service is not None and self.search_service.is_available:
-                logger.info(f"{stock_name}({code}) 开始多维度情报搜索...")
-
-                # 使用多维度搜索（最多5次搜索）
-                intel_results = self.search_service.search_comprehensive_intel(
-                    stock_code=code,
-                    stock_name=stock_name,
-                    max_searches=5
-                )
-
-                # 格式化情报报告
-                if intel_results:
-                    news_context = self.search_service.format_intel_report(intel_results, stock_name)
-                    total_results = sum(
-                        len(r.results) for r in intel_results.values() if r.success
-                    )
-                    logger.info(f"{stock_name}({code}) 情报搜索完成: 共 {total_results} 条结果")
-                    logger.debug(f"{stock_name}({code}) 情报搜索结果:\n{news_context}")
-
-                    # 保存新闻情报到数据库（用于后续复盘与查询）
-                    try:
-                        query_context = self._build_query_context(query_id=query_id)
-                        for dim_name, response in intel_results.items():
-                            if response and response.success and response.results:
-                                self.db.save_news_intel(
-                                    code=code, usage_type=dim_name, response=response, query_context=query_context
-                                )
-                    except Exception as e:
-                        logger.warning(f"{stock_name}({code}) 保存新闻情报失败: {e}")
-            else:
-                logger.info(f"{stock_name}({code}) 搜索服务不可用，跳过情报搜索")
-
-            # Step 4.5: Social sentiment intelligence (US stocks only)
-            if self.social_sentiment_service is not None and self.social_sentiment_service.is_available and is_us_stock_code(code):
-                try:
-                    social_context = self.social_sentiment_service.get_social_context(code)
-                    if social_context:
-                        logger.info(f"{stock_name}({code}) Social sentiment data retrieved")
-                        if news_context:
-                            news_context = news_context + "\n\n" + social_context
-                        else:
-                            news_context = social_context
-                except Exception as e:
-                    logger.warning(f"{stock_name}({code}) Social sentiment fetch failed: {e}")
-
             # Step 5: 获取分析上下文（技术面数据）
             self._emit_progress(58, f"{stock_name}：正在整理分析上下文")
             context = self.db.get_analysis_context(code)
 
             if context is None:
-                logger.warning(f"{stock_name}({code}) 无法获取历史行情数据，将仅基于新闻和实时行情分析")
+                logger.warning(f"{stock_name}({code}) 无法获取历史行情数据，将仅基于现有上下文和实时行情分析")
                 _mkt_date = get_market_now(
                     get_market_for_stock(normalize_stock_code(code))
                 ).date()
@@ -430,11 +338,10 @@ class StockAnalysisPipeline:
                 fundamental_context,
             )
             
-            # Step 7: 调用 AI 分析（传入增强的上下文和新闻）
+            # Step 7: 调用 AI 分析（传入增强上下文）
             self._emit_progress(64, f"{stock_name}：正在请求 LLM 生成报告")
             result = self.analyzer.analyze(
                 enhanced_context,
-                news_context=news_context,
                 progress_callback=self._emit_progress,
             )
 
@@ -461,7 +368,6 @@ class StockAnalysisPipeline:
                     self._emit_progress(97, f"{stock_name}：正在保存分析报告")
                     context_snapshot = self._build_context_snapshot(
                         enhanced_context=enhanced_context,
-                        news_content=news_context,
                         realtime_quote=realtime_quote,
                         chip_data=chip_data
                     )
@@ -469,7 +375,7 @@ class StockAnalysisPipeline:
                         result=result,
                         query_id=query_id,
                         report_type=report_type.value,
-                        news_content=news_context,
+                        news_content=None,
                         context_snapshot=context_snapshot,
                         save_snapshot=self.save_context_snapshot,
                         uid=self.owner_uid,
@@ -517,8 +423,6 @@ class StockAnalysisPipeline:
         elif realtime_quote and getattr(realtime_quote, 'name', None):
             enhanced['stock_name'] = realtime_quote.name
 
-        # 将运行时搜索窗口透传给 analyzer，避免与全局配置重新读取产生窗口不一致
-        enhanced['news_window_days'] = getattr(self.search_service, "news_window_days", 3)
         
         # 添加实时行情（兼容不同数据源的字段差异）
         if realtime_quote:
@@ -634,7 +538,7 @@ class StockAnalysisPipeline:
                             pass
 
         # ETF/index flag for analyzer prompt (Fixes #274)
-        enhanced['is_index_etf'] = SearchService.is_index_or_etf(
+        enhanced['is_index_etf'] = is_index_or_etf(
             context.get('code', ''), enhanced.get('stock_name', stock_name)
         )
 
@@ -835,7 +739,6 @@ class StockAnalysisPipeline:
     def _build_context_snapshot(
         self,
         enhanced_context: Dict[str, Any],
-        news_content: Optional[str],
         realtime_quote: Any,
         chip_data: Optional[ChipDistribution]
     ) -> Dict[str, Any]:
@@ -844,7 +747,6 @@ class StockAnalysisPipeline:
         """
         return {
             "enhanced_context": enhanced_context,
-            "news_content": news_content,
             "realtime_quote_raw": self._safe_to_dict(realtime_quote),
             "chip_distribution_raw": self._safe_to_dict(chip_data),
         }
@@ -904,29 +806,6 @@ class StockAnalysisPipeline:
             return "web"
         return "system"
 
-    def _build_query_context(self, query_id: Optional[str] = None) -> Dict[str, str]:
-        """
-        生成用户查询关联信息
-        """
-        effective_query_id = query_id or self.query_id or ""
-
-        context: Dict[str, str] = {
-            "query_id": effective_query_id,
-            "query_source": self.query_source or "",
-            "uid": str(self.owner_uid),
-        }
-
-        if self.source_message:
-            context.update({
-                "requester_platform": self.source_message.platform or "",
-                "requester_user_id": self.source_message.user_id or "",
-                "requester_user_name": self.source_message.user_name or "",
-                "requester_chat_id": self.source_message.chat_id or "",
-                "requester_message_id": self.source_message.message_id or "",
-                "requester_query": self.source_message.content or "",
-            })
-
-        return context
     
     def process_single_stock(
         self,

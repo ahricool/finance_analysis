@@ -11,7 +11,7 @@ interfaces/api + tasks/celery/jobs
                  ↓
        领域 service / pipeline
                  ↓
- database repositories + integrations + llm/search/notification/reporting
+ database repositories + integrations + llm/notification/reporting
                  ↓
        PostgreSQL / Redis / 外部 API <!-- pragma: allowlist secret -->
 ```
@@ -20,7 +20,7 @@ interfaces/api + tasks/celery/jobs
 - `tasks/celery/jobs/` 是异步适配层：解析 payload、记录生命周期、调用领域服务。
 - 顶层领域包（`analysis`、`quant`、`etf_rotation`、`trend_following`、`market_review`）拥有业务规则。
 - `database/repositories/` 封装查询和事务；领域代码不应散落 SQL。
-- `integrations/` 封装外部行情；`llm/`、`search/`、`notification/` 同样是共享基础能力。
+- `integrations/` 封装外部行情；`llm/`、`notification/` 同样是共享基础能力。
 - 为避免循环导入和高成本启动，现有代码有意在函数内延迟导入数据库、Provider和任务组件；修改前先确认初始化顺序。
 
 ## 启动生命周期
@@ -84,7 +84,7 @@ API/Celery
   → AnalysisService
   → StockAnalysisPipeline
   → PostgreSQL 历史 + Redis/Provider 实时状态 <!-- pragma: allowlist secret -->
-  → 技术分析 + 基本面 + 搜索/舆情
+  → 技术分析 + 基本面
   → StockReportAnalyzer → LLMClient
   → AnalysisHistory + 报告 + 通知
 ```
@@ -228,13 +228,12 @@ Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练�
 
 盘中预演 `run_preview()` 用当日临时日线复用同一套计算，结果只写入 Redis `trend_following:preview:{market}`，不写正式 snapshot。CN 固定 `easyquotation` 腾讯全市场快照，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback 到其他 realtime provider。周期任务为 `trend_following_preview_cn`（11:00/14:00/14:30 Asia/Shanghai）与 `trend_following_preview_us`（11:00/15:00/15:30 America/New_York）。API：`GET /api/v1/trend-following/preview`。
 
-## 报告、通知和搜索
+## 报告和通知
 
 - `reporting/` 定义 report 类型、schema、本地化、Markdown/Jinja 渲染和可选图片转换。
 - 根 `templates/report_*.j2` 是报告模板；昂贵查询在调用方完成后注入模板。
 - `notification/` 先将消息写入 `notification`，再按 route 过滤 Telegram/ntfy 并执行原有去重/冷却；推送状态不入库。
 - 通知失败通常应隔离到单渠道，不应抹掉成功分析；保持现有 fail-open/finalize 语义。
-- `search/` 对 Anspire、Bocha、Brave、MiniMax、SearXNG、SerpAPI、Tavily 做统一结果模型、fallback 和并发控制；默认测试不得调用公网。
 
 ## 测试定位
 

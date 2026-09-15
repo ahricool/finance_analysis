@@ -136,11 +136,10 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         task = queue.submit_market_review(send_notification=False, override_region="cn,us")
 
         runtime_notifier = MagicMock(last_notification_id=123)
-        runtime_search = MagicMock()
         runtime_analyzer = MagicMock()
         with patch(
                  "finance_analysis.market_review.runtime.build_market_review_runtime",
-                 return_value=(runtime_notifier, runtime_analyzer, runtime_search),
+                 return_value=(runtime_notifier, runtime_analyzer),
              ), \
              patch("finance_analysis.market_review.service.run_market_review", return_value="report") as run_market_review_pipeline:
             result = run_market_review(
@@ -153,7 +152,6 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         run_market_review_pipeline.assert_called_once_with(
             notifier=runtime_notifier,
             analyzer=runtime_analyzer,
-            search_service=runtime_search,
             send_notification=False,
             override_region="cn,us",
             owner_uid=None,
@@ -170,7 +168,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
 
         with patch(
                  "finance_analysis.market_review.runtime.build_market_review_runtime",
-                 return_value=(MagicMock(), MagicMock(), MagicMock()),
+                 return_value=(MagicMock(), MagicMock()),
              ), \
              patch("finance_analysis.market_review.service.run_market_review", return_value=None):
             with self.assertRaisesRegex(RuntimeError, "大盘复盘未返回可持久化报告"):
@@ -377,7 +375,6 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             operation_advice="hold",
             trend_prediction="up",
             sentiment_score=80,
-            news_summary="news",
             technical_analysis="tech",
             fundamental_analysis="fundamental",
             risk_warning="risk",
@@ -447,7 +444,6 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                 operation_advice="Buy",
                 trend_prediction="Bullish",
                 sentiment_score=78,
-                news_summary="news",
                 technical_analysis="tech",
                 fundamental_analysis="fundamental",
                 risk_warning="risk",
@@ -470,7 +466,7 @@ class AnalysisApiContractTestCase(unittest.TestCase):
                 "meta": {},
                 "summary": {},
                 "strategy": {},
-                "details": {"news_summary": "news"},
+                "details": {},
             },
             query_id="q1",
             stock_code="600519",

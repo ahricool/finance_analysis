@@ -12,10 +12,9 @@ Responsibilities:
 from __future__ import annotations
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 
-from finance_analysis.search.config import get_search_config, resolve_news_window_days
 from finance_analysis.core.time import utc_isoformat, utc_now
 from finance_analysis.reporting.localization import (
     get_bias_status_emoji,
@@ -328,8 +327,6 @@ class HistoryService:
         try:
             records = self.db.get_news_intel_by_query_id(query_id=query_id, limit=limit)
 
-            if not records:
-                records = self._fallback_news_by_analysis_context(query_id=query_id, limit=limit)
 
             items: List[Dict[str, str]] = []
             for record in records:
@@ -375,58 +372,6 @@ class HistoryService:
             logger.exception(f"根据 record_id 查询新闻情报失败: {e}", exc_info=True)
             return []
 
-    def _fallback_news_by_analysis_context(self, query_id: str, limit: int) -> List[Any]:
-        """
-        Fallback by analysis context when direct query_id lookup returns no news.
-
-        Typical scenarios:
-        - URL-level dedup keeps one canonical news row across repeated analyses.
-        - Legacy records may have different historical query_id strategies.
-        """
-        records = self.db.get_analysis_history(query_id=query_id, limit=1)
-        if not records:
-            return []
-
-        analysis = records[0]
-        if not analysis.code or not analysis.created_at:
-            return []
-
-        # Narrow down to same-stock recent news, then filter by analysis time window.
-        days = max(1, (utc_now() - analysis.created_at).days + 1)
-        candidates = self.db.get_recent_news(code=analysis.code, days=days, limit=max(limit * 5, 50))
-
-        start_time = analysis.created_at - timedelta(hours=6)
-        end_time = analysis.created_at + timedelta(hours=6)
-        matched = [
-            item for item in candidates
-            if item.fetched_at and start_time <= item.fetched_at <= end_time
-        ]
-
-        # 历史兜底链路也做发布时间硬过滤，避免旧库脏数据重新冒出。
-        cfg = get_search_config()
-        window_days = resolve_news_window_days(
-            news_max_age_days=getattr(cfg, "news_max_age_days", 3),
-            news_strategy_profile=getattr(cfg, "news_strategy_profile", "short"),
-        )
-        # Anchor to analysis date instead of "today" to preserve historical context.
-        anchor_date = analysis.created_at.date()
-        latest_allowed = anchor_date + timedelta(days=1)
-        earliest_allowed = anchor_date - timedelta(days=max(0, window_days - 1))
-
-        filtered = []
-        for item in matched:
-            if not item.published_date:
-                continue
-            if isinstance(item.published_date, datetime):
-                published = item.published_date.date()
-            elif isinstance(item.published_date, date):
-                published = item.published_date
-            else:
-                continue
-            if earliest_allowed <= published <= latest_allowed:
-                filtered.append(item)
-
-        return filtered[:limit]
     
     def _get_sentiment_label(self, score: int) -> str:
         """
@@ -546,15 +491,12 @@ class HistoryService:
                 fundamental_analysis=raw_result.get("fundamental_analysis", ""),
                 sector_position=raw_result.get("sector_position", ""),
                 company_highlights=raw_result.get("company_highlights", ""),
-                news_summary=raw_result.get("news_summary", record.news_content or ""),
                 market_sentiment=raw_result.get("market_sentiment", ""),
-                hot_topics=raw_result.get("hot_topics", ""),
                 analysis_summary=raw_result.get("analysis_summary", record.analysis_summary or ""),
                 key_points=raw_result.get("key_points", ""),
                 risk_warning=raw_result.get("risk_warning", ""),
                 buy_reason=raw_result.get("buy_reason", ""),
                 market_snapshot=raw_result.get("market_snapshot"),
-                search_performed=raw_result.get("search_performed", False),
                 data_sources=raw_result.get("data_sources", ""),
                 success=raw_result.get("success", True),
                 error_message=raw_result.get("error_message"),
@@ -596,7 +538,6 @@ class HistoryService:
         technical_heading = "Technicals" if report_language == "en" else "技术面"
         ma_label = "Moving Averages" if report_language == "en" else "均线"
         volume_analysis_label = "Volume" if report_language == "en" else "量能"
-        news_heading = "News Flow" if report_language == "en" else "消息面"
 
         # Escape markdown special characters in stock name
         name_escaped = self._escape_md(
@@ -616,16 +557,13 @@ class HistoryService:
             "",
         ]
 
-        # ========== 舆情与基本面概览（放在最前面）==========
+        # ========== 风险与基本面概览（放在最前面）==========
         intel = dashboard.get('intelligence', {}) if dashboard else {}
         if intel:
             report_lines.extend([
                 f"### 📰 {labels['info_heading']}",
                 "",
             ])
-            # 舆情情绪总结
-            if intel.get('sentiment_summary'):
-                report_lines.append(f"**💭 {labels['sentiment_summary_label']}**: {intel['sentiment_summary']}")
             # 业绩预期
             if intel.get('earnings_outlook'):
                 report_lines.append(f"**📊 {labels['earnings_outlook_label']}**: {intel['earnings_outlook']}")
@@ -637,16 +575,7 @@ class HistoryService:
                 for alert in risk_alerts:
                     report_lines.append(f"- {alert}")
             # 利好催化
-            catalysts = intel.get('positive_catalysts', [])
-            if catalysts:
-                report_lines.append("")
-                report_lines.append(f"**✨ {labels['positive_catalysts_label']}**:")
-                for cat in catalysts:
-                    report_lines.append(f"- {cat}")
             # 最新消息
-            if intel.get('latest_news'):
-                report_lines.append("")
-                report_lines.append(f"**📢 {labels['latest_news_label']}**: {intel['latest_news']}")
             report_lines.append("")
 
         # ========== 核心结论 ==========
@@ -811,13 +740,6 @@ class HistoryService:
                 if result.volume_analysis:
                     report_lines.append(f"**{volume_analysis_label}**: {result.volume_analysis}")
                 report_lines.append("")
-            # 消息面
-            if result.news_summary:
-                report_lines.extend([
-                    f"### 📰 {news_heading}",
-                    f"{result.news_summary}",
-                    "",
-                ])
 
         # ========== 底部 ==========
         report_lines.extend([

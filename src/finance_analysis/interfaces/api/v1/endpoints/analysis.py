@@ -799,7 +799,7 @@ def _build_analysis_report(
     has_board_details = bool(extracted_boards.get("belong_boards")) or extracted_boards.get("sector_rankings") is not None
     if details_data or any(extracted_fundamental.values()) or has_board_details or context_snapshot is not None:
         details = ReportDetails(
-            news_content=details_data.get("news_summary") or details_data.get("news_content"),
+            news_content=details_data.get("news_content"),
             raw_result=details_data,
             context_snapshot=context_snapshot,
             financial_report=extracted_fundamental.get("financial_report"),

@@ -6,7 +6,7 @@ Finance Analysis - AI分析层
 
 职责：
 1. 调度单只股票分析报告生成
-2. 结合技术面和消息面生成分析报告
+2. 结合技术面和已有上下文生成分析报告
 3. 解析 LLM 响应为结构化 AnalysisResult
 """
 
@@ -20,7 +20,6 @@ from typing import Optional, Dict, Any, List, Tuple, Callable
 from json_repair import repair_json
 
 from finance_analysis.analysis.pipeline_config import PipelineConfig, get_pipeline_config
-from finance_analysis.search.config import resolve_news_window_days
 from finance_analysis.llm import LLMClient, LLMRequest
 from finance_analysis.stocks.reference_data.mapping import STOCK_NAME_MAP
 from finance_analysis.reporting.localization import (
@@ -112,10 +111,8 @@ class AnalysisResult:
     sector_position: str = ""  # 板块地位和行业趋势
     company_highlights: str = ""  # 公司亮点/风险点
 
-    # ========== 情绪面/消息面分析 ==========
-    news_summary: str = ""  # 近期重要新闻/公告摘要
+    # ========== 市场情绪分析 ==========
     market_sentiment: str = ""  # 市场情绪分析
-    hot_topics: str = ""  # 相关热点话题
 
     # ========== 综合分析 ==========
     analysis_summary: str = ""  # 综合分析摘要
@@ -126,7 +123,6 @@ class AnalysisResult:
     # ========== 元数据 ==========
     market_snapshot: Optional[Dict[str, Any]] = None  # 当日行情快照（展示用）
     raw_response: Optional[str] = None  # 原始响应（调试用）
-    search_performed: bool = False  # 是否执行了联网搜索
     data_sources: str = ""  # 数据来源说明
     success: bool = True
     error_message: Optional[str] = None
@@ -163,15 +159,12 @@ class AnalysisResult:
             'fundamental_analysis': self.fundamental_analysis,
             'sector_position': self.sector_position,
             'company_highlights': self.company_highlights,
-            'news_summary': self.news_summary,
             'market_sentiment': self.market_sentiment,
-            'hot_topics': self.hot_topics,
             'analysis_summary': self.analysis_summary,
             'key_points': self.key_points,
             'risk_warning': self.risk_warning,
             'buy_reason': self.buy_reason,
             'market_snapshot': self.market_snapshot,
-            'search_performed': self.search_performed,
             'success': self.success,
             'error_message': self.error_message,
             'current_price': self.current_price,
@@ -240,19 +233,19 @@ class StockReportAnalyzer:
 
     职责：
     1. 调用 LiteLLM 进行股票分析
-    2. 结合预先搜索的新闻和技术面数据生成分析报告
+    2. 结合已有行情、技术和基本面数据生成分析报告
     3. 解析 AI 返回的 JSON 格式结果
 
     使用方式：
         analyzer = StockReportAnalyzer()
-        result = analyzer.analyze(context, news_context)
+        result = analyzer.analyze(context)
     """
 
     # ========================================
     # 系统提示词 - 决策仪表盘 v2.0
     # ========================================
     # 输出格式升级：从简单信号升级为决策仪表盘
-    # 核心模块：核心结论 + 数据透视 + 舆情情报 + 作战计划
+    # 核心模块：核心结论 + 数据透视 + 风险与基本面 + 作战计划
     # ========================================
 
     SYSTEM_PROMPT = """你是一位专注于趋势交易的{market_placeholder}投资分析师，负责生成专业的【决策仪表盘】分析报告。
@@ -349,11 +342,8 @@ class StockReportAnalyzer:
         },
 
         "intelligence": {
-            "latest_news": "【最新消息】近期重要新闻摘要",
-            "risk_alerts": ["风险点1：具体描述", "风险点2：具体描述"],
-            "positive_catalysts": ["利好1：具体描述", "利好2：具体描述"],
-            "earnings_outlook": "业绩预期分析（基于年报预告、业绩快报等）",
-            "sentiment_summary": "舆情情绪一句话总结"
+            "risk_alerts": ["仅根据已提供的技术或基本面数据说明风险；无依据则留空"],
+            "earnings_outlook": "仅根据已提供的财报或基本面数据分析业绩；缺失时说明无法判断"
         },
 
         "battle_plan": {
@@ -394,11 +384,8 @@ class StockReportAnalyzer:
     "fundamental_analysis": "基本面分析",
     "sector_position": "板块行业分析",
     "company_highlights": "公司亮点/风险",
-    "news_summary": "新闻摘要",
-    "market_sentiment": "市场情绪",
-    "hot_topics": "相关热点",
+    "market_sentiment": "根据已有量价数据判断情绪，说明依据",
 
-    "search_performed": true/false,
     "data_sources": "数据来源说明"
 }
 ```
@@ -410,7 +397,7 @@ class StockReportAnalyzer:
 - ✅ 低乖离率：<2%，最佳买点
 - ✅ 缩量回调或放量突破
 - ✅ 筹码集中健康
-- ✅ 消息面有利好催化
+- ✅ 已提供的基本面数据支持判断
 
 ### 买入（60-79分）：
 - ✅ 多头排列或弱势多头
@@ -435,7 +422,7 @@ class StockReportAnalyzer:
 2. **分持仓建议**：空仓者和持仓者给不同建议
 3. **精确狙击点**：必须给出具体价格，不说模糊的话
 4. **检查清单可视化**：用 ✅⚠️❌ 明确显示每项检查结果
-5. **风险优先级**：舆情中的风险点要醒目标出
+5. **风险优先级**：已提供数据中的风险点要醒目标出
 
 ## 可操作性与稳定性约束
 
@@ -503,7 +490,6 @@ class StockReportAnalyzer:
     def analyze(
         self, 
         context: Dict[str, Any],
-        news_context: Optional[str] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> AnalysisResult:
         """
@@ -517,7 +503,6 @@ class StockReportAnalyzer:
         
         Args:
             context: 从 storage.get_analysis_context() 获取的上下文数据
-            news_context: 预先搜索的新闻内容（可选）
             
         Returns:
             AnalysisResult 对象
@@ -563,8 +548,8 @@ class StockReportAnalyzer:
             )
         
         try:
-            # 格式化输入（包含技术面数据和新闻）
-            prompt = self._format_prompt(context, name, news_context, report_language=report_language)
+            # 格式化输入（包含行情、技术和基本面数据）
+            prompt = self._format_prompt(context, name, report_language=report_language)
             
             config = self._get_runtime_config()
             _emit_progress(68, f"{name}：正在请求 LLM 生成报告")
@@ -578,7 +563,6 @@ class StockReportAnalyzer:
             _emit_progress(93, f"{name}：LLM 返回完成，正在解析 JSON")
             result = self._parse_response(response.text, code, name)
             result.raw_response = response.text
-            result.search_performed = bool(news_context)
             result.market_snapshot = self._build_market_snapshot(context)
             result.model_used = response.model
             result.report_language = report_language
@@ -612,7 +596,6 @@ class StockReportAnalyzer:
         self, 
         context: Dict[str, Any], 
         name: str,
-        news_context: Optional[str] = None,
         report_language: str = "zh",
     ) -> str:
         """
@@ -623,7 +606,6 @@ class StockReportAnalyzer:
         Args:
             context: 技术面数据上下文（包含增强数据）
             name: 股票名称（默认值，可能被上下文覆盖）
-            news_context: 预先搜索的新闻内容
         """
         code = context.get('code', 'Unknown')
         report_language = normalize_report_language(report_language)
@@ -850,54 +832,14 @@ class StockReportAnalyzer:
 - ⚠️ 量能异常提示：成交量较昨日放大超过10倍，可能受异常数据或一次性冲量影响，必须降权解读，不能机械视为强确认信号
 """
         
-        # 添加新闻搜索结果（重点区域）
-        news_window_days: Optional[int] = None
-        context_window = context.get("news_window_days")
-        try:
-            if context_window is not None:
-                parsed_window = int(context_window)
-                if parsed_window > 0:
-                    news_window_days = parsed_window
-        except (TypeError, ValueError):
-            news_window_days = None
-
-        if news_window_days is None:
-            prompt_config = self._get_runtime_config()
-            news_window_days = resolve_news_window_days(
-                news_max_age_days=getattr(prompt_config, "news_max_age_days", 3),
-                news_strategy_profile=getattr(prompt_config, "news_strategy_profile", "short"),
-            )
-        prompt += """
----
-
-## 📰 舆情情报
-"""
-        if news_context:
-            prompt += f"""
-以下是 **{stock_name}({code})** 近{news_window_days}日的新闻搜索结果，请重点提取：
-1. 🚨 **风险警报**：减持、处罚、利空
-2. 🎯 **利好催化**：业绩、合同、政策
-3. 📊 **业绩预期**：年报预告、业绩快报
-4. 🕒 **时间规则（强制）**：
-   - 输出到 `risk_alerts` / `positive_catalysts` / `latest_news` 的每一条都必须带具体日期（YYYY-MM-DD）
-   - 超出近{news_window_days}日窗口的新闻一律忽略
-   - 时间未知、无法确定发布日期的新闻一律忽略
-
-```
-{news_context}
-```
-"""
-        else:
-            prompt += """
-未搜索到该股票近期的相关新闻。请主要依据技术面数据进行分析。
-"""
+        prompt += "\n仅依据提供的行情、技术和基本面数据分析。没有数据时明确说明，禁止编造新闻、公告、评级或目标价。\n"
 
         # 注入缺失数据警告
         if context.get('data_missing'):
             prompt += """
 ⚠️ **数据缺失警告**
 由于接口限制，当前无法获取完整的实时行情和技术指标数据。
-请 **忽略上述表格中的 N/A 数据**，重点依据 **【📰 舆情情报】** 中的新闻进行基本面和情绪面分析。
+请 **忽略上述表格中的 N/A 数据**，仅依据仍可用的数据进行分析，缺失数据直接说明。
 在回答技术面问题（如均线、乖离率）时，请直接说明“数据缺失，无法判断”，**严禁编造数据**。
 """
 
@@ -930,9 +872,9 @@ class StockReportAnalyzer:
 2. ❓ 当前乖离率是否在安全范围内（<5%）？—— 超过5%必须标注"严禁追高"
 3. ❓ 量能是否配合（缩量回调/放量突破）？
 4. ❓ 筹码结构是否健康？
-5. ❓ 消息面有无重大利空？（减持、处罚、业绩变脸等）
+5. ❓ 已提供的数据有哪些可确认的风险？
 """
-        prompt += f"""
+        prompt += """
 
 ### 决策仪表盘要求：
 - **股票名称**：必须输出正确的中文全称（如"贵州茅台"而非"股票600519"）
@@ -940,7 +882,6 @@ class StockReportAnalyzer:
 - **持仓分类建议**：空仓者怎么做 vs 持仓者怎么做
 - **具体狙击点位**：买入价、止损价、目标价（精确到分）
 - **检查清单**：每项用 ✅/⚠️/❌ 标记
-- **消息面时间合规**：`latest_news`、`risk_alerts`、`positive_catalysts` 不得包含超出近{news_window_days}日或时间未知的信息
 - **技术面一致性**：严禁把“空头排列”和“多头排列”等互斥结论同时当作有效依据；若基本面/事件面与技术面冲突，必须明确写“事件先行、技术待确认”或“基本面偏多，但技术面尚未确认”
  
 请输出完整的 JSON 格式决策仪表盘。"""
@@ -1151,17 +1092,14 @@ class StockReportAnalyzer:
                     fundamental_analysis=data.get('fundamental_analysis', ''),
                     sector_position=data.get('sector_position', ''),
                     company_highlights=data.get('company_highlights', ''),
-                    # 情绪面/消息面
-                    news_summary=data.get('news_summary', ''),
+                    # 市场情绪
                     market_sentiment=data.get('market_sentiment', ''),
-                    hot_topics=data.get('hot_topics', ''),
                     # 综合
                     analysis_summary=data.get('analysis_summary', 'Analysis completed' if report_language == "en" else '分析完成'),
                     key_points=data.get('key_points', ''),
                     risk_warning=data.get('risk_warning', ''),
                     buy_reason=data.get('buy_reason', ''),
                     # 元数据
-                    search_performed=data.get('search_performed', False),
                     data_sources=data.get('data_sources', 'Technical data' if report_language == "en" else '技术面数据'),
                     success=True,
                 )

@@ -27,7 +27,7 @@ from finance_analysis.integrations.market_data.providers.longbridge.market impor
     _to_longbridge_symbol,
 )
 from finance_analysis.core.logging import log_external_call_exception
-from finance_analysis.search.models import SearchResponse, SearchResult
+from finance_analysis.database.news import NewsItem
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +100,11 @@ def _normalize_news_item(item: Any) -> Optional[LongbridgeNewsRecord]:
     )
 
 
-def news_records_to_search_response(
-    stock_code: str,
+def news_records_to_items(
     records: Sequence[LongbridgeNewsRecord],
-) -> SearchResponse:
-    results = [
-        SearchResult(
+) -> list[NewsItem]:
+    return [
+        NewsItem(
             title=record.title,
             snippet=record.description,
             url=record.url,
@@ -115,12 +114,6 @@ def news_records_to_search_response(
         for record in records
         if record.title or record.url
     ]
-    return SearchResponse(
-        query=f"{stock_code} longbridge news",
-        results=results,
-        provider=LONGBRIDGE_NEWS_SOURCE,
-        success=True,
-    )
 
 
 class LongbridgeNewsFetcher:
@@ -297,11 +290,12 @@ class LongbridgeNewsFetcher:
         try:
             from finance_analysis.database import DatabaseManager
 
-            response = news_records_to_search_response(stock_code, records)
+            items = news_records_to_items(records)
             DatabaseManager.get_instance().save_news_intel(
                 code=stock_code,
                 usage_type=usage_type,
-                response=response,
+                items=items,
+                provider=LONGBRIDGE_NEWS_SOURCE,
                 query_context={
                     "query_id": query_id,
                     "query_source": "system",

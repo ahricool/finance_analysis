@@ -81,11 +81,8 @@ class DataPerspective(BaseModel):
 class Intelligence(BaseModel):
     """Intelligence block."""
 
-    latest_news: Optional[str] = None
     risk_alerts: Optional[List[str]] = None
-    positive_catalysts: Optional[List[str]] = None
     earnings_outlook: Optional[str] = None
-    sentiment_summary: Optional[str] = None
 
 
 class SniperPoints(BaseModel):
@@ -154,9 +151,6 @@ class AnalysisReportSchema(BaseModel):
     fundamental_analysis: Optional[str] = None
     sector_position: Optional[str] = None
     company_highlights: Optional[str] = None
-    news_summary: Optional[str] = None
     market_sentiment: Optional[str] = None
-    hot_topics: Optional[str] = None
 
-    search_performed: Optional[bool] = None
     data_sources: Optional[str] = None
