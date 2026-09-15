@@ -59,11 +59,10 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
       },
     },
     legend: {
-      type: 'scroll', top: 0, left: 0, right: 0,
-      textStyle: { color: muted, width: 160, overflow: 'truncate', fontSize: 11 },
-      pageTextStyle: { color: muted }, pageIconColor: muted,
+      type: 'plain', top: 0, left: 0, right: 0,
+      textStyle: { color: muted, fontSize: 11 },
     },
-    grid: { left: 12, right: 16, top: 48, bottom: 12, containLabel: true },
+    grid: { left: 12, right: 16, top: 160, bottom: 12, containLabel: true },
     xAxis: {
       type: 'category', data: data?.dates ?? [],
       axisLabel: { color: muted, hideOverlap: true, formatter: (value: string) => value.slice(5) },
@@ -75,9 +74,9 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
       axisLabel: { color: muted, formatter: '#{value}' }, splitLine: { lineStyle: { color: split } },
     },
     series: data?.series.map(series => ({
-      name: `${series.name} / ${series.code}`, type: 'line', smooth: false, connectNulls: false,
-      showSymbol: true, symbol: 'circle', symbolSize: 4, lineStyle: { width: 1.5 },
-      emphasis: { focus: 'series', lineStyle: { width: 3 } },
+      name: series.name, type: 'line', smooth: 0.25, connectNulls: false,
+      showSymbol: true, symbol: 'circle', symbolSize: 3, lineStyle: { width: 1 },
+      emphasis: { focus: 'series', lineStyle: { width: 2 } },
       data: series.ranks.map((rank, index) => data.dates[index] === data.previewDate
         ? { value: rank, symbol: 'emptyCircle', symbolSize: 8 } : rank),
     })) ?? [],
@@ -120,7 +119,7 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
     <template v-else>
       <div
         v-if="hasRanks"
-        class="mt-4 h-80 min-w-0 sm:h-96"
+        class="mt-4 h-[30rem] min-w-0"
       >
         <VChart
           :option="option"

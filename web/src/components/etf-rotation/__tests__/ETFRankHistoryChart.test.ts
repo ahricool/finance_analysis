@@ -19,16 +19,19 @@ const props = { market: 'US' as const, includePreview: true, refreshKey: 0 };
 beforeEach(() => { vi.mocked(etfRotationApi.rankHistory).mockReset().mockResolvedValue(history); });
 afterEach(() => { theme.value = 'light'; });
 
-it('plots all ETFs with inverse integer ranks, gaps, scrolling legend and an explicit preview point', async () => {
+it('plots all ETFs with inverse integer ranks, gaps, plain legend and an explicit preview point', async () => {
   const wrapper = mount(ETFRankHistoryChart, { props });
   await flushPromises();
   const option = wrapper.findComponent({ name: 'VChart' }).props('option');
   expect(option.xAxis.data).toEqual(history.dates);
   expect(option.yAxis).toMatchObject({ inverse: true, min: 1, minInterval: 1, max: 7 });
-  expect(option.legend.type).toBe('scroll');
+  expect(option.legend.type).toBe('plain');
   expect(option.series).toHaveLength(2);
-  expect(option.series[0]).toMatchObject({ connectNulls: false, smooth: false,
-    data: [7, null, { value: 2, symbol: 'emptyCircle' }] });
+  expect(option.series[0]).toMatchObject({
+    name: 'Nasdaq', connectNulls: false, smooth: 0.25, symbolSize: 3, lineStyle: { width: 1 },
+    emphasis: { focus: 'series', lineStyle: { width: 2 } },
+    data: [7, null, { value: 2, symbol: 'emptyCircle', symbolSize: 8 }],
+  });
   expect(option.tooltip.formatter({ dataIndex: 2, seriesIndex: 0 })).toBe('2026-09-14 · Preview\nNasdaq / QQQ.US\nRank: #2');
   expect(option.tooltip.formatter({ dataIndex: 0, seriesIndex: 0 })).not.toContain('Preview');
   expect(wrapper.text()).toContain('不计入 30 个正式交易日');
