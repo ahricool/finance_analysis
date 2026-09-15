@@ -1,23 +1,23 @@
 import { expect, test } from '@playwright/test';
 
-const states = ['IDLE', 'WATCHING', 'CANDIDATE', 'ENTRY', 'PYRAMIDING', 'HOLDING', 'WEAKENING', 'REDUCE', 'EXIT'];
+const states = ['IDLE', 'WATCHING', 'CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN'];
 const dates = Array.from({ length: 46 }, (_, i) => new Date(Date.UTC(2026, 6, 14 + i)))
   .filter(day => day.getUTCDay() !== 0 && day.getUTCDay() !== 6).slice(-30).map(day => day.toISOString().slice(0, 10));
 const snapshots = Array.from({ length: 50 }, (_, i) => ({
   market: 'CN', code: `${String(i + 1).padStart(6, '0')}.SZ`, name: `趋势股票 ${i + 1}`,
-  tradeDate: dates[29], rank: i + 1, state: 'HOLDING', action: 'HOLD', alphaScore: 86.3,
+  tradeDate: dates[29], rank: i + 1, state: 'TRENDING', alphaScore: 86.3,
   trendScore: 82.6, rsScore: 79.4, fragilityScore: 18.5, trendDurationDays: 14,
   features: {}, scoreBreakdown: {}, fragilityBreakdown: {}, reasons: [], referencePrice: 110,
 }));
 const summary = { market: 'CN', tradeDate: dates[29], marketRegime: 'RISK_ON', marketScore: 82,
-  suggestedMaxExposure: 0.8, universeSize: 3800, dataReadyCount: 3700, dataCoverage: 0.98,
-  rankableCount: 3700, candidateCount: 50, entryCount: 1, warnings: [], features: {},
+  universeSize: 3800, dataReadyCount: 3700, dataCoverage: 0.98,
+  rankableCount: 3700, candidateCount: 50, warnings: [], features: {},
 };
 const heatmap = { market: 'CN', anchorDate: dates[29], dates, officialCount: 30, previewDate: null,
   previewTime: null, generatedAt: '2026-08-28T10:50:00Z', warnings: [],
   items: snapshots.map((stock, y) => ({ code: stock.code, name: stock.name, currentRank: stock.rank,
     history: dates.map((_, x) => x === 4 && y === 0 ? null : ({
-      ...stock, state: states[y % 2 ? (x + y) % 9 : Math.min(8, Math.floor(x / 5))],
+      ...stock, state: states[y % 2 ? (x + y) % states.length : Math.min(states.length - 1, Math.floor(x / 5))],
     })),
   })),
 };
@@ -41,8 +41,7 @@ for (const width of [1280, 1440, 1920]) {
           expect(url.searchParams.get('limit')).toBe('50');
           body = heatmap;
         } else if (path.endsWith('/dates')) body = { market: 'CN', latest: dates[29], items: [...dates].reverse() };
-        else if (path.endsWith('/ranking')) body = { ...summary, items: snapshots, candidates: [],
-          portfolio: { ...summary, positions: [], maxExposure: 0.8, currentExposure: 0, positionCount: 0 } };
+        else if (path.endsWith('/ranking')) body = { ...summary, items: snapshots, candidates: [], };
         else {
           const code = decodeURIComponent(path.split('/').pop()!);
           const stock = snapshots.find(item => item.code === code);
@@ -137,8 +136,7 @@ test('preview column is explicit and same-day official history opens the officia
       body = { ...summary, status: 'completed', tradeDate: previewDate, previewTime: '2026-08-31T06:35:00Z',
         snapshots: previewSnapshots, snapshotCount: 50, scoreBreakdown: {},
       };
-    } else if (path.endsWith('/ranking')) body = { ...summary, items: snapshots, candidates: [],
-      portfolio: { positions: [], maxExposure: 0.8, currentExposure: 0, positionCount: 0 } };
+    } else if (path.endsWith('/ranking')) body = { ...summary, items: snapshots, candidates: [], };
     else if (path.endsWith('/dates')) body = { market: 'CN', latest: dates[29], items: [...dates].reverse() };
     else if (path.endsWith('/000001.SZ')) {
       expect(url.searchParams.get('trade_date')).toBe(previewDate);

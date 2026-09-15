@@ -21,9 +21,6 @@ class TrendFollowingConfig:
     )
     risk_on_threshold: float = 65.0
     risk_off_threshold: float = 40.0
-    regime_max_exposure: dict[str, float] = field(
-        default_factory=lambda: {"RISK_ON": 1.0, "NEUTRAL": 0.5, "RISK_OFF": 0.2}
-    )
     regime_weights: dict[str, float] = field(
         default_factory=lambda: {"trend": 0.35, "breadth": 0.40, "risk": 0.25}
     )
@@ -51,23 +48,10 @@ class TrendFollowingConfig:
     candidate_trend_score: float = 62.0
     candidate_rs_score: float = 60.0
     candidate_alpha_score: float = 67.0
-    add_trend_score: float = 60.0
-    add_rs_score: float = 55.0
-    reduce_rs_score: float = 55.0
-    risk_per_trade: float = 0.005
-    single_stock_max_weight: float = 0.10
-    max_units: int = 4
-    initial_stop_atr: float = 2.0
-    structure_stop_buffer_atr: float = 0.5
-    pyramid_interval_atr: float = 0.5
-    trailing_stop_atr: float = 2.5
-    candidate_expiry_sessions: int = 1
+    healthy_trend_score: float = 60.0
+    healthy_rs_score: float = 55.0
     history_limit_default: int = 60
     history_limit_max: int = 250
-
-    def __post_init__(self) -> None:
-        if self.candidate_expiry_sessions != 1:
-            raise ValueError("Trend Following currently supports candidate_expiry_sessions=1 only")
 
 
 DEFAULT_CONFIG = TrendFollowingConfig()

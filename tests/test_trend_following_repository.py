@@ -30,7 +30,7 @@ class _Database:
                 yield session
 
 
-def _snapshot(*, snapshot_id, code, instrument_id, trade_date, state="HOLDING", units=1):
+def _snapshot(*, snapshot_id, code, instrument_id, trade_date, state="TRENDING"):
     return TrendFollowingSnapshot(
         id=snapshot_id,
         market="US",
@@ -49,14 +49,8 @@ def _snapshot(*, snapshot_id, code, instrument_id, trade_date, state="HOLDING", 
         score_breakdown={},
         setup="BREAKOUT_20D",
         state=state,
-        action="HOLD" if state == "HOLDING" else "WATCH",
         reference_price=110.0,
         atr=2.0,
-        entry_price=100.0 if units else None,
-        signal_date=date(2026, 8, 24) if units else trade_date,
-        signal_price=99.0 if units else 110.0,
-        units=units,
-        opened_at=date(2026, 8, 25) if units else None,
         reasons=["seed"],
         generated_at=datetime(2026, 8, 28, tzinfo=timezone.utc),
     )
@@ -70,17 +64,11 @@ def _summary(trade_date):
         "benchmark_code": "SPY.US",
         "market_regime": "RISK_ON",
         "market_score": 80.0,
-        "suggested_max_exposure": 1.0,
         "universe_size": 3,
         "data_ready_count": 2,
         "data_coverage": 2 / 3,
         "rankable_count": 2,
         "candidate_count": 0,
-        "entry_count": 0,
-        "add_count": 0,
-        "hold_count": 2,
-        "reduce_count": 0,
-        "exit_count": 0,
         "warnings": [],
         "features": {},
         "score_breakdown": {},
@@ -102,19 +90,18 @@ def test_previous_snapshots_are_per_code_and_ignore_missing_days():
         )
         session.add_all(
             [
-                _snapshot(snapshot_id=1, code="AAA.US", instrument_id=1, trade_date=monday, state="HOLDING"),
-                _snapshot(snapshot_id=2, code="BBB.US", instrument_id=2, trade_date=monday, state="WATCHING", units=0),
-                _snapshot(snapshot_id=3, code="BBB.US", instrument_id=2, trade_date=tuesday, state="HOLDING"),
-                _snapshot(snapshot_id=4, code="AAA.US", instrument_id=1, trade_date=thursday, state="EXIT", units=0),
+                _snapshot(snapshot_id=1, code="AAA.US", instrument_id=1, trade_date=monday, state="TRENDING"),
+                _snapshot(snapshot_id=2, code="BBB.US", instrument_id=2, trade_date=monday, state="WATCHING"),
+                _snapshot(snapshot_id=3, code="BBB.US", instrument_id=2, trade_date=tuesday, state="TRENDING"),
+                _snapshot(snapshot_id=4, code="AAA.US", instrument_id=1, trade_date=thursday, state="BROKEN"),
             ]
         )
     repository = TrendFollowingRepository("US", database)
     previous = repository.previous_snapshots(wednesday, ["AAA.US", "BBB.US"])
     assert previous["AAA.US"]["trade_date"] == monday
-    assert previous["AAA.US"]["state"] == "HOLDING"
-    assert previous["AAA.US"]["entry_price"] == 100.0
+    assert previous["AAA.US"]["state"] == "TRENDING"
     assert previous["BBB.US"]["trade_date"] == tuesday
-    assert previous["BBB.US"]["state"] == "HOLDING"
+    assert previous["BBB.US"]["state"] == "TRENDING"
     future_safe = repository.previous_snapshots(tuesday, ["AAA.US", "BBB.US"])
     assert future_safe["AAA.US"]["trade_date"] == monday
     assert "thursday" not in {str(row["trade_date"]) for row in future_safe.values()}
@@ -133,10 +120,9 @@ def test_snapshot_history_is_anchored_to_requested_trade_date():
                     instrument_id=1,
                     trade_date=date(2026, 6, 1),
                     state="CANDIDATE",
-                    units=0,
                 ),
-                _snapshot(snapshot_id=2, code="AAPL.US", instrument_id=1, trade_date=date(2026, 6, 2), state="ENTRY"),
-                _snapshot(snapshot_id=3, code="AAPL.US", instrument_id=1, trade_date=date(2026, 6, 3), state="HOLDING"),
+                _snapshot(snapshot_id=2, code="AAPL.US", instrument_id=1, trade_date=date(2026, 6, 2), state="CANDIDATE"),
+                _snapshot(snapshot_id=3, code="AAPL.US", instrument_id=1, trade_date=date(2026, 6, 3), state="TRENDING"),
             ]
         )
     repository = TrendFollowingRepository("US", database)
@@ -151,36 +137,7 @@ def test_snapshot_history_is_anchored_to_requested_trade_date():
     assert repository.snapshot_history("AAPL.US", limit=60, before_trade_date=date(2026, 6, 1)) == []
 
 
-def test_positions_by_date_only_returns_active_states_with_positive_units():
-    database = _Database()
-    trade_date = date(2026, 8, 28)
-    states = ["ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE", "EXIT", "CANDIDATE", "HOLDING"]
-    with database.session_scope() as session:
-        for instrument_id, state in enumerate(states, 1):
-            code = f"POS{instrument_id}.US"
-            session.add(Instrument(id=instrument_id, market="US", code=code, name=state))
-            session.add(
-                _snapshot(
-                    snapshot_id=instrument_id,
-                    code=code,
-                    instrument_id=instrument_id,
-                    trade_date=trade_date,
-                    state=state,
-                    units=0 if instrument_id in {7, 8} else 1,
-                )
-            )
 
-    positions = TrendFollowingRepository("US", database).positions_by_date(trade_date)
-
-    assert {row["state"] for row in positions} == {
-        "ENTRY",
-        "PYRAMIDING",
-        "HOLDING",
-        "WEAKENING",
-        "REDUCE",
-    }
-    assert all(row["units"] > 0 for row in positions)
-    assert all(row["name"] == row["state"] for row in positions)
 
 
 def test_replace_day_removes_stale_codes_and_replaces_summary_atomically():
@@ -278,14 +235,13 @@ def test_historical_rank_changes_use_market_snapshot_offsets():
 
 def _mixed_snapshot_payloads(trade_date):
     payloads = []
-    for index, state in enumerate(("CANDIDATE", "WATCHING", "HOLDING"), 1):
+    for index, state in enumerate(("CANDIDATE", "WATCHING", "TRENDING"), 1):
         row = _snapshot(
             snapshot_id=index,
             code=f"SYM{index}.US",
             instrument_id=index,
             trade_date=trade_date,
             state=state,
-            units=int(state == "HOLDING"),
         )
         payload = {
             c.name: getattr(row, c.name)
@@ -296,13 +252,13 @@ def _mixed_snapshot_payloads(trade_date):
             payload = {
                 key: value for key, value in payload.items() if not TrendFollowingSnapshot.__table__.c[key].nullable
             }
-            for key in ("features", "score_breakdown", "reasons", "units"):
+            for key in ("features", "score_breakdown", "reasons"):
                 payload.pop(key)
         payloads.append(payload)
     return payloads
 
 
-def test_replace_day_normalizes_mixed_candidate_expired_and_carried_snapshots():
+def test_replace_day_normalizes_mixed_trend_snapshots():
     database = _Database()
     day = date(2026, 9, 7)
     with database.session_scope() as session:
@@ -310,14 +266,9 @@ def test_replace_day_normalizes_mixed_candidate_expired_and_carried_snapshots():
     repo = TrendFollowingRepository("US", database)
     assert repo.replace_day(day, _mixed_snapshot_payloads(day), _summary(day)) == 3
     rows = {row["code"]: row for row in repo.snapshots_by_date(day)}
-    expired = rows["SYM2.US"]
-    assert expired["entry_price"] is None
-    assert expired["trailing_stop"] is None
-    assert expired["pending_max_exposure"] is None
-    assert expired["features"] == expired["score_breakdown"] == {}
-    assert expired["reasons"] == []
-    assert expired["units"] == 0
-    assert rows["SYM3.US"]["entry_price"] == 100
+    watching = rows["SYM2.US"]
+    assert watching["features"] == watching["score_breakdown"] == {}
+    assert watching["reasons"] == []
 
 
 def test_upsert_normalizes_mixed_records_before_postgresql_compilation():
@@ -338,11 +289,7 @@ def test_upsert_normalizes_mixed_records_before_postgresql_compilation():
     repo = TrendFollowingRepository("US", Database())
     assert repo.upsert_snapshots(_mixed_snapshot_payloads(date(2026, 9, 7))) == 3
     params = statements[-1].compile(dialect=postgresql.dialect()).params
-    assert params["entry_price_m1"] is None
-    assert params["trailing_stop_m1"] is None
-    assert params["units_m1"] == 0
     assert params["features_m1"] == {}
-    assert params["entry_price_m2"] == 100
 
 
 def test_bulk_paths_validate_required_fields_before_opening_transaction():
@@ -390,7 +337,7 @@ def test_read_projections_do_not_load_full_snapshot_or_instrument_json():
     assert items[0]["return_5d"] == 0.15
     assert "features" not in items[0] and "score_breakdown" not in items[0]
     changes = repository.change_rows(date(2026, 9, 10))
-    assert set(changes[0]) == {"code", "state", "action", "pending_action", "rank", "trend_score", "rs_score", "alpha_score"}
+    assert set(changes[0]) == {"code", "state", "rank", "trend_score", "rs_score", "alpha_score"}
     assert len(statements) == 2
     assert 'instrument_1' not in statements[0]
     assert 'metadata' not in statements[0]

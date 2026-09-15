@@ -15,13 +15,11 @@ from fastapi.responses import Response
 from finance_analysis.core.preview_metadata import preview_metadata
 from finance_analysis.database.models.user import User  # pragma: allowlist secret
 from finance_analysis.database.repositories.trend_following import (  # pragma: allowlist secret
-    ACTIVE_POSITION_STATES,
     MEANINGFUL_STATES,
     TrendFollowingRepository,
 )
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user  # pragma: allowlist secret
 from finance_analysis.interfaces.api.v1.schemas.trend_following import (  # pragma: allowlist secret
-    TrendFollowingPortfolioResponse,
     TrendFollowingRunRequest,
     TrendStateHistoryResponse,
 )
@@ -36,7 +34,6 @@ from finance_analysis.trend_following.ranking_cache import RankingCache
 from finance_analysis.trend_following.read_models import CANDIDATE_FIELDS, ranking_item
 from finance_analysis.trend_following.config import DEFAULT_CONFIG  # pragma: allowlist secret
 from finance_analysis.trend_following.preview_cache import load_preview  # pragma: allowlist secret
-from finance_analysis.trend_following.risk import theoretical_position_weight  # pragma: allowlist secret
 from finance_analysis.trend_following.universe import universe_by_code  # pragma: allowlist secret
 
 router = APIRouter()
@@ -81,12 +78,8 @@ def _changes(
             "code": row["code"],
             "name": row.get("name"),
             "current_state": row.get("state"),
-            "current_action": row.get("action"),
-            "current_pending_action": row.get("pending_action"),
             "current_rank": current_rank,
             "previous_state": previous.get("state"),
-            "previous_action": previous.get("action"),
-            "previous_pending_action": previous.get("pending_action"),
             "previous_rank": previous_rank,
             "rank_change": (
                 int(previous_rank) - int(current_rank)
@@ -123,19 +116,9 @@ def _changes(
             item for item in changes
             if item.get("current_state") == "WEAKENING" and item["previous_state"] != "WEAKENING"
         ],
-        "new_reduces": [
+        "new_broken": [
             item for item in changes
-            if (
-                item.get("current_action") == "REDUCE"
-                or item.get("current_pending_action") == "REDUCE"
-            ) and item["previous_action"] != "REDUCE" and item["previous_pending_action"] != "REDUCE"
-        ],
-        "new_exits": [
-            item for item in changes
-            if (
-                item.get("current_action") == "EXIT"
-                or item.get("current_pending_action") == "EXIT"
-            ) and item["previous_action"] != "EXIT" and item["previous_pending_action"] != "EXIT"
+            if item.get("current_state") == "BROKEN" and item["previous_state"] != "BROKEN"
         ],
         "transitions": [
             item for item in changes
@@ -194,11 +177,10 @@ def ranking(
     historical = repository.historical_composite_ranks(resolved, [str(row["code"]) for row in items])
     for row in items:
         row.update(calculate_rank_changes(row["rank"], historical.get(str(row["code"]), {})))
-    candidate_rows = [row for row in rows if row.get("state") in MEANINGFUL_STATES or row.get("action") == "ADD"]
+    candidate_rows = [row for row in rows if row.get("state") in MEANINGFUL_STATES]
     payload = {
         **summary, "changes": _changes(repository, resolved, rows, summary), "items": items,
         "candidates": [{key: row.get(key) for key in CANDIDATE_FIELDS} for row in candidate_rows[:100]],
-        "portfolio": _portfolio_payload(market, resolved, summary, rows),
     }
     body = json.dumps(jsonable_encoder(payload), ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
     if (
@@ -242,61 +224,6 @@ def candidates(
         "trade_date": resolved,
         "summary": repository.summary_by_date(resolved),
         "items": repository.candidates_by_date(resolved, limit=limit),
-    })
-
-
-@router.get("/portfolio", response_model=TrendFollowingPortfolioResponse)
-def portfolio(
-    trade_date: date | None = None,
-    _: User = Depends(require_current_user),
-    market: Market = "CN",
-):
-    repository = TrendFollowingRepository(market)
-    resolved = _resolve_date(repository, trade_date)
-    summary = repository.summary_by_date(resolved)
-    if summary is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Trend Following summary not found for {resolved}")
-    return _portfolio_payload(market, resolved, summary, repository.positions_by_date(resolved))
-
-
-def _portfolio_payload(market: str, resolved: date, summary: dict, rows: list[dict]) -> dict:
-    positions = []
-    for row in sorted(rows, key=lambda row: (-float(row.get("alpha_score") or 0), row["code"])):
-        if row.get("state") not in ACTIVE_POSITION_STATES or (row.get("units") or 0) <= 0:
-            continue
-        unit_weight = float(row.get("suggested_initial_weight") or 0.0)
-        max_weight = float(row.get("suggested_max_weight") or 0.0)
-        position_weight = theoretical_position_weight(row.get("units"), unit_weight, max_weight)
-        positions.append({
-            "code": row["code"],
-            "name": row.get("name") or row["code"],
-            "state": row["state"],
-            "action": row["action"],
-            "pending_action": row.get("pending_action"),
-            "units": int(row["units"]),
-            "unit_weight": unit_weight,
-            "position_weight": position_weight,
-            "max_weight": max_weight,
-            "entry_price": row.get("entry_price"),
-            "reference_price": row["reference_price"],
-            "opened_at": row.get("opened_at"),
-            "initial_stop": row.get("initial_stop"),
-            "trailing_stop": row.get("trailing_stop"),
-            "next_add_price": row.get("next_add_price"),
-            "exit_level": row.get("exit_level"),
-            "alpha_score": row["alpha_score"],
-        })
-    max_exposure = float(summary["suggested_max_exposure"])
-    current_exposure = sum(item["position_weight"] for item in positions)
-    return jsonable_encoder({
-        "market": market,
-        "trade_date": resolved,
-        "market_regime": summary["market_regime"],
-        "max_exposure": max_exposure,
-        "current_exposure": current_exposure,
-        "remaining_exposure": max(0.0, max_exposure - current_exposure),
-        "position_count": len(positions),
-        "positions": positions,
     })
 
 

@@ -89,33 +89,30 @@ export function diffPreviewActionChanges<T extends { code: string; action?: stri
 
 export const TREND_PREVIEW_CANDIDATE_STATES = new Set([
   'CANDIDATE',
-  'ENTRY',
-  'PYRAMIDING',
-  'HOLDING',
+  'TRENDING',
   'WEAKENING',
-  'REDUCE',
-  'EXIT',
+  'BROKEN',
 ]);
 
-export function isTrendPreviewCandidate(item: { state?: string | null; action?: string | null }): boolean {
-  return TREND_PREVIEW_CANDIDATE_STATES.has(item.state ?? '') || item.action === 'ADD';
+export function isTrendPreviewCandidate(item: { state?: string | null }): boolean {
+  return TREND_PREVIEW_CANDIDATE_STATES.has(item.state ?? '');
 }
 
-export function diffTrendPreviewChanges<T extends { code: string; state?: string | null; action?: string | null }>(
+export function diffTrendPreviewChanges<T extends { code: string; state?: string | null }>(
   previewItems: T[],
   officialItems: T[],
-): { newCandidates: PreviewChangeItem<T>[]; newExits: PreviewChangeItem<T>[] } {
+): { newCandidates: PreviewChangeItem<T>[]; newBroken: PreviewChangeItem<T>[] } {
   const officialByCode = new Map(officialItems.map((item) => [item.code, item]));
   const newCandidates: PreviewChangeItem<T>[] = [];
-  const newExits: PreviewChangeItem<T>[] = [];
+  const newBroken: PreviewChangeItem<T>[] = [];
   for (const current of previewItems) {
     const previous = officialByCode.get(current.code) ?? null;
     if (current.state === 'CANDIDATE' && previous?.state !== 'CANDIDATE') {
       newCandidates.push({ current, previous });
     }
-    if (current.action === 'EXIT' && previous?.action !== 'EXIT') {
-      newExits.push({ current, previous });
+    if (current.state === 'BROKEN' && previous?.state !== 'BROKEN') {
+      newBroken.push({ current, previous });
     }
   }
-  return { newCandidates, newExits };
+  return { newCandidates, newBroken };
 }

@@ -19,7 +19,7 @@ const history: TrendStateHistoryResponse = {
   items: Array.from({ length: 50 }, (_, i) => ({
     code: `S${50 - i}.US`, name: `Stock ${i}`, currentRank: i + 1,
     history: dates.map((_, x) => x === 3 ? null : ({
-      rank: 50 - i, state: HEATMAP_STATES[x % 9]!, action: 'HOLD', alphaScore: 86.3,
+      rank: 50 - i, state: HEATMAP_STATES[x % HEATMAP_STATES.length]!, alphaScore: 86.3,
       trendScore: 82.6, rsScore: 79.4, fragilityScore: 18.5, trendDurationDays: 14,
     })),
   })),
@@ -42,7 +42,7 @@ it('renders 50 × 30 categorical cells with anchored order and scrollable rows',
   expect(option.yAxis.axisLabel.formatter('S1.US', 0)).toBe('#50 S1.US Stock 49');
   expect(option.dataZoom[1]).toMatchObject({ type: 'inside', yAxisIndex: 0, moveOnMouseWheel: true, zoomOnMouseWheel: false, minValueSpan: 19, maxValueSpan: 19 });
   expect(option.visualMap.pieces.slice(1)).toEqual(HEATMAP_STATES.map((state, value) => ({ value, color: STATE_COLORS[state].light })));
-  expect(HEATMAP_STATES).toEqual(['IDLE', 'WATCHING', 'CANDIDATE', 'ENTRY', 'PYRAMIDING', 'HOLDING', 'WEAKENING', 'REDUCE', 'EXIT']);
+  expect(HEATMAP_STATES).toEqual(['IDLE', 'WATCHING', 'CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN']);
   wrapper.unmount();
 });
 
@@ -53,7 +53,7 @@ it('shows stored metrics, missing cells and the preview date in the tooltip', as
   await flushPromises();
   const option = wrapper.findComponent({ name: 'VChart' }).props('option');
   const tooltip = option.tooltip.formatter({ dataIndex: 29 });
-  for (const text of ['2026-08-30 · Preview', 'S50.US / Stock 0', 'Rank: #50', 'State: CANDIDATE', 'Action: HOLD',
+  for (const text of ['2026-08-30 · Preview', 'S50.US / Stock 0', 'Rank: #50', 'State: BROKEN',
     'Alpha Score: 86.3', 'Trend Score: 82.6', 'RS Score: 79.4', 'Fragility: 18.5', '持续天数: 14']) expect(tooltip).toContain(text);
   expect(stateTooltip(preview, 3, 0)).toContain('暂无 Snapshot');
   expect(option.xAxis.axisLabel.formatter(dates[29])).toBe('08/30 P');

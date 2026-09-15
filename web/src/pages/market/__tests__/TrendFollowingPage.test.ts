@@ -2,12 +2,12 @@ import TrendFragilityHistoryChart from '@/components/trend-following/TrendFragil
 import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistoryChart.vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TrendMarket, TrendSnapshot, TrendRankingSnapshot, TrendRankingResponse, TrendPortfolioResponse } from '@/types/trendFollowing';
+import type { TrendMarket, TrendSnapshot, TrendRankingSnapshot, TrendRankingResponse } from '@/types/trendFollowing';
 import { trendIndicatorDescriptions } from '@/components/trend-following/indicatorDescriptions';
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
 const apiMocks = vi.hoisted(() => ({
-  stateHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
+  stateHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
@@ -25,12 +25,12 @@ function snapshot(market: TrendMarket = 'CN'): TrendSnapshot {
     id: 1, market, tradeDate: '2026-08-28', code: market === 'CN' ? '000001.SZ' : 'AAPL.US',
     name: market === 'CN' ? '平安银行' : 'Apple', universeKey: market === 'CN' ? 'cn_csi300_csi500' : 'us_sp500',
     marketRegime: 'RISK_ON', marketScore: 82, rank: 1, trendScore: 80, rsScore: 78,
-    breakoutScore: 76, alphaScore: 79, setup: 'BREAKOUT_20D', state: 'ENTRY', action: 'ENTRY',
-    referencePrice: 110, atr: 2, signalDate: '2026-08-27', signalPrice: 108, openedAt: '2026-08-28',
-    pendingAction: null, pendingSince: null, pendingRegime: null, pendingMaxExposure: null,
-    lastAddPrice: 110, highestClose: 110, entryPrice: 110, initialStop: 106, trailingStop: 105,
-    nextAddPrice: 111, exitLevel: 106, units: 1, suggestedInitialWeight: 0.1,
-    suggestedMaxWeight: 0.1, reasons: ['candidate thresholds passed'],
+    breakoutScore: 76, alphaScore: 79, setup: 'BREAKOUT_20D', state: 'TRENDING',
+    referencePrice: 110, atr: 2,
+
+
+
+    reasons: ['candidate thresholds passed'],
     trendDurationDays: 12,
     scoreBreakdown: { trend: { weightedR2: 90 } }, generatedAt: '2026-08-28T12:00:00Z',
     features: {
@@ -53,29 +53,15 @@ function ranking(market: TrendMarket): TrendRankingResponse {
   return {
     market, tradeDate: '2026-08-28', universeKey: market === 'CN' ? 'cn_csi300_csi500' : 'us_sp500',
     benchmarkCode: market === 'CN' ? '510300.SH' : 'SPY.US', marketRegime: 'RISK_ON', marketScore: 82,
-    suggestedMaxExposure: 1, universeSize: market === 'CN' ? 800 : 500, dataReadyCount: market === 'CN' ? 790 : 500,
+    universeSize: market === 'CN' ? 800 : 500, dataReadyCount: market === 'CN' ? 790 : 500,
     dataCoverage: market === 'CN' ? 0.9875 : 1, rankableCount: 480, candidateCount: 1,
-    entryCount: 1, addCount: 0, holdCount: 0, reduceCount: 0, exitCount: 0, warnings: [],
+    warnings: [],
     features: {}, scoreBreakdown: {}, generatedAt: '2026-08-28T12:00:00Z', items: [rankingSnapshot(market)],
-    candidates: [snapshot(market)], portfolio: portfolio(market),
+    candidates: [snapshot(market)],
     changes: {
       previousTradeDate: '2026-08-27', marketScoreChange: 2.5, breadthScoreChange: 4,
-      newCandidates: [], newWeakening: [], newReduces: [], newExits: [], transitions: [], movers: [],
+      newCandidates: [], newWeakening: [], newBroken: [], transitions: [], movers: [],
     },
-  };
-}
-
-function portfolio(market: TrendMarket): TrendPortfolioResponse {
-  const item = snapshot(market);
-  return {
-    market, tradeDate: '2026-08-28', marketRegime: 'RISK_ON', maxExposure: 0.5,
-    currentExposure: 0.06, remainingExposure: 0.44, positionCount: 1,
-    positions: [{
-      code: item.code, name: item.name, state: 'HOLDING', action: 'HOLD', pendingAction: null,
-      units: 2, unitWeight: 0.03, positionWeight: 0.06, maxWeight: 0.1,
-      entryPrice: 100, referencePrice: 110, openedAt: '2026-08-20', initialStop: 96,
-      trailingStop: 104, nextAddPrice: 112, exitLevel: 104, alphaScore: 82.5,
-    }],
   };
 }
 
@@ -95,7 +81,6 @@ describe('TrendFollowingPage', () => {
     apiMocks.dates.mockImplementation(async (market: TrendMarket) => ({ market, latest: '2026-08-28', items: ['2026-08-28'] }));
     apiMocks.ranking.mockImplementation(async (market: TrendMarket) => ranking(market));
     apiMocks.candidates.mockImplementation(async (market: TrendMarket) => ({ market, tradeDate: '2026-08-28', summary: ranking(market), items: [snapshot(market)] }));
-    apiMocks.portfolio.mockImplementation(async (market: TrendMarket) => portfolio(market));
     apiMocks.detail.mockImplementation(async (_code: string, market: TrendMarket) => ({ market,
       metadata: { market, code: snapshot(market).code, name: snapshot(market).name }, latest: snapshot(market),
       history: [snapshot(market)], marketContext: ranking(market),
@@ -145,7 +130,6 @@ describe('TrendFollowingPage', () => {
     ]);
     expect(apiMocks.preview).not.toHaveBeenCalled();
     expect(apiMocks.candidates).not.toHaveBeenCalled();
-    expect(apiMocks.portfolio).not.toHaveBeenCalled();
     await wrapper.get('[data-testid="trend-row"]').trigger('click');
     await flushPromises();
     expect(apiMocks.detail).toHaveBeenLastCalledWith('000001.SZ', 'CN', 60, '2026-08-27');
@@ -209,16 +193,16 @@ describe('TrendFollowingPage', () => {
     expect(apiMocks.ranking).toHaveBeenCalledTimes(1);
   });
 
-  it('renders CN scope, regime, ranking, state and action in a compact desktop table', async () => {
+  it('renders CN scope, regime, ranking, trend state in a compact desktop table', async () => {
     const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
     expect(wrapper.text()).toContain('沪深300 + 中证500');
     expect(wrapper.text()).toContain('RISK_ON');
     expect(wrapper.get('[data-testid="trend-rank-changes"]').text()).toContain('0');
     expect(wrapper.text()).toContain('平安银行');
-    expect(wrapper.text()).toContain('建议入场');
+    expect(wrapper.text()).toContain('趋势健康');
     expect(wrapper.find('table').classes()).toContain('w-full');
-    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(12);
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(11);
     expect(wrapper.text()).toContain('Lifecycle / Age');
     expect(wrapper.text()).toContain('12D');
     expect(wrapper.text()).toContain('Fragility');
@@ -234,12 +218,12 @@ describe('TrendFollowingPage', () => {
         previousTradeDate: '2026-08-27',
         marketScoreChange: 2.5,
         breadthScoreChange: -1.5,
-        newCandidates: [{ code: current.code, name: current.name, currentState: current.state, currentAction: current.action, previousState: 'WATCHING', previousAction: 'WATCH', previousRank: 4,
+        newCandidates: [{ code: current.code, name: current.name, currentState: current.state, previousState: 'WATCHING', previousRank: 4,
           rankChange: 3, trendScoreChange: 4, rsScoreChange: 2, alphaScoreChange: 3 }],
-        newWeakening: [], newReduces: [], newExits: [],
-        transitions: [{ code: current.code, name: current.name, currentState: current.state, currentAction: current.action, previousState: 'CANDIDATE', previousAction: 'PENDING_ENTRY', previousRank: 2,
+        newWeakening: [], newBroken: [],
+        transitions: [{ code: current.code, name: current.name, currentState: current.state, previousState: 'CANDIDATE', previousRank: 2,
           rankChange: 1, trendScoreChange: 2, rsScoreChange: 1, alphaScoreChange: 2 }],
-        movers: [{ code: current.code, name: current.name, currentState: current.state, currentAction: current.action, previousState: 'CANDIDATE', previousAction: 'WATCH', previousRank: 6,
+        movers: [{ code: current.code, name: current.name, currentState: current.state, previousState: 'CANDIDATE', previousRank: 6,
           rankChange: 5, trendScoreChange: 7, rsScoreChange: 6, alphaScoreChange: 8 }],
       },
     });
@@ -248,8 +232,8 @@ describe('TrendFollowingPage', () => {
 
     expect(wrapper.get('[data-testid="trend-market-score-change"]').text()).toContain('+2.5');
     expect(wrapper.get('[data-testid="trend-breadth-score-change"]').text()).toContain('-1.5');
-    expect(wrapper.get('[data-testid="trend-change-new-candidates"]').text()).toContain('WATCHING → ENTRY');
-    expect(wrapper.get('[data-testid="trend-transition"]').text()).toContain('CANDIDATE → ENTRY');
+    expect(wrapper.get('[data-testid="trend-change-new-candidates"]').text()).toContain('WATCHING → TRENDING');
+    expect(wrapper.get('[data-testid="trend-transition"]').text()).toContain('CANDIDATE → TRENDING');
     expect(wrapper.get('[data-testid="trend-mover"]').text()).toContain('Trend +7.0');
     expect(wrapper.get('[data-testid="trend-mover"]').text()).toContain('RS +6.0');
     expect(wrapper.get('[data-testid="trend-changes-scroll"]').classes()).toEqual(
@@ -257,33 +241,9 @@ describe('TrendFollowingPage', () => {
     );
   });
 
-  it('renders the historical theoretical portfolio between summary and lifecycle sections', async () => {
-    const wrapper = mount(TrendFollowingPage);
-    await flushPromises();
 
-    expect(apiMocks.portfolio).not.toHaveBeenCalled();
-    expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('当前理论持仓');
-    expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('当前理论仓位6.0%');
-    expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('最大允许敞口50.0%');
-    expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('剩余可用敞口44.0%');
-    expect(wrapper.get('[data-testid="trend-portfolio"]').text()).toContain('当前持仓1只');
-    expect(wrapper.get('[data-testid="trend-position-row"]').text()).toContain('平安银行');
-    expect(wrapper.get('[data-testid="trend-position-row"]').text()).toContain('6.0%');
-    const sectionTitles = wrapper.findAll('[data-slot="card-title"]').map(node => node.text());
-    expect(sectionTitles.indexOf('当前理论持仓')).toBeLessThan(sectionTitles.indexOf('策略生命周期'));
-  });
 
-  it('labels exposure-blocked actions as risk limits', async () => {
-    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), portfolio: {
-      ...portfolio('CN'),
-      positions: [{ ...portfolio('CN').positions[0], action: 'EXPOSURE_BLOCKED' }],
-    } });
-    const wrapper = mount(TrendFollowingPage);
-    await flushPromises();
 
-    expect(wrapper.get('[data-testid="trend-position-row"]').text()).toContain('风险限制');
-    expect(wrapper.get('[data-testid="trend-position-row"]').text()).not.toContain('敞口已满');
-  });
 
   it('documents explanations and formulas for trend-following key indicators', () => {
     expect(trendIndicatorDescriptions.alpha).toContain('综合 Alpha 分');
@@ -295,8 +255,6 @@ describe('TrendFollowingPage', () => {
     expect(trendIndicatorDescriptions.slopePercentile).toContain('横截面百分位');
     expect(trendIndicatorDescriptions.slopePercentile).toContain('不是 raw slope');
     expect(trendIndicatorDescriptions.atr).toContain('ATR20 = Mean(TR, 20)');
-    expect(trendIndicatorDescriptions.initialWeight).toContain('0.5%');
-    expect(trendIndicatorDescriptions.maxExposure).toContain('RISK_OFF = 20%');
   });
 
   it('keeps target-date data coverage separate from history coverage', () => {
@@ -307,10 +265,9 @@ describe('TrendFollowingPage', () => {
     expect(trendIndicatorDescriptions.dataCoverage).not.toContain('当日收盘数据且历史长度足够');
   });
 
-  it('documents candidate state and lifecycle action counts exactly', () => {
+  it('documents candidate state conditions exactly', () => {
     expect(trendIndicatorDescriptions.candidate).toContain('CANDIDATE 状态数');
-    expect(trendIndicatorDescriptions.candidate).toContain('不包含观察或持有状态');
-    expect(trendIndicatorDescriptions.lifecycleCount).toContain('ENTRY、ADD、HOLD、REDUCE、EXIT');
+    expect(trendIndicatorDescriptions.candidate).toContain('不包含其他趋势状态');
   });
 
   it('documents the ValidSetup branch in breakout distance quality', () => {
@@ -319,12 +276,7 @@ describe('TrendFollowingPage', () => {
     expect(trendIndicatorDescriptions.breakout).toContain('TrendResume');
   });
 
-  it('preserves the exact exit comparison boundaries', () => {
-    expect(trendIndicatorDescriptions.exitLevel).toContain('Close <= InitialStop');
-    expect(trendIndicatorDescriptions.exitLevel).toContain('Close <= TrailingStop');
-    expect(trendIndicatorDescriptions.exitLevel).toContain('Close < PreviousLow10');
-    expect(trendIndicatorDescriptions.exitLevel).not.toContain('Close <= PreviousLow10');
-  });
+
 
   it('switches to US S&P 500 snapshots', async () => {
     const wrapper = mount(TrendFollowingPage);
@@ -353,9 +305,6 @@ describe('TrendFollowingPage', () => {
     expect(dialog.querySelector('[data-testid="rank-chart"]')).not.toBeNull();
     expect(dialog.textContent).not.toContain('持续天数');
     expect(document.body.textContent).toContain('Alpha Score Breakdown');
-    expect(document.body.textContent).toContain('理论风险权重');
-    expect(document.body.textContent).toContain('Signal Date / Price');
-    expect(document.body.textContent).toContain('Entry Date / Price');
     expect(document.body.textContent).toContain('Weighted slope 15D');
     expect(document.body.textContent).toContain('Return 5D / 10D / 20D');
     expect(document.body.textContent).toContain('10D / 20D Breakout');
@@ -398,14 +347,14 @@ describe('TrendFollowingPage', () => {
     expect(empty.text()).toContain('暂无策略候选');
   });
 
-  it('uses preview snapshots for ranking and candidates and hides portfolio', async () => {
+  it('uses preview snapshots for ranking and candidates', async () => {
     const previewSnap = {
       ...snapshot('CN'),
       tradeDate: '2026-09-10',
       name: '贵州茅台',
       code: '600519.SH',
       state: 'CANDIDATE' as const,
-      action: 'WATCH' as const,
+
     };
     mockPreview({
       ...ranking('CN'),
@@ -422,8 +371,6 @@ describe('TrendFollowingPage', () => {
     expect(apiMocks.preview).toHaveBeenCalledWith('CN');
     expect(apiMocks.stateHistory.mock.calls).toEqual([['CN', undefined, true]]);
     expect(apiMocks.candidates).not.toHaveBeenCalled();
-    expect(apiMocks.portfolio).not.toHaveBeenCalled();
-    expect(wrapper.find('[data-testid="trend-portfolio"]').exists()).toBe(false);
     expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('贵州茅台');
     expect(wrapper.get('[data-testid="trend-candidate"]').text()).toContain('贵州茅台');
     expect(wrapper.get('[data-testid="research-provider"]').text()).toBe('Tencent');
@@ -431,8 +378,6 @@ describe('TrendFollowingPage', () => {
     await wrapper.get('[data-testid="research-mode-official"]').trigger('click');
     await flushPromises();
     expect(apiMocks.candidates).not.toHaveBeenCalled();
-    expect(apiMocks.portfolio).not.toHaveBeenCalled();
-    expect(wrapper.find('[data-testid="trend-portfolio"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="trend-run-latest"]').exists()).toBe(true);
   });
 
@@ -445,7 +390,7 @@ describe('TrendFollowingPage', () => {
       alphaScore: 91,
       scoreBreakdown: { alpha: 91 },
       state: 'CANDIDATE' as const,
-      action: 'WATCH' as const,
+
     };
     apiMocks.detailHistory.mockResolvedValue({ history: [snapshot('CN'), previewSnap] });
     mockPreview({
@@ -462,7 +407,7 @@ describe('TrendFollowingPage', () => {
       metadata: { market: 'CN', code: '600519.SH', name: '贵州茅台' },
       latest: {
         ...snapshot('CN'), code: '600519.SH', name: '贵州茅台',
-        alphaScore: 60, scoreBreakdown: { alpha: 60 }, state: 'WATCHING', action: 'WATCH',
+        alphaScore: 60, scoreBreakdown: { alpha: 60 }, state: 'WATCHING',
       },
       history: [snapshot('CN')],
       marketContext: ranking('CN'),
@@ -477,7 +422,7 @@ describe('TrendFollowingPage', () => {
     const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
     expect(dialog.textContent).toContain('"alpha": 91');
     expect(dialog.textContent).toContain('候选');
-    expect(dialog.textContent).toContain('观察');
+    expect(dialog.textContent).toContain('趋势健康');
     expect(dialog.textContent).not.toContain('"alpha": 60');
     expect(dialog.querySelector('[data-testid="trend-rank-history"]')).not.toBeNull();
     expect(dialog.querySelector('[data-testid="trend-history"]')).not.toBeNull();

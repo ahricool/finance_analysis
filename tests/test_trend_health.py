@@ -13,7 +13,7 @@ def snapshot(**changes):
     result = dict(
         trend_duration_days=13,
         trend_score=90,
-        state="HOLDING",
+        state="TRENDING",
         setup="TREND_RESUME",
         features={
             "health_version": 1,
@@ -44,8 +44,8 @@ def test_candidate_failure_is_broken_not_a_new_trade_rule():
     current = snapshot()
     current["features"]["trend_candidate"] = False
     assert classify_lifecycle(current) == "BROKEN"
-    # EXIT can be a portfolio/risk event while absolute trend still holds.
-    assert classify_lifecycle(snapshot(state="EXIT")) == "EXPANSION"
+    # Lifecycle uses absolute trend indicators independently of the six-state classifier.
+    assert classify_lifecycle(snapshot(state="BROKEN")) == "EXPANSION"
 
 
 def test_stable_high_strength_has_low_fragility_not_inverse_strength():

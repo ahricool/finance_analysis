@@ -67,8 +67,8 @@ describe('researchPreview helpers', () => {
   });
 
   it('treats trend lifecycle states as preview candidates', () => {
-    expect(isTrendPreviewCandidate({ state: 'CANDIDATE', action: 'WATCH' })).toBe(true);
-    expect(isTrendPreviewCandidate({ state: 'IDLE', action: 'ADD' })).toBe(true);
-    expect(isTrendPreviewCandidate({ state: 'IDLE', action: 'WATCH' })).toBe(false);
+    expect(isTrendPreviewCandidate({ state: 'CANDIDATE' })).toBe(true);
+    expect(isTrendPreviewCandidate({ state: 'TRENDING' })).toBe(true);
+    expect(isTrendPreviewCandidate({ state: 'IDLE' })).toBe(false);
   });
 });

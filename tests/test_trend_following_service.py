@@ -214,21 +214,17 @@ def test_historical_rerun_rebuilds_future_dates_in_order(monkeypatch):
     assert all(call[0] < date(2026, 9, 1) and call[0] >= TRADE_DATE for call in repository.previous_calls)
 
 
-def test_signal_day_snapshots_do_not_assume_same_day_fill(monkeypatch):
+def test_snapshots_only_describe_trends(monkeypatch):
     repository = FakeRepository()
-    monkeypatch.setattr(
-        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
-        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
-    )
-    TrendFollowingService("US", repository).run(TRADE_DATE)
-    for item in repository.snapshots:
-        if item["state"] == "CANDIDATE":
-            assert item["units"] == 0
-            assert item["entry_price"] is None
-            assert item["opened_at"] is None
-            assert item["signal_date"] == TRADE_DATE
-        if item["action"] == "ENTRY":
-            raise AssertionError("signal day must not produce a same-session ENTRY")
+    monkeypatch.setattr("finance_analysis.trend_following.service.get_universe",
+                        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")))
+    result = TrendFollowingService("US", repository).run(TRADE_DATE)
+    assert result["status"] == "completed"
+    assert repository.snapshots
+    for row in repository.snapshots:
+        assert row["state"] in {"IDLE", "WATCHING", "CANDIDATE", "TRENDING", "WEAKENING", "BROKEN"}
+        assert not {"action", "units", "entry_price", "pending_action"} & row.keys()
+
 
 
 class LatestRecoveryRepository(FakeRepository):
@@ -284,11 +280,7 @@ def test_rebuild_stops_immediately_when_an_intermediate_date_is_incomplete(monke
     assert repository.upserted_dates == [TRADE_DATE + timedelta(days=1)]
 
 
-class MissingActiveRepository(FakeRepository):
-    def __init__(self, pending_action=None):
-        super().__init__()
-        self.pending_action = pending_action
-
+class MissingTrendRepository(FakeRepository):
     def daily_codes_on_date(self, codes, trade_date):
         if "SPY.US" in codes:
             return {"SPY.US"}
@@ -311,44 +303,23 @@ class MissingActiveRepository(FakeRepository):
                 "features": {},
                 "score_breakdown": {},
                 "setup": "BREAKOUT_20D",
-                "state": "HOLDING",
-                "action": "HOLD",
+                "state": "TRENDING",
                 "reference_price": 110.0,
                 "atr": 2.0,
-                "entry_price": 100.0,
-                "last_add_price": 100.0,
-                "highest_close": 110.0,
-                "initial_stop": 96.0,
-                "trailing_stop": 105.0,
-                "next_add_price": 111.0,
-                "exit_level": 105.0,
-                "units": 1,
-                "opened_at": trade_date - timedelta(days=5),
-                "suggested_initial_weight": 0.1,
-                "suggested_max_weight": 0.1,
-                "reasons": ["holding"],
-                "pending_action": self.pending_action,
-                "pending_since": trade_date - timedelta(days=1) if self.pending_action else None,
-                "pending_regime": "RISK_ON" if self.pending_action else None,
-                "pending_max_exposure": 1.0 if self.pending_action else None,
+                "reasons": ["healthy trend"],
             }
         }
 
 
-def test_missing_active_code_is_carried_forward_without_changing_risk(monkeypatch):
-    repository = MissingActiveRepository()
-    monkeypatch.setattr(
-        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
-        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
-    )
+def test_missing_code_has_no_current_trend_snapshot(monkeypatch):
+    repository = MissingTrendRepository()
+    monkeypatch.setattr("finance_analysis.trend_following.service.get_universe",
+                        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")))
     config = replace(DEFAULT_CONFIG, minimum_data_coverage=0.5)
     result = TrendFollowingService("US", repository, config=config).run(TRADE_DATE)
     assert result["status"] == "completed"
-    carried = next(item for item in repository.snapshots if item["code"] == "AAA.US")
-    assert (carried["state"], carried["action"], carried["units"]) == ("HOLDING", "HOLD", 1)
-    assert carried["initial_stop"] == 96.0
-    assert carried["trailing_stop"] == 105.0
-    assert "carried forward" in carried["reasons"][-1]
+    assert {item["code"] for item in repository.snapshots} == {"BBB.US"}
+
 
 
 def test_explicit_future_run_recovers_intermediate_benchmark_sessions(monkeypatch):
@@ -405,32 +376,10 @@ def test_historical_exception_also_invalidates_the_remaining_future_chain(monkey
     assert repository.invalidated_dates == [failed_at]
 
 
-@pytest.mark.parametrize("pending_action", ["EXIT", "REDUCE"])
-def test_missing_data_preserves_pending_risk_reduction(monkeypatch, pending_action):
-    repository = MissingActiveRepository(pending_action)
-    monkeypatch.setattr(
-        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
-        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
-    )
-    config = replace(DEFAULT_CONFIG, minimum_data_coverage=0.5)
-    TrendFollowingService("US", repository, config=config).run(TRADE_DATE)
-    carried = next(item for item in repository.snapshots if item["code"] == "AAA.US")
-    assert carried["pending_action"] == pending_action
-    assert carried["pending_regime"] == "RISK_ON"
-    assert "preserved" in carried["reasons"][-1]
 
 
-def test_missing_data_expires_pending_add(monkeypatch):
-    repository = MissingActiveRepository("ADD")
-    monkeypatch.setattr(
-        "finance_analysis.trend_following.service.get_universe",  # pragma: allowlist secret
-        lambda market: (UniverseMember("US", "AAA.US", "AAA"), UniverseMember("US", "BBB.US", "BBB")),
-    )
-    config = replace(DEFAULT_CONFIG, minimum_data_coverage=0.5)
-    TrendFollowingService("US", repository, config=config).run(TRADE_DATE)
-    carried = next(item for item in repository.snapshots if item["code"] == "AAA.US")
-    assert carried["pending_action"] is None
-    assert "expired" in carried["reasons"][-1]
+
+
 
 
 def test_cn_trend_batches_csi2000_history_before_readiness_without_daily_writes(monkeypatch):

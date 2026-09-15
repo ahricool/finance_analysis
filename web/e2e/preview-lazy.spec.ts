@@ -6,8 +6,8 @@ for (const domain of ['trend-following', 'etf-rotation']) {
     const summary = {
       market: 'CN', trade_date: '2026-09-11', generated_at: '2026-09-11T08:00:00Z',
       universe_size: 0, data_ready_count: 0, data_coverage: 0, rankable_count: 0,
-      rankable_size: 0, rankable_coverage: 0, candidate_count: 0, entry_count: 0,
-      market_regime: 'RISK_ON', market_score: 80, suggested_max_exposure: 0.8, warnings: [],
+      rankable_size: 0, rankable_coverage: 0, candidate_count: 0,
+      market_regime: 'RISK_ON', market_score: 80, warnings: [],
     };
     const status = {
       market: 'CN', status: 'completed', trade_date: '2026-09-11',
@@ -22,10 +22,11 @@ for (const domain of ['trend-following', 'etf-rotation']) {
         body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
       } else if (path.endsWith('/preview/status')) body = status;
       else if (path.endsWith('/preview')) body = { ...summary, ...status, snapshots: [], items: [], market_snapshot: null };
+      else if (path.endsWith('/rank-history')) body = { market: 'CN', dates: [], series: [], warnings: [] };
+      else if (path.endsWith('/state-history')) body = { market: 'CN', dates: [], items: [], official_count: 0, warnings: [] };
       else if (path.endsWith('/dates')) body = { market: 'CN', latest: summary.trade_date, items: [summary.trade_date] };
       else if (path.endsWith('/ranking')) body = {
         ...summary, items: [], candidates: [], market_snapshot: null,
-        portfolio: { ...summary, positions: [], position_count: 0, current_exposure: 0, max_exposure: 0.8 },
       };
       await route.fulfill({ json: body });
     });
