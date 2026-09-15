@@ -62,7 +62,7 @@ const option = computed<ComposeOption<LineSeriesOption | GridComponentOption | L
       type: 'plain', top: 0, left: 0, right: 0,
       textStyle: { color: muted, fontSize: 11 },
     },
-    grid: { left: 12, right: 16, top: 160, bottom: 12, containLabel: true },
+    grid: { left: 12, right: 16, top: 120, bottom: 12, containLabel: true },
     xAxis: {
       type: 'category', data: data?.dates ?? [],
       axisLabel: { color: muted, hideOverlap: true, formatter: (value: string) => value.slice(5) },
