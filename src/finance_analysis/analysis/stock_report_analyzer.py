@@ -13,53 +13,27 @@ Finance Analysis - AI分析层
 import json
 import logging
 import math
-import re
 import time
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Tuple, Callable
 
 from json_repair import repair_json
 
-from finance_analysis.agent.skills.defaults import CORE_TRADING_SKILL_POLICY_ZH
 from finance_analysis.analysis.pipeline_config import PipelineConfig, get_pipeline_config
 from finance_analysis.search.config import resolve_news_window_days
-from finance_analysis.llm import AllModelsFailedError, LLMClient, LLMRequest, completion, is_llm_configured
-from finance_analysis.database import persist_llm_usage
+from finance_analysis.llm import LLMClient, LLMRequest
 from finance_analysis.stocks.reference_data.mapping import STOCK_NAME_MAP
 from finance_analysis.reporting.localization import (
     get_signal_level,
     get_no_data_text,
-    get_placeholder_text,
     get_unknown_text,
     infer_decision_type_from_advice,
-    localize_chip_health,
     localize_confidence_level,
     normalize_report_language,
 )
 from finance_analysis.reporting.schemas import AnalysisReportSchema
 from finance_analysis.analysis.market_context import get_market_role, get_market_guidelines
 
-logger = logging.getLogger(__name__)
-
-from finance_analysis.analysis.report_errors import _AllModelsFailedError, _LiteLLMStreamError
-from finance_analysis.analysis.report_text_utils import (
-    _is_meaningful_text,
-    _is_value_placeholder,
-    _normalize_prompt_reason_items,
-    _normalize_risk_warning_values,
-    _safe_float,
-)
-from finance_analysis.analysis.report_integrity import apply_placeholder_fill, check_content_integrity
-from finance_analysis.analysis.technical.trend import (
-    _BEARISH_TREND_HINTS,
-    _BULLISH_TREND_HINTS,
-    _WEAK_BEARISH_TREND_HINTS,
-    _WEAK_BULLISH_TREND_HINTS,
-    _contains_trend_hint,
-    _filter_conflicting_trend_items,
-    _infer_trend_direction,
-    _sanitize_trend_analysis_for_prompt,
-)
 from finance_analysis.analysis.decision_guard import (
     _as_dict_for_decision_guard,
     _build_chip_structure_from_data,
@@ -74,7 +48,31 @@ from finance_analysis.analysis.decision_guard import (
     fill_price_position_if_needed,
     stabilize_decision_with_structure,
 )
+
+from finance_analysis.analysis.technical.trend import (
+    _BEARISH_TREND_HINTS,
+    _BULLISH_TREND_HINTS,
+    _WEAK_BEARISH_TREND_HINTS,
+    _WEAK_BULLISH_TREND_HINTS,
+    _contains_trend_hint,
+    _filter_conflicting_trend_items,
+    _infer_trend_direction,
+    _sanitize_trend_analysis_for_prompt,
+)
+
 from finance_analysis.analysis.stock_name import get_stock_name_multi_source
+
+from finance_analysis.analysis.report_text_utils import (
+    _is_meaningful_text,
+    _is_value_placeholder,
+    _normalize_prompt_reason_items,
+    _normalize_risk_warning_values,
+    _safe_float,
+)
+
+logger = logging.getLogger(__name__)
+
+from finance_analysis.analysis.report_integrity import apply_placeholder_fill, check_content_integrity
 
 
 @dataclass
@@ -257,11 +255,44 @@ class StockReportAnalyzer:
     # 核心模块：核心结论 + 数据透视 + 舆情情报 + 作战计划
     # ========================================
 
-    LEGACY_DEFAULT_SYSTEM_PROMPT = """你是一位专注于趋势交易的{market_placeholder}投资分析师，负责生成专业的【决策仪表盘】分析报告。
+    SYSTEM_PROMPT = """你是一位专注于趋势交易的{market_placeholder}投资分析师，负责生成专业的【决策仪表盘】分析报告。
 
 {guidelines_placeholder}
 
-""" + CORE_TRADING_SKILL_POLICY_ZH + """
+## 交易基线（必须严格遵守）
+
+风险控制和交易节奏必须遵守以下基线。
+
+### 1. 严进策略（不追高）
+- **绝对不追高**：当股价偏离 MA5 超过 5% 时，坚决不买入
+- 乖离率 < 2%：最佳买点区间
+- 乖离率 2-5%：可小仓介入
+- 乖离率 > 5%：严禁追高！直接判定为"观望"
+
+### 2. 趋势交易（顺势而为）
+- **多头排列必须条件**：MA5 > MA10 > MA20
+- 只做多头排列的股票，空头排列坚决不碰
+- 均线发散上行优于均线粘合
+
+### 3. 效率优先（筹码结构）
+- 关注筹码集中度：90%集中度 < 15% 表示筹码集中
+- 获利比例分析：70-90% 获利盘时需警惕获利回吐
+- 平均成本与现价关系：现价高于平均成本 5-15% 为健康
+
+### 4. 买点偏好（回踩支撑）
+- **最佳买点**：缩量回踩 MA5 获得支撑
+- **次优买点**：回踩 MA10 获得支撑
+- **观望情况**：跌破 MA20 时观望
+
+### 5. 风险排查重点
+- 减持公告、业绩预亏、监管处罚、行业政策利空、大额解禁
+
+### 6. 估值关注（PE/PB）
+- PE 明显偏高时需在风险点中说明
+
+### 7. 强势趋势股放宽
+- 强势趋势股可适当放宽乖离率要求，轻仓追踪但需设止损
+
 
 ## 输出格式：决策仪表盘 JSON
 
@@ -414,161 +445,6 @@ class StockReportAnalyzer:
 - 只有在接近支撑确认或有效突破压力，且资金流/量价配合时，才能给出买入；接近压力且资金流出时不得追买。
 - 只有在跌破关键支撑、主力资金持续流出或风险显著放大时，才能给出卖出/减仓。"""
 
-    SYSTEM_PROMPT = """你是一位{market_placeholder}投资分析师，负责生成专业的【决策仪表盘】分析报告。
-
-{guidelines_placeholder}
-
-{default_skill_policy_section}
-{skills_section}
-
-## 输出格式：决策仪表盘 JSON
-
-请严格按照以下 JSON 格式输出，这是一个完整的【决策仪表盘】：
-
-```json
-{
-    "stock_name": "股票中文名称",
-    "sentiment_score": 0-100整数,
-    "trend_prediction": "强烈看多/看多/震荡/看空/强烈看空",
-    "operation_advice": "买入/加仓/持有/减仓/卖出/观望",
-    "decision_type": "buy/hold/sell",
-    "confidence_level": "高/中/低",
-
-    "dashboard": {
-        "core_conclusion": {
-            "one_sentence": "一句话核心结论（30字以内，直接告诉用户做什么）",
-            "signal_type": "🟢买入信号/🟡持有观望/🔴卖出信号/⚠️风险警告",
-            "time_sensitivity": "立即行动/今日内/本周内/不急",
-            "position_advice": {
-                "no_position": "空仓者建议：具体操作指引",
-                "has_position": "持仓者建议：具体操作指引"
-            }
-        },
-
-        "data_perspective": {
-            "trend_status": {
-                "ma_alignment": "均线排列状态描述",
-                "is_bullish": true/false,
-                "trend_score": 0-100
-            },
-            "price_position": {
-                "current_price": 当前价格数值,
-                "ma5": MA5数值,
-                "ma10": MA10数值,
-                "ma20": MA20数值,
-                "bias_ma5": 乖离率百分比数值,
-                "bias_status": "安全/警戒/危险",
-                "support_level": 支撑位价格,
-                "resistance_level": 压力位价格
-            },
-            "volume_analysis": {
-                "volume_ratio": 量比数值,
-                "volume_status": "放量/缩量/平量",
-                "turnover_rate": 换手率百分比,
-                "volume_meaning": "量能含义解读（如：缩量回调表示抛压减轻）"
-            },
-            "chip_structure": {
-                "profit_ratio": 获利比例,
-                "avg_cost": 平均成本,
-                "concentration": 筹码集中度,
-                "chip_health": "健康/一般/警惕"
-            }
-        },
-
-        "intelligence": {
-            "latest_news": "【最新消息】近期重要新闻摘要",
-            "risk_alerts": ["风险点1：具体描述", "风险点2：具体描述"],
-            "positive_catalysts": ["利好1：具体描述", "利好2：具体描述"],
-            "earnings_outlook": "业绩预期分析（基于年报预告、业绩快报等）",
-            "sentiment_summary": "舆情情绪一句话总结"
-        },
-
-        "battle_plan": {
-            "sniper_points": {
-                "ideal_buy": "理想入场位：XX元（满足主要技能触发条件）",
-                "secondary_buy": "次优入场位：XX元（更保守或确认后执行）",
-                "stop_loss": "止损位：XX元（失效条件或X%风险）",
-                "take_profit": "目标位：XX元（按阻力位/风险回报比制定）"
-            },
-            "position_strategy": {
-                "suggested_position": "建议仓位：X成",
-                "entry_plan": "分批建仓策略描述",
-                "risk_control": "风控策略描述"
-            },
-            "action_checklist": [
-                "✅/⚠️/❌ 检查项1：当前结构是否满足激活技能条件",
-                "✅/⚠️/❌ 检查项2：入场位置与风险回报是否合理",
-                "✅/⚠️/❌ 检查项3：量价/波动/筹码是否支持判断",
-                "✅/⚠️/❌ 检查项4：无重大利空",
-                "✅/⚠️/❌ 检查项5：仓位与止损计划明确",
-                "✅/⚠️/❌ 检查项6：估值/业绩/催化与结论匹配"
-            ]
-        }
-    },
-
-    "analysis_summary": "100字综合分析摘要",
-    "key_points": "3-5个核心看点，逗号分隔",
-    "risk_warning": "风险提示",
-    "buy_reason": "操作理由，引用激活技能或风险框架",
-
-    "trend_analysis": "走势形态分析",
-    "short_term_outlook": "短期1-3日展望",
-    "medium_term_outlook": "中期1-2周展望",
-    "technical_analysis": "技术面综合分析",
-    "ma_analysis": "均线系统分析",
-    "volume_analysis": "量能分析",
-    "pattern_analysis": "K线形态分析",
-    "fundamental_analysis": "基本面分析",
-    "sector_position": "板块行业分析",
-    "company_highlights": "公司亮点/风险",
-    "news_summary": "新闻摘要",
-    "market_sentiment": "市场情绪",
-    "hot_topics": "相关热点",
-
-    "search_performed": true/false,
-    "data_sources": "数据来源说明"
-}
-```
-
-## 评分标准
-
-### 强烈买入（80-100分）：
-- ✅ 多个激活技能同时支持积极结论
-- ✅ 上行空间、触发条件与风险回报清晰
-- ✅ 关键风险已排查，仓位与止损计划明确
-- ✅ 重要数据和情报结论彼此一致
-
-### 买入（60-79分）：
-- ✅ 主信号偏积极，但仍有少量待确认项
-- ✅ 允许存在可控风险或次优入场点
-- ✅ 需要在报告中明确补充观察条件
-
-### 观望（40-59分）：
-- ⚠️ 信号分歧较大，或缺乏足够确认
-- ⚠️ 风险与机会大致均衡
-- ⚠️ 更适合等待触发条件或回避不确定性
-
-### 卖出/减仓（0-39分）：
-- ❌ 主要结论转弱，风险明显高于收益
-- ❌ 触发了止损/失效条件或重大利空
-- ❌ 现有仓位更需要保护而不是进攻
-
-## 决策仪表盘核心原则
-
-1. **核心结论先行**：一句话说清该买该卖
-2. **分持仓建议**：空仓者和持仓者给不同建议
-3. **精确狙击点**：必须给出具体价格，不说模糊的话
-4. **检查清单可视化**：用 ✅⚠️❌ 明确显示每项检查结果
-5. **风险优先级**：舆情中的风险点要醒目标出
-
-## 可操作性与稳定性约束
-
-- 不得仅因为单日涨跌或评分跨线就在“买入/卖出”之间剧烈切换。
-- 操作建议必须同时参考价格位置（支撑/压力位）、量能/筹码、主力资金流向和风险事件。
-- 股价位于支撑与压力之间、资金流不明确时，优先输出“持有/震荡/观望/洗盘观察”等可执行的中性建议；`decision_type` 仍保持 `hold`。
-- 只有在接近支撑确认或有效突破压力，且资金流/量价配合时，才能给出买入；接近压力且资金流出时不得追买。
-- 只有在跌破关键支撑、主力资金持续流出或风险显著放大时，才能给出卖出/减仓。"""
-
     TEXT_SYSTEM_PROMPT = """你是一位专业的股票分析助手。
 
 - 回答必须基于用户提供的数据与上下文
@@ -576,96 +452,21 @@ class StockReportAnalyzer:
 - 不要编造价格、财报或新闻事实
 """
 
-    def __init__(
-        self,
-        *,
-        config: Optional[PipelineConfig] = None,
-        skills: Optional[List[str]] = None,
-        skill_instructions: Optional[str] = None,
-        default_skill_policy: Optional[str] = None,
-        use_legacy_default_prompt: Optional[bool] = None,
-    ):
-        """Initialize the stock report analyzer."""
+    def __init__(self, *, config: Optional[PipelineConfig] = None, uid: Optional[int] = None):
         self._config_override = config
-        self._requested_skills = list(skills) if skills is not None else None
-        self._skill_instructions_override = skill_instructions
-        self._default_skill_policy_override = default_skill_policy
-        self._use_legacy_default_prompt_override = use_legacy_default_prompt
-        self._resolved_prompt_state: Optional[Dict[str, Any]] = None
-        if not is_llm_configured(self._get_runtime_config()):
-            logger.warning("No LLM configured (LLM_MODEL / LLM_API_KEY), AI analysis will be unavailable")
-
-    def _init_litellm(self) -> None:
-        """Backward-compatible no-op for tests that patch LiteLLM initialization."""
-        return None
+        self.uid = uid
 
     def _get_runtime_config(self) -> PipelineConfig:
-        """Return the runtime config, honoring injected overrides for tests/pipeline."""
-        return getattr(self, "_config_override", None) or get_pipeline_config()
-
-    def _get_skill_prompt_sections(self) -> tuple[str, str, bool]:
-        """Resolve skill instructions + default baseline + prompt mode."""
-        skill_instructions = getattr(self, "_skill_instructions_override", None)
-        default_skill_policy = getattr(self, "_default_skill_policy_override", None)
-        use_legacy_default_prompt = getattr(self, "_use_legacy_default_prompt_override", None)
-
-        if skill_instructions is not None and default_skill_policy is not None:
-            return (
-                skill_instructions,
-                default_skill_policy,
-                bool(use_legacy_default_prompt) if use_legacy_default_prompt is not None else False,
-            )
-
-        resolved_state = getattr(self, "_resolved_prompt_state", None)
-        if resolved_state is None:
-            from finance_analysis.agent.factory import resolve_skill_prompt_state
-
-            prompt_state = resolve_skill_prompt_state(
-                self._get_runtime_config(),
-                skills=getattr(self, "_requested_skills", None),
-            )
-            resolved_state = {
-                "skill_instructions": prompt_state.skill_instructions,
-                "default_skill_policy": prompt_state.default_skill_policy,
-                "use_legacy_default_prompt": bool(getattr(prompt_state, "use_legacy_default_prompt", False)),
-            }
-            self._resolved_prompt_state = resolved_state
-
-        return (
-            skill_instructions if skill_instructions is not None else resolved_state.get("skill_instructions", ""),
-            default_skill_policy if default_skill_policy is not None else resolved_state.get("default_skill_policy", ""),
-            (
-                use_legacy_default_prompt
-                if use_legacy_default_prompt is not None
-                else bool(resolved_state.get("use_legacy_default_prompt", False))
-            ),
-        )
+        return self._config_override or get_pipeline_config()
 
     def _get_analysis_system_prompt(self, report_language: str, stock_code: str = "") -> str:
         """Build the analyzer system prompt with output-language guidance."""
         lang = normalize_report_language(report_language)
         market_role = get_market_role(stock_code, lang)
         market_guidelines = get_market_guidelines(stock_code, lang)
-        skill_instructions, default_skill_policy, use_legacy_default_prompt = self._get_skill_prompt_sections()
-        if use_legacy_default_prompt:
-            base_prompt = self.LEGACY_DEFAULT_SYSTEM_PROMPT.replace(
-                "{market_placeholder}", market_role
-            ).replace(
-                "{guidelines_placeholder}", market_guidelines
-            )
-        else:
-            skills_section = ""
-            if skill_instructions:
-                skills_section = f"## 激活的交易技能\n\n{skill_instructions}\n"
-            default_skill_policy_section = ""
-            if default_skill_policy:
-                default_skill_policy_section = f"{default_skill_policy}\n"
-            base_prompt = (
-                self.SYSTEM_PROMPT.replace("{market_placeholder}", market_role)
-                .replace("{guidelines_placeholder}", market_guidelines)
-                .replace("{default_skill_policy_section}", default_skill_policy_section)
-                .replace("{skills_section}", skills_section)
-            )
+        base_prompt = self.SYSTEM_PROMPT.replace("{market_placeholder}", market_role).replace(
+            "{guidelines_placeholder}", market_guidelines
+        )
         if lang == "en":
             return base_prompt + """
 
@@ -687,214 +488,16 @@ class StockReportAnalyzer:
 """
 
     def is_available(self) -> bool:
-        """Check if LiteLLM is properly configured."""
-        return is_llm_configured(self._get_runtime_config())
+        return self._get_runtime_config().llm.is_available()
 
-    def _dispatch_litellm_completion(
-        self,
-        model: str,
-        call_kwargs: Dict[str, Any],
-        *,
-        config: object,
-    ) -> Any:
-        """Dispatch one completion through the unified client."""
-        return completion(
-            config,
-            model,
-            call_kwargs["messages"],
-            temperature=call_kwargs.get("temperature"),
-            max_tokens=call_kwargs.get("max_tokens"),
-            stream=call_kwargs.get("stream"),
-            timeout=call_kwargs.get("timeout"),
-            extra_body=call_kwargs.get("extra_body"),
-        )
-
-    def _normalize_usage(self, usage_obj: Any) -> Dict[str, Any]:
-        """Normalize usage objects from LiteLLM responses/chunks."""
-        if not usage_obj:
-            return {}
-
-        def _get_value(key: str) -> int:
-            if isinstance(usage_obj, dict):
-                return int(usage_obj.get(key) or 0)
-            return int(getattr(usage_obj, key, 0) or 0)
-
-        return {
-            "prompt_tokens": _get_value("prompt_tokens"),
-            "completion_tokens": _get_value("completion_tokens"),
-            "total_tokens": _get_value("total_tokens"),
-        }
-
-    def _extract_stream_text(self, chunk: Any) -> str:
-        """Extract provider-agnostic text delta from a LiteLLM streaming chunk."""
-        choices = chunk.get("choices") if isinstance(chunk, dict) else getattr(chunk, "choices", None)
-        if not choices:
-            return ""
-
-        choice = choices[0]
-        delta = choice.get("delta") if isinstance(choice, dict) else getattr(choice, "delta", None)
-        message = choice.get("message") if isinstance(choice, dict) else getattr(choice, "message", None)
-
-        content: Any = None
-        if isinstance(delta, dict):
-            content = delta.get("content")
-        elif isinstance(delta, str):
-            content = delta
-        elif delta is not None:
-            content = getattr(delta, "content", None)
-
-        if content is None:
-            if isinstance(message, dict):
-                content = message.get("content")
-            elif message is not None:
-                content = getattr(message, "content", None)
-
-        if isinstance(content, list):
-            parts: List[str] = []
-            for item in content:
-                if isinstance(item, str):
-                    parts.append(item)
-                elif isinstance(item, dict):
-                    text = item.get("text")
-                    if isinstance(text, str):
-                        parts.append(text)
-            return "".join(parts)
-
-        return content if isinstance(content, str) else ""
-
-    def _consume_litellm_stream(
-        self,
-        stream_response: Any,
-        *,
-        model: str,
-        progress_callback: Optional[Callable[[int], None]] = None,
-    ) -> Tuple[str, Dict[str, Any]]:
-        """Consume a LiteLLM stream into a single text payload."""
-        chunks: List[str] = []
-        usage: Dict[str, Any] = {}
-        chars_received = 0
-        next_emit_at = 1
-
+    def generate_text(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> Optional[str]:
         try:
-            for chunk in stream_response:
-                chunk_usage = chunk.get("usage") if isinstance(chunk, dict) else getattr(chunk, "usage", None)
-                normalized_usage = self._normalize_usage(chunk_usage)
-                if normalized_usage:
-                    usage = normalized_usage
-
-                delta_text = self._extract_stream_text(chunk)
-                if not delta_text:
-                    continue
-
-                chunks.append(delta_text)
-                chars_received += len(delta_text)
-                if progress_callback and chars_received >= next_emit_at:
-                    progress_callback(chars_received)
-                    next_emit_at = chars_received + 160
+            return LLMClient(self._get_runtime_config().llm).complete_text(LLMRequest(
+                prompt=prompt, system_prompt=self.TEXT_SYSTEM_PROMPT,
+                max_tokens=max_tokens, temperature=temperature, call_type="market_review", uid=self.uid,
+            )).text
         except Exception as exc:
-            raise _LiteLLMStreamError(
-                f"{model} stream interrupted: {exc}",
-                partial_received=chars_received > 0,
-            ) from exc
-
-        response_text = "".join(chunks).strip()
-        if not response_text:
-            raise _LiteLLMStreamError(
-                f"{model} stream returned empty response",
-                partial_received=False,
-            )
-
-        if progress_callback and chars_received > 0:
-            progress_callback(chars_received)
-
-        return response_text, usage
-
-    def _call_litellm(
-        self,
-        prompt: str,
-        generation_config: dict,
-        *,
-        system_prompt: Optional[str] = None,
-        stream: bool = False,
-        stream_progress_callback: Optional[Callable[[int], None]] = None,
-        response_validator: Optional[Callable[[str], None]] = None,
-    ) -> Tuple[str, str, Dict[str, Any]]:
-        """Call the unified LLM client and return text, model, and normalized usage."""
-        config = self._get_runtime_config()
-        max_tokens = (
-            generation_config.get('max_output_tokens')
-            or generation_config.get('max_tokens')
-            or 8192
-        )
-        requested_temperature = generation_config.get('temperature', 0.7)
-        effective_system_prompt = system_prompt or self.TEXT_SYSTEM_PROMPT
-        request = LLMRequest(
-            messages=[
-                {"role": "system", "content": effective_system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=requested_temperature,
-            max_tokens=max_tokens,
-            stream=stream,
-            extra_body=generation_config.get("extra_body"),
-            call_type="analysis",
-        )
-        client = LLMClient(config=config)
-        client._dispatch_completion = lambda kwargs: self._dispatch_litellm_completion(
-            kwargs["model"],
-            kwargs,
-            config=config,
-        )
-        try:
-            if response_validator is not None:
-                result = client.complete_json(request, validator=response_validator)
-            elif stream:
-                result = client.complete_stream(request, progress_callback=stream_progress_callback)
-            else:
-                result = client.complete_text(request)
-        except AllModelsFailedError as exc:
-            raise _AllModelsFailedError(
-                str(exc),
-                last_response_text=exc.last_response_text,
-                last_model=exc.last_model,
-                last_usage=exc.last_usage,
-            ) from exc
-        if not result.text:
-            raise ValueError("LLM returned empty response")
-        return result.text, result.model_used or "", result.usage
-
-    def generate_text(
-        self,
-        prompt: str,
-        max_tokens: int = 2048,
-        temperature: float = 0.7,
-    ) -> Optional[str]:
-        """Public entry point for free-form text generation.
-
-        External callers (e.g. MarketAnalyzer) must use this method instead of
-        calling _call_litellm() directly or accessing private attributes such as
-        _litellm_available, _router, _model, _use_openai, or _use_anthropic.
-
-        Args:
-            prompt:      Text prompt to send to the LLM.
-            max_tokens:  Maximum tokens in the response (default 2048).
-            temperature: Sampling temperature (default 0.7).
-
-        Returns:
-            Response text, or None if the LLM call fails (error is logged).
-        """
-        try:
-            result = self._call_litellm(
-                prompt,
-                generation_config={"max_tokens": max_tokens, "temperature": temperature},
-            )
-            if isinstance(result, tuple):
-                text, model_used, usage = result
-                persist_llm_usage(usage, model_used, call_type="market_review")
-                return text
-            return result
-        except Exception as exc:
-            logger.exception("[generate_text] LLM call failed: %s", exc)
+            logger.warning("Market review LLM failed: %s", exc)
             return None
 
     def analyze(
@@ -902,14 +505,13 @@ class StockReportAnalyzer:
         context: Dict[str, Any],
         news_context: Optional[str] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
-        stream_progress_callback: Optional[Callable[[int], None]] = None,
     ) -> AnalysisResult:
         """
         分析单只股票
         
         流程：
         1. 格式化输入数据（技术面 + 新闻）
-        2. 调用 LLM（带重试和模型切换）
+        2. 调用 LLM（最多重试一次）
         3. 解析 JSON 响应
         4. 返回结构化结果
         
@@ -965,110 +567,25 @@ class StockReportAnalyzer:
             prompt = self._format_prompt(context, name, news_context, report_language=report_language)
             
             config = self._get_runtime_config()
-            model_name = getattr(config, "llm_model", None) or "unknown"
-            logger.info(f"========== AI 分析 {name}({code}) ==========")
-            logger.info(f"[LLM配置] 模型: {model_name}")
-            logger.info(f"[LLM配置] Prompt 长度: {len(prompt)} 字符")
-            logger.info(f"[LLM配置] 是否包含新闻: {'是' if news_context else '否'}")
-
-            # 记录完整 prompt 到日志（INFO级别记录摘要，DEBUG记录完整）
-            prompt_preview = prompt[:500] + "..." if len(prompt) > 500 else prompt
-            logger.info(f"[LLM Prompt 预览]\n{prompt_preview}")
-            logger.debug(f"=== 完整 Prompt ({len(prompt)}字符) ===\n{prompt}\n=== End Prompt ===")
-
-            # 设置生成配置
-            generation_config = {
-                "temperature": config.llm_temperature,
-                "max_output_tokens": 8192,
-            }
-
-            logger.info(f"[LLM调用] 开始调用 {model_name}...")
-            _emit_progress(68, f"{name}：LLM 已接收请求，等待响应")
-
-            # 使用 litellm 调用（支持完整性校验重试）
-            current_prompt = prompt
-            retry_count = 0
-            max_retries = config.report_integrity_retry if config.report_integrity_enabled else 0
-
-            while True:
-                start_time = time.time()
-                try:
-                    response_text, model_used, llm_usage = self._call_litellm(
-                        current_prompt,
-                        generation_config,
-                        system_prompt=system_prompt,
-                        stream=True,
-                        stream_progress_callback=stream_progress_callback,
-                        response_validator=self._validate_json_response,
-                    )
-                except _AllModelsFailedError as exc:
-                    if exc.last_response_text is not None:
-                        logger.warning(
-                            "[LLM JSON] %s(%s): all models returned invalid JSON, using text fallback",
-                            name,
-                            code,
-                        )
-                        response_text = exc.last_response_text
-                        model_used = exc.last_model
-                        llm_usage = exc.last_usage
-                    else:
-                        raise
-                elapsed = time.time() - start_time
-
-                # 记录响应信息
-                logger.info(
-                    f"[LLM返回] {model_name} 响应成功, 耗时 {elapsed:.2f}s, 响应长度 {len(response_text)} 字符"
-                )
-                response_preview = response_text[:300] + "..." if len(response_text) > 300 else response_text
-                logger.info(f"[LLM返回 预览]\n{response_preview}")
-                logger.debug(
-                    f"=== {model_name} 完整响应 ({len(response_text)}字符) ===\n{response_text}\n=== End Response ==="
-                )
-                # Keep parser/retry progress monotonic so task progress/message never "goes backward".
-                parse_progress = min(99, 93 + retry_count * 2)
-                _emit_progress(parse_progress, f"{name}：LLM 返回完成，正在解析 JSON")
-
-                # 解析响应
-                result = self._parse_response(response_text, code, name)
-                result.raw_response = response_text
-                result.search_performed = bool(news_context)
-                result.market_snapshot = self._build_market_snapshot(context)
-                result.model_used = model_used
-                result.report_language = report_language
-
-                # 内容完整性校验（可选）
-                if not config.report_integrity_enabled:
-                    break
-                pass_integrity, missing_fields = self._check_content_integrity(result)
-                if pass_integrity:
-                    break
-                if retry_count < max_retries:
-                    current_prompt = self._build_integrity_retry_prompt(
-                        prompt,
-                        response_text,
-                        missing_fields,
-                        report_language=report_language,
-                    )
-                    retry_count += 1
-                    logger.info(
-                        "[LLM完整性] 必填字段缺失 %s，第 %d 次补全重试",
-                        missing_fields,
-                        retry_count,
-                    )
-                    retry_progress = min(99, 92 + retry_count * 2)
-                    _emit_progress(
-                        retry_progress,
-                        f"{name}：报告字段不完整，正在补全重试（{retry_count}/{max_retries}）",
-                    )
-                else:
+            _emit_progress(68, f"{name}：正在请求 LLM 生成报告")
+            response = LLMClient(config.llm).complete_text(
+                LLMRequest(
+                    prompt=prompt, system_prompt=system_prompt, max_tokens=8192,
+                    call_type="analysis", uid=self.uid,
+                ),
+                validator=self._validate_json_response,
+            )
+            _emit_progress(93, f"{name}：LLM 返回完成，正在解析 JSON")
+            result = self._parse_response(response.text, code, name)
+            result.raw_response = response.text
+            result.search_performed = bool(news_context)
+            result.market_snapshot = self._build_market_snapshot(context)
+            result.model_used = response.model
+            result.report_language = report_language
+            if config.report_integrity_enabled:
+                _, missing_fields = self._check_content_integrity(result)
+                if missing_fields:
                     self._apply_placeholder_fill(result, missing_fields)
-                    logger.warning(
-                        "[LLM完整性] 必填字段缺失 %s，已占位补全，不阻塞流程",
-                        missing_fields,
-                    )
-                    break
-
-            persist_llm_usage(llm_usage, model_used, call_type="analysis", stock_code=code)
 
             logger.info(f"[LLM解析] {name}({code}) 分析完成: {result.trend_prediction}, 评分 {result.sentiment_score}")
 
@@ -1110,7 +627,6 @@ class StockReportAnalyzer:
         """
         code = context.get('code', 'Unknown')
         report_language = normalize_report_language(report_language)
-        _, _, use_legacy_default_prompt = self._get_skill_prompt_sections()
         
         # 优先使用上下文中的股票名称（从 realtime_quote 获取）
         stock_name = context.get('stock_name', name)
@@ -1292,9 +808,8 @@ class StockReportAnalyzer:
                 volume_change_ratio=context.get('volume_change_ratio'),
             )
             consistency_notes = trend.get('prompt_consistency_notes', [])
-            if use_legacy_default_prompt:
-                bias_warning = "🚨 超过5%，严禁追高！" if trend.get('bias_ma5', 0) > 5 else "✅ 安全范围"
-                prompt += f"""
+            bias_warning = "🚨 超过5%，严禁追高！" if trend.get('bias_ma5', 0) > 5 else "✅ 安全范围"
+            prompt += f"""
 ### 趋势分析预判（基于交易理念）
 | 指标 | 数值 | 判定 |
 |------|------|------|
@@ -1314,40 +829,8 @@ class StockReportAnalyzer:
 **风险因素**：
 {chr(10).join('- ' + r for r in trend.get('risk_factors', ['无'])) if trend.get('risk_factors') else '- 无'}
 """
-                if consistency_notes:
-                    prompt += f"""
-
-**一致性约束**：
-{chr(10).join('- ' + note for note in consistency_notes)}
-"""
-            else:
-                bias_warning = (
-                    "🚨 偏离较大，需谨慎评估追高风险"
-                    if trend.get('bias_ma5', 0) > 5
-                    else "✅ 位置相对可控"
-                )
+            if consistency_notes:
                 prompt += f"""
-### 技术与结构分析（供激活技能判断参考）
-| 指标 | 数值 | 说明 |
-|------|------|------|
-| 趋势状态 | {trend.get('trend_status', unknown_text)} | |
-| 均线排列 | {trend.get('ma_alignment', unknown_text)} | 结合激活技能判断结构强弱 |
-| 趋势强度 | {trend.get('trend_strength', 0)}/100 | |
-| **价格位置(MA5)** | **{trend.get('bias_ma5', 0):+.2f}%** | {bias_warning} |
-| 价格位置(MA10) | {trend.get('bias_ma10', 0):+.2f}% | |
-| 量能状态 | {trend.get('volume_status', unknown_text)} | {trend.get('volume_trend', '')} |
-| 系统信号 | {trend.get('buy_signal', unknown_text)} | |
-| 系统评分 | {trend.get('signal_score', 0)}/100 | |
-
-#### 系统分析理由
-**支持因素**：
-{chr(10).join('- ' + r for r in trend.get('signal_reasons', ['无'])) if trend.get('signal_reasons') else '- 无'}
-
-**风险因素**：
-{chr(10).join('- ' + r for r in trend.get('risk_factors', ['无'])) if trend.get('risk_factors') else '- 无'}
-"""
-                if consistency_notes:
-                    prompt += f"""
 
 **一致性约束**：
 {chr(10).join('- ' + note for note in consistency_notes)}
@@ -1440,8 +923,7 @@ class StockReportAnalyzer:
 正确的股票名称格式为“股票名称（股票代码）”，例如“贵州茅台（600519）”。
 如果上方显示的股票名称为"股票{code}"或不正确，请在分析开头**明确输出该股票的正确中文全称**。
 """
-        if use_legacy_default_prompt:
-            prompt += f"""
+        prompt += f"""
 
 ### 重点关注（必须明确回答）：
 1. ❓ 是否满足 MA5>MA10>MA20 多头排列？
@@ -1449,16 +931,6 @@ class StockReportAnalyzer:
 3. ❓ 量能是否配合（缩量回调/放量突破）？
 4. ❓ 筹码结构是否健康？
 5. ❓ 消息面有无重大利空？（减持、处罚、业绩变脸等）
-"""
-        else:
-            prompt += f"""
-
-### 重点关注（必须明确回答）：
-1. ❓ 当前结构是否满足激活技能的关键触发条件？
-2. ❓ 当前入场位置与风险回报是否合理？若偏离过大，请明确说明等待条件
-3. ❓ 量能、波动与筹码结构是否支持当前结论？
-4. ❓ 消息面有无重大利空或与技能结论冲突的信息？
-5. ❓ 若结论成立，具体触发条件、止损位、观察点分别是什么？
 """
         prompt += f"""
 
@@ -1587,63 +1059,6 @@ class StockReportAnalyzer:
     def _check_content_integrity(self, result: AnalysisResult) -> Tuple[bool, List[str]]:
         """Delegate to module-level check_content_integrity."""
         return check_content_integrity(result)
-
-    def _build_integrity_complement_prompt(self, missing_fields: List[str], report_language: str = "zh") -> str:
-        """Build complement instruction for missing mandatory fields."""
-        report_language = normalize_report_language(report_language)
-        if report_language == "en":
-            lines = ["### Completion requirements: fill the missing mandatory fields below and output the full JSON again:"]
-            for f in missing_fields:
-                if f == "sentiment_score":
-                    lines.append("- sentiment_score: integer score from 0 to 100")
-                elif f == "operation_advice":
-                    lines.append("- operation_advice: localized action advice")
-                elif f == "analysis_summary":
-                    lines.append("- analysis_summary: concise analysis summary")
-                elif f == "dashboard.core_conclusion.one_sentence":
-                    lines.append("- dashboard.core_conclusion.one_sentence: one-line decision")
-                elif f == "dashboard.intelligence.risk_alerts":
-                    lines.append("- dashboard.intelligence.risk_alerts: risk alert list (can be empty)")
-                elif f == "dashboard.battle_plan.sniper_points.stop_loss":
-                    lines.append("- dashboard.battle_plan.sniper_points.stop_loss: stop-loss level")
-            return "\n".join(lines)
-
-        lines = ["### 补全要求：请在上方分析基础上补充以下必填内容，并输出完整 JSON："]
-        for f in missing_fields:
-            if f == "sentiment_score":
-                lines.append("- sentiment_score: 0-100 综合评分")
-            elif f == "operation_advice":
-                lines.append("- operation_advice: 买入/加仓/持有/减仓/卖出/观望")
-            elif f == "analysis_summary":
-                lines.append("- analysis_summary: 综合分析摘要")
-            elif f == "dashboard.core_conclusion.one_sentence":
-                lines.append("- dashboard.core_conclusion.one_sentence: 一句话决策")
-            elif f == "dashboard.intelligence.risk_alerts":
-                lines.append("- dashboard.intelligence.risk_alerts: 风险警报列表（可为空数组）")
-            elif f == "dashboard.battle_plan.sniper_points.stop_loss":
-                lines.append("- dashboard.battle_plan.sniper_points.stop_loss: 止损价")
-        return "\n".join(lines)
-
-    def _build_integrity_retry_prompt(
-        self,
-        base_prompt: str,
-        previous_response: str,
-        missing_fields: List[str],
-        report_language: str = "zh",
-    ) -> str:
-        """Build retry prompt using the previous response as the complement baseline."""
-        complement = self._build_integrity_complement_prompt(missing_fields, report_language=report_language)
-        previous_output = previous_response.strip()
-        if normalize_report_language(report_language) == "en":
-            prefix = "### The previous output is below. Complete the missing fields based on that output and return the full JSON again. Do not omit existing fields:"
-        else:
-            prefix = "### 上一次输出如下，请在该输出基础上补齐缺失字段，并重新输出完整 JSON。不要省略已有字段："
-        return "\n\n".join([
-            base_prompt,
-            prefix,
-            previous_output,
-            complement,
-        ])
 
     def _apply_placeholder_fill(self, result: AnalysisResult, missing_fields: List[str]) -> None:
         """Delegate to module-level apply_placeholder_fill."""

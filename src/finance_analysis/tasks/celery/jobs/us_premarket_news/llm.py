@@ -208,22 +208,21 @@ class PremarketNewsLLMAnalyzer:
         if not candidates:
             return []
         try:
-            client = LLMClient(config=self.config)
+            client = LLMClient(config=self.config.llm)
             if not client.is_available():
                 logger.warning("LLM 未配置，跳过美股盘前新闻重要性筛选")
                 return []
-            result = client.complete_json(
+            result = client.complete_text(
                 LLMRequest(
-                    messages=[
-                        {"role": "system", "content": "你是美股盘前新闻重要性筛选器，只输出 JSON。"},
-                        {"role": "user", "content": build_importance_prompt(candidates)},
-                    ],
+                    system_prompt="你是美股盘前新闻重要性筛选器，只输出 JSON。",
+                    prompt=build_importance_prompt(candidates),
                     temperature=0.1,
                     max_tokens=5000,
                     call_type="us_premarket_news_importance",
-                )
+                ),
+                validator=lambda text: parse_llm_batch_results(text, strict=True),
             )
-            self.model_used = result.model_used
+            self.model_used = result.model
             return normalize_importance_results(parse_llm_batch_results(result.text))
         except Exception as exc:
             logger.warning("美股盘前新闻重要性筛选失败: %s", exc)
@@ -237,22 +236,21 @@ class PremarketNewsLLMAnalyzer:
         if not selected_news:
             return []
         try:
-            client = LLMClient(config=self.config)
+            client = LLMClient(config=self.config.llm)
             if not client.is_available():
                 logger.warning("LLM 未配置，跳过美股盘前新闻影响方向判断")
                 return []
-            result = client.complete_json(
+            result = client.complete_text(
                 LLMRequest(
-                    messages=[
-                        {"role": "system", "content": "你是美股盘前新闻影响方向 JSON 判定器，只输出 JSON。"},
-                        {"role": "user", "content": build_impact_prompt(selected_news, candidates_by_key)},
-                    ],
+                    system_prompt="你是美股盘前新闻影响方向 JSON 判定器，只输出 JSON。",
+                    prompt=build_impact_prompt(selected_news, candidates_by_key),
                     temperature=0.1,
                     max_tokens=6000,
                     call_type="us_premarket_news_impact",
-                )
+                ),
+                validator=lambda text: parse_llm_batch_results(text, strict=True),
             )
-            self.model_used = result.model_used
+            self.model_used = result.model
             return normalize_impact_results(parse_llm_batch_results(result.text))
         except Exception as exc:
             logger.warning("美股盘前新闻影响方向判断失败: %s", exc)

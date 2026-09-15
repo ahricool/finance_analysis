@@ -1,29 +1,25 @@
-# -*- coding: utf-8 -*-
-"""Shared request/response types for LiteLLM calls."""
-
-from __future__ import annotations
+"""Business-facing text requests and normalized backend results."""
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
 class LLMRequest:
-    messages: list[dict[str, Any]]
-    provider: Optional[str] = None
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    stream: bool = False
-    tools: Optional[list[dict[str, Any]]] = None
-    timeout: Optional[float] = None
-    extra_body: Optional[dict[str, Any]] = None
+    prompt: str
+    system_prompt: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    timeout: float | None = None
     call_type: str = "generic"
-    stock_code: Optional[str] = None
+    uid: int | None = None
 
 
 @dataclass
 class LLMResult:
-    text: Optional[str]
-    model_used: Optional[str]
+    text: str
+    backend: str
+    engine: str | None = None
+    model: str | None = None
     usage: dict[str, Any] = field(default_factory=dict)
-    raw: Any = None
+    duration_ms: int = 0

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 def check_content_integrity(result: "AnalysisResult") -> Tuple[bool, List[str]]:
     """
     Check mandatory fields for report content integrity.
-    Returns (pass, missing_fields). Module-level for use by pipeline (agent weak mode).
+    Returns (pass, missing_fields). Shared by report parsing and validation.
     """
     missing: List[str] = []
 

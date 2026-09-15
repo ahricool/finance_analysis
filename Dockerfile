@@ -76,7 +76,6 @@ COPY alembic.ini ./
 COPY alembic/ ./alembic/
 COPY main.py ./
 COPY src/ ./src/
-COPY strategies/ ./strategies/
 COPY templates/ ./templates/
 
 # 设置环境变量默认值

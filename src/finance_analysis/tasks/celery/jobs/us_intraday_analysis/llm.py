@@ -168,21 +168,26 @@ def parse_llm_json_response(text: Optional[str]) -> Optional[Dict[str, Any]]:
     return parsed if isinstance(parsed, dict) else None
 
 
-def parse_llm_batch_results(text: Optional[str]) -> List[Dict[str, Any]]:
+def parse_llm_batch_results(text: Optional[str], *, strict: bool = False) -> List[Dict[str, Any]]:
     """Parse a batched response into a list of per-candidate verdict dicts.
 
     Accepts either ``{"results": [...]}`` or a bare JSON array, and tolerates
     fenced/malformed output via :func:`parse_llm_json_response`'s repair path.
+    Strict mode raises on parse failure; valid empty batches still return [].
     """
     parsed = parse_llm_json_response(text)
     if isinstance(parsed, dict):
         results = parsed.get("results")
         if isinstance(results, list):
             return [item for item in results if isinstance(item, dict)]
+        if strict:
+            raise ValueError("LLM response is not a JSON batch")
         return []
 
     # ``parse_llm_json_response`` only returns dicts; retry for a bare array.
     if not text:
+        if strict:
+            raise ValueError("LLM response is empty")
         return []
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -200,9 +205,13 @@ def parse_llm_batch_results(text: Optional[str]) -> List[Dict[str, Any]]:
 
             loaded = json.loads(repair_json(snippet))
         except Exception:
+            if strict:
+                raise ValueError("LLM response is not a JSON batch") from None
             return []
     if isinstance(loaded, list):
         return [item for item in loaded if isinstance(item, dict)]
+    if strict:
+        raise ValueError("LLM response is not a JSON batch")
     return []
 
 
@@ -247,7 +256,7 @@ class IntradayLLMJudge:
         if not candidates:
             return {}
         try:
-            client = LLMClient(config=self.config)
+            client = LLMClient(config=self.config.llm)
             if not client.is_available():
                 logger.warning("LLM 未配置，跳过美股盘中候选信号批量判定（%s 个）", len(candidates))
                 return {}
@@ -272,16 +281,15 @@ class IntradayLLMJudge:
             ]
             prompt = build_intraday_batch_llm_prompt(prompt_items, market_context)
             max_tokens = min(8000, 700 * len(candidates) + 300)
-            result = client.complete_json(
+            result = client.complete_text(
                 LLMRequest(
-                    messages=[
-                        {"role": "system", "content": "你是美股盘中异动提醒系统的 JSON 判定器，只输出 JSON。"},
-                        {"role": "user", "content": prompt},
-                    ],
+                    system_prompt="你是美股盘中异动提醒系统的 JSON 判定器，只输出 JSON。",
+                    prompt=prompt,
                     temperature=0.2,
                     max_tokens=max_tokens,
                     call_type="intraday_judge",
-                )
+                ),
+                validator=lambda text: parse_llm_batch_results(text, strict=True),
             )
 
             results = parse_llm_batch_results(result.text)
@@ -322,7 +330,7 @@ class IntradayLLMJudge:
     ) -> Optional[Dict[str, Any]]:
         """Return the parsed LLM verdict, or ``None`` when unavailable/invalid."""
         try:
-            client = LLMClient(config=self.config)
+            client = LLMClient(config=self.config.llm)
             if not client.is_available():
                 logger.warning("LLM 未配置，跳过美股盘中候选信号判定: %s %s", symbol, signal_type)
                 return None
@@ -337,17 +345,20 @@ class IntradayLLMJudge:
                     "market_context": market_context,
                 },
             )
-            result = client.complete_json(
+
+            def validate_response(text: str) -> None:
+                if parse_llm_json_response(text) is None:
+                    raise ValueError("LLM response is not a JSON object")
+
+            result = client.complete_text(
                 LLMRequest(
-                    messages=[
-                        {"role": "system", "content": "你是美股盘中异动提醒系统的 JSON 判定器，只输出 JSON。"},
-                        {"role": "user", "content": prompt},
-                    ],
+                    system_prompt="你是美股盘中异动提醒系统的 JSON 判定器，只输出 JSON。",
+                    prompt=prompt,
                     temperature=0.2,
                     max_tokens=1200,
                     call_type="intraday_judge",
-                    stock_code=symbol,
-                )
+                ),
+                validator=validate_response,
             )
             parsed = parse_llm_json_response(result.text)
             if parsed is None:

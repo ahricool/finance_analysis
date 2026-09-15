@@ -58,7 +58,6 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
   core/                    统一路径、UTC 时间和日志基础设施
   interfaces/api/          FastAPI 工厂、中间件、依赖、v1 endpoints/schemas
   analysis/                个股分析流水线、技术分析、历史加载和报告完整性
-  agent/                   工具调用 Agent、skills、策略路由、会话与研究
   integrations/market_data 统一行情门面、Provider 注册/路由/校验、实时状态
   stocks/                  代码/市场规范化、证券查询、前端股票索引
   database/                ORM、仓储、连接、启动迁移和种子数据
@@ -70,7 +69,7 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
   market_review/           市场复盘、交易日历、运行时配置
   market_intelligence/     美股社交舆情适配
   search/                  多搜索 Provider 及统一搜索服务
-  llm/                     LiteLLM 配置、调用、fallback 与模型视图
+  llm/                     API / SSH CLI 调用、重试、审计日志与用量统计
   reporting/               报告 schema、本地化、Jinja/Markdown/图片渲染
   notification/            路由、降噪及 Telegram/ntfy 与消息持久化
   stock_lists/             CSV/Excel/文本股票代码导入解析
@@ -79,7 +78,6 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
 qlib_worker/               独立 Python 3.12 Qlib Celery 包及自身锁文件/测试
 web/                       Vue SPA、Vitest 与 Playwright
 alembic/                   PostgreSQL schema/data migrations <!-- pragma: allowlist secret -->
-strategies/                Agent 内置 YAML strategy skills
 templates/                 Jinja2 报告模板
 tests/                     主应用 pytest；`tests/market_stream/` 为 streamer 测试
 docs/                      专题说明；有些说明可能落后，修改前与源码核对
@@ -96,7 +94,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 1. Web 调 `POST /api/v1/analysis/analyze`；异步请求由 `tasks/queue.py` 发布 Celery 任务，同步请求直接走 `AnalysisService`。
 2. `StockAnalysisPipeline` 要求 PostgreSQL 已有目标前复权日线；普通分析不负责补写历史行情。 <!-- pragma: allowlist secret -->
 3. `MarketDataService` 聚合实时 Quote、证券信息及可选基本面；分析还会执行技术指标、新闻搜索和可选社交舆情。
-4. 传统 LLM 路径或 Agent 路径生成 `AnalysisResult`。
+4. StockReportAnalyzer 构造 prompt，经 LLMClient 调用并解析为 `AnalysisResult`。
 5. 分析历史、上下文和 LLM 用量写 PostgreSQL；报告经 `reporting/` 渲染，并可由 `notification/` 保存或推送。 <!-- pragma: allowlist secret -->
 6. 任务状态始终读 PostgreSQL `task` 记录，不从 Redis 推断。 <!-- pragma: allowlist secret -->
 
@@ -127,7 +125,6 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 
 - `/auth`：登录、状态、用户资料、密码和通知配置。
 - `/analysis`：同步/异步个股分析、市场复盘及兼容任务查询。
-- `/agent`：模型/skill 列表、聊天、SSE 流、会话和深度研究。
 - `/history`：分析记录、详情、删除和导出。
 - `/stocks`：证券静态信息、实时 Quote、日线历史和 CSV/Excel/文本代码解析。
 - `/watch-list`：用户级自选股 CRUD。
@@ -147,7 +144,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 
 - 基础设施：`DATABASE_URL`（只支持 PostgreSQL）、`REDIS_URL`、`DATA_DIR`、`SECRET_KEY`。 <!-- pragma: allowlist secret -->
 - 服务/CORS：`SERVER_HOST`、`SERVER_PORT`、`CORS_ORIGINS`、`CORS_ALLOW_ALL`。
-- LLM/Agent：`LLM_*`、`AGENT_*`；统一调用在 `llm/`，不要在业务模块直接创建厂商 SDK client。
+- LLM：`LLM_*`；统一调用在 `llm/`，不要在业务模块直接创建厂商 SDK client。
 - 搜索：`ANSPIRE_*`、`BOCHA_*`、`MINIMAX_*`、`TAVILY_*`、`BRAVE_*`、`SERPAPI_*`、`SEARXNG_*`。
 - 行情：`TICKFLOW_*`、`LONGBRIDGE_*`、`MARKET_DATA_*`、`REALTIME_REDIS_URL`、`MARKET_STREAM_*`。
 - 量化：`QUANT_ARTIFACT_ROOT`、`QUANT_MIN_UNIVERSE_COVERAGE`。
@@ -264,7 +261,6 @@ pnpm run test:smoke
 - 数据库：写操作应有明确事务边界；新增表/列必须走 Alembic。
 - 外部服务：通过现有领域门面接入，保留降级、超时、Provider 错误和离线测试能力。
 - Celery：新增周期任务时同步更新 job package、任务注册、schedule definition、queue route、生命周期元数据和测试。
-- YAML strategy skill：修改 `strategies/*.yaml` 时同步核对 `strategies/README.md`、skill loader 及 Agent API。
 - 生成内容：不要手改 `static/`、量化 artifact、运行日志或 `data/` 下产物。
 
 ## 常见改动去向
@@ -277,8 +273,8 @@ pnpm run test:smoke
 | 新行情来源/能力 | `integrations/market_data/providers/` + registry/router/validator |
 | 新异步任务 | `tasks/celery/jobs/<job>/` + 注册/路由/生命周期 |
 | 新周期任务 | 上述位置 + `tasks/celery/schedule/definitions.py` |
+| 新 LLM 调用 | `llm/`，保持 API / SSH CLI 二选一；配置见 `docs/llm.md` |
 | 新通知渠道 | `notification/senders/` + config/routing/diagnostics |
-| 新 LLM 行为 | `llm/` 或 `agent/`，保持统一 client |
 | 新前端功能 | 见 `web/AGENTS.md` |
 | 新 Qlib 模型/协议 | 见 `qlib_worker/AGENTS.md`，同时核对主应用 quant 边界 |
 

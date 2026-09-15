@@ -47,6 +47,7 @@ dependencies = [
     "ipdb>=0.13.13",
     "pyarrow>=20.0.0,<24.0.0",
     "websockets>=15,<17",
+    "paramiko>=3.5,<5",
 ]
 
 [project.scripts]

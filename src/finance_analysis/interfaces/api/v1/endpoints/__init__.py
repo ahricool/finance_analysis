@@ -13,7 +13,6 @@ from finance_analysis.interfaces.api.v1.endpoints import (
     history,
     stocks,
     auth,
-    agent,
     usage,
 )
 __all__ = [
@@ -21,6 +20,5 @@ __all__ = [
     "history",
     "stocks",
     "auth",
-    "agent",
     "usage",
 ]

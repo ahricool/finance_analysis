@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class CallTypeBreakdown(BaseModel):
-    call_type: str = Field(..., description="'analysis' | 'agent' | 'market_review'")
+    call_type: str = Field(..., description="Business call category")
     calls: int
     total_tokens: int
 

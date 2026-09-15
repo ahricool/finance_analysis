@@ -1,3 +1,4 @@
+from finance_analysis.llm.config import LLMConfig
 # -*- coding: utf-8 -*-
 """Compatibility assertions for market review runtime assembly."""
 
@@ -16,10 +17,7 @@ class TestMarketReviewRuntimeCompatibility(unittest.TestCase):
     @staticmethod
     def _base_config() -> SimpleNamespace:
         return SimpleNamespace(
-            llm_model="",
-            llm_api_key="",
-            llm_base_url=None,
-            llm_fallback_models=[],
+            llm=LLMConfig(),
             bocha_api_keys=None,
             tavily_api_keys=None,
             anspire_api_keys=None,
@@ -35,8 +33,8 @@ class TestMarketReviewRuntimeCompatibility(unittest.TestCase):
 
     def test_build_market_review_runtime_with_unified_llm_config(self) -> None:
         config = self._base_config()
-        config.llm_model = "openai/gpt-5.5"
-        config.llm_api_key = "openai-key"
+        config.llm.model = "openai/gpt-5.5"
+        config.llm.api_key = "openai-key"
         notifier = MagicMock()
         analyzer = MagicMock()
         analyzer.is_available.return_value = True
@@ -62,18 +60,17 @@ class TestMarketReviewRuntimeCompatibility(unittest.TestCase):
         self.assertFalse(has_configured_llm_runtime(config))
 
     def test_has_configured_llm_runtime_requires_model_and_key(self) -> None:
-        base = self._base_config()
         test_configs = [
-            ("model_only", {"llm_model": "openai/gpt-5.5", "llm_api_key": ""}),
-            ("key_only", {"llm_model": "", "llm_api_key": "sk-test"}),
-            ("configured", {"llm_model": "openai/gpt-5.5", "llm_api_key": "sk-test"}),
-            ("ollama_local", {"llm_model": "ollama/qwen3:8b", "llm_api_key": "", "llm_base_url": "http://localhost:11434"}),
+            ("model_only", {"model": "openai/gpt-5.5", "api_key": ""}),
+            ("key_only", {"model": "", "api_key": "sk-test"}),
+            ("configured", {"model": "openai/gpt-5.5", "api_key": "sk-test"}),
+            ("ollama_local", {"model": "ollama/qwen3:8b", "api_key": "", "base_url": "http://localhost:11434"}),
         ]
 
         for name, updates in test_configs:
             with self.subTest(case=name):
-                config = SimpleNamespace(**vars(base))
+                config = self._base_config()
                 for key, value in updates.items():
-                    setattr(config, key, value)
-                expected = name in {"configured", "ollama_local"}
+                    setattr(config.llm, key, value)
+                expected = name in {"configured"}
                 self.assertEqual(has_configured_llm_runtime(config), expected)

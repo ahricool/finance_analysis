@@ -1,4 +1,4 @@
-"""Bounded Web LLM research and validated portfolio decision output."""
+"""Validated decision output from deterministic pre-close context."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 _SHARE_COUNT_PATTERN = re.compile(r"(?:\d+(?:\.\d+)?\s*股|\d+(?:\.\d+)?\s*shares?)", re.IGNORECASE)
 
 
-class ASharePreCloseWebLLM:
-    """Uses the repository's ``llm_web`` channel only after deterministic screening."""
+class ASharePreCloseLLM:
+    """Calls the configured backend after deterministic screening."""
 
     def __init__(
         self,
@@ -34,43 +34,6 @@ class ASharePreCloseWebLLM:
         self.client = client
         self.call_count = 0
 
-    def research_news(
-        self,
-        entities: Sequence[dict[str, Any]],
-        existing_news: Sequence[dict[str, Any]],
-        *,
-        trading_date: str,
-        warnings: list[str],
-        deadline: Optional[float] = None,
-    ) -> list[dict[str, Any]]:
-        bounded = list(entities[: self.limits.max_news_entities])
-        if not bounded:
-            return []
-        entity_keys = {item["key"] for item in bounded}
-        payload = {
-            "trading_date": trading_date,
-            "entities": bounded,
-            "existing_recent_news": [item for item in existing_news if item.get("entity_key") in entity_keys][:20],
-        }
-        parsed = self._complete_json(
-            system=(
-                "你是 A 股收盘前新闻研究员。使用 Web 搜索核对输入实体最近 7 天的重要新闻、公告、政策和风险。"
-                "只研究输入实体，不扩展全市场扫描；不得编造行情、新闻、来源或 URL。只输出 JSON。"
-            ),
-            user=(
-                "按 entity_key 返回 items 数组。每项包含 entity_key、summary、impact(bullish/bearish/neutral/unknown)、"
-                "coverage(complete/partial/none)、sources；sources 最多 3 条，每条仅含 title、url、published_at。\n"
-                f"输入：{json.dumps(payload, ensure_ascii=False)}"
-            ),
-            call_type="a_share_pre_close_news",
-            warnings=warnings,
-            deadline=deadline,
-        )
-        results = self._validate_news_items(parsed, bounded) if parsed is not None else []
-        if not results:
-            warnings.append("Web LLM 新闻研究不可用或无结果，最终判断不使用未核实新闻")
-        return results
-
     def decide(
         self,
         context: dict[str, Any],
@@ -83,7 +46,7 @@ class ASharePreCloseWebLLM:
     ) -> tuple[dict[str, Any], bool]:
         parsed = self._complete_json(
             system=(
-                "你是谨慎的 A 股收盘前组合复核器。程序已经完成行情扫描和新闻研究；你不能重新扫描市场，"
+                "你是谨慎的 A 股收盘前组合复核器。程序已经完成行情、板块与持仓分析；你不能重新扫描市场，"
                 "不能创造价格、资金流、新闻、账户总仓位、现金比例或购买力。只输出 JSON。"
                 "持仓建议必须按当前单只持仓比例表达，不得给具体股数。数据不足时只能维持或观察。"
             ),
@@ -93,11 +56,11 @@ class ASharePreCloseWebLLM:
             deadline=deadline,
         )
         if parsed is None:
-            warnings.append("最终 Web LLM 判断不可用，已生成确定性降级建议")
+            warnings.append("最终 LLM 判断不可用，已生成确定性降级建议")
             return fallback_decision(context, holdings, candidates, data_quality), True
         validated = validate_decision(parsed, context, holdings, candidates, data_quality)
         if validated is None:
-            warnings.append("最终 Web LLM 返回格式不合规，已生成确定性降级建议")
+            warnings.append("最终 LLM 返回格式不合规，已生成确定性降级建议")
             return fallback_decision(context, holdings, candidates, data_quality), True
         return validated, False
 
@@ -113,90 +76,38 @@ class ASharePreCloseWebLLM:
         client = self._get_client()
         if client is None:
             return None
-        for attempt in range(self.limits.web_llm_attempts):
-            remaining = None if deadline is None else deadline - time.monotonic()
-            if remaining is not None and remaining <= 0:
-                warnings.append(f"{call_type} 未执行或停止重试: 任务时间预算已耗尽")
-                return None
-            timeout = float(self.limits.web_llm_timeout_seconds)
-            if remaining is not None:
-                timeout = min(timeout, max(1.0, remaining))
-            try:
-                self.call_count += 1
-                result = client.complete_json(
-                    LLMRequest(
-                        messages=[
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": user},
-                        ],
-                        provider="llm_web",
-                        temperature=0.1,
-                        max_tokens=6000,
-                        timeout=timeout,
-                        call_type=call_type,
-                    )
-                )
-                parsed = parse_llm_json_response(getattr(result, "text", None))
-                if parsed is not None:
-                    return parsed
-                raise ValueError("LLM response is not a JSON object")
-            except Exception as exc:
-                logger.warning("%s Web LLM 调用失败 attempt=%s: %s", call_type, attempt + 1, exc)
-                if attempt + 1 == self.limits.web_llm_attempts:
-                    warnings.append(f"{call_type} 调用失败: {str(exc)[:160]}")
-        return None
+        remaining = None if deadline is None else deadline - time.monotonic()
+        if remaining is not None and remaining <= 0:
+            warnings.append(f"{call_type} 未执行: 任务时间预算已耗尽")
+            return None
+        try:
+            self.call_count += 1
+            def validate(text: str) -> None:
+                if parse_llm_json_response(text) is None:
+                    raise ValueError("LLM response is not a JSON object")
+            result = client.complete_text(
+                LLMRequest(
+                    system_prompt=system, prompt=user, temperature=0.1, max_tokens=6000,
+                    timeout=min(self.config.llm.timeout, remaining) if remaining is not None else None,
+                    call_type=call_type,
+                ),
+                validator=validate,
+            )
+            return parse_llm_json_response(result.text)
+        except Exception as exc:
+            logger.warning("%s LLM 调用失败: %s", call_type, exc)
+            warnings.append(f"{call_type} 调用失败: {str(exc)[:160]}")
+            return None
 
     def _get_client(self) -> Optional[LLMClient]:
         if self.client is not None:
             return self.client
         try:
-            self.client = LLMClient(config=self.config)
+            self.client = LLMClient(config=self.config.llm)
             return self.client
         except Exception as exc:
-            logger.warning("初始化 A 股收盘前 Web LLM 失败: %s", exc)
+            logger.warning("初始化 A 股收盘前 LLM 失败: %s", exc)
             return None
-
-    def _validate_news_items(
-        self,
-        parsed: dict[str, Any],
-        entities: Sequence[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        valid_keys = {str(item.get("key")) for item in entities}
-        output: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for raw in parsed.get("items", []) if isinstance(parsed.get("items"), list) else []:
-            if not isinstance(raw, dict):
-                continue
-            key = str(raw.get("entity_key") or "")
-            if key not in valid_keys or key in seen:
-                continue
-            seen.add(key)
-            impact = str(raw.get("impact") or "unknown").lower()
-            coverage = str(raw.get("coverage") or "none").lower()
-            sources = []
-            for source in raw.get("sources", []) if isinstance(raw.get("sources"), list) else []:
-                if not isinstance(source, dict):
-                    continue
-                url = str(source.get("url") or "").strip()
-                if not url.startswith(("http://", "https://")):
-                    continue
-                sources.append(
-                    {
-                        "title": clean_text(source.get("title"), 160),
-                        "url": url[:500],
-                        "published_at": clean_text(source.get("published_at"), 40),
-                    }
-                )
-            output.append(
-                {
-                    "entity_key": key,
-                    "summary": clean_text(raw.get("summary"), 500),
-                    "impact": impact if impact in {"bullish", "bearish", "neutral", "unknown"} else "unknown",
-                    "coverage": coverage if coverage in {"complete", "partial", "none"} else "none",
-                    "sources": sources[: self.limits.max_news_items_per_entity],
-                }
-            )
-        return output
 
     @staticmethod
     def _decision_prompt(context: dict[str, Any]) -> str:
@@ -309,8 +220,8 @@ def fallback_decision(
                 "action": action,
                 "percent_min": None,
                 "percent_max": None,
-                "condition": "等待行情、板块与新闻信息完整后再评估主动调整",
-                "rationale": "Web LLM 不可用，采用保守确定性降级",
+                "condition": "等待行情与板块信息完整后再评估主动调整",
+                "rationale": "LLM 不可用，采用保守确定性降级",
                 "invalidation": "数据恢复后需重新复核",
             }
         )
@@ -328,10 +239,10 @@ def fallback_decision(
             }
             for item in context.get("strong_sectors", [])[:5]
         ],
-        "risks": ["Web 新闻或最终决策能力不可用，避免据此作主动加减仓判断"],
+        "risks": ["最终决策能力不可用，避免据此作主动加减仓判断"],
         "holdings": holding_advice,
         "candidates": [],
-        "invalidation_conditions": ["行情数据、新闻覆盖或最终模型判断恢复后，应重新复核当前结论"],
+        "invalidation_conditions": ["行情数据或最终模型判断恢复后，应重新复核当前结论"],
         "confidence": "low" if not quality.sufficient_for_active_advice else "medium",
         "data_note": "确定性降级结果；仅提供维持或观察建议。",
     }
@@ -395,4 +306,4 @@ def clean_text(value: Any, limit: int) -> str:
     return text[:limit]
 
 
-__all__ = ["ASharePreCloseWebLLM", "fallback_decision", "validate_decision"]
+__all__ = ["ASharePreCloseLLM", "fallback_decision", "validate_decision"]

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 from decimal import Decimal
 from time import monotonic
 from typing import Any, Callable, Optional, Sequence
 
-from finance_analysis.core.time import utc_now
 from finance_analysis.integrations.market_data.codes import normalize_stock_code
 from finance_analysis.integrations.market_data.realtime_types import safe_float
 from finance_analysis.market_review.trading_calendar import (
@@ -20,7 +19,7 @@ from finance_analysis.tasks.lifecycle import TaskSkipped
 
 from .config import DEFAULT_CONFIG, MAIN_INDEX_CODES, TASK_TYPE, PreCloseReviewConfig
 from .data_source import ASharePreCloseDataSource
-from .llm import ASharePreCloseWebLLM
+from .llm import ASharePreCloseLLM
 from .metrics import (
     determine_market_state,
     determine_turnover_state,
@@ -46,20 +45,18 @@ class ASharePreCloseReviewService:
         config: Optional[Any] = None,
         limits: PreCloseReviewConfig = DEFAULT_CONFIG,
         data_source: Optional[ASharePreCloseDataSource] = None,
-        web_llm: Optional[ASharePreCloseWebLLM] = None,
+        llm: Optional[ASharePreCloseLLM] = None,
         reporter: Optional[ASharePreCloseReporter] = None,
         holdings_provider: Optional[Callable[[], Sequence[Any]]] = None,
         recent_results_provider: Optional[Callable[[], Sequence[dict[str, Any]]]] = None,
-        existing_news_provider: Optional[Callable[[Sequence[dict[str, Any]]], Sequence[dict[str, Any]]]] = None,
     ) -> None:
         self.config = config or self._load_pipeline_config()
         self.limits = limits
         self.data_source = data_source or ASharePreCloseDataSource()
-        self.web_llm = web_llm or ASharePreCloseWebLLM(self.config, limits)
+        self.llm = llm or ASharePreCloseLLM(self.config, limits)
         self.reporter = reporter or ASharePreCloseReporter()
         self.holdings_provider = holdings_provider
         self.recent_results_provider = recent_results_provider
-        self.existing_news_provider = existing_news_provider
 
     def run(
         self,
@@ -143,24 +140,6 @@ class ASharePreCloseReviewService:
             strong_sector_changes,
         )
 
-        entities = self._news_entities(strong_sectors, holding_reviews, candidate_reviews, quality)
-        existing_news = self._load_existing_news(entities, warnings)
-        news = self.web_llm.research_news(
-            entities,
-            existing_news,
-            trading_date=run_time.date().isoformat(),
-            warnings=warnings,
-            deadline=llm_deadline,
-        )
-        quality.news_coverage = sum(1 for item in news if item.get("coverage") != "none")
-        required_news_keys = {"market:cn", *[f"stock:{item.code}" for item in holding_reviews]}
-        covered_news_keys = {str(item.get("entity_key")) for item in news if item.get("coverage") != "none"}
-        quality.news_complete = bool(required_news_keys) and required_news_keys.issubset(covered_news_keys)
-        if entities and quality.news_coverage < len(entities):
-            quality.issues.append(f"新闻覆盖 {quality.news_coverage}/{len(entities)}")
-        if not quality.news_complete:
-            quality.issues.append("大盘或持仓新闻覆盖不足，主动调整建议已禁用")
-
         context = self._build_llm_context(
             run_time,
             market_state,
@@ -173,10 +152,9 @@ class ASharePreCloseReviewService:
             strong_sectors,
             holding_reviews,
             candidate_reviews,
-            news,
             quality,
         )
-        decision, fallback_used = self.web_llm.decide(
+        decision, fallback_used = self.llm.decide(
             context,
             holding_reviews,
             candidate_reviews,
@@ -199,12 +177,11 @@ class ASharePreCloseReviewService:
             strong_sectors=strong_sectors,
             holdings=holding_reviews,
             candidates=candidate_reviews,
-            news=news,
             decision=decision,
             data_quality=quality,
             warnings=warnings,
             fallback_used=fallback_used,
-            llm_calls=self.web_llm.call_count,
+            llm_calls=self.llm.call_count,
         )
         notification_result = self.reporter.send_notification(
             summary,
@@ -282,72 +259,6 @@ class ASharePreCloseReviewService:
             logger.warning("读取最近 A 股收盘前复核结果失败: %s", exc)
             return []
 
-    def _news_entities(
-        self,
-        sectors: Sequence[Any],
-        holdings: Sequence[SecurityReview],
-        candidates: Sequence[SecurityReview],
-        quality: DataQuality,
-    ) -> list[dict[str, Any]]:
-        entities = [{"key": "market:cn", "type": "market", "name": "A股市场", "code": ""}]
-        entities.extend(
-            {"key": f"stock:{item.code}", "type": "holding", "name": item.name, "code": item.code} for item in holdings
-        )
-        entities.extend(
-            {"key": f"sector:{item.name}", "type": "sector", "name": item.name, "code": ""} for item in sectors
-        )
-        entities.extend(
-            {"key": f"stock:{item.code}", "type": "candidate", "name": item.name, "code": item.code}
-            for item in candidates
-        )
-        deduped = list({item["key"]: item for item in entities}.values())
-        if len(deduped) > self.limits.max_news_entities:
-            quality.issues.append(f"新闻研究实体已从 {len(deduped)} 个截断至 {self.limits.max_news_entities} 个")
-        return deduped[: self.limits.max_news_entities]
-
-    def _load_existing_news(
-        self,
-        entities: Sequence[dict[str, Any]],
-        warnings: list[str],
-    ) -> list[dict[str, Any]]:
-        if self.existing_news_provider is not None:
-            return [dict(item) for item in self.existing_news_provider(entities)]
-        code_to_key = {item["code"]: item["key"] for item in entities if item.get("code")}
-        if not code_to_key:
-            return []
-        try:
-            from sqlalchemy import desc, func, select
-
-            from finance_analysis.database import DatabaseManager
-            from finance_analysis.database.models import NewsIntel, NewsIntelUsage
-
-            with DatabaseManager.get_instance().get_session() as session:
-                rows = session.execute(
-                    select(NewsIntel, NewsIntelUsage.symbol)
-                    .join(NewsIntelUsage, NewsIntelUsage.news_intel_id == NewsIntel.id)
-                        .where(
-                        NewsIntelUsage.symbol.in_(list(code_to_key)),
-                            func.coalesce(NewsIntel.published_date, NewsIntelUsage.observed_at)
-                            >= utc_now() - timedelta(days=7),
-                        )
-                        .order_by(desc(func.coalesce(NewsIntel.published_date, NewsIntelUsage.observed_at)))
-                        .limit(30)
-                ).all()
-            return [
-                {
-                    "entity_key": code_to_key.get(str(symbol), ""),
-                    "title": str(item.title or "")[:180],
-                    "snippet": str(item.snippet or "")[:500],
-                    "url": str(item.url or "")[:500],
-                    "published_at": item.published_date.isoformat() if item.published_date else None,
-                }
-                for item, symbol in rows
-            ]
-        except Exception as exc:
-            logger.warning("读取已有新闻存储失败: %s", exc)
-            warnings.append(f"已有新闻读取失败: {str(exc)[:160]}")
-            return []
-
     def _build_llm_context(
         self,
         run_time: datetime,
@@ -361,7 +272,6 @@ class ASharePreCloseReviewService:
         sectors: Sequence[Any],
         holdings: Sequence[SecurityReview],
         candidates: Sequence[SecurityReview],
-        news: Sequence[dict[str, Any]],
         quality: DataQuality,
     ) -> dict[str, Any]:
         return {
@@ -378,7 +288,6 @@ class ASharePreCloseReviewService:
             "strong_sectors": [item.to_dict() for item in sectors],
             "holdings": [item.to_dict() for item in holdings],
             "candidates": [item.to_dict() for item in candidates],
-            "news_research": list(news),
             "data_quality": quality.to_dict(),
             "constraints": {
                 "advice_is_percentage_of_each_current_holding": True,

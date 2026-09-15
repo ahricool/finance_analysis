@@ -22,8 +22,6 @@ class DataQuality:
     holding_total: int = 0
     history_coverage: int = 0
     minute_coverage: int = 0
-    news_coverage: int = 0
-    news_complete: bool = False
     issues: list[str] = field(default_factory=list)
 
     @property
@@ -32,7 +30,7 @@ class DataQuality:
             return False
         if self.holding_total and self.holding_coverage < self.holding_total:
             return False
-        return self.indices_complete and self.sectors_complete and self.news_complete
+        return self.indices_complete and self.sectors_complete
 
     @property
     def confidence(self) -> str:
@@ -99,7 +97,6 @@ class PreCloseReviewSummary:
     strong_sectors: list[SectorReview]
     holdings: list[SecurityReview]
     candidates: list[SecurityReview]
-    news: list[dict[str, Any]]
     decision: dict[str, Any]
     data_quality: DataQuality
     warnings: list[str] = field(default_factory=list)
@@ -123,7 +120,6 @@ class PreCloseReviewSummary:
             "strong_sectors": [item.to_dict() for item in self.strong_sectors],
             "holdings": [item.to_dict() for item in self.holdings],
             "candidates": [item.to_dict() for item in self.candidates],
-            "news": self.news[:20],
             "decision": self.decision,
             "data_quality": self.data_quality.to_dict(),
             "warnings": self.warnings[:50],
@@ -160,15 +156,6 @@ class PreCloseReviewSummary:
             "strong_sectors": [item.to_dict() for item in self.strong_sectors[:5]],
             "holdings": [item.to_dict() for item in self.holdings[:10]],
             "candidates": [item.to_dict() for item in self.candidates[:6]],
-            "news": [
-                {
-                    "entity_key": item.get("entity_key"),
-                    "impact": item.get("impact"),
-                    "coverage": item.get("coverage"),
-                    "summary": str(item.get("summary") or "")[:160],
-                }
-                for item in self.news[:12]
-            ],
             "decision": compact_decision,
             "data_quality": self.data_quality.to_dict(),
             "warnings": self.warnings[:20],

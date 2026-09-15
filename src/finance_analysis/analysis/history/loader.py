@@ -1,4 +1,4 @@
-"""Database-only historical OHLCV loader used by analysis and Agent tools."""
+"""Database-only historical OHLCV loader used by analysis."""
 
 from __future__ import annotations
 

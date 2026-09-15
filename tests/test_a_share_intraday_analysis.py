@@ -692,7 +692,7 @@ class _StubClient:
     def is_available(self):
         return True
 
-    def complete_json(self, request):
+    def complete_text(self, request, validator=None):
         class _R:
             text = self._text
 

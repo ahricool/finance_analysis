@@ -10,9 +10,7 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Tuple, TypeVar
 
-import pandas as pd
-from sqlalchemy import and_, create_engine, delete, desc, event, func, or_, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import and_, create_engine, delete, desc, event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from finance_analysis.database.config import get_database_config
@@ -20,16 +18,14 @@ from finance_analysis.database.base import ensure_aware_datetime
 from finance_analysis.database.bootstrap import bootstrap_database
 from finance_analysis.database.models import (
     AnalysisHistory,
-    ConversationMessage,
     FundamentalSnapshot,
-    LLMUsage,
     NewsIntel,
     NewsIntelUsage,
     StockDaily,
 )
 from finance_analysis.stocks.markets import normalize_market_type
-from finance_analysis.core.time import date_range_bounds_utc, utc_isoformat, utc_now
-from finance_analysis.database.repositories.conversation import ConversationUsageMixin
+from finance_analysis.core.time import date_range_bounds_utc, utc_now
+from finance_analysis.database.repositories.llm_usage import LLMUsageMixin
 from finance_analysis.database.repositories.news_time import effective_news_time
 
 logger = logging.getLogger(__name__)
@@ -39,7 +35,7 @@ if TYPE_CHECKING:
     from finance_analysis.search import SearchResponse
 
 
-class DatabaseManager(ConversationUsageMixin):
+class DatabaseManager(LLMUsageMixin):
     """
     数据库管理器 - 单例模式
 
@@ -1028,7 +1024,6 @@ class DatabaseManager(ConversationUsageMixin):
         Tries multiple extraction paths to handle different dashboard structures:
         1. result.get_sniper_points() (standard path)
         2. Direct dashboard dict traversal with various nesting levels
-        3. Fallback from raw_result dict if available
         """
         raw_points = {}
 
@@ -1041,12 +1036,6 @@ class DatabaseManager(ConversationUsageMixin):
             dashboard = getattr(result, "dashboard", None)
             if isinstance(dashboard, dict):
                 raw_points = self._find_sniper_in_dashboard(dashboard) or raw_points
-
-        # Path 3: try raw_result for agent mode results
-        if not any(raw_points.get(k) for k in ("ideal_buy", "secondary_buy", "stop_loss", "take_profit")):
-            raw_response = getattr(result, "raw_response", None)
-            if isinstance(raw_response, dict):
-                raw_points = self._find_sniper_in_dashboard(raw_response) or raw_points
 
         return {
             "ideal_buy": self._parse_sniper_value(raw_points.get("ideal_buy")),
@@ -1111,26 +1100,3 @@ class DatabaseManager(ConversationUsageMixin):
 def get_db() -> DatabaseManager:
     """获取数据库管理器实例的快捷方式"""
     return DatabaseManager.get_instance()
-
-
-def persist_llm_usage(
-    usage: Dict[str, Any],
-    model: str,
-    call_type: str,
-    stock_code: Optional[str] = None,
-    uid: Optional[int] = None,
-) -> None:
-    """Fire-and-forget: write one LLM call record to llm_usage. Never raises."""
-    try:
-        db = DatabaseManager.get_instance()
-        db.record_llm_usage(
-            call_type=call_type,
-            model=model,
-            prompt_tokens=usage.get("prompt_tokens", 0) or 0,
-            completion_tokens=usage.get("completion_tokens", 0) or 0,
-            total_tokens=usage.get("total_tokens", 0) or 0,
-            stock_code=stock_code,
-            uid=uid,
-        )
-    except Exception as exc:
-        logging.getLogger(__name__).warning("[LLM usage] failed to persist usage record: %s", exc)

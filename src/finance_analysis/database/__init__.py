@@ -2,11 +2,10 @@
 """Database package public surface (models, session, helpers)."""
 
 from finance_analysis.database.base import Base, ensure_aware_datetime
-from finance_analysis.database.session import DatabaseManager, get_db, persist_llm_usage
+from finance_analysis.database.session import DatabaseManager, get_db
 from finance_analysis.database.models import (
     AnalysisHistory,
     TimelineEntry,
-    ConversationMessage,
     FinanceEvent,
     FundamentalSnapshot,
     LLMUsage,
@@ -23,7 +22,6 @@ __all__ = [
     "AnalysisHistory",
     "Base",
     "TimelineEntry",
-    "ConversationMessage",
     "DatabaseManager",
     "FinanceEvent",
     "FundamentalSnapshot",
@@ -37,7 +35,6 @@ __all__ = [
     "date_range_bounds_utc",
     "ensure_aware_datetime",
     "get_db",
-    "persist_llm_usage",
     "utc_isoformat",
     "utc_now",
 ]
