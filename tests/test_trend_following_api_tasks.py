@@ -79,13 +79,15 @@ class FakeRepository:
             }
         ]
 
-    def snapshot_history(self, code, *, limit, as_of=None):
+    def snapshot_history(self, code, *, limit, as_of=None, before_trade_date=None):
         rows = [
             {"code": code, "name": "Apple", "trade_date": date(2026, 8, 29), "state": "HOLDING"},
             {"code": code, "name": "Apple", "trade_date": TRADE_DATE, "state": "ENTRY"},
         ]
         if as_of is not None:
             rows = [row for row in rows if row["trade_date"] <= as_of]
+        if before_trade_date is not None:
+            rows = [row for row in rows if row["trade_date"] < before_trade_date]
         return rows
 
 
@@ -113,6 +115,13 @@ def test_snapshot_api_contracts(monkeypatch):
     assert all(item["trade_date"] <= "2026-08-28" for item in detail["history"])
     latest = trend_following.detail("AAPL.US", 60, None, user, "US")
     assert latest["latest"]["trade_date"] == "2026-08-29"
+    history = trend_following.detail("AAPL.US", 60, None, user, "US", before_trade_date=date(2026, 8, 29))
+    assert set(history) == {"history"}
+    assert [row["trade_date"] for row in history["history"]] == ["2026-08-28"]
+    assert trend_following.detail("AAPL.US", 60, None, user, "US", before_trade_date=TRADE_DATE) == {"history": []}
+    with pytest.raises(HTTPException) as error:
+        trend_following.detail("AAPL.US", 60, TRADE_DATE, user, "US", before_trade_date=TRADE_DATE)
+    assert error.value.status_code == 422
 
 
 def test_portfolio_rebuilds_theoretical_positions_for_requested_date(monkeypatch):

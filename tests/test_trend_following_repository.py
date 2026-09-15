@@ -146,6 +146,9 @@ def test_snapshot_history_is_anchored_to_requested_trade_date():
     assert all(row["trade_date"] <= date(2026, 6, 1) for row in history)
     latest = repository.snapshot_history("AAPL.US", limit=60)
     assert latest[0]["trade_date"] == date(2026, 6, 3)
+    history = repository.snapshot_history("AAPL.US", limit=1, before_trade_date=date(2026, 6, 3))
+    assert [row["trade_date"] for row in history] == [date(2026, 6, 2)]
+    assert repository.snapshot_history("AAPL.US", limit=60, before_trade_date=date(2026, 6, 1)) == []
 
 
 def test_positions_by_date_only_returns_active_states_with_positive_units():

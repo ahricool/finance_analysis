@@ -1,3 +1,5 @@
+import TrendFragilityHistoryChart from '@/components/trend-following/TrendFragilityHistoryChart.vue';
+import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistoryChart.vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrendMarket, TrendSnapshot, TrendRankingSnapshot, TrendRankingResponse, TrendPortfolioResponse } from '@/types/trendFollowing';
@@ -5,7 +7,7 @@ import { trendIndicatorDescriptions } from '@/components/trend-following/indicat
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
 const apiMocks = vi.hoisted(() => ({
-  stateHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
+  stateHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
@@ -434,7 +436,7 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.find('[data-testid="trend-run-latest"]').exists()).toBe(true);
   });
 
-  it('opens preview detail from the preview snapshot and does not call official detail', async () => {
+  it('keeps preview latest while loading official history for charts', async () => {
     const previewSnap = {
       ...snapshot('CN'),
       tradeDate: '2026-09-10',
@@ -445,6 +447,7 @@ describe('TrendFollowingPage', () => {
       state: 'CANDIDATE' as const,
       action: 'WATCH' as const,
     };
+    apiMocks.detailHistory.mockResolvedValue({ history: [snapshot('CN'), previewSnap] });
     mockPreview({
       ...ranking('CN'),
       status: 'completed',
@@ -464,19 +467,26 @@ describe('TrendFollowingPage', () => {
       history: [snapshot('CN')],
       marketContext: ranking('CN'),
     });
-    mount(TrendFollowingPage, { attachTo: document.body });
+    const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
     (document.body.querySelector('[data-testid="trend-candidate"]') as HTMLElement).click();
     await flushPromises();
 
     expect(apiMocks.detail).not.toHaveBeenCalled();
+    expect(apiMocks.detailHistory).toHaveBeenCalledWith('600519.SH', 'CN', '2026-09-10');
     const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
     expect(dialog.textContent).toContain('"alpha": 91');
     expect(dialog.textContent).toContain('候选');
     expect(dialog.textContent).toContain('观察');
     expect(dialog.textContent).not.toContain('"alpha": 60');
-    expect(dialog.querySelector('[data-testid="trend-rank-history"]')).toBeNull();
-    expect(dialog.querySelector('[data-testid="trend-history"]')).toBeNull();
+    expect(dialog.querySelector('[data-testid="trend-rank-history"]')).not.toBeNull();
+    expect(dialog.querySelector('[data-testid="trend-history"]')).not.toBeNull();
+    const chartHistory = wrapper.getComponent(TrendRankHistoryChart).props('history');
+    expect(chartHistory.map(row => row.tradeDate)).toEqual(['2026-08-28', '2026-09-10']);
+    expect(chartHistory.map(row => row.isPreview)).toEqual([false, true]);
+    expect(wrapper.getComponent(TrendFragilityHistoryChart).props('history')).toEqual(chartHistory);
+    expect(dialog.querySelector('[data-testid="trend-history"]')?.textContent).not.toContain('2026-09-10');
+
   });
 
   it('shows lifecycle with age and keeps age sorting in the ranking table', async () => {

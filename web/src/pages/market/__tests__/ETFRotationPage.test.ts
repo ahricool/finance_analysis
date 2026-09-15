@@ -1,3 +1,4 @@
+import ETFRotationHistoryCharts from '@/components/etf-rotation/ETFRotationHistoryCharts.vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ETFMarket, ETFMomentumSnapshot } from '@/types/etfRotation';
@@ -9,7 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   ranking: vi.fn(),
   candidates: vi.fn(),
   dates: vi.fn(),
-  detail: vi.fn(),
+  detail: vi.fn(), detailHistory: vi.fn(),
   run: vi.fn(),
   preview: vi.fn(), previewStatus: vi.fn(),
 }));
@@ -33,7 +34,7 @@ vi.mock('@/components/app/AppDatePicker.vue', () => ({
 }));
 
 vi.mock('@/components/etf-rotation/ETFRotationHistoryCharts.vue', () => ({
-  default: { template: '<div data-testid="rotation-history-charts" />' },
+  default: { props: ['history'], template: '<div data-testid="rotation-history-charts" />' },
 }));
 
 function snapshot(overrides: Partial<ETFMomentumSnapshot> = {}): ETFMomentumSnapshot {
@@ -525,7 +526,7 @@ describe('ETFRotationPage', () => {
     expect(wrapper.get('[data-testid="research-preview-reason"]').text()).toContain('easyquotation tencent real failed');
   });
 
-  it('opens preview detail from the preview item and does not call official detail', async () => {
+  it('keeps preview latest while loading official history for charts', async () => {
     const official = snapshot({
       tradeDate: '2026-08-25', name: '半导体ETF', code: '512480.SH',
       compositeScore: 60, rank: 6, action: 'HOLD', isCandidate: false, state: 'TRENDING',
@@ -538,6 +539,7 @@ describe('ETFRotationPage', () => {
     apiMocks.detail.mockResolvedValue({
       market: 'CN', metadata: official, latest: official, history: [official], marketSnapshot: null,
     });
+    apiMocks.detailHistory.mockResolvedValue({ history: [official, previewItem] });
     mockPreview({
       status: 'completed',
       market: 'CN',
@@ -551,18 +553,23 @@ describe('ETFRotationPage', () => {
       marketSnapshot: rankingPayload('CN', '2026-09-10', previewItem).marketSnapshot,
       items: [previewItem],
     });
-    mount(ETFRotationPage, { attachTo: document.body });
+    const wrapper = mount(ETFRotationPage, { attachTo: document.body });
     await flushPromises();
     (document.body.querySelector('[data-testid="rotation-candidate"]') as HTMLElement).click();
     await flushPromises();
 
     expect(apiMocks.detail).not.toHaveBeenCalled();
+    expect(apiMocks.detailHistory).toHaveBeenCalledWith('512480.SH', 'CN', '2026-09-10');
     const modal = document.body.querySelector('[data-testid="etf-detail-modal"]');
     expect(modal?.textContent).toContain('81.3');
     expect(modal?.textContent).toContain('EMERGING');
     expect(modal?.textContent).toContain('BUY');
     expect(modal?.textContent).not.toContain('60.0');
-    expect(modal?.querySelector('[data-testid="etf-detail-history"]')).toBeNull();
+    expect(modal?.querySelector('[data-testid="etf-detail-history"]')).not.toBeNull();
+    const chartHistory = wrapper.getComponent(ETFRotationHistoryCharts).props('history');
+    expect(chartHistory.map(row => row.tradeDate)).toEqual(['2026-08-25', '2026-09-10']);
+    expect(chartHistory.map(row => row.isPreview)).toEqual([false, true]);
+
   });
 
   it('shows a sortable trend duration column in the ranking table', async () => {

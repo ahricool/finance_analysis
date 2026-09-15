@@ -389,7 +389,10 @@ class ETFRotationRepository:
                 )
             ).scalar_one()
 
-    def snapshot_history(self, code: str, *, limit: int = 60, as_of: date | None = None) -> list[dict[str, Any]]:
+    def snapshot_history(
+        self, code: str, *, limit: int = 60, as_of: date | None = None,
+        before_trade_date: date | None = None,
+    ) -> list[dict[str, Any]]:
         canonical = str(code).strip().upper()
         with self.db.get_session() as session:
             rows = session.execute(
@@ -400,6 +403,7 @@ class ETFRotationRepository:
                     Instrument.market == self.market,
                     Instrument.code == canonical,
                     *([ETFMomentumSnapshot.trade_date <= as_of] if as_of is not None else []),
+                    *([ETFMomentumSnapshot.trade_date < before_trade_date] if before_trade_date is not None else []),
                 )
                 .order_by(desc(ETFMomentumSnapshot.trade_date))
                 .limit(limit)
