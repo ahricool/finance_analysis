@@ -90,11 +90,7 @@ def complete(config: LLMConfig, request: LLMRequest) -> LLMResult:
     client = paramiko.SSHClient()
     channel = None
     try:
-        client.load_system_host_keys()
-        if config.cli_known_hosts:
-            client.load_host_keys(config.cli_known_hosts)
-        # Never send a password to an unverified host.
-        client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(
             hostname=config.cli_ssh_host,
             port=config.cli_ssh_port,

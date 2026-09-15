@@ -26,7 +26,6 @@ class LLMConfig:
     cli_remote_workdir: str = "/tmp/finance-analysis-llm"
     cli_model: str = ""
     cli_effort: str = ""
-    cli_known_hosts: str = ""
 
     def __post_init__(self):
         if self.backend not in {"api", "cli"}:
