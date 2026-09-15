@@ -3,7 +3,6 @@ import {
   Activity,
   BarChart3,
   Bitcoin,
-  BrainCircuit,
   CalendarDays,
   ChartNoAxesCombined,
   ClipboardList,
@@ -66,13 +65,6 @@ export const mainNavItems: MainNavItem[] = [
     icon: BarChart3,
     activePathPrefix: '/research/',
     children: researchNavItems,
-  },
-  {
-    key: 'analysis',
-    label: '分析',
-    to: '/analysis',
-    icon: BrainCircuit,
-    exact: true,
   },
   {
     key: 'market',

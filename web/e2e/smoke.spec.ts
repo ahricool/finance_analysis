@@ -10,11 +10,11 @@ async function login(page: Page) {
   await page.goto('/login');
   await page.waitForLoadState('domcontentloaded');
 
-  const analysisLink = page.getByRole('link', { name: '分析' });
+  const dashboardLink = page.getByRole('link', { name: '动态' });
 
   const isAlreadyAuthenticated =
     page.url().endsWith('/dashboard') ||
-    (await analysisLink.isVisible({ timeout: 2_000 }).catch(() => false));
+    (await dashboardLink.isVisible({ timeout: 2_000 }).catch(() => false));
 
   if (isAlreadyAuthenticated) {
     await page.waitForLoadState('domcontentloaded');
@@ -183,30 +183,25 @@ test.describe('web smoke', () => {
     await expect(password).toHaveAttribute('type', 'password');
   });
 
-  test('analysis page shows analysis entry and history panel after login', async ({ page }) => {
+  test('analysis page and nav entry are removed after login', async ({ page }) => {
     await login(page);
     await page.goto('/analysis');
 
-    const stockInput = page.getByPlaceholder('输入股票代码或名称，如 600519、贵州茅台、AAPL');
-    await expect(stockInput).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole('link', { name: '分析' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '页面未找到' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('link', { name: '分析' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: '时间线' })).toBeVisible();
     await expect(page.getByRole('button', { name: '研究' })).toBeVisible();
     await expect(page.getByRole('link', { name: '任务中心' })).toBeVisible();
     await expect(page.getByRole('link', { name: '问股' })).toHaveCount(0);
-    await expect(page.getByText('历史分析', { exact: true })).toBeVisible();
-
-    await stockInput.fill('600519');
-    const analyzeButton = page.getByRole('button', { name: '分析', exact: true });
-    await expect(analyzeButton).toBeVisible();
+    await expect(page.getByText('历史分析', { exact: true })).toHaveCount(0);
   });
 
-  test('legacy chat URL redirects to analysis', async ({ page }) => {
+  test('legacy chat URL redirects to dashboard', async ({ page }) => {
     await mockAuthenticatedSession(page);
     await page.goto('/chat');
-    await expect(page).toHaveURL(/\/analysis$/);
-    await expect(page.getByTestId('analysis-workspace')).toBeVisible({ timeout: 10_000 });
+    await expect(page).toHaveURL(/\/dashboard$/);
     await expect(page.getByRole('link', { name: '问股' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: '分析' })).toHaveCount(0);
   });
 
   test('shell remains usable without horizontal overflow at all required breakpoints', async ({

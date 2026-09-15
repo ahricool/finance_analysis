@@ -31,25 +31,7 @@ class UniverseMember:
 @dataclass(frozen=True)
 class StrategyDecision:
     state: str
-    action: str
-    entry_price: float | None
-    last_add_price: float | None
-    units: int
-    highest_close: float | None
-    initial_stop: float | None
-    trailing_stop: float | None
-    next_add_price: float | None
-    exit_level: float | None
-    opened_at: date | None
-    suggested_initial_weight: float | None
-    suggested_max_weight: float | None
     reasons: list[str]
-    signal_date: date | None = None
-    signal_price: float | None = None
-    pending_action: str | None = None
-    pending_since: date | None = None
-    pending_regime: str | None = None
-    pending_max_exposure: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()

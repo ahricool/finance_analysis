@@ -6,8 +6,7 @@ API 依赖注入模块
 
 职责：
 1. 提供数据库 Session 依赖
-2. 提供配置依赖
-3. 提供服务层依赖
+2. 提供服务层依赖
 """
 
 from typing import Generator, Optional
@@ -17,7 +16,6 @@ from sqlalchemy.orm import Session
 
 from finance_analysis.database.models.user import User
 from finance_analysis.database import DatabaseManager
-from finance_analysis.analysis.pipeline_config import PipelineConfig, get_pipeline_config
 from finance_analysis.database.repositories.user import DEFAULT_ADMIN_EMAIL
 
 
@@ -41,11 +39,6 @@ def get_db() -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
-
-
-def get_config_dep() -> PipelineConfig:
-    """Return the analysis pipeline configuration view."""
-    return get_pipeline_config()
 
 
 def get_database_manager() -> DatabaseManager:

@@ -15,7 +15,7 @@ from finance_analysis.trend_following import breadth
 from tests.test_trend_following_repository import _Database, _snapshot, _summary
 
 TODAY = date(2026, 9, 14)
-STATES = ['IDLE', 'WATCHING', 'CANDIDATE', 'ENTRY', 'PYRAMIDING', 'HOLDING', 'WEAKENING', 'REDUCE', 'EXIT']
+STATES = ['IDLE', 'WATCHING', 'CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN']
 
 
 @pytest.fixture
@@ -28,17 +28,15 @@ def source(monkeypatch):
     # Deliberately irregular sessions; the query must never infer a weekday calendar.
     dates = [TODAY - timedelta(days=70 - i * 2) for i in range(35)]
     with database.session_scope() as session:
-        session.add_all([Instrument(id=i + 1, market='US', code=f'S{i}.US', name=f'Stock {i}') for i in range(11)])
+        session.add_all([Instrument(id=i + 1, market='US', code=f'S{i}.US', name=f'Stock {i}') for i in range(8)])
         session.add(Instrument(id=100, market='CN', code='600000.SH', name='CN'))
         for index, day in enumerate(dates):
-            for i, state in enumerate([*STATES, 'HOLDING', 'WATCHING']):
-                row = _snapshot(snapshot_id=index * 11 + i + 1, code=f'S{i}.US', instrument_id=i + 1,
+            for i, state in enumerate([*STATES, 'TRENDING', 'WATCHING']):
+                row = _snapshot(snapshot_id=index * 8 + i + 1, code=f'S{i}.US', instrument_id=i + 1,
                                 trade_date=day, state=state)
-                row.rank = i + 1 if i < 9 else 1  # Carried ranks can even duplicate today's #1.
-                if i >= 9:
-                    row.reasons = [breadth.CARRYOVER_REASONS[i - 9]]
+                row.rank = i + 1 if i < 6 else 0
                 session.add(row)
-            session.add(TrendFollowingSummary(id=index + 1, **{**_summary(day), 'rankable_count': 9}))
+            session.add(TrendFollowingSummary(id=index + 1, **{**_summary(day), 'rankable_count': 6}))
         row = _snapshot(snapshot_id=5000, code='600000.SH', instrument_id=100, trade_date=TODAY)
         row.market = 'CN'
         session.add(row)
@@ -60,12 +58,12 @@ def test_thirty_actual_sessions_groups_denominator_and_three_queries(source):
     assert (result['dates'][-1] - result['dates'][0]).days > 30
     assert result['official_count'] == 30
     point = result['points'][-1]
-    assert point['rankable_count'] == 9  # Eleven snapshots, two carried states excluded.
+    assert point['rankable_count'] == 6  # Eight snapshots; two unrankable rows excluded.
     assert point['coverage'] == 1 and point['warning'] is None
-    assert point['trend_breadth'] == pytest.approx(3 / 9)
-    assert point['participation'] == pytest.approx(4 / 9)
-    assert point['deterioration_breadth'] == pytest.approx(3 / 9)
-    assert [point[key] for key in breadth.STATE_GROUPS] == pytest.approx([2 / 9, 2 / 9, 2 / 9, 3 / 9])
+    assert point['trend_breadth'] == pytest.approx(1 / 6)
+    assert point['participation'] == pytest.approx(2 / 6)
+    assert point['deterioration_breadth'] == pytest.approx(2 / 6)
+    assert [point[key] for key in breadth.STATE_GROUPS] == pytest.approx([2 / 6, 1 / 6, 1 / 6, 2 / 6])
     assert sum(point[key] for key in breadth.STATE_GROUPS) == pytest.approx(1)
     assert all(value == 1 for value in point['state_counts'].values())
     assert len(sql) == 3
@@ -74,8 +72,8 @@ def test_thirty_actual_sessions_groups_denominator_and_three_queries(source):
 
 
 def make_preview():
-    return {'market': 'US', 'status': 'completed', 'trade_date': TODAY.isoformat(), 'rankable_count': 9,
-            'snapshots': [{'code': f'S{i}.US', 'state': 'ENTRY' if i == 2 else state, 'rank': 9 - i}
+    return {'market': 'US', 'status': 'completed', 'trade_date': TODAY.isoformat(), 'rankable_count': 6,
+            'snapshots': [{'code': f'S{i}.US', 'state': 'TRENDING' if i == 2 else state, 'rank': 6 - i}
                           for i, state in enumerate(STATES)]}
 
 
@@ -86,7 +84,7 @@ def test_preview_is_extra_31st_point_with_no_db_writes(source):
     assert result['dates'] == [*dates[-30:], TODAY]
     assert result['official_count'] == 30
     assert result['points'][-1]['is_preview'] is True
-    assert result['points'][-1]['trend_breadth'] == pytest.approx(4 / 9)
+    assert result['points'][-1]['trend_breadth'] == pytest.approx(2 / 6)
     assert result['points'][-1]['coverage'] == 1
     assert len(sql) == 3 and all(statement.startswith('SELECT') for statement in sql)
 
@@ -120,17 +118,17 @@ def test_invalid_preview_not_used(source, patch):
 def test_coverage_loss_and_missing_summary_not_normalized(source):
     database, dates, _, _ = source
     with database.session_scope() as session:
-        session.execute(update(TrendFollowingSnapshot).where(TrendFollowingSnapshot.code == 'S1.US').values(state='UNKNOWN'))
+        session.execute(delete(TrendFollowingSnapshot).where(TrendFollowingSnapshot.code == 'S1.US'))
         session.execute(update(TrendFollowingSnapshot).where(TrendFollowingSnapshot.code == 'S0.US').values(rank=0))
         session.execute(delete(TrendFollowingSummary).where(TrendFollowingSummary.trade_date == dates[-2]))
     result = breadth.get_breadth_history('US')
     point = result['points'][-1]
-    assert point['coverage'] == pytest.approx(7 / 9) and point['warning']
-    assert sum(point[key] for key in breadth.STATE_GROUPS) == pytest.approx(7 / 9)
+    assert point['coverage'] == pytest.approx(4 / 6) and point['warning']
+    assert sum(point[key] for key in breadth.STATE_GROUPS) == pytest.approx(4 / 6)
     missing = result['points'][-2]
     assert missing['trend_breadth'] is None and missing['coverage'] is None and missing['warning']
     # Legacy null state never fails aggregation, although current schema prohibits null.
-    point = breadth.aggregate_point(TODAY, {None: 1, 'HOLDING': 1}, 2)
+    point = breadth.aggregate_point(TODAY, {None: 1, 'TRENDING': 1}, 2)
     assert point['coverage'] == 0.5 and point['warning']
     assert breadth.aggregate_point(TODAY, {}, 0)['trend_breadth'] is None
 
@@ -150,8 +148,8 @@ def test_historical_cutoff_no_future_or_preview(source):
 
 def seed_transitions(source):
     database, dates, _, sql = source
-    # Six adjacent persisted sessions produce five transitions, including a neutral pair.
-    sequence = ['WATCHING', 'CANDIDATE', 'ENTRY', 'HOLDING', 'WEAKENING', 'REDUCE']
+    # Six adjacent persisted sessions produce five transitions, including a recovery and a breakdown.
+    sequence = ['WATCHING', 'CANDIDATE', 'TRENDING', 'WEAKENING', 'TRENDING', 'BROKEN']
     with database.session_scope() as session:
         for index, (day, state) in enumerate(zip(dates[-6:], sequence)):
             session.execute(update(TrendFollowingSnapshot).where(
@@ -188,7 +186,7 @@ def test_explicit_transition_classification(source, pair, classification):
     assert breadth.get_transitions('US', days=1, direction=other)['items'] == []
 
 
-@pytest.mark.parametrize('pair', [('IDLE', 'WATCHING'), ('PYRAMIDING', 'HOLDING'), ('EXIT', 'IDLE')])
+@pytest.mark.parametrize('pair', [('IDLE', 'WATCHING'), ('BROKEN', 'WATCHING'), ('WATCHING', 'IDLE')])
 def test_neutral_transitions_excluded(source, pair):
     database, dates, _, _ = source
     with database.session_scope() as session:
@@ -212,12 +210,12 @@ def test_missing_neighbor_is_not_compared_to_older_stock_snapshot(source):
 def test_preview_compares_latest_official_and_is_additional_to_range(source):
     seed_transitions(source)
     _, dates, preview, sql = source
-    preview.return_value = {**make_preview(), 'snapshots': [{'code': 'S0.US', 'state': 'EXIT', 'rank': 8}]}
+    preview.return_value = {**make_preview(), 'snapshots': [{'code': 'S0.US', 'state': 'CANDIDATE', 'rank': 8}]}
     result = breadth.get_transitions('US', days=1, include_preview=True)
     assert len(result['items']) == 2
     assert result['items'][0]['is_preview'] is True
     assert result['items'][0]['previous_date'] == dates[-1]
-    assert result['items'][0]['previous_state'] == 'REDUCE'
+    assert result['items'][0]['previous_state'] == 'BROKEN'
     assert result['items'][0]['rank_delta'] == -3
     assert len(sql) == 2
 
@@ -225,9 +223,9 @@ def test_preview_compares_latest_official_and_is_additional_to_range(source):
 def test_priority_then_rank_and_limit(source):
     database, dates, _, _ = source
     with database.session_scope() as session:
-        for code, before, after, rank in [('S0.US', 'ENTRY', 'HOLDING', 1),
-                                         ('S1.US', 'HOLDING', 'WEAKENING', 8),
-                                         ('S2.US', 'CANDIDATE', 'ENTRY', 3)]:
+        for code, before, after, rank in [('S0.US', 'WATCHING', 'CANDIDATE', 1),
+                                         ('S1.US', 'TRENDING', 'WEAKENING', 8),
+                                         ('S2.US', 'CANDIDATE', 'TRENDING', 3)]:
             for day, state in [(dates[-2], before), (dates[-1], after)]:
                 session.execute(update(TrendFollowingSnapshot).where(
                     TrendFollowingSnapshot.code == code, TrendFollowingSnapshot.trade_date == day,
@@ -252,3 +250,20 @@ def test_api_contract_validation_and_auth(source):
         assert client.get('/trend/breadth-history?days=121').status_code == 422
         app.dependency_overrides.clear()
         assert client.get('/trend/breadth-history').status_code in (401, 403)
+
+
+def test_transition_pairs_are_reachable_in_current_state_machine():
+    from finance_analysis.trend_following.state import transition_state
+
+    healthy = dict(reference_price=100, previous_low_10=80, ma20=90, ma20_slope=1,
+                   ma10=95, trend_candidate=True, trend_score=80, rs_score=80, is_candidate=True)
+    scenarios = [healthy, {**healthy, "reference_price": 70},
+                 {**healthy, "trend_candidate": False, "is_candidate": False},
+                 {**healthy, "is_candidate": False}]
+    reachable = {(state, transition_state(row, {"state": state}).state)
+                 for state in STATES for row in scenarios}
+    assert set(breadth.TRANSITIONS) <= reachable
+    assert set(breadth.VALID_STATES) == set(STATES)
+    assert breadth.TRANSITIONS[("WEAKENING", "TRENDING")][0] == "strengthening"
+    point = breadth.aggregate_point(TODAY, {"UNKNOWN": 1, "TRENDING": 1}, 2)
+    assert point["coverage"] == 0.5 and point["warning"]

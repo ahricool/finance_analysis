@@ -10,7 +10,6 @@ declare module 'vue-router' {
   }
 }
 
-const HomePage = () => import('@/pages/HomePage.vue');
 const MarketPage = () => import('@/pages/MarketPage.vue');
 const ResearchPage = () => import('@/pages/ResearchPage.vue');
 const MarketWatchListPage = () => import('@/pages/WatchListPage.vue');
@@ -137,7 +136,6 @@ const router = createRouter({
             },
           ],
         },
-        { path: 'analysis', name: 'analysis', component: HomePage, meta: { title: '分析' } },
         {
           path: 'market',
           component: MarketPage,
@@ -170,7 +168,7 @@ const router = createRouter({
         { path: 'tasks', name: 'tasks', component: TasksPage, meta: { title: '任务中心' } },
         { path: 'tasks/scheduled', name: 'tasks-scheduled', component: TasksPage, meta: { title: '任务中心' } },
         { path: 'tasks/runs', name: 'tasks-runs', component: TasksPage, meta: { title: '任务中心' } },
-        { path: 'chat', redirect: redirectWithQuery('/analysis') },
+        { path: 'chat', redirect: redirectWithQuery('/dashboard') },
         { path: 'market/quant/:pathMatch(.*)*', redirect: redirectLegacyQuant },
         { path: 'market/etf-rotation', redirect: redirectWithQuery('/research/etf-rotation') },
         { path: 'market/trend-following', redirect: redirectWithQuery('/research/trend-following') },

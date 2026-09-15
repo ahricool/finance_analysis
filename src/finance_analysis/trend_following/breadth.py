@@ -8,34 +8,30 @@ from finance_analysis.trend_following.preview_cache import load_preview
 
 STATE_GROUPS = {
     "inactive": ("IDLE", "WATCHING"),
-    "emerging": ("CANDIDATE", "ENTRY"),
-    "healthy": ("PYRAMIDING", "HOLDING"),
-    "deteriorating": ("WEAKENING", "REDUCE", "EXIT"),
+    "emerging": ("CANDIDATE",),
+    "healthy": ("TRENDING",),
+    "deteriorating": ("WEAKENING", "BROKEN"),
 }
 VALID_STATES = frozenset(state for group in STATE_GROUPS.values() for state in group)
-CARRYOVER_REASONS = (
-    "current daily data unavailable; active state carried forward",
-    "candidate expired because next-session execution data was unavailable",
-)
-# Explicit pairs, never an ordinal interpretation of the state machine. Smaller priority wins.
+# Reachable pairs from state.transition_state; smaller priority wins.
+# Watching alone is intentionally neutral. BROKEN may form a new candidate,
+# while WEAKENING may recover directly to TRENDING.
 TRANSITIONS = {
+    ("IDLE", "CANDIDATE"): ("strengthening", 1),
     ("WATCHING", "CANDIDATE"): ("strengthening", 1),
-    ("CANDIDATE", "ENTRY"): ("strengthening", 0),
-    ("ENTRY", "PYRAMIDING"): ("strengthening", 1),
-    ("ENTRY", "HOLDING"): ("strengthening", 2),
-    ("PYRAMIDING", "WEAKENING"): ("deteriorating", 0),
-    ("HOLDING", "WEAKENING"): ("deteriorating", 0),
-    ("WEAKENING", "REDUCE"): ("deteriorating", 0),
-    ("WEAKENING", "EXIT"): ("deteriorating", 0),
-    ("REDUCE", "EXIT"): ("deteriorating", 0),
-    ("HOLDING", "REDUCE"): ("deteriorating", 0),
-    ("HOLDING", "EXIT"): ("deteriorating", 0),
+    ("BROKEN", "CANDIDATE"): ("strengthening", 1),
+    ("CANDIDATE", "TRENDING"): ("strengthening", 0),
+    ("WEAKENING", "TRENDING"): ("strengthening", 0),
+    ("CANDIDATE", "WEAKENING"): ("deteriorating", 1),
+    ("CANDIDATE", "BROKEN"): ("deteriorating", 0),
+    ("TRENDING", "WEAKENING"): ("deteriorating", 0),
+    ("TRENDING", "BROKEN"): ("deteriorating", 0),
+    ("WEAKENING", "BROKEN"): ("deteriorating", 0),
 }
 
 
 def eligible(row: dict) -> bool:
-    return (type(row.get("rank")) is int and row["rank"] > 0
-            and not any(reason in (row.get("reasons") or []) for reason in CARRYOVER_REASONS))
+    return type(row.get("rank")) is int and row["rank"] > 0
 
 
 def aggregate_point(day, counts, denominator, *, is_preview=False):
@@ -53,7 +49,7 @@ def aggregate_point(day, counts, denominator, *, is_preview=False):
     return {
         "trade_date": day, "rankable_count": denominator, "coverage": coverage, "warning": warning,
         "state_counts": {state: counts.get(state, 0) for state in sorted(VALID_STATES)},
-        "trend_breadth": ratio(("ENTRY", *STATE_GROUPS["healthy"])),
+        "trend_breadth": ratio(STATE_GROUPS["healthy"]),
         "deterioration_breadth": ratio(STATE_GROUPS["deteriorating"]),
         "participation": ratio((*STATE_GROUPS["emerging"], *STATE_GROUPS["healthy"])),
         **{group: ratio(states) for group, states in STATE_GROUPS.items()}, "is_preview": is_preview,

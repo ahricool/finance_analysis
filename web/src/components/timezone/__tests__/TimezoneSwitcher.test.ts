@@ -10,7 +10,7 @@ function createTestRouter() {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div />' } },
-      { path: '/analysis', component: { template: '<div />' } },
+      { path: '/dashboard', component: { template: '<div />' } },
       { path: '/:pathMatch(.*)*', component: { template: '<div />' } },
     ],
   });
@@ -33,7 +33,7 @@ describe('TimezoneSwitcher header menu', () => {
 
   it('uses a dedicated timezone trigger and renders timezone controls inside the menu', async () => {
     const router = createTestRouter();
-    await router.push('/analysis');
+    await router.push('/dashboard');
     await router.isReady();
     const wrapper = mount(Shell, { global: { plugins: [router] } });
 
@@ -55,7 +55,7 @@ describe('TimezoneSwitcher header menu', () => {
 
   it('opens on click instead of hover', async () => {
     const router = createTestRouter();
-    await router.push('/analysis');
+    await router.push('/dashboard');
     await router.isReady();
     const wrapper = mount(Shell, { global: { plugins: [router] } });
 

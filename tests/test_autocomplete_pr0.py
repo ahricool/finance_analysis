@@ -5,84 +5,17 @@ Autocomplete PR0 Unit Tests
 ===================================
 
 Test backend data contract extensions:
-- AnalyzeRequest model extension
 - TaskInfo dataclass extension
 - Task queue accepts new fields
 - Backward compatibility
 """
 
-import pytest
-from pydantic import ValidationError
-
-from finance_analysis.interfaces.api.v1.schemas.analysis import AnalyzeRequest
 from finance_analysis.tasks.queue import (
     TaskInfo,
     AnalysisTaskQueue,
     reset_task_state_for_tests,
 )
 from tests.task_repo_fakes import FakeTaskRecordRepository
-
-
-class TestAnalyzeRequest:
-    """Test AnalyzeRequest model"""
-
-    def test_analyze_request_with_new_fields(self):
-        """Test that AnalyzeRequest accepts new fields"""
-        request = AnalyzeRequest(
-            stock_code="600519",
-            async_mode=True,
-            stock_name="贵州茅台",
-            original_query="茅台",
-            selection_source="autocomplete",
-        )
-        assert request.stock_code == "600519"
-        assert request.stock_name == "贵州茅台"
-        assert request.original_query == "茅台"
-        assert request.selection_source == "autocomplete"
-
-    def test_analyze_request_backward_compatible(self):
-        """Test backward compatibility: works fine without new fields"""
-        request = AnalyzeRequest(
-            stock_code="600519",
-            async_mode=True,
-        )
-        assert request.stock_code == "600519"
-        assert request.stock_name is None
-        assert request.original_query is None
-        assert request.selection_source is None
-
-    def test_analyze_request_rejects_notify_parameter(self):
-        """Notification delivery is always enabled and is not request-configurable."""
-        with pytest.raises(ValidationError):
-            AnalyzeRequest(
-                stock_code="600519",
-                async_mode=True,
-                notify=False,
-            )
-
-    def test_analyze_request_validation_selection_source(self):
-        """Test selection_source field validation"""
-        # Valid selection_source values
-        for source in ["manual", "autocomplete", "import", "image"]:
-            request = AnalyzeRequest(
-                stock_code="600519",
-                selection_source=source,
-            )
-            assert request.selection_source == source
-
-    def test_analyze_request_with_multiple_stocks(self):
-        """Test support for new fields in batch analysis"""
-        request = AnalyzeRequest(
-            stock_codes=["600519", "000001"],
-            async_mode=True,
-            stock_name="批量股票",
-            original_query="600519,000001",
-            selection_source="import",
-        )
-        assert request.stock_codes == ["600519", "000001"]
-        assert request.stock_name == "批量股票"
-        assert request.original_query == "600519,000001"
-        assert request.selection_source == "import"
 
 
 class TestTaskInfo:
@@ -219,25 +152,14 @@ class TestIntegration:
         AnalysisTaskQueue._instance = self._original_instance
 
     def test_end_to_end_flow_with_autocomplete(self):
-        """Test end-to-end flow: autocomplete -> analysis request -> task creation"""
-        # Simulate request after autocomplete
-        request = AnalyzeRequest(
-            stock_code="600519.SH",
-            async_mode=True,
+        """Test end-to-end flow: autocomplete metadata -> task creation"""
+        queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
+        tasks, _duplicates = queue.submit_tasks_batch(
+            stock_codes=["600519.SH"],
             stock_name="贵州茅台",
             original_query="茅台",
             selection_source="autocomplete",
             report_type="detailed",
-        )
-
-        # Submit to task queue
-        queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
-        tasks, _duplicates = queue.submit_tasks_batch(
-            stock_codes=[request.stock_code],
-            stock_name=request.stock_name,
-            original_query=request.original_query,
-            selection_source=request.selection_source,
-            report_type=request.report_type,
         )
 
         assert len(tasks) == 1
@@ -249,20 +171,12 @@ class TestIntegration:
         assert task.report_type == "detailed"
 
     def test_end_to_end_flow_manual_input(self):
-        """Test end-to-end flow: manual input -> analysis request -> task creation"""
-        # Simulate manual input request
-        request = AnalyzeRequest(
-            stock_code="600519",
-            async_mode=True,
-            selection_source="manual",
-        )
-
-        # Submit to task queue
+        """Test end-to-end flow: manual input metadata -> task creation"""
         queue = AnalysisTaskQueue(max_workers=1, repository=FakeTaskRecordRepository())
         tasks, _duplicates = queue.submit_tasks_batch(
-            stock_codes=[request.stock_code],
-            selection_source=request.selection_source,
-            report_type=request.report_type,
+            stock_codes=["600519"],
+            selection_source="manual",
+            report_type="detailed",
         )
 
         assert len(tasks) == 1

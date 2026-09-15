@@ -42,9 +42,9 @@ const latest = computed(() => points.value.at(-1));
 const option = computed(() => breadthOption(points.value, resolvedTheme.value === 'dark'));
 const structureOption = computed(() => breadthOption(points.value, resolvedTheme.value === 'dark', true));
 const metrics = [
-  { key: 'trendBreadth', label: 'Trend Breadth', description: '进入有效趋势 / 持有阶段' },
+  { key: 'trendBreadth', label: 'Trend Breadth', description: '健康趋势 TRENDING' },
   { key: 'participation', label: 'Trend Participation', description: '包含潜在趋势 CANDIDATE' },
-  { key: 'deteriorationBreadth', label: 'Deterioration', description: '趋势恶化或退出' },
+  { key: 'deteriorationBreadth', label: 'Deterioration', description: '趋势弱化或破坏' },
 ] as const;
 const warnings = computed(() => [
   ...(history.value?.warnings ?? []),

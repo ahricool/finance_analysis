@@ -18,8 +18,8 @@ export function etfHighlights(changes?: ETFRankingChanges | null): ETFChange[] {
 }
 export function trendHighlights(changes?: TrendRankingChanges | null) {
   return (changes?.transitions ?? []).filter(change =>
-    ['ENTRY', 'ADD', 'REDUCE', 'EXIT'].includes(change.currentAction)
-    || (change.currentState === 'WEAKENING' && change.previousState !== 'WEAKENING'),
+    ['CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN'].includes(change.currentState)
+    && change.previousState !== change.currentState,
   );
 }
 export function upcomingEvents(items: TimelineItem[], now: Date) {

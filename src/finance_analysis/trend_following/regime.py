@@ -94,7 +94,6 @@ def calculate_market_regime(
         "benchmark_code": benchmark_code,
         "market_regime": regime,
         "market_score": round(float(market_score), 4),
-        "suggested_max_exposure": config.regime_max_exposure[regime],
         "features": {
             "benchmark_close": benchmark_close,
             "benchmark_ma10": ma10,

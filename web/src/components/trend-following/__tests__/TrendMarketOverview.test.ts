@@ -16,7 +16,7 @@ const history: TrendBreadthResponse = {
     healthy: 0.4 + i * 0.02, deteriorating: 0.2 - i * 0.01, coverage: 1, warning: null, isPreview: false })),
 };
 const transitions: TrendTransitionsResponse = { market: 'US', days: 3, officialCount: 3, previewDate: null, warnings: [], items: [
-  { code: 'TEST.US', name: 'Test stock', previousState: 'CANDIDATE', currentState: 'ENTRY',
+  { code: 'TEST.US', name: 'Test stock', previousState: 'CANDIDATE', currentState: 'TRENDING',
     previousDate: '2026-09-09', tradeDate: '2026-09-11', previousRank: 18, currentRank: 9, rankDelta: 9,
     alphaScore: 83, fragilityScore: 20, direction: 'strengthening', priority: 0, isPreview: false },
 ] };

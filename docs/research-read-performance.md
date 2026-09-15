@@ -1,6 +1,6 @@
 # Trend Following / ETF Rotation 读取性能
 
-2026-09-11，基于 `9314fd3` 对比本次读取优化。策略公式、状态机、信号生成和数据库 schema 均未修改。
+以下测量为 2026-09-11 基于 `9314fd3` 的读取优化记录。当前六态和字段删除见 [趋势状态说明](trend-following-recovery.md)；旧测量数字不代表删减后的响应体积。
 
 ## 请求链路
 
@@ -8,11 +8,11 @@
 
 | 操作 | 修改前 | 修改后 |
 | --- | --- | --- |
-| Trend 首次进入 / 切换市场 | latest ranking + dates + preview；再 candidates + portfolio | latest ranking + dates + preview/status；ranking 已含轻量 candidates 和 portfolio |
-| Trend 选择历史日期 D | latest ranking + preview；再 ranking(D) + candidates(D) + portfolio(D) | 仅 ranking(D) |
+| Trend 首次进入 / 切换市场 | 早期多接口加载 | latest ranking + dates + preview/status；ranking 已含轻量 candidates |
+| Trend 选择历史日期 D | 早期多接口加载 | 仅 ranking(D) |
 | ETF 首次进入 / 切换市场 | latest ranking + dates + preview；再 candidates | latest ranking + dates + preview/status；前端从 ranking.items 派生 candidates / exits |
 | ETF 选择历史日期 D | latest ranking + preview；再 ranking(D) + candidates(D) | 仅 ranking(D) |
-| 两页刷新 | latest ranking + dates + preview；历史模式再 ranking(D)，以及候选/组合接口 | ranking(selectedDate) + dates + preview/status；仅当前 Preview 模式再加载完整 preview |
+| 两页刷新 | latest ranking + dates + preview；历史模式再 ranking(D)，以及候选接口 | ranking(selectedDate) + dates + preview/status；仅当前 Preview 模式再加载完整 preview |
 | official → preview | 使用已加载 Preview | 首次请求完整 preview，之后复用内存；status 版本变更或 Preview 刷新后重新获取 |
 | preview → official | 重新加载 ranking / preview / candidates 等 | 使用已加载的 officialSelected，无额外请求；尚无结果时才请求选定日期 |
 | 历史详情 | Trend 已带日期；ETF 取最新历史 | 两页均明确带 trade_date；ETF 在 SQL 中先过滤 as_of，再 LIMIT |
@@ -25,11 +25,11 @@ ETF 在本次 42 只标的样本上，首次 official 页面由约 106 条领域
 
 ## API 与数据库
 
-- Trend 当前日 `dashboard_rows()` 仅投影表格/排序、生命周期卡片、组合需要的标量，JSON features 只提取 5 个用于排序/展示的值；不构造完整 Snapshot ORM，也不触发额外 Instrument eager join。
-- 表格排序菜单已有的价格、ATR、信号日期和风险线排序保留，因此这些必要标量仍在 ranking items 中。完整 features、score_breakdown、reasons、其他持仓内部状态只在 detail / 原兼容接口返回。
-- 同一批当前日投影派生 ranking、candidates（保持原 100 条上限）和 portfolio。原 candidates / portfolio API 保留兼容，页面不再调用。
-- Trend previous changes 只取 code、state、action、pending_action、rank 和三项分数，共 8 列。
-- 两个 API 的 changes 都已删除完整 `current` 对象，改为 code/name、前后状态/动作/排名以及差值。Dashboard 组件同步使用轻量字段。Preview 的本地比较对象不属于 API changes，仍可引用内存中的行。
+- Trend 当前日 `dashboard_rows()` 仅投影表格/排序、趋势卡片需要的标量，JSON features 只提取 5 个用于排序/展示的值；不构造完整 Snapshot ORM，也不触发额外 Instrument eager join。
+- ranking items 只保留价格、ATR、状态、评分及必要指标；完整 features、score_breakdown、reasons 由 detail 返回。
+- 同一批当前日投影派生 ranking 和 candidates（保持原 100 条上限）。理论组合接口已删除。
+- Trend previous changes 只取 code、state、rank 和三项分数，共 6 列。
+- changes 不含完整 current 对象，Trend 比较前后状态/排名以及评分差值；ETF 的动作字段仍属于 ETF 独立契约。
 - ETF `_metadata_by_code()` 在一次 ranking 中只调用一次；其结果复用于 summary、changes、items。原先每只 ETF 都执行 `_enrich([row], market)`，反复加载 Universe。
 - ETF 当日 market_snapshot 只查询一次，再传给 `_changes()`；previous changes 也改为标量投影。
 - 同步 SQLAlchemy 和同步 Redis / Celery 操作使用普通 `def` 路由，在线程池运行。没有引入 AsyncSession。

@@ -1,7 +1,7 @@
 # 桌面市场动态首页
 
 Web UI 仅面向桌面浏览器。根布局最低宽度 1200px，Shell 最大内容宽度 1500px；更窄窗口允许页面级横向滚动，不维护手机导航或替代表格。
-`/` 和登录后的默认目标为 `/dashboard`；显式登录 redirect 仍有效，`/analysis` 继续承载个股分析。
+`/` 和登录后的默认目标为 `/dashboard`；显式登录 redirect 仍有效。个股分析页面已移除。
 
 ## 五个模块
 
@@ -19,9 +19,8 @@ Web UI 仅面向桌面浏览器。根布局最低宽度 1200px，Shell 最大内
 
 ## 桌面清理与信息层级
 
-- 删除 Shell 手机菜单、分析页的手机历史侧栏、Tasks / WatchList / StockList / Quant 的 Mobile Card 双模板。
+- 删除 Shell 手机菜单、Tasks / WatchList / StockList / Quant 的 Mobile Card 双模板。
 - 删除手机图表字号分支、手机弹层 CSS 和对应窄屏测试。
-- 股票详情、完整报告的 Sheet 是桌面共用详情抽屉，继续保留。
 - 保留不同桌面宽度的 `xl` / `2xl` 栅格，以及有必要的表格内部滚动。
 - ETF Ranking 为 11 列；完整收益、Entry 和各因子指标在 Detail Dialog。
 - Trend Ranking 为 11 列，名称/代码合并，移除完整 Reasons 和高级指标列；排序指标选择仍覆盖原字段。
@@ -37,6 +36,6 @@ Web UI 仅面向桌面浏览器。根布局最低宽度 1200px，Shell 最大内
 ![深色 Dashboard](images/dashboard-dark.png)
 
 验证覆盖 1280 / 1440 / 1920px 深浅色、登录默认路由、公共请求白名单、局部失败重试、Timeline 原始顺序及详情链接。
-真实登录依赖的历史报告 smoke 用例仍需要 `FA_WEB_SMOKE_PASSWORD`；没有凭据时按原规则跳过。
+真实登录依赖的 smoke 用例仍需要 `FA_WEB_SMOKE_PASSWORD`；没有凭据时按原规则跳过。
 
 后续可单独评估：公开排名接口在首页只显示摘要但仍返回全量数据的成本，以及更细的快照新鲜度提示。首版不新增聚合 API。

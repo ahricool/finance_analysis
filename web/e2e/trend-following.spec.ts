@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 const snapshot = {
   market: 'CN', code: '000001.SZ', name: '平安银行', tradeDate: '2026-08-28',
   rank: 12, rankChange1D: 5, rankChange3D: -2, rankChange5D: 0,
-  state: 'ENTRY', action: 'ENTRY', setup: 'BREAKOUT_20D', alphaScore: 79,
+  state: 'TRENDING', setup: 'BREAKOUT_20D', alphaScore: 79,
   trendScore: 80, rsScore: 78, breakoutScore: 76, referencePrice: 110, atr: 2,
   trendDurationDays: 13, trendLifecycle: 'EXPANSION', fragilityScore: 18,
   fragilityBreakdown: { accelerationDecay: 12, qualityDecay: 15, efficiencyDecay: 20, relativeStrengthDecay: 18, rankDecay: 24, priceStructureRisk: 15 },
@@ -11,8 +11,8 @@ const snapshot = {
 };
 const summary = {
   market: 'CN', tradeDate: snapshot.tradeDate, marketRegime: 'RISK_ON', marketScore: 82,
-  suggestedMaxExposure: 0.8, universeSize: 800, dataReadyCount: 790, dataCoverage: 0.9875,
-  rankableCount: 480, candidateCount: 1, entryCount: 1, warnings: [], features: {},
+  universeSize: 800, dataReadyCount: 790, dataCoverage: 0.9875,
+  rankableCount: 480, candidateCount: 1, warnings: [], features: {},
 };
 const history = [12, 17, 14, 28, 35, 31, 46, 40, 52, 63].map((rank, index) => ({
   ...snapshot, rank, fragilityScore: index === 3 ? null : 18 + index * 4, tradeDate: `2026-08-${28 - index}`,
@@ -38,12 +38,12 @@ for (const width of [1280, 1440]) {
           body = { market: 'CN', days: 3, items: [], warnings: [] };
         } else if (pathname.endsWith('/trend-following/dates')) {
           body = { market: 'CN', latest: snapshot.tradeDate, items: [snapshot.tradeDate] };
+        } else if (pathname.endsWith('/trend-following/state-history')) {
+          body = { market: 'CN', anchorDate: null, dates: [], items: [], officialCount: 0, warnings: [] };
         } else if (pathname.endsWith('/trend-following/ranking')) {
-          body = { ...summary, items: [snapshot], candidates: [snapshot], portfolio: { ...summary, positions: [], maxExposure: 0.8, currentExposure: 0, positionCount: 0 } };
+          body = { ...summary, items: [snapshot], candidates: [snapshot] };
         } else if (pathname.endsWith('/trend-following/candidates')) {
-          body = { ...summary, items: [snapshot], candidates: [snapshot], portfolio: { ...summary, positions: [], maxExposure: 0.8, currentExposure: 0, positionCount: 0 } };
-        } else if (pathname.endsWith('/trend-following/portfolio')) {
-          body = { ...summary, positions: [], maxExposure: 0.8, currentExposure: 0, positionCount: 0 };
+          body = { ...summary, items: [snapshot], candidates: [snapshot] };
         } else if (pathname.endsWith('/trend-following/000001.SZ')) {
           body = { market: 'CN', metadata: snapshot, latest: snapshot, history, marketContext: summary };
         }
@@ -107,7 +107,7 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
     if (path.endsWith('/dates')) body = { items: [snapshot.tradeDate] };
     if (path.endsWith('/preview/status') || path.endsWith('/preview')) { await route.fulfill({ status: 404, json: {} }); return; }
     if (path.endsWith('/ranking')) {
-      body = { ...summary, items: Array.from({ length: 3800 }, (_, rank) => ({ ...snapshot, code: `TEST${rank}`, name: `Stock ${rank}`, rank: rank + 1, alphaScore: rank / 38 })), candidates: [], portfolio: { positions: [], maxExposure: 0, currentExposure: 0, remainingExposure: 0, positionCount: 0 } };
+      body = { ...summary, items: Array.from({ length: 3800 }, (_, rank) => ({ ...snapshot, code: `TEST${rank}`, name: `Stock ${rank}`, rank: rank + 1, alphaScore: rank / 38 })), candidates: [] };
       rankingStarted = Date.now();
     }
     await route.fulfill({ json: body });

@@ -3,24 +3,24 @@ import { expect, test } from '@playwright/test';
 const dates = Array.from({ length: 30 }, (_, i) => new Date(Date.UTC(2026, 6, 31 + i * 2)).toISOString().slice(0, 10));
 const snapshots = Array.from({ length: 12 }, (_, i) => ({
   market: 'CN', code: `${String(i + 1).padStart(6, '0')}.SZ`, name: ['中际旭创', '新易盛', '工业富联', '寒武纪'][i % 4],
-  tradeDate: dates[29], rank: i + 1, state: 'HOLDING', action: 'HOLD', alphaScore: 86.3,
+  tradeDate: dates[29], rank: i + 1, state: 'TRENDING', alphaScore: 86.3,
   trendScore: 82.6, rsScore: 79.4, fragilityScore: 18.5, trendDurationDays: 14,
   features: {}, scoreBreakdown: {}, fragilityBreakdown: {}, reasons: [], referencePrice: 110,
 }));
 const summary = { market: 'CN', tradeDate: dates[29], marketRegime: 'RISK_ON', marketScore: 82,
-  suggestedMaxExposure: 0.8, universeSize: 3800, dataReadyCount: 3700, dataCoverage: 0.98,
-  rankableCount: 3700, candidateCount: 50, entryCount: 1, warnings: [], features: {},
+  universeSize: 3800, dataReadyCount: 3700, dataCoverage: 0.98,
+  rankableCount: 3700, candidateCount: 50, warnings: [], features: {},
 };
 const points = dates.map((tradeDate, i) => ({ tradeDate, rankableCount: 3700,
   trendBreadth: 0.32 + i * 0.007, participation: 0.38 + i * 0.007,
   deteriorationBreadth: 0.2 - i * 0.002, inactive: 0.42 - i * 0.005,
-  emerging: 0.1, healthy: 0.28 + i * 0.007, deteriorating: 0.2 - i * 0.002,
+  emerging: 0.06, healthy: 0.32 + i * 0.007, deteriorating: 0.2 - i * 0.002,
   coverage: 1, warning: null, isPreview: false }));
 const breadth = { market: 'CN', dates, officialCount: 30, previewDate: null,
   previewTime: null, generatedAt: '2026-09-27T10:50:00Z', warnings: [], points };
 const items = snapshots.slice(0, 4).map((stock, i) => ({
-  code: stock.code, name: stock.name, previousState: i < 2 ? 'CANDIDATE' : 'HOLDING',
-  currentState: i < 2 ? 'ENTRY' : 'WEAKENING', previousDate: dates[27], tradeDate: dates[28],
+  code: stock.code, name: stock.name, previousState: i < 2 ? 'CANDIDATE' : 'TRENDING',
+  currentState: i < 2 ? 'TRENDING' : 'WEAKENING', previousDate: dates[27], tradeDate: dates[28],
   previousRank: i + 12, currentRank: i + 5, rankDelta: 7, direction: i < 2 ? 'strengthening' : 'deteriorating',
   priority: 0, isPreview: false,
 }));
@@ -48,8 +48,7 @@ for (const width of [1280, 1440, 1920]) {
           body = { market: 'CN', days: Number(url.searchParams.get('days')), warnings: [],
             items: direction === 'all' ? items : items.filter(item => item.direction === direction) };
         } else if (path.endsWith('/dates')) body = { market: 'CN', latest: dates[29], items: [...dates].reverse() };
-        else if (path.endsWith('/ranking')) body = { ...summary, items: snapshots, candidates: [],
-          portfolio: { ...summary, positions: [], maxExposure: 0.8, currentExposure: 0, positionCount: 0 } };
+        else if (path.endsWith('/ranking')) body = { ...summary, items: snapshots, candidates: [] };
         else {
           const code = decodeURIComponent(path.split('/').pop()!);
           const stock = snapshots.find(item => item.code === code);
@@ -119,8 +118,7 @@ test('Preview is an extra point and same-day official transitions open official 
       body = { ...summary, status: 'completed', tradeDate: previewDate, previewTime: '2026-09-29T06:35:00Z',
         snapshots: previewSnapshots, snapshotCount: 12, scoreBreakdown: {},
       };
-    } else if (path.endsWith('/ranking')) body = { ...summary, items: snapshots, candidates: [],
-      portfolio: { positions: [], maxExposure: 0.8, currentExposure: 0, positionCount: 0 } };
+    } else if (path.endsWith('/ranking')) body = { ...summary, items: snapshots, candidates: [] };
     else if (path.endsWith('/dates')) body = { market: 'CN', latest: dates[29], items: [...dates].reverse() };
     else if (path.endsWith('/000001.SZ')) {
       expect(url.searchParams.get('trade_date') ?? url.searchParams.get('before_trade_date')).toBe(previewDate);

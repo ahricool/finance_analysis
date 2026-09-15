@@ -20,20 +20,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import TrendFragilityHistoryChart from '@/components/trend-following/TrendFragilityHistoryChart.vue';
 import TrendMarketOverview from '@/components/trend-following/TrendMarketOverview.vue';
 import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistoryChart.vue';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import type {
-  TrendAction,
   TrendCandidate,
   TrendDetailResponse,
   TrendMarket,
-  TrendPortfolioPosition,
-  TrendPortfolioResponse,
   TrendPreviewResponse,
   TrendPreviewStatusResponse,
   TrendRankingChanges,
@@ -53,14 +49,10 @@ import {
 
 const emptySummary = (): TrendSummary => ({
   market: 'CN', tradeDate: '', universeKey: 'cn_csi300_csi500', benchmarkCode: '510300.SH',
-  marketRegime: 'NEUTRAL', marketScore: 0, suggestedMaxExposure: 0, universeSize: 0,
-  dataReadyCount: 0, dataCoverage: 0, rankableCount: 0, candidateCount: 0, entryCount: 0,
-  addCount: 0, holdCount: 0, reduceCount: 0, exitCount: 0, warnings: [], features: {},
+  marketRegime: 'NEUTRAL', marketScore: 0, universeSize: 0,
+  dataReadyCount: 0, dataCoverage: 0, rankableCount: 0, candidateCount: 0,
+  warnings: [], features: {},
   scoreBreakdown: {}, generatedAt: '',
-});
-const emptyPortfolio = (portfolioMarket: TrendMarket = 'CN'): TrendPortfolioResponse => ({
-  market: portfolioMarket, tradeDate: '', marketRegime: 'NEUTRAL', maxExposure: 0,
-  currentExposure: 0, remainingExposure: 0, positionCount: 0, positions: [],
 });
 const route = useRoute();
 const market = ref<TrendMarket>(route?.query.market === 'US' ? 'US' : 'CN');
@@ -69,7 +61,6 @@ const availableDates = ref<string[]>([]);
 const summary = ref<TrendSummary>(emptySummary());
 const items = shallowRef<TrendRankingSnapshot[]>([]);
 const candidates = shallowRef<TrendCandidate[]>([]);
-const portfolio = ref<TrendPortfolioResponse>(emptyPortfolio());
 const changes = ref<TrendRankingChanges | null>(null);
 const loading = ref(true);
 const refreshing = ref(false);
@@ -98,8 +89,7 @@ const rankingColumns = [
   { key: 'name', label: '股票名称', description: undefined },
   { key: 'code', label: '股票代码', description: undefined },
   { key: 'state', label: 'State', description: descriptions.state },
-  { key: 'action', label: 'Action', description: descriptions.action },
-  { key: 'trendLifecycle', label: 'Lifecycle / Age', description: '趋势阶段与持续交易日数。MATURE 表示成熟健康，不代表卖出。' },
+  { key: 'trendLifecycle', label: 'Lifecycle / Age', description: '趋势阶段与持续交易日数。MATURE 表示趋势成熟阶段。' },
   { key: 'fragilityScore', label: 'Fragility', description: '0–100；越高表示内部恶化越快。历史不足显示 —，并不代表稳定。' },
   { key: 'trendDurationDays', label: '持续天数', description: descriptions.trendDuration },
   { key: 'alphaScore', label: 'Alpha Score', description: descriptions.alpha },
@@ -115,17 +105,9 @@ const rankingColumns = [
   { key: 'rankChange5D', label: '排名趋势', description: descriptions.rankChange },
   { key: 'atr', label: 'ATR', description: descriptions.atr },
   { key: 'referencePrice', label: 'Reference Price', description: descriptions.reference },
-  { key: 'signalDate', label: 'Signal Date', description: descriptions.signal },
-  { key: 'signalPrice', label: 'Signal Price', description: descriptions.signal },
-  { key: 'openedAt', label: 'Entry Date', description: descriptions.entry },
-  { key: 'entryPrice', label: 'Entry Price', description: descriptions.entry },
-  { key: 'initialStop', label: 'Stop', description: descriptions.initialStop },
-  { key: 'nextAddPrice', label: 'Next Add', description: descriptions.nextAdd },
-  { key: 'exitLevel', label: 'Exit Level', description: descriptions.exitLevel },
-  { key: 'suggestedInitialWeight', label: '理论初始权重', description: descriptions.initialWeight },
 ] as const;
 const visibleRankingColumns = rankingColumns.filter(column =>
-  ['rank', 'name', 'state', 'action', 'trendLifecycle', 'alphaScore', 'trendScore', 'rsScore', 'fragilityScore', 'return5D', 'return20D', 'rankChange5D'].includes(column.key));
+  ['rank', 'name', 'state', 'trendLifecycle', 'alphaScore', 'trendScore', 'rsScore', 'fragilityScore', 'return5D', 'return20D', 'rankChange5D'].includes(column.key));
 type SortKey = typeof rankingColumns[number]['key'];
 const rankingSearch = ref('');
 const sortKey = ref<SortKey>('rank');
@@ -145,7 +127,7 @@ function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | 
 function toggleSort(key: SortKey) {
   sortDirection.value = sortKey.value === key
     ? (sortDirection.value === 'asc' ? 'desc' : 'asc')
-    : (['rank', 'code', 'name', 'setup', 'state', 'action', 'signalDate', 'openedAt'].includes(key) ? 'asc' : 'desc');
+    : (['rank', 'code', 'name', 'setup', 'state'].includes(key) ? 'asc' : 'desc');
   sortKey.value = key;
 }
 const filteredItems = computed(() => {
@@ -180,21 +162,11 @@ watch(sortedItems, () => {
 const cards = computed(() => [
   ['Market Regime', summary.value.marketRegime, descriptions.marketRegime],
   ['Market Score', score(summary.value.marketScore), descriptions.marketScore],
-  ['最大理论风险敞口', pct(summary.value.suggestedMaxExposure), descriptions.maxExposure],
   ['Universe Size', summary.value.universeSize, descriptions.universeSize],
   ['Data Coverage', pct(summary.value.dataCoverage), descriptions.dataCoverage],
   ['Rankable', summary.value.rankableCount, descriptions.rankable],
   ['Candidate', summary.value.candidateCount, descriptions.candidate],
-  ['ENTRY', summary.value.entryCount, descriptions.lifecycleCount],
-  ['ADD', summary.value.addCount, descriptions.lifecycleCount],
-  ['HOLD', summary.value.holdCount, descriptions.lifecycleCount],
-  ['REDUCE', summary.value.reduceCount, descriptions.lifecycleCount],
-  ['EXIT', summary.value.exitCount, descriptions.lifecycleCount],
 ]);
-const exposureProgress = computed(() => {
-  if (portfolio.value.maxExposure <= 0) return 0;
-  return Math.min(100, (portfolio.value.currentExposure / portfolio.value.maxExposure) * 100);
-});
 const previewAvailable = computed(() => previewStatus.value != null);
 const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
 const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
@@ -216,20 +188,14 @@ function price(value: number | null | undefined) {
   return value == null ? '—' : formatMarketCurrencyAmount(value, market.value);
 }
 function stateText(state: TrendState) {
-  return ({ IDLE: '空闲', WATCHING: '观察', CANDIDATE: '候选', ENTRY: '建议入场', PYRAMIDING: '加仓中',
-    HOLDING: '继续持有', WEAKENING: '趋势弱化', REDUCE: '建议减仓', EXIT: '退出' })[state];
+  return ({ IDLE: '无明显趋势', WATCHING: '趋势形成', CANDIDATE: '趋势候选', TRENDING: '趋势健康',
+    WEAKENING: '趋势弱化', BROKEN: '趋势破坏' })[state];
 }
-function actionText(action: TrendAction) {
-  return ({ WATCH: '观察', PENDING_ENTRY: '等待入场', PENDING_ADD: '等待加仓', PENDING_REDUCE: '等待减仓',
-    PENDING_EXIT: '等待退出', ENTRY: '已入场', ADD: '已加仓', HOLD: '继续持有',
-    STOP_ADD: '停止加仓', REDUCE: '已减仓', EXIT: '已退出', EXPOSURE_BLOCKED: '风险限制' })[action];
-}
-function badgeVariant(value: TrendState | TrendAction | string): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
-  if (['ENTRY', 'ADD', 'PYRAMIDING', 'RISK_ON'].includes(value)) return 'success';
-  if (['EXIT', 'REDUCE', 'RISK_OFF'].includes(value)) return 'destructive';
-  if (['WEAKENING', 'STOP_ADD', 'NEUTRAL', 'EXPOSURE_BLOCKED', 'PENDING_REDUCE', 'PENDING_EXIT'].includes(value)) return 'warning';
-  if (['HOLD', 'HOLDING'].includes(value)) return 'default';
-  if (['CANDIDATE', 'PENDING_ENTRY', 'PENDING_ADD'].includes(value)) return 'info';
+function badgeVariant(value: string): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
+  if (['TRENDING', 'RISK_ON'].includes(value)) return 'success';
+  if (['BROKEN', 'RISK_OFF'].includes(value)) return 'destructive';
+  if (['WEAKENING', 'NEUTRAL'].includes(value)) return 'warning';
+  if (value === 'CANDIDATE') return 'info';
   return 'outline';
 }
 function applyPreviewPayload(payload: TrendPreviewResponse | null) {
@@ -237,7 +203,6 @@ function applyPreviewPayload(payload: TrendPreviewResponse | null) {
     items.value = [];
     candidates.value = [];
     changes.value = null;
-    portfolio.value = emptyPortfolio(market.value);
     return;
   }
   summary.value = {
@@ -248,23 +213,16 @@ function applyPreviewPayload(payload: TrendPreviewResponse | null) {
     benchmarkCode: payload.benchmarkCode,
     marketRegime: payload.marketRegime,
     marketScore: payload.marketScore,
-    suggestedMaxExposure: payload.suggestedMaxExposure,
     universeSize: payload.universeSize,
     dataReadyCount: payload.dataReadyCount,
     dataCoverage: payload.dataCoverage,
     rankableCount: payload.rankableCount,
     candidateCount: payload.candidateCount,
-    entryCount: payload.entryCount,
-    addCount: payload.addCount,
-    holdCount: payload.holdCount,
-    reduceCount: payload.reduceCount,
-    exitCount: payload.exitCount,
     warnings: payload.warnings ?? [],
     features: payload.features ?? {},
     scoreBreakdown: payload.scoreBreakdown ?? {},
     generatedAt: payload.previewTime ?? '',
   };
-  portfolio.value = emptyPortfolio(payload.market);
   if (!isPreviewCompleted(payload.status)) {
     items.value = [];
     candidates.value = [];
@@ -281,7 +239,6 @@ function applyOfficialRanking(ranking: TrendRankingResponse) {
   changes.value = ranking.changes ?? null;
   selectedDate.value = ranking.tradeDate;
   candidates.value = ranking.candidates;
-  portfolio.value = ranking.portfolio;
 }
 async function showPreview() {
   const current = generation;
@@ -293,7 +250,7 @@ async function showPreview() {
 }
 async function load(refreshDates = false, options: { autoSelectMode?: boolean } = {}) {
   const current = ++generation;
-  // Mount the market overview after the selected date and automatic data mode have settled.
+  // Mount history only after the anchor date and automatic data mode have settled.
   marketOverviewReady.value = false;
   if (refreshDates) marketOverviewRefreshKey.value++;
   const requestedMarket = market.value;
@@ -336,7 +293,6 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
       error.value = getParsedApiError(reason);
       items.value = [];
       candidates.value = [];
-      portfolio.value = emptyPortfolio(market.value);
       changes.value = null;
       officialSelected.value = null;
     }
@@ -427,9 +383,6 @@ async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: stri
     if (requestId === detailRequestId) detailLoading.value = false;
   }
 }
-function openPositionDetail(position: TrendPortfolioPosition) {
-  void openDetail({ code: position.code, tradeDate: portfolio.value.tradeDate });
-}
 watch(market, () => {
   ++detailRequestId;
   selectedDate.value = '';
@@ -443,7 +396,6 @@ watch(market, () => {
   availableDates.value = [];
   detailOpen.value = false;
   summary.value = { ...emptySummary(), market: market.value };
-  portfolio.value = emptyPortfolio(market.value);
   modeChosenByUser.value = false;
   void load(true, { autoSelectMode: true });
 });
@@ -465,7 +417,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           趋势跟踪
         </h2>
         <p class="mt-1 text-xs text-muted-foreground">
-          {{ scope }} · Research Signal / 策略模型建议，不是用户真实交易指令。
+          {{ scope }} · 股票趋势状态与风险指标。
         </p>
       </div>
       <div class="flex flex-wrap items-end gap-2">
@@ -567,267 +519,142 @@ onMounted(() => void load(true, { autoSelectMode: true }));
       class="relative space-y-4"
       :class="refreshing ? 'opacity-70' : ''"
     >
-    <div
-      v-if="showingStrategyBody"
-      class="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6"
-      data-testid="trend-summary"
-    >
-      <Card
-        v-for="card in cards"
-        :key="String(card[0])"
+      <div
+        v-if="showingStrategyBody"
+        class="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6"
+        data-testid="trend-summary"
       >
-        <CardContent class="p-3">
-          <IndicatorLabel
-            :label="String(card[0])"
-            :description="String(card[2])"
-            wrap
-          />
-          <strong class="mt-1 block text-lg">{{ card[1] }}</strong>
+        <Card
+          v-for="card in cards"
+          :key="String(card[0])"
+        >
+          <CardContent class="p-3">
+            <IndicatorLabel
+              :label="String(card[0])"
+              :description="String(card[2])"
+              wrap
+            />
+            <strong class="mt-1 block text-lg">{{ card[1] }}</strong>
+          </CardContent>
+        </Card>
+      </div>
+
+
+
+      <TrendMarketOverview
+        v-if="!loading && marketOverviewReady"
+        :market="market"
+        :as-of="dataMode === 'official' ? selectedDate || undefined : undefined"
+        :include-preview="dataMode === 'preview'"
+        :refresh-key="marketOverviewRefreshKey"
+        @select="openDetail"
+      />
+
+      <Card v-if="showingStrategyBody">
+        <CardHeader>
+          <CardTitle>趋势观察</CardTitle>
+          <CardDescription>展示候选、健康、弱化与破坏的趋势状态。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Empty v-if="!loading && !candidates.length">
+            <EmptyHeader><EmptyTitle>暂无策略候选</EmptyTitle><EmptyDescription>所选交易日没有处于趋势观察的股票。</EmptyDescription></EmptyHeader>
+          </Empty>
+          <div
+            v-else
+            class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+          >
+            <button
+              v-for="item in candidates"
+              :key="item.code"
+              class="rounded-md border p-3 text-left hover:bg-muted/50"
+              data-testid="trend-candidate"
+              @click="openDetail(item)"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <strong class="truncate">#{{ item.rank }} {{ item.name }}</strong>
+              </div>
+              <p class="mt-1 font-mono text-xs text-muted-foreground">
+                {{ item.code }}
+              </p>
+              <div class="mt-3 flex items-center justify-between text-sm">
+                <span class="flex items-center gap-1"><IndicatorLabel
+                  label="Alpha"
+                  :description="descriptions.alpha"
+                /> {{ score(item.alphaScore) }}</span>
+                <Badge :variant="badgeVariant(item.state)">
+                  {{ stateText(item.state) }}
+                </Badge>
+              </div>
+            </button>
+          </div>
         </CardContent>
       </Card>
-    </div>
 
-    <TrendMarketOverview
-      v-if="!loading && marketOverviewReady"
-      :market="market"
-      :as-of="dataMode === 'official' ? selectedDate || undefined : undefined"
-      :include-preview="dataMode === 'preview'"
-      :refresh-key="marketOverviewRefreshKey"
-      @select="openDetail"
-    />
-
-    <Card
-      v-if="dataMode === 'official'"
-      data-testid="trend-portfolio"
-    >
-      <CardHeader>
-        <CardTitle>当前理论持仓</CardTitle>
-        <CardDescription>
-          {{ portfolio.tradeDate || summary.tradeDate || '—' }} · {{ portfolio.marketRegime }} · 由趋势跟踪 Snapshot 推导，不读取用户真实持仓、账户或资金数据。
-        </CardDescription>
-      </CardHeader>
-      <CardContent class="space-y-4">
-        <div
-          v-if="loading"
-          class="grid gap-3 grid-cols-2 lg:grid-cols-4"
-        >
-          <Skeleton
-            v-for="index in 4"
-            :key="index"
-            class="h-20"
-          />
-        </div>
-        <template v-else>
-          <div class="grid gap-3 grid-cols-2 lg:grid-cols-4">
-            <div class="rounded-md border p-3">
-              <span class="text-xs text-muted-foreground">当前理论仓位</span>
-              <strong class="mt-1 block text-lg">{{ pct(portfolio.currentExposure) }}</strong>
-            </div>
-            <div class="rounded-md border p-3">
-              <span class="text-xs text-muted-foreground">最大允许敞口</span>
-              <strong class="mt-1 block text-lg">{{ pct(portfolio.maxExposure) }}</strong>
-            </div>
-            <div class="rounded-md border p-3">
-              <span class="text-xs text-muted-foreground">剩余可用敞口</span>
-              <strong class="mt-1 block text-lg">{{ pct(portfolio.remainingExposure) }}</strong>
-            </div>
-            <div class="rounded-md border p-3">
-              <span class="text-xs text-muted-foreground">当前持仓</span>
-              <strong class="mt-1 block text-lg">{{ portfolio.positionCount }}只</strong>
-            </div>
-          </div>
-          <div
-            class="space-y-2"
-            data-testid="trend-portfolio-progress"
-          >
-            <div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-              <span>当前仓位 {{ pct(portfolio.currentExposure) }} / 最大敞口 {{ pct(portfolio.maxExposure) }}</span>
-              <span>{{ exposureProgress.toFixed(1) }}%</span>
+      <Card v-if="dataMode === 'official' && showingStrategyBody">
+        <CardHeader>
+          <CardTitle>市场与分数变化</CardTitle>
+          <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的市场和显著分数变化。</CardDescription>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div
+              class="rounded border p-3"
+              data-testid="trend-market-score-change"
+            >
+              <IndicatorLabel
+                label="Market Score Δ"
+                :description="descriptions.marketScoreChange"
+              />
+              <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.marketScoreChange) }}</strong>
             </div>
             <div
-              class="h-2 overflow-hidden rounded-full bg-muted"
-              role="progressbar"
-              aria-label="理论仓位占最大敞口比例"
-              :aria-valuenow="exposureProgress"
-              aria-valuemin="0"
-              aria-valuemax="100"
+              class="rounded border p-3"
+              data-testid="trend-breadth-score-change"
             >
-              <div
-                class="h-full rounded-full bg-primary transition-[width]"
-                :style="{ width: `${exposureProgress}%` }"
+              <IndicatorLabel
+                label="Breadth Score Δ"
+                :description="descriptions.breadthScoreChange"
               />
+              <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.breadthScoreChange) }}</strong>
             </div>
-          </div>
-          <Empty v-if="!portfolio.positions.length">
-            <EmptyHeader>
-              <EmptyTitle>当前无理论持仓</EmptyTitle>
-              <EmptyDescription>所选交易日没有处于有效持仓状态且 Units 大于 0 的股票。</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-          <ScrollArea
-            v-else
-            class="w-full"
-          >
-            <Table class="w-full">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>股票</TableHead>
-                  <TableHead>State</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Units</TableHead>
-                  <TableHead>当前仓位</TableHead>
-                  <TableHead>入场价</TableHead>
-                  <TableHead>当前价</TableHead>
-                  <TableHead>跟踪止损</TableHead>
-                  <TableHead>下一动作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow
-                  v-for="position in portfolio.positions"
-                  :key="position.code"
-                  class="cursor-pointer"
-                  data-testid="trend-position-row"
-                  @click="openPositionDetail(position)"
-                >
-                  <TableCell><strong class="block">{{ position.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ position.code }}</span></TableCell>
-                  <TableCell>
-                    <Badge :variant="badgeVariant(position.state)">
-                      {{ stateText(position.state) }}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge :variant="badgeVariant(position.action)">
-                      {{ actionText(position.action) }}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{{ position.units }}</TableCell>
-                  <TableCell class="font-semibold text-primary">
-                    {{ pct(position.positionWeight) }}
-                  </TableCell>
-                  <TableCell>{{ price(position.entryPrice) }}</TableCell>
-                  <TableCell>{{ price(position.referencePrice) }}</TableCell>
-                  <TableCell>{{ price(position.trailingStop) }}</TableCell>
-                  <TableCell>{{ position.pendingAction ? actionText(position.pendingAction) : '—' }}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-            <template #horizontal-scrollbar>
-              <ScrollBar orientation="horizontal" />
-            </template>
-          </ScrollArea>
-        </template>
-      </CardContent>
-    </Card>
-
-    <Card v-if="showingStrategyBody">
-      <CardHeader>
-        <CardTitle>策略生命周期</CardTitle>
-        <CardDescription>CANDIDATE、ENTRY、ADD、HOLD、REDUCE 与 EXIT 都会保留在观察区。</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Empty v-if="!loading && !candidates.length">
-          <EmptyHeader><EmptyTitle>暂无策略候选</EmptyTitle><EmptyDescription>所选交易日没有处于策略生命周期的股票。</EmptyDescription></EmptyHeader>
-        </Empty>
-        <div
-          v-else
-          class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-        >
-          <button
-            v-for="item in candidates"
-            :key="item.code"
-            class="rounded-md border p-3 text-left hover:bg-muted/50"
-            data-testid="trend-candidate"
-            @click="openDetail(item)"
-          >
-            <div class="flex items-center justify-between gap-2">
-              <strong class="truncate">#{{ item.rank }} {{ item.name }}</strong>
-              <Badge :variant="badgeVariant(item.action)">
-                {{ actionText(item.action) }}
-              </Badge>
-            </div>
-            <p class="mt-1 font-mono text-xs text-muted-foreground">
-              {{ item.code }}
-            </p>
-            <div class="mt-3 flex items-center justify-between text-sm">
-              <span class="flex items-center gap-1"><IndicatorLabel
-                label="Alpha"
-                :description="descriptions.alpha"
-              /> {{ score(item.alphaScore) }}</span>
-              <Badge :variant="badgeVariant(item.state)">
-                {{ stateText(item.state) }}
-              </Badge>
-            </div>
-          </button>
-        </div>
-      </CardContent>
-    </Card>
-
-    <Card v-if="dataMode === 'official' && showingStrategyBody">
-      <CardHeader>
-        <CardTitle>市场与分数变化</CardTitle>
-        <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的市场和显著分数变化。</CardDescription>
-      </CardHeader>
-      <CardContent class="space-y-4">
-        <div class="grid gap-3 sm:grid-cols-2">
-          <div
-            class="rounded border p-3"
-            data-testid="trend-market-score-change"
-          >
-            <IndicatorLabel
-              label="Market Score Δ"
-              :description="descriptions.marketScoreChange"
-            />
-            <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.marketScoreChange) }}</strong>
           </div>
           <div
-            class="rounded border p-3"
-            data-testid="trend-breadth-score-change"
+            class="max-h-[32rem] space-y-4 overflow-y-auto pr-2"
+            data-testid="trend-changes-scroll"
+            tabindex="0"
+            aria-label="市场与分数变化 明细"
           >
-            <IndicatorLabel
-              label="Breadth Score Δ"
-              :description="descriptions.breadthScoreChange"
-            />
-            <strong class="mt-1 block text-lg">{{ scoreDelta(changes?.breadthScoreChange) }}</strong>
-          </div>
-        </div>
-        <div
-          class="max-h-[32rem] space-y-4 overflow-y-auto pr-2"
-          data-testid="trend-changes-scroll"
-          tabindex="0"
-          aria-label="市场与分数变化 明细"
-        >
-          <section>
-            <h3 class="mb-2 text-sm font-semibold">
-              Rank / Score Movers
-            </h3>
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="change in changes?.movers ?? []"
+            <section>
+              <h3 class="mb-2 text-sm font-semibold">
+                Rank / Score Movers
+              </h3>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="change in changes?.movers ?? []"
                   :key="change.code"
-                data-testid="trend-mover"
-                class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
+                  data-testid="trend-mover"
+                  class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
                   @click="openDetail(change)"
-              >
+                >
                   <strong>{{ change.name }}</strong>
-                <span class="ml-2">Rank {{ rankDelta(change.rankChange) }}</span>
-                <span class="ml-2">Trend {{ scoreDelta(change.trendScoreChange) }}</span>
-                <span class="ml-2">RS {{ scoreDelta(change.rsScoreChange) }}</span>
-                <span class="ml-2">Alpha {{ scoreDelta(change.alphaScoreChange) }}</span>
-              </button>
-              <span
-                v-if="!changes?.movers?.length"
-                class="text-xs text-muted-foreground"
-              >无显著变化</span>
-            </div>
-          </section>
-        </div>
-      </CardContent>
-    </Card>
+                  <span class="ml-2">Rank {{ rankDelta(change.rankChange) }}</span>
+                  <span class="ml-2">Trend {{ scoreDelta(change.trendScoreChange) }}</span>
+                  <span class="ml-2">RS {{ scoreDelta(change.rsScoreChange) }}</span>
+                  <span class="ml-2">Alpha {{ scoreDelta(change.alphaScoreChange) }}</span>
+                </button>
+                <span
+                  v-if="!changes?.movers?.length"
+                  class="text-xs text-muted-foreground"
+                >无显著变化</span>
+              </div>
+            </section>
+          </div>
+        </CardContent>
+      </Card>
 
-    <Card v-if="showingStrategyBody">
-      <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
-        <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ scope }}</CardDescription></div>
+      <Card v-if="showingStrategyBody">
+        <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">
+          <div><CardTitle>趋势排名</CardTitle><CardDescription>{{ scope }}</CardDescription></div>
           <label class="flex items-center gap-2 text-sm text-muted-foreground">搜索
             <input
               v-model="rankingSearch"
@@ -838,26 +665,26 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               data-testid="trend-ranking-search"
             >
           </label>
-        <label class="flex items-center gap-2 text-sm text-muted-foreground">排序指标
-          <select
-            v-model="sortKey"
-            aria-label="排名排序指标"
-            class="h-9 rounded-md border bg-background px-2 text-foreground"
-          >
-            <option
-              v-for="column in rankingColumns"
-              :key="column.key"
-              :value="column.key"
-            >{{ column.label }}</option>
-          </select>
-        </label>
-      </CardHeader>
-      <CardContent class="px-0">
-        <Empty v-if="!loading && !items.length">
-          <EmptyHeader><EmptyTitle>暂无趋势快照</EmptyTitle><EmptyDescription>请确认所选日期已完成收盘行情同步和策略计算。</EmptyDescription></EmptyHeader>
-        </Empty>
+          <label class="flex items-center gap-2 text-sm text-muted-foreground">排序指标
+            <select
+              v-model="sortKey"
+              aria-label="排名排序指标"
+              class="h-9 rounded-md border bg-background px-2 text-foreground"
+            >
+              <option
+                v-for="column in rankingColumns"
+                :key="column.key"
+                :value="column.key"
+              >{{ column.label }}</option>
+            </select>
+          </label>
+        </CardHeader>
+        <CardContent class="px-0">
+          <Empty v-if="!loading && !items.length">
+            <EmptyHeader><EmptyTitle>暂无趋势快照</EmptyTitle><EmptyDescription>请确认所选日期已完成收盘行情同步和策略计算。</EmptyDescription></EmptyHeader>
+          </Empty>
           <div
-          v-else
+            v-else
             ref="rankingViewport"
             class="w-full overflow-auto"
             :class="virtualRanking ? 'max-h-[680px]' : ''"
@@ -867,93 +694,88 @@ onMounted(() => void load(true, { autoSelectMode: true }));
             @scroll="rankingScrollTop = ($event.target as HTMLElement).scrollTop"
           >
             <Table
-          class="w-full"
+              class="w-full"
               :aria-rowcount="sortedItems.length + 1"
-        >
-            <TableHeader>
-              <TableRow>
-                <SortableTableHeader
-                  v-for="column in visibleRankingColumns"
-                  :key="column.key"
-                  :label="column.label"
-                  :description="column.description"
-                  :active="sortKey === column.key"
-                  :direction="sortDirection"
-                  @sort="toggleSort(column.key)"
-                />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+            >
+              <TableHeader>
+                <TableRow>
+                  <SortableTableHeader
+                    v-for="column in visibleRankingColumns"
+                    :key="column.key"
+                    :label="column.label"
+                    :description="column.description"
+                    :active="sortKey === column.key"
+                    :direction="sortDirection"
+                    @sort="toggleSort(column.key)"
+                  />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 <tr
                   v-if="virtualStart"
                   aria-hidden="true"
                   :style="{ height: `${virtualStart * rankingRowHeight}px` }"
                 >
                   <td
-                    colspan="12"
+                    :colspan="visibleRankingColumns.length"
                     class="p-0"
                   />
                 </tr>
-              <TableRow
+                <TableRow
                   v-for="(item, index) in renderedRankingRows"
-                :key="item.code"
-                class="cursor-pointer"
-                data-testid="trend-row"
+                  :key="item.code"
+                  class="cursor-pointer"
+                  data-testid="trend-row"
                   :aria-rowindex="virtualStart + index + 2"
                   :style="virtualRanking ? { height: `${rankingRowHeight}px` } : undefined"
-                @click="openDetail(item)"
-              >
-                <TableCell>#{{ item.rank }}</TableCell>
-                <TableCell><strong class="block">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span></TableCell>
-                <TableCell>
-                  <Badge :variant="badgeVariant(item.state)">
-                    {{ stateText(item.state) }}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge :variant="badgeVariant(item.action)">
-                    {{ actionText(item.action) }}
-                  </Badge>
-                </TableCell>
+                  @click="openDetail(item)"
+                >
+                  <TableCell>#{{ item.rank }}</TableCell>
+                  <TableCell><strong class="block">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span></TableCell>
+                  <TableCell>
+                    <Badge :variant="badgeVariant(item.state)">
+                      {{ stateText(item.state) }}
+                    </Badge>
+                  </TableCell>
                   <TableCell><span class="text-xs">{{ item.trendLifecycle ?? '—' }}</span><span class="block text-xs text-muted-foreground">{{ item.trendDurationDays == null ? '—' : `${item.trendDurationDays}D` }}</span></TableCell>
-                <TableCell class="font-bold text-primary">
-                  {{ score(item.alphaScore) }}
-                </TableCell>
-                <TableCell>{{ score(item.trendScore) }}</TableCell>
-                <TableCell>{{ score(item.rsScore) }}</TableCell>
                   <TableCell>{{ score(item.fragilityScore) }}</TableCell>
-                <TableCell>{{ pct(item.features.return5D) }}</TableCell>
-                <TableCell>{{ pct(item.features.return20D) }}</TableCell>
-                <TableCell>
-                  <div
-                    class="flex gap-3 whitespace-nowrap"
-                    data-testid="trend-rank-changes"
-                  >
-                    <span
-                      v-for="[label, value] in ([['1D', item.rankChange1D], ['3D', item.rankChange3D], ['5D', item.rankChange5D]] as const)"
-                      :key="label"
-                      class="text-xs"
+                  <TableCell class="font-bold text-primary">
+                    {{ score(item.alphaScore) }}
+                  </TableCell>
+                  <TableCell>{{ score(item.trendScore) }}</TableCell>
+                  <TableCell>{{ score(item.rsScore) }}</TableCell>
+                  <TableCell>{{ pct(item.features.return5D) }}</TableCell>
+                  <TableCell>{{ pct(item.features.return20D) }}</TableCell>
+                  <TableCell>
+                    <div
+                      class="flex gap-3 whitespace-nowrap"
+                      data-testid="trend-rank-changes"
                     >
-                      <span class="text-muted-foreground">{{ label }}</span>
-                      <span :class="value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-market-up' : 'text-market-down'">
-                        {{ rankDelta(value) }}
+                      <span
+                        v-for="[label, value] in ([['1D', item.rankChange1D], ['3D', item.rankChange3D], ['5D', item.rankChange5D]] as const)"
+                        :key="label"
+                        class="text-xs"
+                      >
+                        <span class="text-muted-foreground">{{ label }}</span>
+                        <span :class="value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-market-up' : 'text-market-down'">
+                          {{ rankDelta(value) }}
+                        </span>
                       </span>
-                    </span>
-                  </div>
-                </TableCell>
-              </TableRow>
+                    </div>
+                  </TableCell>
+                </TableRow>
                 <tr
                   v-if="rankingBottomSpace"
                   aria-hidden="true"
                   :style="{ height: `${rankingBottomSpace}px` }"
                 >
                   <td
-                    colspan="12"
+                    :colspan="visibleRankingColumns.length"
                     class="p-0"
                   />
                 </tr>
-            </TableBody>
-          </Table>
+              </TableBody>
+            </Table>
           </div>
           <p
             v-if="items.length && !sortedItems.length"
@@ -963,14 +785,14 @@ onMounted(() => void load(true, { autoSelectMode: true }));
             没有匹配的股票，请尝试其他名称或代码。
           </p>
           <p
-          v-if="items.length"
+            v-if="items.length"
             class="px-6 pt-4 text-sm text-muted-foreground"
             data-testid="trend-ranking-count"
-        >
+          >
             显示 {{ sortedItems.length }} / {{ items.length }} 条
           </p>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
     </div>
 
     <Dialog
@@ -984,7 +806,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
         <DialogHeader class="min-w-0 pr-8 text-left">
           <DialogTitle class="break-words">
             {{ detail?.metadata.name || '趋势详情' }}
-          </DialogTitle><DialogDescription>{{ detail?.metadata.code }} · 指标、风险线与 point-in-time 状态历史</DialogDescription>
+          </DialogTitle><DialogDescription>{{ detail?.metadata.code }} · 趋势指标、风险与状态历史</DialogDescription>
         </DialogHeader>
         <div
           v-if="detailLoading"
@@ -1008,8 +830,6 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           <div class="flex flex-wrap gap-2">
             <Badge :variant="badgeVariant(detail.latest.state)">
               {{ stateText(detail.latest.state) }}
-            </Badge><Badge :variant="badgeVariant(detail.latest.action)">
-              {{ actionText(detail.latest.action) }}
             </Badge><Badge variant="outline">
               {{ detail.latest.setup }}
             </Badge>
@@ -1156,66 +976,12 @@ onMounted(() => void load(true, { autoSelectMode: true }));
             </div>
           </section>
           <section>
-            <h3 class="mb-2 font-semibold">
-              Risk（理论策略 NAV）
-            </h3><div class="grid grid-cols-2 gap-2 text-sm">
-              <div>
-                <IndicatorLabel
-                  label="ATR"
-                  :description="descriptions.atr"
-                  wrap
-                /><strong class="block">{{ price(detail.latest.atr) }}</strong>
-              </div>
-              <div>
-                <IndicatorLabel
-                  label="Units"
-                  :description="descriptions.units"
-                  wrap
-                /><strong class="block">{{ detail.latest.units }}</strong>
-              </div>
-              <div>
-                <IndicatorLabel
-                  label="Signal Date / Price"
-                  :description="descriptions.signal"
-                  wrap
-                /><strong class="block">{{ detail.latest.signalDate || '—' }} / {{ price(detail.latest.signalPrice) }}</strong>
-              </div>
-              <div>
-                <IndicatorLabel
-                  label="Entry Date / Price"
-                  :description="descriptions.entry"
-                  wrap
-                /><strong class="block">{{ detail.latest.openedAt || '—' }} / {{ price(detail.latest.entryPrice) }}</strong>
-              </div>
-              <div>
-                <IndicatorLabel
-                  label="Stop"
-                  :description="descriptions.initialStop"
-                  wrap
-                /><strong class="block">{{ price(detail.latest.initialStop) }}</strong>
-              </div>
-              <div>
-                <IndicatorLabel
-                  label="Trailing / Exit"
-                  :description="`${descriptions.trailingStop} ${descriptions.exitLevel}`"
-                  wrap
-                /><strong class="block">{{ price(detail.latest.trailingStop) }} / {{ price(detail.latest.exitLevel) }}</strong>
-              </div>
-              <div>
-                <IndicatorLabel
-                  label="Next Add"
-                  :description="descriptions.nextAdd"
-                  wrap
-                /><strong class="block">{{ price(detail.latest.nextAddPrice) }}</strong>
-              </div>
-              <div>
-                <IndicatorLabel
-                  label="理论风险权重"
-                  :description="descriptions.initialWeight"
-                  wrap
-                /><strong class="block">{{ pct(detail.latest.suggestedInitialWeight) }}</strong>
-              </div>
-            </div>
+            <IndicatorLabel
+              label="ATR"
+              :description="descriptions.atr"
+              wrap
+            />
+            <strong class="block">{{ price(detail.latest.atr) }}</strong>
           </section>
           <section>
             <h3 class="mb-2 font-semibold">
@@ -1229,8 +995,6 @@ onMounted(() => void load(true, { autoSelectMode: true }));
               >
                 <span>{{ snapshot.tradeDate }}</span><span>排名 {{ snapshot.rank > 0 ? `#${snapshot.rank}` : '—' }}</span><span>Alpha {{ score(snapshot.alphaScore) }}</span><Badge :variant="badgeVariant(snapshot.state)">
                   {{ stateText(snapshot.state) }}
-                </Badge><Badge :variant="badgeVariant(snapshot.action)">
-                  {{ actionText(snapshot.action) }}
                 </Badge>
               </div>
             </div>

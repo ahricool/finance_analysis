@@ -1,6 +1,6 @@
 # Market Structure 与 Trend Health
 
-这两组能力用于市场结构解释和趋势风险感知。正式指标在后台计算并写 PostgreSQL；请求只读取、组装和格式化 snapshot，不扫描日线、不重跑 feature/ranking。不修改现有交易状态机、仓位规则或 Qlib 模型。
+这两组能力用于市场结构解释和趋势风险感知。正式指标在后台计算并写 PostgreSQL；请求只读取、组装和格式化 snapshot，不扫描日线、不重跑 feature/ranking。趋势状态仅描述股票趋势；Qlib 模型不变。
 
 ## 复用与业务边界
 
@@ -135,7 +135,7 @@ Fragility 不使用 trend_score 或 alpha_score 的补数。稳定的 90 分趋�
 
 ### Lifecycle 最终规则（按优先级）
 
-1. `trend_candidate=False` → BROKEN。复用现有四条件至少三项通过的绝对趋势定义；不把资金/风险原因的 EXIT 自动当成绝对趋势破坏。
+1. `trend_candidate=False` → BROKEN。复用现有四条件至少三项通过的绝对趋势定义；它与六态 state 的 BROKEN 判断独立。
 2. 当前没有可用 feature/duration（包括仅携带旧状态的标的）→ null。
 3. 至少两项 Fragility 分量 ≥ 50 → EXHAUSTION；candidate 此时仍成立。
 4. duration ≤ 3，acceleration > 0，quality ≥ 50 → IGNITION。
@@ -146,7 +146,7 @@ Fragility 不使用 trend_score 或 alpha_score 的补数。稳定的 90 分趋�
 
 原实现把 MATURE 与严格 healthy 条件绑定，并对未匹配的所有年龄统一 fallback EMERGING，导致 30D / 35D 趋势仅因 acceleration=-0.08 就被标成早期趋势。本修复只增加当前 snapshot 的年龄约束，不依赖前日 lifecycle，不创建状态机，不调整 Fragility 定义或权重。MATURE 不代表强趋势、买入或卖出。
 
-MATURE 不产生 SELL。生命周期只增加解释字段，不修改 state/setup/action。
+MATURE 仅描述成熟阶段。生命周期为解释字段，不改变 state/setup。
 
 ## 页面与 Preview
 
@@ -223,27 +223,24 @@ Lifecycle Age / historical eligibility review 验证：相关 Market Structure�
   返回日期降序、priority 升序、current rank 升序、code 升序的紧凑列表。
 
 分母沿用当天持久化 `TrendFollowingSummary.rankable_count = len(ranked)`，不是 snapshot 总数。
-Summary 的 entry/add/hold/reduce/exit 是 **Action** 计数，不能用于本图的 State 分组。
 State 分组唯一配置在 `trend_following/breadth.py::STATE_GROUPS`：
 
 | 分组 | State |
 | --- | --- |
 | Inactive | IDLE、WATCHING |
-| Emerging | CANDIDATE、ENTRY |
-| Healthy | PYRAMIDING、HOLDING |
-| Deteriorating | WEAKENING、REDUCE、EXIT |
+| Emerging | CANDIDATE |
+| Healthy | TRENDING |
+| Deteriorating | WEAKENING、BROKEN |
 
-Trend Breadth = (ENTRY + PYRAMIDING + HOLDING) / rankable_count；
-Participation = (CANDIDATE + ENTRY + PYRAMIDING + HOLDING) / rankable_count；
-Deterioration = (WEAKENING + REDUCE + EXIT) / rankable_count。
+Trend Breadth = TRENDING / rankable_count；
+Participation = (CANDIDATE + TRENDING) / rankable_count；
+Deterioration = (WEAKENING + BROKEN) / rankable_count。
 5D Δ 使用当前点与前第 5 个 session 的差 × 100，单位 pp；不足六点或无分母显示 `—`。
 Participation 仅显示 KPI，不增加第三条折线。
 
-**历史数据质量**：缺行情时策略会持久化带旧 Rank 的延续持仓及过期 Candidate；这些不属于当天 ranked。
-读取通过现有两种 missing-data reason 标记排除它们（不修改策略和持久化）：
-`current daily data unavailable; active state carried forward` 与
-`candidate expired because next-session execution data was unavailable`。
-Rank 非正或缺失也排除。有效 State 数 / summary 分母为 coverage；四组只按该分母计算，不归一化。
+**历史数据质量**：当前六态服务只保存当天 ranked 股票；PR #313 的既有迁移已清理无法转换的历史快照，
+本接口不再使用旧延续标记过滤。Rank 非正或缺失排除；有效六态数量 / summary 分母为 coverage，
+四组只按该分母计算，不归一化。
 未知/缺失 State、summary 缺失或分母为零都保留明确 warning。缺分母时占比为 null；
 覆盖超过 100% 的异常点在图上留空并提示，不裁剪成正常数据。新写入 schema 要求 State/Rank 非空，
 但读取仍防御旧数据。没有新增表、回填或修正已有快照。
@@ -252,17 +249,21 @@ Breadth 固定最多 **3 SQL**：复用 session 日期查询、按日期/State �
 Transition 最多 **2 SQL**：取最近 N+1 个 session，一次批量读取少量标量字段，Python 按相邻市场 session / code 比较。
 某股票缺席相邻 session 不跨缺口找旧快照，也不作为新入围事件。两者均无逐日/逐股票查询。
 
-Transition 使用显式 pair 分类，不按 State ordinal：转强为 WATCHING→CANDIDATE、CANDIDATE→ENTRY、
-ENTRY→PYRAMIDING、ENTRY→HOLDING；转弱为 PYRAMIDING/HOLDING→WEAKENING、
-WEAKENING→REDUCE/EXIT、REDUCE→EXIT、HOLDING→REDUCE/EXIT。其它不显示，尤其 PYRAMIDING→HOLDING。
-CANDIDATE→ENTRY 和所有转弱 priority=0；WATCHING→CANDIDATE、ENTRY→PYRAMIDING 为 1；ENTRY→HOLDING 为 2。
+Transition 显式 pair 与当前 `state.py::transition_state` 对齐，不按 ordinal：
+
+- 转强：IDLE/WATCHING/BROKEN → CANDIDATE（priority=1）；
+  CANDIDATE/WEAKENING → TRENDING（priority=0，含弱势修复）。
+- 转弱：CANDIDATE → WEAKENING（priority=1）；TRENDING → WEAKENING（priority=0）；
+  CANDIDATE/TRENDING/WEAKENING → BROKEN（priority=0）。
+- 其它中性变化默认不显示，包括 IDLE → WATCHING、BROKEN → WATCHING、WATCHING → IDLE。
+
 Rank delta = previous rank − current rank，正数表示排名改善。
 
 只有当地当天 completed、同市场且包含 snapshots 的 Redis Preview 可追加，**不占用 30 个正式点**。
-Preview 指标同样排除延续快照，使用 payload rankable_count；变化与最近正式 session 比较，
+Preview 指标同样只计有效 Rank 和六态，使用 payload rankable_count；变化与最近正式 session 比较，
 作为所选 N 个正式 session 变化之外的额外 Preview 变化，然后共同排序、限制最多 20 条。
 当天已有正式 snapshot 时完全忽略同日 Preview。页面以 Preview 标签和空心末尾点标识；不写 DB。
 
 历史变化点击传 `tradeDate=transition.trade_date, preview=false`；Preview 点击传 `preview=true`。
 Detail、Rank History、Fragility History 与 Preview Detail History 不重构。
-图表与变化列表各自加载、重试和处理过期响应，任一失败不影响 Ranking / Candidates / Portfolio。
+图表与变化列表各自加载、重试和处理过期响应，任一失败不影响 Ranking / Candidates。

@@ -2,7 +2,6 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { authApi, type AuthStatusResponse } from '../api/auth';
 import { createParsedApiError, getParsedApiError, type ParsedApiError } from '../api/error';
-import { useStockPoolStore } from './stockPoolStore';
 
 function extractLoginError(err: unknown): ParsedApiError {
   const parsed = getParsedApiError(err);
@@ -31,14 +30,10 @@ export const useAuthStore = defineStore('auth', () => {
       const status = await authApi.getStatus();
       loggedIn.value = status.loggedIn;
       currentUser.value = status.user ?? null;
-      if (!status.loggedIn) {
-        useStockPoolStore.getState().resetDashboardState();
-      }
     } catch (err) {
       loadError.value = getParsedApiError(err);
       loggedIn.value = false;
       currentUser.value = null;
-      useStockPoolStore.getState().resetDashboardState();
     } finally {
       isLoading.value = false;
     }

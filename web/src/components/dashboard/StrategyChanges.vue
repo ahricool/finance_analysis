@@ -10,8 +10,8 @@ const regime = computed(() => props.etf?.marketSnapshot?.regime ?? props.trend?.
 const counts = computed(() => props.etf ? [
   ['新增 BUY', props.etf.changes?.newBuys.length ?? 0], ['新增 EXIT', props.etf.changes?.newExits.length ?? 0],
   ['排名变化', props.etf.changes?.rankMovers.length ?? 0],
-] : ['ENTRY', 'ADD', 'WEAKENING', 'REDUCE', 'EXIT'].map(action => [action, trendHighlights(props.trend?.changes).filter(row =>
-  action === 'WEAKENING' ? row.currentState === action : row.currentAction === action).length]));
+] : ['CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN'].map(state => [state, trendHighlights(props.trend?.changes).filter(row =>
+  row.currentState === state).length]));
 </script>
 
 <template>
@@ -32,13 +32,13 @@ const counts = computed(() => props.etf ? [
       class="flex justify-between gap-2 py-1.5 text-sm"
     >
       <span class="truncate font-medium">{{ row.name || row.code }}</span>
-      <span class="shrink-0 text-xs text-muted-foreground">{{ row.currentState === 'WEAKENING' ? row.previousState : row.previousAction ?? '—' }} → <strong :class="['EXIT', 'REDUCE'].includes(row.currentAction ?? '') ? 'text-market-down' : 'text-foreground'">{{ row.currentState === 'WEAKENING' ? row.currentState : row.currentAction }}</strong></span>
+      <span class="shrink-0 text-xs text-muted-foreground">{{ 'previousAction' in row ? row.previousAction ?? '—' : row.previousState ?? '—' }} → <strong :class="['EXIT', 'BROKEN'].includes('currentAction' in row ? row.currentAction ?? '' : row.currentState ?? '') ? 'text-market-down' : 'text-foreground'">{{ 'currentAction' in row ? row.currentAction : row.currentState }}</strong></span>
     </div>
     <p
       v-if="!rows.length"
       class="text-sm text-muted-foreground"
     >
-      暂无重点行动变化
+      暂无重点状态变化
     </p>
   </template>
   <p

@@ -3,7 +3,7 @@ export function dashboardResponse(url: URL): object {
   const market = url.searchParams.get('market') ?? 'CN';
   const name = market === 'CN' ? '中际旭创' : 'NVIDIA';
   const code = market === 'CN' ? '300308.SZ' : 'NVDA.US';
-  const current = { code, name, action: 'ENTRY', state: 'ENTRY' };
+  const current = { code, name, action: 'BUY', state: 'TRENDING' };
   const change = { current, previousAction: 'WATCH', previousState: 'CANDIDATE' };
   const path = url.pathname;
   if (url.pathname === '/api/v1/market-structure') return {
@@ -27,9 +27,13 @@ export function dashboardResponse(url: URL): object {
     changes: { previous_trade_date: '2026-09-08', new_buys: [{ ...change, previousAction: 'HOLD', current: { code: 'ETF1', name: market === 'CN' ? '半导体 ETF' : 'Semiconductor ETF', action: 'BUY' } }], new_exits: [{ ...change, current: { code: 'ETF2', name: market === 'CN' ? '银行 ETF' : 'Bank ETF', action: 'EXIT' } }], rank_movers: [change, change] },
   };
   if (path === '/api/v1/trend-following/ranking') return {
-    market, trade_date: '2026-09-09', market_regime: 'RISK_ON', items: [],
+    market, trade_date: '2026-09-09', market_regime: 'RISK_ON', market_score: 75, items: [],
     features: { lifecycle_counts: { IGNITION: 12, EMERGING: 35, EXPANSION: 64, MATURE: 81, EXHAUSTION: 17, BROKEN: 40 }, high_fragility_count: 23 },
-    changes: { previous_trade_date: '2026-09-08', transitions: [change, { ...change, current: { code: 'watch', name: 'Ordinary Watch', state: 'WATCHING', action: 'WATCH' } }, { ...change, previousState: 'HOLDING', previousAction: 'HOLD', current: { code: 'weak', name: market === 'CN' ? '贵州茅台' : 'Apple', action: 'STOP_ADD', state: 'WEAKENING' } }] },
+    changes: { previous_trade_date: '2026-09-08', transitions: [
+      { code, name, previousState: 'CANDIDATE', currentState: 'TRENDING' },
+      { code: 'watch', name: 'Ordinary Watch', previousState: 'IDLE', currentState: 'WATCHING' },
+      { code: 'weak', name: market === 'CN' ? '贵州茅台' : 'Apple', previousState: 'TRENDING', currentState: 'WEAKENING' },
+    ] },
   };
   if (path === '/api/v1/crypto/btc/overview') return {
     symbol: 'BTCUSDT', strategy: { regime: 'BULL', setup: 'BREAKOUT', action: 'BUY', position_state: 'LONG', price: '114820' },

@@ -26,16 +26,11 @@ from ..market_review.trading_calendar import (
 from .config import DEFAULT_CONFIG, TrendFollowingConfig
 from .duration import DURATION_CALENDAR_LOOKBACK_DAYS, count_trend_duration_days
 from .features import calculate_features
-from .models import DailyBar, StrategyDecision
+from .models import DailyBar
 from .preview_cache import save_preview
 from .ranking import rank_candidates
 from .regime import calculate_market_regime
-from .state import (
-    apply_exposure_gate,
-    apply_regime_exposure_reduction,
-    evaluate_close,
-    execute_pending_at_open,
-)
+from .state import transition_state
 from .universe import get_universe, normalize_market
 
 logger = logging.getLogger(__name__)
@@ -477,40 +472,10 @@ class TrendFollowingService:
         )
         ranked = rank_candidates(features, self.config)
         previous = self.repository.previous_snapshots(effective_date, universe_codes)
-        opened = {
-            row["code"]: execute_pending_at_open(
-                row,
-                previous.get(row["code"]),
-                trade_date=effective_date,
-                config=self.config,
-            )
-            for row in ranked
-        }
-        allocated = apply_exposure_gate(
-            ranked,
-            opened,
-            previous,
-            config=self.config,
-        )
         decisions = {
-            row["code"]: evaluate_close(
-                row,
-                allocated[row["code"]],
-                trade_date=effective_date,
-                market_regime=regime["market_regime"],
-                max_exposure=regime["suggested_max_exposure"],
-                config=self.config,
-            )
+            row["code"]: transition_state(row, previous.get(row["code"]), config=self.config)
             for row in ranked
         }
-        decisions = apply_regime_exposure_reduction(
-            ranked,
-            decisions,
-            trade_date=effective_date,
-            market_regime=regime["market_regime"],
-            max_exposure=regime["suggested_max_exposure"],
-            previous=previous,
-        )
         snapshots: list[dict[str, Any]] = []
         internal_keys = {
             "code",
@@ -547,122 +512,6 @@ class TrendFollowingService:
                 }
             )
 
-        ranked_codes = {str(row["code"]) for row in ranked}
-        for code, prior in previous.items():
-            if code in ranked_codes:
-                continue
-            prior_state = str(prior.get("state"))
-            prior_units = int(prior.get("units") or 0)
-            if prior_state in {"ENTRY", "PYRAMIDING", "HOLDING", "WEAKENING", "REDUCE"} and prior_units > 0:
-                carried = {
-                    key: prior.get(key)
-                    for key in (
-                        "code",
-                        "universe_key",
-                        "rank",
-                        "trend_score",
-                        "rs_score",
-                        "breakout_score",
-                        "alpha_score",
-                        "features",
-                        "score_breakdown",
-                        "setup",
-                        "state",
-                        "reference_price",
-                        "atr",
-                        "entry_price",
-                        "signal_date",
-                        "signal_price",
-                        "last_add_price",
-                        "highest_close",
-                        "initial_stop",
-                        "trailing_stop",
-                        "next_add_price",
-                        "exit_level",
-                        "units",
-                        "opened_at",
-                        "suggested_initial_weight",
-                        "suggested_max_weight",
-                        "pending_action",
-                        "pending_since",
-                        "pending_regime",
-                        "pending_max_exposure",
-                    )
-                }
-                pending = str(prior.get("pending_action") or "")
-                preserve_pending = pending in {"EXIT", "REDUCE"}
-                carried.update(
-                    market=self.market,
-                    trade_date=effective_date,
-                    universe_key=universe_key,
-                    market_regime=regime["market_regime"],
-                    market_score=regime["market_score"],
-                    action="HOLD",
-                    reasons=[
-                        *(prior.get("reasons") or []),
-                        "current daily data unavailable; active state carried forward",
-                        *(
-                            [f"pending {pending} preserved until the next executable open"]
-                            if preserve_pending
-                            else (
-                                [f"pending {pending} expired because execution data was unavailable"] if pending else []
-                            )
-                        ),
-                    ],
-                )
-                if not preserve_pending:
-                    carried.update(
-                        pending_action=None,
-                        pending_since=None,
-                        pending_regime=None,
-                        pending_max_exposure=None,
-                    )
-                snapshots.append(carried)
-            elif prior_state == "CANDIDATE":
-                expired = {
-                    key: prior.get(key)
-                    for key in (
-                        "code",
-                        "universe_key",
-                        "rank",
-                        "trend_score",
-                        "rs_score",
-                        "breakout_score",
-                        "alpha_score",
-                        "features",
-                        "score_breakdown",
-                        "setup",
-                        "reference_price",
-                        "atr",
-                    )
-                }
-                expired.update(
-                    StrategyDecision(
-                        state="WATCHING",
-                        action="WATCH",
-                        entry_price=None,
-                        last_add_price=None,
-                        units=0,
-                        highest_close=None,
-                        initial_stop=None,
-                        trailing_stop=None,
-                        next_add_price=None,
-                        exit_level=None,
-                        opened_at=None,
-                        suggested_initial_weight=None,
-                        suggested_max_weight=None,
-                        reasons=["candidate expired because next-session execution data was unavailable"],
-                    ).to_dict()
-                )
-                expired.update(
-                    market=self.market,
-                    trade_date=effective_date,
-                    universe_key=universe_key,
-                    market_regime=regime["market_regime"],
-                    market_score=regime["market_score"],
-                )
-                snapshots.append(expired)
-
         from .fragility import calculate_fragility
         from .lifecycle import classify_lifecycle
         from .health_config import DEFAULT_CONFIG as HEALTH_CONFIG
@@ -676,18 +525,10 @@ class TrendFollowingService:
             )
 
             code = str(snapshot["code"])
-            if code not in ranked_codes:
-                # Carried strategy state has stale prices; do not label it as today's healthy trend.
-                snapshot.update(trend_lifecycle=None, fragility_score=None, fragility_breakdown=None)
-                continue
             snapshot["features"]["rank_percentile"] = (snapshot["rank"] - 1) / max(len(ranked) - 1, 1)
             snapshot.update(calculate_fragility(snapshot, health_history.get(code, {}), as_of=effective_date))
             snapshot["trend_lifecycle"] = classify_lifecycle(snapshot)
 
-        counts = {
-            action: sum(item["action"] == action for item in snapshots)
-            for action in ("ENTRY", "ADD", "HOLD", "REDUCE", "EXIT")
-        }
         summary = {
             "market": self.market,
             "trade_date": effective_date,
@@ -695,17 +536,11 @@ class TrendFollowingService:
             "benchmark_code": benchmark_code,
             "market_regime": regime["market_regime"],
             "market_score": regime["market_score"],
-            "suggested_max_exposure": regime["suggested_max_exposure"],
             "universe_size": len(universe_codes),
             "data_ready_count": len(ready_codes),
             "data_coverage": data_coverage,
             "rankable_count": len(ranked),
             "candidate_count": sum(item["state"] == "CANDIDATE" for item in snapshots),
-            "entry_count": counts["ENTRY"],
-            "add_count": counts["ADD"],
-            "hold_count": counts["HOLD"],
-            "reduce_count": counts["REDUCE"],
-            "exit_count": counts["EXIT"],
             "warnings": warnings,
             "features": {
                 **regime["features"],

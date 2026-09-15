@@ -1,7 +1,6 @@
 export type TrendMarket = 'CN' | 'US';
 export type TrendRegime = 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF';
-export type TrendState = 'IDLE' | 'WATCHING' | 'CANDIDATE' | 'ENTRY' | 'PYRAMIDING' | 'HOLDING' | 'WEAKENING' | 'REDUCE' | 'EXIT';
-export type TrendAction = 'WATCH' | 'PENDING_ENTRY' | 'PENDING_ADD' | 'PENDING_REDUCE' | 'PENDING_EXIT' | 'ENTRY' | 'ADD' | 'HOLD' | 'STOP_ADD' | 'REDUCE' | 'EXIT' | 'EXPOSURE_BLOCKED';
+export type TrendState = 'IDLE' | 'WATCHING' | 'CANDIDATE' | 'TRENDING' | 'WEAKENING' | 'BROKEN';
 
 export interface TrendFeatures {
   trendQuality?: number | null;
@@ -53,26 +52,8 @@ export interface TrendSnapshot {
   scoreBreakdown: Record<string, unknown>;
   setup: string;
   state: TrendState;
-  action: TrendAction;
   referencePrice: number;
   atr: number;
-  entryPrice: number | null;
-  signalDate: string | null;
-  signalPrice: number | null;
-  pendingAction: 'ENTRY' | 'ADD' | 'REDUCE' | 'EXIT' | null;
-  pendingSince: string | null;
-  pendingRegime: TrendRegime | null;
-  pendingMaxExposure: number | null;
-  openedAt: string | null;
-  lastAddPrice: number | null;
-  highestClose: number | null;
-  initialStop: number | null;
-  trailingStop: number | null;
-  nextAddPrice: number | null;
-  exitLevel: number | null;
-  units: number;
-  suggestedInitialWeight: number | null;
-  suggestedMaxWeight: number | null;
   reasons: string[];
   trendLifecycle?: 'IGNITION' | 'EMERGING' | 'EXPANSION' | 'MATURE' | 'EXHAUSTION' | 'BROKEN' | null;
   fragilityScore?: number | null;
@@ -81,14 +62,13 @@ export interface TrendSnapshot {
   generatedAt: string;
 }
 
-export type TrendCandidate = Pick<TrendSnapshot, 'code' | 'name' | 'rank' | 'state' | 'action' | 'alphaScore'>;
+export type TrendCandidate = Pick<TrendSnapshot, 'code' | 'name' | 'rank' | 'state' | 'alphaScore'>;
 
 // Only scalar columns used by the table, its sort menu and preview comparisons.
 export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
-  'code' | 'name' | 'rank' | 'state' | 'action' | 'pendingAction' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' |
+  'code' | 'name' | 'rank' | 'state' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' |
   'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore' | 'setup' | 'atr' |
-  'referencePrice' | 'signalDate' | 'signalPrice' | 'openedAt' | 'entryPrice' |
-  'initialStop' | 'nextAddPrice' | 'exitLevel' | 'suggestedInitialWeight'> {
+  'referencePrice'> {
   features: Pick<TrendFeatures, 'return5D' | 'return10D' | 'return20D' | 'volumeRatio' | 'distanceFromMa20'>;
   rankChange1D: number | null;
   rankChange3D: number | null;
@@ -102,17 +82,11 @@ export interface TrendSummary {
   benchmarkCode: string;
   marketRegime: TrendRegime;
   marketScore: number;
-  suggestedMaxExposure: number;
   universeSize: number;
   dataReadyCount: number;
   dataCoverage: number;
   rankableCount: number;
   candidateCount: number;
-  entryCount: number;
-  addCount: number;
-  holdCount: number;
-  reduceCount: number;
-  exitCount: number;
   warnings: string[];
   features: { [key: string]: number | Record<string, number> | undefined; lifecycleCounts?: Record<string, number>; highFragilityCount?: number };
   scoreBreakdown: Record<string, number>;
@@ -123,12 +97,8 @@ export interface TrendChange {
   code: string;
   name: string;
   currentState: TrendState;
-  currentAction: TrendAction;
-  currentPendingAction: TrendSnapshot['pendingAction'];
   currentRank: number;
   previousState: TrendState | null;
-  previousAction: TrendAction | null;
-  previousPendingAction: TrendSnapshot['pendingAction'] | null;
   previousRank: number | null;
   rankChange: number | null;
   trendScoreChange: number | null;
@@ -144,8 +114,7 @@ export interface TrendRankingChanges {
   breadthScoreChange: number | null;
   newCandidates: TrendChange[];
   newWeakening: TrendChange[];
-  newReduces: TrendChange[];
-  newExits: TrendChange[];
+  newBroken: TrendChange[];
   transitions: TrendTransition[];
   movers: TrendChange[];
 }
@@ -153,37 +122,7 @@ export interface TrendRankingChanges {
 export interface TrendRankingResponse extends TrendSummary {
   items: TrendRankingSnapshot[];
   candidates: TrendCandidate[];
-  portfolio: TrendPortfolioResponse;
   changes?: TrendRankingChanges | null;
-}
-export interface TrendPortfolioPosition {
-  code: string;
-  name: string;
-  state: Extract<TrendState, 'ENTRY' | 'PYRAMIDING' | 'HOLDING' | 'WEAKENING' | 'REDUCE'>;
-  action: TrendAction;
-  pendingAction: TrendSnapshot['pendingAction'];
-  units: number;
-  unitWeight: number;
-  positionWeight: number;
-  maxWeight: number;
-  entryPrice: number | null;
-  referencePrice: number;
-  openedAt: string | null;
-  initialStop: number | null;
-  trailingStop: number | null;
-  nextAddPrice: number | null;
-  exitLevel: number | null;
-  alphaScore: number;
-}
-export interface TrendPortfolioResponse {
-  market: TrendMarket;
-  tradeDate: string;
-  marketRegime: TrendRegime;
-  maxExposure: number;
-  currentExposure: number;
-  remainingExposure: number;
-  positionCount: number;
-  positions: TrendPortfolioPosition[];
 }
 export interface TrendCandidatesResponse { market: TrendMarket; tradeDate: string; summary: TrendSummary | null; items: TrendSnapshot[] }
 export interface TrendDatesResponse { market: TrendMarket; latest: string | null; items: string[] }
@@ -222,7 +161,6 @@ export interface TrendPreviewStatusResponse {
   snapshotCount: number;
   warnings: string[];
 }
-
 
 
 export interface TrendBreadthPoint {
