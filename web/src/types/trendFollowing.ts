@@ -163,24 +163,53 @@ export interface TrendPreviewStatusResponse {
 }
 
 
-export interface TrendStateHistoryCell {
-  rank: number;
-  state: TrendState;
-  alphaScore: number | null;
-  trendScore: number | null;
-  rsScore: number | null;
-  fragilityScore: number | null;
-  trendDurationDays: number | null;
+export interface TrendBreadthPoint {
+  stateCounts: Record<TrendState, number>;
+  tradeDate: string;
+  rankableCount: number | null;
+  trendBreadth: number | null;
+  deteriorationBreadth: number | null;
+  participation: number | null;
+  inactive: number | null;
+  emerging: number | null;
+  healthy: number | null;
+  deteriorating: number | null;
+  coverage: number | null;
+  warning: string | null;
+  isPreview: boolean;
 }
-
-export interface TrendStateHistoryResponse {
+export interface TrendBreadthResponse {
   market: TrendMarket;
-  anchorDate: string | null;
   dates: string[];
   officialCount: number;
   previewDate: string | null;
   previewTime: string | null;
   generatedAt: string | null;
+  points: TrendBreadthPoint[];
   warnings: string[];
-  items: Array<{ code: string; name: string; currentRank: number; history: Array<TrendStateHistoryCell | null> }>;
+}
+export type TransitionDirection = 'all' | 'strengthening' | 'deteriorating';
+export interface RecentTrendTransition {
+  code: string;
+  name: string;
+  previousState: TrendState;
+  currentState: TrendState;
+  previousDate: string;
+  tradeDate: string;
+  previousRank: number;
+  currentRank: number;
+  rankDelta: number;
+  alphaScore: number | null;
+  fragilityScore: number | null;
+  direction: Exclude<TransitionDirection, 'all'>;
+  priority: number;
+  isPreview: boolean;
+}
+export interface TrendTransitionsResponse {
+  market: TrendMarket;
+  days: number;
+  officialCount: number;
+  previewDate: string | null;
+  warnings: string[];
+  items: RecentTrendTransition[];
 }

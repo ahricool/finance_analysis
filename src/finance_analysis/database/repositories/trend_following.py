@@ -152,8 +152,8 @@ class TrendFollowingRepository:
                 }
         return result
 
-    def state_history_dates(self, *, as_of: date, days: int) -> list[date]:
-        """Actual snapshot sessions, independent of which stocks enter the anchor's Top N."""
+    def recent_snapshot_dates(self, *, as_of: date, days: int) -> list[date]:
+        """Actual persisted snapshot sessions in ascending order, bounded by the requested cutoff."""
         model = TrendFollowingSnapshot
         with self.db.get_session() as session:
             return list(session.execute(
@@ -161,36 +161,36 @@ class TrendFollowingRepository:
                 .distinct().order_by(model.trade_date.desc()).limit(days)
             ).scalars())[::-1]
 
-    def state_history_rows(
-        self, *, dates: list[date], anchor_date: date, limit: int, codes: list[str] | None = None,
-    ) -> list[dict]:
-        """One bounded scalar query; official Top N is selected inside SQL before history.
-
-        Preview supplies its already selected codes. No ORM graphs or snapshot JSON
-        are loaded, and the market is constrained on both sides of the join.
-        """
-        from finance_analysis.trend_following.read_models import STATE_HISTORY_FIELDS
-
-        if not dates:
-            return []
+    def breadth_counts(self, dates: list[date]) -> list[dict]:
+        """One GROUP BY query, including unknown states so coverage loss remains visible."""
         model = TrendFollowingSnapshot
-        query = select(
-            model.code, model.trade_date, Instrument.name, model.generated_at,
-            *(getattr(model, field) for field in STATE_HISTORY_FIELDS),
-        ).join(Instrument, Instrument.id == model.instrument_id).where(
-            model.market == self.market, Instrument.market == self.market, model.trade_date.in_(dates),
-        )
-        if codes is None:
-            top = (
-                select(model.code).where(
-                    model.market == self.market, model.trade_date == anchor_date, model.rank > 0,
-                ).order_by(model.rank, model.code).limit(limit).subquery()
-            )
-            query = query.join(top, top.c.code == model.code)
-        else:
-            query = query.where(model.code.in_(codes))
         with self.db.get_session() as session:
-            return [dict(row) for row in session.execute(query.order_by(model.trade_date, model.code)).mappings()]
+            return [dict(row) for row in session.execute(
+                select(model.trade_date, model.state, func.count().label("count"))
+                .where(model.market == self.market, model.trade_date.in_(dates), model.rank > 0)
+                .group_by(model.trade_date, model.state)
+            ).mappings()]
+
+    def breadth_summaries(self, dates: list[date]) -> list[dict]:
+        model = TrendFollowingSummary
+        with self.db.get_session() as session:
+            return [dict(row) for row in session.execute(
+                select(model.trade_date, model.rankable_count, model.generated_at)
+                .where(model.market == self.market, model.trade_date.in_(dates))
+            ).mappings()]
+
+    def transition_rows(self, dates: list[date]) -> list[dict]:
+        """Reuse the bounded scalar history projection, without the obsolete Top N anchor."""
+        model = TrendFollowingSnapshot
+        with self.db.get_session() as session:
+            return [dict(row) for row in session.execute(
+                select(model.code, model.trade_date, Instrument.name, model.rank, model.state,
+                       model.alpha_score, model.fragility_score)
+                .join(Instrument, Instrument.id == model.instrument_id)
+                .where(model.market == self.market, Instrument.market == self.market,
+                       model.trade_date.in_(dates), model.rank > 0)
+                .order_by(model.trade_date, model.code)
+            ).mappings()]
 
     def latest_snapshot_date(self) -> date | None:
         with self.db.get_session() as session:

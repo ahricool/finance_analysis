@@ -205,34 +205,65 @@ PR #295 review 修复：benchmark 改走 db_fresh；新增 CN 未持久化 bench
 
 Lifecycle Age / historical eligibility review 验证：相关 Market Structure、Trend Health、Trend service/preview、API、Celery schedule/task 聚焦回归 142 passed、1 skipped；独立临时 PostgreSQL/Redis 上完整 `scripts/ci_gate.sh` 2162 passed、20 skipped、2 deselected，104 subtests passed（包含专用 PostgreSQL 测试）。Benchmark db_fresh 修复及其回归测试保持通过。
 
-### Trend State Heatmap（趋势状态轨迹）
+### 趋势广度与最近状态变化
 
-趋势跟踪页面排名表格上方增加独立加载的状态热力图，使用 ECharts Heatmap、现有主题和详情弹窗。
-纵轴固定为锚点日期按 `snapshot.rank ASC, code ASC` 选出的 Top 50；不是每天重新选择 Top 50，
-也不受页面表格搜索/排序影响。横轴取 DB 中最近 30 个存在 `trend_following_snapshot` 的 session，
-缺失快照或无有效 Rank 的历史格子保留 null，不填充、不重算 State。纵向滚轮/滑块默认查看约 20 行，
-可浏览全部 50 行；单元格和股票标签可打开锚点日期的现有 Detail。
+趋势跟踪主页面按「市场 → 变化 → 个股」组织：Market Regime / Score 后展示广度 KPI、
+并排的 ECharts 广度折线和状态结构堆叠面积图，再展示最多 20 条重要变化；点击复用现有 Detail。
+旧 Top 50 × 30 State Heatmap、专属 API 与类型已经删除。市场分数 / Rank Movers 保留，重复状态卡片撤下。
 
-接口为 `GET /api/v1/trend-following/state-history`，参数 `market=CN|US`、`days=30`（1–120）、
-`limit=50`（1–100）、可选 `as_of=YYYY-MM-DD` 和 `include_preview=false`。
-返回 `anchor_date`、升序 `dates`、`official_count`、`preview_date/time`、`generated_at`、`warnings`，
-以及 `items[{code,name,current_rank,history}]`。每只股票的 `history` 与 `dates` 按位置对应；
-单元格附带原始 rank/state、Alpha/Trend/RS Score、Fragility 和持续天数。
+两个只读接口均支持 `market=CN|US`、`as_of=YYYY-MM-DD`（查询上界，不是精确锚点）、
+`include_preview=false`。日期来自实际存在的 `TrendFollowingSnapshot` session，不推算工作日。
+超过市场当地今天的 `as_of` 返回 422；历史上界不读 Preview，也不读取未来快照。
 
-正常历史读取固定两次 SQL：先取市场 snapshot session，再在 SQL 内选锚点 Top N 并批量读取其历史标量字段。
-Preview 模式从 Redis `snapshots` 按 Rank 选 Top N 后走同一个批量历史查询，不加载全 Universe 的历史 JSON。
-没有历史或显式日期无快照时可提前返回，最多两次 SQL，无逐股票/逐格查询。
+- `GET /api/v1/trend-following/breadth-history?days=30`：`days` 为 1–120，默认保留 30 个正式 session。
+  返回 `dates`、`official_count`、`preview_date/time`、`generated_at`、`points` 和 `warnings`。
+  每点含 `rankable_count`、`state_counts`、三项指标、四组结构、`coverage`、`warning`、`is_preview`。
+- `GET /api/v1/trend-following/transitions?days=3&direction=all&limit=20`：days 仅 1/3/5，
+  direction 为 all/strengthening/deteriorating，limit 为 1–20。
+  返回日期降序、priority 升序、current rank 升序、code 升序的紧凑列表。
 
-`as_of` 是精确锚点，所选日期无快照时不暗中替换成前一日 Top N；超过市场当地今天返回 422。
-历史日期不读取 Preview。只有当地当天已完成的 Preview 可作为额外第 31 列，并以 Preview 的 Rank 选股；
-当天已有任何正式 snapshot 时全列和 Top N 都使用正式数据。Preview 用 `P` 日期后缀、列边框和说明标识。
-无可用 Preview 时提示并展示可用正式历史（未指定 `as_of` 时锚点为最新正式 session）。
+分母沿用当天持久化 `TrendFollowingSummary.rankable_count = len(ranked)`，不是 snapshot 总数。
+State 分组唯一配置在 `trend_following/breadth.py::STATE_GROUPS`：
 
-颜色表示股票趋势 State：IDLE 灰、WATCHING 蓝、CANDIDATE 青、TRENDING 绿、
-WEAKENING 黄、BROKEN 红；不是数值评分或额外的 `trend_lifecycle` 分类。
-注意现有策略可能在行情缺失时**持久化**延续的持仓状态/Rank，热力图忠实读取这些已有快照；
-它本身不做前向填充，也不据此判定行情一定新鲜。旧快照缺失 Fragility/持续天数显示 `—`。
+| 分组 | State |
+| --- | --- |
+| Inactive | IDLE、WATCHING |
+| Emerging | CANDIDATE |
+| Healthy | TRENDING |
+| Deteriorating | WEAKENING、BROKEN |
 
-历史锚点中的股票即使已退出当前 Universe，仍可通过带明确 `trade_date` 的现有 Detail 接口查看；
-必须存在该日真实 snapshot 及 summary，否则返回 404。Preview 详情保持现有模式；
-若热力图因同日正式快照而优先展示正式列，点击会打开正式详情及其 Rank / Fragility 历史图。
+Trend Breadth = TRENDING / rankable_count；
+Participation = (CANDIDATE + TRENDING) / rankable_count；
+Deterioration = (WEAKENING + BROKEN) / rankable_count。
+5D Δ 使用当前点与前第 5 个 session 的差 × 100，单位 pp；不足六点或无分母显示 `—`。
+Participation 仅显示 KPI，不增加第三条折线。
+
+**历史数据质量**：当前六态服务只保存当天 ranked 股票；PR #313 的既有迁移已清理无法转换的历史快照，
+本接口不再使用旧延续标记过滤。Rank 非正或缺失排除；有效六态数量 / summary 分母为 coverage，
+四组只按该分母计算，不归一化。
+未知/缺失 State、summary 缺失或分母为零都保留明确 warning。缺分母时占比为 null；
+覆盖超过 100% 的异常点在图上留空并提示，不裁剪成正常数据。新写入 schema 要求 State/Rank 非空，
+但读取仍防御旧数据。没有新增表、回填或修正已有快照。
+
+Breadth 固定最多 **3 SQL**：复用 session 日期查询、按日期/State 一次 GROUP BY、一次批量 summary 查询。
+Transition 最多 **2 SQL**：取最近 N+1 个 session，一次批量读取少量标量字段，Python 按相邻市场 session / code 比较。
+某股票缺席相邻 session 不跨缺口找旧快照，也不作为新入围事件。两者均无逐日/逐股票查询。
+
+Transition 显式 pair 与当前 `state.py::transition_state` 对齐，不按 ordinal：
+
+- 转强：IDLE/WATCHING/BROKEN → CANDIDATE（priority=1）；
+  CANDIDATE/WEAKENING → TRENDING（priority=0，含弱势修复）。
+- 转弱：CANDIDATE → WEAKENING（priority=1）；TRENDING → WEAKENING（priority=0）；
+  CANDIDATE/TRENDING/WEAKENING → BROKEN（priority=0）。
+- 其它中性变化默认不显示，包括 IDLE → WATCHING、BROKEN → WATCHING、WATCHING → IDLE。
+
+Rank delta = previous rank − current rank，正数表示排名改善。
+
+只有当地当天 completed、同市场且包含 snapshots 的 Redis Preview 可追加，**不占用 30 个正式点**。
+Preview 指标同样只计有效 Rank 和六态，使用 payload rankable_count；变化与最近正式 session 比较，
+作为所选 N 个正式 session 变化之外的额外 Preview 变化，然后共同排序、限制最多 20 条。
+当天已有正式 snapshot 时完全忽略同日 Preview。页面以 Preview 标签和空心末尾点标识；不写 DB。
+
+历史变化点击传 `tradeDate=transition.trade_date, preview=false`；Preview 点击传 `preview=true`。
+Detail、Rank History、Fragility History 与 Preview Detail History 不重构。
+图表与变化列表各自加载、重试和处理过期响应，任一失败不影响 Ranking / Candidates。

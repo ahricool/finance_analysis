@@ -11,7 +11,9 @@ import type {
   TrendPreviewStatusResponse,
   TrendRankingResponse,
   TrendRunAccepted,
-  TrendStateHistoryResponse,
+  TrendBreadthResponse,
+  TrendTransitionsResponse,
+  TransitionDirection,
 } from '@/types/trendFollowing';
 
 // Walk only the DTO's known containers, never recurse through arbitrary snapshot JSON.
@@ -32,9 +34,19 @@ function rankingDto(data: Record<string, unknown>): TrendRankingResponse {
 }
 
 export const trendFollowingApi = {
-  async stateHistory(market: TrendMarket, asOf?: string, includePreview = false): Promise<TrendStateHistoryResponse> {
-    const { data } = await apiClient.get('/api/v1/trend-following/state-history', {
-      params: { market, days: 30, limit: 50, include_preview: includePreview, ...(asOf ? { as_of: asOf } : {}) },
+  async breadthHistory(market: TrendMarket, asOf?: string, includePreview = false): Promise<TrendBreadthResponse> {
+    const { data } = await apiClient.get('/api/v1/trend-following/breadth-history', {
+      params: { market, days: 30, include_preview: includePreview, ...(asOf ? { as_of: asOf } : {}) },
+    });
+    const result = toCamelCase<TrendBreadthResponse>(data);
+    // State names are enum keys, not DTO field names.
+    result.points.forEach((point, index) => { point.stateCounts = data.points[index].state_counts; });
+    return result;
+  },
+  async transitions(market: TrendMarket, days: 1 | 3 | 5 = 3, direction: TransitionDirection = 'all',
+    asOf?: string, includePreview = false): Promise<TrendTransitionsResponse> {
+    const { data } = await apiClient.get('/api/v1/trend-following/transitions', {
+      params: { market, days, direction, limit: 20, include_preview: includePreview, ...(asOf ? { as_of: asOf } : {}) },
     });
     return toCamelCase(data);
   },

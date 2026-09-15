@@ -114,16 +114,27 @@ it('loads lightweight preview status and preserves missing-cache null semantics'
   await expect(trendFollowingApi.previewStatus('US')).resolves.toBeNull();
 });
 
-it('loads bounded state history with market, anchor and preview mode', async () => {
+it('loads aggregated breadth with market, cutoff and preview mode', async () => {
+  const counts = { IDLE: 10, WATCHING: 20, CANDIDATE: 10, TRENDING: 50, WEAKENING: 5, BROKEN: 5 };
   vi.mocked(apiClient.get).mockResolvedValue({ data: {
-    market: 'US', anchor_date: '2026-09-14', dates: ['2026-09-11', '2026-09-14'], official_count: 1,
+    market: 'US', dates: ['2026-09-11', '2026-09-14'], official_count: 1,
     preview_date: '2026-09-14', preview_time: null, generated_at: null, warnings: [],
-    items: [{ code: 'AAPL.US', name: 'Apple', current_rank: 2, history: [null, { state: 'TRENDING', trend_score: 82.6 }] }],
+    points: [{ trade_date: '2026-09-14', trend_breadth: 0.5, is_preview: true, state_counts: counts }],
   } });
-  const result = await trendFollowingApi.stateHistory('US', '2026-09-14', true);
-  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/state-history', {
-    params: { market: 'US', days: 30, limit: 50, as_of: '2026-09-14', include_preview: true },
+  const result = await trendFollowingApi.breadthHistory('US', '2026-09-14', true);
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/breadth-history', {
+    params: { market: 'US', days: 30, as_of: '2026-09-14', include_preview: true },
   });
-  expect(result).toMatchObject({ anchorDate: '2026-09-14', officialCount: 1, previewDate: '2026-09-14',
-    items: [{ currentRank: 2, history: [null, { state: 'TRENDING', trendScore: 82.6 }] }] });
+  expect(result).toMatchObject({ officialCount: 1, previewDate: '2026-09-14',
+    points: [{ tradeDate: '2026-09-14', trendBreadth: 0.5, isPreview: true, stateCounts: counts }] });
+  expect(result.points[0]!.stateCounts.TRENDING).toBe(50);
+  expect(result.points[0]!.stateCounts).not.toHaveProperty('trending');
+});
+it('sends bounded transition filters and maps rank delta', async () => {
+  vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [{ rank_delta: 9, is_preview: false }] } });
+  const result = await trendFollowingApi.transitions('CN', 5, 'deteriorating', '2026-09-14', true);
+  expect(apiClient.get).toHaveBeenLastCalledWith('/api/v1/trend-following/transitions', {
+    params: { market: 'CN', days: 5, direction: 'deteriorating', limit: 20, as_of: '2026-09-14', include_preview: true },
+  });
+  expect(result.items[0]).toMatchObject({ rankDelta: 9, isPreview: false });
 });
