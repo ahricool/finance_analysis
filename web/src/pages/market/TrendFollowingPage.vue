@@ -23,14 +23,13 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/u
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import TrendFragilityHistoryChart from '@/components/trend-following/TrendFragilityHistoryChart.vue';
-import TrendStateHeatmap from '@/components/trend-following/TrendStateHeatmap.vue';
+import TrendMarketOverview from '@/components/trend-following/TrendMarketOverview.vue';
 import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistoryChart.vue';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type {
   TrendAction,
   TrendCandidate,
-  TrendChange,
   TrendDetailResponse,
   TrendMarket,
   TrendPortfolioPosition,
@@ -47,7 +46,6 @@ import type {
 import { formatMarketCurrencyAmount } from '@/utils/marketCurrency';
 import {
   chooseDefaultResearchDataMode,
-  diffTrendPreviewChanges,
   isPreviewCompleted,
   isTrendPreviewCandidate,
   type ResearchDataMode,
@@ -133,8 +131,8 @@ const rankingSearch = ref('');
 const sortKey = ref<SortKey>('rank');
 const sortDirection = ref<'asc' | 'desc'>('asc');
 let generation = 0;
-const stateHistoryRefreshKey = ref(0);
-const stateHistoryReady = ref(false);
+const marketOverviewRefreshKey = ref(0);
+const marketOverviewReady = ref(false);
 const detailMode = ref<ResearchDataMode>('official');
 
 const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
@@ -193,12 +191,6 @@ const cards = computed(() => [
   ['REDUCE', summary.value.reduceCount, descriptions.lifecycleCount],
   ['EXIT', summary.value.exitCount, descriptions.lifecycleCount],
 ]);
-const changeGroups = computed(() => [
-  { label: 'New Candidates', items: changes.value?.newCandidates ?? [], variant: 'info' as const },
-  { label: 'New Weakening', items: changes.value?.newWeakening ?? [], variant: 'warning' as const },
-  { label: 'New REDUCE', items: changes.value?.newReduces ?? [], variant: 'destructive' as const },
-  { label: 'New EXIT', items: changes.value?.newExits ?? [], variant: 'destructive' as const },
-]);
 const exposureProgress = computed(() => {
   if (portfolio.value.maxExposure <= 0) return 0;
   return Math.min(100, (portfolio.value.currentExposure / portfolio.value.maxExposure) * 100);
@@ -206,15 +198,6 @@ const exposureProgress = computed(() => {
 const previewAvailable = computed(() => previewStatus.value != null);
 const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
 const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
-const previewChangeGroups = computed(() => {
-  const diff = diffTrendPreviewChanges(items.value, officialLatest.value?.items ?? []);
-  return [
-    { label: 'NEW CANDIDATE', items: diff.newCandidates, variant: 'info' as const },
-    { label: 'NEW EXIT', items: diff.newExits, variant: 'destructive' as const },
-  ];
-});
-const previewHasChanges = computed(() => previewChangeGroups.value.some(group => group.items.length));
-
 function asRankingSnapshot(snapshot: TrendSnapshot): TrendRankingSnapshot {
   const ranked = snapshot as TrendSnapshot & Partial<TrendRankingSnapshot>;
   return {
@@ -248,9 +231,6 @@ function badgeVariant(value: TrendState | TrendAction | string): 'default' | 'su
   if (['HOLD', 'HOLDING'].includes(value)) return 'default';
   if (['CANDIDATE', 'PENDING_ENTRY', 'PENDING_ADD'].includes(value)) return 'info';
   return 'outline';
-}
-function transitionText(change: TrendChange) {
-  return `${change.previousState ?? 'NEW'} → ${change.currentState}`;
 }
 function applyPreviewPayload(payload: TrendPreviewResponse | null) {
   if (!payload) {
@@ -313,9 +293,9 @@ async function showPreview() {
 }
 async function load(refreshDates = false, options: { autoSelectMode?: boolean } = {}) {
   const current = ++generation;
-  // Mount history only after the anchor date and automatic data mode have settled.
-  stateHistoryReady.value = false;
-  if (refreshDates) stateHistoryRefreshKey.value++;
+  // Mount the market overview after the selected date and automatic data mode have settled.
+  marketOverviewReady.value = false;
+  if (refreshDates) marketOverviewRefreshKey.value++;
   const requestedMarket = market.value;
   const requestedDate = selectedDate.value || undefined;
   const autoSelectMode = options.autoSelectMode === true;
@@ -362,7 +342,7 @@ async function load(refreshDates = false, options: { autoSelectMode?: boolean } 
     }
   } finally {
     if (current === generation) {
-      stateHistoryReady.value = true;
+      marketOverviewReady.value = true;
       loading.value = false;
       refreshing.value = false;
     }
@@ -607,6 +587,15 @@ onMounted(() => void load(true, { autoSelectMode: true }));
       </Card>
     </div>
 
+    <TrendMarketOverview
+      v-if="!loading && marketOverviewReady"
+      :market="market"
+      :as-of="dataMode === 'official' ? selectedDate || undefined : undefined"
+      :include-preview="dataMode === 'preview'"
+      :refresh-key="marketOverviewRefreshKey"
+      @select="openDetail"
+    />
+
     <Card
       v-if="dataMode === 'official'"
       data-testid="trend-portfolio"
@@ -774,54 +763,10 @@ onMounted(() => void load(true, { autoSelectMode: true }));
       </CardContent>
     </Card>
 
-    <Card
-      v-if="showingPreview"
-      data-testid="trend-preview-changes"
-    >
-      <CardHeader>
-        <CardTitle>Preview Changes</CardTitle>
-        <CardDescription>相对上次正式收盘结果的对比，不参与当前 Preview 状态计算。</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <p
-          v-if="!previewHasChanges"
-          class="text-sm text-muted-foreground"
-        >
-          暂无相对上次正式收盘的新变化
-        </p>
-        <div
-          v-else
-          class="grid gap-3 md:grid-cols-2"
-        >
-          <section
-            v-for="group in previewChangeGroups"
-            :key="group.label"
-            class="rounded border p-3"
-          >
-            <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
-              {{ group.label }} <Badge :variant="group.variant">
-                {{ group.items.length }}
-              </Badge>
-            </h3>
-            <button
-              v-for="change in group.items"
-              :key="change.current.code"
-              class="mb-2 block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
-              :data-testid="`trend-preview-change-${group.label.toLowerCase().replace(' ', '-')}`"
-              @click="openDetail(change.current)"
-            >
-              <strong>{{ change.current.name }}</strong>
-              <span class="ml-1 font-mono text-muted-foreground">{{ change.current.code }}</span>
-            </button>
-          </section>
-        </div>
-      </CardContent>
-    </Card>
-
     <Card v-if="dataMode === 'official' && showingStrategyBody">
       <CardHeader>
-        <CardTitle>Today's Changes</CardTitle>
-        <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的市场、状态和显著分数变化。</CardDescription>
+        <CardTitle>市场与分数变化</CardTitle>
+        <CardDescription>相对 {{ changes?.previousTradeDate || '上一可用交易日' }} 的市场和显著分数变化。</CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">
         <div class="grid gap-3 sm:grid-cols-2">
@@ -850,60 +795,8 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           class="max-h-[32rem] space-y-4 overflow-y-auto pr-2"
           data-testid="trend-changes-scroll"
           tabindex="0"
-          aria-label="Today's Changes 明细"
+          aria-label="市场与分数变化 明细"
         >
-          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <section
-              v-for="group in changeGroups"
-              :key="group.label"
-              class="rounded border p-3"
-            >
-              <h3 class="mb-2 flex items-center justify-between text-sm font-semibold">
-                {{ group.label }} <Badge :variant="group.variant">
-                  {{ group.items.length }}
-                </Badge>
-              </h3>
-              <button
-                v-for="change in group.items"
-                  :key="change.code"
-                class="mb-2 block w-full rounded bg-muted/50 p-2 text-left text-xs hover:bg-muted"
-                :data-testid="`trend-change-${group.label.toLowerCase().replace(' ', '-')}`"
-                  @click="openDetail(change)"
-              >
-                  <strong>{{ change.name }}</strong>
-                  <span class="ml-1 font-mono text-muted-foreground">{{ change.code }}</span>
-                <span class="mt-1 block">{{ transitionText(change) }} · Alpha Δ {{ scoreDelta(change.alphaScoreChange) }}</span>
-              </button>
-              <p
-                v-if="!group.items.length"
-                class="text-xs text-muted-foreground"
-              >
-                无
-              </p>
-            </section>
-          </div>
-          <section>
-            <h3 class="mb-2 text-sm font-semibold">
-              State Transitions
-            </h3>
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="change in changes?.transitions ?? []"
-                  :key="change.code"
-                data-testid="trend-transition"
-                class="rounded border px-3 py-2 text-left text-xs hover:bg-muted/50"
-                  @click="openDetail(change)"
-              >
-                  <strong>{{ change.name }}</strong>
-                <span class="ml-2">{{ transitionText(change) }}</span>
-                  <span class="ml-2">{{ change.previousAction ?? '—' }} → {{ change.currentAction }}</span>
-              </button>
-              <span
-                v-if="!changes?.transitions?.length"
-                class="text-xs text-muted-foreground"
-              >无状态转换</span>
-            </div>
-          </section>
           <section>
             <h3 class="mb-2 text-sm font-semibold">
               Rank / Score Movers
@@ -931,15 +824,6 @@ onMounted(() => void load(true, { autoSelectMode: true }));
         </div>
       </CardContent>
     </Card>
-
-    <TrendStateHeatmap
-      v-if="!loading && stateHistoryReady"
-      :market="market"
-      :as-of="dataMode === 'official' ? selectedDate || undefined : undefined"
-      :include-preview="dataMode === 'preview'"
-      :refresh-key="stateHistoryRefreshKey"
-      @select="openDetail"
-    />
 
     <Card v-if="showingStrategyBody">
       <CardHeader class="flex-row flex-wrap items-center justify-between gap-3">

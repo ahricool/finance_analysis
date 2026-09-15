@@ -7,7 +7,7 @@ import { trendIndicatorDescriptions } from '@/components/trend-following/indicat
 import TrendFollowingPage from '../TrendFollowingPage.vue';
 
 const apiMocks = vi.hoisted(() => ({
-  stateHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
+  transitions: vi.fn(), breadthHistory: vi.fn(), ranking: vi.fn(), candidates: vi.fn(), portfolio: vi.fn(), dates: vi.fn(), detail: vi.fn(), detailHistory: vi.fn(), run: vi.fn(), preview: vi.fn(), previewStatus: vi.fn(),
 }));
 vi.mock('@/api/trendFollowing', () => ({ trendFollowingApi: apiMocks }));
 vi.mock('vue-echarts', () => ({ default: { props: ['option'], template: '<div data-testid="rank-chart" />' } }));
@@ -91,7 +91,8 @@ function mockPreview(payload: Record<string, unknown> | null) {
 
 describe('TrendFollowingPage', () => {
   beforeEach(() => {
-    apiMocks.stateHistory.mockResolvedValue({ market: 'CN', dates: [], items: [], officialCount: 0, warnings: [] });
+    apiMocks.transitions.mockResolvedValue({ items: [], warnings: [] });
+    apiMocks.breadthHistory.mockResolvedValue({ market: 'CN', dates: [], points: [], officialCount: 0, warnings: [] });
     apiMocks.dates.mockImplementation(async (market: TrendMarket) => ({ market, latest: '2026-08-28', items: ['2026-08-28'] }));
     apiMocks.ranking.mockImplementation(async (market: TrendMarket) => ranking(market));
     apiMocks.candidates.mockImplementation(async (market: TrendMarket) => ({ market, tradeDate: '2026-08-28', summary: ranking(market), items: [snapshot(market)] }));
@@ -140,7 +141,7 @@ describe('TrendFollowingPage', () => {
     await wrapper.get('[data-testid="trend-date-input"]').setValue('2026-08-27');
     await flushPromises();
     expect(apiMocks.ranking.mock.calls).toEqual([['CN', '2026-08-27']]);
-    expect(apiMocks.stateHistory.mock.calls).toEqual([
+    expect(apiMocks.breadthHistory.mock.calls).toEqual([
       ['CN', '2026-08-28', false], ['CN', '2026-08-27', false],
     ]);
     expect(apiMocks.preview).not.toHaveBeenCalled();
@@ -248,8 +249,6 @@ describe('TrendFollowingPage', () => {
 
     expect(wrapper.get('[data-testid="trend-market-score-change"]').text()).toContain('+2.5');
     expect(wrapper.get('[data-testid="trend-breadth-score-change"]').text()).toContain('-1.5');
-    expect(wrapper.get('[data-testid="trend-change-new-candidates"]').text()).toContain('WATCHING → ENTRY');
-    expect(wrapper.get('[data-testid="trend-transition"]').text()).toContain('CANDIDATE → ENTRY');
     expect(wrapper.get('[data-testid="trend-mover"]').text()).toContain('Trend +7.0');
     expect(wrapper.get('[data-testid="trend-mover"]').text()).toContain('RS +6.0');
     expect(wrapper.get('[data-testid="trend-changes-scroll"]').classes()).toEqual(
@@ -333,7 +332,7 @@ describe('TrendFollowingPage', () => {
     await flushPromises();
     expect(apiMocks.dates).toHaveBeenLastCalledWith('US');
     expect(apiMocks.ranking).toHaveBeenLastCalledWith('US', undefined);
-    expect(apiMocks.stateHistory.mock.calls).toEqual([
+    expect(apiMocks.breadthHistory.mock.calls).toEqual([
       ['CN', '2026-08-28', false], ['US', '2026-08-28', false],
     ]);
     expect(wrapper.text()).toContain('S&P 500');
@@ -420,7 +419,7 @@ describe('TrendFollowingPage', () => {
     await flushPromises();
 
     expect(apiMocks.preview).toHaveBeenCalledWith('CN');
-    expect(apiMocks.stateHistory.mock.calls).toEqual([['CN', undefined, true]]);
+    expect(apiMocks.breadthHistory.mock.calls).toEqual([['CN', undefined, true]]);
     expect(apiMocks.candidates).not.toHaveBeenCalled();
     expect(apiMocks.portfolio).not.toHaveBeenCalled();
     expect(wrapper.find('[data-testid="trend-portfolio"]').exists()).toBe(false);
@@ -537,7 +536,7 @@ describe('TrendFollowingPage', () => {
     await flushPromises();
     expect(apiMocks.previewStatus).toHaveBeenCalledTimes(3);
     expect(apiMocks.preview).toHaveBeenCalledTimes(2);
-    expect(apiMocks.stateHistory).toHaveBeenCalledTimes(6);
+    expect(apiMocks.breadthHistory).toHaveBeenCalledTimes(6);
     wrapper.unmount();
   });
 
@@ -553,28 +552,29 @@ describe('TrendFollowingPage', () => {
     wrapper.unmount();
   });
 
-  it('keeps the ranking and candidates when the heatmap request fails', async () => {
+  it('keeps the ranking and candidates when the breadth request fails', async () => {
     apiMocks.ranking.mockResolvedValue(ranking('CN'));
     apiMocks.dates.mockResolvedValue({ items: ['2026-08-28'] });
     apiMocks.previewStatus.mockResolvedValue(null);
-    apiMocks.stateHistory.mockRejectedValue(new Error('history failed'));
+    apiMocks.breadthHistory.mockRejectedValue(new Error('history failed'));
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    expect(wrapper.get('[data-testid="trend-state-heatmap"]').text()).toContain('状态历史加载失败');
+    expect(wrapper.get('[data-testid="trend-breadth"]').text()).toContain('重试趋势广度');
     expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
     expect(wrapper.text()).toContain('平安银行');
     wrapper.unmount();
   });
 
-  it('opens the existing detail at the heatmap anchor instead of the selected table date', async () => {
+  it('opens the existing detail at the transition date instead of the selected table date', async () => {
     apiMocks.ranking.mockResolvedValue(ranking('CN'));
     apiMocks.dates.mockResolvedValue({ items: ['2026-08-28'] });
     apiMocks.previewStatus.mockResolvedValue(null);
-    apiMocks.stateHistory.mockResolvedValue({ items: [], dates: [], officialCount: 0, warnings: [] });
+    apiMocks.transitions.mockResolvedValue({ items: [], warnings: [] });
+    apiMocks.breadthHistory.mockResolvedValue({ points: [], dates: [], officialCount: 0, warnings: [] });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
-    const heatmap = wrapper.findComponent({ name: 'TrendStateHeatmap' });
-    heatmap.vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-27', preview: false });
+    const overview = wrapper.findComponent({ name: 'TrendMarketOverview' });
+    overview.vm.$emit('select', { code: '000001.SZ', tradeDate: '2026-08-27', preview: false });
     await flushPromises();
     expect(apiMocks.detail).toHaveBeenLastCalledWith('000001.SZ', 'CN', 60, '2026-08-27');
     expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();

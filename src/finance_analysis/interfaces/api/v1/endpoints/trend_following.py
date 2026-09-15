@@ -23,7 +23,8 @@ from finance_analysis.interfaces.api.deps import require_admin, require_current_
 from finance_analysis.interfaces.api.v1.schemas.trend_following import (  # pragma: allowlist secret
     TrendFollowingPortfolioResponse,
     TrendFollowingRunRequest,
-    TrendStateHistoryResponse,
+    TrendBreadthResponse,
+    TrendTransitionsResponse,
 )
 from finance_analysis.tasks.celery.schedule import (  # pragma: allowlist secret
     JOB_TREND_FOLLOWING_CN,
@@ -211,19 +212,39 @@ def ranking(
     return Response(body, media_type="application/json")
 
 
-@router.get("/state-history", response_model=TrendStateHistoryResponse)
-def state_history(
+@router.get("/breadth-history", response_model=TrendBreadthResponse)
+def breadth_history(
     days: int = Query(default=30, ge=1, le=120),
-    limit: int = Query(default=50, ge=1, le=100),
     as_of: date | None = None,
     include_preview: bool = False,
     _: User = Depends(require_current_user),
     market: Market = "CN",
 ):
-    from finance_analysis.trend_following.state_history import get_state_history
+    from finance_analysis.trend_following.breadth import get_breadth_history
 
     try:
-        return get_state_history(market, days=days, limit=limit, as_of=as_of, include_preview=include_preview)
+        return get_breadth_history(market, days=days, as_of=as_of, include_preview=include_preview)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+
+@router.get("/transitions", response_model=TrendTransitionsResponse)
+def transitions(
+    days: int = Query(default=3, ge=1, le=5),
+    direction: Literal["all", "strengthening", "deteriorating"] = "all",
+    limit: int = Query(default=20, ge=1, le=20),
+    as_of: date | None = None,
+    include_preview: bool = False,
+    _: User = Depends(require_current_user),
+    market: Market = "CN",
+):
+    from finance_analysis.trend_following.breadth import get_transitions
+
+    if days not in (1, 3, 5):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "days must be 1, 3 or 5")
+    try:
+        return get_transitions(market, days=days, direction=direction, limit=limit,
+                               as_of=as_of, include_preview=include_preview)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 

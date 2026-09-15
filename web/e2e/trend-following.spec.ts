@@ -32,6 +32,10 @@ for (const width of [1280, 1440]) {
         let body: object = {};
         if (pathname === '/api/v1/auth/status') {
           body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
+        } else if (pathname.endsWith('/trend-following/breadth-history')) {
+          body = { market: 'CN', points: [], dates: [], officialCount: 0, warnings: [] };
+        } else if (pathname.endsWith('/trend-following/transitions')) {
+          body = { market: 'CN', days: 3, items: [], warnings: [] };
         } else if (pathname.endsWith('/trend-following/dates')) {
           body = { market: 'CN', latest: snapshot.tradeDate, items: [snapshot.tradeDate] };
         } else if (pathname.endsWith('/trend-following/ranking')) {
@@ -98,6 +102,8 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
     const path = new URL(route.request().url()).pathname;
     let body: object = {};
     if (path.endsWith('/auth/status')) body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
+    if (path.endsWith('/breadth-history')) body = { points: [], dates: [], officialCount: 0, warnings: [] };
+    if (path.endsWith('/transitions')) body = { days: 3, items: [], warnings: [] };
     if (path.endsWith('/dates')) body = { items: [snapshot.tradeDate] };
     if (path.endsWith('/preview/status') || path.endsWith('/preview')) { await route.fulfill({ status: 404, json: {} }); return; }
     if (path.endsWith('/ranking')) {

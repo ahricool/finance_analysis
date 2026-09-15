@@ -100,22 +100,3 @@ export const TREND_PREVIEW_CANDIDATE_STATES = new Set([
 export function isTrendPreviewCandidate(item: { state?: string | null; action?: string | null }): boolean {
   return TREND_PREVIEW_CANDIDATE_STATES.has(item.state ?? '') || item.action === 'ADD';
 }
-
-export function diffTrendPreviewChanges<T extends { code: string; state?: string | null; action?: string | null }>(
-  previewItems: T[],
-  officialItems: T[],
-): { newCandidates: PreviewChangeItem<T>[]; newExits: PreviewChangeItem<T>[] } {
-  const officialByCode = new Map(officialItems.map((item) => [item.code, item]));
-  const newCandidates: PreviewChangeItem<T>[] = [];
-  const newExits: PreviewChangeItem<T>[] = [];
-  for (const current of previewItems) {
-    const previous = officialByCode.get(current.code) ?? null;
-    if (current.state === 'CANDIDATE' && previous?.state !== 'CANDIDATE') {
-      newCandidates.push({ current, previous });
-    }
-    if (current.action === 'EXIT' && previous?.action !== 'EXIT') {
-      newExits.push({ current, previous });
-    }
-  }
-  return { newCandidates, newExits };
-}
