@@ -19,9 +19,9 @@ const router = useRouter();
       抱歉，您访问的页面不存在或已被移动
     </p>
 
-    <Button @click="router.push('/analysis')">
+    <Button @click="router.push('/dashboard')">
       <House />
-      返回分析
+      返回动态
     </Button>
   </div>
 </template>

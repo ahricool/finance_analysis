@@ -9,7 +9,7 @@ vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({
 
 describe('login destination', () => {
   it.each([
-    ['/login', '/dashboard'], ['/login?redirect=/analysis', '/analysis'],
+    ['/login', '/dashboard'], ['/login?redirect=/timeline', '/timeline'],
     ['/login?redirect=//outside.example', '/dashboard'],
   ])('routes %s to %s', async (entry, expected) => {
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }] });

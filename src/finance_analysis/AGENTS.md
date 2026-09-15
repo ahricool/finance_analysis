@@ -61,8 +61,6 @@ interfaces/api + tasks/celery/jobs
 | 模块 | 责任 |
 | --- | --- |
 | `auth.py` | 登录两阶段流程、状态、资料、密码、通知设置 |
-| `analysis.py` | 同步/异步个股分析、市场复盘、旧任务状态兼容接口 |
-| `history.py` | 用户分析历史、详情、批量删除、导出 |
 | `stocks.py` | 证券静态信息、实时 Quote、日线历史和 CSV/Excel/文本代码解析 |
 | `watch_list.py` | 用户自选股 CRUD |
 | `calendar.py` | 日历条目和财经事件 |
@@ -80,8 +78,8 @@ REST 修改至少核对 endpoint、schema、前端 `web/src/api/` 与 `tests/tes
 主链：
 
 ```text
-API/Celery
-  → AnalysisService
+Celery
+  → AnalysisService / StockAnalysisTaskService
   → StockAnalysisPipeline
   → PostgreSQL 历史 + Redis/Provider 实时状态 <!-- pragma: allowlist secret -->
   → 技术分析 + 基本面
@@ -91,7 +89,7 @@ API/Celery
 
 关键文件：
 
-- `analysis/service.py`：API 友好的分析门面和响应组装。
+- `analysis/service.py`：任务侧分析门面和结果组装。
 - `analysis/pipeline.py`：数据编排、降级、上下文、LLM 分支、存储、通知。
 - `analysis/history/loader.py`：数据库历史完整性边界。
 - `analysis/technical/`：趋势和指标。
@@ -164,7 +162,7 @@ Alembic：
 - `tasks/celery/jobs/__init__.py`：显式加载的任务包。
 - `tasks/celery/schedule/definitions.py`：所有周期定义。
 - `tasks/celery/schedule/constants.py`：job id、queue、expires。
-- `tasks/queue.py`：API-facing 异步分析提交门面。
+- `tasks/queue.py`：异步分析提交门面，供 Celery 任务与内部调用使用。
 - `tasks/lifecycle.py`：TaskRecord 状态与日志生命周期。
 - `tasks/service.py`：任务中心查询、Beat 状态、管理员手动运行。
 
@@ -239,7 +237,7 @@ Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练�
 
 主测试都在根 `tests/`，命名通常直接映射模块：
 
-- API/鉴权：`test_auth_api.py`、`test_analysis_api_contract.py`、`test_*_api*.py`
+- API/鉴权：`test_auth_api.py`、`test_*_api*.py`
 - 数据库/迁移：`test_*_repository.py`、`test_*_migration.py`
 - 行情：`test_market_data_*.py`、`tests/market_stream/`
 - Celery：`test_celery_*.py`、`test_task_*.py`

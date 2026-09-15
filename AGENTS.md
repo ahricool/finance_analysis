@@ -89,7 +89,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 
 ### 个股分析
 
-1. Web 调 `POST /api/v1/analysis/analyze`；异步请求由 `tasks/queue.py` 发布 Celery 任务，同步请求直接走 `AnalysisService`。
+1. Celery 周期任务（如 `analysis_daily`、盘中/收盘复盘）或 `tasks/queue.py` 发布 `run_stock_analysis`。
 2. `StockAnalysisPipeline` 要求 PostgreSQL 已有目标前复权日线；普通分析不负责补写历史行情。 <!-- pragma: allowlist secret -->
 3. `MarketDataService` 聚合实时 Quote、证券信息及可选基本面；分析还会执行技术指标。
 4. StockReportAnalyzer 构造 prompt，经 LLMClient 调用并解析为 `AnalysisResult`。
@@ -122,8 +122,6 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 所有 `/api/v1/*` 默认由会话中间件保护；认证入口、OpenAPI 与兼容 health 路径的完整豁免表见 `interfaces/api/middlewares/auth.py::EXEMPT_PATHS`。主要路由聚合在 `interfaces/api/v1/router.py`：
 
 - `/auth`：登录、状态、用户资料、密码和通知配置。
-- `/analysis`：同步/异步个股分析、市场复盘及兼容任务查询。
-- `/history`：分析记录、详情、删除和导出。
 - `/stocks`：证券静态信息、实时 Quote、日线历史和 CSV/Excel/文本代码解析。
 - `/watch-list`：用户级自选股 CRUD。
 - `/calendar`：日历记录和财经事件。

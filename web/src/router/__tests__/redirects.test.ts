@@ -12,7 +12,7 @@ describe('legacy URL redirects', () => {
   });
 
   it.each([
-    ['/chat', '/analysis'],
+    ['/chat', '/dashboard'],
     ['/market/quant', '/research/quant'],
     ['/market/quant/signals', '/research/quant/signals'],
     ['/market/quant/signals/NVDA.US', '/research/quant/signals/NVDA.US'],
