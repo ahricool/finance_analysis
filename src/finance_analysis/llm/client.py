@@ -16,6 +16,11 @@ from .types import LLMRequest, LLMResult
 
 logger = logging.getLogger(__name__)
 
+# One stable bigint key for every CLI engine, host, user and worker. PostgreSQL's
+# single-bigint key space is separate from the two-integer task mutex keys.
+CLI_ADVISORY_LOCK_KEY = 0x46415F4C4C4D434C  # ASCII FA_LLMCL
+CLI_LOCK_POLL_SECONDS = 0.1
+
 
 class LLMError(RuntimeError):
     """A safe failure summary; transport exceptions may contain credentials."""
@@ -36,7 +41,6 @@ class LLMClient:
         request_id = uuid.uuid4().hex
         # Timeout is the total call budget, including the optional retry.
         deadline = time.monotonic() + (request.timeout or self.config.timeout)
-        call = api.complete if self.config.backend == "api" else remote_cli.complete
         last_error = "LLM call failed"
         for attempt in range(1, self.config.max_retries + 2):
             remaining = deadline - time.monotonic()
@@ -46,7 +50,10 @@ class LLMClient:
             result = None
             error = None
             try:
-                result = call(self.config, replace(request, timeout=remaining))
+                if self.config.backend == "api":
+                    result = api.complete(self.config, replace(request, timeout=remaining))
+                else:
+                    result = self._complete_cli(request, deadline)
                 if validator:
                     validator(result.text)
             except Exception as exc:
@@ -60,6 +67,49 @@ class LLMClient:
             if error is None:
                 return result
         raise LLMError(last_error) from None
+
+    def _complete_cli(self, request: LLMRequest, deadline: float) -> LLMResult:
+        """Serialize one attempt on a pinned PostgreSQL session, within its budget."""
+        from sqlalchemy import text
+
+        from finance_analysis.database import DatabaseManager
+
+        with DatabaseManager.get_instance().connect() as connection:
+            # No idle transaction while waiting or executing SSH. A session lock
+            # survives autocommit and belongs to this checked-out connection.
+            connection.execution_options(isolation_level="AUTOCOMMIT")
+            acquired = False
+            params = {"key": CLI_ADVISORY_LOCK_KEY}
+            try:
+                while not acquired:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("CLI advisory lock deadline exceeded")
+                    try:
+                        acquired = bool(connection.execute(
+                            text("SELECT pg_try_advisory_lock(:key)"), params,
+                        ).scalar_one())
+                    except BaseException:
+                        # An interrupted query may have acquired the lock on the
+                        # server. Never return that uncertain session to the pool.
+                        connection.invalidate()
+                        raise
+                    if not acquired:
+                        time.sleep(min(CLI_LOCK_POLL_SECONDS, max(0, deadline - time.monotonic())))
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("CLI advisory lock deadline exceeded")
+                return remote_cli.complete(self.config, replace(request, timeout=remaining))
+            finally:
+                if acquired:
+                    try:
+                        if not connection.execute(text("SELECT pg_advisory_unlock(:key)"), params).scalar_one():
+                            raise RuntimeError("CLI advisory lock was lost")
+                    except BaseException:
+                        # close()/rollback alone would leave a session lock in
+                        # the pool. Discard the physical connection on failure.
+                        connection.invalidate()
+                        raise
 
     def _record(self, request, result, request_id, attempt, duration_ms, error):
         config = self.config

@@ -12,6 +12,13 @@
 `num_retries=0`。JSON 校验失败也使用同一个重试预算。`LLM_TIMEOUT`（默认 180 秒）
 是含 retry 的总时间预算，业务可以通过 request.timeout 覆盖。
 
+所有 CLI 请求在 `LLMClient._complete_cli()` 中使用同一把 PostgreSQL session-level advisory lock
+（固定 bigint key `0x46415F4C4C4D434C`），跨 AGY/Codex、用户与进程串行执行。
+每次 attempt 独立获取连接，以 `pg_try_advisory_lock()` 每 0.1 秒轮询；等待计入原 deadline，
+获取锁后仅把剩余 timeout 传给 SSH CLI。获取和 finally 解锁使用同一个连接，期间采用 AUTOCOMMIT，
+不保持空闲事务；锁 SQL 失败会 invalidate 连接，避免持锁连接回到连接池。重试前先释放锁。
+所有实例必须连接同一个 PostgreSQL 数据库；API backend 不获取此锁。
+
 普通分析保留原有交易规则、报告解析、完整性占位补全和通知路径。报告完整性不再发起额外 LLM 请求。
 收盘前复核只输入确定性行情、板块、持仓和已有复核上下文，直接生成 decision；没有新闻研究或新闻覆盖门槛。
 行情完整性门槛、持仓比例约束和模型失败后的保守确定性建议继续保留。
