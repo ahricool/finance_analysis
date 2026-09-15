@@ -14,12 +14,10 @@ from fastapi import APIRouter
 from finance_analysis.interfaces.api.v1.endpoints import (
     notifications,
     crypto,
-    analysis,
     auth,
     timeline,
     celery_demo,
     etf_rotation,
-    history,
     market_data,
     macro,
     quant,
@@ -34,11 +32,6 @@ from finance_analysis.interfaces.api.v1.endpoints import (
 router = APIRouter(prefix="/api/v1")
 
 router.include_router(auth.router, prefix="/auth", tags=["Auth"])
-
-
-router.include_router(analysis.router, prefix="/analysis", tags=["Analysis"])
-
-router.include_router(history.router, prefix="/history", tags=["History"])
 
 router.include_router(stocks.router, prefix="/stocks", tags=["Stocks"])
 

@@ -11,7 +11,7 @@ function createTestRouter() {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div />' } },
-      { path: '/analysis', component: { template: '<div />' } },
+      { path: '/dashboard', component: { template: '<div />' } },
       { path: '/:pathMatch(.*)*', component: { template: '<div />' } },
     ],
   });
@@ -51,7 +51,7 @@ describe('Shell navigation', () => {
       role: 'admin',
       extra: { gender: 'female' },
     };
-    const { wrapper } = await mountShell('/analysis');
+    const { wrapper } = await mountShell('/dashboard');
 
     expect(wrapper.get('button[aria-label="打开用户菜单"]')).toBeTruthy();
     expect(wrapper.find('button[aria-label="切换展示时区"]').exists()).toBe(false);
@@ -80,7 +80,7 @@ describe('Shell navigation', () => {
     expect(researchMenu.attributes('aria-current')).toBe('page');
     expect(researchMenu.classes()).toContain('bg-muted');
     expect(wrapper.get('button[aria-label="市场"]').attributes('aria-current')).toBeUndefined();
-    expect(wrapper.find('[data-testid="desktop-main-nav"] a[aria-label="分析"]').attributes('aria-current')).toBeUndefined();
+    expect(wrapper.find('[data-testid="desktop-main-nav"] a[aria-label="分析"]').exists()).toBe(false);
   });
 
   it.each(['/tasks', '/tasks/runs'])(
@@ -99,15 +99,15 @@ describe('Shell navigation', () => {
       .get('[data-testid="desktop-main-nav"]')
       .findAll('a[aria-label], button[aria-label]')
       .map((node) => node.attributes('aria-label'));
-    expect(labels).toEqual(['动态', '时间线', '研究', '分析', '市场', '任务中心']);
+    expect(labels).toEqual(['动态', '时间线', '研究', '市场', '任务中心']);
     expect(wrapper.text()).not.toContain('问股');
     expect(wrapper.text()).not.toContain('AI');
     wrapper.unmount();
   });
 
-  it('marks analysis as the only active primary destination', async () => {
-    const { wrapper } = await mountShell('/analysis');
-    expect(wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="分析"]').attributes('aria-current')).toBe('page');
+  it('marks dashboard as the only active primary destination', async () => {
+    const { wrapper } = await mountShell('/dashboard');
+    expect(wrapper.get('[data-testid="desktop-main-nav"] a[aria-label="动态"]').attributes('aria-current')).toBe('page');
     expect(wrapper.get('button[aria-label="研究"]').attributes('aria-current')).toBeUndefined();
     expect(wrapper.get('button[aria-label="市场"]').attributes('aria-current')).toBeUndefined();
     wrapper.unmount();
@@ -125,7 +125,7 @@ describe('Shell navigation', () => {
     systemPrefersDark.value = true;
     theme.value = 'system';
     localStorage.setItem('theme', 'system');
-    const { wrapper } = await mountShell('/analysis');
+    const { wrapper } = await mountShell('/dashboard');
 
     await openThemePreference(wrapper);
 
@@ -175,7 +175,7 @@ describe('Shell navigation', () => {
     };
     theme.value = 'light';
     localStorage.setItem('theme', 'light');
-    const { wrapper } = await mountShell('/analysis');
+    const { wrapper } = await mountShell('/dashboard');
 
     await openThemePreference(wrapper);
 

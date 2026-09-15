@@ -12,12 +12,12 @@ describe('main navigation', () => {
       '动态',
       '时间线',
       '研究',
-      '分析',
       '市场',
       '任务中心',
     ]);
     expect(mainNavItems.map((item) => item.key)).not.toContain('chat');
-    expect(mainNavItems.some((item) => item.label === '问股' || item.label === 'AI')).toBe(false);
+    expect(mainNavItems.map((item) => item.key)).not.toContain('analysis');
+    expect(mainNavItems.some((item) => item.label === '问股' || item.label === 'AI' || item.label === '分析')).toBe(false);
     expect(mainNavItems[0]).toMatchObject({ key: 'dashboard', to: '/dashboard', exact: true });
     expect(mainNavItems.find((item) => item.key === 'timeline')).toMatchObject({ to: '/timeline' });
     expect(mainNavItems.find((item) => item.key === 'research')).toMatchObject({
@@ -25,10 +25,7 @@ describe('main navigation', () => {
       activePathPrefix: '/research/',
       children: researchNavItems,
     });
-    expect(mainNavItems.find((item) => item.key === 'analysis')).toMatchObject({
-      to: '/analysis',
-      exact: true,
-    });
+    expect(mainNavItems.find((item) => item.key === 'analysis')).toBeUndefined();
     expect(mainNavItems.find((item) => item.key === 'market')).toMatchObject({
       to: '/market/watch-list',
       activePathPrefix: '/market/',
@@ -49,7 +46,6 @@ describe('main navigation', () => {
       'macro',
       'quant',
       'crypto-btc',
-      'analysis',
       'watch-list',
       'holdings',
       'tasks',

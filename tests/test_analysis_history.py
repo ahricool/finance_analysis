@@ -14,7 +14,7 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 # Keep this test runnable when optional LLM runtime deps are not installed.
 try:
@@ -22,27 +22,10 @@ try:
 except ModuleNotFoundError:
     sys.modules["litellm"] = MagicMock()
 
-try:
-    from fastapi.testclient import TestClient
-    from finance_analysis.interfaces.api.app import create_app
-    from finance_analysis.interfaces.api.v1.endpoints.history import get_history_detail
-except ModuleNotFoundError:
-    TestClient = None
-    create_app = None
-    get_history_detail = None
-
-from types import SimpleNamespace
-
-from finance_analysis.users.auth import COOKIE_NAME, create_session
-from finance_analysis.database.repositories.user import DEFAULT_ADMIN_EMAIL, UserRepository
 from finance_analysis.database import DatabaseManager, AnalysisHistory
 from finance_analysis.analysis.stock_report_analyzer import AnalysisResult
 from finance_analysis.analysis.history.service import HistoryService
 
-
-def _fake_request():
-    """Minimal request stub for direct endpoint calls (no scoped uid → admin scope)."""
-    return SimpleNamespace(state=SimpleNamespace())
 
 class AnalysisHistoryTestCase(unittest.TestCase):
     """分析历史存储测试"""
@@ -66,12 +49,6 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         DatabaseManager.reset_instance()
         os.environ.pop("SECRET_KEY", None)
         self._temp_dir.cleanup()
-
-    def _auth_cookies(self) -> dict[str, str]:
-        user = UserRepository(self.db).get_by_email(DEFAULT_ADMIN_EMAIL)
-        if user is None:
-            self.fail("default admin user was not initialized")
-        return {COOKIE_NAME: create_session(uid=user.id)}
 
     def _build_result(self) -> AnalysisResult:
         """构造分析结果"""
@@ -212,115 +189,6 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         self.assertIsNotNone(detail)
         self.assertIsNone(detail.get("model_used"))
 
-    def test_history_detail_preserves_zero_change_pct(self) -> None:
-        """change_pct=0.0（平盘）应原样返回，而不是被当成缺失值丢失。
-
-        Regression for issue #1084: history endpoint used `or` chains that
-        treated 0.0 as falsy and silently dropped the daily change.
-        """
-        if get_history_detail is None:
-            self.skipTest("fastapi is not installed in this test environment")
-
-        context_snapshot = {
-            "enhanced_context": {
-                "realtime": {"price": 100.0, "change_pct": 0.0},
-            }
-        }
-        query_id = "query_change_pct_zero"
-        saved = self.db.save_analysis_history(
-            result=self._build_result(),
-            query_id=query_id,
-            report_type="simple",
-            news_content="新闻摘要",
-            context_snapshot=context_snapshot,
-            save_snapshot=True,
-        )
-        self.assertEqual(saved, 1)
-
-        with self.db.get_session() as session:
-            row = session.query(AnalysisHistory).filter(AnalysisHistory.query_id == query_id).first()
-            if row is None:
-                self.fail("未找到保存的历史记录")
-            record_id = row.id
-
-        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
-        self.assertEqual(report.meta.current_price, 100.0)
-        self.assertEqual(report.meta.change_pct, 0.0)
-
-    def test_history_detail_falls_back_to_realtime_quote_raw_change_pct(self) -> None:
-        """缺少 enhanced_context.realtime.change_pct 时，应回退到 realtime_quote_raw。
-
-        Regression for issue #1084: previously the realtime_quote_raw fallback
-        was only consulted when current_price was missing, so reports with
-        price-only enhanced_context lost their change_pct entirely.
-        """
-        if get_history_detail is None:
-            self.skipTest("fastapi is not installed in this test environment")
-
-        context_snapshot = {
-            "enhanced_context": {
-                "realtime": {"price": 200.0},
-            },
-            "realtime_quote_raw": {"change_pct": 1.23},
-        }
-        query_id = "query_change_pct_fallback"
-        saved = self.db.save_analysis_history(
-            result=self._build_result(),
-            query_id=query_id,
-            report_type="simple",
-            news_content="新闻摘要",
-            context_snapshot=context_snapshot,
-            save_snapshot=True,
-        )
-        self.assertEqual(saved, 1)
-
-        with self.db.get_session() as session:
-            row = session.query(AnalysisHistory).filter(AnalysisHistory.query_id == query_id).first()
-            if row is None:
-                self.fail("未找到保存的历史记录")
-            record_id = row.id
-
-        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
-        self.assertEqual(report.meta.current_price, 200.0)
-        self.assertEqual(report.meta.change_pct, 1.23)
-
-    def test_history_detail_ignores_non_dict_realtime_quote_raw(self) -> None:
-        """GET /api/v1/history/{id} should tolerate truthy non-dict realtime_quote_raw."""
-        if TestClient is None or create_app is None:
-            self.skipTest("fastapi is not installed in this test environment")
-
-        context_snapshot = {
-            "enhanced_context": {
-                "realtime": {"price": 300.0},
-            },
-            "realtime_quote_raw": "not-a-dict",
-        }
-        query_id = "query_change_pct_non_dict_raw"
-        saved = self.db.save_analysis_history(
-            result=self._build_result(),
-            query_id=query_id,
-            report_type="simple",
-            news_content="新闻摘要",
-            context_snapshot=context_snapshot,
-            save_snapshot=True,
-        )
-        self.assertEqual(saved, 1)
-
-        with self.db.get_session() as session:
-            row = session.query(AnalysisHistory).filter(AnalysisHistory.query_id == query_id).first()
-            if row is None:
-                self.fail("未找到保存的历史记录")
-            record_id = row.id
-
-        client = TestClient(create_app())
-
-        response = client.get(f"/api/v1/history/{record_id}", cookies=self._auth_cookies())
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual(payload["meta"]["current_price"], 300.0)
-        self.assertIsNone(payload["meta"]["change_pct"])
-
     def test_history_detail_accepts_dict_raw_result(self) -> None:
         """_record_to_detail_dict should handle dict raw_result without json.loads errors."""
         result = self._build_result()
@@ -419,155 +287,17 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         self.assertEqual(detail.get("stop_loss"), "110.0")
         self.assertEqual(detail.get("take_profit"), "150.0")
 
-    def test_history_detail_uses_fundamental_snapshot_fallback_when_context_missing(self) -> None:
-        """When context_snapshot is disabled, detail API should fallback to fundamental_snapshot."""
-        if get_history_detail is None:
-            self.skipTest("fastapi is not installed in this test environment")
+    def test_delete_history_records_removes_only_selected(self) -> None:
+        """HistoryService should delete only the requested records."""
+        record_id_1 = self._save_history("query_delete_api_001")
+        record_id_2 = self._save_history("query_delete_api_002")
 
-        result = self._build_result()
-        query_id = "query_fundamental_fallback_001"
-        saved = self.db.save_analysis_history(
-            result=result,
-            query_id=query_id,
-            report_type="simple",
-            news_content="新闻摘要",
-            context_snapshot=None,
-            save_snapshot=False,
-        )
-        self.assertEqual(saved, 1)
-
-        self.db.save_fundamental_snapshot(
-            query_id=query_id,
-            code="600519",
-            payload={
-                "belong_boards": [{"name": "白酒", "type": "行业"}],
-                "boards": {
-                    "data": {
-                        "top": [{"name": "白酒", "change_pct": 2.6}],
-                        "bottom": [],
-                    }
-                },
-                "earnings": {
-                    "data": {
-                        "financial_report": {"report_date": "2025-12-31", "revenue": 1000},
-                        "dividend": {"ttm_dividend_yield_pct": 2.6, "ttm_cash_dividend_per_share": 1.3},
-                    }
-                }
-            },
-        )
+        deleted = HistoryService(self.db).delete_history_records([record_id_1])
+        self.assertEqual(deleted, 1)
 
         with self.db.get_session() as session:
-            row = session.query(AnalysisHistory).filter(AnalysisHistory.query_id == query_id).first()
-            if row is None:
-                self.fail("未找到保存的历史记录")
-            record_id = row.id
-
-        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
-        self.assertEqual(report.details.financial_report["report_date"], "2025-12-31")
-        self.assertEqual(report.details.dividend_metrics["ttm_dividend_yield_pct"], 2.6)
-        self.assertEqual(report.details.belong_boards, [{"name": "白酒", "type": "行业"}])
-        self.assertEqual(report.details.sector_rankings["top"][0]["name"], "白酒")
-
-    def test_history_detail_preserves_unavailable_board_rankings_state(self) -> None:
-        """Failed board ranking blocks should remain unavailable in detail response."""
-        if get_history_detail is None:
-            self.skipTest("fastapi is not installed in this test environment")
-
-        query_id = "query_fundamental_failed_boards_001"
-        saved = self.db.save_analysis_history(
-            result=self._build_result(),
-            query_id=query_id,
-            report_type="simple",
-            news_content="新闻摘要",
-            context_snapshot=None,
-            save_snapshot=False,
-        )
-        self.assertEqual(saved, 1)
-
-        fallback_fundamental = {
-            "belong_boards": [{"name": "白酒", "type": "行业"}],
-            "boards": {
-                "status": "failed",
-                "data": {},
-            },
-        }
-        saved_snapshot = self.db.save_fundamental_snapshot(
-            query_id=query_id,
-            code="600519",
-            payload=fallback_fundamental,
-        )
-        self.assertEqual(saved_snapshot, 1)
-
-        with self.db.get_session() as session:
-            row = session.query(AnalysisHistory).filter(AnalysisHistory.query_id == query_id).first()
-            if row is None:
-                self.fail("未找到保存的历史记录")
-            record_id = row.id
-
-        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
-        self.assertEqual(report.details.belong_boards, [{"name": "白酒", "type": "行业"}])
-        self.assertIsNone(report.details.sector_rankings)
-
-    def test_history_detail_returns_null_fundamental_fields_when_snapshot_absent(self) -> None:
-        """Detail API should keep new fields nullable when no context/fundamental snapshot exists."""
-        if get_history_detail is None:
-            self.skipTest("fastapi is not installed in this test environment")
-
-        query_id = "query_fundamental_fallback_002"
-        saved = self.db.save_analysis_history(
-            result=self._build_result(),
-            query_id=query_id,
-            report_type="simple",
-            news_content="新闻摘要",
-            context_snapshot=None,
-            save_snapshot=False,
-        )
-        self.assertEqual(saved, 1)
-
-        with self.db.get_session() as session:
-            row = session.query(AnalysisHistory).filter(AnalysisHistory.query_id == query_id).first()
-            if row is None:
-                self.fail("未找到保存的历史记录")
-            record_id = row.id
-
-        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
-        self.assertIsNone(report.details.financial_report)
-        self.assertIsNone(report.details.dividend_metrics)
-        self.assertEqual(report.details.belong_boards, [])
-        self.assertIsNone(report.details.sector_rankings)
-
-    def test_history_detail_returns_empty_related_boards_for_non_cn(self) -> None:
-        if get_history_detail is None:
-            self.skipTest("fastapi is not installed in this test environment")
-
-        result = AnalysisResult(
-            code="AAPL",
-            name="Apple",
-            sentiment_score=65,
-            trend_prediction="Bullish",
-            operation_advice="Hold",
-            analysis_summary="US stock test",
-        )
-        query_id = "query_non_cn_board_001"
-        saved = self.db.save_analysis_history(
-            result=result,
-            query_id=query_id,
-            report_type="simple",
-            news_content="news",
-            context_snapshot=None,
-            save_snapshot=False,
-        )
-        self.assertEqual(saved, 1)
-
-        with self.db.get_session() as session:
-            row = session.query(AnalysisHistory).filter(AnalysisHistory.query_id == query_id).first()
-            if row is None:
-                self.fail("未找到保存的历史记录")
-            record_id = row.id
-
-        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
-        self.assertEqual(report.details.belong_boards, [])
-        self.assertIsNone(report.details.sector_rankings)
+            self.assertIsNone(session.query(AnalysisHistory).filter(AnalysisHistory.id == record_id_1).first())
+            self.assertIsNotNone(session.query(AnalysisHistory).filter(AnalysisHistory.id == record_id_2).first())
 
     def test_history_markdown_localizes_english_report_and_placeholder_name(self) -> None:
         """History markdown should preserve report_language for English reports."""
@@ -626,47 +356,6 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         self.assertIn("Unnamed Stock (AAPL)", markdown)
         self.assertNotIn("核心结论", markdown)
 
-    def test_history_detail_localizes_english_summary_fields(self) -> None:
-        """History detail should localize summary enums for English reports."""
-        if get_history_detail is None:
-            self.skipTest("fastapi is not installed in this test environment")
-
-        result = AnalysisResult(
-            code="AAPL",
-            name="股票AAPL",
-            sentiment_score=78,
-            trend_prediction="看多",
-            operation_advice="买入",
-            analysis_summary="Momentum remains constructive.",
-            report_language="en",
-        )
-
-        saved = self.db.save_analysis_history(
-            result=result,
-            query_id="query_english_detail_001",
-            report_type="full",
-            news_content="news",
-            context_snapshot=None,
-            save_snapshot=False,
-        )
-        self.assertEqual(saved, 1)
-
-        with self.db.get_session() as session:
-            row = session.query(AnalysisHistory).filter(
-                AnalysisHistory.query_id == "query_english_detail_001"
-            ).first()
-            if row is None:
-                self.fail("未找到保存的历史记录")
-            record_id = row.id
-
-        report = get_history_detail(str(record_id), _fake_request(), db_manager=self.db)
-
-        self.assertEqual(report.meta.report_language, "en")
-        self.assertEqual(report.meta.stock_name, "Unnamed Stock")
-        self.assertEqual(report.summary.operation_advice, "Buy")
-        self.assertEqual(report.summary.trend_prediction, "Bullish")
-        self.assertEqual(report.summary.sentiment_label, "Bullish")
-
     def test_history_markdown_uses_safe_bias_emoji_for_english_status(self) -> None:
         """English bias status should keep the correct non-risk emoji in markdown."""
         result = AnalysisResult(
@@ -716,94 +405,6 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         self.assertIsNotNone(markdown)
         self.assertIn("✅Safe", markdown)
         self.assertNotIn("🚨Safe", markdown)
-
-    def test_delete_history_api_deletes_selected_records(self) -> None:
-        """DELETE /api/v1/history should remove only the requested records."""
-        if TestClient is None or create_app is None:
-            self.skipTest("fastapi is not installed in this test environment")
-
-        record_id_1 = self._save_history("query_delete_api_001")
-        record_id_2 = self._save_history("query_delete_api_002")
-
-        client = TestClient(create_app())
-
-        response = client.request(
-            "DELETE",
-            "/api/v1/history",
-            json={"record_ids": [record_id_1]},
-            cookies=self._auth_cookies(),
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json().get("deleted"), 1)
-
-        with self.db.get_session() as session:
-            self.assertIsNone(session.query(AnalysisHistory).filter(AnalysisHistory.id == record_id_1).first())
-            self.assertIsNotNone(session.query(AnalysisHistory).filter(AnalysisHistory.id == record_id_2).first())
-
-
-class HistoryItemSchemaNegativeSentimentTest(unittest.TestCase):
-    """Regression: HistoryItem / ReportSummary must accept out-of-range sentiment_score from DB rows."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        """Import schema classes once for all tests, skipping gracefully when deps are missing."""
-        try:
-            from finance_analysis.interfaces.api.v1.schemas.history import HistoryItem, ReportSummary  # type: ignore
-        except ModuleNotFoundError:
-            cls.HistoryItem = None
-            cls.ReportSummary = None
-        else:
-            cls.HistoryItem = HistoryItem
-            cls.ReportSummary = ReportSummary
-
-    def test_negative_sentiment_score_does_not_raise(self) -> None:
-        """Bug #942: sentiment_score=-22 in DB should not cause Pydantic ValidationError."""
-        if self.HistoryItem is None:
-            self.skipTest("fastapi / pydantic not installed in this test environment")
-
-        item = self.HistoryItem(query_id="q1", stock_code="600519", sentiment_score=-22)
-        self.assertEqual(item.sentiment_score, -22)
-
-    def test_out_of_range_high_sentiment_score_does_not_raise(self) -> None:
-        """HistoryItem should also accept scores above 100 from legacy data."""
-        if self.HistoryItem is None:
-            self.skipTest("fastapi / pydantic not installed in this test environment")
-
-        item = self.HistoryItem(query_id="q2", stock_code="600519", sentiment_score=150)
-        self.assertEqual(item.sentiment_score, 150)
-
-    def test_none_sentiment_score_is_allowed(self) -> None:
-        """HistoryItem.sentiment_score=None should still be valid (optional field)."""
-        if self.HistoryItem is None:
-            self.skipTest("fastapi / pydantic not installed in this test environment")
-
-        item = self.HistoryItem(query_id="q3", stock_code="600519", sentiment_score=None)
-        self.assertIsNone(item.sentiment_score)
-
-    def test_report_summary_negative_sentiment_score_does_not_raise(self) -> None:
-        """ReportSummary.sentiment_score should also accept negative values from legacy DB rows."""
-        if self.ReportSummary is None:
-            self.skipTest("fastapi / pydantic not installed in this test environment")
-
-        summary = self.ReportSummary(sentiment_score=-22)
-        self.assertEqual(summary.sentiment_score, -22)
-
-    def test_report_summary_out_of_range_high_sentiment_score_does_not_raise(self) -> None:
-        """ReportSummary.sentiment_score should also accept scores above 100 from legacy data."""
-        if self.ReportSummary is None:
-            self.skipTest("fastapi / pydantic not installed in this test environment")
-
-        summary = self.ReportSummary(sentiment_score=150)
-        self.assertEqual(summary.sentiment_score, 150)
-
-    def test_report_summary_none_sentiment_score_is_allowed(self) -> None:
-        """ReportSummary.sentiment_score=None should still be valid (optional field)."""
-        if self.ReportSummary is None:
-            self.skipTest("fastapi / pydantic not installed in this test environment")
-
-        summary = self.ReportSummary(sentiment_score=None)
-        self.assertIsNone(summary.sentiment_score)
 
 
 if __name__ == "__main__":
