@@ -158,7 +158,7 @@ class TestAnalyzerSchemaFallback(unittest.TestCase):
 
     def test_parse_text_response_honors_injected_runtime_report_language(self) -> None:
         """Fallback text parsing should use the analyzer's injected config, not the global singleton."""
-        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
+        with patch("finance_analysis.analysis.stock_report_analyzer.get_pipeline_config"):
             analyzer = StockReportAnalyzer(config=SimpleNamespace(report_language="en"))
 
         result = analyzer._parse_text_response("bullish buy setup", "AAPL", "Apple")

@@ -23,10 +23,6 @@ class PreCloseReviewConfig:
     sector_ranking_scan_limit: int = 100
     max_candidates: int = 6
     max_board_lookups: int = 20
-    max_news_entities: int = 10
-    max_news_items_per_entity: int = 3
-    web_llm_timeout_seconds: int = 180
-    web_llm_attempts: int = 2
     task_time_limit_seconds: int = 10 * 60
     task_completion_reserve_seconds: int = 30
     recent_result_count: int = 3

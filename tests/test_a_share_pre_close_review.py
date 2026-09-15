@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from finance_analysis.llm.config import LLMConfig
+
 
 import inspect
 import json
@@ -17,7 +19,7 @@ from finance_analysis.tasks.celery.jobs.a_share_pre_close_review.data_source imp
     ALLOWED_DATA_SOURCES,
     ASharePreCloseDataSource,
 )
-from finance_analysis.tasks.celery.jobs.a_share_pre_close_review.llm import ASharePreCloseWebLLM
+from finance_analysis.tasks.celery.jobs.a_share_pre_close_review.llm import ASharePreCloseLLM
 from finance_analysis.tasks.celery.jobs.a_share_pre_close_review.reporter import render_notification
 from finance_analysis.tasks.celery.jobs.a_share_pre_close_review.service import ASharePreCloseReviewService
 from finance_analysis.tasks.lifecycle import TaskSkipped
@@ -37,8 +39,6 @@ def _limits(**overrides):
         "sector_ranking_scan_limit": 4,
         "max_candidates": 2,
         "max_board_lookups": 10,
-        "max_news_entities": 4,
-        "web_llm_attempts": 1,
     }
     values.update(overrides)
     return PreCloseReviewConfig(**values)
@@ -129,7 +129,7 @@ class FakeDataSource:
         return ["电子"]
 
 
-class FakeWebClient:
+class FakeLLMClient:
     def __init__(self, *, fail=False, action="reduce", include_share_count=False, malformed_final=False):
         self.fail = fail
         self.action = action
@@ -137,35 +137,10 @@ class FakeWebClient:
         self.malformed_final = malformed_final
         self.requests = []
 
-    def complete_json(self, request):
+    def complete_text(self, request, validator=None):
         self.requests.append(request)
         if self.fail:
             raise RuntimeError("web llm down")
-        if request.call_type == "a_share_pre_close_news":
-            payload = json.loads(request.messages[1]["content"].split("输入：", 1)[1])
-            return SimpleNamespace(
-                text=json.dumps(
-                    {
-                        "items": [
-                            {
-                                "entity_key": item["key"],
-                                "summary": "近期消息已核对",
-                                "impact": "neutral",
-                                "coverage": "complete",
-                                "sources": [
-                                    {
-                                        "title": "示例新闻",
-                                        "url": "https://example.com/news",
-                                        "published_at": "2026-06-23",
-                                    }
-                                ],
-                            }
-                            for item in payload["entities"]
-                        ]
-                    },
-                    ensure_ascii=False,
-                )
-            )
         if self.malformed_final:
             return SimpleNamespace(text="not-json")
         rationale = "建议卖出100股" if self.include_share_count else "相对板块走弱，控制尾盘风险"
@@ -236,13 +211,13 @@ def _holding():
 
 def _service(*, data=None, client=None, reporter=None, limits=None, recent_results=None):
     limits = limits or _limits()
-    client = client or FakeWebClient()
-    web_llm = ASharePreCloseWebLLM(SimpleNamespace(), limits, client=client)
+    client = client or FakeLLMClient()
+    llm = ASharePreCloseLLM(SimpleNamespace(llm=LLMConfig()), limits, client=client)
     return ASharePreCloseReviewService(
         config=SimpleNamespace(),
         limits=limits,
         data_source=data or FakeDataSource(),
-        web_llm=web_llm,
+        llm=llm,
         reporter=reporter or FakeReporter(),
         holdings_provider=lambda: [_holding()],
         recent_results_provider=lambda: recent_results
@@ -253,7 +228,6 @@ def _service(*, data=None, client=None, reporter=None, limits=None, recent_resul
                 "strong_sectors": [{"name": "电子"}],
             }
         ],
-        existing_news_provider=lambda entities: [],
     )
 
 
@@ -304,7 +278,7 @@ def test_data_source_is_explicitly_a_share_only_through_service():
 
 def test_stale_quotes_force_low_confidence_and_only_safe_actions():
     stale = FakeDataSource(snapshot_time=NOW, quote_time=NOW - timedelta(minutes=30))
-    client = FakeWebClient(action="add_on_condition")
+    client = FakeLLMClient(action="add_on_condition")
     summary = _service(data=stale, client=client).run(now=NOW)
 
     assert summary.data_quality.fresh_quotes is False
@@ -313,60 +287,20 @@ def test_stale_quotes_force_low_confidence_and_only_safe_actions():
     assert summary.decision["candidates"] == []
 
 
-def test_web_llm_only_receives_bounded_final_entities():
-    client = FakeWebClient()
-    summary = _service(client=client, limits=_limits(max_news_entities=4)).run(now=NOW)
-
-    news_requests = [item for item in client.requests if item.call_type == "a_share_pre_close_news"]
-    decision_requests = [item for item in client.requests if item.call_type == "a_share_pre_close_decision"]
-    assert len(news_requests) == 1
-    assert len(decision_requests) == 1
-    assert all(item.provider == "llm_web" for item in client.requests)
-    assert news_requests[0].timeout == 180
-    payload = json.loads(news_requests[0].messages[1]["content"].split("输入：", 1)[1])
-    assert len(payload["entities"]) == 4
-    assert summary.llm_calls == 2
-
-
-def test_each_web_llm_stage_retries_at_most_once():
-    client = FakeWebClient(fail=True)
-    summary = _service(client=client, limits=_limits(web_llm_attempts=2)).run(now=NOW)
-
-    news_requests = [item for item in client.requests if item.call_type == "a_share_pre_close_news"]
-    decision_requests = [item for item in client.requests if item.call_type == "a_share_pre_close_decision"]
-    assert len(news_requests) == 2
-    assert len(decision_requests) == 2
-    assert summary.llm_calls == 4
-    assert summary.fallback_used is True
-
-
-def test_web_llm_stops_retrying_when_task_budget_is_exhausted(monkeypatch):
-    client = FakeWebClient(fail=True)
-    limits = _limits(web_llm_attempts=2)
-    web_llm = ASharePreCloseWebLLM(SimpleNamespace(), limits, client=client)
-    monkeypatch.setattr(
-        "finance_analysis.tasks.celery.jobs.a_share_pre_close_review.llm.time.monotonic",
-        iter([0.0, 181.0]).__next__,
-    )
-    warnings = []
-
-    result = web_llm.research_news(
-        [{"key": "market:cn", "type": "market", "name": "A股市场", "code": ""}],
-        [],
-        trading_date="2026-06-23",
-        warnings=warnings,
-        deadline=180.0,
-    )
-
-    assert result == []
+def test_llm_receives_one_deterministic_decision_request():
+    client = FakeLLMClient()
+    _service(client=client).run(now=NOW)
     assert len(client.requests) == 1
-    assert client.requests[0].timeout == 180
-    assert any("时间预算已耗尽" in item for item in warnings)
+    request = client.requests[0]
+    assert request.call_type == "a_share_pre_close_decision"
+    payload = json.loads(request.prompt.split("输入：", 1)[1])
+    assert "news_research" not in payload
+    assert "market" in payload and "holdings" in payload
 
 
-def test_web_llm_failure_still_completes_with_fallback():
+def test_llm_failure_still_completes_with_fallback():
     reporter = FakeReporter()
-    summary = _service(client=FakeWebClient(fail=True), reporter=reporter).run(now=NOW)
+    summary = _service(client=FakeLLMClient(fail=True), reporter=reporter).run(now=NOW)
 
     assert summary.fallback_used is True
     assert {item["action"] for item in summary.decision["holdings"]} <= {"maintain", "watch"}
@@ -375,7 +309,7 @@ def test_web_llm_failure_still_completes_with_fallback():
 
 
 def test_malformed_final_llm_output_uses_validated_fallback():
-    summary = _service(client=FakeWebClient(malformed_final=True)).run(now=NOW)
+    summary = _service(client=FakeLLMClient(malformed_final=True)).run(now=NOW)
 
     assert summary.fallback_used is True
     assert {item["action"] for item in summary.decision["holdings"]} <= {"maintain", "watch"}
@@ -390,7 +324,7 @@ def test_notification_failure_does_not_fail_review_or_retry_send():
 
 
 def test_advice_uses_percentages_and_rejects_specific_share_counts():
-    summary = _service(client=FakeWebClient(include_share_count=True)).run(now=NOW)
+    summary = _service(client=FakeLLMClient(include_share_count=True)).run(now=NOW)
     advice = summary.decision["holdings"][0]
     notification = render_notification(summary)
 

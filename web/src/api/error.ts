@@ -1,11 +1,8 @@
 import axios from 'axios';
 
 export type ApiErrorCategory =
-  | 'agent_disabled'
   | 'missing_params'
   | 'llm_not_configured'
-  | 'model_tool_incompatible'
-  | 'invalid_tool_call'
   | 'upstream_llm_400'
   | 'upstream_timeout'
   | 'upstream_network'
@@ -299,16 +296,6 @@ export function parseApiError(error: unknown): ParsedApiError {
     ?? '请求未成功完成，请稍后重试。';
   const matchText = buildMatchText([rawMessage, errorMessage, causeMessage, code, errorCode, response?.statusText]);
 
-  if (includesAny(matchText, ['agent mode is not enabled', 'agent_mode'])) {
-    return createParsedApiError({
-      title: 'Agent 模式未开启',
-      message: '当前功能依赖 Agent 模式，请先开启后再重试。',
-      rawMessage,
-      status,
-      category: 'agent_disabled',
-    });
-  }
-
   const hasStockCodeField = includesAny(matchText, ['stock_code', 'stock_codes']);
   const hasMissingParamText = includesAny(matchText, ['必须提供 stock_code 或 stock_codes', 'missing', 'required']);
   if (hasStockCodeField && hasMissingParamText) {
@@ -321,53 +308,19 @@ export function parseApiError(error: unknown): ParsedApiError {
     });
   }
 
-  const noConfiguredLlm = (
-    includesAny(matchText, ['all llm models failed']) && includesAny(matchText, ['last error: none'])
-  ) || includesAny(matchText, [
+  const noConfiguredLlm = includesAny(matchText, [
     'no llm configured',
-    'no effective primary model configured',
-    'litellm_model not configured',
+    'selected llm backend is not configured',
+
     'ai analysis will be unavailable',
   ]);
   if (noConfiguredLlm) {
     return createParsedApiError({
       title: '系统没有配置可用的 LLM 模型',
-      message: '请先在系统设置中配置主模型、可用渠道或相关 API Key 后再重试。',
+      message: '请配置所选 LLM backend 所需的模型和凭据后再重试。',
       rawMessage,
       status,
       category: 'llm_not_configured',
-    });
-  }
-
-  if (includesAny(matchText, [
-    'tool call',
-    'function call',
-    'does not support tools',
-    'tools is not supported',
-    'reasoning',
-  ])) {
-    return createParsedApiError({
-      title: '当前模型不兼容工具调用',
-      message: '当前模型不适合 Agent / 工具调用场景，请更换支持工具调用的模型后重试。',
-      rawMessage,
-      status,
-      category: 'model_tool_incompatible',
-    });
-  }
-
-  if (includesAny(matchText, [
-    'thought_signature',
-    'missing function',
-    'missing tool',
-    'invalid tool call',
-    'invalid function call',
-  ])) {
-    return createParsedApiError({
-      title: '上游模型返回的数据结构不完整',
-      message: '上游模型返回的工具调用结构不符合要求，请更换模型或关闭相关推理模式后重试。',
-      rawMessage,
-      status,
-      category: 'invalid_tool_call',
     });
   }
 

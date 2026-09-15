@@ -1,207 +1,127 @@
-# -*- coding: utf-8 -*-
-"""Unit tests for LLM usage tracking (storage + analyzer helper)."""
+"""Usage persistence and destructive schema migration on isolated test data."""
 
-import sys
+import importlib.util
 import os
-import unittest
-from datetime import datetime, timedelta
+from contextlib import contextmanager
+from datetime import timedelta
+from pathlib import Path
+from uuid import uuid4
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import pytest
+import sqlalchemy as sa
+from sqlalchemy.orm import Session
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 
-from sqlalchemy import text
-
-from finance_analysis.database import DatabaseManager, LLMUsage, persist_llm_usage
-
-
-def _fresh_db() -> DatabaseManager:
-    """Return a DatabaseManager connected to the test PostgreSQL database."""
-    DatabaseManager.reset_instance()
-    db_url = os.environ.get("DATABASE_URL", "").strip()
-    if not db_url:
-        raise RuntimeError("DATABASE_URL must be set for LLM usage tests")
-    db = DatabaseManager(db_url=db_url)
-    with db._engine.begin() as conn:
-        conn.execute(text("DELETE FROM llm_usage"))
-    return db
+from finance_analysis.core.time import utc_now
+from finance_analysis.database.models import LLMUsage
+from finance_analysis.database.repositories.llm_usage import LLMUsageMixin
 
 
-class TestRecordLLMUsage(unittest.TestCase):
-    def setUp(self):
-        self.db = _fresh_db()
+class Store(LLMUsageMixin):
+    def __init__(self):
+        self.engine = sa.create_engine("sqlite://")
+        LLMUsage.__table__.create(self.engine)
 
-    def tearDown(self):
-        DatabaseManager.reset_instance()
+    @contextmanager
+    def session_scope(self):
+        with Session(self.engine) as session, session.begin():
+            yield session
 
-    def test_record_single_row(self):
-        self.db.record_llm_usage(
-            call_type="analysis",
-            model="gemini/gemini-2.5-flash",
-            prompt_tokens=100,
-            completion_tokens=200,
-            total_tokens=300,
-            stock_code="600519",
-        )
-        with self.db.session_scope() as session:
-            rows = session.query(LLMUsage).all()
-            self.assertEqual(len(rows), 1)
-            row = rows[0]
-            self.assertEqual(row.call_type, "analysis")
-            self.assertEqual(row.model, "gemini/gemini-2.5-flash")
-            self.assertEqual(row.stock_code, "600519")
-            self.assertEqual(row.prompt_tokens, 100)
-            self.assertEqual(row.completion_tokens, 200)
-            self.assertEqual(row.total_tokens, 300)
 
-    def test_record_without_stock_code(self):
-        self.db.record_llm_usage(
-            call_type="market_review",
-            model="openai/gpt-4o",
-            prompt_tokens=50,
-            completion_tokens=150,
-            total_tokens=200,
-        )
-        with self.db.session_scope() as session:
-            rows = session.query(LLMUsage).all()
-            self.assertEqual(len(rows), 1)
-            self.assertIsNone(rows[0].stock_code)
+def test_usage_keeps_failed_attempts_and_uid_scope():
+    store = Store()
+    store.record_llm_usage(
+        uid=1,
+        call_type="analysis",
+        backend="api",
+        engine=None,
+        model="test",
+        status="success",
+        input_tokens=2,
+        output_tokens=3,
+        total_tokens=5,
+    )
+    store.record_llm_usage(
+        uid=2,
+        call_type="generic",
+        backend="cli",
+        engine="agy",
+        model=None,
+        status="failed",
+        error="x" * 900,
+    )
+    now = utc_now()
+    scoped = store.get_llm_usage_summary(now - timedelta(days=1), now, uid=1)
+    assert scoped["total_calls"] == 1 and scoped["total_tokens"] == 5
+    scoped = store.get_llm_usage_summary(now - timedelta(days=1), now, uid=2)
+    assert scoped["total_calls"] == 1 and scoped["total_tokens"] == 0
+    assert scoped["by_model"][0]["model"] == "unknown"
+    with store.session_scope() as session:
+        row = session.scalars(sa.select(LLMUsage).where(LLMUsage.uid == 2)).one()
+        assert row.backend == "cli" and row.engine == "agy" and len(row.error) == 500
+    store.engine.dispose()
 
-    def test_record_multiple_rows(self):
-        for i in range(5):
-            self.db.record_llm_usage(
-                call_type="agent",
-                model="gemini/gemini-2.5-flash",
-                prompt_tokens=10 * i,
-                completion_tokens=20 * i,
-                total_tokens=30 * i,
+
+def test_migration_postgresql(monkeypatch):
+    url = os.getenv("LLM_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("LLM_TEST_DATABASE_URL must point to an isolated test database")
+    engine = sa.create_engine(url)
+    schema = "llm_test_" + uuid4().hex
+    path = Path(__file__).resolve().parents[1] / "alembic/versions/0052_simplify_llm.py"
+    spec = importlib.util.spec_from_file_location("llm_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    try:
+        with engine.begin() as connection:
+            connection.execute(sa.text(f'CREATE SCHEMA "{schema}"'))
+            connection.execute(sa.text(f'SET LOCAL search_path TO "{schema}"'))
+            connection.execute(sa.text("CREATE TABLE conversation_messages (id INTEGER PRIMARY KEY, content TEXT)"))
+            connection.execute(sa.text("INSERT INTO conversation_messages VALUES (1, 'old chat')"))
+            connection.execute(
+                sa.text("""CREATE TABLE llm_usage (
+                id SERIAL PRIMARY KEY, uid INTEGER, call_type VARCHAR(32) NOT NULL, model VARCHAR(128) NOT NULL,
+                stock_code VARCHAR(16), prompt_tokens INTEGER NOT NULL, completion_tokens INTEGER NOT NULL,
+                total_tokens INTEGER NOT NULL, called_at TIMESTAMPTZ)""")
             )
-        with self.db.session_scope() as session:
-            count = session.query(LLMUsage).count()
-        self.assertEqual(count, 5)
-
-
-class TestGetLLMUsageSummary(unittest.TestCase):
-    def setUp(self):
-        self.db = _fresh_db()
-        now = datetime.now()
-        yesterday = now - timedelta(days=1)
-
-        # 3 analysis calls today
-        for _ in range(3):
-            row = LLMUsage(
-                call_type="analysis",
-                model="gemini/gemini-2.5-flash",
-                prompt_tokens=100,
-                completion_tokens=200,
-                total_tokens=300,
-                called_at=now,
+            connection.execute(
+                sa.text(
+                    "INSERT INTO llm_usage (call_type, model, stock_code, prompt_tokens, completion_tokens, total_tokens) VALUES ('analysis', 'm', 'TEST', 2, 3, 5)"
+                )
             )
-            with self.db.session_scope() as session:
-                session.add(row)
-
-        # 2 agent calls today
-        for _ in range(2):
-            row = LLMUsage(
-                call_type="agent",
-                model="openai/gpt-4o",
-                prompt_tokens=50,
-                completion_tokens=100,
-                total_tokens=150,
-                called_at=now,
+            monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
+            migration.upgrade()
+            assert not sa.inspect(connection).has_table("conversation_messages", schema=schema)
+            assert {c["name"] for c in sa.inspect(connection).get_columns("llm_usage", schema=schema)} == set(
+                LLMUsage.__table__.columns.keys()
             )
-            with self.db.session_scope() as session:
-                session.add(row)
-
-        # 1 old call that should be excluded
-        old_row = LLMUsage(
-            call_type="analysis",
-            model="gemini/gemini-2.5-flash",
-            prompt_tokens=999,
-            completion_tokens=999,
-            total_tokens=999,
-            called_at=yesterday,
-        )
-        with self.db.session_scope() as session:
-            session.add(old_row)
-
-    def tearDown(self):
-        DatabaseManager.reset_instance()
-
-    def _today_range(self):
-        now = datetime.now()
-        return now.replace(hour=0, minute=0, second=0, microsecond=0), now
-
-    def test_total_calls_and_tokens(self):
-        from_dt, to_dt = self._today_range()
-        result = self.db.get_llm_usage_summary(from_dt, to_dt)
-        self.assertEqual(result["total_calls"], 5)
-        # 3*300 + 2*150 = 900 + 300 = 1200
-        self.assertEqual(result["total_tokens"], 1200)
-
-    def test_by_call_type(self):
-        from_dt, to_dt = self._today_range()
-        result = self.db.get_llm_usage_summary(from_dt, to_dt)
-        by_type = {r["call_type"]: r for r in result["by_call_type"]}
-        self.assertIn("analysis", by_type)
-        self.assertIn("agent", by_type)
-        self.assertEqual(by_type["analysis"]["calls"], 3)
-        self.assertEqual(by_type["analysis"]["total_tokens"], 900)
-        self.assertEqual(by_type["agent"]["calls"], 2)
-        self.assertEqual(by_type["agent"]["total_tokens"], 300)
-
-    def test_by_model(self):
-        from_dt, to_dt = self._today_range()
-        result = self.db.get_llm_usage_summary(from_dt, to_dt)
-        by_model = {r["model"]: r for r in result["by_model"]}
-        self.assertEqual(by_model["gemini/gemini-2.5-flash"]["calls"], 3)
-        self.assertEqual(by_model["openai/gpt-4o"]["calls"], 2)
-
-    def test_empty_range_returns_zeros(self):
-        future = datetime(2099, 1, 1)
-        result = self.db.get_llm_usage_summary(future, future)
-        self.assertEqual(result["total_calls"], 0)
-        self.assertEqual(result["total_tokens"], 0)
-        self.assertEqual(result["by_call_type"], [])
-        self.assertEqual(result["by_model"], [])
+            row = connection.execute(
+                sa.text("SELECT backend, status, input_tokens, output_tokens, total_tokens FROM llm_usage")
+            ).one()
+            assert tuple(row) == ("api", "success", 2, 3, 5)
+            migration.downgrade()
+            assert connection.scalar(sa.text("SELECT count(*) FROM conversation_messages")) == 0
+            assert connection.scalar(sa.text("SELECT total_tokens FROM llm_usage")) == 5
+            migration.upgrade()
+            connection.execute(sa.text(f'DROP SCHEMA "{schema}" CASCADE'))
+    finally:
+        engine.dispose()
 
 
-class TestPersistUsageHelper(unittest.TestCase):
-    """Test that _persist_usage swallows exceptions and writes correctly."""
+def test_removed_api_and_request_surface():
+    from finance_analysis.interfaces.api.v1.router import router
+    from finance_analysis.llm import LLMRequest
+    from finance_analysis.database import DatabaseManager
 
-    def setUp(self):
-        self.db = _fresh_db()
-
-    def tearDown(self):
-        DatabaseManager.reset_instance()
-
-    def test_persist_usage_writes_row(self):
-        persist_llm_usage(
-            {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-            "gemini/gemini-2.5-flash",
-            call_type="analysis",
-            stock_code="000001",
-        )
-        with self.db.session_scope() as session:
-            rows = session.query(LLMUsage).all()
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0].total_tokens, 30)
-
-    def test_persist_usage_handles_empty_usage(self):
-        # Should not raise even with an empty dict
-        persist_llm_usage({}, "unknown", call_type="agent")
-        with self.db.session_scope() as session:
-            rows = session.query(LLMUsage).all()
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0].total_tokens, 0)
-
-    def test_persist_usage_never_raises(self):
-        # Pass a deliberately bad db state by resetting the singleton
-        DatabaseManager.reset_instance()
-        # Should silently swallow the error, not raise
-        try:
-            persist_llm_usage({"total_tokens": 5}, "m", call_type="analysis")
-        except Exception as exc:
-            self.fail(f"persist_llm_usage raised unexpectedly: {exc}")
-
-
-if __name__ == "__main__":
-    unittest.main()
+    assert not any(route.path.startswith("/api/v1/agent") for route in router.routes)
+    assert set(LLMRequest.__dataclass_fields__) == {
+        "prompt",
+        "system_prompt",
+        "temperature",
+        "max_tokens",
+        "timeout",
+        "call_type",
+        "uid",
+    }
+    assert not hasattr(DatabaseManager, "save_conversation_message")

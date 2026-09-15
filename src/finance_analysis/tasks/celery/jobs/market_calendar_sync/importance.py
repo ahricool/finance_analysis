@@ -200,7 +200,7 @@ class MarketCalendarImportanceService:
     ) -> None:
         self.repo = repo or MarketCalendarEventRepo()
         self.quote_fetcher = quote_fetcher or MarketDataService()
-        self.llm_client = llm_client or LLMClient(config=config)
+        self.llm_client = llm_client or LLMClient(config=config.llm if config is not None else None)
         self.batch_size = max(1, min(int(batch_size or DEFAULT_BATCH_SIZE), 20))
         self._quote_cache: Dict[str, EventCompanyContext] = {}
 
@@ -281,12 +281,10 @@ class MarketCalendarImportanceService:
         if not batch:
             return 0
         prompt_payload = [item["prompt_payload"] for item in batch]
-        result = self.llm_client.complete_json(
+        result = self.llm_client.complete_text(
             LLMRequest(
-                messages=[
-                    {"role": "system", "content": "你是财经日历客观市场重要性 JSON 评分器，只输出 JSON。"},
-                    {"role": "user", "content": build_event_importance_prompt(prompt_payload)},
-                ],
+                system_prompt="你是财经日历客观市场重要性 JSON 评分器，只输出 JSON。",
+                prompt=build_event_importance_prompt(prompt_payload),
                 temperature=0.1,
                 max_tokens=6000,
                 call_type="market_calendar_importance",
@@ -307,7 +305,7 @@ class MarketCalendarImportanceService:
                 score=item["importance_score"],
                 reason=item["importance_reason"],
                 confidence=item["confidence"],
-                model=result.model_used,
+                model=result.model,
                 prompt_version=PROMPT_VERSION,
                 input_hash=source["input_hash"],
                 scored_at=scored_at,

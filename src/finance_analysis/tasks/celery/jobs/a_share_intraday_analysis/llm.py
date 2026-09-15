@@ -178,7 +178,7 @@ class AShareIntradayLLMJudge:
         if self._client is not None:
             return self._client
         try:
-            self._client = LLMClient(config=self.config)
+            self._client = LLMClient(config=self.config.llm)
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("初始化 A 股盘中 LLMClient 失败: %s", exc)
             return None
@@ -212,12 +212,10 @@ class AShareIntradayLLMJudge:
         try:
             prompt = build_batch_prompt(candidates, market_context)
             max_tokens = min(8000, 700 * len(candidates) + 400)
-            result = client.complete_json(
+            result = client.complete_text(
                 LLMRequest(
-                    messages=[
-                        {"role": "system", "content": _SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
+                    system_prompt=_SYSTEM_PROMPT,
+                    prompt=prompt,
                     temperature=0.2,
                     max_tokens=max_tokens,
                     timeout=LLM_TIMEOUT,

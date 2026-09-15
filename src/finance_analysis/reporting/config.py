@@ -46,7 +46,6 @@ class ReportConfig:
     report_templates_dir: str = "templates"
     report_renderer_enabled: bool = False
     report_integrity_enabled: bool = True
-    report_integrity_retry: int = 1
     report_history_compare_n: int = 0
     analysis_delay: float = 0.0
     markdown_to_image_channels: list[str] | None = field(default_factory=list)

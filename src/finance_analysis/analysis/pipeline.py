@@ -35,14 +35,8 @@ from finance_analysis.analysis.stock_report_analyzer import (
     fill_price_position_if_needed,
     stabilize_decision_with_structure,
 )
-from finance_analysis.stocks.reference_data.mapping import STOCK_NAME_MAP
 from finance_analysis.notification.service import NotificationService
 from finance_analysis.reporting.localization import (
-    get_unknown_text,
-    infer_decision_type_from_advice,
-    localize_confidence_level,
-    localize_operation_advice,
-    localize_trend_prediction,
     normalize_report_language,
 )
 from finance_analysis.search import SearchService
@@ -57,7 +51,6 @@ from finance_analysis.market_review.trading_calendar import (
 )
 from finance_analysis.integrations.market_data.providers.us_index_mapping import is_us_stock_code
 from finance_analysis.notification.messages import BotMessage
-from finance_analysis.analysis.pipeline_agent_result import AgentResultMixin
 
 
 logger = logging.getLogger(__name__)
@@ -67,7 +60,7 @@ logger = logging.getLogger(__name__)
 _SINGLE_STOCK_NOTIFY_LOCK_INIT_GUARD = threading.Lock()
 
 
-class StockAnalysisPipeline(AgentResultMixin):
+class StockAnalysisPipeline:
     """
     股票分析主流程调度器
     
@@ -116,7 +109,7 @@ class StockAnalysisPipeline(AgentResultMixin):
         self.realtime_source = realtime_source or get_default_sync_realtime_source()
         # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
         self.trend_analyzer = StockTrendAnalyzer()  # 技术分析器
-        self.analyzer = StockReportAnalyzer(config=self.config)
+        self.analyzer = StockReportAnalyzer(config=self.config, uid=self.owner_uid)
         self.notifier = NotificationService(source_message=source_message)
         self._single_stock_notify_lock = threading.Lock()
         
@@ -307,18 +300,7 @@ class StockAnalysisPipeline(AgentResultMixin):
             except Exception as e:
                 logger.warning(f"{stock_name}({code}) 获取筹码分布失败: {e}")
 
-            # If agent mode is explicitly enabled, or specific agent skills are configured, use the Agent analysis pipeline.
-            # NOTE: use config.agent_mode (explicit opt-in) instead of
-            # config.is_agent_available() so that users who only configured an
-            # API Key for the traditional analysis path are not silently
-            # switched to Agent mode (which is slower and more expensive).
-            use_agent = getattr(self.config, 'agent_mode', False)
-            if not use_agent:
-                # Auto-enable agent mode when specific skills are configured (e.g., scheduled task with strategy)
-                configured_skills = getattr(self.config, 'agent_skills', [])
-                if configured_skills and configured_skills != ['all']:
-                    use_agent = True
-                    logger.info(f"{stock_name}({code}) Auto-enabled agent mode due to configured skills: {configured_skills}")
+
 
             self._emit_progress(32, f"{stock_name}：正在聚合基本面与趋势数据")
 
@@ -353,7 +335,7 @@ class StockAnalysisPipeline(AgentResultMixin):
             except Exception as e:
                 logger.debug(f"{stock_name}({code}) 基本面快照写入失败: {e}")
 
-            # Step 3: 趋势分析（基于交易理念）— 在 Agent 分支之前执行，供两条路径共用
+            # Step 3: 趋势分析（基于交易理念）
             trend_result: Optional[TrendAnalysisResult] = None
             try:
                 from finance_analysis.analysis.history.loader import get_frozen_target_date
@@ -373,21 +355,6 @@ class StockAnalysisPipeline(AgentResultMixin):
             except Exception as e:
                 logger.warning(f"{stock_name}({code}) 趋势分析失败: {e}", exc_info=True)
 
-            if use_agent:
-                logger.info(f"{stock_name}({code}) 启用 Agent 模式进行分析")
-                self._emit_progress(58, f"{stock_name}：正在切换 Agent 分析链路")
-                return self._analyze_with_agent(
-                    code,
-                    report_type,
-                    query_id,
-                    stock_name,
-                    realtime_quote,
-                    chip_data,
-                    fundamental_context,
-                    trend_result,
-                )
-
-            # Step 4: 多维度情报搜索（最新消息+风险排查+业绩预期）
             news_context = None
             self._emit_progress(46, f"{stock_name}：正在检索新闻与舆情")
             if self.search_service is not None and self.search_service.is_available:
@@ -464,24 +431,11 @@ class StockAnalysisPipeline(AgentResultMixin):
             )
             
             # Step 7: 调用 AI 分析（传入增强的上下文和新闻）
-            llm_progress_state = {"last_progress": 64}
-
-            def _on_llm_stream(chars_received: int) -> None:
-                dynamic_progress = min(92, 64 + min(chars_received // 80, 28))
-                if dynamic_progress <= llm_progress_state["last_progress"]:
-                    return
-                llm_progress_state["last_progress"] = dynamic_progress
-                self._emit_progress(
-                    dynamic_progress,
-                    f"{stock_name}：LLM 正在生成分析结果（已接收 {chars_received} 字符）",
-                )
-
             self._emit_progress(64, f"{stock_name}：正在请求 LLM 生成报告")
             result = self.analyzer.analyze(
                 enhanced_context,
                 news_context=news_context,
                 progress_callback=self._emit_progress,
-                stream_progress_callback=_on_llm_stream,
             )
 
             # Step 7.5: 填充分析时的价格信息到 result
@@ -746,158 +700,6 @@ class StockAnalysisPipeline(AgentResultMixin):
 
         enriched_context["belong_boards"] = boards
         return enriched_context
-
-    def _ensure_agent_history(self, code: str, min_days: int = 240) -> None:
-        """Require complete DB history; never prefetch from a provider."""
-        from finance_analysis.analysis.history.loader import get_frozen_target_date
-
-        target = get_frozen_target_date()
-        if target is None:
-            target = self._resolve_resume_target_date(code)
-        from finance_analysis.analysis.history.loader import load_history_df
-
-        load_history_df(code, days=min_days, target_date=target)
-
-    def _analyze_with_agent(
-        self, 
-        code: str, 
-        report_type: ReportType, 
-        query_id: str,
-        stock_name: str,
-        realtime_quote: Any,
-        chip_data: Optional[ChipDistribution],
-        fundamental_context: Optional[Dict[str, Any]] = None,
-        trend_result: Optional[TrendAnalysisResult] = None,
-    ) -> Optional[AnalysisResult]:
-        """
-        使用 Agent 模式分析单只股票。
-        """
-        try:
-            from finance_analysis.agent.factory import build_agent_executor
-            report_language = normalize_report_language(getattr(self.config, "report_language", "zh"))
-
-            # Build executor from shared factory (ToolRegistry and SkillManager prototype are cached)
-            executor = build_agent_executor(self.config, getattr(self.config, 'agent_skills', None) or None)
-
-            # Build initial context to avoid redundant tool calls
-            initial_context = {
-                "stock_code": code,
-                "stock_name": stock_name,
-                "report_type": report_type.value,
-                "report_language": report_language,
-                "fundamental_context": fundamental_context,
-            }
-            
-            if realtime_quote:
-                initial_context["realtime_quote"] = self._safe_to_dict(realtime_quote)
-            if chip_data:
-                initial_context["chip_distribution"] = self._safe_to_dict(chip_data)
-            if trend_result:
-                initial_context["trend_result"] = self._safe_to_dict(trend_result)
-
-            # Agent path: inject social sentiment as news_context so both
-            # executor (_build_user_message) and orchestrator (ctx.set_data)
-            # can consume it through the existing news_context channel
-            if self.social_sentiment_service is not None and self.social_sentiment_service.is_available and is_us_stock_code(code):
-                try:
-                    social_context = self.social_sentiment_service.get_social_context(code)
-                    if social_context:
-                        existing = initial_context.get("news_context")
-                        if existing:
-                            initial_context["news_context"] = existing + "\n\n" + social_context
-                        else:
-                            initial_context["news_context"] = social_context
-                        logger.info(f"[{code}] Agent mode: social sentiment data injected into news_context")
-                except Exception as e:
-                    logger.warning(f"[{code}] Agent mode: social sentiment fetch failed: {e}")
-
-            # Issue #1066: ensure deep history is in DB before agent tools run
-            self._ensure_agent_history(code)
-
-            # 运行 Agent
-            if report_language == "en":
-                message = f"Analyze stock {code} ({stock_name}) and return the full decision dashboard JSON in English."
-            else:
-                message = f"请分析股票 {code} ({stock_name})，并生成决策仪表盘报告。"
-            agent_result = executor.run(message, context=initial_context)
-
-            # 转换为 AnalysisResult
-            result = self._agent_result_to_analysis_result(
-                agent_result,
-                code,
-                stock_name,
-                report_type,
-                query_id,
-                trend_result=trend_result,
-            )
-            if result:
-                result.query_id = query_id
-            # Agent weak integrity: placeholder fill only, no LLM retry
-            if result and getattr(self.config, "report_integrity_enabled", False):
-                from finance_analysis.analysis.stock_report_analyzer import check_content_integrity, apply_placeholder_fill
-
-                pass_integrity, missing = check_content_integrity(result)
-                if not pass_integrity:
-                    apply_placeholder_fill(result, missing)
-                    logger.info(
-                        "[LLM完整性] integrity_mode=agent_weak 必填字段缺失 %s，已占位补全",
-                        missing,
-                    )
-            # chip_structure fallback (Issue #589), before save_analysis_history
-            if result and chip_data:
-                fill_chip_structure_if_needed(result, chip_data)
-
-            # price_position fallback (same as non-agent path Step 7.7)
-            if result:
-                fill_price_position_if_needed(result, trend_result, realtime_quote)
-                realtime_data = initial_context.get("realtime_quote", {})
-                if isinstance(realtime_data, dict):
-                    result.current_price = realtime_data.get("price")
-                    result.change_pct = realtime_data.get("change_pct")
-                stabilize_decision_with_structure(result, trend_result, fundamental_context)
-
-            resolved_stock_name = result.name if result and result.name else stock_name
-
-            # 保存新闻情报到数据库（Agent 工具结果仅用于 LLM 上下文，未持久化，Fixes #396）
-            # 使用 search_stock_news（与 Agent 工具调用逻辑一致），仅 1 次 API 调用，无额外延迟
-            if self.search_service is not None and self.search_service.is_available:
-                try:
-                    news_response = self.search_service.search_stock_news(
-                        stock_code=code,
-                        stock_name=resolved_stock_name,
-                        max_results=5
-                    )
-                    if news_response.success and news_response.results:
-                        query_context = self._build_query_context(query_id=query_id)
-                        self.db.save_news_intel(
-                            code=code, usage_type="latest_news", response=news_response, query_context=query_context
-                        )
-                        logger.info(f"[{code}] Agent 模式: 新闻情报已保存 {len(news_response.results)} 条")
-                except Exception as e:
-                    logger.warning(f"[{code}] Agent 模式保存新闻情报失败: {e}")
-
-            # 保存分析历史记录
-            if result and result.success:
-                try:
-                    initial_context["stock_name"] = resolved_stock_name
-                    self.db.save_analysis_history(
-                        result=result,
-                        query_id=query_id,
-                        report_type=report_type.value,
-                        news_content=None,
-                        context_snapshot=initial_context,
-                        save_snapshot=self.save_context_snapshot,
-                        uid=self.owner_uid,
-                    )
-                except Exception as e:
-                    logger.warning(f"[{code}] 保存 Agent 分析历史失败: {e}")
-
-            return result
-
-        except Exception as e:
-            logger.exception(f"[{code}] Agent 分析失败: {e}")
-            logger.exception(f"[{code}] Agent 详细错误信息:")
-            return None
 
     @staticmethod
     def _safe_int(value: Any, default: int = 50) -> int:

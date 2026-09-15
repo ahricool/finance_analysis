@@ -247,7 +247,7 @@ class IntradayLLMJudge:
         if not candidates:
             return {}
         try:
-            client = LLMClient(config=self.config)
+            client = LLMClient(config=self.config.llm)
             if not client.is_available():
                 logger.warning("LLM 未配置，跳过美股盘中候选信号批量判定（%s 个）", len(candidates))
                 return {}
@@ -272,12 +272,10 @@ class IntradayLLMJudge:
             ]
             prompt = build_intraday_batch_llm_prompt(prompt_items, market_context)
             max_tokens = min(8000, 700 * len(candidates) + 300)
-            result = client.complete_json(
+            result = client.complete_text(
                 LLMRequest(
-                    messages=[
-                        {"role": "system", "content": "你是美股盘中异动提醒系统的 JSON 判定器，只输出 JSON。"},
-                        {"role": "user", "content": prompt},
-                    ],
+                    system_prompt="你是美股盘中异动提醒系统的 JSON 判定器，只输出 JSON。",
+                    prompt=prompt,
                     temperature=0.2,
                     max_tokens=max_tokens,
                     call_type="intraday_judge",
@@ -322,7 +320,7 @@ class IntradayLLMJudge:
     ) -> Optional[Dict[str, Any]]:
         """Return the parsed LLM verdict, or ``None`` when unavailable/invalid."""
         try:
-            client = LLMClient(config=self.config)
+            client = LLMClient(config=self.config.llm)
             if not client.is_available():
                 logger.warning("LLM 未配置，跳过美股盘中候选信号判定: %s %s", symbol, signal_type)
                 return None
@@ -337,16 +335,14 @@ class IntradayLLMJudge:
                     "market_context": market_context,
                 },
             )
-            result = client.complete_json(
+            result = client.complete_text(
                 LLMRequest(
-                    messages=[
-                        {"role": "system", "content": "你是美股盘中异动提醒系统的 JSON 判定器，只输出 JSON。"},
-                        {"role": "user", "content": prompt},
-                    ],
+                    system_prompt="你是美股盘中异动提醒系统的 JSON 判定器，只输出 JSON。",
+                    prompt=prompt,
                     temperature=0.2,
                     max_tokens=1200,
                     call_type="intraday_judge",
-                    stock_code=symbol,
+
                 )
             )
             parsed = parse_llm_json_response(result.text)

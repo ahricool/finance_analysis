@@ -99,12 +99,12 @@ class _FakeLLMClient:
     def is_available(self):
         return self.available
 
-    def complete_json(self, request):
+    def complete_text(self, request, validator=None):
         self.requests.append(request)
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
-        return LLMResult(text=response, model_used="test-model", usage={})
+        return LLMResult(text=response, backend="api", model="test-model", usage={})
 
 
 def test_prompt_contains_required_context_and_rules():
@@ -222,7 +222,7 @@ def test_service_uses_unified_quote_context():
 
     assert quote_fetcher.context_calls == ["NVDA.US"]
     assert quote_fetcher.realtime_calls == []
-    assert '"market_cap": 1000.0' in llm.requests[0].messages[1]["content"]
+    assert '"market_cap": 1000.0' in llm.requests[0].prompt
 
 
 def test_market_cap_failure_still_scores_with_null_market_cap():
@@ -238,7 +238,7 @@ def test_market_cap_failure_still_scores_with_null_market_cap():
     )
 
     assert result["scored"] == 1
-    assert '"market_cap": null' in llm.requests[0].messages[1]["content"]
+    assert '"market_cap": null' in llm.requests[0].prompt
 
 
 def test_single_batch_failure_does_not_block_other_batches():

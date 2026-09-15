@@ -69,42 +69,7 @@ class TestStorage(unittest.TestCase):
         self.assertIn(DatabaseManager._parse_sniper_value("1.55-1.56(MA5/M20支撑)"), [1.55, 1.56])
         self.assertIn(DatabaseManager._parse_sniper_value("1.49-1.50(MA60附近企稳)"), [1.49, 1.50])
 
-    def test_get_chat_sessions_prefix_is_scoped_by_colon_boundary(self):
-        DatabaseManager.reset_instance()
-        db_url = os.environ.get("DATABASE_URL", "").strip()
-        self.assertTrue(db_url, "DATABASE_URL must be set for storage tests")
-        db = DatabaseManager(db_url=db_url)
-        rand = uuid.uuid4().hex[:8]
-        sid_a = f"telegram_{rand}_12345:chat"
-        sid_b = f"telegram_{rand}_123456:chat"
-        db.save_conversation_message(sid_a, "user", "first user")
-        db.save_conversation_message(sid_b, "user", "second user")
 
-        sessions = db.get_chat_sessions(session_prefix=f"telegram_{rand}_12345")
-
-        self.assertEqual(len(sessions), 1)
-        self.assertEqual(sessions[0]["session_id"], sid_a)
-
-        DatabaseManager.reset_instance()
-
-    def test_get_chat_sessions_can_include_legacy_exact_session_id(self):
-        DatabaseManager.reset_instance()
-        db_url = os.environ.get("DATABASE_URL", "").strip()
-        self.assertTrue(db_url, "DATABASE_URL must be set for storage tests")
-        db = DatabaseManager(db_url=db_url)
-        legacy = f"feishu_u_{uuid.uuid4().hex[:8]}"
-        ask_sid = f"{legacy}:ask_600519"
-        db.save_conversation_message(legacy, "user", "legacy chat")
-        db.save_conversation_message(ask_sid, "user", "ask session")
-
-        sessions = db.get_chat_sessions(
-            session_prefix=f"{legacy}:",
-            extra_session_ids=[legacy],
-        )
-
-        self.assertEqual({item["session_id"] for item in sessions}, {legacy, ask_sid})
-
-        DatabaseManager.reset_instance()
 
     def test_save_daily_data_concurrent_same_code_date_counts_only_new_rows(self):
         DatabaseManager.reset_instance()

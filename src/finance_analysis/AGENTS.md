@@ -21,7 +21,7 @@ interfaces/api + tasks/celery/jobs
 - 顶层领域包（`analysis`、`quant`、`etf_rotation`、`trend_following`、`market_review`）拥有业务规则。
 - `database/repositories/` 封装查询和事务；领域代码不应散落 SQL。
 - `integrations/` 封装外部行情；`llm/`、`search/`、`notification/` 同样是共享基础能力。
-- 为避免循环导入和高成本启动，现有代码有意在函数内延迟导入数据库、Provider、任务和 Agent 组件；修改前先确认初始化顺序。
+- 为避免循环导入和高成本启动，现有代码有意在函数内延迟导入数据库、Provider和任务组件；修改前先确认初始化顺序。
 
 ## 启动生命周期
 
@@ -62,7 +62,6 @@ interfaces/api + tasks/celery/jobs
 | --- | --- |
 | `auth.py` | 登录两阶段流程、状态、资料、密码、通知设置 |
 | `analysis.py` | 同步/异步个股分析、市场复盘、旧任务状态兼容接口 |
-| `agent.py` | Agent 模型/skill、聊天、SSE、会话、研究 |
 | `history.py` | 用户分析历史、详情、批量删除、导出 |
 | `stocks.py` | 证券静态信息、实时 Quote、日线历史和 CSV/Excel/文本代码解析 |
 | `watch_list.py` | 用户自选股 CRUD |
@@ -76,7 +75,7 @@ interfaces/api + tasks/celery/jobs
 
 REST 修改至少核对 endpoint、schema、前端 `web/src/api/` 与 `tests/test_*_api*.py`。WebSocket/SSE 还要核对 nginx buffering/upgrade 与断开清理。
 
-## 个股分析与 Agent
+## 个股分析
 
 主链：
 
@@ -86,26 +85,22 @@ API/Celery
   → StockAnalysisPipeline
   → PostgreSQL 历史 + Redis/Provider 实时状态 <!-- pragma: allowlist secret -->
   → 技术分析 + 基本面 + 搜索/舆情
-  → 传统 StockReportAnalyzer 或 AgentExecutor
+  → StockReportAnalyzer → LLMClient
   → AnalysisHistory + 报告 + 通知
 ```
 
 关键文件：
 
 - `analysis/service.py`：API 友好的分析门面和响应组装。
-- `analysis/pipeline.py`：数据编排、降级、上下文、LLM/Agent 分支、存储、通知。
+- `analysis/pipeline.py`：数据编排、降级、上下文、LLM 分支、存储、通知。
 - `analysis/history/loader.py`：数据库历史完整性边界。
 - `analysis/technical/`：趋势和指标。
-- `analysis/stock_report_analyzer.py`：传统 LLM 分析与结果结构。
-- `agent/factory.py`、`executor.py`、`orchestrator.py`：Agent 构造与运行。
-- `agent/tools/registry.py`：工具注册；工具应复用领域门面。
-- `agent/skills/`：YAML skill 加载、选择和聚合。
+- `analysis/stock_report_analyzer.py`：prompt、LLM 调用、报告解析与完整性校验。
 
 历史日线同步已从分析链拆开。`fetch_and_save_stock_data()` 名称为兼容保留，但当前只验证数据库历史，不拉取或保存远程日线。不要在分析请求中恢复隐式写行情。
 
-`strategies/` 是 Agent 内置 skill 的兼容目录；自定义目录由 `AGENT_SKILL_DIR`（旧别名 `AGENT_STRATEGY_DIR`）指定。策略文件是自然语言分析视角，不等同于 `etf_rotation/` 或 `trend_following/` 的确定性策略引擎。
 
-LLM 调用统一进入 `llm/LLMClient`/LiteLLM。`LLM_MODEL` 使用 LiteLLM provider/model 格式，fallback 在 `LLM_FALLBACK_MODELS`；不要在分析模块新增并行的 OpenAI-compatible client。
+LLM 调用统一进入 `llm/LLMClient`，由 `LLM_BACKEND=api|cli` 二选一。最多重试一次，不切换 backend 或模型。配置与部署见 `docs/llm.md`。
 
 ## 市场数据边界
 
@@ -148,7 +143,7 @@ LLM 调用统一进入 `llm/LLMClient`/LiteLLM。`LLM_MODEL` 使用 LiteLLM prov
 
 - 用户、自选股、日历、任务。
 - `Instrument`、`StockDaily`、`Universe`/`UniverseInclude`/`UniverseMember`。
-- 分析历史、新闻/基本面快照、Agent 会话和 LLM 用量。
+- 分析历史、新闻/基本面快照、LLM 用量。
 - Quant dataset/model/signal/portfolio。
 - ETF Rotation 和 Trend Following 快照。
 
@@ -224,7 +219,6 @@ Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练�
 
 ### ETF Rotation
 
-`etf_rotation/service.py` 从 `cn_index_etf`/`us_index_etf` Universe 加 benchmark 读取 `db_fresh` 前复权数据，执行完整性门槛、因子排名、市场状态、候选选择与风控，再写领域快照。Universe 来自数据库 seed/migration，不从 YAML strategy skill 派生。
 
 盘中预演 `run_preview()` 复用同一套计算：T-1 及以前仍走 `db_fresh`，Today 用 realtime overlay，结果只写入 Redis `etf_rotation:preview:{market}`，不写 `ETFMarketRotationSnapshot` / `ETFMomentumSnapshot`。CN 对 Universe+benchmark 一次 Tencent `real()`，US 固定 Yahoo 5 分钟 batch 聚合；失败不 fallback。周期任务为 `etf_rotation_preview_cn`（11:05/14:05/14:35 Asia/Shanghai）与 `etf_rotation_preview_us`（11:05/15:05/15:35 America/New_York），相对 Trend Following Preview 错开 5 分钟。API：`GET /api/v1/etf-rotation/preview`。Redis 写入失败必须让 Celery Preview task 失败。
 
@@ -248,7 +242,6 @@ Qlib worker 不可访问 PostgreSQL。主 Worker 不同步等待 Qlib，训练�
 
 - API/鉴权：`test_auth_api.py`、`test_analysis_api_contract.py`、`test_*_api*.py`
 - 数据库/迁移：`test_*_repository.py`、`test_*_migration.py`
-- 分析：`test_pipeline_*.py`、`test_agent_*.py`、`test_report_*.py`
 - 行情：`test_market_data_*.py`、`tests/market_stream/`
 - Celery：`test_celery_*.py`、`test_task_*.py`
 - 策略引擎：`test_quant_*.py`、`test_etf_rotation_*.py`、`test_trend_following_*.py`

@@ -423,20 +423,3 @@ class TestApplyPlaceholderFill(unittest.TestCase):
         self.assertEqual(result.dashboard["core_conclusion"]["one_sentence"], "已有趋势摘要")
         self.assertEqual(result.dashboard["intelligence"]["risk_alerts"], ["跌破支撑需减仓"])
         self.assertEqual(result.dashboard["battle_plan"]["sniper_points"]["stop_loss"], "待补充")
-
-
-class TestIntegrityRetryPrompt(unittest.TestCase):
-    """Retry prompt construction tests."""
-
-    def test_retry_prompt_includes_previous_response(self) -> None:
-        """Retry prompt should carry previous response so补全是增量的。"""
-        with patch.object(StockReportAnalyzer, "_init_litellm", return_value=None):
-            analyzer = StockReportAnalyzer()
-        prompt = analyzer._build_integrity_retry_prompt(
-            "原始提示",
-            '{"analysis_summary": "已有内容"}',
-            ["dashboard.core_conclusion.one_sentence"],
-        )
-        self.assertIn("原始提示", prompt)
-        self.assertIn('{"analysis_summary": "已有内容"}', prompt)
-        self.assertIn("dashboard.core_conclusion.one_sentence", prompt)

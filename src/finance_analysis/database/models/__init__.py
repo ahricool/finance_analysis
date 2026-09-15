@@ -7,7 +7,7 @@ from finance_analysis.database.models.notification import Notification
 from finance_analysis.database.models.analysis import AnalysisHistory
 from finance_analysis.database.models.timeline import TimelineEntry
 from finance_analysis.database.models.news_analysis import NewsAnalysis
-from finance_analysis.database.models.conversation import ConversationMessage, LLMUsage
+from finance_analysis.database.models.llm_usage import LLMUsage
 from finance_analysis.database.models.etf_rotation import ETFMarketRotationSnapshot, ETFMomentumSnapshot
 from finance_analysis.database.models.market_calendar import FinanceEvent
 from finance_analysis.database.models.news import FundamentalSnapshot, NewsIntel, NewsIntelUsage
@@ -41,7 +41,6 @@ __all__ = [
     "CryptoStrategyState",
     "AnalysisHistory",
     "TimelineEntry",
-    "ConversationMessage",
     "ETFMomentumSnapshot",
     "ETFMarketRotationSnapshot",
     "FinanceEvent",

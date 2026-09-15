@@ -447,10 +447,8 @@ class USPostmarketReviewService:
 
             result = client.complete_text(
                 LLMRequest(
-                    messages=[
-                        {"role": "system", "content": self._system_prompt()},
-                        {"role": "user", "content": self._user_prompt(payload)},
-                    ],
+                    system_prompt=self._system_prompt(),
+                    prompt=self._user_prompt(payload),
                     temperature=0.2,
                     max_tokens=9000,
                     timeout=120,
@@ -473,7 +471,7 @@ class USPostmarketReviewService:
         try:
             from finance_analysis.llm import LLMClient
 
-            self.llm_client = LLMClient(config=self.config)
+            self.llm_client = LLMClient(config=self.config.llm)
             return self.llm_client
         except Exception as exc:
             logger.warning("初始化 LLMClient 失败: %s", exc, exc_info=True)

@@ -9,14 +9,13 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Tuple
 
-from finance_analysis.llm.client import is_llm_configured
 
 logger = logging.getLogger(__name__)
 
 
 def has_configured_llm_runtime(config: object) -> bool:
     """Return whether unified LLM configuration is available."""
-    return is_llm_configured(config)
+    return config.llm.is_available()
 
 
 def build_market_review_runtime(

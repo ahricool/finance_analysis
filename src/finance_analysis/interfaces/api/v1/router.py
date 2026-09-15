@@ -14,7 +14,6 @@ from fastapi import APIRouter
 from finance_analysis.interfaces.api.v1.endpoints import (
     notifications,
     crypto,
-    agent,
     analysis,
     auth,
     timeline,
@@ -36,7 +35,6 @@ router = APIRouter(prefix="/api/v1")
 
 router.include_router(auth.router, prefix="/auth", tags=["Auth"])
 
-router.include_router(agent.router, prefix="/agent", tags=["Agent"])
 
 router.include_router(analysis.router, prefix="/analysis", tags=["Analysis"])
 

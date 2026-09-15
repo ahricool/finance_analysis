@@ -59,7 +59,6 @@ services:
     volumes:
       - ./data:/workspace/data
       - ./.env:/workspace/.env:ro
-      - ./strategies:/workspace/strategies:ro
 
   web:
     image: ghcr.io/ahricool/finance_analysis_web:latest
@@ -100,7 +99,6 @@ services:
     volumes:
       - ./data:/workspace/data
       - ./.env:/workspace/.env:ro
-      - ./strategies:/workspace/strategies:ro
 
   beat:
     image: ghcr.io/ahricool/finance_analysis:latest
@@ -126,7 +124,6 @@ services:
     volumes:
       - ./data:/workspace/data
       - ./.env:/workspace/.env:ro
-      - ./strategies:/workspace/strategies:ro
 
   qlib-worker:
     image: ghcr.io/ahricool/finance_analysis_qlib:${IMAGE_TAG:-latest}
