@@ -430,7 +430,7 @@ def test_cli_lock_wait_exhausts_total_deadline(cli_lock):
         LLMClient(replace(ctx.config, max_retries=1)).complete_text(LLMRequest("prompt", timeout=0.25))
     assert ctx.clock.now == pytest.approx(0.25)
     ctx.call.assert_not_called()
-    assert ctx.connection.execute.call_count == 3
+    assert ctx.connection.execute.call_count == 1
     assert all("pg_try_advisory_lock" in str(call.args[0]) for call in ctx.connection.execute.call_args_list)
     ctx.connection.__exit__.assert_called_once()
 
@@ -442,7 +442,7 @@ def test_cli_wait_reduces_remaining_timeout(cli_lock):
     ]
     request = LLMRequest("prompt", timeout=300)
     LLMClient(ctx.config).complete_text(request)
-    assert ctx.call.call_args.args[1].timeout == pytest.approx(299.8)
+    assert ctx.call.call_args.args[1].timeout == pytest.approx(298.0)
     assert request.timeout == 300
 
 

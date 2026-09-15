@@ -14,7 +14,7 @@
 
 所有 CLI 请求在 `LLMClient._complete_cli()` 中使用同一把 PostgreSQL session-level advisory lock
 （固定 bigint key `0x46415F4C4C4D434C`），跨 AGY/Codex、用户与进程串行执行。
-每次 attempt 独立获取连接，以 `pg_try_advisory_lock()` 每 0.1 秒轮询；等待计入原 deadline，
+每次 attempt 独立获取连接，以 `pg_try_advisory_lock()` 每 1 秒轮询；等待计入原 deadline，
 获取锁后仅把剩余 timeout 传给 SSH CLI。获取和 finally 解锁使用同一个连接，期间采用 AUTOCOMMIT，
 不保持空闲事务；锁 SQL 失败会 invalidate 连接，避免持锁连接回到连接池。重试前先释放锁。
 所有实例必须连接同一个 PostgreSQL 数据库；API backend 不获取此锁。

@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # One stable bigint key for every CLI engine, host, user and worker. PostgreSQL's
 # single-bigint key space is separate from the two-integer task mutex keys.
 CLI_ADVISORY_LOCK_KEY = 0x46415F4C4C4D434C  # ASCII FA_LLMCL
-CLI_LOCK_POLL_SECONDS = 0.1
+CLI_LOCK_POLL_SECONDS = 1.0
 
 
 class LLMError(RuntimeError):
