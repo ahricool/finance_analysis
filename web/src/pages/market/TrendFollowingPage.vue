@@ -3,7 +3,7 @@ import { detailChartHistory as buildDetailChartHistory } from '@/utils/detailCha
 import ResearchMarketToggle from '@/components/research/ResearchMarketToggle.vue';
 import { useRoute } from 'vue-router';
 import { useLazyResearchPreview } from '@/composables/useLazyResearchPreview';
-import { computed, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, shallowRef, watch } from 'vue';
 import { RefreshCcw } from 'lucide-vue-next';
 import { toast } from 'vue-sonner';
 import { trendFollowingApi } from '@/api/trendFollowing';
@@ -81,6 +81,7 @@ const detailOpen = ref(false);
 const detailLoading = ref(false);
 const detail = ref<TrendDetailResponse | null>(null);
 const detailError = ref<ParsedApiError | null>(null);
+const rankingDetailTrigger = ref<{ code: string; el: HTMLElement | null } | null>(null);
 const alphaContributions = computed(() => {
   const alpha = detail.value?.latest.scoreBreakdown.alpha as TrendAlphaBreakdown | undefined;
   if (alpha?.version !== 2) return [];
@@ -268,11 +269,13 @@ function pct(value: number | null | undefined) { return value == null ? '—' : 
 function price(value: number | null | undefined) {
   return value == null ? '—' : formatMarketCurrencyAmount(value, market.value);
 }
-function stateText(state: TrendState) {
+function stateText(state: TrendState | null) {
+  if (state == null) return '—';
   return ({ IDLE: '无明显趋势', WATCHING: '趋势形成', CANDIDATE: '趋势候选', TRENDING: '趋势健康',
     WEAKENING: '趋势弱化', BROKEN: '趋势破坏' })[state];
 }
-function badgeVariant(value: string): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
+function badgeVariant(value: string | null): 'default' | 'success' | 'warning' | 'destructive' | 'info' | 'outline' {
+  if (value == null) return 'outline';
   if (['TRENDING', 'RISK_ON'].includes(value)) return 'success';
   if (['BROKEN', 'RISK_OFF'].includes(value)) return 'destructive';
   if (['WEAKENING', 'NEUTRAL'].includes(value)) return 'warning';
@@ -420,6 +423,35 @@ async function loadDetailHistory() {
     if (requestId === detailRequestId) historyLoading.value = false;
   }
 }
+function rankingRowElement(event: Event): HTMLElement | null {
+  return event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+}
+function restoreRankingFocus() {
+  const trigger = rankingDetailTrigger.value;
+  rankingDetailTrigger.value = null;
+  if (!trigger) return;
+  void nextTick(() => {
+    const connected = trigger.el?.isConnected ? trigger.el : null;
+    const row = connected ?? Array.from(rankingViewport.value?.querySelectorAll('[data-testid="trend-row"]') ?? [])
+      .find(element => element.getAttribute('data-code') === trigger.code);
+    if (row instanceof HTMLElement) row.focus();
+  });
+}
+function onDetailOpenChange(open: boolean) {
+  detailOpen.value = open;
+  if (open) return;
+  ++detailRequestId;
+  restoreRankingFocus();
+}
+function openRankingDetail(item: TrendRankingSnapshot, event: Event) {
+  rankingDetailTrigger.value = { code: item.code, el: rankingRowElement(event) };
+  void openDetail(item);
+}
+function onRankingRowKeydown(item: TrendRankingSnapshot, event: KeyboardEvent) {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  openRankingDetail(item, event);
+}
 async function openDetail(item: Pick<TrendSnapshot, 'code'> & { tradeDate?: string; preview?: boolean }) {
   const requestId = ++detailRequestId;
   historyLoading.value = false;
@@ -478,6 +510,7 @@ watch(market, () => {
   changes.value = null;
   availableDates.value = [];
   detailOpen.value = false;
+  rankingDetailTrigger.value = null;
   summary.value = { ...emptySummary(), market: market.value };
   modeChosenByUser.value = false;
   void load(true, { autoSelectMode: true });
@@ -795,11 +828,16 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                 <TableRow
                   v-for="(item, index) in renderedRankingRows"
                   :key="item.code"
-                  class="cursor-pointer"
+                  class="cursor-pointer focus-visible:bg-muted/80 focus-visible:outline-none"
                   data-testid="trend-row"
+                  :data-code="item.code"
+                  tabindex="0"
                   :aria-rowindex="virtualStart + index + 3"
+                  :aria-haspopup="'dialog'"
+                  :aria-label="`打开 ${item.name} ${item.code} 趋势详情`"
                   :style="virtualRanking ? { height: `${rankingRowHeight}px` } : undefined"
-                  @click="openDetail(item)"
+                  @click="openRankingDetail(item, $event)"
+                  @keydown="onRankingRowKeydown(item, $event)"
                 >
                   <TableCell
                     v-for="column in rankingColumns"
@@ -881,7 +919,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
 
     <Dialog
       :open="detailOpen"
-      @update:open="value => { detailOpen = value; if (!value) ++detailRequestId; }"
+      @update:open="onDetailOpenChange"
     >
       <DialogContent
         class="max-h-[calc(100dvh-2rem)] min-w-0 overflow-y-auto p-4 sm:max-w-4xl sm:p-6"

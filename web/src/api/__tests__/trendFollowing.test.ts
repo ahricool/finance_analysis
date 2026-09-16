@@ -89,6 +89,22 @@ it('maps ranking snapshot rank changes including null and zero with the bounded 
   expect(items[1]).not.toHaveProperty('scoreBreakdown');
 });
 
+it('keeps null ranking scalars from the DTO instead of coercing them to zero or IDLE', async () => {
+  vi.mocked(apiClient.get).mockResolvedValue({ data: { items: [{
+    code: 'NULL.US', rank: 4, alpha_score: 55,
+    state: null, trend_score: null, rs_score: null, breakout_score: null,
+    atr: null, reference_price: null,
+  }] } });
+  const item = (await trendFollowingApi.ranking('CN')).items[0]!;
+  expect(item.state).toBeNull();
+  expect(item.trendScore).toBeNull();
+  expect(item.rsScore).toBeNull();
+  expect(item.breakoutScore).toBeNull();
+  expect(item.atr).toBeNull();
+  expect(item.referencePrice).toBeNull();
+  expect(item.alphaScore).toBe(55);
+});
+
 it('loads preview snapshots through toCamelCase and treats 404 as null', async () => {
   vi.mocked(apiClient.get).mockResolvedValue({ data: {
     status: 'completed',

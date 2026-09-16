@@ -65,6 +65,30 @@ describe('rankingSnapshotFromDto', () => {
     expect(rankingFeatureValue(row, 'trendCandidate')).toBe(true);
     expect(row).not.toHaveProperty('scoreBreakdown');
   });
+
+  it('keeps null ranking scalars and unknown state instead of fabricating defaults', () => {
+    const row = rankingSnapshotFromDto({
+      code: 'NULL.US', rank: 8, alpha_score: 70,
+      state: null, trend_score: null, rs_score: null, breakout_score: null,
+      atr: null, reference_price: null, setup: null,
+    });
+    expect(row).toMatchObject({
+      code: 'NULL.US', rank: 8, alphaScore: 70,
+      state: null, trendScore: null, rsScore: null, breakoutScore: null,
+      atr: null, referencePrice: null, setup: null,
+    });
+    expect(row.state).not.toBe('IDLE');
+    expect(row.trendScore).not.toBe(0);
+    expect(row.rsScore).not.toBe(0);
+    expect(row.breakoutScore).not.toBe(0);
+    expect(row.atr).not.toBe(0);
+    expect(row.referencePrice).not.toBe(0);
+  });
+
+  it('does not coerce a missing or unknown state to IDLE', () => {
+    expect(rankingSnapshotFromDto({ code: 'X', rank: 1, alpha_score: 1 }).state).toBeNull();
+    expect(rankingSnapshotFromDto({ code: 'X', rank: 1, alpha_score: 1, state: 'UNKNOWN' }).state).toBeNull();
+  });
 });
 
 describe('asRankingSnapshot', () => {

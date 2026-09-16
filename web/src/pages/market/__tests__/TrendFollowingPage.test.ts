@@ -104,6 +104,58 @@ describe('TrendFollowingPage', () => {
     wrapper.unmount();
   });
 
+  it('shows em dashes for null ranking scalars and keeps them last in both sort directions', async () => {
+    const high = { ...rankingSnapshot(), code: 'HIGH.US', name: 'High', rank: 1, trendScore: 90, rsScore: 80, atr: 3, referencePrice: 120, state: 'TRENDING' as const };
+    const low = { ...rankingSnapshot(), code: 'LOW.US', name: 'Low', rank: 2, trendScore: 10, rsScore: 20, atr: 1, referencePrice: 80, state: 'CANDIDATE' as const };
+    const missing = {
+      ...rankingSnapshot(), code: 'MISSING.US', name: 'Missing', rank: 3,
+      trendScore: null, rsScore: null, breakoutScore: null, atr: null, referencePrice: null, state: null, setup: null,
+    };
+    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items: [missing, low, high] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    const missingRow = wrapper.findAll('[data-testid="trend-row"]').find(row => row.text().includes('MISSING.US'))!;
+    expect(missingRow.get('[data-column="trendScore"]').text()).toBe('—');
+    expect(missingRow.get('[data-column="rsScore"]').text()).toBe('—');
+    expect(missingRow.get('[data-column="atr"]').text()).toBe('—');
+    expect(missingRow.get('[data-column="referencePrice"]').text()).toBe('—');
+    expect(missingRow.get('[data-column="state"]').text()).toBe('—');
+    expect(missingRow.text()).not.toContain('无明显趋势');
+    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[1]!.find('span').text());
+    const click = async (label: string) => {
+      await wrapper.findAll('th button').find(button => button.text() === label)!.trigger('click');
+    };
+    await click('Trend Score');
+    expect(order()).toEqual(['HIGH.US', 'LOW.US', 'MISSING.US']);
+    await click('Trend Score');
+    expect(order()).toEqual(['LOW.US', 'HIGH.US', 'MISSING.US']);
+    await click('RS Score');
+    expect(order()).toEqual(['HIGH.US', 'LOW.US', 'MISSING.US']);
+    await click('RS Score');
+    expect(order()).toEqual(['LOW.US', 'HIGH.US', 'MISSING.US']);
+    wrapper.unmount();
+  });
+
+  it('opens ranking detail from keyboard and restores focus to the same row', async () => {
+    const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
+    await flushPromises();
+    const row = document.body.querySelector('[data-testid="trend-row"]') as HTMLElement;
+    expect(row.tabIndex).toBe(0);
+    row.focus();
+    expect(document.activeElement).toBe(row);
+    await wrapper.get('[data-testid="trend-row"]').trigger('keydown', { key: 'Enter' });
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-detail"]')).toBeNull();
+    expect(document.activeElement).toBe(row);
+    await wrapper.get('[data-testid="trend-row"]').trigger('keydown', { key: ' ' });
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
+    wrapper.unmount();
+  });
+
   it.each([
     ['pathScore', 'Path Score'], ['setupScore', 'Setup Score'], ['r2Quality', 'R² Quality'],
     ['concentrationQuality', 'Concentration Quality'], ['breakoutQuality', 'Breakout Quality'],

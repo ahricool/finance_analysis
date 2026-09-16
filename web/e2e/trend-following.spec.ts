@@ -178,3 +178,44 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
   await expect(page.getByTestId('trend-row').first()).toContainText('TEST3795');
   await expect(page.getByTestId('trend-row').first()).toContainText('趋势健康');
 });
+
+test('ranking row opens detail from keyboard and restores focus', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.route('**/api/v1/**', async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.endsWith('/preview/status') || pathname.endsWith('/preview')) {
+      await route.fulfill({ status: 404, json: {} });
+      return;
+    }
+    let body: object = {};
+    if (pathname === '/api/v1/auth/status') {
+      body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
+    } else if (pathname.endsWith('/trend-following/breadth-history')) {
+      body = { market: 'CN', points: [], dates: [], officialCount: 0, warnings: [] };
+    } else if (pathname.endsWith('/trend-following/transitions')) {
+      body = { market: 'CN', days: 3, items: [], warnings: [] };
+    } else if (pathname.endsWith('/trend-following/dates')) {
+      body = { market: 'CN', latest: snapshot.tradeDate, items: [snapshot.tradeDate] };
+    } else if (pathname.endsWith('/trend-following/ranking')) {
+      body = { ...summary, items: [snapshot], candidates: [snapshot] };
+    } else if (pathname.endsWith('/trend-following/000001.SZ')) {
+      body = { market: 'CN', metadata: snapshot, latest: snapshot, history, marketContext: summary };
+    }
+    await route.fulfill({ json: body });
+  });
+  await page.goto('/research/trend-following');
+  const row = page.getByTestId('trend-row').first();
+  await row.focus();
+  await expect(row).toBeFocused();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(row).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(row).toBeFocused();
+});

@@ -114,8 +114,14 @@ export type RankingFeatureKey = typeof RANKING_FEATURE_KEYS[number];
 export type TrendRankingFeatures = Partial<Record<RankingFeatureKey, number | boolean | null>>;
 
 export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
-  'code' | 'name' | 'rank' | 'state' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' |
-  'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore' | 'setup' | 'atr' | 'referencePrice'> {
+  'code' | 'name' | 'rank' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' | 'alphaScore'> {
+  state: TrendState | null;
+  trendScore: number | null;
+  rsScore: number | null;
+  breakoutScore: number | null;
+  setup: string | null;
+  atr: number | null;
+  referencePrice: number | null;
   features: TrendRankingFeatures;
   scoreBreakdown?: Record<string, unknown>;
   rankChange1D: number | null;

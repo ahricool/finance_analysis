@@ -151,6 +151,10 @@ function textValue(value: unknown): string {
   return typeof value === 'string' ? value : value == null ? '' : String(value);
 }
 
+function optionalText(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
 function intValue(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
@@ -170,17 +174,17 @@ export function rankingSnapshotFromDto(row: Record<string, unknown>): TrendRanki
     code: textValue(mapped.code),
     name: textValue(mapped.name),
     rank: intValue(mapped.rank),
-    state: isTrendState(mapped.state) ? mapped.state : 'IDLE',
+    state: isTrendState(mapped.state) ? mapped.state : null,
     trendDurationDays: finiteNumber(mapped.trendDurationDays),
     trendLifecycle: isLifecycle(mapped.trendLifecycle) ? mapped.trendLifecycle : null,
     fragilityScore: finiteNumber(mapped.fragilityScore),
     alphaScore: finiteNumber(mapped.alphaScore) ?? 0,
-    trendScore: finiteNumber(mapped.trendScore) ?? 0,
-    rsScore: finiteNumber(mapped.rsScore) ?? 0,
-    breakoutScore: finiteNumber(mapped.breakoutScore) ?? 0,
-    setup: textValue(mapped.setup),
-    atr: finiteNumber(mapped.atr) ?? 0,
-    referencePrice: finiteNumber(mapped.referencePrice) ?? 0,
+    trendScore: finiteNumber(mapped.trendScore),
+    rsScore: finiteNumber(mapped.rsScore),
+    breakoutScore: finiteNumber(mapped.breakoutScore),
+    setup: optionalText(mapped.setup),
+    atr: finiteNumber(mapped.atr),
+    referencePrice: finiteNumber(mapped.referencePrice),
     features: mergeRankingFeatures(featureSource, rankingFeaturesFromBreakdown(row.score_breakdown ?? row.scoreBreakdown)),
     rankChange1D: finiteNumber(mapped.rankChange1D),
     rankChange3D: finiteNumber(mapped.rankChange3D),
