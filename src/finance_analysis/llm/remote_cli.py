@@ -22,7 +22,7 @@ def build_command(config: LLMConfig, timeout: float) -> str:
             command += " --effort " + shlex.quote(config.cli_effort)
     else:
         command = (
-            "codex exec --json --sandbox read-only --skip-git-repo-check --ephemeral"
+            "/usr/local/bin/codex exec --json --sandbox read-only --skip-git-repo-check --ephemeral"
             " --ignore-user-config --ignore-rules -c approval_policy=never"
         )
         if config.cli_model:
