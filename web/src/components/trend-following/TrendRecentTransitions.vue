@@ -5,6 +5,7 @@ import { getParsedApiError, type ParsedApiError } from '@/api/error';
 import AppApiErrorAlert from '@/components/app/AppApiErrorAlert.vue';
 import { Button } from '@/components/ui/button';
 import type { TrendMarket, TrendTransitionsResponse, TransitionDirection } from '@/types/trendFollowing';
+import { describeTrendStateChange, TREND_TRANSITION_RANGES } from '@/utils/trendStateChange';
 
 const props = defineProps<{ market: TrendMarket; asOf?: string; includePreview: boolean; refreshKey: number }>();
 const emit = defineEmits<{ select: [value: { code: string; tradeDate: string; preview: boolean }] }>();
@@ -13,7 +14,6 @@ const direction = ref<TransitionDirection>('all');
 const directions: Array<{ value: TransitionDirection; label: string }> = [
   { value: 'all', label: '全部' }, { value: 'strengthening', label: '转强' }, { value: 'deteriorating', label: '转弱' },
 ];
-const ranges = [1, 3, 5] as const;
 const data = shallowRef<TrendTransitionsResponse | null>(null);
 const error = shallowRef<ParsedApiError | null>(null);
 const loading = ref(false);
@@ -46,10 +46,10 @@ onBeforeUnmount(() => { requestId++; });
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h3 class="font-semibold">
-          最近状态变化
+          趋势状态变更
         </h3>
         <p class="mt-1 text-xs text-muted-foreground">
-          最近 {{ days }} 个正式 Snapshot session{{ data?.previewDate ? ' + Preview' : '' }} · 最多 20 条 · 日期、重要性、Rank 排序
+          展示最近交易快照中 State 发生关键变化的股票。转强表示趋势确认或恢复，转弱表示趋势弱化或破坏。
         </p>
       </div>
       <div class="flex gap-4">
@@ -73,14 +73,14 @@ onBeforeUnmount(() => { requestId++; });
           aria-label="状态变化时间范围"
         >
           <Button
-            v-for="range in ranges"
-            :key="range"
+            v-for="range in TREND_TRANSITION_RANGES"
+            :key="range.days"
             size="sm"
-            :variant="days === range ? 'secondary' : 'ghost'"
-            :aria-pressed="days === range"
-            @click="days = range"
+            :variant="days === range.days ? 'secondary' : 'ghost'"
+            :aria-pressed="days === range.days"
+            @click="days = range.days"
           >
-            {{ range }}D
+            {{ range.label }}
           </Button>
         </div>
       </div>
@@ -107,7 +107,7 @@ onBeforeUnmount(() => { requestId++; });
         <button
           v-for="item in data.items"
           :key="`${item.tradeDate}-${item.code}`"
-          class="grid w-full grid-cols-[24px_minmax(140px,1fr)_minmax(240px,1.3fr)_minmax(150px,1fr)_140px] items-center gap-3 rounded px-2 py-3 text-left text-sm hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring"
+          class="grid w-full grid-cols-[24px_minmax(140px,1fr)_minmax(280px,1.6fr)_minmax(150px,1fr)_140px] items-center gap-3 rounded px-2 py-3 text-left text-sm hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring"
           data-testid="trend-transition"
           @click="emit('select', { code: item.code, tradeDate: item.tradeDate, preview: item.isPreview })"
         >
@@ -116,8 +116,11 @@ onBeforeUnmount(() => { requestId++; });
             :class="item.direction === 'strengthening' ? 'text-emerald-700 dark:text-emerald-400' : 'text-orange-700 dark:text-orange-400'"
           >{{ item.direction === 'strengthening' ? '↑' : '↓' }}<span class="sr-only">{{ item.direction === 'strengthening' ? '转强' : '转弱' }}</span></span>
           <span class="min-w-0"><strong class="block truncate font-medium">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span></span>
-          <span class="text-xs">{{ item.previousState }} <span class="px-1 text-muted-foreground">→</span> {{ item.currentState }}</span>
-          <span class="text-xs tabular-nums">Rank #{{ item.previousRank }} → #{{ item.currentRank }}<span class="ml-2 text-muted-foreground">({{ item.rankDelta > 0 ? '+' : '' }}{{ item.rankDelta }})</span></span>
+          <span>
+            <strong class="block">{{ describeTrendStateChange(item.previousState, item.currentState) }}</strong>
+            <span class="text-xs text-muted-foreground">{{ item.previousState }} → {{ item.currentState }}</span>
+          </span>
+          <span class="text-xs tabular-nums text-muted-foreground">Rank #{{ item.previousRank }} → #{{ item.currentRank }}<span class="ml-2">({{ item.rankDelta > 0 ? '+' : '' }}{{ item.rankDelta }})</span></span>
           <span class="text-right text-xs text-muted-foreground">{{ item.tradeDate }}<span
             v-if="item.isPreview"
             class="ml-1 rounded border border-amber-500/50 px-1 text-amber-700 dark:text-amber-400"

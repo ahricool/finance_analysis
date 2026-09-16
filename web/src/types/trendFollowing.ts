@@ -83,10 +83,15 @@ export type TrendCandidate = Pick<TrendSnapshot, 'code' | 'name' | 'rank' | 'sta
 export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
   'code' | 'name' | 'rank' | 'state' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' |
   'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore' | 'setup' | 'atr' |
-  'referencePrice'> {
-  features: Pick<TrendFeatures, 'return5D' | 'return10D' | 'return20D' | 'volumeRatio' | 'distanceFromMa20' |
+  'referencePrice' | 'scoreBreakdown'> {
+  features: Pick<TrendFeatures,
     'alphaVersion' | 'pathScore' | 'setupScore' | 'weightedR2' | 'positiveReturnConcentration' |
-    'atrExpansionRatio' | 'downsideControlQuality' | 'downsideUpsideRatio'>;
+    'atrExpansionRatio' | 'downsideControlQuality' | 'downsideUpsideRatio' |
+    'rawWeightedSlope' | 'weightedSlopePercentile' | 'return5D' | 'return10D' | 'return20D' |
+    'drawdown20D' | 'rs5D' | 'rs10D' | 'rs20D' | 'ma10' | 'ma20' | 'ma10Slope' | 'ma20Slope' |
+    'distanceFromMa20' | 'volumeRatio' | 'trendQuality' | 'trendAcceleration' |
+    'signedEfficiencyRatio10D' | 'trendCandidate' | 'priorCompression' | 'compressionBreakout' |
+    'trendResume'>;
   rankChange1D: number | null;
   rankChange3D: number | null;
   rankChange5D: number | null;

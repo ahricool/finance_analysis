@@ -81,8 +81,10 @@ for (const width of [1280, 1440, 1920]) {
       await expect(panel.getByTestId('trend-transition')).toHaveCount(4);
       await panel.getByRole('button', { name: '转弱', exact: true }).click();
       await expect(panel.getByTestId('trend-transition')).toHaveCount(2);
-      await panel.getByRole('button', { name: '5D', exact: true }).click();
-      await expect(panel.getByTestId('trend-transitions')).toContainText('最近 5 个正式');
+      await panel.getByRole('button', { name: '近5个快照', exact: true }).click();
+      await expect(panel.getByTestId('trend-transitions')).toContainText('趋势状态变更');
+      await expect(panel.getByTestId('trend-transition').first()).toContainText('趋势开始弱化');
+      await expect(panel.getByTestId('trend-transition').first()).toContainText('TRENDING → WEAKENING');
       await panel.getByTestId('trend-transition').first().click();
       await expect(page.getByTestId('trend-detail')).toBeVisible();
       await expect(page.getByTestId('trend-rank-history')).toBeVisible();

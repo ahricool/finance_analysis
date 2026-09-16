@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TrendFollowingRunRequest(BaseModel):
@@ -81,6 +81,23 @@ class TrendRankingFeatures(BaseModel):
     atr_expansion_ratio: float | None = None
     downside_control_quality: float | None = None
     downside_upside_ratio: float | None = None
+    raw_weighted_slope: float | None = None
+    weighted_slope_percentile: float | None = None
+    drawdown_20d: float | None = None
+    rs_5d: float | None = None
+    rs_10d: float | None = None
+    rs_20d: float | None = None
+    ma10: float | None = None
+    ma20: float | None = None
+    ma10_slope: float | None = None
+    ma20_slope: float | None = None
+    trend_quality: float | None = None
+    trend_acceleration: float | None = None
+    signed_efficiency_ratio_10d: float | None = None
+    trend_candidate: bool | None = None
+    prior_compression: bool | None = None
+    compression_breakout: bool | None = None
+    trend_resume: bool | None = None
 
 
 class TrendRankingItem(BaseModel):
@@ -99,3 +116,4 @@ class TrendRankingItem(BaseModel):
     atr: float | None = None
     reference_price: float | None = None
     features: TrendRankingFeatures
+    score_breakdown: dict = Field(default_factory=dict)

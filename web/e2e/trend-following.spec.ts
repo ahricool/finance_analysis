@@ -62,7 +62,10 @@ for (const width of [1280, 1440, 1920]) {
       const headerBefore = await page.locator('header').first().boundingBox();
       const before = await page.locator('body').evaluate(el => ({ overflow: el.style.overflow, paddingRight: el.style.paddingRight }));
       await expect(page.getByRole('columnheader', { name: 'Path Score' })).toBeVisible();
-      await page.getByTestId('trend-candidate').click();
+      await expect(page.getByRole('columnheader', { name: 'Setup Score' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Breakout Score' })).toHaveCount(0);
+      await expect(page.getByText('趋势观察')).toHaveCount(0);
+      await page.getByTestId('trend-row').first().click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole('heading', { name: '平安银行' })).toBeVisible();
@@ -94,10 +97,10 @@ for (const width of [1280, 1440, 1920]) {
       await expect(dialog.getByTestId('trend-history').last()).toContainText('排名 #63');
       await page.keyboard.press('Escape');
       await expect(dialog).not.toBeVisible();
-      await expect(page.getByTestId('trend-candidate')).toBeFocused();
+      await expect(page.getByTestId('trend-row').first()).toBeVisible();
       expect(await page.locator('body').evaluate(el => ({ overflow: el.style.overflow, paddingRight: el.style.paddingRight }))).toEqual(before);
       await expect(page.getByRole('columnheader', { name: 'Path Score' })).toBeVisible();
-      await page.getByTestId('trend-candidate').click();
+      await page.getByTestId('trend-row').first().click();
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: 'Close', exact: true }).click();
       await expect(dialog).not.toBeVisible();
@@ -117,7 +120,11 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
     if (path.endsWith('/dates')) body = { items: [snapshot.tradeDate] };
     if (path.endsWith('/preview/status') || path.endsWith('/preview')) { await route.fulfill({ status: 404, json: {} }); return; }
     if (path.endsWith('/ranking')) {
-      body = { ...summary, items: Array.from({ length: 3800 }, (_, rank) => ({ ...snapshot, code: `TEST${rank}`, name: `Stock ${rank}`, rank: rank + 1, alphaScore: rank / 38 })), candidates: [] };
+      const states = ['IDLE', 'WATCHING', 'CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN'];
+      body = { ...summary, items: Array.from({ length: 3800 }, (_, rank) => ({
+        ...snapshot, code: `TEST${rank}`, name: `Stock ${rank}`, rank: rank + 1,
+        alphaScore: rank / 38, state: states[rank % states.length],
+      })), candidates: [] };
       rankingStarted = Date.now();
     }
     await route.fulfill({ json: body });
@@ -126,6 +133,19 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
   await expect(page.getByTestId('trend-row')).toHaveCount(28);
   await expect(page.getByTestId('trend-ranking-count')).toContainText('3800');
   const scroll = page.getByTestId('trend-ranking-scroll');
+  for (const width of [1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => scroll.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+    expect(await scroll.evaluate(el => el.getBoundingClientRect().right)).toBeLessThanOrEqual(width);
+    const name = page.getByTestId('trend-row').first().locator('[data-column="name"]');
+    const before = (await name.boundingBox())!;
+    await scroll.evaluate(el => { el.scrollLeft = 1500; });
+    const after = (await name.boundingBox())!;
+    const viewport = (await scroll.boundingBox())!;
+    expect(after.x).toBeGreaterThanOrEqual(viewport.x - 1);
+    expect(after.x).toBeLessThan(before.x);
+    await scroll.evaluate(el => { el.scrollLeft = 0; });
+  }
   await scroll.evaluate(el => { el.scrollTop = el.scrollHeight; });
   await expect(page.getByTestId('trend-row').last()).toContainText('TEST3799');
   await scroll.evaluate(el => { el.scrollTop = 0; });
@@ -139,4 +159,10 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
   await page.getByTestId('trend-ranking-search').fill('Stock 1800');
   await expect(page.getByTestId('trend-row')).toHaveCount(1);
   await expect(page.getByTestId('trend-row')).toContainText('TEST1800');
+  await page.getByTestId('trend-ranking-search').fill('');
+  await page.getByTestId('trend-state-filter').getByRole('button', { name: '趋势健康', exact: true }).click();
+  await expect(page.getByTestId('trend-ranking-count')).toContainText('633 / 3800');
+  await expect(page.getByTestId('trend-row')).toHaveCount(28);
+  await expect(page.getByTestId('trend-row').first()).toContainText('TEST3795');
+  await expect(page.getByTestId('trend-row').first()).toContainText('趋势健康');
 });

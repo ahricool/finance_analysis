@@ -484,14 +484,17 @@ class TrendFollowingRepository:
 
     def dashboard_rows(self, trade_date: date) -> list[dict]:
         """One scalar projection for ranking and lifecycle; no eager ORM joins."""
-        from finance_analysis.trend_following.read_models import DASHBOARD_FIELDS, FEATURE_FIELDS
+        from finance_analysis.trend_following.read_models import (
+            BOOLEAN_FEATURE_FIELDS, DASHBOARD_FIELDS, NUMERIC_FEATURE_FIELDS,
+        )
 
         snapshot = TrendFollowingSnapshot
         query = (
             select(
                 *(getattr(snapshot, key) for key in DASHBOARD_FIELDS),
                 Instrument.name,
-                *(snapshot.features[key].as_float().label(key) for key in FEATURE_FIELDS),
+                *(snapshot.features[key].as_float().label(key) for key in NUMERIC_FEATURE_FIELDS),
+                *(snapshot.features[key].as_boolean().label(key) for key in BOOLEAN_FEATURE_FIELDS),
             )
             .join(Instrument, Instrument.id == snapshot.instrument_id)
             .where(snapshot.market == self.market, snapshot.trade_date == trade_date)

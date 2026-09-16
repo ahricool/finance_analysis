@@ -89,7 +89,8 @@ atr_expansion_ratio/downside_control_quality/downside_upside_ratio`；服务端�
 表格在整份市场数据上双向排序并虚拟化显示，新增 Path、Weighted R²、Concentration、ATR Expansion、
 Downside Control、Setup 列。Drawer 展示这些指标、比值及完整贡献明细；保留原趋势/RS/Breakout/Signed Efficiency。
 
-Ranking cache schema 升至v4，避免旧投影缓存隐藏新字段。Preview仍复用原Redis键和计算链。
+Ranking cache schema 在 Alpha V2 时升至 v4；完整排名投影扩展后再升至 v5，避免旧缓存隐藏新字段。
+Preview仍复用原Redis键和计算链。
 旧快照不即时重算，不伪造V2字段：`alpha_version` 缺失时页面显示V1，新增指标显示「—」。
 新运行默认生成V2。若需要统一历史口径，使用现有重算流程（会按已有服务语义向后重建状态），
 本次代码修改不自动触发历史写入。跨版本的排名/分数差异不能当作纯市场变化。
