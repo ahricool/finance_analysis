@@ -75,15 +75,14 @@ for (const width of [1280, 1440, 1920]) {
       await expect(dialog.getByTestId('trend-fragility-history').locator('canvas')).toBeVisible();
       await expect(dialog.getByText('EXPANSION', { exact: true })).toBeVisible();
       // Wait for the opening scale animation before measuring the centered panel.
-      // Compare against the layout viewport so a stable scrollbar gutter is not treated as drift.
+      // `left: 50%` follows the content box after scrollbar-gutter, not the visual viewport.
       await expect.poll(async () => {
         const box = (await dialog.boundingBox())!;
-        const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
-        return Math.abs(box.x + box.width / 2 - clientWidth / 2);
+        const contentWidth = await page.evaluate(() => document.body.clientWidth);
+        return Math.abs(box.x + box.width / 2 - contentWidth / 2);
       }).toBeLessThan(2);
       const box = (await dialog.boundingBox())!;
-      const clientHeight = await page.evaluate(() => document.documentElement.clientHeight);
-      expect(Math.abs(box.y + box.height / 2 - clientHeight / 2)).toBeLessThan(2);
+      expect(Math.abs(box.y + box.height / 2 - 450)).toBeLessThan(2);
       expect(box.width).toBeLessThanOrEqual(width - 30);
       expect(box.y).toBeGreaterThanOrEqual(14);
       expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
