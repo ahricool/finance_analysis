@@ -27,7 +27,10 @@ function rankingDto(data: Record<string, unknown>): TrendRankingResponse {
   }
   return {
     ...toCamelCase<TrendRankingResponse>(summary),
-    items: (items as Record<string, unknown>[]).map(row => ({ ...shallow(row), features: shallow(row.features) })),
+    items: (items as Record<string, unknown>[]).map(row => ({
+      ...shallow(row), features: shallow(row.features),
+      scoreBreakdown: toCamelCase(row.score_breakdown ?? row.scoreBreakdown ?? {}),
+    })),
     changes: changes ? mappedChanges : null,
     candidates: rows(candidates),
   } as unknown as TrendRankingResponse;

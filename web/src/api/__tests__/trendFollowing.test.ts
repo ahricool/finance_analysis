@@ -10,6 +10,7 @@ describe('trendFollowingApi', () => {
   it('converts nested snapshot fields and scopes ranking to market/date', async () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: {
       trade_date: '2026-08-28', market: 'US', items: [{ code: 'AAPL.US', alpha_score: 82,
+        score_breakdown: { trend: { weighted_r2: 90 }, rs: { rs_10d: 57 }, breakout: { ma20_extension: 80 }, alpha: { volume: 60 } },
         features: { return_5d: 0.03, return_10d: 0.06, return_20d: 0.1, weighted_r2: 0.9,
           rs_5d: 0.01, rs_10d: 0.02, breakout_10d: true, trend_resume: false } }],
       changes: {
@@ -28,7 +29,8 @@ describe('trendFollowingApi', () => {
     expect(apiClient.get).toHaveBeenCalledWith('/api/v1/trend-following/ranking', {
       params: { market: 'US', trade_date: '2026-08-28' },
     });
-    expect(result.items[0]).toMatchObject({ alphaScore: 82, features: {
+    expect(result.items[0]).toMatchObject({ alphaScore: 82,
+      scoreBreakdown: { trend: { weightedR2: 90 }, rs: { rs10D: 57 }, breakout: { ma20Extension: 80 }, alpha: { volume: 60 } }, features: {
       return5D: 0.03, return10D: 0.06, return20D: 0.1, weightedR2: 0.9,
       rs5D: 0.01, rs10D: 0.02, breakout10D: true, trendResume: false,
     } });
@@ -74,8 +76,8 @@ it('maps ranking snapshot rank changes including null and zero with the bounded 
     { rank_change_1d: 0, rank_change_3d: null, rank_change_5d: null },
   ] } });
   expect((await trendFollowingApi.ranking('CN')).items).toEqual([
-    { rankChange1D: 5, rankChange3D: -17, rankChange5D: 32, features: {} },
-    { rankChange1D: 0, rankChange3D: null, rankChange5D: null, features: {} },
+    { rankChange1D: 5, rankChange3D: -17, rankChange5D: 32, features: {}, scoreBreakdown: {} },
+    { rankChange1D: 0, rankChange3D: null, rankChange5D: null, features: {}, scoreBreakdown: {} },
   ]);
 });
 

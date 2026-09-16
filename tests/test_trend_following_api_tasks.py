@@ -431,7 +431,7 @@ def test_ranking_aggregates_without_compatibility_queries_and_does_not_cache_inc
     result = json.loads(trend_following.ranking(TRADE_DATE, "alpha_score", None, None, "US").body)
     assert "portfolio" not in result
     assert result["candidates"][0]["code"] == result["items"][0]["code"]
-    assert "score_breakdown" not in result["items"][0]
+    assert "score_breakdown" in result["items"][0]
     assert "reasons" not in result["items"][0]
     assert saves == []
 

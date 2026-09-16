@@ -116,6 +116,19 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
   await expect(page.getByTestId('trend-row')).toHaveCount(28);
   await expect(page.getByTestId('trend-ranking-count')).toContainText('3800');
   const scroll = page.getByTestId('trend-ranking-scroll');
+  for (const width of [1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => scroll.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+    expect(await scroll.evaluate(el => el.getBoundingClientRect().right)).toBeLessThanOrEqual(width);
+    const name = page.getByTestId('trend-row').first().locator('[data-column="name"]');
+    const before = (await name.boundingBox())!;
+    await scroll.evaluate(el => { el.scrollLeft = 1500; });
+    const after = (await name.boundingBox())!;
+    const viewport = (await scroll.boundingBox())!;
+    expect(after.x).toBeGreaterThanOrEqual(viewport.x - 1);
+    expect(after.x).toBeLessThan(before.x);
+    await scroll.evaluate(el => { el.scrollLeft = 0; });
+  }
   await scroll.evaluate(el => { el.scrollTop = el.scrollHeight; });
   await expect(page.getByTestId('trend-row').last()).toContainText('TEST3799');
   await scroll.evaluate(el => { el.scrollTop = 0; });

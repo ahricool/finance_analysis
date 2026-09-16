@@ -91,6 +91,42 @@ describe('TrendFollowingPage', () => {
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
+  it.each(['official', 'preview'] as const)('sorts raw and normalized metrics across the full %s pool', async mode => {
+    const items: TrendRankingSnapshot[] = Array.from({ length: 350 }, (_, index) => ({
+      ...rankingSnapshot(), code: `STOCK${String(index).padStart(3, '0')}`, rank: index + 1,
+      features: { ...snapshot().features, weightedSlopePercentile: index / 4,
+        rs10D: index / 1000, weightedR2: index / 400, drawdown20D: -index / 1000,
+        volumeRatio: index / 100, breakoutDistance: index / 1000, breakout10D: index === 349 },
+      scoreBreakdown: { trend: { weightedR2: index / 4 }, rs: { rs10D: index / 4 },
+        breakout: { volume: index / 4 }, alpha: { compression: index / 4 } },
+    }));
+    // Missing values must remain last in either direction.
+    items.push({ ...items[0]!, code: 'MISSING', rank: 351, features: {} as TrendSnapshot['features'], scoreBreakdown: {} });
+    if (mode === 'official') apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items });
+    else mockPreview({ ...ranking('CN'), status: 'completed', tradeDate: '2026-09-10',
+      previewTime: '2026-09-10T06:00:00Z', snapshots: items });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    const first = () => wrapper.findAll('[data-testid="trend-row"]')[0]!;
+    for (const key of ['weightedSlopePercentile', 'rs10D', 'weightedR2', 'drawdown20D',
+      'volumeRatio', 'breakoutDistance', 'breakout10D', 'scoreBreakdown.trend.weightedR2',
+      'scoreBreakdown.rs.rs10D', 'scoreBreakdown.breakout.volume', 'scoreBreakdown.alpha.compression']) {
+      await wrapper.get('select[aria-label="排名排序指标"]').setValue(key);
+      const header = wrapper.find('th[aria-sort="ascending"], th[aria-sort="descending"]');
+      // Explicitly test both directions independent of the previously selected column.
+      if (header.attributes('aria-sort') === 'ascending') await header.get('button').trigger('click');
+      expect(first().text()).toContain(key === 'drawdown20D' ? 'STOCK000' : 'STOCK349');
+      await header.get('button').trigger('click');
+      expect(first().text()).toContain(key === 'drawdown20D' ? 'STOCK349' : 'STOCK000');
+      expect(wrapper.findAll('[data-testid="trend-row"]').length).toBeLessThan(40);
+    }
+    expect(first().get('[data-column="rs10D"]').text()).toBe('0.0%');
+    expect(first().get('[data-column="breakout10D"]').text()).toBe('否');
+    expect(first().get('[data-column="weightedR2"]').text()).toBe('0.0000');
+    expect(apiMocks.detail).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it('virtualizes the full ranking without pagination and sorts the whole result', async () => {
     const items = Array.from({ length: 800 }, (_, index) => ({
       ...rankingSnapshot(), code: `STOCK${index}`, rank: index + 1, alphaScore: index / 8,
@@ -203,7 +239,7 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.text()).toContain('平安银行');
     expect(wrapper.text()).toContain('趋势健康');
     expect(wrapper.find('table').classes()).toContain('w-full');
-    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(11);
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(wrapper.findAll('th[aria-sort]').length);
     expect(wrapper.text()).toContain('Lifecycle / Age');
     expect(wrapper.text()).toContain('12D');
     expect(wrapper.text()).toContain('Fragility');

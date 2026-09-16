@@ -31,7 +31,7 @@ Summary 删除 `suggested_max_exposure` 和 entry/add/hold/reduce/exit 计数，
 已存历史按当时保存的价格、评分与指标顺序重建六态和候选计数，移除沿用旧行情或缺少必要指标的行。
 迁移不读取外部行情、不生成模拟成交。删除的数据不可由 downgrade 还原。
 部署需更新 API、普通 Worker、Web，并执行 `uv run alembic upgrade head`；不要让旧 Worker 在迁移后继续写入。
-正式排名缓存版本为 v3，Preview key 为 `trend_following:preview:v2:{market}`，旧缓存不再读取。
+正式排名缓存版本为 v4，Preview key 为 `trend_following:preview:v2:{market}`，旧缓存不再读取。
 
 删除 `/trend-following/portfolio`、ranking 的 portfolio、所有 action 和 pending 字段。
 changes 仅比较状态/排名/评分，以 `new_broken` 替代旧动作分类。前端删除理论组合、敞口进度、
@@ -143,3 +143,11 @@ PY
 
 09-07 非交易日，不生成 US 快照。若任务仍 failed，检查 warnings 和 remaining missing；
 按当前 90% 门槛核对覆盖率及其他数据条件。最终检查数据库 summary / snapshot 日期及任务结果，再验证页面显示。
+
+### 排名指标读模型
+
+`/trend-following/ranking` 一次批量投影返回完整标量 `features` 与 `score_breakdown` 的
+Trend / RS / Breakout / Alpha 标准化分量，不逐行请求详情，不改变策略计算。缺失历史指标返回 null。
+主表按 Score、Trend、Relative Strength、Breakout / Setup、Volume / Compression、Risk / Health
+分组展示，标准化分量独立列出。Official 与 Preview 均先对完整股票池排序，再截取虚拟滚动行；
+搜索时排序作用于完整匹配集合。数值与布尔列支持升降序，缺失值始终置后。表格可横向滚动，股票名称固定在左侧。

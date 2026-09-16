@@ -335,7 +335,7 @@ def test_read_projections_do_not_load_full_snapshot_or_instrument_json():
     repository = TrendFollowingRepository("US", database)
     items = repository.dashboard_rows(date(2026, 9, 10))
     assert items[0]["return_5d"] == 0.15
-    assert "features" not in items[0] and "score_breakdown" not in items[0]
+    assert "features" not in items[0] and items[0]["score_breakdown"] == {}
     changes = repository.change_rows(date(2026, 9, 10))
     assert set(changes[0]) == {"code", "state", "rank", "trend_score", "rs_score", "alpha_score"}
     assert len(statements) == 2
@@ -365,3 +365,28 @@ def test_replace_and_invalidate_clear_cache_only_after_commit(monkeypatch):
     with pytest.raises(Exception):
         repository.replace_day(trade_date, [], {"market": "US", "trade_date": trade_date})
     assert len(calls) == 3
+
+
+def test_dashboard_projection_preserves_all_ranking_metrics_and_boolean_types():
+    from finance_analysis.trend_following.read_models import (
+        BOOLEAN_FEATURE_FIELDS, NUMERIC_FEATURE_FIELDS, ranking_item,
+    )
+
+    db = _Database()
+    day = date(2026, 8, 28)
+    features = {key: index / 100 for index, key in enumerate(NUMERIC_FEATURE_FIELDS)}
+    features.update({key: index % 2 == 0 for index, key in enumerate(BOOLEAN_FEATURE_FIELDS)})
+    breakdown = {"trend": {"weighted_r2": 92}, "rs": {"rs_10d": 64},
+                 "breakout": {"volume": 80}, "alpha": {"compression": 100}}
+    with db.session_scope() as session:
+        session.add(Instrument(id=1, code="AAPL.US", name="Apple", market="US"))
+        row = _snapshot(snapshot_id=1, code="AAPL.US", instrument_id=1, trade_date=day)
+        row.features = features
+        row.score_breakdown = breakdown
+        session.add(row)
+    repository = TrendFollowingRepository("US", db_manager=db)
+    result = ranking_item(repository.dashboard_rows(day)[0])
+    assert result["features"] == features
+    assert all(type(result["features"][key]) is bool for key in BOOLEAN_FEATURE_FIELDS)
+    assert result["score_breakdown"] == breakdown
+    assert "reasons" not in result

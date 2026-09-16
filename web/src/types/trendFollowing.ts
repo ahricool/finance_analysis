@@ -69,7 +69,8 @@ export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
   'code' | 'name' | 'rank' | 'state' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' |
   'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore' | 'setup' | 'atr' |
   'referencePrice'> {
-  features: Pick<TrendFeatures, 'return5D' | 'return10D' | 'return20D' | 'volumeRatio' | 'distanceFromMa20'>;
+  features: { [K in keyof TrendFeatures]?: TrendFeatures[K] | null };
+  scoreBreakdown: TrendSnapshot['scoreBreakdown'];
   rankChange1D: number | null;
   rankChange3D: number | null;
   rankChange5D: number | null;

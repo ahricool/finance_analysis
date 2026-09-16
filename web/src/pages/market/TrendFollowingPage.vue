@@ -85,29 +85,76 @@ const detailChartHistory = computed(() => detail.value
   ? buildDetailChartHistory(detail.value.history, detail.value.latest, detailMode.value === 'preview')
   : []);
 const rankingColumns = [
-  { key: 'rank', label: 'Alpha Rank', description: descriptions.rank },
-  { key: 'name', label: '股票名称', description: undefined },
-  { key: 'code', label: '股票代码', description: undefined },
-  { key: 'state', label: 'State', description: descriptions.state },
-  { key: 'trendLifecycle', label: 'Lifecycle / Age', description: '趋势阶段与持续交易日数。MATURE 表示趋势成熟阶段。' },
-  { key: 'fragilityScore', label: 'Fragility', description: '0–100；越高表示内部恶化越快。历史不足显示 —，并不代表稳定。' },
-  { key: 'trendDurationDays', label: '持续天数', description: descriptions.trendDuration },
-  { key: 'alphaScore', label: 'Alpha Score', description: descriptions.alpha },
-  { key: 'trendScore', label: 'Trend Score', description: descriptions.trend },
-  { key: 'rsScore', label: 'RS Score', description: descriptions.relativeStrength },
-  { key: 'breakoutScore', label: 'Breakout Score', description: descriptions.breakout },
-  { key: 'setup', label: 'Setup', description: descriptions.setup },
-  { key: 'return5D', label: '5D Return', description: descriptions.return },
-  { key: 'return10D', label: '10D Return', description: descriptions.return },
-  { key: 'return20D', label: '20D Return', description: descriptions.return },
-  { key: 'volumeRatio', label: 'Volume Ratio', description: descriptions.volumeCompression },
-  { key: 'distanceFromMa20', label: 'Distance From MA20', description: descriptions.movingAverage },
-  { key: 'rankChange5D', label: '排名趋势', description: descriptions.rankChange },
-  { key: 'atr', label: 'ATR', description: descriptions.atr },
-  { key: 'referencePrice', label: 'Reference Price', description: descriptions.reference },
+  { key: 'rank', label: 'Alpha Rank', group: 'Core', format: 'number', description: descriptions.rank },
+  { key: 'name', label: '股票名称', group: 'Core', format: 'number', description: undefined },
+  { key: 'state', label: 'State', group: 'Core', format: 'number', description: descriptions.state },
+  { key: 'trendLifecycle', label: 'Lifecycle / Age', group: 'Core', format: 'number', description: '趋势阶段与持续交易日数。MATURE 表示趋势成熟阶段。' },
+  { key: 'trendDurationDays', label: '持续天数', group: 'Core', format: 'number', description: descriptions.trendDuration },
+  { key: 'rankChange5D', label: '排名趋势', group: 'Core', format: 'number', description: descriptions.rankChange },
+  { key: 'rankChange1D', label: 'Rank Δ 1D', group: 'Core', format: 'number', description: undefined },
+  { key: 'rankChange3D', label: 'Rank Δ 3D', group: 'Core', format: 'number', description: undefined },
+  { key: 'referencePrice', label: 'Reference Price', group: 'Core', format: 'number', description: descriptions.reference },
+  { key: 'alphaScore', label: 'Alpha Score', group: 'Score', format: 'number', description: descriptions.alpha },
+  { key: 'trendScore', label: 'Trend Score', group: 'Score', format: 'number', description: descriptions.trend },
+  { key: 'rsScore', label: 'RS Score', group: 'Score', format: 'number', description: descriptions.relativeStrength },
+  { key: 'breakoutScore', label: 'Breakout Score', group: 'Score', format: 'number', description: descriptions.breakout },
+  { key: 'rawWeightedSlope', label: 'Weighted Slope 15D', group: 'Trend', format: 'number', description: undefined },
+  { key: 'weightedSlopePercentile', label: 'Slope Percentile 15D', group: 'Trend', format: 'number', description: undefined },
+  { key: 'weightedR2', label: 'R²', group: 'Trend', format: 'number', description: undefined },
+  { key: 'return5D', label: '5D Return', group: 'Trend', format: 'percent', description: descriptions.return },
+  { key: 'return10D', label: '10D Return', group: 'Trend', format: 'percent', description: descriptions.return },
+  { key: 'return20D', label: '20D Return', group: 'Trend', format: 'percent', description: descriptions.return },
+  { key: 'ma10', label: 'MA10', group: 'Trend', format: 'number', description: undefined },
+  { key: 'ma20', label: 'MA20', group: 'Trend', format: 'number', description: undefined },
+  { key: 'ma10Slope', label: 'MA10 Slope', group: 'Trend', format: 'percent', description: undefined },
+  { key: 'ma20Slope', label: 'MA20 Slope', group: 'Trend', format: 'percent', description: undefined },
+  { key: 'distanceFromMa20', label: 'Distance From MA20', group: 'Trend', format: 'percent', description: descriptions.movingAverage },
+  { key: 'trendCandidate', label: 'Trend Candidate', group: 'Trend', format: 'number', description: undefined },
+  { key: 'rs5D', label: 'RS 5D', group: 'Relative Strength', format: 'percent', description: undefined },
+  { key: 'rs10D', label: 'RS 10D', group: 'Relative Strength', format: 'percent', description: undefined },
+  { key: 'rs20D', label: 'RS 20D', group: 'Relative Strength', format: 'percent', description: undefined },
+  { key: 'return10DPercentile', label: 'Return 10D Percentile', group: 'Relative Strength', format: 'number', description: undefined },
+  { key: 'return20DPercentile', label: 'Return 20D Percentile', group: 'Relative Strength', format: 'number', description: undefined },
+  { key: 'setup', label: 'Setup', group: 'Breakout / Setup', format: 'number', description: descriptions.setup },
+  { key: 'breakout10D', label: 'Breakout 10D', group: 'Breakout / Setup', format: 'number', description: undefined },
+  { key: 'breakout20D', label: 'Breakout 20D', group: 'Breakout / Setup', format: 'number', description: undefined },
+  { key: 'breakoutDistance', label: 'Breakout Distance', group: 'Breakout / Setup', format: 'percent', description: undefined },
+  { key: 'trendResume', label: 'Trend Resume', group: 'Breakout / Setup', format: 'number', description: undefined },
+  { key: 'volumeRatio', label: 'Volume Ratio', group: 'Volume / Compression', format: 'number', description: descriptions.volumeCompression },
+  { key: 'priorCompression', label: 'Prior Compression', group: 'Volume / Compression', format: 'number', description: undefined },
+  { key: 'compressionBreakout', label: 'Compression Breakout', group: 'Volume / Compression', format: 'number', description: undefined },
+  { key: 'fragilityScore', label: 'Fragility', group: 'Risk / Health', format: 'number', description: '0–100；越高表示内部恶化越快。历史不足显示 —，并不代表稳定。' },
+  { key: 'drawdown20D', label: 'Drawdown 20D', group: 'Risk / Health', format: 'percent', description: undefined },
+  { key: 'trendQuality', label: 'Trend Quality', group: 'Risk / Health', format: 'number', description: undefined },
+  { key: 'trendAcceleration', label: 'Trend Acceleration', group: 'Risk / Health', format: 'number', description: undefined },
+  { key: 'signedEfficiencyRatio10D', label: 'Signed Efficiency 10D', group: 'Risk / Health', format: 'number', description: undefined },
+  { key: 'atr', label: 'ATR', group: 'Risk / Health', format: 'number', description: descriptions.atr },
+  { key: 'scoreBreakdown.trend.weightedSlopePercentile', label: 'Trend · Weighted Slope Percentile', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.trend.weightedR2', label: 'Trend · R²', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.trend.return10D', label: 'Trend · Return 10D', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.trend.return20D', label: 'Trend · Return 20D', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.trend.drawdownQuality', label: 'Trend · Drawdown Quality', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.rs.rs5D', label: 'RS · RS 5D', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.rs.rs10D', label: 'RS · RS 10D', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.rs.rs20D', label: 'RS · RS 20D', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.rs.percentile10D', label: 'Rs · Percentile 10D', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.rs.percentile20D', label: 'Rs · Percentile 20D', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.breakout.breakoutDistance', label: 'Breakout · Breakout Distance', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.breakout.volume', label: 'Breakout · Volume', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.breakout.ma20Extension', label: 'Breakout · MA20 Extension', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.breakout.compression', label: 'Breakout · Compression', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.breakout.breakout10D', label: 'Breakout · Breakout 10D', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.breakout.breakout20D', label: 'Breakout · Breakout 20D', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.breakout.trendResume', label: 'Breakout · Trend Resume', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.alpha.trend', label: 'Alpha · Trend', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.alpha.rs', label: 'Alpha · RS', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.alpha.breakout', label: 'Alpha · Breakout', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.alpha.volume', label: 'Alpha · Volume', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
+  { key: 'scoreBreakdown.alpha.compression', label: 'Alpha · Compression', group: 'Score Components (0–100)', format: 'number', description: '标准化分量，0–100。' },
 ] as const;
-const visibleRankingColumns = rankingColumns.filter(column =>
-  ['rank', 'name', 'state', 'trendLifecycle', 'alphaScore', 'trendScore', 'rsScore', 'fragilityScore', 'return5D', 'return20D', 'rankChange5D'].includes(column.key));
+const rankingGroups = [...new Set(rankingColumns.map(column => column.group))].map(label => ({
+  label, count: rankingColumns.filter(column => column.group === label).length,
+}));
 type SortKey = typeof rankingColumns[number]['key'];
 const rankingSearch = ref('');
 const sortKey = ref<SortKey>('rank');
@@ -118,11 +165,29 @@ const marketOverviewReady = ref(false);
 const detailMode = ref<ResearchDataMode>('official');
 
 const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
-function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | null | undefined {
+function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | boolean | null | undefined {
   if (key === 'trendLifecycle') return item.trendDurationDays;
   if (key === 'rankChange5D') return item.rankChange5D ?? item.rankChange3D ?? item.rankChange1D;
-  if (key === 'return5D' || key === 'return10D' || key === 'return20D' || key === 'volumeRatio' || key === 'distanceFromMa20') return item.features[key];
-  return item[key];
+  let value: unknown;
+  if (key.startsWith('scoreBreakdown.')) {
+    const [, group, component] = key.split('.');
+    const breakdown = item.scoreBreakdown?.[group!] as Record<string, unknown> | undefined;
+    value = breakdown?.[component!];
+  } else {
+    value = key in item ? item[key as keyof TrendRankingSnapshot] : item.features[key];
+  }
+  return typeof value === 'number' ? (Number.isFinite(value) ? value : null)
+    : typeof value === 'string' || typeof value === 'boolean' ? value : null;
+}
+function rankingCell(item: TrendRankingSnapshot, column: typeof rankingColumns[number]) {
+  const value = sortValue(item, column.key);
+  if (value == null) return '—';
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (typeof value === 'string') return value;
+  if (column.format === 'percent') return pct(value);
+  if (column.key === 'referencePrice') return price(value);
+  if (column.key === 'rawWeightedSlope' || column.key === 'weightedR2') return value.toFixed(4);
+  return score(value);
 }
 function toggleSort(key: SortKey) {
   sortDirection.value = sortKey.value === key
@@ -140,7 +205,7 @@ const sortedItems = computed(() => [...filteredItems.value].sort((left, right) =
   const b = sortValue(right, sortKey.value);
   if (a == null) return b == null ? 0 : 1;
   if (b == null) return -1;
-  const comparison = typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b));
+  const comparison = typeof a !== 'string' && typeof b !== 'string' ? Number(a) - Number(b) : String(a).localeCompare(String(b));
   return comparison * (sortDirection.value === 'asc' ? 1 : -1) || left.code.localeCompare(right.code);
 }));
 // Production CN currently has ~3,800 rows. Keep one sortable dataset, but only
@@ -150,7 +215,7 @@ const rankingScrollTop = ref(0);
 const virtualRanking = computed(() => sortedItems.value.length > 300);
 const rankingRowHeight = 64;
 const virtualStart = computed(() => virtualRanking.value
-  ? Math.min(Math.max(0, sortedItems.value.length - 28), Math.max(0, Math.floor((rankingScrollTop.value - 40) / rankingRowHeight) - 8)) : 0);
+  ? Math.min(Math.max(0, sortedItems.value.length - 28), Math.max(0, Math.floor((rankingScrollTop.value - 80) / rankingRowHeight) - 8)) : 0);
 const renderedRankingRows = computed(() => virtualRanking.value
   ? sortedItems.value.slice(virtualStart.value, virtualStart.value + 28) : sortedItems.value);
 const rankingBottomSpace = computed(() => virtualRanking.value
@@ -693,7 +758,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           <div
             v-else
             ref="rankingViewport"
-            class="w-full overflow-auto"
+            class="w-full overflow-auto [&_[data-slot=table-container]]:overflow-visible"
             :class="virtualRanking ? 'max-h-[680px]' : ''"
             data-testid="trend-ranking-scroll"
             tabindex="0"
@@ -702,14 +767,26 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           >
             <Table
               class="w-full"
-              :aria-rowcount="sortedItems.length + 1"
+              :aria-rowcount="sortedItems.length + 2"
             >
               <TableHeader>
                 <TableRow>
+                  <th
+                    v-for="group in rankingGroups"
+                    :key="group.label"
+                    :colspan="group.count"
+                    class="border-r px-4 py-2 text-left text-xs text-muted-foreground"
+                  >
+                    {{ group.label }}
+                  </th>
+                </TableRow>
+                <TableRow>
                   <SortableTableHeader
-                    v-for="column in visibleRankingColumns"
+                    v-for="column in rankingColumns"
                     :key="column.key"
                     :label="column.label"
+                    class="min-w-32 whitespace-nowrap"
+                    :class="column.key === 'name' ? 'sticky left-0 z-20 min-w-48 bg-background' : ''"
                     :description="column.description"
                     :active="sortKey === column.key"
                     :direction="sortDirection"
@@ -724,7 +801,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                   :style="{ height: `${virtualStart * rankingRowHeight}px` }"
                 >
                   <td
-                    :colspan="visibleRankingColumns.length"
+                    :colspan="rankingColumns.length"
                     class="p-0"
                   />
                 </tr>
@@ -733,42 +810,52 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                   :key="item.code"
                   class="cursor-pointer"
                   data-testid="trend-row"
-                  :aria-rowindex="virtualStart + index + 2"
+                  :aria-rowindex="virtualStart + index + 3"
                   :style="virtualRanking ? { height: `${rankingRowHeight}px` } : undefined"
                   @click="openDetail(item)"
                 >
-                  <TableCell>#{{ item.rank }}</TableCell>
-                  <TableCell><strong class="block">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span></TableCell>
-                  <TableCell>
-                    <Badge :variant="badgeVariant(item.state)">
+                  <TableCell
+                    v-for="column in rankingColumns"
+                    :key="column.key"
+                    class="min-w-32 whitespace-nowrap tabular-nums"
+                    :class="column.key === 'name' ? 'sticky left-0 z-10 min-w-48 bg-background' : ''"
+                    :data-column="column.key"
+                  >
+                    <template v-if="column.key === 'rank'">
+                      #{{ item.rank }}
+                    </template>
+                    <template v-else-if="column.key === 'name'">
+                      <strong class="block">{{ item.name }}</strong><span class="font-mono text-xs text-muted-foreground">{{ item.code }}</span>
+                    </template>
+                    <Badge
+                      v-else-if="column.key === 'state'"
+                      :variant="badgeVariant(item.state)"
+                    >
                       {{ stateText(item.state) }}
                     </Badge>
-                  </TableCell>
-                  <TableCell><span class="text-xs">{{ item.trendLifecycle ?? '—' }}</span><span class="block text-xs text-muted-foreground">{{ item.trendDurationDays == null ? '—' : `${item.trendDurationDays}D` }}</span></TableCell>
-                  <TableCell>{{ score(item.fragilityScore) }}</TableCell>
-                  <TableCell class="font-bold text-primary">
-                    {{ score(item.alphaScore) }}
-                  </TableCell>
-                  <TableCell>{{ score(item.trendScore) }}</TableCell>
-                  <TableCell>{{ score(item.rsScore) }}</TableCell>
-                  <TableCell>{{ pct(item.features.return5D) }}</TableCell>
-                  <TableCell>{{ pct(item.features.return20D) }}</TableCell>
-                  <TableCell>
-                    <div
-                      class="flex gap-3 whitespace-nowrap"
-                      data-testid="trend-rank-changes"
-                    >
-                      <span
-                        v-for="[label, value] in ([['1D', item.rankChange1D], ['3D', item.rankChange3D], ['5D', item.rankChange5D]] as const)"
-                        :key="label"
-                        class="text-xs"
+                    <template v-else-if="column.key === 'trendLifecycle'">
+                      <span class="text-xs">{{ item.trendLifecycle ?? '—' }}</span><span class="block text-xs text-muted-foreground">{{ item.trendDurationDays == null ? '—' : `${item.trendDurationDays}D` }}</span>
+                    </template>
+                    <template v-else-if="column.key === 'rankChange5D'">
+                      <div
+                        class="flex gap-3 whitespace-nowrap"
+                        data-testid="trend-rank-changes"
                       >
-                        <span class="text-muted-foreground">{{ label }}</span>
-                        <span :class="value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-market-up' : 'text-market-down'">
-                          {{ rankDelta(value) }}
+                        <span
+                          v-for="[label, value] in ([['1D', item.rankChange1D], ['3D', item.rankChange3D], ['5D', item.rankChange5D]] as const)"
+                          :key="label"
+                          class="text-xs"
+                        >
+                          <span class="text-muted-foreground">{{ label }}</span>
+                          <span :class="value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-market-up' : 'text-market-down'">
+                            {{ rankDelta(value) }}
+                          </span>
                         </span>
-                      </span>
-                    </div>
+                      </div>
+                    </template>
+                    <template v-else>
+                      {{ rankingCell(item, column) }}
+                    </template>
                   </TableCell>
                 </TableRow>
                 <tr
@@ -777,7 +864,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                   :style="{ height: `${rankingBottomSpace}px` }"
                 >
                   <td
-                    :colspan="visibleRankingColumns.length"
+                    :colspan="rankingColumns.length"
                     class="p-0"
                   />
                 </tr>
