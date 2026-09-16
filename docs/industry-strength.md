@@ -86,8 +86,10 @@ RS 和 Acceleration 的差值应按百分点理解。Score 与 percentile 为 0�
 
 `members_observed_at` 是抓取当前成分的时间，**不是供应商提供的历史成员生效时间**。
 历史页面只读取当日保存的 Breadth；不使用今天的成分重算过去。
-因此本版本不提供历史回填，首次部署之后逐日积累 Rank / Score / Breadth 历史。
-缺少当日采集的过去日期保持空白。目录增删和少量缺失也会改变排名比较的横截面，排名变化不完全等同于价格动量变化。即使如此，当日抓取的当前列表也不等于官方历史成员档案。
+显式传入 `trade_date` 可补算已收盘交易日的行业指数强度，采用计算时的当前行业目录。
+历史补算不读取当前成分或股票行情；Breadth 比例、计数和 `members_observed_at` 为 null，
+`quality.breadth_status=unavailable_historical_members`，页面明确标注。已有真实成分观测的历史快照拒绝覆盖。
+默认收盘任务仍只生成当天结果。首次部署后逐日积累真实 Breadth 历史。目录增删和少量缺失也会改变排名比较的横截面，排名变化不完全等同于价格动量变化。即使如此，当日抓取的当前列表也不等于官方历史成员档案。
 
 详情下方的“当前成分股”始终单独获取当前列表及最新完整交易日行情，明确显示独立日期与成分获取时间，
 不随历史快照日期改变。股票价格为前复权收盘价，不标为盘中实时报价；股票缺失显示空值。
@@ -184,3 +186,13 @@ pnpm exec playwright test e2e/industry-strength.spec.ts
 
 离线测试使用 fake Provider、HTTP MockTransport、SQLite 查询与专用 PostgreSQL schema。
 真实扶摇验证仅验证目录、单行业/沪深300历史和一个当前成分列表，未在业务库发布整日结果。
+
+
+## 指定日期补算与历史选择
+
+`run_industry_strength_cn.apply_async(kwargs={"trade_date": "2026-09-16", "trigger_source": "manual"}, queue="analysis")`
+可以生成该交易日的指数快照；未来日期、未收盘日期、非交易日均拒绝。
+记录按交易日持久保存，新日期不会删除旧日期；同日成功重算原子替换该日截面。
+迁移 `0055_industry_history` 允许未观测成分的历史记录不填成分观察时间，不能虚构历史观测时间进行降级。
+页面使用日历选择器查看已保存日期，清空选择返回最新快照；没有快照的日期不可选。
+日期目录返回全部已存日期，详情和热力图的窗口仍按现有 API 限制读取。

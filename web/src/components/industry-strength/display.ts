@@ -6,6 +6,6 @@ export function num(value: number | null | undefined) { return value == null ? '
 export function delta(value: number | null) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value}`; }
 export function tone(value: number | null) { return value == null || value === 0 ? 'text-muted-foreground' : value > 0 ? 'text-market-up' : 'text-market-down'; }
 
-export function breadthLabel(ratio: number | null, count: number, valid: number): string {
+export function breadthLabel(ratio: number | null, count: number | null, valid: number | null): string {
   return ratio == null || !valid ? '—' : `${pct(ratio)} (${count}/${valid})`;
 }

@@ -8,11 +8,11 @@ export interface IndustrySnapshot {
   rs5D: number; rs10D: number; rs20D: number; strengthScore: number; strengthRank: number;
   rankChange1D: number | null; rankChange3D: number | null; rankChange5D: number | null;
   previous5DReturn: number; momentumAcceleration5D: number; accelerationPercentile: number;
-  turnoverRatio5D: number; constituentCount: number; dailyValidCount: number; ma5ValidCount: number; aboveMa5Count: number; ma20ValidCount: number; aboveMa20Count: number;
-  upCount: number; downCount: number; flatCount: number; upRatio: number | null;
+  turnoverRatio5D: number; constituentCount: number | null; dailyValidCount: number | null; ma5ValidCount: number | null; aboveMa5Count: number | null; ma20ValidCount: number | null; aboveMa20Count: number | null;
+  upCount: number | null; downCount: number | null; flatCount: number | null; upRatio: number | null;
   aboveMa5Ratio: number | null; aboveMa20Ratio: number | null; equalWeightReturn: number | null;
-  dataTimestamp: string; membersObservedAt: string; createdAt: string; updatedAt: string;
-  quality: { dailyBreadthCoverage: number; ma5Coverage: number; ma20Coverage: number; catalogCount: number; rankedCount: number; coverage: number; excluded: Record<string, string> };
+  dataTimestamp: string; membersObservedAt: string | null; createdAt: string; updatedAt: string;
+  quality: { breadthStatus?: string; dailyBreadthCoverage: number; ma5Coverage: number; ma20Coverage: number; catalogCount: number; rankedCount: number; coverage: number; excluded: Record<string, string> };
 }
 export interface IndustryRanking { tradeDate: string | null; expectedTradeDate: string; source: string; items: IndustrySnapshot[] }
 export interface IndustryHistory { dates: string[]; items: IndustrySnapshot[] }

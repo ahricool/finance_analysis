@@ -1,5 +1,7 @@
 """Close-only industry observations with tracked readiness retries."""
 
+from datetime import date
+
 from finance_analysis.industry_strength.service import IndustryStrengthService, IndustryReadinessError
 from finance_analysis.integrations.market_data.providers.fuyao import FuyaoError
 from finance_analysis.market_review.trading_calendar import get_market_now, is_market_open
@@ -28,7 +30,7 @@ DEFINITION = require_scheduled_task_definition("industry_strength_cn")
     advisory_lock_id=TaskAdvisoryLockId.CN_INDUSTRY_STRENGTH,
     advisory_lock_blocking=False,
 )
-def run_industry_strength_cn(**kwargs):
-    if not is_market_open("cn", get_market_now("cn").date()):
+def run_industry_strength_cn(trade_date: str | None = None, **kwargs):
+    if trade_date is None and not is_market_open("cn", get_market_now("cn").date()):
         raise TaskSkipped("非 A 股交易日，跳过行业强度")
-    return IndustryStrengthService().run()
+    return IndustryStrengthService().run(date.fromisoformat(trade_date) if trade_date else None)

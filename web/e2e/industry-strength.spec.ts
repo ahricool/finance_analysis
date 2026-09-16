@@ -44,6 +44,16 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByTestId('industry-detail')).toContainText('通信设备');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`industry-${width}-${theme}.png`), fullPage: true });
+      await page.getByTestId('industry-date-picker').getByRole('button').first().click();
+      const selectedRequest = page.waitForRequest(request => {
+        const url = new URL(request.url());
+        return url.pathname.endsWith('/industry-strength/ranking') && url.searchParams.has('trade_date');
+      });
+      await page.locator('[data-slot="calendar-cell-trigger"]:not([data-disabled]):not([data-unavailable]):not([data-outside-view])').first().click();
+      const selectedDate = new URL((await selectedRequest).url()).searchParams.get('trade_date');
+      expect(dates).toContain(selectedDate);
+      await page.getByRole('button', { name: '清空日期' }).click();
+      await expect(page.getByTestId('industry-date-picker')).toContainText('最新快照');
       expect(errors).toEqual([]);
     });
   }

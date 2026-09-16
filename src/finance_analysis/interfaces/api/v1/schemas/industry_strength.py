@@ -13,7 +13,7 @@ class IndustrySnapshot(BaseModel):
     industry_name: str
     state: IndustryState
     data_timestamp: datetime
-    members_observed_at: datetime
+    members_observed_at: datetime | None
     created_at: datetime
     updated_at: datetime
     quality: dict[str, Any]

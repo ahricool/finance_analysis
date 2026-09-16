@@ -13,6 +13,9 @@ class Repository:
     def __init__(self):
         self.saved = []
 
+    def ranking(self, day):
+        return []
+
     def history(self, end, limit):
         return []
 
@@ -51,6 +54,7 @@ class MarketData:
 
 @pytest.fixture(autouse=True)
 def calendar(monkeypatch):
+    monkeypatch.setattr(module, "is_market_open", lambda *a: True)
     monkeypatch.setattr(module, "get_completed_trading_days", lambda *a: [DAY])
     monkeypatch.setattr(module, "get_market_now", lambda *a: datetime(2026, 9, 16, 19, tzinfo=timezone.utc))
     monkeypatch.setattr(module, "get_trading_days_between", lambda *a: DAYS)
@@ -141,3 +145,36 @@ def test_failed_remote_history_preserves_usable_short_stored_window():
     data.get_daily_bars = lambda *a, **kw: Obj(data={"600001.SH": short} if kw["source_policy"] == "db_only" else {})
     result = IndustryStrengthService(Repository(), data).load_member_history(["600001.SH"], DAYS)
     assert len(result["600001.SH"]) == 10
+
+
+def test_explicit_historical_run_saves_index_only_without_current_members(monkeypatch):
+    monkeypatch.setattr(module, "get_market_now", lambda *a: datetime(2026, 9, 17, 2, tzinfo=timezone.utc))
+    repo, data = Repository(), MarketData()
+    def no_members(code):
+        raise AssertionError("Historical backfill must not read current constituents")
+    data.get_index_constituents = no_members
+    assert IndustryStrengthService(repo, data).run(DAY)["industries"] == 20
+    assert data.stock_calls == []
+    for row in repo.saved[0][1]:
+        assert row["members_observed_at"] is None
+        assert row["up_ratio"] is None and row["constituent_count"] is None
+        assert row["quality"]["breadth_status"] == "unavailable_historical_members"
+        assert row["strength_rank"] is not None
+
+
+@pytest.mark.parametrize("closed", [True, False])
+def test_rejects_future_or_nontrading_dates(monkeypatch, closed):
+    repo = Repository()
+    monkeypatch.setattr(module, "is_market_open", lambda *a: closed)
+    with pytest.raises(IndustryReadinessError, match="completed trading session"):
+        IndustryStrengthService(repo, MarketData()).run(DAY + timedelta(days=1) if closed else DAY)
+    assert not repo.saved
+
+
+def test_historical_backfill_preserves_existing_observed_breadth(monkeypatch):
+    monkeypatch.setattr(module, "get_market_now", lambda *a: datetime(2026, 9, 17, 2, tzinfo=timezone.utc))
+    repo = Repository()
+    repo.ranking = lambda day: [{"members_observed_at": datetime.now(timezone.utc)}]
+    with pytest.raises(IndustryReadinessError, match="must not be overwritten"):
+        IndustryStrengthService(repo, MarketData()).run(DAY)
+    assert not repo.saved
