@@ -7,8 +7,14 @@ const snapshot = {
   trendScore: 80, rsScore: 78, breakoutScore: 80, referencePrice: 110, atr: 2,
   trendDurationDays: 13, trendLifecycle: 'EXPANSION', fragilityScore: 18,
   fragilityBreakdown: { accelerationDecay: 12, qualityDecay: 15, efficiencyDecay: 20, relativeStrengthDecay: 18, rankDecay: 24, priceStructureRisk: 15 },
-  features: { alphaVersion: 2, pathScore: 95, setupScore: 80, weightedR2: .98,
-    positiveReturnConcentration: .3, atrExpansionRatio: 1.1, downsideControlQuality: 90, downsideUpsideRatio: .10536, trendQuality: 87, trendAcceleration: 0.12, signedEfficiencyRatio10D: 0.71 }, scoreBreakdown: { alpha: { version: 2,
+  features: { alphaVersion: 2, pathScore: 95, setupScore: 80, weightedR2: .98, weightedSlopePercentile: 92,
+    positiveReturnConcentration: .3, atrExpansionRatio: 1.1, downsideControlQuality: 90, downsideUpsideRatio: .10536,
+    trendQuality: 87, trendAcceleration: 0.12, signedEfficiencyRatio10D: 0.71, priorCompression: true,
+    r2Quality: 98, momentumQuality: 74, return10DQuality: 72, return20DQuality: 70, drawdownQuality: 81,
+    rs5DQuality: 55, rs10DQuality: 61, rs20DQuality: 58,
+    breakoutQuality: 77, extensionQuality: 66, volumeQuality: 80, compressionQuality: 40,
+    concentrationQuality: 88, volatilityQuality: 72,
+    alphaTrendContribution: 32, alphaRsContribution: 19.5, alphaSetupContribution: 12, alphaPathContribution: 19 }, scoreBreakdown: { alpha: { version: 2,
     components: { trend: 80, rs: 78, setup: 80, path: 95 },
     weights: { trend: .4, rs: .25, setup: .15, path: .2 },
     contributions: { trend: 32, rs: 19.5, setup: 12, path: 19 }, score: 82.5 } }, reasons: ['趋势走强'],
@@ -62,7 +68,14 @@ for (const width of [1280, 1440, 1920]) {
       const headerBefore = await page.locator('header').first().boundingBox();
       const before = await page.locator('body').evaluate(el => ({ overflow: el.style.overflow, paddingRight: el.style.paddingRight }));
       await expect(page.getByRole('columnheader', { name: 'Path Score' })).toBeVisible();
-      await page.getByTestId('trend-candidate').click();
+      await expect(page.getByRole('columnheader', { name: 'Setup Score' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'R² Quality' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Trend Contribution' })).toBeVisible();
+      await expect(page.getByText('Signals / Explain')).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Prior Compression' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Breakout Score' })).toHaveCount(0);
+      await expect(page.getByText('趋势观察')).toHaveCount(0);
+      await page.getByTestId('trend-row').first().click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole('heading', { name: '平安银行' })).toBeVisible();
@@ -72,9 +85,11 @@ for (const width of [1280, 1440, 1920]) {
       await expect(dialog.getByTestId('trend-fragility-history').locator('canvas')).toBeVisible();
       await expect(dialog.getByText('EXPANSION', { exact: true })).toBeVisible();
       // Wait for the opening scale animation before measuring the centered panel.
+      // `left: 50%` follows the content box after scrollbar-gutter, not the visual viewport.
       await expect.poll(async () => {
         const box = (await dialog.boundingBox())!;
-        return Math.abs(box.x + box.width / 2 - width / 2);
+        const contentWidth = await page.evaluate(() => document.body.clientWidth);
+        return Math.abs(box.x + box.width / 2 - contentWidth / 2);
       }).toBeLessThan(2);
       const box = (await dialog.boundingBox())!;
       expect(Math.abs(box.y + box.height / 2 - 450)).toBeLessThan(2);
@@ -94,10 +109,10 @@ for (const width of [1280, 1440, 1920]) {
       await expect(dialog.getByTestId('trend-history').last()).toContainText('排名 #63');
       await page.keyboard.press('Escape');
       await expect(dialog).not.toBeVisible();
-      await expect(page.getByTestId('trend-candidate')).toBeFocused();
+      await expect(page.getByTestId('trend-row').first()).toBeVisible();
       expect(await page.locator('body').evaluate(el => ({ overflow: el.style.overflow, paddingRight: el.style.paddingRight }))).toEqual(before);
       await expect(page.getByRole('columnheader', { name: 'Path Score' })).toBeVisible();
-      await page.getByTestId('trend-candidate').click();
+      await page.getByTestId('trend-row').first().click();
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: 'Close', exact: true }).click();
       await expect(dialog).not.toBeVisible();
@@ -117,7 +132,11 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
     if (path.endsWith('/dates')) body = { items: [snapshot.tradeDate] };
     if (path.endsWith('/preview/status') || path.endsWith('/preview')) { await route.fulfill({ status: 404, json: {} }); return; }
     if (path.endsWith('/ranking')) {
-      body = { ...summary, items: Array.from({ length: 3800 }, (_, rank) => ({ ...snapshot, code: `TEST${rank}`, name: `Stock ${rank}`, rank: rank + 1, alphaScore: rank / 38 })), candidates: [] };
+      const states = ['IDLE', 'WATCHING', 'CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN'];
+      body = { ...summary, items: Array.from({ length: 3800 }, (_, rank) => ({
+        ...snapshot, code: `TEST${rank}`, name: `Stock ${rank}`, rank: rank + 1,
+        alphaScore: rank / 38, state: states[rank % states.length],
+      })), candidates: [] };
       rankingStarted = Date.now();
     }
     await route.fulfill({ json: body });
@@ -126,6 +145,19 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
   await expect(page.getByTestId('trend-row')).toHaveCount(28);
   await expect(page.getByTestId('trend-ranking-count')).toContainText('3800');
   const scroll = page.getByTestId('trend-ranking-scroll');
+  for (const width of [1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => scroll.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+    expect(await scroll.evaluate(el => el.getBoundingClientRect().right)).toBeLessThanOrEqual(width);
+    const name = page.getByTestId('trend-row').first().locator('[data-column="name"]');
+    const before = (await name.boundingBox())!;
+    await scroll.evaluate(el => { el.scrollLeft = 1500; });
+    const after = (await name.boundingBox())!;
+    const viewport = (await scroll.boundingBox())!;
+    expect(after.x).toBeGreaterThanOrEqual(viewport.x - 1);
+    expect(after.x).toBeLessThan(before.x);
+    await scroll.evaluate(el => { el.scrollLeft = 0; });
+  }
   await scroll.evaluate(el => { el.scrollTop = el.scrollHeight; });
   await expect(page.getByTestId('trend-row').last()).toContainText('TEST3799');
   await scroll.evaluate(el => { el.scrollTop = 0; });
@@ -139,4 +171,51 @@ test('full universe has no pagination and remains sortable', async ({ page }) =>
   await page.getByTestId('trend-ranking-search').fill('Stock 1800');
   await expect(page.getByTestId('trend-row')).toHaveCount(1);
   await expect(page.getByTestId('trend-row')).toContainText('TEST1800');
+  await page.getByTestId('trend-ranking-search').fill('');
+  await page.getByTestId('trend-state-filter').getByRole('button', { name: '趋势健康', exact: true }).click();
+  await expect(page.getByTestId('trend-ranking-count')).toContainText('633 / 3800');
+  await expect(page.getByTestId('trend-row')).toHaveCount(28);
+  await expect(page.getByTestId('trend-row').first()).toContainText('TEST3795');
+  await expect(page.getByTestId('trend-row').first()).toContainText('趋势健康');
+});
+
+test('ranking row opens detail from keyboard and restores focus', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.route('**/api/v1/**', async route => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.endsWith('/preview/status') || pathname.endsWith('/preview')) {
+      await route.fulfill({ status: 404, json: {} });
+      return;
+    }
+    let body: object = {};
+    if (pathname === '/api/v1/auth/status') {
+      body = { loggedIn: true, user: { uid: 1, username: 'Tester', role: 'user', extra: {} } };
+    } else if (pathname.endsWith('/trend-following/breadth-history')) {
+      body = { market: 'CN', points: [], dates: [], officialCount: 0, warnings: [] };
+    } else if (pathname.endsWith('/trend-following/transitions')) {
+      body = { market: 'CN', days: 3, items: [], warnings: [] };
+    } else if (pathname.endsWith('/trend-following/dates')) {
+      body = { market: 'CN', latest: snapshot.tradeDate, items: [snapshot.tradeDate] };
+    } else if (pathname.endsWith('/trend-following/ranking')) {
+      body = { ...summary, items: [snapshot], candidates: [snapshot] };
+    } else if (pathname.endsWith('/trend-following/000001.SZ')) {
+      body = { market: 'CN', metadata: snapshot, latest: snapshot, history, marketContext: summary };
+    }
+    await route.fulfill({ json: body });
+  });
+  await page.goto('/research/trend-following');
+  const row = page.getByTestId('trend-row').first();
+  await row.focus();
+  await expect(row).toBeFocused();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(row).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(row).toBeFocused();
 });

@@ -81,6 +81,41 @@ class TrendRankingFeatures(BaseModel):
     atr_expansion_ratio: float | None = None
     downside_control_quality: float | None = None
     downside_upside_ratio: float | None = None
+    raw_weighted_slope: float | None = None
+    weighted_slope_percentile: float | None = None
+    drawdown_20d: float | None = None
+    rs_5d: float | None = None
+    rs_10d: float | None = None
+    rs_20d: float | None = None
+    ma10: float | None = None
+    ma20: float | None = None
+    ma10_slope: float | None = None
+    ma20_slope: float | None = None
+    trend_quality: float | None = None
+    trend_acceleration: float | None = None
+    signed_efficiency_ratio_10d: float | None = None
+    trend_candidate: bool | None = None
+    prior_compression: bool | None = None
+    compression_breakout: bool | None = None
+    trend_resume: bool | None = None
+    r2_quality: float | None = None
+    momentum_quality: float | None = None
+    return_10d_quality: float | None = None
+    return_20d_quality: float | None = None
+    drawdown_quality: float | None = None
+    rs_5d_quality: float | None = None
+    rs_10d_quality: float | None = None
+    rs_20d_quality: float | None = None
+    breakout_quality: float | None = None
+    extension_quality: float | None = None
+    volume_quality: float | None = None
+    compression_quality: float | None = None
+    concentration_quality: float | None = None
+    volatility_quality: float | None = None
+    alpha_trend_contribution: float | None = None
+    alpha_rs_contribution: float | None = None
+    alpha_setup_contribution: float | None = None
+    alpha_path_contribution: float | None = None
 
 
 class TrendRankingItem(BaseModel):

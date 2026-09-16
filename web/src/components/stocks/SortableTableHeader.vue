@@ -1,19 +1,23 @@
 <script setup lang="ts">
+import type { HTMLAttributes } from 'vue';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-vue-next';
 import IndicatorLabel from '@/components/app/IndicatorHelpLabel.vue';
 import { TableHead } from '@/components/ui/table';
+import { cn } from '@/utils/cn';
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   label: string;
   description?: string;
   active?: boolean;
   direction?: 'asc' | 'desc';
   align?: 'left' | 'right';
+  class?: HTMLAttributes['class'];
 }>(), {
   description: undefined,
   active: false,
   direction: 'asc',
   align: 'left',
+  class: undefined,
 });
 
 defineEmits<{
@@ -23,15 +27,14 @@ defineEmits<{
 
 <template>
   <TableHead
-    class="whitespace-nowrap px-4 py-3 font-medium"
-    :class="align === 'right' ? 'text-right' : 'text-left'"
+    :class="cn('whitespace-nowrap px-4 py-3 font-medium', props.class, props.align === 'right' ? 'text-right' : 'text-left')"
     :aria-sort="active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'"
   >
     <div class="flex items-center gap-1">
       <button
         type="button"
         class="flex items-center gap-1.5 whitespace-nowrap transition-colors hover:text-foreground"
-        :class="align === 'right' ? 'ml-auto' : ''"
+        :class="props.align === 'right' ? 'ml-auto' : ''"
         @click="$emit('sort')"
       >
         {{ label }}

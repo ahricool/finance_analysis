@@ -432,6 +432,7 @@ def test_ranking_aggregates_without_compatibility_queries_and_does_not_cache_inc
     assert "portfolio" not in result
     assert result["candidates"][0]["code"] == result["items"][0]["code"]
     assert "score_breakdown" not in result["items"][0]
+    assert "r2_quality" in result["items"][0]["features"]
     assert "reasons" not in result["items"][0]
     assert saves == []
 
@@ -449,7 +450,8 @@ def test_historical_heatmap_detail_can_open_a_former_universe_member(monkeypatch
 
 @pytest.mark.parametrize('sort_by', [
     'path_score', 'setup_score', 'weighted_r2', 'positive_return_concentration',
-    'atr_expansion_ratio', 'downside_control_quality',
+    'atr_expansion_ratio', 'downside_control_quality', 'r2_quality', 'breakout_quality',
+    'alpha_trend_contribution', 'weighted_slope_percentile', 'rs_10d_quality',
 ])
 def test_v2_ranking_sorts_full_market_before_limit_and_preserves_null_history(monkeypatch, sort_by):
     class V2Repository(FakeRepository):

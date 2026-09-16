@@ -167,6 +167,7 @@ def test_adjacent_transitions_ranges_rank_delta_and_two_queries(source, days):
     assert [row['trade_date'] for row in result['items']] == dates[-days:][::-1]
     assert result['items'][0]['previous_date'] == dates[-2]
     assert result['items'][0]['rank_delta'] == 1
+    assert result['official_count'] == days
     assert result['items'][0]['current_rank'] == 5 and result['items'][0]['previous_rank'] == 6
     assert len(sql) == 2
     assert 'features' not in ''.join(sql)
@@ -207,17 +208,32 @@ def test_missing_neighbor_is_not_compared_to_older_stock_snapshot(source):
     assert breadth.get_transitions('US', days=1)['items'] == []
 
 
-def test_preview_compares_latest_official_and_is_additional_to_range(source):
+@pytest.mark.parametrize('days', [1, 3, 5])
+def test_preview_window_uses_last_days_plus_one_snapshots(source, days):
     seed_transitions(source)
     _, dates, preview, sql = source
     preview.return_value = {**make_preview(), 'snapshots': [{'code': 'S0.US', 'state': 'CANDIDATE', 'rank': 8}]}
-    result = breadth.get_transitions('US', days=1, include_preview=True)
-    assert len(result['items']) == 2
-    assert result['items'][0]['is_preview'] is True
-    assert result['items'][0]['previous_date'] == dates[-1]
-    assert result['items'][0]['previous_state'] == 'BROKEN'
-    assert result['items'][0]['rank_delta'] == -3
-    assert len(sql) == 2
+    official = breadth.get_transitions('US', days=days)
+    mixed = breadth.get_transitions('US', days=days, include_preview=True)
+    assert len(official['items']) == days
+    assert len(mixed['items']) == days
+    assert official['official_count'] == days
+    assert mixed['official_count'] == days - 1
+    assert mixed['items'][0]['is_preview'] is True
+    assert mixed['items'][0]['previous_date'] == dates[-1]
+    assert mixed['items'][0]['previous_state'] == 'BROKEN'
+    assert mixed['items'][0]['current_state'] == 'CANDIDATE'
+    assert mixed['items'][0]['rank_delta'] == -3
+    assert mixed['items'][0]['trade_date'] == TODAY
+    assert [row['trade_date'] for row in mixed['items']] == (
+        [TODAY] if days == 1 else [TODAY, *dates[-(days - 1):][::-1]]
+    )
+    assert dates[-days] not in {row['trade_date'] for row in mixed['items']}
+    assert all(row['is_preview'] is False for row in mixed['items'][1:])
+    assert official['items'][0]['is_preview'] is False
+    assert official['items'][0]['trade_date'] == dates[-1]
+    assert [row['trade_date'] for row in official['items']] == dates[-days:][::-1]
+    assert len(sql) >= 2
 
 
 def test_priority_then_rank_and_limit(source):

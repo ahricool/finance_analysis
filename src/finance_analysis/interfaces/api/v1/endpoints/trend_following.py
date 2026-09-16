@@ -43,8 +43,14 @@ logger = logging.getLogger(__name__)
 Market = Literal["CN", "US"]
 SortField = Literal[
     "alpha_score", "trend_score", "rs_score", "breakout_score", "rank", "trend_duration_days", "fragility_score",
-    "path_score", "setup_score", "weighted_r2", "positive_return_concentration",
-    "atr_expansion_ratio", "downside_control_quality", "downside_upside_ratio"
+    "path_score", "setup_score", "weighted_r2", "weighted_slope_percentile",
+    "positive_return_concentration", "atr_expansion_ratio",
+    "downside_control_quality", "downside_upside_ratio",
+    "r2_quality", "momentum_quality", "return_10d_quality", "return_20d_quality", "drawdown_quality",
+    "rs_5d_quality", "rs_10d_quality", "rs_20d_quality",
+    "breakout_quality", "extension_quality", "volume_quality", "compression_quality",
+    "concentration_quality", "volatility_quality",
+    "alpha_trend_contribution", "alpha_rs_contribution", "alpha_setup_contribution", "alpha_path_contribution",
 ]
 
 

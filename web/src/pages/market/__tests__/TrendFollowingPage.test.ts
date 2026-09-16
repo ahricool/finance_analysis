@@ -91,23 +91,104 @@ describe('TrendFollowingPage', () => {
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
+  it('keeps scoring groups separate from explain signals and blanks missing V2 qualities', async () => {
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    expect(wrapper.text()).toContain('Signals / Explain');
+    expect(wrapper.text()).toContain('R² Quality');
+    expect(wrapper.text()).toContain('Trend Contribution');
+    expect(wrapper.get('[data-column="r2Quality"]').text()).toBe('—');
+    expect(wrapper.get('[data-column="alphaTrendContribution"]').text()).toBe('—');
+    expect(wrapper.get('[data-column="priorCompression"]').text()).toBe('是');
+    expect(wrapper.get('[data-column="signedEfficiencyRatio10D"]').text()).toBe('—');
+    wrapper.unmount();
+  });
+
+  it('shows em dashes for null ranking scalars and keeps them last in both sort directions', async () => {
+    const high = { ...rankingSnapshot(), code: 'HIGH.US', name: 'High', rank: 1, trendScore: 90, rsScore: 80, atr: 3, referencePrice: 120, state: 'TRENDING' as const };
+    const low = { ...rankingSnapshot(), code: 'LOW.US', name: 'Low', rank: 2, trendScore: 10, rsScore: 20, atr: 1, referencePrice: 80, state: 'CANDIDATE' as const };
+    const missing = {
+      ...rankingSnapshot(), code: 'MISSING.US', name: 'Missing', rank: 3,
+      trendScore: null, rsScore: null, breakoutScore: null, atr: null, referencePrice: null, state: null, setup: null,
+    };
+    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items: [missing, low, high] });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    const missingRow = wrapper.findAll('[data-testid="trend-row"]').find(row => row.text().includes('MISSING.US'))!;
+    expect(missingRow.get('[data-column="trendScore"]').text()).toBe('—');
+    expect(missingRow.get('[data-column="rsScore"]').text()).toBe('—');
+    expect(missingRow.get('[data-column="atr"]').text()).toBe('—');
+    expect(missingRow.get('[data-column="referencePrice"]').text()).toBe('—');
+    expect(missingRow.get('[data-column="state"]').text()).toBe('—');
+    expect(missingRow.text()).not.toContain('无明显趋势');
+    const order = () => wrapper.findAll('[data-testid="trend-row"]').map(row => row.findAll('td')[1]!.find('span').text());
+    const click = async (label: string) => {
+      await wrapper.findAll('th button').find(button => button.text() === label)!.trigger('click');
+    };
+    await click('Trend Score');
+    expect(order()).toEqual(['HIGH.US', 'LOW.US', 'MISSING.US']);
+    await click('Trend Score');
+    expect(order()).toEqual(['LOW.US', 'HIGH.US', 'MISSING.US']);
+    await click('RS Score');
+    expect(order()).toEqual(['HIGH.US', 'LOW.US', 'MISSING.US']);
+    await click('RS Score');
+    expect(order()).toEqual(['LOW.US', 'HIGH.US', 'MISSING.US']);
+    wrapper.unmount();
+  });
+
+  it('opens ranking detail from keyboard and restores focus to the same row', async () => {
+    const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
+    await flushPromises();
+    const row = document.body.querySelector('[data-testid="trend-row"]') as HTMLElement;
+    expect(row.tabIndex).toBe(0);
+    row.focus();
+    expect(document.activeElement).toBe(row);
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    row.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(true);
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-detail"]')).toBeNull();
+    expect(document.activeElement).toBe(row);
+    const space = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    row.dispatchEvent(space);
+    expect(space.defaultPrevented).toBe(true);
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-detail"]')).toBeNull();
+    expect(document.activeElement).toBe(row);
+    wrapper.unmount();
+  });
+
   it.each([
-    ['pathScore', 'Path Score'], ['setupScore', 'Setup Score'], ['weightedR2', 'Weighted R²'],
-    ['positiveReturnConcentration', 'Return Concentration'], ['atrExpansionRatio', 'ATR Expansion'],
-    ['downsideControlQuality', 'Downside Control'],
+    ['pathScore', 'Path Score'], ['setupScore', 'Setup Score'], ['r2Quality', 'R² Quality'],
+    ['concentrationQuality', 'Concentration Quality'], ['breakoutQuality', 'Breakout Quality'],
+    ['alphaTrendContribution', 'Trend Contribution'], ['weightedSlopePercentile', 'Slope Percentile 15D'],
+    ['rs10DQuality', 'RS 10D Quality'], ['drawdownQuality', 'Drawdown Quality'], ['trendCandidate', 'Trend Candidate'],
   ])('sorts all rows by %s without requesting detail', async (key, label) => {
-    const items = Array.from({ length: 800 }, (_, index) => ({
+    const items: TrendRankingSnapshot[] = Array.from({ length: 800 }, (_, index) => ({
       ...rankingSnapshot(), code: `V2${index}`, rank: index + 1,
-      features: { ...rankingSnapshot().features, alphaVersion: 2, [key]: index / 800 },
+      features: { ...rankingSnapshot().features, alphaVersion: 2,
+        [key]: key === 'trendCandidate' ? index === 799 : key === 'drawdown20D' ? -index / 800 : index / 800 },
     }));
+    items.push({ ...rankingSnapshot(), code: 'MISSING', rank: 801, features: {} });
     apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
     const header = wrapper.findAll('th button').find(button => button.text() === label)!;
+    const highFirst = key === 'trendCandidate' ? 'V20' : 'V2799';
+    const lowFirst = key === 'trendCandidate' ? 'V2799' : 'V20';
     await header.trigger('click');
-    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.text()).toContain('V2799');
+    const first = () => wrapper.findAll('[data-testid="trend-row"]')[0]!;
+    expect(first().text()).toContain(highFirst);
+    expect(wrapper.findAll('[data-testid="trend-row"]').length).toBeLessThan(40);
     await header.trigger('click');
-    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.text()).toContain('V20');
+    expect(first().text()).toContain(lowFirst);
+    expect(wrapper.findAll('[data-testid="trend-row"]').map(row => row.text()).join()).not.toContain('MISSING');
     expect(apiMocks.detail).not.toHaveBeenCalled();
     wrapper.unmount();
   });
@@ -158,6 +239,39 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(28);
     expect(wrapper.get('[data-testid="trend-ranking-count"]').text()).toContain('800 / 800');
     expect(apiMocks.ranking).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('filters by state on the full dataset before virtualization', async () => {
+    const states = ['IDLE', 'WATCHING', 'CANDIDATE', 'TRENDING', 'WEAKENING', 'BROKEN'] as const;
+    const items = Array.from({ length: 800 }, (_, index) => ({
+      ...rankingSnapshot(),
+      code: `STATE${index}`,
+      name: `Stock ${index}`,
+      rank: index + 1,
+      alphaScore: index / 8,
+      state: states[index % states.length],
+    }));
+    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    const click = async (label: string) => {
+      await wrapper.findAll('[data-testid="trend-state-filter"] button').find(button => button.text() === label)!.trigger('click');
+    };
+    await click('趋势健康');
+    expect(wrapper.get('[data-testid="trend-ranking-count"]').text()).toContain('133 / 800');
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(133);
+    expect(wrapper.findAll('[data-testid="trend-row"]').every(row => row.text().includes('趋势健康'))).toBe(true);
+    await wrapper.get('[data-testid="trend-ranking-search"]').setValue('state795');
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('STATE795');
+    await wrapper.get('[data-testid="trend-ranking-search"]').setValue('');
+    const sort = wrapper.findAll('th button').find(button => button.text() === 'Alpha Score')!;
+    await sort.trigger('click');
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.text()).toContain('STATE795');
+    await click('趋势破坏');
+    expect(wrapper.get('[data-testid="trend-ranking-count"]').text()).toContain('133 / 800');
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.text()).toContain('STATE797');
     wrapper.unmount();
   });
 
@@ -247,7 +361,11 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.text()).toContain('平安银行');
     expect(wrapper.text()).toContain('趋势健康');
     expect(wrapper.find('table').classes()).toContain('w-full');
-    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(17);
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(wrapper.findAll('th[aria-sort]').length);
+    expect(wrapper.text()).not.toContain('趋势观察');
+    expect(wrapper.find('[data-testid="trend-candidate"]').exists()).toBe(false);
+    expect(wrapper.find('[data-column="setupScore"]').exists()).toBe(true);
+    expect(wrapper.find('[data-column="breakoutScore"]').exists()).toBe(false);
     expect(wrapper.text()).toContain('Lifecycle / Age');
     expect(wrapper.text()).toContain('12D');
     expect(wrapper.text()).toContain('Fragility');
@@ -338,7 +456,7 @@ describe('TrendFollowingPage', () => {
   it('opens a centered dialog with ranking chart, risk metrics and history', async () => {
     mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
-    (document.body.querySelector('[data-testid="trend-candidate"]') as HTMLElement).click();
+    (document.body.querySelector('[data-testid="trend-row"]') as HTMLElement).click();
     await flushPromises();
     expect(apiMocks.detail).toHaveBeenCalledWith('000001.SZ', 'CN', 60, '2026-08-28');
     const dialog = document.body.querySelector('[data-testid="trend-detail"]')!;
@@ -387,10 +505,11 @@ describe('TrendFollowingPage', () => {
     const empty = mount(TrendFollowingPage);
     await flushPromises();
     expect(empty.text()).toContain('暂无趋势快照');
-    expect(empty.text()).toContain('暂无策略候选');
+    expect(empty.text()).not.toContain('暂无策略候选');
+    expect(empty.text()).not.toContain('趋势观察');
   });
 
-  it('uses preview snapshots for ranking and candidates', async () => {
+  it('uses preview snapshots for ranking without a separate observation table', async () => {
     const previewSnap = {
       ...snapshot('CN'),
       tradeDate: '2026-09-10',
@@ -415,7 +534,8 @@ describe('TrendFollowingPage', () => {
     expect(apiMocks.breadthHistory.mock.calls).toEqual([['CN', undefined, true]]);
     expect(apiMocks.candidates).not.toHaveBeenCalled();
     expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('贵州茅台');
-    expect(wrapper.get('[data-testid="trend-candidate"]').text()).toContain('贵州茅台');
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('趋势候选');
+    expect(wrapper.find('[data-testid="trend-candidate"]').exists()).toBe(false);
     expect(wrapper.get('[data-testid="research-provider"]').text()).toBe('Tencent');
     expect(wrapper.find('[data-testid="trend-run-latest"]').exists()).toBe(false);
     await wrapper.get('[data-testid="research-mode-official"]').trigger('click');
@@ -457,7 +577,7 @@ describe('TrendFollowingPage', () => {
     });
     const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
     await flushPromises();
-    (document.body.querySelector('[data-testid="trend-candidate"]') as HTMLElement).click();
+    (document.body.querySelector('[data-testid="trend-row"]') as HTMLElement).click();
     await flushPromises();
 
     expect(apiMocks.detail).not.toHaveBeenCalled();
