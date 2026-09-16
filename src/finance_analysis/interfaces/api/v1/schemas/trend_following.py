@@ -65,3 +65,37 @@ class TrendTransitionsResponse(BaseModel):
     preview_date: date | None
     warnings: list[str]
     items: list[TrendTransition]
+
+
+class TrendRankingFeatures(BaseModel):
+    return_5d: float | None = None
+    return_10d: float | None = None
+    return_20d: float | None = None
+    volume_ratio: float | None = None
+    distance_from_ma20: float | None = None
+    alpha_version: int | None = None
+    path_score: float | None = None
+    setup_score: float | None = None
+    weighted_r2: float | None = None
+    positive_return_concentration: float | None = None
+    atr_expansion_ratio: float | None = None
+    downside_control_quality: float | None = None
+    downside_upside_ratio: float | None = None
+
+
+class TrendRankingItem(BaseModel):
+    code: str
+    name: str | None = None
+    rank: int
+    state: TrendState | None = None
+    trend_duration_days: int | None = None
+    trend_lifecycle: str | None = None
+    fragility_score: float | None = None
+    alpha_score: float
+    trend_score: float | None = None
+    rs_score: float | None = None
+    breakout_score: float | None = None
+    setup: str | None = None
+    atr: float | None = None
+    reference_price: float | None = None
+    features: TrendRankingFeatures

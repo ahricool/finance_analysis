@@ -6,7 +6,11 @@ RANKING_FIELDS = (
     "alpha_score", "trend_score", "rs_score", "breakout_score", "setup",
     "atr", "reference_price",
 )
-FEATURE_FIELDS = ("return_5d", "return_10d", "return_20d", "volume_ratio", "distance_from_ma20")
+FEATURE_FIELDS = (
+    "return_5d", "return_10d", "return_20d", "volume_ratio", "distance_from_ma20",
+    "alpha_version", "path_score", "setup_score", "weighted_r2", "positive_return_concentration",
+    "atr_expansion_ratio", "downside_control_quality", "downside_upside_ratio",
+)
 DASHBOARD_FIELDS = RANKING_FIELDS
 CANDIDATE_FIELDS = ("code", "name", "rank", "state", "alpha_score")
 

@@ -421,6 +421,11 @@ def test_preview_reuses_previous_official_snapshot_and_does_not_persist(monkeypa
     assert first["provider"] == "yfinance"
     assert "snapshots" in first
     for row in first["snapshots"]:
+        assert row["features"]["alpha_version"] == 2
+        assert row["features"]["setup_score"] == row["breakout_score"]
+        assert row["features"]["path_score"] >= 0
+        assert row["score_breakdown"]["alpha"]["version"] == 2
+        json.dumps(row["score_breakdown"], allow_nan=False)
         assert row["trend_lifecycle"] is not None
         assert "fragility_score" in row
         assert "acceleration_decay" in row["fragility_breakdown"]

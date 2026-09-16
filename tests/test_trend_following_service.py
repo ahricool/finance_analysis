@@ -132,7 +132,11 @@ def test_service_reads_repository_only_and_persists_point_in_time(monkeypatch):
     json.dumps(repository.summary["features"])
     for item in repository.snapshots:
         json.dumps(item["features"])
-        json.dumps(item["score_breakdown"])
+        json.dumps(item["score_breakdown"], allow_nan=False)
+        assert item["features"]["alpha_version"] == 2
+        assert item["features"]["setup_score"] == item["breakout_score"]
+        assert item["features"]["path_score"] >= 0
+        assert item["score_breakdown"]["alpha"]["version"] == 2
         assert item["trend_duration_days"] > 40
     forbidden = {"uid", "user_id", "account_id", "position_id", "user_cost", "user_weight", "user_pnl"}
     assert all(not forbidden.intersection(item) for item in repository.snapshots)

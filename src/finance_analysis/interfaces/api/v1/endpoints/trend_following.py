@@ -21,6 +21,7 @@ from finance_analysis.database.repositories.trend_following import (  # pragma: 
 from finance_analysis.interfaces.api.deps import require_admin, require_current_user  # pragma: allowlist secret
 from finance_analysis.interfaces.api.v1.schemas.trend_following import (  # pragma: allowlist secret
     TrendFollowingRunRequest,
+    TrendRankingItem,
     TrendBreadthResponse,
     TrendTransitionsResponse,
 )
@@ -41,7 +42,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 Market = Literal["CN", "US"]
 SortField = Literal[
-    "alpha_score", "trend_score", "rs_score", "breakout_score", "rank", "trend_duration_days", "fragility_score"
+    "alpha_score", "trend_score", "rs_score", "breakout_score", "rank", "trend_duration_days", "fragility_score",
+    "path_score", "setup_score", "weighted_r2", "positive_return_concentration",
+    "atr_expansion_ratio", "downside_control_quality", "downside_upside_ratio"
 ]
 
 
@@ -174,7 +177,10 @@ def ranking(
         row.get(sort_by) is None,
         (row.get(sort_by) or 0) * (1 if sort_by == "rank" else -1), row["code"],
     ))
-    items = [ranking_item(row) for row in (ordered if limit is None else ordered[:limit])]
+    items = [
+        TrendRankingItem.model_validate(ranking_item(row)).model_dump()
+        for row in (ordered if limit is None else ordered[:limit])
+    ]
     historical = repository.historical_composite_ranks(resolved, [str(row["code"]) for row in items])
     for row in items:
         row.update(calculate_rank_changes(row["rank"], historical.get(str(row["code"]), {})))

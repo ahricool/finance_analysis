@@ -445,3 +445,25 @@ def test_historical_heatmap_detail_can_open_a_former_universe_member(monkeypatch
     with pytest.raises(HTTPException) as error:
         trend_following.detail("AAPL.US", 60, date(2026, 1, 1), SimpleNamespace(id=1), "US")
     assert error.value.status_code == 404
+
+
+@pytest.mark.parametrize('sort_by', [
+    'path_score', 'setup_score', 'weighted_r2', 'positive_return_concentration',
+    'atr_expansion_ratio', 'downside_control_quality',
+])
+def test_v2_ranking_sorts_full_market_before_limit_and_preserves_null_history(monkeypatch, sort_by):
+    class V2Repository(FakeRepository):
+        def dashboard_rows(self, trade_date):
+            return [
+                {'code': f'STOCK{i}', 'rank': i + 1, 'alpha_score': 100 - i,
+                 sort_by: i if i < 99 else None, 'alpha_version': 2 if i < 99 else None}
+                for i in range(100)
+            ]
+
+    monkeypatch.setattr(trend_following, 'TrendFollowingRepository', V2Repository)
+    result = json.loads(trend_following.ranking(TRADE_DATE, sort_by, 1, SimpleNamespace(id=1), 'US').body)
+    assert result['items'][0]['code'] == 'STOCK98'
+    assert result['items'][0]['features'][sort_by] == 98
+    result = json.loads(trend_following.ranking(TRADE_DATE, sort_by, None, SimpleNamespace(id=1), 'US').body)
+    assert result['items'][-1]['features'][sort_by] is None
+    assert result['items'][-1]['features']['alpha_version'] is None

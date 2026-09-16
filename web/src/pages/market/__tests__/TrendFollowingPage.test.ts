@@ -91,6 +91,50 @@ describe('TrendFollowingPage', () => {
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
+  it.each([
+    ['pathScore', 'Path Score'], ['setupScore', 'Setup Score'], ['weightedR2', 'Weighted R²'],
+    ['positiveReturnConcentration', 'Return Concentration'], ['atrExpansionRatio', 'ATR Expansion'],
+    ['downsideControlQuality', 'Downside Control'],
+  ])('sorts all rows by %s without requesting detail', async (key, label) => {
+    const items = Array.from({ length: 800 }, (_, index) => ({
+      ...rankingSnapshot(), code: `V2${index}`, rank: index + 1,
+      features: { ...rankingSnapshot().features, alphaVersion: 2, [key]: index / 800 },
+    }));
+    apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items });
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    const header = wrapper.findAll('th button').find(button => button.text() === label)!;
+    await header.trigger('click');
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.text()).toContain('V2799');
+    await header.trigger('click');
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.text()).toContain('V20');
+    expect(apiMocks.detail).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('shows V2 path explanation in the drawer and leaves missing historical metrics blank', async () => {
+    const latest = snapshot();
+    latest.scoreBreakdown = { alpha: { version: 2,
+      components: { trend: 80, rs: 70, setup: 60, path: 90 },
+      weights: { trend: .4, rs: .25, setup: .15, path: .2 },
+      contributions: { trend: 32, rs: 17.5, setup: 9, path: 18 }, score: 76.5 } };
+    latest.features = { ...latest.features, alphaVersion: 2, pathScore: 95.03, setupScore: 79.75,
+      positiveReturnConcentration: .2857, atrExpansionRatio: 1.06, downsideControlQuality: 75.15,
+      downsideUpsideRatio: .2857 };
+    apiMocks.detail.mockResolvedValueOnce({ latest, history: [latest], metadata: latest, marketContext: ranking('CN') });
+    const wrapper = mount(TrendFollowingPage, { attachTo: document.body });
+    await flushPromises();
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('V1');
+    await wrapper.get('[data-testid="trend-row"]').trigger('click');
+    await flushPromises();
+    const detail = document.querySelector('[data-testid="trend-path-detail"]')!;
+    expect(detail.textContent).toContain('Alpha V2');
+    expect(detail.textContent).toContain('95.0');
+    expect(detail.textContent).toContain('1.06');
+    expect(document.querySelector('[data-testid="trend-alpha-contributions"]')!.textContent).toContain('32.0 分');
+    wrapper.unmount();
+  });
+
   it('virtualizes the full ranking without pagination and sorts the whole result', async () => {
     const items = Array.from({ length: 800 }, (_, index) => ({
       ...rankingSnapshot(), code: `STOCK${index}`, rank: index + 1, alphaScore: index / 8,
@@ -203,7 +247,7 @@ describe('TrendFollowingPage', () => {
     expect(wrapper.text()).toContain('平安银行');
     expect(wrapper.text()).toContain('趋势健康');
     expect(wrapper.find('table').classes()).toContain('w-full');
-    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(11);
+    expect(wrapper.findAll('[data-testid="trend-row"]')[0]!.findAll('td')).toHaveLength(17);
     expect(wrapper.text()).toContain('Lifecycle / Age');
     expect(wrapper.text()).toContain('12D');
     expect(wrapper.text()).toContain('Fragility');
@@ -245,10 +289,10 @@ describe('TrendFollowingPage', () => {
 
 
   it('documents explanations and formulas for trend-following key indicators', () => {
-    expect(trendIndicatorDescriptions.alpha).toContain('综合 Alpha 分');
-    expect(trendIndicatorDescriptions.alpha).toContain('0.35×Trend');
-    expect(trendIndicatorDescriptions.trend).toContain('趋势分');
-    expect(trendIndicatorDescriptions.trend).toContain('0.30×SlopePercentile15');
+    expect(trendIndicatorDescriptions.alpha).toContain('Alpha V2');
+    expect(trendIndicatorDescriptions.alpha).toContain('0.40×Trend');
+    expect(trendIndicatorDescriptions.trend).toContain('Momentum');
+    expect(trendIndicatorDescriptions.trend).toContain('0.30×SlopePercentile');
     expect(trendIndicatorDescriptions.relativeStrength).toContain('RS =');
     expect(trendIndicatorDescriptions.weightedSlope).toContain('15 个交易日');
     expect(trendIndicatorDescriptions.slopePercentile).toContain('横截面百分位');
@@ -269,10 +313,10 @@ describe('TrendFollowingPage', () => {
     expect(trendIndicatorDescriptions.candidate).toContain('不包含其他趋势状态');
   });
 
-  it('documents the ValidSetup branch in breakout distance quality', () => {
-    expect(trendIndicatorDescriptions.breakout).toContain('ValidSetup 为 false 时 DistanceQuality = 0');
-    expect(trendIndicatorDescriptions.breakout).toContain('Breakout10Strength');
-    expect(trendIndicatorDescriptions.breakout).toContain('TrendResume');
+  it('documents continuous setup without boolean rewards', () => {
+    expect(trendIndicatorDescriptions.breakout).toContain('max(0.85×B(z10),B(z20))');
+    expect(trendIndicatorDescriptions.breakout).toContain('sigmoid(z/0.15)');
+    expect(trendIndicatorDescriptions.path).toContain('Signed Efficiency 仅解释');
   });
 
 

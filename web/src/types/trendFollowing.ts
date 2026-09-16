@@ -3,6 +3,13 @@ export type TrendRegime = 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF';
 export type TrendState = 'IDLE' | 'WATCHING' | 'CANDIDATE' | 'TRENDING' | 'WEAKENING' | 'BROKEN';
 
 export interface TrendFeatures {
+  alphaVersion?: number | null;
+  pathScore?: number | null;
+  setupScore?: number | null;
+  positiveReturnConcentration?: number | null;
+  atrExpansionRatio?: number | null;
+  downsideControlQuality?: number | null;
+  downsideUpsideRatio?: number | null;
   trendQuality?: number | null;
   trendAcceleration?: number | null;
   signedEfficiencyRatio10D?: number | null;
@@ -13,7 +20,7 @@ export interface TrendFeatures {
   trendCandidate: boolean;
   rawWeightedSlope: number;
   weightedSlopePercentile: number;
-  weightedR2: number;
+  weightedR2?: number | null;
   return5D: number;
   return10D: number;
   return20D: number;
@@ -32,6 +39,14 @@ export interface TrendFeatures {
   compressionBreakout: boolean;
   trendResume: boolean;
   [key: string]: unknown;
+}
+
+export interface TrendAlphaBreakdown {
+  version: number;
+  components: Record<string, number>;
+  weights: Record<string, number>;
+  contributions: Record<string, number>;
+  score: number;
 }
 
 export interface TrendSnapshot {
@@ -69,7 +84,9 @@ export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
   'code' | 'name' | 'rank' | 'state' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' |
   'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore' | 'setup' | 'atr' |
   'referencePrice'> {
-  features: Pick<TrendFeatures, 'return5D' | 'return10D' | 'return20D' | 'volumeRatio' | 'distanceFromMa20'>;
+  features: Pick<TrendFeatures, 'return5D' | 'return10D' | 'return20D' | 'volumeRatio' | 'distanceFromMa20' |
+    'alphaVersion' | 'pathScore' | 'setupScore' | 'weightedR2' | 'positiveReturnConcentration' |
+    'atrExpansionRatio' | 'downsideControlQuality' | 'downsideUpsideRatio'>;
   rankChange1D: number | null;
   rankChange3D: number | null;
   rankChange5D: number | null;
