@@ -111,7 +111,7 @@ export const RANKING_FEATURE_KEYS = [
   'alphaTrendContribution', 'alphaRsContribution', 'alphaSetupContribution', 'alphaPathContribution',
 ] as const;
 export type RankingFeatureKey = typeof RANKING_FEATURE_KEYS[number];
-export type TrendRankingFeatures = { [K in RankingFeatureKey]?: TrendFeatures[K] | null };
+export type TrendRankingFeatures = Partial<Record<RankingFeatureKey, number | boolean | null>>;
 
 export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
   'code' | 'name' | 'rank' | 'state' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' |

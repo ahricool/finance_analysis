@@ -178,12 +178,14 @@ const marketOverviewReady = ref(false);
 const detailMode = ref<ResearchDataMode>('official');
 
 const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
-const ITEM_SORT_KEYS = ['rank', 'name', 'state', 'setup', 'alphaScore', 'trendScore', 'rsScore', 'breakoutScore',
+const ITEM_SORT_KEYS = ['rank', 'name', 'state', 'setup', 'alphaScore', 'trendScore', 'rsScore',
   'referencePrice', 'atr', 'fragilityScore'] as const;
-function isItemSortKey(key: SortKey): key is typeof ITEM_SORT_KEYS[number] {
+type ItemSortKey = Extract<SortKey, typeof ITEM_SORT_KEYS[number]>;
+type RankingColumnFeatureKey = Extract<SortKey, RankingFeatureKey>;
+function isItemSortKey(key: SortKey): key is ItemSortKey {
   return ITEM_SORT_KEYS.some(item => item === key);
 }
-function isRankingFeatureKey(key: SortKey): key is RankingFeatureKey {
+function isRankingFeatureKey(key: SortKey): key is RankingColumnFeatureKey {
   return RANKING_FEATURE_KEYS.some(item => item === key);
 }
 function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | boolean | null {

@@ -110,7 +110,7 @@ describe('TrendFollowingPage', () => {
     ['alphaTrendContribution', 'Trend Contribution'], ['weightedSlopePercentile', 'Slope Percentile 15D'],
     ['rs10DQuality', 'RS 10D Quality'], ['drawdownQuality', 'Drawdown Quality'], ['trendCandidate', 'Trend Candidate'],
   ])('sorts all rows by %s without requesting detail', async (key, label) => {
-    const items = Array.from({ length: 800 }, (_, index) => ({
+    const items: TrendRankingSnapshot[] = Array.from({ length: 800 }, (_, index) => ({
       ...rankingSnapshot(), code: `V2${index}`, rank: index + 1,
       features: { ...rankingSnapshot().features, alphaVersion: 2,
         [key]: key === 'trendCandidate' ? index === 799 : key === 'drawdown20D' ? -index / 800 : index / 800 },
