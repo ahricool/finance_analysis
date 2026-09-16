@@ -105,7 +105,6 @@ class StockAnalysisPipeline:
         self.db = get_db()
         self.fetcher_manager = MarketDataService(streaming_source=realtime_source)
         self.realtime_source = realtime_source or get_default_sync_realtime_source()
-        # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
         self.trend_analyzer = StockTrendAnalyzer()  # 技术分析器
         self.analyzer = StockReportAnalyzer(config=self.config, uid=self.owner_uid)
         self.notifier = NotificationService(source_message=source_message)
@@ -118,10 +117,6 @@ class StockAnalysisPipeline:
             logger.info("实时行情已启用（按市场默认 Provider 顺序回退）")
         else:
             logger.info("实时行情已禁用，将使用历史收盘价")
-        if self.config.enable_chip_distribution:
-            logger.info("筹码分布分析已启用")
-        else:
-            logger.info("筹码分布分析已禁用")
     def _emit_progress(self, progress: int, message: str) -> None:
         """Best-effort bridge from pipeline stages to persisted task progress."""
         callback = getattr(self, "progress_callback", None)
@@ -244,18 +239,9 @@ class StockAnalysisPipeline:
             if not stock_name:
                 stock_name = f'股票{code}'
 
-            # Step 2: 获取筹码分布 - 使用统一入口，带熔断保护
+            # No public provider supplies chip distribution; retain the existing
+            # optional context shape for saved reports and downstream consumers.
             chip_data = None
-            try:
-                chip_data = self.fetcher_manager.get_chip_distribution(code)
-                if chip_data:
-                    logger.info(f"{stock_name}({code}) 筹码分布: 获利比例={chip_data.profit_ratio:.1%}, "
-                              f"90%集中度={chip_data.concentration_90:.2%}")
-                else:
-                    logger.debug(f"{stock_name}({code}) 筹码分布获取失败或已禁用")
-            except Exception as e:
-                logger.warning(f"{stock_name}({code}) 获取筹码分布失败: {e}")
-
 
             self._emit_progress(32, f"{stock_name}：正在聚合基本面与趋势数据")
 

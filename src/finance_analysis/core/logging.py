@@ -88,8 +88,7 @@ DEFAULT_QUIET_LOGGERS = [
 # output can overwhelm per-task logs and may include low-level request details.
 DEFAULT_INFO_LOGGERS = [
     "yfinance",
-    "akshare",
-    "efinance",
+    "fuyao",
     "longbridge",
     "peewee",
     "curl_cffi",

@@ -264,9 +264,10 @@ model trained on today's S&P 500 / CSI 300/500/1000 members back through the
 training window has survivorship bias: names that were added later appear in
 the past, and names that left the index disappear from history.
 
-CN index members come from AkShare current CSI lists; US members come from the
-current Wikipedia S&P 500 / Nasdaq-100 tables. Neither pipeline stores
-effective-from / effective-to dates.
+CN index members are requested from Fuyao current CSI lists. US S&P 500 /
+Nasdaq-100 automatic membership refresh has no supported source in the five-provider
+configuration: reference sync reports these universes as failed and retains stored
+members. Membership rows do not store effective-from / effective-to dates.
 
 Supporting point-in-time membership would need at least:
 

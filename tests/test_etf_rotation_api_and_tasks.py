@@ -348,8 +348,7 @@ def test_rotation_domain_has_no_redis_quant_feature_or_provider_dependency() -> 
     source = "\n".join(path.read_text(encoding="utf-8") for path in engine_files)
     assert "redis" not in source.lower()
     assert "quant.features" not in source
-    assert "providers.akshare" not in source
-    assert "providers.efinance" not in source
+    assert "providers.fuyao" not in source
     cache = (root / "preview_cache.py").read_text(encoding="utf-8")
     assert "etf_rotation:preview:" in cache
 

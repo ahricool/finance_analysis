@@ -212,7 +212,7 @@ class InstrumentRepository:
                     if field == "source":
                         excluded = case(
                             (
-                                and_(Instrument.source == "TICKFLOW", stmt.excluded.source == "AKSHARE"),
+                                and_(Instrument.source == "TICKFLOW", stmt.excluded.source == "FUYAO"),
                                 Instrument.source,
                             ),
                             else_=stmt.excluded.source,

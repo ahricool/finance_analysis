@@ -48,7 +48,7 @@ class FakeDataSource:
     def __init__(self, *, snapshot_time: datetime = NOW, quote_time: datetime | None = None):
         self.snapshot_time = snapshot_time
         self.quote_time = quote_time
-        self.sources_used = ["efinance", "akshare"]
+        self.sources_used = ["fuyao", "fuyao"]
 
     def get_market_snapshot_rows(self):
         timestamp = self.snapshot_time.isoformat()
@@ -120,7 +120,7 @@ class FakeDataSource:
 
     def get_daily_history(self, code, *, days):
         closes = [10 + index * 0.1 for index in range(20)]
-        return pd.DataFrame({"close": closes, "volume": [1000] * 20}), "efinance"
+        return pd.DataFrame({"close": closes, "volume": [1000] * 20}), "fuyao"
 
     def get_minute_bars(self, code, *, count, now=None):
         return [{"close": 10 + index * 0.02} for index in range(20)]
@@ -272,7 +272,7 @@ def test_non_trading_day_skips(monkeypatch):
 def test_data_source_is_explicitly_a_share_only_through_service():
     source = inspect.getsource(ASharePreCloseDataSource)
 
-    assert ALLOWED_DATA_SOURCES == ("efinance", "akshare")
+    assert ALLOWED_DATA_SOURCES == ("fuyao",)
     assert "MarketDataService" in source
 
 

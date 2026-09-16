@@ -716,13 +716,10 @@ class ReportRenderingMixin:
 
     # Display name mapping for realtime data sources
     _SOURCE_DISPLAY_NAMES = {
-        "tencent": {"zh": "腾讯财经", "en": "Tencent Finance"},
-        "akshare_em": {"zh": "东方财富", "en": "Eastmoney"},
-        "akshare_sina": {"zh": "新浪财经", "en": "Sina Finance"},
-        "akshare_qq": {"zh": "腾讯财经", "en": "Tencent Finance"},
-        "efinance": {"zh": "东方财富(efinance)", "en": "Eastmoney (efinance)"},
-        "sina": {"zh": "新浪财经", "en": "Sina Finance"},
-        "stooq": {"zh": "Stooq", "en": "Stooq"},
+        "easyquotation": {"zh": "腾讯财经", "en": "Tencent Finance"},
+        "fuyao": {"zh": "Fuyao", "en": "Fuyao"},
+        "yfinance": {"zh": "Yahoo Finance", "en": "Yahoo Finance"},
+        "tickflow": {"zh": "TickFlow", "en": "TickFlow"},
         "longbridge": {"zh": "长桥", "en": "Longbridge"},
         "fallback": {"zh": "降级兜底", "en": "Fallback"},
     }

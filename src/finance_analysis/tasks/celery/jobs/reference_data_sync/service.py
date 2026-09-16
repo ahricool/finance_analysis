@@ -9,10 +9,9 @@ from typing import Any
 from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.database.repositories.universe import UniverseRepository
 from finance_analysis.integrations.market_data.instrument_sync import InstrumentSyncService
-from finance_analysis.integrations.market_data.providers.akshare import AkShareProvider
+from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
 from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
-from finance_analysis.integrations.market_data.providers.us_index_constituents import USIndexConstituentProvider
 
 
 @dataclass(frozen=True)
@@ -22,12 +21,12 @@ class IndexUniverseSyncConfig:
 
 
 INDEX_UNIVERSE_SYNC_CONFIG = {
-    "cn_csi300": IndexUniverseSyncConfig("AKSHARE", "000300"),
-    "cn_csi500": IndexUniverseSyncConfig("AKSHARE", "000905"),
-    "cn_csi1000": IndexUniverseSyncConfig("AKSHARE", "000852"),
-    "cn_csi2000": IndexUniverseSyncConfig("AKSHARE", "932000"),
-    "us_sp500": IndexUniverseSyncConfig("WIKIPEDIA", "SP500"),
-    "us_nasdaq100": IndexUniverseSyncConfig("WIKIPEDIA", "NASDAQ100"),
+    "cn_csi300": IndexUniverseSyncConfig("FUYAO", "000300.SH"),
+    "cn_csi500": IndexUniverseSyncConfig("FUYAO", "000905.SH"),
+    "cn_csi1000": IndexUniverseSyncConfig("FUYAO", "000852.SH"),
+    "cn_csi2000": IndexUniverseSyncConfig("FUYAO", "932000.SH"),
+    "us_sp500": IndexUniverseSyncConfig("unavailable", "SP500"),
+    "us_nasdaq100": IndexUniverseSyncConfig("unavailable", "NASDAQ100"),
 }
 
 
@@ -50,10 +49,8 @@ class ReferenceDataSyncService:
             instrument_fallback or LongbridgeProvider(),
             instrument_repository=self.instruments,
         )
-        self.index_providers = index_providers or {
-            "AKSHARE": AkShareProvider(),
-            "WIKIPEDIA": USIndexConstituentProvider(),
-        }
+        self.index_providers = index_providers
+        self.market_data = MarketDataService()
 
     def run(self) -> dict[str, Any]:
         started = monotonic()
@@ -76,8 +73,12 @@ class ReferenceDataSyncService:
         failed_universes: dict[str, str] = {}
         for key, config in INDEX_UNIVERSE_SYNC_CONFIG.items():
             try:
-                provider = self.index_providers[config.provider]
-                members = provider.fetch_index_members(config.index_code)
+                if config.provider == "unavailable":
+                    raise ValueError("US index membership refresh has no supported source; stored members retained")
+                if self.index_providers is not None:
+                    members = self.index_providers[config.provider].fetch_index_members(config.index_code)
+                else:
+                    members = self.market_data.get_index_members(config.index_code)
                 if not members:
                     raise ValueError(f"Provider returned no members for {key}")
                 self.instrument_sync.ensure_instruments({member["code"] for member in members})

@@ -15,7 +15,6 @@ from finance_analysis.integrations.market_data.models import (
     Market,
     MarketBar,
 )
-from finance_analysis.integrations.market_data.providers.akshare import AkShareProvider
 from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
 from finance_analysis.integrations.market_data.registry import (
     DAILY_BARS,
@@ -226,16 +225,16 @@ def test_daily_source_policies_are_read_only_and_use_any_local_history(local_day
 
 
 def test_default_orders_are_explicit_and_not_integer_priorities():
-    assert provider_order(Market.CN, DAILY_BARS) == ("tickflow", "akshare", "pytdx", "baostock", "yfinance")
+    assert provider_order(Market.CN, DAILY_BARS) == ("tickflow", "fuyao", "yfinance")
     assert provider_order(Market.CN, DAILY_BARS)[0] == "tickflow"
     assert "longbridge" not in provider_order(Market.CN, DAILY_BARS)
     assert provider_order(Market.US, DAILY_BARS) == ("yfinance", "tickflow")
     assert provider_order(Market.US, DAILY_BARS)[0] == "yfinance"
     assert "longbridge" not in provider_order(Market.US, DAILY_BARS)
-    assert "akshare" not in provider_order(Market.US, DAILY_BARS)
-    assert provider_order(Market.CN, MINUTE_BARS) == ("streaming", "longbridge", "efinance", "pytdx", "akshare")
+    assert "fuyao" not in provider_order(Market.US, DAILY_BARS)
+    assert provider_order(Market.CN, MINUTE_BARS) == ("streaming", "longbridge")
     assert "easyquotation" not in provider_order(Market.CN, LATEST_MARKET_SNAPSHOT)
-    assert provider_order(Market.CN, LATEST_MARKET_SNAPSHOT)[0] == "efinance"
+    assert provider_order(Market.CN, LATEST_MARKET_SNAPSHOT)[0] == "fuyao"
 
 
 def test_default_registry_registers_easyquotation_snapshot_only():
@@ -244,20 +243,11 @@ def test_default_registry_registers_easyquotation_snapshot_only():
     assert LATEST_MARKET_SNAPSHOT in registry.capabilities("easyquotation")
 
 
-def test_default_registry_excludes_unsupported_efinance_daily():
+def test_default_registry_excludes_unsupported_fuyao_minute():
     registry = build_default_registry()
-    assert DAILY_BARS not in registry.capabilities("efinance")
+    assert MINUTE_BARS not in registry.capabilities("fuyao")
 
 
-def test_akshare_us_daily_is_not_a_configured_or_direct_fallback():
-    provider = AkShareProvider(sleep_min=0, sleep_max=0)
-
-    result = provider.fetch_daily_bars(
-        DailyBarsRequest(("AAPL.US",), date(2025, 1, 1), date(2025, 1, 3), Adjustment.FORWARD)
-    )
-
-    assert result.data == {}
-    assert "canonical CN/HK symbol" in result.failed_symbols["AAPL.US"]
 
 
 def test_tickflow_free_uses_maximum_history_count_native_batch_forward_and_cn_lots_become_shares():
@@ -1089,12 +1079,12 @@ def test_cn_daily_batch_preserves_per_symbol_router_fallback_and_provider_attrib
         },
     )
     fallback = _DailyProvider(
-        "akshare",
-        {"000002.SZ": [_bar_on("000002.SZ", "akshare", trade_date)]},
+        "fuyao",
+        {"000002.SZ": [_bar_on("000002.SZ", "fuyao", trade_date)]},
     )
     registry = ProviderRegistry()
     registry.register("tickflow", first, capabilities={DAILY_BARS})
-    registry.register("akshare", fallback, capabilities={DAILY_BARS})
+    registry.register("fuyao", fallback, capabilities={DAILY_BARS})
     market_data = MarketDataService(registry)
     symbols = [
         SimpleNamespace(id=1, code="600000.SH"),
@@ -1113,7 +1103,7 @@ def test_cn_daily_batch_preserves_per_symbol_router_fallback_and_provider_attrib
     assert fallback.requests[0].symbols == ("000002.SZ",)
     assert results["600000.SH"].providers == ["tickflow"]
     assert results["000001.SZ"].providers == ["tickflow"]
-    assert results["000002.SZ"].providers == ["akshare"]
+    assert results["000002.SZ"].providers == ["fuyao"]
     assert all(result.status == "success" for result in results.values())
     service.sync_mode = "incremental"
     summary = service._summarize(
@@ -1122,7 +1112,7 @@ def test_cn_daily_batch_preserves_per_symbol_router_fallback_and_provider_attrib
     )
     assert summary["success_symbols"] == 3
     assert summary["failed_symbols"] == 0
-    assert summary["provider_counts"] == {"tickflow": 2, "akshare": 1}
+    assert summary["provider_counts"] == {"tickflow": 2, "fuyao": 1}
 
 
 def test_cn_daily_batch_computes_missing_days_and_isolates_symbol_errors():
@@ -1139,10 +1129,10 @@ def test_cn_daily_batch_computes_missing_days_and_isolates_symbol_errors():
                 _bar_on("600000.SH", "tickflow", first_day),
                 _bar_on("600000.SH", "tickflow", second_day),
             ],
-            "000001.SZ": [_bar_on("000001.SZ", "akshare", first_day)],
+            "000001.SZ": [_bar_on("000001.SZ", "fuyao", first_day)],
         },
-        providers_used={"600000.SH": "tickflow", "000001.SZ": "akshare"},
-        failed_symbols={"000002.SZ": "tickflow: timeout; akshare: empty"},
+        providers_used={"600000.SH": "tickflow", "000001.SZ": "fuyao"},
+        failed_symbols={"000002.SZ": "tickflow: timeout; fuyao: empty"},
     )
     service = _batch_sync_service(SimpleNamespace(get_daily_bars=lambda *args, **kwargs: routed))
 
@@ -1157,7 +1147,7 @@ def test_cn_daily_batch_computes_missing_days_and_isolates_symbol_errors():
     assert results["000001.SZ"].reason == "requested_date_missing: missing_trading_days=1"
     assert results["000001.SZ"].fallback_reasons == []
     assert results["000002.SZ"].status == "failed"
-    assert results["000002.SZ"].fallback_reasons == ["tickflow: timeout; akshare: empty"]
+    assert results["000002.SZ"].fallback_reasons == ["tickflow: timeout; fuyao: empty"]
 
 
 @pytest.mark.parametrize(

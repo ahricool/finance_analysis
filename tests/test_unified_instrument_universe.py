@@ -107,7 +107,7 @@ def test_instrument_validation_and_upsert_support_all_canonical_markets():
         == 1
     )
     assert (
-        repository.upsert_symbols([{"market": "CN", "code": "600519.SH", "name": "贵州茅台股份", "source": "AKSHARE"}])
+        repository.upsert_symbols([{"market": "CN", "code": "600519.SH", "name": "贵州茅台股份", "source": "FUYAO"}])
         == 1
     )
     migrated = repository.get_by_code("600519.SH")
@@ -135,7 +135,7 @@ def test_resolver_market_index_strategy_include_dedup_and_manual_member():
         strategy = Universe(key="cn_trend", name="A股趋势", market="CN", universe_type="STRATEGY")
         session.add_all([market, index, strategy])
         session.flush()
-        session.add(UniverseMember(universe_id=index.id, instrument_id=active.id, source="AKSHARE"))
+        session.add(UniverseMember(universe_id=index.id, instrument_id=active.id, source="FUYAO"))
         session.add(UniverseMember(universe_id=strategy.id, instrument_id=manual.id, source="MANUAL"))
         session.add_all(
             [
@@ -225,12 +225,12 @@ def test_index_membership_refresh_preserves_current_and_deletes_stale():
             ]
         )
     stats = UniverseRepository(database).replace_members_with_stats(
-        "us_sp500", [{"code": "AAPL.US", "metadata": {}}], "WIKIPEDIA"
+        "us_sp500", [{"code": "AAPL.US", "metadata": {}}], "yfinance"
     )
     assert stats == MembershipSyncStats(inserted=0, deleted=1, total=1)
 
 
-def test_reference_data_sync_updates_three_markets_and_six_index_universes():
+def test_reference_data_sync_updates_three_markets_and_four_cn_universes_preserving_us_members():
     class Instruments:
         def upsert_symbols(self, members):
             raise AssertionError("Index membership must not overwrite Instrument Master")
@@ -251,9 +251,7 @@ def test_reference_data_sync_updates_three_markets_and_six_index_universes():
     class Provider:
         def fetch_index_members(self, index_code):
             requested_indices.append(index_code)
-            market = "CN" if index_code.isdigit() else "US"
-            suffix = ".SH" if market == "CN" else ".US"
-            return [{"market": market, "code": f"{index_code}{suffix}", "name": index_code}]
+            return [{"market": "CN", "code": "600519.SH", "name": "贵州茅台"}]
 
     universes = Universes()
     service = ReferenceDataSyncService(
@@ -261,7 +259,7 @@ def test_reference_data_sync_updates_three_markets_and_six_index_universes():
         universe_repository=universes,
         instrument_primary=object(),
         instrument_fallback=object(),
-        index_providers={"AKSHARE": Provider(), "WIKIPEDIA": Provider()},
+        index_providers={"FUYAO": Provider()},
     )
     service.instrument_sync.sync_instruments_detailed = lambda market: InstrumentSyncResult(
         fetched=10, inserted=2, updated=8, delisted=0, provider="TICKFLOW", fallback_used=False
@@ -270,15 +268,14 @@ def test_reference_data_sync_updates_three_markets_and_six_index_universes():
     result = service.run()
 
     assert result["instrument_fetched"] == 30
-    assert result["universe_count"] == 6
-    assert "932000" in requested_indices
+    assert result["universe_count"] == 4
+    assert set(result["failed_universes"]) == {"us_sp500", "us_nasdaq100"}
+    assert "932000.SH" in requested_indices
     assert {key for key, _ in universes.keys} == {
         "cn_csi300",
         "cn_csi500",
         "cn_csi1000",
         "cn_csi2000",
-        "us_sp500",
-        "us_nasdaq100",
     }
 
 
@@ -496,7 +493,7 @@ def test_index_etf_migration_preserves_members_fk_metadata_and_final_includes(ex
         instrument = Instrument(market="CN", code="600009.SH", name="CSI2000 only")
         session.add(instrument)
         session.flush()
-        session.add(UniverseMember(universe_id=csi2000_id, instrument_id=instrument.id, source="AKSHARE"))
+        session.add(UniverseMember(universe_id=csi2000_id, instrument_id=instrument.id, source="FUYAO"))
     resolver = UniverseResolver(repository)
     assert {item.code for item in resolver.resolve_universe("cn_trend")} == {
         "600000.SH",

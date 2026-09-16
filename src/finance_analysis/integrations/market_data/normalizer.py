@@ -61,7 +61,10 @@ def canonical_symbol(symbol: str, market: Market | str | None = None) -> str:
     base = normalize_stock_code(value)
     if not base.isdigit() or len(base) != 6:
         raise ValueError(f"Invalid CN symbol: {symbol!r}")
-    if value.endswith(".BJ") or value.startswith("BJ") or is_bse_code(base):
+    # Explicit exchange is authoritative: 000001.SH is an index, not 000001.SZ.
+    if value.endswith((".SH", ".SZ", ".BJ")):
+        return value
+    if value.startswith("BJ") or is_bse_code(base):
         return f"{base}.BJ"
     exchange = "SH" if base.startswith(("5", "6", "9")) else "SZ"
     return f"{base}.{exchange}"

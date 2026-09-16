@@ -139,13 +139,3 @@ def is_hk_stock_code(stock_code: str) -> bool:
 def is_us_code(stock_code: str) -> bool:
     """Return True for US stock codes (excluding US indices)."""
     return is_us_stock_code(stock_code)
-
-
-def to_sina_tx_symbol(stock_code: str) -> str:
-    """Convert a 6-digit A-share code to sh/sz/bj prefixed symbol for Sina/Tencent APIs."""
-    base = (stock_code.strip().split(".")[0] if "." in stock_code else stock_code).strip()
-    if is_bse_code(base):
-        return f"bj{base}"
-    if base.startswith(("6", "5", "90")):
-        return f"sh{base}"
-    return f"sz{base}"

@@ -35,7 +35,7 @@ _LUNCH_END = time(13, 0)
 
 
 def parse_a_share_timestamp(value: Any) -> Optional[datetime]:
-    """Parse a datetime/ISO/efinance string into an Asia/Shanghai aware datetime."""
+    """Parse a datetime/ISO/fuyao string into an Asia/Shanghai aware datetime."""
     if isinstance(value, datetime):
         dt = value
     elif isinstance(value, str) and value.strip():

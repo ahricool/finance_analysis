@@ -44,6 +44,7 @@ class ProviderRegistration:
 class ProviderRegistry:
     def __init__(self) -> None:
         self._registrations: dict[str, ProviderRegistration] = {}
+        self._internal_names: set[str] = set()
 
     def register(self, name: str, provider: Any, *, capabilities: Iterable[str]) -> None:
         normalized_name = str(name).strip().lower()
@@ -85,8 +86,13 @@ class ProviderRegistry:
             )
         return resolved
 
-    def names(self) -> tuple[str, ...]:
-        return tuple(self._registrations)
+    def register_internal(self, name: str, provider: Any, *, capabilities: Iterable[str]) -> None:
+        """Internal DB/Redis readers participate in routing, not external provider inventory."""
+        self.register(name, provider, capabilities=capabilities)
+        self._internal_names.add(name)
+
+    def names(self, *, include_internal: bool = False) -> tuple[str, ...]:
+        return tuple(name for name in self._registrations if include_internal or name not in self._internal_names)
 
     def capabilities(self, name: str) -> frozenset[str]:
         return self.get(name).capabilities

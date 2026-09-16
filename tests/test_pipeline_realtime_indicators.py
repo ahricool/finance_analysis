@@ -34,7 +34,7 @@ def _make_realtime_quote(
     return UnifiedRealtimeQuote(
         code="600519",
         name="贵州茅台",
-        source=RealtimeSource.TENCENT,
+        source=RealtimeSource.EASYQUOTATION,
         price=price,
         open_price=open_price,
         high=high,

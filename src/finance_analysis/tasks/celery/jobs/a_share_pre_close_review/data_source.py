@@ -15,7 +15,7 @@ from ..a_share_intraday_analysis.bars import normalize_bars
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_DATA_SOURCES = ("efinance", "akshare")
+ALLOWED_DATA_SOURCES = ("fuyao",)
 
 
 class ASharePreCloseDataSource:
@@ -34,7 +34,7 @@ class ASharePreCloseDataSource:
         try:
             rows = [quote.to_dict() for quote in self.market_data.get_market_snapshot("CN").data.values()]
             if rows:
-                self._record_source("efinance")
+                self._record_source("fuyao")
                 return rows
         except Exception as exc:
             logger.warning("A股收盘前全市场快照获取失败: %s", exc, exc_info=True)
@@ -83,27 +83,27 @@ class ASharePreCloseDataSource:
             if end.tzinfo is None:
                 end = end.replace(tzinfo=timezone.utc)
             result = self.market_data.get_minute_bars([normalize_stock_code(code)], end - timedelta(minutes=count), end,
-                                                      interval="1m", providers=ALLOWED_DATA_SOURCES)
+                                                      interval="1m")
             bars_result = next(iter(result.data.values()), [])
             raw = [{"timestamp": bar.bar_time.isoformat(), "open": bar.open, "high": bar.high, "low": bar.low,
                     "close": bar.close, "volume": bar.volume, "turnover": bar.amount} for bar in bars_result]
             bars = normalize_bars(raw, now=now)
             if bars:
-                self._record_source("efinance")
+                self._record_source(next(iter(result.providers_used.values())))
             return bars
         except Exception as exc:
-            logger.info("efinance 获取 %s 分钟K线失败: %s", code, exc)
+            logger.info("fuyao 获取 %s 分钟K线失败: %s", code, exc)
             return []
 
     def get_belonging_boards(self, code: str) -> list[str]:
         try:
             raw = self.market_data.get_belong_boards(normalize_stock_code(code))
         except Exception as exc:
-            logger.info("efinance 获取 %s 所属板块失败: %s", code, exc)
+            logger.info("fuyao 获取 %s 所属板块失败: %s", code, exc)
             return []
         if not raw:
             return []
-        self._record_source("efinance")
+        self._record_source("fuyao")
         values = [str(row.get("板块名称") or row.get("板块") or row.get("名称") or row.get("name") or "").strip()
                   for row in raw]
         values = [value for value in values if value]
