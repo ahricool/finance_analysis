@@ -76,7 +76,10 @@ const ma = (value: boolean | null) => value == null ? '缺失' : value ? '上方
           </p>
         </div>
       </div>
-      <p class="text-xs text-muted-foreground">
+      <p
+        v-if="detail.current.membersObservedAt"
+        class="text-xs text-muted-foreground"
+      >
         快照 Daily 有效成分 {{ detail.current.dailyValidCount }} / {{ detail.current.constituentCount }} · 上涨 {{ detail.current.upCount }} / 下跌 {{ detail.current.downCount }} / 平盘 {{ detail.current.flatCount }}。成分观察时间：{{ formatDateTime(detail.current.membersObservedAt) }}。历史广度为当时保存的观测值。
       </p>
       <details class="rounded-lg border p-3">

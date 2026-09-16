@@ -7,7 +7,7 @@ import PageHeader from '@/components/layout/PageHeader.vue';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
 import IndustryRankingTable from '@/components/industry-strength/IndustryRankingTable.vue';
 import IndustryCharts from '@/components/industry-strength/IndustryCharts.vue';
 import IndustryDetailPanel from '@/components/industry-strength/IndustryDetailPanel.vue';
@@ -74,21 +74,14 @@ onBeforeUnmount(() => { request++; selection++; });
     >
       <template #actions>
         <div class="flex items-center gap-2">
-          <NativeSelect
+          <AppDatePicker
             v-model="date"
-            aria-label="行业数据日期"
+            class="w-56"
+            data-testid="industry-date-picker"
+            placeholder="最新快照"
+            :available-dates="dates"
             @update:model-value="load"
-          >
-            <NativeSelectOption value="">
-              最新快照
-            </NativeSelectOption><NativeSelectOption
-              v-for="d in dates"
-              :key="d"
-              :value="d"
-            >
-              {{ d }}
-            </NativeSelectOption>
-          </NativeSelect><Button
+          /><Button
             variant="outline"
             :disabled="loading"
             @click="load"
@@ -134,6 +127,12 @@ onBeforeUnmount(() => { request++; selection++; });
       所选日期暂无行业强度快照。正式结果由收盘任务生成，覆盖不足时不会发布。
     </p>
     <template v-if="rows.length">
+      <p
+        v-if="rows.some(row => row.quality.breadthStatus === 'unavailable_historical_members')"
+        class="rounded-lg border border-amber-500/40 p-3 text-sm text-amber-600"
+      >
+        历史补算：按当前行业目录计算所选日指数强度；缺少当日成分记录，历史广度不可用。
+      </p>
       <p
         v-if="!date && ranking?.tradeDate !== ranking?.expectedTradeDate"
         class="rounded-lg border border-amber-500/40 p-3 text-sm text-amber-600"

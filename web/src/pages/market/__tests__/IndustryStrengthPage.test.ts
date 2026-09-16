@@ -5,6 +5,7 @@ import { createPinia } from 'pinia';
 import type { IndustrySnapshot } from '@/api/industryStrength';
 import { toCamelCase } from '@/api/utils';
 import IndustryStrengthPage from '../IndustryStrengthPage.vue';
+import AppDatePicker from '@/components/app/AppDatePicker.vue';
 const api = vi.hoisted(() => ({ ranking: vi.fn(), dates: vi.fn(), history: vi.fn(), detail: vi.fn(), constituents: vi.fn() }));
 vi.mock('@/api/industryStrength', () => ({ industryStrengthApi: api }));
 vi.mock('vue-echarts', () => ({ default: { template: '<div data-testid="chart" />' } }));
@@ -95,6 +96,26 @@ describe('Industry Strength', () => {
     expect(table.text()).toContain('行业甲');
     expect(table.findAll('tbody td')[12]!.text()).toBe('—');
     expect(table.text()).toContain('70.00% (7/10)');
+    wrapper.unmount();
+  });
+  it('loads the selected snapshot date and clears back to latest', async () => {
+    const wrapper = await render(); await flushPromises();
+    const picker = wrapper.getComponent(AppDatePicker);
+    expect(picker.props('availableDates')).toEqual(['2026-09-16', '2026-09-15']);
+    api.ranking.mockResolvedValueOnce({ tradeDate: '2026-09-15', expectedTradeDate: '2026-09-16', items: rows });
+    picker.vm.$emit('update:modelValue', '2026-09-15'); await flushPromises();
+    expect(api.ranking).toHaveBeenLastCalledWith('2026-09-15');
+    expect(api.detail).toHaveBeenLastCalledWith('881101.TI', '2026-09-15');
+    picker.vm.$emit('update:modelValue', ''); await flushPromises();
+    expect(api.ranking).toHaveBeenLastCalledWith(undefined);
+    wrapper.unmount();
+  });
+  it('labels index-only historical backfill', async () => {
+    api.ranking.mockResolvedValueOnce({ tradeDate: '2026-09-16', items: [
+      { ...row(), quality: { ...row().quality, breadthStatus: 'unavailable_historical_members' } },
+    ] });
+    const wrapper = await render(); await flushPromises();
+    expect(wrapper.text()).toContain('缺少当日成分记录，历史广度不可用');
     wrapper.unmount();
   });
   it('keeps numeric window casing in API conversion', () => {

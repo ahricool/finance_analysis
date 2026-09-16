@@ -50,7 +50,7 @@ class IndustryStrengthSnapshot(Base):
     flat_count = Column(Integer)
     state = Column(String(16), nullable=False)
     data_timestamp = Column(DateTime(timezone=True), nullable=False)
-    members_observed_at = Column(DateTime(timezone=True), nullable=False)
+    members_observed_at = Column(DateTime(timezone=True), nullable=True)
     quality = Column(JSONB().with_variant(JSON(), "sqlite"), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)

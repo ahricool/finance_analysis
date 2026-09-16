@@ -136,7 +136,7 @@ class FakeRepository:
         self.calls.append((day, sort_by, descending, limit))
         return [payload(day=day or DAY)] if day != date(2020, 1, 1) else []
 
-    def dates(self, *a):
+    def dates(self, *a, **kw):
         return [DAY, OLD]
 
     def history(self, day, codes=None, limit=20):
@@ -193,3 +193,26 @@ def test_api_requires_authentication():
     app.include_router(endpoint.router)
     with TestClient(app) as client:
         assert client.get("/dates").status_code == 401
+
+
+def test_history_migration_preserves_rows_and_accepts_missing_observation():
+    db = Database()
+    original = migration()
+    path = Path(__file__).parents[2] / "alembic/versions/0055_industry_history.py"
+    spec = importlib.util.spec_from_file_location("industry_history_migration", path)
+    history_migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(history_migration)
+    with db.bind.begin() as conn:
+        operations = Operations(MigrationContext.configure(conn))
+        original.op = operations
+        original.upgrade()
+        conn.execute(Snapshot.__table__.insert(), payload())
+        history_migration.op = operations
+        history_migration.upgrade()
+        conn.execute(Snapshot.__table__.insert(), {**payload(day=OLD), "members_observed_at": None})
+    repo = IndustryStrengthRepository(db)
+    assert repo.ranking(DAY)[0]["members_observed_at"] is not None
+    historical = repo.ranking(OLD)[0]
+    assert historical["members_observed_at"] is None
+    from finance_analysis.interfaces.api.v1.schemas.industry_strength import IndustrySnapshot
+    assert IndustrySnapshot.model_validate(historical).members_observed_at is None

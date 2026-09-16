@@ -46,7 +46,7 @@ def ranking(
 
 @router.get("/dates", response_model=list[date])
 def dates(repo=Depends(get_repository)):
-    return repo.dates()
+    return repo.dates(limit=None)
 
 
 @router.get("/history", response_model=HistoryResponse)
