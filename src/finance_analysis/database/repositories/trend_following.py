@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from finance_analysis.core.time import utc_now
 from finance_analysis.database.models.stock import Instrument, StockDaily
 from finance_analysis.database.models.trend_following import TrendFollowingSnapshot, TrendFollowingSummary
+from finance_analysis.trend_following.read_models import SCORE_COMPONENT_PATHS, score_component_expression  # pragma: allowlist secret
 
 SORT_FIELDS = {
     "alpha_score": TrendFollowingSnapshot.alpha_score,
@@ -22,9 +23,14 @@ SORT_FIELDS = {
     "trend_duration_days": TrendFollowingSnapshot.trend_duration_days,
     "fragility_score": TrendFollowingSnapshot.fragility_score,
     **{key: TrendFollowingSnapshot.features[key].as_float() for key in (
-        "path_score", "setup_score", "weighted_r2", "positive_return_concentration",
-        "atr_expansion_ratio", "downside_control_quality", "downside_upside_ratio",
+        "path_score", "setup_score", "weighted_r2", "weighted_slope_percentile",
+        "positive_return_concentration", "atr_expansion_ratio",
+        "downside_control_quality", "downside_upside_ratio",
     )},
+    **{
+        name: score_component_expression(TrendFollowingSnapshot.score_breakdown, path)
+        for name, path in SCORE_COMPONENT_PATHS
+    },
 }
 MEANINGFUL_STATES = {"CANDIDATE", "TRENDING", "WEAKENING", "BROKEN"}
 
@@ -485,7 +491,8 @@ class TrendFollowingRepository:
     def dashboard_rows(self, trade_date: date) -> list[dict]:
         """One scalar projection for ranking and lifecycle; no eager ORM joins."""
         from finance_analysis.trend_following.read_models import (
-            BOOLEAN_FEATURE_FIELDS, DASHBOARD_FIELDS, NUMERIC_FEATURE_FIELDS,
+            BOOLEAN_FEATURE_FIELDS, DASHBOARD_FIELDS, NUMERIC_FEATURE_FIELDS, SCORE_COMPONENT_PATHS,
+            score_component_expression,
         )
 
         snapshot = TrendFollowingSnapshot
@@ -495,6 +502,10 @@ class TrendFollowingRepository:
                 Instrument.name,
                 *(snapshot.features[key].as_float().label(key) for key in NUMERIC_FEATURE_FIELDS),
                 *(snapshot.features[key].as_boolean().label(key) for key in BOOLEAN_FEATURE_FIELDS),
+                *(
+                    score_component_expression(snapshot.score_breakdown, path).label(name)
+                    for name, path in SCORE_COMPONENT_PATHS
+                ),
             )
             .join(Instrument, Instrument.id == snapshot.instrument_id)
             .where(snapshot.market == self.market, snapshot.trade_date == trade_date)

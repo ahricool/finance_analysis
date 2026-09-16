@@ -65,7 +65,7 @@ it('defaults to 3D, sends direction and range filters, and opens point-in-time d
     await flushPromises();
   };
   await click('转弱');
-  await click('近5个快照');
+  await click('近5次变化');
   expect(trendFollowingApi.transitions).toHaveBeenLastCalledWith('US', 5, 'deteriorating', undefined, false);
   await click('转强');
   await click('今日变化');

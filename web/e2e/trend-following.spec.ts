@@ -7,8 +7,14 @@ const snapshot = {
   trendScore: 80, rsScore: 78, breakoutScore: 80, referencePrice: 110, atr: 2,
   trendDurationDays: 13, trendLifecycle: 'EXPANSION', fragilityScore: 18,
   fragilityBreakdown: { accelerationDecay: 12, qualityDecay: 15, efficiencyDecay: 20, relativeStrengthDecay: 18, rankDecay: 24, priceStructureRisk: 15 },
-  features: { alphaVersion: 2, pathScore: 95, setupScore: 80, weightedR2: .98,
-    positiveReturnConcentration: .3, atrExpansionRatio: 1.1, downsideControlQuality: 90, downsideUpsideRatio: .10536, trendQuality: 87, trendAcceleration: 0.12, signedEfficiencyRatio10D: 0.71 }, scoreBreakdown: { alpha: { version: 2,
+  features: { alphaVersion: 2, pathScore: 95, setupScore: 80, weightedR2: .98, weightedSlopePercentile: 92,
+    positiveReturnConcentration: .3, atrExpansionRatio: 1.1, downsideControlQuality: 90, downsideUpsideRatio: .10536,
+    trendQuality: 87, trendAcceleration: 0.12, signedEfficiencyRatio10D: 0.71, priorCompression: true,
+    r2Quality: 98, momentumQuality: 74, return10DQuality: 72, return20DQuality: 70, drawdownQuality: 81,
+    rs5DQuality: 55, rs10DQuality: 61, rs20DQuality: 58,
+    breakoutQuality: 77, extensionQuality: 66, volumeQuality: 80, compressionQuality: 40,
+    concentrationQuality: 88, volatilityQuality: 72,
+    alphaTrendContribution: 32, alphaRsContribution: 19.5, alphaSetupContribution: 12, alphaPathContribution: 19 }, scoreBreakdown: { alpha: { version: 2,
     components: { trend: 80, rs: 78, setup: 80, path: 95 },
     weights: { trend: .4, rs: .25, setup: .15, path: .2 },
     contributions: { trend: 32, rs: 19.5, setup: 12, path: 19 }, score: 82.5 } }, reasons: ['趋势走强'],
@@ -63,6 +69,10 @@ for (const width of [1280, 1440, 1920]) {
       const before = await page.locator('body').evaluate(el => ({ overflow: el.style.overflow, paddingRight: el.style.paddingRight }));
       await expect(page.getByRole('columnheader', { name: 'Path Score' })).toBeVisible();
       await expect(page.getByRole('columnheader', { name: 'Setup Score' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'R² Quality' })).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Trend Contribution' })).toBeVisible();
+      await expect(page.getByText('Signals / Explain')).toBeVisible();
+      await expect(page.getByRole('columnheader', { name: 'Prior Compression' })).toBeVisible();
       await expect(page.getByRole('columnheader', { name: 'Breakout Score' })).toHaveCount(0);
       await expect(page.getByText('趋势观察')).toHaveCount(0);
       await page.getByTestId('trend-row').first().click();

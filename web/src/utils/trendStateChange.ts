@@ -16,6 +16,6 @@ export function describeTrendStateChange(previous: TrendState, current: TrendSta
 
 export const TREND_TRANSITION_RANGES = [
   { days: 1, label: '今日变化' },
-  { days: 3, label: '近3个快照' },
-  { days: 5, label: '近5个快照' },
+  { days: 3, label: '近3次变化' },
+  { days: 5, label: '近5次变化' },
 ] as const;

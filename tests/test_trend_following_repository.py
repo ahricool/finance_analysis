@@ -344,7 +344,10 @@ def test_read_projections_do_not_load_full_snapshot_or_instrument_json():
     assert items[0]["positive_return_concentration"] == .35
     assert items[0]["atr_expansion_ratio"] == 1.1
     assert items[0]["downside_control_quality"] == 82
-    assert "features" not in items[0] and items[0]["score_breakdown"] == {}
+    assert "features" not in items[0]
+    assert "score_breakdown" not in items[0]
+    assert items[0]["r2_quality"] is None
+    assert items[0]["alpha_trend_contribution"] is None
     changes = repository.change_rows(date(2026, 9, 10))
     assert set(changes[0]) == {"code", "state", "rank", "trend_score", "rs_score", "alpha_score"}
     assert len(statements) == 2
@@ -378,16 +381,20 @@ def test_replace_and_invalidate_clear_cache_only_after_commit(monkeypatch):
 
 def test_dashboard_projection_preserves_all_ranking_metrics_and_boolean_types():
     from finance_analysis.trend_following.read_models import (
-        BOOLEAN_FEATURE_FIELDS, NUMERIC_FEATURE_FIELDS, ranking_item,
+        BOOLEAN_FEATURE_FIELDS, NUMERIC_FEATURE_FIELDS, SCORE_COMPONENT_FIELDS, ranking_item,
     )
 
     db = _Database()
     day = date(2026, 8, 28)
     features = {key: index / 100 for index, key in enumerate(NUMERIC_FEATURE_FIELDS)}
     features.update({key: index % 2 == 0 for index, key in enumerate(BOOLEAN_FEATURE_FIELDS)})
-    breakdown = {"trend": {"weighted_r2": 92}, "rs": {"score": 64},
-                 "setup": {"volume_quality": 80}, "path": {"concentration_quality": 88},
-                 "alpha": {"version": 2, "components": {"trend": 80, "rs": 70, "setup": 60, "path": 90}}}
+    breakdown = {
+        "trend": {"weighted_r2": 92, "momentum": 70, "return_10d": 68, "return_20d": 64, "drawdown_quality": 81},
+        "rs": {"qualities": {"rs_5d": 55, "rs_10d": 61, "rs_20d": 58}},
+        "setup": {"breakout_quality": 77, "extension_quality": 66, "volume_quality": 80, "compression_quality": 40},
+        "path": {"concentration_quality": 88, "volatility_quality": 72, "downside_control_quality": 82},
+        "alpha": {"version": 2, "contributions": {"trend": 32, "rs": 17.5, "setup": 12, "path": 18}},
+    }
     with db.session_scope() as session:
         session.add(Instrument(id=1, code="AAPL.US", name="Apple", market="US"))
         row = _snapshot(snapshot_id=1, code="AAPL.US", instrument_id=1, trade_date=day)
@@ -395,8 +402,18 @@ def test_dashboard_projection_preserves_all_ranking_metrics_and_boolean_types():
         row.score_breakdown = breakdown
         session.add(row)
     repository = TrendFollowingRepository("US", db_manager=db)
-    result = ranking_item(repository.dashboard_rows(day)[0])
-    assert result["features"] == features
+    projected = repository.dashboard_rows(day)[0]
+    result = ranking_item(projected)
+    assert all(result["features"][key] == features[key] for key in NUMERIC_FEATURE_FIELDS)
     assert all(type(result["features"][key]) is bool for key in BOOLEAN_FEATURE_FIELDS)
-    assert result["score_breakdown"] == breakdown
+    assert result["features"]["r2_quality"] == 92
+    assert result["features"]["momentum_quality"] == 70
+    assert result["features"]["rs_10d_quality"] == 61
+    assert result["features"]["breakout_quality"] == 77
+    assert result["features"]["concentration_quality"] == 88
+    assert result["features"]["alpha_trend_contribution"] == 32
+    assert result["features"]["alpha_path_contribution"] == 18
+    assert all(key in result["features"] for key in SCORE_COMPONENT_FIELDS)
+    assert "score_breakdown" not in result
+    assert "score_breakdown" not in projected
     assert "reasons" not in result

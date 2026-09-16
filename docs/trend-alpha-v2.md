@@ -84,12 +84,16 @@ Compression 保持前序窗口，避免当日突破波动抹去已有收缩；Pa
 Trend 中 `return_10d/return_20d/weighted_r2` 是质量分，对应原值用 `raw_*` 保存。
 
 Ranking 查询直接投影 JSON 标量，无全量 detail JSON、无逐股票 detail API。
-`features` 返回上述排名字段，`sort_by` 支持 `path_score/setup_score/weighted_r2/positive_return_concentration/
+`features` 返回上述排名字段，并从 `score_breakdown` 批量投影质量分与 Alpha 贡献标量
+（`r2_quality`、`rs_*_quality`、`breakout_quality`、`alpha_*_contribution` 等），
+不把整份 `score_breakdown` 塞进约 3800 行排名结果。`sort_by` 支持这些质量分/贡献字段以及
+`path_score/setup_score/weighted_r2/weighted_slope_percentile/positive_return_concentration/
 atr_expansion_ratio/downside_control_quality/downside_upside_ratio`；服务端排序后才应用 limit。
-表格在整份市场数据上双向排序并虚拟化显示，新增 Path、Weighted R²、Concentration、ATR Expansion、
-Downside Control、Setup 列。Drawer 展示这些指标、比值及完整贡献明细；保留原趋势/RS/Breakout/Signed Efficiency。
+表格在整份市场数据上双向排序并虚拟化显示。Drawer 展示完整贡献明细；
+主表把解释字段（Prior Compression、Compression Breakout、Trend Resume、Signed Efficiency）
+放在 Signals / Explain，不与 Score Components 混排。
 
-Ranking cache schema 在 Alpha V2 时升至 v4；完整排名投影扩展后再升至 v5，避免旧缓存隐藏新字段。
+Ranking cache schema 在 Alpha V2 时升至 v4；完整排名投影扩展后升至 v5，质量分标量投影后再升至 v6，避免旧缓存隐藏新字段。
 Preview仍复用原Redis键和计算链。
 旧快照不即时重算，不伪造V2字段：`alpha_version` 缺失时页面显示V1，新增指标显示「—」。
 新运行默认生成V2。若需要统一历史口径，使用现有重算流程（会按已有服务语义向后重建状态），

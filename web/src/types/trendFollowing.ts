@@ -13,6 +13,24 @@ export interface TrendFeatures {
   trendQuality?: number | null;
   trendAcceleration?: number | null;
   signedEfficiencyRatio10D?: number | null;
+  r2Quality?: number | null;
+  momentumQuality?: number | null;
+  return10DQuality?: number | null;
+  return20DQuality?: number | null;
+  drawdownQuality?: number | null;
+  rs5DQuality?: number | null;
+  rs10DQuality?: number | null;
+  rs20DQuality?: number | null;
+  breakoutQuality?: number | null;
+  extensionQuality?: number | null;
+  volumeQuality?: number | null;
+  compressionQuality?: number | null;
+  concentrationQuality?: number | null;
+  volatilityQuality?: number | null;
+  alphaTrendContribution?: number | null;
+  alphaRsContribution?: number | null;
+  alphaSetupContribution?: number | null;
+  alphaPathContribution?: number | null;
   ma10: number;
   ma20: number;
   ma10Slope: number;
@@ -79,19 +97,27 @@ export interface TrendSnapshot {
 
 export type TrendCandidate = Pick<TrendSnapshot, 'code' | 'name' | 'rank' | 'state' | 'alphaScore'>;
 
-// Only scalar columns used by the table, its sort menu and preview comparisons.
+export const RANKING_FEATURE_KEYS = [
+  'alphaVersion', 'pathScore', 'setupScore', 'weightedR2', 'positiveReturnConcentration',
+  'atrExpansionRatio', 'downsideControlQuality', 'downsideUpsideRatio',
+  'rawWeightedSlope', 'weightedSlopePercentile', 'return5D', 'return10D', 'return20D',
+  'drawdown20D', 'rs5D', 'rs10D', 'rs20D', 'ma10', 'ma20', 'ma10Slope', 'ma20Slope',
+  'distanceFromMa20', 'volumeRatio', 'trendQuality', 'trendAcceleration',
+  'signedEfficiencyRatio10D', 'trendCandidate', 'priorCompression', 'compressionBreakout',
+  'trendResume', 'r2Quality', 'momentumQuality', 'return10DQuality', 'return20DQuality',
+  'drawdownQuality', 'rs5DQuality', 'rs10DQuality', 'rs20DQuality',
+  'breakoutQuality', 'extensionQuality', 'volumeQuality', 'compressionQuality',
+  'concentrationQuality', 'volatilityQuality',
+  'alphaTrendContribution', 'alphaRsContribution', 'alphaSetupContribution', 'alphaPathContribution',
+] as const;
+export type RankingFeatureKey = typeof RANKING_FEATURE_KEYS[number];
+export type TrendRankingFeatures = { [K in RankingFeatureKey]?: TrendFeatures[K] | null };
+
 export interface TrendRankingSnapshot extends Pick<TrendSnapshot,
   'code' | 'name' | 'rank' | 'state' | 'trendDurationDays' | 'trendLifecycle' | 'fragilityScore' |
-  'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore' | 'setup' | 'atr' |
-  'referencePrice' | 'scoreBreakdown'> {
-  features: Pick<TrendFeatures,
-    'alphaVersion' | 'pathScore' | 'setupScore' | 'weightedR2' | 'positiveReturnConcentration' |
-    'atrExpansionRatio' | 'downsideControlQuality' | 'downsideUpsideRatio' |
-    'rawWeightedSlope' | 'weightedSlopePercentile' | 'return5D' | 'return10D' | 'return20D' |
-    'drawdown20D' | 'rs5D' | 'rs10D' | 'rs20D' | 'ma10' | 'ma20' | 'ma10Slope' | 'ma20Slope' |
-    'distanceFromMa20' | 'volumeRatio' | 'trendQuality' | 'trendAcceleration' |
-    'signedEfficiencyRatio10D' | 'trendCandidate' | 'priorCompression' | 'compressionBreakout' |
-    'trendResume'>;
+  'alphaScore' | 'trendScore' | 'rsScore' | 'breakoutScore' | 'setup' | 'atr' | 'referencePrice'> {
+  features: TrendRankingFeatures;
+  scoreBreakdown?: Record<string, unknown>;
   rankChange1D: number | null;
   rankChange3D: number | null;
   rankChange5D: number | null;

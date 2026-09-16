@@ -105,11 +105,12 @@ def get_transitions(market: str, *, days=3, direction="all", limit=20, as_of=Non
     if dates:
         for row in repository.transition_rows(dates):
             by_date[row["trade_date"]][row["code"]] = row
-    official_count = min(days, max(0, len(dates) - 1))
     preview_date = date.fromisoformat(preview["trade_date"]) if preview else None
     if preview:
         dates = [*dates, preview_date]
         by_date[preview_date] = {row["code"]: row for row in preview["snapshots"] if eligible(row)}
+    dates = dates[-(days + 1):]
+    official_count = max(0, len([day for day in dates if day != preview_date]) - 1)
     items = []
     for previous_date, current_date in zip(dates, dates[1:]):
         for code, row in by_date[current_date].items():

@@ -32,13 +32,13 @@ describe('trendFollowingApi', () => {
       params: { market: 'US', trade_date: '2026-08-28' },
     });
     expect(result.items[0]).toMatchObject({ alphaScore: 82,
-      scoreBreakdown: { trend: { weightedR2: 90 }, rs: { score: 57 }, setup: { volumeQuality: 80 },
-        path: { concentrationQuality: 88 }, alpha: { version: 2, components: { trend: 80, rs: 70, setup: 60, path: 90 } } },
       features: {
       alphaVersion: 2, pathScore: 95, setupScore: 80, positiveReturnConcentration: .3,
       atrExpansionRatio: 1.1, downsideControlQuality: 90, return5D: 0.03, return10D: 0.06, return20D: 0.1, weightedR2: 0.9,
       rs5D: 0.01, rs10D: 0.02, trendCandidate: true, trendResume: false,
+      r2Quality: 90, volumeQuality: 80, concentrationQuality: 88,
     } });
+    expect(result.items[0]).not.toHaveProperty('scoreBreakdown');
     expect(result.changes).toMatchObject({
       previousTradeDate: '2026-08-27',
       marketScoreChange: 2.5,
@@ -80,10 +80,13 @@ it('maps ranking snapshot rank changes including null and zero with the bounded 
     { rank_change_1d: 5, rank_change_3d: -17, rank_change_5d: 32 },
     { rank_change_1d: 0, rank_change_3d: null, rank_change_5d: null },
   ] } });
-  expect((await trendFollowingApi.ranking('CN')).items).toEqual([
-    { rankChange1D: 5, rankChange3D: -17, rankChange5D: 32, features: {}, scoreBreakdown: {} },
-    { rankChange1D: 0, rankChange3D: null, rankChange5D: null, features: {}, scoreBreakdown: {} },
+  const items = (await trendFollowingApi.ranking('CN')).items;
+  expect(items).toMatchObject([
+    { rankChange1D: 5, rankChange3D: -17, rankChange5D: 32, features: {} },
+    { rankChange1D: 0, rankChange3D: null, rankChange5D: null, features: {} },
   ]);
+  expect(items[0]).not.toHaveProperty('scoreBreakdown');
+  expect(items[1]).not.toHaveProperty('scoreBreakdown');
 });
 
 it('loads preview snapshots through toCamelCase and treats 404 as null', async () => {

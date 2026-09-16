@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeTrendStateChange } from '../trendStateChange';
+import { describeTrendStateChange, TREND_TRANSITION_RANGES } from '../trendStateChange';
 
 describe('describeTrendStateChange', () => {
   it.each([
@@ -16,5 +16,13 @@ describe('describeTrendStateChange', () => {
     ['IDLE', 'WATCHING', '状态变化'],
   ] as const)('%s → %s is %s', (previous, current, label) => {
     expect(describeTrendStateChange(previous, current)).toBe(label);
+  });
+
+  it('labels transition windows by change count, not snapshot count', () => {
+    expect(TREND_TRANSITION_RANGES).toEqual([
+      { days: 1, label: '今日变化' },
+      { days: 3, label: '近3次变化' },
+      { days: 5, label: '近5次变化' },
+    ]);
   });
 });

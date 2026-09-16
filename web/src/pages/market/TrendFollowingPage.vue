@@ -41,6 +41,12 @@ import type {
 } from '@/types/trendFollowing';
 import { formatMarketCurrencyAmount } from '@/utils/marketCurrency';
 import {
+  asRankingSnapshot,
+  rankingFeatureValue,
+} from '@/utils/rankingFeatures';
+import type { RankingFeatureKey } from '@/types/trendFollowing';
+import { RANKING_FEATURE_KEYS } from '@/types/trendFollowing';
+import {
   chooseDefaultResearchDataMode,
   isPreviewCompleted,
   type ResearchDataMode,
@@ -96,37 +102,55 @@ const rankingColumns = [
   { key: 'trendLifecycle', label: 'Lifecycle / Age', group: 'Core', format: 'number', description: '趋势阶段与持续交易日数。MATURE 表示趋势成熟阶段。' },
   { key: 'rankChange5D', label: '排名趋势', group: 'Core', format: 'number', description: descriptions.rankChange },
   { key: 'referencePrice', label: 'Reference Price', group: 'Core', format: 'price', description: descriptions.reference },
-  { key: 'alphaScore', label: 'Alpha Score', group: 'Score', format: 'score', description: descriptions.alpha },
-  { key: 'trendScore', label: 'Trend Score', group: 'Score', format: 'score', description: descriptions.trend },
-  { key: 'rsScore', label: 'RS Score', group: 'Score', format: 'score', description: descriptions.relativeStrength },
-  { key: 'setupScore', label: 'Setup Score', group: 'Score', format: 'score', description: descriptions.breakout },
-  { key: 'pathScore', label: 'Path Score', group: 'Score', format: 'score', description: descriptions.path },
+  { key: 'alphaScore', label: 'Alpha Score', group: 'Alpha', format: 'score', description: descriptions.alpha },
+  { key: 'alphaTrendContribution', label: 'Trend Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
+  { key: 'alphaRsContribution', label: 'RS Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
+  { key: 'alphaSetupContribution', label: 'Setup Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
+  { key: 'alphaPathContribution', label: 'Path Contribution', group: 'Alpha', format: 'score', description: descriptions.alpha },
+  { key: 'trendScore', label: 'Trend Score', group: 'Trend', format: 'score', description: descriptions.trend },
   { key: 'weightedSlopePercentile', label: 'Slope Percentile 15D', group: 'Trend', format: 'score', description: descriptions.slopePercentile },
-  { key: 'rawWeightedSlope', label: 'Weighted Slope 15D', group: 'Trend', format: 'slope', description: descriptions.weightedSlope },
-  { key: 'weightedR2', label: 'Weighted R²', group: 'Trend', format: 'r2', description: descriptions.r2 },
-  { key: 'return5D', label: '5D Return', group: 'Trend', format: 'percent', description: descriptions.return },
-  { key: 'return10D', label: '10D Return', group: 'Trend', format: 'percent', description: descriptions.return },
-  { key: 'return20D', label: '20D Return', group: 'Trend', format: 'percent', description: descriptions.return },
-  { key: 'drawdown20D', label: 'Drawdown 20D', group: 'Trend', format: 'percent', description: descriptions.drawdown },
-  { key: 'ma10', label: 'MA10', group: 'Trend', format: 'score', description: descriptions.movingAverage },
-  { key: 'ma20', label: 'MA20', group: 'Trend', format: 'score', description: descriptions.movingAverage },
-  { key: 'ma10Slope', label: 'MA10 Slope', group: 'Trend', format: 'percent', description: descriptions.movingAverage },
-  { key: 'ma20Slope', label: 'MA20 Slope', group: 'Trend', format: 'percent', description: descriptions.movingAverage },
-  { key: 'distanceFromMa20', label: 'Distance From MA20', group: 'Trend', format: 'percent', description: descriptions.movingAverage },
-  { key: 'trendCandidate', label: 'Trend Candidate', group: 'Trend', format: 'boolean', description: descriptions.candidate },
-  { key: 'rs5D', label: 'RS 5D', group: 'RS', format: 'percent', description: descriptions.rawRelativeStrength },
-  { key: 'rs10D', label: 'RS 10D', group: 'RS', format: 'percent', description: descriptions.rawRelativeStrength },
-  { key: 'rs20D', label: 'RS 20D', group: 'RS', format: 'percent', description: descriptions.rawRelativeStrength },
-  { key: 'setup', label: 'Setup', group: 'Setup', format: 'text', description: descriptions.setup },
-  { key: 'volumeRatio', label: 'Volume Ratio', group: 'Setup', format: 'score', description: descriptions.volumeCompression },
-  { key: 'priorCompression', label: 'Prior Compression', group: 'Setup', format: 'boolean', description: descriptions.volumeCompression },
-  { key: 'compressionBreakout', label: 'Compression Breakout', group: 'Setup', format: 'boolean', description: descriptions.setup },
-  { key: 'trendResume', label: 'Trend Resume', group: 'Setup', format: 'boolean', description: descriptions.trendResume },
-  { key: 'positiveReturnConcentration', label: 'Return Concentration', group: 'Path', format: 'percent', description: descriptions.concentration },
-  { key: 'atrExpansionRatio', label: 'ATR Expansion', group: 'Path', format: 'ratio', description: descriptions.expansion },
-  { key: 'downsideControlQuality', label: 'Downside Control', group: 'Path', format: 'score', description: descriptions.downside },
-  { key: 'downsideUpsideRatio', label: 'Downside / Upside', group: 'Path', format: 'ratio', description: descriptions.downside },
-  { key: 'signedEfficiencyRatio10D', label: 'Signed Efficiency 10D', group: 'Path', format: 'score', description: descriptions.path },
+  { key: 'r2Quality', label: 'R² Quality', group: 'Trend', format: 'score', description: descriptions.r2Quality },
+  { key: 'momentumQuality', label: 'Momentum Quality', group: 'Trend', format: 'score', description: descriptions.momentumQuality },
+  { key: 'return10DQuality', label: 'Return 10D Quality', group: 'Trend', format: 'score', description: descriptions.returnQuality },
+  { key: 'return20DQuality', label: 'Return 20D Quality', group: 'Trend', format: 'score', description: descriptions.returnQuality },
+  { key: 'drawdownQuality', label: 'Drawdown Quality', group: 'Trend', format: 'score', description: descriptions.drawdownQuality },
+  { key: 'rsScore', label: 'RS Score', group: 'RS', format: 'score', description: descriptions.relativeStrength },
+  { key: 'rs5DQuality', label: 'RS 5D Quality', group: 'RS', format: 'score', description: descriptions.rsQuality },
+  { key: 'rs10DQuality', label: 'RS 10D Quality', group: 'RS', format: 'score', description: descriptions.rsQuality },
+  { key: 'rs20DQuality', label: 'RS 20D Quality', group: 'RS', format: 'score', description: descriptions.rsQuality },
+  { key: 'setupScore', label: 'Setup Score', group: 'Setup', format: 'score', description: descriptions.breakout },
+  { key: 'breakoutQuality', label: 'Breakout Quality', group: 'Setup', format: 'score', description: descriptions.breakout },
+  { key: 'extensionQuality', label: 'Extension Quality', group: 'Setup', format: 'score', description: descriptions.breakout },
+  { key: 'volumeQuality', label: 'Volume Quality', group: 'Setup', format: 'score', description: descriptions.breakout },
+  { key: 'compressionQuality', label: 'Compression Quality', group: 'Setup', format: 'score', description: descriptions.breakout },
+  { key: 'pathScore', label: 'Path Score', group: 'Path', format: 'score', description: descriptions.path },
+  { key: 'concentrationQuality', label: 'Concentration Quality', group: 'Path', format: 'score', description: descriptions.concentration },
+  { key: 'volatilityQuality', label: 'Volatility Quality', group: 'Path', format: 'score', description: descriptions.expansion },
+  { key: 'downsideControlQuality', label: 'Downside Control Quality', group: 'Path', format: 'score', description: descriptions.downside },
+  { key: 'setup', label: 'Setup', group: 'Signals / Explain', format: 'text', description: descriptions.setup },
+  { key: 'trendCandidate', label: 'Trend Candidate', group: 'Signals / Explain', format: 'boolean', description: descriptions.candidate },
+  { key: 'priorCompression', label: 'Prior Compression', group: 'Signals / Explain', format: 'boolean', description: descriptions.volumeCompression },
+  { key: 'compressionBreakout', label: 'Compression Breakout', group: 'Signals / Explain', format: 'boolean', description: descriptions.setup },
+  { key: 'trendResume', label: 'Trend Resume', group: 'Signals / Explain', format: 'boolean', description: descriptions.trendResume },
+  { key: 'signedEfficiencyRatio10D', label: 'Signed Efficiency 10D', group: 'Signals / Explain', format: 'score', description: descriptions.path },
+  { key: 'rawWeightedSlope', label: 'Weighted Slope 15D', group: 'Signals / Explain', format: 'slope', description: descriptions.weightedSlope },
+  { key: 'weightedR2', label: 'Weighted R²', group: 'Signals / Explain', format: 'r2', description: descriptions.r2 },
+  { key: 'return5D', label: '5D Return', group: 'Signals / Explain', format: 'percent', description: descriptions.return },
+  { key: 'return10D', label: '10D Return', group: 'Signals / Explain', format: 'percent', description: descriptions.return },
+  { key: 'return20D', label: '20D Return', group: 'Signals / Explain', format: 'percent', description: descriptions.return },
+  { key: 'drawdown20D', label: 'Drawdown 20D', group: 'Signals / Explain', format: 'percent', description: descriptions.drawdown },
+  { key: 'rs5D', label: 'RS 5D', group: 'Signals / Explain', format: 'percent', description: descriptions.rawRelativeStrength },
+  { key: 'rs10D', label: 'RS 10D', group: 'Signals / Explain', format: 'percent', description: descriptions.rawRelativeStrength },
+  { key: 'rs20D', label: 'RS 20D', group: 'Signals / Explain', format: 'percent', description: descriptions.rawRelativeStrength },
+  { key: 'volumeRatio', label: 'Volume Ratio', group: 'Signals / Explain', format: 'score', description: descriptions.volumeCompression },
+  { key: 'positiveReturnConcentration', label: 'Return Concentration', group: 'Signals / Explain', format: 'percent', description: descriptions.concentration },
+  { key: 'atrExpansionRatio', label: 'ATR Expansion', group: 'Signals / Explain', format: 'ratio', description: descriptions.expansion },
+  { key: 'downsideUpsideRatio', label: 'Downside / Upside', group: 'Signals / Explain', format: 'ratio', description: descriptions.downside },
+  { key: 'ma10', label: 'MA10', group: 'Signals / Explain', format: 'score', description: descriptions.movingAverage },
+  { key: 'ma20', label: 'MA20', group: 'Signals / Explain', format: 'score', description: descriptions.movingAverage },
+  { key: 'ma10Slope', label: 'MA10 Slope', group: 'Signals / Explain', format: 'percent', description: descriptions.movingAverage },
+  { key: 'ma20Slope', label: 'MA20 Slope', group: 'Signals / Explain', format: 'percent', description: descriptions.movingAverage },
+  { key: 'distanceFromMa20', label: 'Distance From MA20', group: 'Signals / Explain', format: 'percent', description: descriptions.movingAverage },
   { key: 'fragilityScore', label: 'Fragility', group: 'Risk / Health', format: 'score', description: '0–100；越高表示内部恶化越快。历史不足显示 —，并不代表稳定。' },
   { key: 'atr', label: 'ATR', group: 'Risk / Health', format: 'score', description: descriptions.atr },
   { key: 'trendQuality', label: 'Trend Quality', group: 'Risk / Health', format: 'score', description: undefined },
@@ -154,15 +178,24 @@ const marketOverviewReady = ref(false);
 const detailMode = ref<ResearchDataMode>('official');
 
 const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : 'S&P 500');
+const ITEM_SORT_KEYS = ['rank', 'name', 'state', 'setup', 'alphaScore', 'trendScore', 'rsScore', 'breakoutScore',
+  'referencePrice', 'atr', 'fragilityScore'] as const;
+function isItemSortKey(key: SortKey): key is typeof ITEM_SORT_KEYS[number] {
+  return ITEM_SORT_KEYS.some(item => item === key);
+}
+function isRankingFeatureKey(key: SortKey): key is RankingFeatureKey {
+  return RANKING_FEATURE_KEYS.some(item => item === key);
+}
 function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | boolean | null {
   if (key === 'trendLifecycle') return item.trendDurationDays;
   if (key === 'rankChange5D') return item.rankChange5D ?? item.rankChange3D ?? item.rankChange1D;
-  const raw = key in item && key !== 'features' && key !== 'scoreBreakdown'
-    ? item[key as keyof TrendRankingSnapshot]
-    : item.features[key as keyof TrendRankingSnapshot['features']];
-  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
-  if (typeof raw === 'string' || typeof raw === 'boolean') return raw;
-  return null;
+  if (isItemSortKey(key)) {
+    const raw = item[key];
+    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+    if (typeof raw === 'string' || typeof raw === 'boolean') return raw;
+    return null;
+  }
+  return isRankingFeatureKey(key) ? rankingFeatureValue(item, key) : null;
 }
 function rankingCell(item: TrendRankingSnapshot, column: typeof rankingColumns[number]) {
   const value = sortValue(item, column.key);
@@ -225,15 +258,6 @@ const cards = computed(() => [
 const previewAvailable = computed(() => previewStatus.value != null);
 const showingPreview = computed(() => dataMode.value === 'preview' && !previewLoading.value && isPreviewCompleted(previewPayload.value?.status));
 const showingStrategyBody = computed(() => dataMode.value === 'official' || showingPreview.value);
-function asRankingSnapshot(snapshot: TrendSnapshot): TrendRankingSnapshot {
-  const ranked = snapshot as TrendSnapshot & Partial<TrendRankingSnapshot>;
-  return {
-    ...snapshot,
-    rankChange1D: ranked.rankChange1D ?? null,
-    rankChange3D: ranked.rankChange3D ?? null,
-    rankChange5D: ranked.rankChange5D ?? null,
-  };
-}
 
 function score(value: number | null | undefined) { return value == null ? '—' : value.toFixed(1); }
 function scoreDelta(value: number | null | undefined) { return value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(1)}`; }

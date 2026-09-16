@@ -1,5 +1,6 @@
 import apiClient from './index';
 import camelcaseKeys from 'camelcase-keys';
+import { rankingSnapshotFromDto } from '@/utils/rankingFeatures';
 import { getParsedApiError } from './error';
 import { toCamelCase } from './utils';
 import type {
@@ -16,6 +17,10 @@ import type {
   TransitionDirection,
 } from '@/types/trendFollowing';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
 // Walk only the DTO's known containers, never recurse through arbitrary snapshot JSON.
 function rankingDto(data: Record<string, unknown>): TrendRankingResponse {
   const { items, changes, candidates, ...summary } = data;
@@ -27,10 +32,7 @@ function rankingDto(data: Record<string, unknown>): TrendRankingResponse {
   }
   return {
     ...toCamelCase<TrendRankingResponse>(summary),
-    items: (items as Record<string, unknown>[]).map(row => ({
-      ...shallow(row), features: shallow(row.features),
-      scoreBreakdown: toCamelCase(row.score_breakdown ?? row.scoreBreakdown ?? {}),
-    })),
+    items: Array.isArray(items) ? items.filter(isRecord).map(rankingSnapshotFromDto) : [],
     changes: changes ? mappedChanges : null,
     candidates: rows(candidates),
   } as unknown as TrendRankingResponse;

@@ -25,8 +25,8 @@ ETF 在本次 42 只标的样本上，首次 official 页面由约 106 条领域
 
 ## API 与数据库
 
-- Trend 当前日 `dashboard_rows()` 仅投影表格/排序、趋势卡片需要的标量，JSON features 只提取 5 个用于排序/展示的值；不构造完整 Snapshot ORM，也不触发额外 Instrument eager join。
-- ranking items 只保留价格、ATR、状态、评分及必要指标；完整 features、score_breakdown、reasons 由 detail 返回。
+- Trend 当前日 `dashboard_rows()` 仅投影表格/排序需要的标量：JSON `features` 提取排名展示值，并从 `score_breakdown` JSON 路径提取质量分与贡献标量；不返回整份嵌套 `score_breakdown`，不构造完整 Snapshot ORM，也不触发额外 Instrument eager join。
+- ranking items 只保留价格、ATR、状态、评分及必要指标；完整 snapshot JSON / `reasons` 由 detail 返回。
 - 同一批当前日投影派生 ranking 和 candidates（保持原 100 条上限）。理论组合接口已删除。
 - Trend previous changes 只取 code、state、rank 和三项分数，共 6 列。
 - changes 不含完整 current 对象，Trend 比较前后状态/排名以及评分差值；ETF 的动作字段仍属于 ETF 独立契约。

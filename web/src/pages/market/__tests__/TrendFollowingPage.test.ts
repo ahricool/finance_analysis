@@ -91,24 +91,37 @@ describe('TrendFollowingPage', () => {
   });
   afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 
+  it('keeps scoring groups separate from explain signals and blanks missing V2 qualities', async () => {
+    const wrapper = mount(TrendFollowingPage);
+    await flushPromises();
+    expect(wrapper.text()).toContain('Signals / Explain');
+    expect(wrapper.text()).toContain('R² Quality');
+    expect(wrapper.text()).toContain('Trend Contribution');
+    expect(wrapper.get('[data-column="r2Quality"]').text()).toBe('—');
+    expect(wrapper.get('[data-column="alphaTrendContribution"]').text()).toBe('—');
+    expect(wrapper.get('[data-column="priorCompression"]').text()).toBe('是');
+    expect(wrapper.get('[data-column="signedEfficiencyRatio10D"]').text()).toBe('—');
+    wrapper.unmount();
+  });
+
   it.each([
-    ['pathScore', 'Path Score'], ['setupScore', 'Setup Score'], ['weightedR2', 'Weighted R²'],
-    ['positiveReturnConcentration', 'Return Concentration'], ['atrExpansionRatio', 'ATR Expansion'],
-    ['downsideControlQuality', 'Downside Control'], ['weightedSlopePercentile', 'Slope Percentile 15D'],
-    ['rs10D', 'RS 10D'], ['drawdown20D', 'Drawdown 20D'], ['trendCandidate', 'Trend Candidate'],
+    ['pathScore', 'Path Score'], ['setupScore', 'Setup Score'], ['r2Quality', 'R² Quality'],
+    ['concentrationQuality', 'Concentration Quality'], ['breakoutQuality', 'Breakout Quality'],
+    ['alphaTrendContribution', 'Trend Contribution'], ['weightedSlopePercentile', 'Slope Percentile 15D'],
+    ['rs10DQuality', 'RS 10D Quality'], ['drawdownQuality', 'Drawdown Quality'], ['trendCandidate', 'Trend Candidate'],
   ])('sorts all rows by %s without requesting detail', async (key, label) => {
     const items = Array.from({ length: 800 }, (_, index) => ({
       ...rankingSnapshot(), code: `V2${index}`, rank: index + 1,
       features: { ...rankingSnapshot().features, alphaVersion: 2,
         [key]: key === 'trendCandidate' ? index === 799 : key === 'drawdown20D' ? -index / 800 : index / 800 },
     }));
-    items.push({ ...rankingSnapshot(), code: 'MISSING', rank: 801, features: {} as TrendRankingSnapshot['features'] });
+    items.push({ ...rankingSnapshot(), code: 'MISSING', rank: 801, features: {} });
     apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
     const header = wrapper.findAll('th button').find(button => button.text() === label)!;
-    const highFirst = key === 'drawdown20D' || key === 'trendCandidate' ? 'V20' : 'V2799';
-    const lowFirst = key === 'drawdown20D' || key === 'trendCandidate' ? 'V2799' : 'V20';
+    const highFirst = key === 'trendCandidate' ? 'V20' : 'V2799';
+    const lowFirst = key === 'trendCandidate' ? 'V2799' : 'V20';
     await header.trigger('click');
     const first = () => wrapper.findAll('[data-testid="trend-row"]')[0]!;
     expect(first().text()).toContain(highFirst);

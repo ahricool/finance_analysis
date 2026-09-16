@@ -31,7 +31,7 @@ Summary 删除 `suggested_max_exposure` 和 entry/add/hold/reduce/exit 计数，
 已存历史按当时保存的价格、评分与指标顺序重建六态和候选计数，移除沿用旧行情或缺少必要指标的行。
 迁移不读取外部行情、不生成模拟成交。删除的数据不可由 downgrade 还原。
 部署需更新 API、普通 Worker、Web，并执行 `uv run alembic upgrade head`；不要让旧 Worker 在迁移后继续写入。
-正式排名缓存版本为 v5，Preview key 为 `trend_following:preview:v2:{market}`，旧缓存不再读取。
+正式排名缓存版本为 v6，Preview key 为 `trend_following:preview:v2:{market}`，旧缓存不再读取。
 
 删除 `/trend-following/portfolio`、ranking 的 portfolio、所有 action 和 pending 字段。
 changes 仅比较状态/排名/评分，以 `new_broken` 替代旧动作分类。前端删除理论组合、敞口进度、
@@ -151,11 +151,15 @@ Alpha V2 的公式、参数、快照兼容与新旧对照见 [trend-alpha-v2.md]
 
 ### 排名指标读模型
 
-`/trend-following/ranking` 一次批量投影返回 Alpha V2 排名标量 `features` 与 `score_breakdown`，
+`/trend-following/ranking` 一次批量投影返回 Alpha V2 排名标量 `features`，
+从 `score_breakdown` JSON 路径提取质量分与贡献标量，不返回整份嵌套 `score_breakdown`，
 不逐行请求详情，不改变策略计算。缺失历史指标返回 null。`breakout_score` 仍是 Setup Score
 的兼容别名，主表只展示 Setup，不重复 Breakout Score 列。收益百分位等已退出计分的 V1 字段
 不再进入排名投影。
 
-主表按 Core、Score、Trend、RS、Setup、Path、Risk / Health 分组展示 Official 与 Preview
-共用的最新指标。完整股票池先经 State 筛选、搜索和排序，再截取虚拟滚动行；缺失值始终置后。
+主表按 Core、Alpha、Trend、RS、Setup、Path、Signals / Explain、Risk / Health 分组
+展示 Official 与 Preview 共用的最新指标。Alpha/Trend/RS/Setup/Path 只放实际参与 V2
+计分的分量；`priorCompression`、`compressionBreakout`、`trendResume`、
+`signedEfficiencyRatio10D` 等解释字段归入 Signals / Explain。完整股票池先经 State
+筛选、搜索和排序，再截取虚拟滚动行；缺失值始终置后。
 表格可横向滚动，股票名称固定在左侧。
