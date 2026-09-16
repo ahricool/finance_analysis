@@ -143,16 +143,24 @@ describe('TrendFollowingPage', () => {
     expect(row.tabIndex).toBe(0);
     row.focus();
     expect(document.activeElement).toBe(row);
-    await wrapper.get('[data-testid="trend-row"]').trigger('keydown', { key: 'Enter' });
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    row.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(true);
     await flushPromises();
     expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await flushPromises();
     expect(document.body.querySelector('[data-testid="trend-detail"]')).toBeNull();
     expect(document.activeElement).toBe(row);
-    await wrapper.get('[data-testid="trend-row"]').trigger('keydown', { key: ' ' });
+    const space = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    row.dispatchEvent(space);
+    expect(space.defaultPrevented).toBe(true);
     await flushPromises();
     expect(document.body.querySelector('[data-testid="trend-detail"]')).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="trend-detail"]')).toBeNull();
+    expect(document.activeElement).toBe(row);
     wrapper.unmount();
   });
 
