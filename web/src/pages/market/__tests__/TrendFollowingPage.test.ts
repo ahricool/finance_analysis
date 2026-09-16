@@ -106,6 +106,7 @@ describe('TrendFollowingPage', () => {
     apiMocks.ranking.mockResolvedValueOnce({ ...ranking('CN'), items });
     const wrapper = mount(TrendFollowingPage);
     await flushPromises();
+    const header = wrapper.findAll('th button').find(button => button.text() === label)!;
     const highFirst = key === 'drawdown20D' || key === 'trendCandidate' ? 'V20' : 'V2799';
     const lowFirst = key === 'drawdown20D' || key === 'trendCandidate' ? 'V2799' : 'V20';
     await header.trigger('click');
@@ -186,11 +187,11 @@ describe('TrendFollowingPage', () => {
     };
     await click('趋势健康');
     expect(wrapper.get('[data-testid="trend-ranking-count"]').text()).toContain('133 / 800');
-    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(28);
+    expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(133);
     expect(wrapper.findAll('[data-testid="trend-row"]').every(row => row.text().includes('趋势健康'))).toBe(true);
-    await wrapper.get('[data-testid="trend-ranking-search"]').setValue('state3');
+    await wrapper.get('[data-testid="trend-ranking-search"]').setValue('state795');
     expect(wrapper.findAll('[data-testid="trend-row"]')).toHaveLength(1);
-    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('STATE3');
+    expect(wrapper.get('[data-testid="trend-row"]').text()).toContain('STATE795');
     await wrapper.get('[data-testid="trend-ranking-search"]').setValue('');
     const sort = wrapper.findAll('th button').find(button => button.text() === 'Alpha Score')!;
     await sort.trigger('click');
