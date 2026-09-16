@@ -81,3 +81,6 @@ from .endpoints import market_structure
 router.include_router(market_structure.router, prefix="/market-structure", tags=["Market Structure"])
 
 router.include_router(macro.router, prefix="/macro", tags=["US Macro"])
+
+from .endpoints import industry_strength
+router.include_router(industry_strength.router, prefix="/industry-strength", tags=["Industry Strength"])

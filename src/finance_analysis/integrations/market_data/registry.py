@@ -7,6 +7,10 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 
+INDUSTRY_CATALOG = "industry_catalog"
+INDEX_HISTORY = "index_history"
+INDEX_CONSTITUENTS = "index_constituents"
+
 DAILY_BARS = "daily_bars"
 MINUTE_BARS = "minute_bars"
 REALTIME_QUOTES = "realtime_quotes"
@@ -18,6 +22,9 @@ INSTRUMENT_INFO = "instrument_info"
 
 CAPABILITY_METHODS: Mapping[str, str] = MappingProxyType(
     {
+        INDUSTRY_CATALOG: "get_industry_catalog",
+        INDEX_HISTORY: "get_index_history",
+        INDEX_CONSTITUENTS: "get_index_constituents",
         DAILY_BARS: "fetch_daily_bars",
         MINUTE_BARS: "fetch_minute_bars",
         REALTIME_QUOTES: "fetch_quotes",

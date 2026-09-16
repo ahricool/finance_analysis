@@ -33,6 +33,9 @@ from .models import (
 )
 from .normalizer import bars_from_frame, canonical_symbol, currency_for_market, infer_market, quote_from_value
 from .registry import (
+    INDUSTRY_CATALOG,
+    INDEX_HISTORY,
+    INDEX_CONSTITUENTS,
     DAILY_BARS,
     INSTRUMENT_INFO,
     LATEST_MARKET_SNAPSHOT,
@@ -183,7 +186,8 @@ def build_default_registry(
         "fuyao",
         FuyaoProvider(api_key=resolved_config.fuyao_api_key, timeout=resolved_config.fuyao_timeout_seconds),
         capabilities={DAILY_BARS, REALTIME_QUOTES, LATEST_MARKET_SNAPSHOT, MARKET_INDICES,
-                      MARKET_STATS, SECTOR_RANKINGS, INSTRUMENT_INFO},
+                      MARKET_STATS, SECTOR_RANKINGS, INSTRUMENT_INFO,
+                      INDUSTRY_CATALOG, INDEX_HISTORY, INDEX_CONSTITUENTS},
     )
     registry.register(
         "easyquotation",
@@ -210,6 +214,15 @@ def build_default_registry(
 
 
 class MarketDataService:
+    def get_industry_catalog(self, market="CN"):
+        return self.router.route_index_reference(market, INDUSTRY_CATALOG)
+
+    def get_index_history(self, code, start, end, market="CN"):
+        return self.router.route_index_reference(market, INDEX_HISTORY, code, start, end)
+
+    def get_index_constituents(self, code, market="CN"):
+        return self.router.route_index_reference(market, INDEX_CONSTITUENTS, code)
+
     def get_calendar_sources(self):
         """Fresh adapters per sync; Yahoo batch cache is shared across markets."""
         from .providers.longbridge.calendar import LongbridgeCalendarFetcher

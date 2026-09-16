@@ -22,6 +22,7 @@ from .models import (
 )
 from .normalizer import infer_market
 from .registry import (
+    CAPABILITY_METHODS,
     DAILY_BARS,
     INSTRUMENT_INFO,
     LATEST_MARKET_SNAPSHOT,
@@ -41,6 +42,13 @@ T = TypeVar("T")
 
 
 class MarketDataRouter:
+    def route_index_reference(self, market, capability, *args):
+        # These index capabilities have no stock adjustment semantics or implicit DB writes.
+        if str(getattr(market, "value", market)).upper() != "CN":
+            raise ValueError("Index reference capabilities support A shares only")
+        registrations = self._providers(market=Market.CN, capability=capability, providers=None)
+        return getattr(registrations[0].provider, CAPABILITY_METHODS[capability])(*args)
+
     def __init__(self, registry: ProviderRegistry):
         self.registry = registry
 
