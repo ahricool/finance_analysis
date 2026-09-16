@@ -38,7 +38,6 @@ def _limits(**overrides):
         "max_strong_sectors": 2,
         "sector_ranking_scan_limit": 4,
         "max_candidates": 2,
-        "max_board_lookups": 10,
     }
     values.update(overrides)
     return PreCloseReviewConfig(**values)
@@ -124,9 +123,6 @@ class FakeDataSource:
 
     def get_minute_bars(self, code, *, count, now=None):
         return [{"close": 10 + index * 0.02} for index in range(20)]
-
-    def get_belonging_boards(self, code):
-        return ["电子"]
 
 
 class FakeLLMClient:

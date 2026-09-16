@@ -95,20 +95,6 @@ class ASharePreCloseDataSource:
             logger.info("fuyao 获取 %s 分钟K线失败: %s", code, exc)
             return []
 
-    def get_belonging_boards(self, code: str) -> list[str]:
-        try:
-            raw = self.market_data.get_belong_boards(normalize_stock_code(code))
-        except Exception as exc:
-            logger.info("fuyao 获取 %s 所属板块失败: %s", code, exc)
-            return []
-        if not raw:
-            return []
-        self._record_source("fuyao")
-        values = [str(row.get("板块名称") or row.get("板块") or row.get("名称") or row.get("name") or "").strip()
-                  for row in raw]
-        values = [value for value in values if value]
-        return list(dict.fromkeys(values))
-
     def _record_source(self, name: str) -> None:
         if name not in self.sources_used:
             self.sources_used.append(name)

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import math
 from datetime import date, datetime
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import pandas as pd
 
-from finance_analysis.integrations.market_data.codes import is_etf_code, normalize_stock_code
+from finance_analysis.integrations.market_data.codes import normalize_stock_code
 from finance_analysis.integrations.market_data.realtime_types import safe_float
 
 from ..a_share_intraday_analysis.domain_service import compute_market_breadth
@@ -186,39 +185,6 @@ def intraday_trend(bars: Sequence[dict[str, Any]], *, minimum_bars: int) -> str:
     if change <= -0.8 and recent < earlier:
         return "weakening"
     return "range"
-
-
-def screen_candidates(
-    rows: Sequence[dict[str, Any]],
-    *,
-    holding_codes: Iterable[str],
-    limit: int,
-) -> list[dict[str, Any]]:
-    held = {normalize_stock_code(code) for code in holding_codes}
-    scored: list[tuple[float, dict[str, Any]]] = []
-    for row in rows:
-        code = normalize_stock_code(str(row.get("code") or ""))
-        name = str(row.get("name") or "").strip()
-        change = safe_float(row.get("change_pct"))
-        amount = safe_float(row.get("amount"))
-        turnover = safe_float(row.get("turnover_rate"))
-        if (
-            not code
-            or code in held
-            or is_etf_code(code)
-            or not code.startswith(("0", "3", "6", "8"))
-            or "ST" in name.upper()
-            or "退" in name
-            or change is None
-            or amount is None
-            or change < 1.5
-            or amount <= 0
-        ):
-            continue
-        score = change * 2 + math.log10(max(amount, 1)) + min(turnover or 0, 20) * 0.1
-        scored.append((score, dict(row)))
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return [row for _, row in scored[: max(limit * 2, limit)]]
 
 
 def unrealized_pct(price: Optional[float], avg_cost: Optional[float]) -> Optional[float]:

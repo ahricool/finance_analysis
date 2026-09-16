@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor
 
 from finance_analysis.market_review.trading_calendar import get_trading_days_between
 
-from .providers.fuyao import FuyaoProvider, SHANGHAI, number, timestamp
+from .providers.fuyao import SHANGHAI, FuyaoProvider, number, timestamp
+from .request_budget import BudgetExhausted
 
 
 class FuyaoFundamentalAdapter:
@@ -24,6 +24,7 @@ class FuyaoFundamentalAdapter:
             "valuation": {},
             "source_chain": [],
             "errors": [],
+            "skipped_budget": [],
         }
 
         def fetch(path, **params):
@@ -44,6 +45,10 @@ class FuyaoFundamentalAdapter:
                     raise ValueError("Fuyao unexpected fundamental symbol")
                 result["source_chain"].append(path)
                 return data
+            except BudgetExhausted:
+                result["skipped_budget"].append(path)
+                result["errors"].append("skipped_budget")
+                return {}
             except Exception as exc:
                 result["errors"].append(str(exc))
                 return {}
@@ -165,6 +170,7 @@ class FuyaoFundamentalAdapter:
         """Aggregate unique listing days over the requested calendar-day window."""
         result = {
             "status": "failed",
+            "lookback_days": lookback_days,
             "is_on_list": False,
             "recent_count": 0,
             "latest_date": None,
@@ -173,7 +179,7 @@ class FuyaoFundamentalAdapter:
         }
         try:
             symbol = self.provider._symbol(stock_code)
-            latest = self.provider._get("/api/a-share/special-data/dragon-tiger-list", board_type="all")
+            latest = self._dragon_tiger_day()
             end = date.fromisoformat(latest["trade_date"])
             today = datetime.now(SHANGHAI).date()
             start = today - timedelta(days=max(1, min(lookback_days, 365)))
@@ -184,9 +190,7 @@ class FuyaoFundamentalAdapter:
 
             def fetch(day):
                 try:
-                    data = self.provider._get(
-                        "/api/a-share/special-data/dragon-tiger-list", board_type="all", date=day.isoformat()
-                    )
+                    data = self._dragon_tiger_day(day)
                     if data.get("trade_date") != day.isoformat() or not isinstance(data.get("stock_items"), list):
                         raise ValueError("Fuyao unexpected dragon-tiger date or rows")
                     return day, data, None
@@ -194,12 +198,14 @@ class FuyaoFundamentalAdapter:
                     return day, None, str(exc)
 
             # Bounded public requests; an unavailable day cannot erase other days.
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                for day, data, error in pool.map(fetch, [d for d in days if d not in observed]):
-                    if error:
-                        result["errors"].append(error)
-                    else:
-                        observed[day] = data
+            for day in sorted((d for d in days if d not in observed), reverse=True):
+                day, data, error = fetch(day)
+                if error:
+                    result["errors"].append(error)
+                    if error == "skipped_budget":
+                        break
+                else:
+                    observed[day] = data
             matched = [
                 day
                 for day, data in observed.items()
@@ -212,6 +218,34 @@ class FuyaoFundamentalAdapter:
                 latest_date=max(matched).isoformat() if matched else None,
                 source_chain=["fuyao:dragon-tiger-list"],
             )
+        except BudgetExhausted:
+            result["status"] = "skipped_budget"
+            result["errors"].append("skipped_budget")
         except Exception as exc:
             result["errors"].append(str(exc))
         return result
+
+    def _dragon_tiger_day(self, day: date | None = None) -> dict:
+        today = datetime.now(SHANGHAI).date()
+        key = f"dragon_tiger:{day.isoformat() if day else 'latest'}"
+        ttl = 600 if day is None or day >= today - timedelta(days=7) else 21600
+
+        def load():
+            data = self.provider._get(
+                "/api/a-share/special-data/dragon-tiger-list", board_type="all",
+                **({"date": day.isoformat()} if day else {}),
+            )
+            actual = date.fromisoformat(data["trade_date"])
+            rows = data.get("stock_items")
+            if (day is not None and actual != day) or not isinstance(rows, list) or any(
+                not isinstance(row, dict) or not row.get("thscode") for row in rows
+            ):
+                raise ValueError("Fuyao unexpected dragon-tiger date or rows")
+            return {"trade_date": actual.isoformat(), "stock_items": [
+                {"thscode": self.provider._symbol(row["thscode"])} for row in rows
+            ]}
+
+        data = self.provider.cached(key, ttl, load)
+        if day is None:
+            self.provider.cached(f"dragon_tiger:{data['trade_date']}", 600, lambda: data)
+        return data

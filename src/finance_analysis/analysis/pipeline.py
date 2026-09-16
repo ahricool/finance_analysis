@@ -253,15 +253,11 @@ class StockAnalysisPipeline:
                 fundamental_context = self.fetcher_manager.get_fundamental_context(
                     code,
                     budget_seconds=getattr(self.config, 'fundamental_stage_timeout_seconds', 1.5),
+                    realtime_quote=realtime_quote,
                 )
             except Exception as e:
                 logger.warning(f"{stock_name}({code}) 基本面聚合失败: {e}")
                 fundamental_context = self.fetcher_manager.build_failed_fundamental_context(code, str(e))
-
-            fundamental_context = self._attach_belong_boards_to_fundamental_context(
-                code,
-                fundamental_context,
-            )
 
             # P0: write-only snapshot, fail-open, no read dependency on this table.
             try:
@@ -539,57 +535,6 @@ class StockAnalysisPipeline:
         )
 
         return enhanced
-
-    def _attach_belong_boards_to_fundamental_context(
-        self,
-        code: str,
-        fundamental_context: Optional[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        """
-        Attach A-share board membership as a top-level supplemental field.
-
-        Keep this as a shallow copy so cached fundamental contexts are not
-        mutated in place after retrieval.
-        """
-        if isinstance(fundamental_context, dict):
-            enriched_context = dict(fundamental_context)
-        else:
-            enriched_context = self.fetcher_manager.build_failed_fundamental_context(
-                code,
-                "invalid fundamental context",
-            )
-
-        existing_boards = enriched_context.get("belong_boards")
-        if isinstance(existing_boards, list):
-            enriched_context["belong_boards"] = list(existing_boards)
-            return enriched_context
-
-        boards_block = enriched_context.get("boards")
-        boards_status = boards_block.get("status") if isinstance(boards_block, dict) else None
-        coverage = enriched_context.get("coverage")
-        boards_coverage = coverage.get("boards") if isinstance(coverage, dict) else None
-        market = enriched_context.get("market")
-        if not isinstance(market, str) or not market.strip():
-            market = get_market_for_stock(code)
-
-        if (
-            market != "cn"
-            or boards_status == "not_supported"
-            or boards_coverage == "not_supported"
-        ):
-            enriched_context["belong_boards"] = []
-            return enriched_context
-
-        boards: List[Dict[str, Any]] = []
-        try:
-            raw_boards = self.fetcher_manager.get_belong_boards(code)
-            if isinstance(raw_boards, list):
-                boards = raw_boards
-        except Exception as e:
-            logger.debug("%s attach belong_boards failed (fail-open): %s", code, e)
-
-        enriched_context["belong_boards"] = boards
-        return enriched_context
 
     @staticmethod
     def _safe_int(value: Any, default: int = 50) -> int:

@@ -26,7 +26,6 @@ from .metrics import (
     index_change_map,
     parse_snapshot_time,
     review_strong_sectors,
-    screen_candidates,
 )
 from .models import DataQuality, PreCloseReviewSummary, SecurityReview
 from .reporter import ASharePreCloseReporter
@@ -114,7 +113,6 @@ class ASharePreCloseReviewService:
             sector_change = safe_float(item.get("change_pct"))
             if sector_name and sector_change is not None:
                 sector_changes[sector_name] = sector_change
-        strong_sector_changes = {item.name: item.change_pct for item in strong_sectors}
         benchmark_change = self._benchmark_change(indices)
         security_analyzer = PreCloseSecurityAnalyzer(
             data_source=self.data_source,
@@ -130,15 +128,9 @@ class ASharePreCloseReviewService:
             sector_changes,
         )
 
-        raw_candidates = screen_candidates(
-            rows,
-            holding_codes=[item.code for item in holding_reviews],
-            limit=self.limits.max_candidates,
-        )
-        candidate_reviews = security_analyzer.review_candidates(
-            raw_candidates,
-            strong_sector_changes,
-        )
+        # Per-stock sector membership is unavailable. Preserve the existing
+        # empty candidate result rather than claiming a strong-sector match.
+        candidate_reviews = []
 
         context = self._build_llm_context(
             run_time,

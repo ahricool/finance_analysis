@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 import math
+from copy import deepcopy
+from threading import RLock
 from time import monotonic
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -32,6 +34,7 @@ from ..models import (
     SectorRankings,
 )
 from ..normalizer import canonical_symbol, infer_market
+from ..request_budget import BudgetExhausted, check_budget, remaining_seconds
 from ..validator import validate_bars, validate_quote
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -71,6 +74,8 @@ class FuyaoError(RuntimeError):
 
 class FuyaoProvider:
     name = "fuyao"
+    _shared_cache = {}
+    _cache_lock = RLock()
 
     def __init__(self, *, api_key: str | None = None, timeout: float | None = None, transport=None):
         config = get_data_provider_config()
@@ -79,11 +84,45 @@ class FuyaoProvider:
         self._transport = transport
         self._asset_types: dict[str, tuple[float, str]] = {}
 
+    def cached(self, key, ttl, load):
+        """Single-flight process-local cache shared by all adapters using this provider.
+
+        Failed loads are never cached. Copies protect subsequent callers from mutation.
+        Lock waiting consumes the same request budget as network I/O.
+        """
+        key = ((hash(self._api_key), self._transport), key)
+        remaining = remaining_seconds()
+        acquired = (
+            self._cache_lock.acquire(timeout=max(0.0, remaining))
+            if remaining is not None else self._cache_lock.acquire()
+        )
+        if not acquired:
+            raise BudgetExhausted()
+        try:
+            now = monotonic()
+            cached = self._shared_cache.get(key)
+            if cached and cached[0] > now:
+                return deepcopy(cached[1])
+            check_budget()
+            value = load()
+            for expired in [k for k, v in self._shared_cache.items() if v[0] <= now]:
+                del self._shared_cache[expired]
+            if len(self._shared_cache) >= 512:
+                self._shared_cache.pop(next(iter(self._shared_cache)))
+            self._shared_cache[key] = (monotonic() + ttl, deepcopy(value))
+            return value
+        finally:
+            self._cache_lock.release()
+
     def _get(self, path: str, **params) -> dict:
+        check_budget()
+        remaining = remaining_seconds()
+        # Reserve time for all four HTTP phases. Never mutate the provider default.
+        timeout = self.timeout if remaining is None else min(self.timeout, remaining / 4)
         if not self._api_key:
             raise FuyaoError("FUYAO_API_KEY is not configured")
         try:
-            with httpx.Client(transport=self._transport, timeout=self.timeout) as client:
+            with httpx.Client(transport=self._transport, timeout=timeout) as client:
                 response = client.get(
                     "https://fuyao.aicubes.cn" + path,
                     params=params,
@@ -365,6 +404,9 @@ class FuyaoProvider:
 
     def get_sector_rankings(self, market: Market) -> SectorRankings:
         self._cn(market)
+        return self.cached("sector_rankings:CN", 300, lambda: self._load_sector_rankings(market))
+
+    def _load_sector_rankings(self, market: Market) -> SectorRankings:
         names = {}
         for tag in ("industry", "cn_concept"):
             data = self._get("/api/a-share-index/catalog/ths-index-list", tag=tag)

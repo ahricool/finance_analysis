@@ -31,7 +31,6 @@ class PreCloseSecurityAnalyzer:
         self.quality = quality
         self.now = now
         self.benchmark_change = benchmark_change
-        self.board_lookups = 0
 
     def load_market_trends(self) -> list[dict[str, Any]]:
         trends = []
@@ -67,31 +66,6 @@ class PreCloseSecurityAnalyzer:
             )
         return reviews
 
-    def review_candidates(
-        self,
-        rows: Sequence[dict[str, Any]],
-        strong_sector_changes: dict[str, float],
-    ) -> list[SecurityReview]:
-        reviews: list[SecurityReview] = []
-        for quote in rows:
-            code = normalize_stock_code(str(quote.get("code") or ""))
-            sector = self._matched_sector(code, strong_sector_changes, require_strong=True)
-            if sector is None:
-                continue
-            review = self._review_security(
-                code=code,
-                name=str(quote.get("name") or code),
-                quote=quote,
-                sector_changes=strong_sector_changes,
-                source="candidate",
-                sector=sector,
-            )
-            if review.data_complete and review.daily_trend != "downtrend" and review.intraday_trend != "weakening":
-                reviews.append(review)
-            if len(reviews) >= self.limits.max_candidates:
-                break
-        return reviews
-
     def _review_security(
         self,
         *,
@@ -103,8 +77,6 @@ class PreCloseSecurityAnalyzer:
         avg_cost: Optional[float] = None,
         sector: Optional[str] = None,
     ) -> SecurityReview:
-        if sector is None:
-            sector = self._matched_sector(code, sector_changes)
         frame, _ = self.data_source.get_daily_history(code, days=self.limits.history_days)
         trend = daily_trend(frame)
         if trend != "insufficient":
@@ -152,22 +124,6 @@ class PreCloseSecurityAnalyzer:
             unrealized_pct=unrealized_pct(price, avg_cost),
             source=source,
         )
-
-    def _matched_sector(
-        self,
-        code: str,
-        sector_changes: dict[str, float],
-        *,
-        require_strong: bool = False,
-    ) -> Optional[str]:
-        if self.board_lookups >= self.limits.max_board_lookups:
-            return None
-        self.board_lookups += 1
-        boards = self.data_source.get_belonging_boards(code)
-        for sector_name in sector_changes:
-            if any(sector_name == board or sector_name in board or board in sector_name for board in boards):
-                return sector_name
-        return None if require_strong or not boards else boards[0]
 
     @staticmethod
     def _field(item: Any, name: str) -> Any:

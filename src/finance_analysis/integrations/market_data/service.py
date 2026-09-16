@@ -23,6 +23,7 @@ from .models import (
     Market,
     MarketBar,
     MarketIndex,
+    MarketQuote,
     MarketStats,
     MinuteBarsRequest,
     QuoteRequest,
@@ -42,6 +43,7 @@ from .registry import (
     SECTOR_RANKINGS,
     ProviderRegistry,
 )
+from .request_budget import BudgetExhausted, check_budget, remaining_seconds, request_budget
 from .router import MarketDataRouter
 
 logger = logging.getLogger(__name__)
@@ -422,10 +424,6 @@ class MarketDataService:
     ) -> BatchInstrumentResult:
         return self.router.route_instruments(InstrumentRequest(self._canonical_symbols(symbols)), providers)
 
-    def get_belong_boards(self, symbol: str) -> list[dict[str, Any]]:
-        """No public per-stock board membership capability is available."""
-        return []
-
     def get_index_members(self, index_code: str) -> list[dict[str, Any]]:
         return self.registry.get("fuyao").provider.fetch_index_members(index_code)
 
@@ -464,24 +462,37 @@ class MarketDataService:
         canonical = canonical_symbol(symbol)
         if infer_market(canonical) is not Market.CN:
             return self._context_block("not_supported", {}, "fuyao", ["market not supported"])
-        payload = self._fundamental_adapter().get_dragon_tiger_flag(canonical)
+        with request_budget(budget_seconds):
+            payload = self._fundamental_adapter().get_dragon_tiger_flag(canonical)
         return self._context_block(payload["status"], payload, "fuyao", payload.get("errors"))
 
     def get_board_context(self, symbol: str, budget_seconds: float | None = None) -> dict[str, Any]:
-        del budget_seconds
         market = infer_market(canonical_symbol(symbol))
         if market is not Market.CN:
             return self._context_block("not_supported", {}, "market_data_service", ["market not supported"])
-        rankings = self.get_sector_rankings(market, limit=5)
-        if rankings is None:
-            return self._context_block("failed", {}, "market_data_service", ["sector rankings unavailable"])
+        try:
+            with request_budget(budget_seconds):
+                rankings = self.get_sector_rankings(market, limit=5)
+                if rankings is None:
+                    check_budget()
+                    return self._context_block("failed", {}, "market_data_service", ["sector rankings unavailable"])
+        except BudgetExhausted:
+            return self._context_block("skipped_budget", {}, "fuyao", ["skipped_budget"])
         return self._context_block(
             "ok" if rankings.top and rankings.bottom else "partial",
             {"top": rankings.top, "bottom": rankings.bottom},
             rankings.provider,
         )
 
-    def get_fundamental_context(self, symbol: str, budget_seconds: float | None = None) -> dict[str, Any]:
+    def get_fundamental_context(
+        self, symbol: str, budget_seconds: float | None = None, *, realtime_quote: MarketQuote | None = None
+    ) -> dict[str, Any]:
+        with request_budget(budget_seconds):
+            return self._get_fundamental_context(symbol, budget_seconds, realtime_quote)
+
+    def _get_fundamental_context(
+        self, symbol: str, budget_seconds: float | None, quote: MarketQuote | None
+    ) -> dict[str, Any]:
         canonical = canonical_symbol(symbol)
         market = infer_market(canonical)
         if market is not Market.CN:
@@ -495,11 +506,17 @@ class MarketDataService:
             data = dict(bundle.get(name) or {})
             has_values = any(value is not None for value in data.values())
             blocks[name] = self._context_block(
-                "partial" if has_values else "failed", data, "fuyao", bundle.get("errors")
+                "partial" if has_values else ("skipped_budget" if bundle.get("skipped_budget") else "failed"),
+                data, "fuyao", bundle.get("errors")
             )
         # Retain existing quote-source preference for fields it already supplies.
         try:
-            quote = self.get_realtime_quotes([canonical]).data.get(canonical)
+            # The quote chain includes SDKs without deadline support. Do not launch
+            # it inside a bounded enrichment stage; Fuyao valuation remains available.
+            if quote is None:
+                if budget_seconds is not None:
+                    raise BudgetExhausted()
+                quote = self.get_realtime_quotes([canonical]).data.get(canonical)
             if quote:
                 for field in ("pe_ratio", "pb_ratio", "total_mv", "circ_mv"):
                     value = getattr(quote, field)
@@ -515,15 +532,21 @@ class MarketDataService:
         blocks["institution"] = self._context_block(
             "not_supported", {}, "fuyao", ["public institution/holder-change API unavailable"]
         )
-        for name, fetch in (("capital_flow", self.get_capital_flow_context),
-                            ("dragon_tiger", self.get_dragon_tiger_context), ("boards", self.get_board_context)):
+        blocks["capital_flow"] = self.get_capital_flow_context(canonical)
+        for name, fetch in (("dragon_tiger", self.get_dragon_tiger_context), ("boards", self.get_board_context)):
             try:
-                blocks[name] = fetch(canonical, budget_seconds)
+                check_budget()
+                blocks[name] = fetch(canonical, remaining_seconds())
+            except BudgetExhausted:
+                blocks[name] = self._context_block("skipped_budget", {}, "fuyao", ["skipped_budget"])
             except Exception as exc:
                 blocks[name] = self._context_block("failed", {}, "fuyao", [str(exc)])
         statuses = {name: block["status"] for name, block in blocks.items()}
         return {
-            "market": "cn", "status": "partial" if any(b["data"] for b in blocks.values()) else "failed",
+            "market": "cn",
+            "status": (
+                "partial" if any(s in {"partial", "ok", "skipped_budget"} for s in statuses.values()) else "failed"
+            ),
             "coverage": statuses,
             "source_chain": [item for block in blocks.values() for item in block["source_chain"]],
             "errors": [item for block in blocks.values() for item in block["errors"]], **blocks,

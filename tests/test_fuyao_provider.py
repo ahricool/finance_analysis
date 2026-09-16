@@ -454,3 +454,224 @@ def test_dragon_tiger_lookback_deduplicates_days_and_preserves_partial_results(m
     result = FuyaoFundamentalAdapter(p).get_dragon_tiger_flag(SYMBOL)
     assert result["is_on_list"] and result["recent_count"] == 1
     assert result["status"] == "partial" and result["errors"]
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_service_rejects_incomplete_market_snapshot_and_falls_back(fallback):
+    def handler(path, params):
+        if "tickers/list" in path:
+            return {"item": [], "total": 0}
+        return {"total": 1001, "item": [snapshot(SYMBOL if params["offset"] == "0" else "000001.SZ")]}
+
+    p, _ = provider(handler)
+    registry = ProviderRegistry()
+    registry.register("fuyao", p, capabilities={LATEST_MARKET_SNAPSHOT})
+    providers = ["fuyao"]
+    if fallback:
+        valid, _ = provider(overview_handler)
+        registry.register("easyquotation", valid, capabilities={LATEST_MARKET_SNAPSHOT})
+        providers.append("easyquotation")
+    result = MarketDataService(registry).get_market_snapshot("CN", providers=providers)
+    if fallback:
+        assert set(result.data) == {SYMBOL}
+        assert "CN" not in result.failed_symbols
+    else:
+        assert not result.data
+        assert "incomplete full-market snapshot" in result.failed_symbols["CN"]
+
+
+def test_symbol_validation_failure_does_not_reject_whole_snapshot():
+    def handler(path, params):
+        data = overview_handler(path, params)
+        if path == "/api/a-share/prices/snapshot":
+            bad = snapshot("000001.SZ")
+            bad["last_price"] = -1
+            data.update(total=2, item=[snapshot(), bad])
+        return data
+
+    p, _ = provider(handler)
+    registry = ProviderRegistry()
+    registry.register("fuyao", p, capabilities={LATEST_MARKET_SNAPSHOT})
+    result = MarketDataService(registry).get_market_snapshot("CN")
+    assert SYMBOL in result.data and "000001.SZ" in result.failed_symbols
+    assert "CN" not in result.failed_symbols
+
+
+def fundamental_service(p):
+    registry = ProviderRegistry()
+    registry.register("fuyao", p, capabilities={SECTOR_RANKINGS})
+    return MarketDataService(registry)
+
+
+def test_tiny_budget_skips_all_http_and_optional_blocks(monkeypatch):
+    p, calls = provider(financial_handler)
+    service = fundamental_service(p)
+    monkeypatch.setattr(service, "get_realtime_quotes", lambda *a: pytest.fail("unbounded quote request"))
+    result = service.get_fundamental_context(SYMBOL, budget_seconds=0.01)
+    assert not calls
+    assert result["coverage"]["earnings"] == "skipped_budget"
+    assert result["coverage"]["dragon_tiger"] == result["coverage"]["boards"] == "skipped_budget"
+
+
+def test_budget_preserves_financial_data_and_caps_http_timeout(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr("finance_analysis.integrations.market_data.request_budget.monotonic", lambda: clock[0])
+
+    def handler(path, params):
+        value = financial_handler(path, params)
+        clock[0] += 0.8
+        return value
+
+    p, calls = provider(handler)
+    result = fundamental_service(p).get_fundamental_context(SYMBOL, budget_seconds=1.5)
+    assert len(calls) == 1
+    assert result["status"] == "partial"
+    assert result["earnings"]["data"]["financial_report"]["revenue"] == 100
+    assert result["coverage"]["dragon_tiger"] == result["coverage"]["boards"] == "skipped_budget"
+    assert max(calls[0].extensions["timeout"].values()) <= 1.5 / 4
+    # Scope reset: subsequent ordinary market calls keep their configured timeout.
+    p._get("/api/a-share/financials/balance-sheets")
+    assert set(calls[-1].extensions["timeout"].values()) == {10.0}
+    assert p.timeout == 10.0
+
+
+def test_dragon_tiger_cache_shared_across_symbols_and_provider_instances(monkeypatch):
+    today = datetime.now().date()
+    previous = today - timedelta(days=10)
+    monkeypatch.setattr(
+        "finance_analysis.integrations.market_data.fundamental_adapter.get_trading_days_between",
+        lambda *args: [previous, today],
+    )
+
+    def handler(path, params):
+        return {"trade_date": params.get("date", today.isoformat()),
+                "stock_items": [{"thscode": SYMBOL}, {"thscode": "000001.SZ"}]}
+
+    p, calls = provider(handler)
+    second = FuyaoProvider(api_key="test-key", transport=p._transport)
+    first = fundamental_service(p).get_dragon_tiger_context(SYMBOL)
+    result = fundamental_service(second).get_dragon_tiger_context("000001.SZ")
+    assert len(calls) == 2
+    assert first["data"]["recent_count"] == result["data"]["recent_count"] == 2
+    assert result["data"]["lookback_days"] == 20
+    assert result["data"]["latest_date"] == today.isoformat()
+
+
+def test_sector_cache_shared_across_symbols_and_copies_results():
+    p, calls = provider(overview_handler)
+    first = fundamental_service(p).get_board_context(SYMBOL)
+    assert len(calls) == 3
+    first["data"]["top"].clear()
+    second = FuyaoProvider(api_key="test-key", transport=p._transport)
+    result = fundamental_service(second).get_board_context("000001.SZ")
+    assert result["data"]["top"] and len(calls) == 3
+
+
+def test_cache_failure_retries_without_erasing_successful_dragon_days(monkeypatch):
+    today = datetime.now().date()
+    previous = today - timedelta(days=10)
+    monkeypatch.setattr(
+        "finance_analysis.integrations.market_data.fundamental_adapter.get_trading_days_between",
+        lambda *args: [previous, today],
+    )
+    failures = [True]
+
+    def handler(path, params):
+        if params.get("date") == previous.isoformat() and failures[0]:
+            return httpx.Response(503)
+        return {"trade_date": params.get("date", today.isoformat()), "stock_items": [{"thscode": SYMBOL}]}
+
+    p, calls = provider(handler)
+    first = FuyaoFundamentalAdapter(p).get_dragon_tiger_flag(SYMBOL)
+    assert first["status"] == "partial" and first["recent_count"] == 1
+    failures[0] = False
+    second = FuyaoFundamentalAdapter(p).get_dragon_tiger_flag(SYMBOL)
+    assert second["status"] == "ok" and second["recent_count"] == 2
+    assert len(calls) == 3
+
+
+def test_sector_cache_failure_is_fail_open_and_not_cached():
+    failures = [True]
+
+    def handler(path, params):
+        return httpx.Response(503) if failures[0] else overview_handler(path, params)
+
+    p, calls = provider(handler)
+    service = fundamental_service(p)
+    assert service.get_board_context(SYMBOL)["status"] == "failed"
+    failures[0] = False
+    assert service.get_board_context("000001.SZ")["status"] == "ok"
+    assert len(calls) == 4
+
+
+def test_cache_expiration_and_single_flight(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    clock = [100.0]
+    monkeypatch.setattr("finance_analysis.integrations.market_data.providers.fuyao.monotonic", lambda: clock[0])
+    p, _ = provider(overview_handler)
+    entered, release = Event(), Event()
+    loads = []
+
+    def load():
+        loads.append(1)
+        entered.set()
+        assert release.wait(timeout=2)
+        return {"value": 1}
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(p.cached, "test", 300, load)
+        assert entered.wait(timeout=2)
+        second = pool.submit(p.cached, "test", 300, load)
+        release.set()
+        assert first.result() == second.result() == {"value": 1}
+    assert len(loads) == 1
+    clock[0] += 301
+    p.cached("test", 300, load)
+    assert len(loads) == 2
+
+
+def test_pipeline_continues_after_budget_exhaustion(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from finance_analysis.analysis.pipeline import StockAnalysisPipeline
+    from finance_analysis.integrations.market_data.models import BatchInstrumentResult
+
+    p, calls = provider(financial_handler)
+    service = fundamental_service(p)
+    monkeypatch.setattr(service, "get_instrument_info", lambda *args: BatchInstrumentResult())
+    pipeline = object.__new__(StockAnalysisPipeline)
+    pipeline.fetcher_manager = service
+    pipeline.config = SimpleNamespace(enable_realtime_quote=False, fundamental_stage_timeout_seconds=0.01,
+                                      report_language="zh")
+    pipeline._emit_progress = MagicMock()
+    pipeline.owner_uid = "test"
+    pipeline.save_context_snapshot = False
+    pipeline.db = MagicMock()
+    pipeline.db.get_data_range.return_value = []
+    pipeline.db.get_analysis_context.return_value = {"code": SYMBOL, "today": {}, "yesterday": {}}
+    pipeline.analyzer = MagicMock()
+    result = SimpleNamespace(success=True)
+    pipeline.analyzer.analyze.return_value = result
+    monkeypatch.setattr("finance_analysis.analysis.pipeline.fill_price_position_if_needed", lambda *a: None)
+    monkeypatch.setattr("finance_analysis.analysis.pipeline.stabilize_decision_with_structure", lambda *a: None)
+    actual = pipeline.analyze_stock(SYMBOL, SimpleNamespace(value="simple"), "test-budget")
+    assert actual is result
+    assert not calls
+    context = pipeline.analyzer.analyze.call_args.args[0]["fundamental_context"]
+    assert context["coverage"]["dragon_tiger"] == "skipped_budget"
+    pipeline.db.save_analysis_history.assert_called_once()
+
+
+def test_budget_reuses_existing_quote_without_starting_quote_chain(monkeypatch):
+    from finance_analysis.integrations.market_data.models import MarketQuote
+
+    p, calls = provider(financial_handler)
+    service = fundamental_service(p)
+    monkeypatch.setattr(service, "get_realtime_quotes", lambda *a: pytest.fail("duplicate quote request"))
+    quote = MarketQuote(symbol=SYMBOL, market=Market.CN, provider="longbridge", currency="CNY", pe_ratio=25)
+    result = service.get_fundamental_context(SYMBOL, budget_seconds=0, realtime_quote=quote)
+    assert result["valuation"]["data"]["pe_ratio"] == 25
+    assert result["valuation"]["source_chain"][-1]["provider"] == "longbridge"
+    assert not calls
