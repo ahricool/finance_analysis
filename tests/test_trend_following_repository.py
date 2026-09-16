@@ -328,13 +328,22 @@ def test_read_projections_do_not_load_full_snapshot_or_instrument_json():
     with database.session_scope() as session:
         session.add(Instrument(id=1, market="US", code="AAPL.US", name="Apple"))
         row = _snapshot(snapshot_id=1, code="AAPL.US", instrument_id=1, trade_date=date(2026, 9, 10))
-        row.features = {"return_5d": 0.15, "unused": {"large": "detail only"}}
+        row.features = {"return_5d": 0.15, "unused": {"large": "detail only"}, "alpha_version": 2,
+                        "path_score": 91, "setup_score": 75, "weighted_r2": .98,
+                        "positive_return_concentration": .35, "atr_expansion_ratio": 1.1,
+                        "downside_control_quality": 82}
         session.add(row)
     statements = []
     event.listen(database.engine, "before_cursor_execute", lambda conn, cursor, statement, *args: statements.append(statement))
     repository = TrendFollowingRepository("US", database)
     items = repository.dashboard_rows(date(2026, 9, 10))
     assert items[0]["return_5d"] == 0.15
+    assert items[0]["path_score"] == 91
+    assert items[0]["setup_score"] == 75
+    assert items[0]["weighted_r2"] == .98
+    assert items[0]["positive_return_concentration"] == .35
+    assert items[0]["atr_expansion_ratio"] == 1.1
+    assert items[0]["downside_control_quality"] == 82
     assert "features" not in items[0] and "score_breakdown" not in items[0]
     changes = repository.change_rows(date(2026, 9, 10))
     assert set(changes[0]) == {"code", "state", "rank", "trend_score", "rs_score", "alpha_score"}

@@ -430,7 +430,7 @@ class TrendFollowingService:
         sufficient_histories: dict[str, list[DailyBar]] = {}
         for code in sorted(ready_codes):
             bars = histories.get(code, [])[-self.config.history_bars :]
-            result = calculate_features(bars, self.config.minimum_history_bars)
+            result = calculate_features(bars, self.config.minimum_history_bars, self.config)
             if result is None or not bars or bars[-1].trade_date != effective_date:
                 continue
             result.update(

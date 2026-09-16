@@ -110,8 +110,8 @@ def test_short_horizon_score_weights_and_absolute_trend_three_of_four():
             "drawdown_20d": -0.04,
         }
     )
-    assert trend == pytest.approx(77.0)
-    assert set(trend_components) == {
+    assert trend == pytest.approx(79.4869)
+    assert set(trend_components) >= {
         "weighted_slope_percentile",
         "weighted_r2",
         "return_10d",
@@ -127,8 +127,8 @@ def test_short_horizon_score_weights_and_absolute_trend_three_of_four():
             "return_20d_percentile": 80.0,
         }
     )
-    assert rs == pytest.approx(63.075)
-    assert set(rs_components) == {"rs_5d", "rs_10d", "rs_20d", "percentile_10d", "percentile_20d"}
+    assert rs == pytest.approx(61.8517)
+    assert set(rs_components["qualities"]) == {"rs_5d", "rs_10d", "rs_20d"}
     assert absolute_trend_passes([True, True, True, False]) is True
     assert absolute_trend_passes([True, True, False, False]) is False
 

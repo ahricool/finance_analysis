@@ -10,7 +10,8 @@ describe('trendFollowingApi', () => {
   it('converts nested snapshot fields and scopes ranking to market/date', async () => {
     vi.mocked(apiClient.get).mockResolvedValue({ data: {
       trade_date: '2026-08-28', market: 'US', items: [{ code: 'AAPL.US', alpha_score: 82,
-        features: { return_5d: 0.03, return_10d: 0.06, return_20d: 0.1, weighted_r2: 0.9,
+        features: { alpha_version: 2, path_score: 95, setup_score: 80,
+          positive_return_concentration: .3, atr_expansion_ratio: 1.1, downside_control_quality: 90, return_5d: 0.03, return_10d: 0.06, return_20d: 0.1, weighted_r2: 0.9,
           rs_5d: 0.01, rs_10d: 0.02, breakout_10d: true, trend_resume: false } }],
       changes: {
         previous_trade_date: '2026-08-27',
@@ -29,7 +30,8 @@ describe('trendFollowingApi', () => {
       params: { market: 'US', trade_date: '2026-08-28' },
     });
     expect(result.items[0]).toMatchObject({ alphaScore: 82, features: {
-      return5D: 0.03, return10D: 0.06, return20D: 0.1, weightedR2: 0.9,
+      alphaVersion: 2, pathScore: 95, setupScore: 80, positiveReturnConcentration: .3,
+      atrExpansionRatio: 1.1, downsideControlQuality: 90, return5D: 0.03, return10D: 0.06, return20D: 0.1, weightedR2: 0.9,
       rs5D: 0.01, rs10D: 0.02, breakout10D: true, trendResume: false,
     } });
     expect(result.changes).toMatchObject({

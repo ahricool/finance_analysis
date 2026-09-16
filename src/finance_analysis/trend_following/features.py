@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 
+from finance_analysis.trend_following.config import DEFAULT_CONFIG, TrendFollowingConfig
 from finance_analysis.trend_following.models import DailyBar
 
 
@@ -81,7 +82,9 @@ def absolute_trend_passes(checks: Iterable[bool]) -> bool:
     return sum(values) >= 3
 
 
-def calculate_features(bars: Sequence[DailyBar], minimum_bars: int = 21) -> dict[str, Any] | None:
+def calculate_features(
+    bars: Sequence[DailyBar], minimum_bars: int = 21, config: TrendFollowingConfig = DEFAULT_CONFIG
+) -> dict[str, Any] | None:
     ordered = sorted(bars, key=lambda item: item.trade_date)
     if len(ordered) < minimum_bars:
         return None
@@ -126,12 +129,7 @@ def calculate_features(bars: Sequence[DailyBar], minimum_bars: int = 21) -> dict
         "weighted_slope_15d_positive": bool(slope > 0),
     }
     absolute_trend_count = sum(absolute_trend_checks.values())
-    trend_resume_base = bool(
-        closes[-1] > ma10
-        and ma10 > ma20
-        and slope > 0
-        and (return_3d > 0 or return_5d > 0)
-    )
+    trend_resume_base = bool(closes[-1] > ma10 and ma10 > ma20 and slope > 0 and (return_3d > 0 or return_5d > 0))
     setup = "NONE"
     if compression_breakout:
         setup = "COMPRESSION_BREAKOUT"
@@ -143,7 +141,29 @@ def calculate_features(bars: Sequence[DailyBar], minimum_bars: int = 21) -> dict
     short_slope, _ = weighted_log_regression(closes, 5)
     travel = float(np.sum(np.abs(np.diff(closes[-11:]))))
     efficiency = float((closes[-1] - closes[-11]) / travel) if travel > 0 else 0.0
+    # Compression excludes today; expansion includes today.
+    prior_atr20 = float(np.mean(prior_tr[-20:]))
+    atr_contraction_ratio = float(np.mean(prior_tr[-10:])) / prior_atr20 if prior_atr20 > 0 else None
+    range_contraction_ratio = previous_range_10 / previous_range_20 if previous_range_20 > 0 else None
+    atr5 = float(np.mean(true_ranges(ordered)[-config.volatility_atr_window :]))
+    daily_returns = np.diff(closes[-config.path_return_window - 1 :]) / closes[-config.path_return_window - 1 : -1]
+    positive = daily_returns[daily_returns > 0]
+    negative = -daily_returns[daily_returns < 0]
+    positive_sum = float(np.sum(positive))
+    concentration = (
+        float(np.sum(np.sort(positive)[-config.concentration_top_count :])) / positive_sum if positive_sum > 0 else None
+    )
+    avg_positive = float(np.mean(positive)) if len(positive) else 0.0
+    avg_negative = float(np.mean(negative)) if len(negative) else 0.0
     return {
+        "atr_contraction_ratio": atr_contraction_ratio,
+        "range_contraction_ratio": range_contraction_ratio,
+        "atr5": atr5,
+        "atr_expansion_ratio": atr5 / atr20 if atr20 > 0 else None,
+        "positive_return_concentration": concentration,
+        "avg_positive_return": avg_positive,
+        "avg_negative_return_abs": avg_negative,
+        "downside_upside_ratio": avg_negative / avg_positive if avg_positive > 0 else None,
         "health_version": 1,
         "trend_quality": r_squared * 100.0,
         "trend_acceleration": (short_slope - slope) * 252.0,

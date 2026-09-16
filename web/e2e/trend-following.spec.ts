@@ -3,11 +3,15 @@ import { expect, test } from '@playwright/test';
 const snapshot = {
   market: 'CN', code: '000001.SZ', name: '平安银行', tradeDate: '2026-08-28',
   rank: 12, rankChange1D: 5, rankChange3D: -2, rankChange5D: 0,
-  state: 'TRENDING', setup: 'BREAKOUT_20D', alphaScore: 79,
-  trendScore: 80, rsScore: 78, breakoutScore: 76, referencePrice: 110, atr: 2,
+  state: 'TRENDING', setup: 'BREAKOUT_20D', alphaScore: 82.5,
+  trendScore: 80, rsScore: 78, breakoutScore: 80, referencePrice: 110, atr: 2,
   trendDurationDays: 13, trendLifecycle: 'EXPANSION', fragilityScore: 18,
   fragilityBreakdown: { accelerationDecay: 12, qualityDecay: 15, efficiencyDecay: 20, relativeStrengthDecay: 18, rankDecay: 24, priceStructureRisk: 15 },
-  features: { trendQuality: 87, trendAcceleration: 0.12, signedEfficiencyRatio10D: 0.71 }, scoreBreakdown: { trend: 80, relativeStrength: 78 }, reasons: ['趋势走强'],
+  features: { alphaVersion: 2, pathScore: 95, setupScore: 80, weightedR2: .98,
+    positiveReturnConcentration: .3, atrExpansionRatio: 1.1, downsideControlQuality: 90, downsideUpsideRatio: .10536, trendQuality: 87, trendAcceleration: 0.12, signedEfficiencyRatio10D: 0.71 }, scoreBreakdown: { alpha: { version: 2,
+    components: { trend: 80, rs: 78, setup: 80, path: 95 },
+    weights: { trend: .4, rs: .25, setup: .15, path: .2 },
+    contributions: { trend: 32, rs: 19.5, setup: 12, path: 19 }, score: 82.5 } }, reasons: ['趋势走强'],
 };
 const summary = {
   market: 'CN', tradeDate: snapshot.tradeDate, marketRegime: 'RISK_ON', marketScore: 82,
@@ -18,7 +22,7 @@ const history = [12, 17, 14, 28, 35, 31, 46, 40, 52, 63].map((rank, index) => ({
   ...snapshot, rank, fragilityScore: index === 3 ? null : 18 + index * 4, tradeDate: `2026-08-${28 - index}`,
 }));
 
-for (const width of [1280, 1440]) {
+for (const width of [1280, 1440, 1920]) {
   for (const theme of ['light', 'dark']) {
     test(`trend detail is centered and readable at ${width}px in ${theme} mode`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
@@ -57,10 +61,12 @@ for (const width of [1280, 1440]) {
       await expect(changes.locator('.text-market-down')).toHaveText('-2');
       const headerBefore = await page.locator('header').first().boundingBox();
       const before = await page.locator('body').evaluate(el => ({ overflow: el.style.overflow, paddingRight: el.style.paddingRight }));
+      await expect(page.getByRole('columnheader', { name: 'Path Score' })).toBeVisible();
       await page.getByTestId('trend-candidate').click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole('heading', { name: '平安银行' })).toBeVisible();
+      await expect(dialog.getByTestId('trend-path-detail')).toContainText('Alpha V2');
       const canvas = dialog.getByTestId('trend-rank-history').locator('canvas');
       await expect(canvas).toBeVisible();
       await expect(dialog.getByTestId('trend-fragility-history').locator('canvas')).toBeVisible();
@@ -81,12 +87,16 @@ for (const width of [1280, 1440]) {
       await page.screenshot({ path: testInfo.outputPath('trend-dialog.png') });
       await canvas.hover({ position: { x: 90, y: 80 } });
       await expect(dialog.getByText('Alpha Rank', { exact: true })).toBeVisible();
+      await dialog.getByTestId('trend-path-detail').scrollIntoViewIfNeeded();
+      await expect(dialog.getByTestId('trend-alpha-contributions')).toContainText('32.0 分');
+      await page.screenshot({ path: testInfo.outputPath('trend-alpha-v2.png') });
       await dialog.getByTestId('trend-history').last().scrollIntoViewIfNeeded();
       await expect(dialog.getByTestId('trend-history').last()).toContainText('排名 #63');
       await page.keyboard.press('Escape');
       await expect(dialog).not.toBeVisible();
       await expect(page.getByTestId('trend-candidate')).toBeFocused();
       expect(await page.locator('body').evaluate(el => ({ overflow: el.style.overflow, paddingRight: el.style.paddingRight }))).toEqual(before);
+      await expect(page.getByRole('columnheader', { name: 'Path Score' })).toBeVisible();
       await page.getByTestId('trend-candidate').click();
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: 'Close', exact: true }).click();

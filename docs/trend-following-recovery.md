@@ -143,3 +143,8 @@ PY
 
 09-07 非交易日，不生成 US 快照。若任务仍 failed，检查 warnings 和 remaining missing；
 按当前 90% 门槛核对覆盖率及其他数据条件。最终检查数据库 summary / snapshot 日期及任务结果，再验证页面显示。
+
+## Alpha 评分
+
+Alpha V2 的公式、参数、快照兼容与新旧对照见 [trend-alpha-v2.md](trend-alpha-v2.md)。
+状态机和 Candidate 的 ValidSetup 条件保持本页语义。

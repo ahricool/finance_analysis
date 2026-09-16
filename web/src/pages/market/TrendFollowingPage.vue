@@ -27,6 +27,7 @@ import TrendRankHistoryChart from '@/components/trend-following/TrendRankHistory
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/components/ui/table';
 import type {
+  TrendAlphaBreakdown,
   TrendCandidate,
   TrendDetailResponse,
   TrendMarket,
@@ -77,6 +78,13 @@ const detailOpen = ref(false);
 const detailLoading = ref(false);
 const detail = ref<TrendDetailResponse | null>(null);
 const detailError = ref<ParsedApiError | null>(null);
+const alphaContributions = computed(() => {
+  const alpha = detail.value?.latest.scoreBreakdown.alpha as TrendAlphaBreakdown | undefined;
+  if (alpha?.version !== 2) return [];
+  return ['trend', 'rs', 'setup', 'path'].map(key => ({
+    key, value: alpha.components[key], weight: alpha.weights[key], contribution: alpha.contributions[key],
+  }));
+});
 
 const historyLoading = ref(false);
 const historyError = ref<ParsedApiError | null>(null);
@@ -95,6 +103,12 @@ const rankingColumns = [
   { key: 'alphaScore', label: 'Alpha Score', description: descriptions.alpha },
   { key: 'trendScore', label: 'Trend Score', description: descriptions.trend },
   { key: 'rsScore', label: 'RS Score', description: descriptions.relativeStrength },
+  { key: 'pathScore', label: 'Path Score', description: descriptions.path },
+  { key: 'weightedR2', label: 'Weighted R²', description: descriptions.r2 },
+  { key: 'positiveReturnConcentration', label: 'Return Concentration', description: descriptions.concentration },
+  { key: 'atrExpansionRatio', label: 'ATR Expansion', description: descriptions.expansion },
+  { key: 'downsideControlQuality', label: 'Downside Control', description: descriptions.downside },
+  { key: 'setupScore', label: 'Setup Score', description: descriptions.breakout },
   { key: 'breakoutScore', label: 'Breakout Score', description: descriptions.breakout },
   { key: 'setup', label: 'Setup', description: descriptions.setup },
   { key: 'return5D', label: '5D Return', description: descriptions.return },
@@ -107,7 +121,7 @@ const rankingColumns = [
   { key: 'referencePrice', label: 'Reference Price', description: descriptions.reference },
 ] as const;
 const visibleRankingColumns = rankingColumns.filter(column =>
-  ['rank', 'name', 'state', 'trendLifecycle', 'alphaScore', 'trendScore', 'rsScore', 'fragilityScore', 'return5D', 'return20D', 'rankChange5D'].includes(column.key));
+  ['rank', 'name', 'state', 'trendLifecycle', 'alphaScore', 'trendScore', 'rsScore', 'fragilityScore', 'return5D', 'return20D', 'rankChange5D', 'pathScore', 'weightedR2', 'positiveReturnConcentration', 'atrExpansionRatio', 'downsideControlQuality', 'setupScore'].includes(column.key));
 type SortKey = typeof rankingColumns[number]['key'];
 const rankingSearch = ref('');
 const sortKey = ref<SortKey>('rank');
@@ -121,6 +135,7 @@ const scope = computed(() => market.value === 'CN' ? '沪深300 + 中证500' : '
 function sortValue(item: TrendRankingSnapshot, key: SortKey): string | number | null | undefined {
   if (key === 'trendLifecycle') return item.trendDurationDays;
   if (key === 'rankChange5D') return item.rankChange5D ?? item.rankChange3D ?? item.rankChange1D;
+  if (key === 'pathScore' || key === 'setupScore' || key === 'weightedR2' || key === 'positiveReturnConcentration' || key === 'atrExpansionRatio' || key === 'downsideControlQuality') return item.features[key];
   if (key === 'return5D' || key === 'return10D' || key === 'return20D' || key === 'volumeRatio' || key === 'distanceFromMa20') return item.features[key];
   return item[key];
 }
@@ -747,10 +762,16 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                   <TableCell><span class="text-xs">{{ item.trendLifecycle ?? '—' }}</span><span class="block text-xs text-muted-foreground">{{ item.trendDurationDays == null ? '—' : `${item.trendDurationDays}D` }}</span></TableCell>
                   <TableCell>{{ score(item.fragilityScore) }}</TableCell>
                   <TableCell class="font-bold text-primary">
-                    {{ score(item.alphaScore) }}
+                    {{ score(item.alphaScore) }}<span class="block text-xs font-normal text-muted-foreground">{{ item.features.alphaVersion === 2 ? 'V2' : 'V1' }}</span>
                   </TableCell>
                   <TableCell>{{ score(item.trendScore) }}</TableCell>
                   <TableCell>{{ score(item.rsScore) }}</TableCell>
+                  <TableCell>{{ score(item.features.pathScore) }}</TableCell>
+                  <TableCell>{{ item.features.weightedR2?.toFixed(3) ?? '—' }}</TableCell>
+                  <TableCell>{{ pct(item.features.positiveReturnConcentration) }}</TableCell>
+                  <TableCell>{{ item.features.atrExpansionRatio?.toFixed(2) ?? '—' }}</TableCell>
+                  <TableCell>{{ score(item.features.downsideControlQuality) }}</TableCell>
+                  <TableCell>{{ score(item.features.setupScore) }}</TableCell>
                   <TableCell>{{ pct(item.features.return5D) }}</TableCell>
                   <TableCell>{{ pct(item.features.return20D) }}</TableCell>
                   <TableCell>
@@ -891,13 +912,64 @@ onMounted(() => void load(true, { autoSelectMode: true }));
           <TrendRankHistoryChart
             :history="detailChartHistory"
           />
+          <section
+            class="grid grid-cols-2 gap-3 text-sm"
+            data-testid="trend-path-detail"
+          >
+            <div>Alpha {{ detail.latest.features.alphaVersion === 2 ? 'V2' : 'V1' }}<strong class="block">{{ score(detail.latest.alphaScore) }}</strong></div>
+            <div>
+              <IndicatorLabel
+                label="Path Score"
+                :description="descriptions.path"
+              /><strong class="block">{{ score(detail.latest.features.pathScore) }}</strong>
+            </div>
+            <div>
+              <IndicatorLabel
+                label="Setup Score"
+                :description="descriptions.breakout"
+              /><strong class="block">{{ score(detail.latest.features.setupScore) }}</strong>
+            </div>
+            <div>
+              <IndicatorLabel
+                label="Return Concentration"
+                :description="descriptions.concentration"
+              /><strong class="block">{{ pct(detail.latest.features.positiveReturnConcentration) }}</strong>
+            </div>
+            <div>
+              <IndicatorLabel
+                label="ATR Expansion"
+                :description="descriptions.expansion"
+              /><strong class="block">{{ detail.latest.features.atrExpansionRatio?.toFixed(2) ?? '—' }}</strong>
+            </div>
+            <div>
+              <IndicatorLabel
+                label="Downside Control"
+                :description="descriptions.downside"
+              /><strong class="block">{{ score(detail.latest.features.downsideControlQuality) }} / ratio {{ detail.latest.features.downsideUpsideRatio?.toFixed(2) ?? '—' }}</strong>
+            </div>
+          </section>
           <section>
             <h3 class="mb-2 font-semibold">
               <IndicatorLabel
                 label="Alpha Score Breakdown"
                 :description="descriptions.alpha"
               />
-            </h3><pre class="overflow-x-auto rounded bg-muted p-3 text-xs">{{ JSON.stringify(detail.latest.scoreBreakdown, null, 2) }}</pre>
+            </h3>
+            <div
+              v-if="alphaContributions.length"
+              class="mb-3 grid grid-cols-2 gap-2 text-sm"
+              data-testid="trend-alpha-contributions"
+            >
+              <div
+                v-for="part in alphaContributions"
+                :key="part.key"
+                class="rounded border p-2"
+              >
+                <strong class="uppercase">{{ part.key }}</strong>
+                <span class="block">{{ score(part.value) }} × {{ pct(part.weight) }} = {{ score(part.contribution) }} 分</span>
+              </div>
+            </div>
+            <pre class="overflow-x-auto rounded bg-muted p-3 text-xs">{{ JSON.stringify(detail.latest.scoreBreakdown, null, 2) }}</pre>
           </section>
           <section>
             <h3 class="mb-2 font-semibold">
@@ -922,7 +994,7 @@ onMounted(() => void load(true, { autoSelectMode: true }));
                   label="R²"
                   :description="descriptions.r2"
                   wrap
-                /><strong class="block">{{ score(detail.latest.features.weightedR2) }}</strong>
+                /><strong class="block">{{ detail.latest.features.weightedR2?.toFixed(3) ?? '—' }}</strong>
               </div>
               <div>
                 <IndicatorLabel

@@ -9,6 +9,7 @@ from finance_analysis.trend_following.features import percentile_ranks
 from finance_analysis.trend_following.scoring import (
     calculate_alpha_score,
     calculate_breakout_score,
+    calculate_path_score,
     calculate_rs_score,
     calculate_trend_score,
 )
@@ -36,9 +37,17 @@ def rank_candidates(rows: list[dict[str, Any]], config: TrendFollowingConfig = D
             row["valid_setup"] = True
         row["trend_score"], trend = calculate_trend_score(row, config)
         row["rs_score"], rs = calculate_rs_score(row, config)
-        row["breakout_score"], breakout = calculate_breakout_score(row)
+        row["breakout_score"], breakout = calculate_breakout_score(row, config)
+        row["setup_score"] = row["breakout_score"]
+        row["path_score"], path = calculate_path_score(row, config)
+        row["downside_control_quality"] = path["downside_control_quality"]
+        row["alpha_version"] = 2
         row["alpha_score"], alpha = calculate_alpha_score(row, config)
-        row["score_breakdown"] = {"trend": trend, "rs": rs, "breakout": breakout, "alpha": alpha}
+        row["score_breakdown"] = {"trend": trend, "rs": rs, "setup": breakout, "path": path, "alpha": alpha}
+        if config.compare_alpha_v1:
+            from finance_analysis.trend_following.scoring_v1 import compare_score
+
+            row["score_breakdown"]["alpha_v1"] = compare_score(row)
         row["is_candidate"] = bool(
             row["trend_candidate"]
             and row["trend_score"] >= config.candidate_trend_score

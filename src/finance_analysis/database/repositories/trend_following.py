@@ -21,6 +21,10 @@ SORT_FIELDS = {
     "rank": TrendFollowingSnapshot.rank,
     "trend_duration_days": TrendFollowingSnapshot.trend_duration_days,
     "fragility_score": TrendFollowingSnapshot.fragility_score,
+    **{key: TrendFollowingSnapshot.features[key].as_float() for key in (
+        "path_score", "setup_score", "weighted_r2", "positive_return_concentration",
+        "atr_expansion_ratio", "downside_control_quality", "downside_upside_ratio",
+    )},
 }
 MEANINGFUL_STATES = {"CANDIDATE", "TRENDING", "WEAKENING", "BROKEN"}
 
