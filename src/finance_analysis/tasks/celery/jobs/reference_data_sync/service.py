@@ -9,7 +9,7 @@ from typing import Any
 from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.database.repositories.universe import UniverseRepository
 from finance_analysis.integrations.market_data.instrument_sync import InstrumentSyncService
-from finance_analysis.integrations.market_data import MarketDataService
+from finance_analysis.integrations.market_data.providers.akshare_index_constituents import AkShareIndexConstituentProvider
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
 from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
 from finance_analysis.integrations.market_data.providers.us_index_constituents import USIndexConstituentProvider
@@ -22,23 +22,13 @@ class IndexUniverseSyncConfig:
 
 
 INDEX_UNIVERSE_SYNC_CONFIG = {
-    "cn_csi300": IndexUniverseSyncConfig("FUYAO", "000300.SH"),
-    "cn_csi500": IndexUniverseSyncConfig("FUYAO", "000905.SH"),
-    "cn_csi1000": IndexUniverseSyncConfig("FUYAO", "000852.SH"),
-    "cn_csi2000": IndexUniverseSyncConfig("FUYAO", "932000.SH"),
+    "cn_csi300": IndexUniverseSyncConfig("AKSHARE", "000300"),
+    "cn_csi500": IndexUniverseSyncConfig("AKSHARE", "000905"),
+    "cn_csi1000": IndexUniverseSyncConfig("AKSHARE", "000852"),
+    "cn_csi2000": IndexUniverseSyncConfig("AKSHARE", "932000"),
     "us_sp500": IndexUniverseSyncConfig("WIKIPEDIA", "SP500"),
     "us_nasdaq100": IndexUniverseSyncConfig("WIKIPEDIA", "NASDAQ100"),
 }
-
-
-class _FuyaoIndexMemberSource:
-    """Reference-data adapter retaining the MarketDataService boundary for Fuyao."""
-
-    def __init__(self) -> None:
-        self.market_data = MarketDataService()
-
-    def fetch_index_members(self, index_code: str) -> list[dict[str, Any]]:
-        return self.market_data.get_index_members(index_code)
 
 
 class ReferenceDataSyncService:
@@ -62,7 +52,7 @@ class ReferenceDataSyncService:
         )
         # Independent reference-data routing, not the market-data registry.
         self.index_providers = index_providers if index_providers is not None else {
-            "FUYAO": _FuyaoIndexMemberSource(),
+            "AKSHARE": AkShareIndexConstituentProvider(),
             "WIKIPEDIA": USIndexConstituentProvider(),
         }
 

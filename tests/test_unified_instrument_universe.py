@@ -272,7 +272,7 @@ def test_reference_data_sync_routes_six_universes_and_preserves_us_on_failure(us
         universe_repository=universes,
         instrument_primary=object(),
         instrument_fallback=object(),
-        index_providers={"FUYAO": Provider("FUYAO"), "WIKIPEDIA": Provider("WIKIPEDIA")},
+        index_providers={"AKSHARE": Provider("AKSHARE"), "WIKIPEDIA": Provider("WIKIPEDIA")},
     )
     service.instrument_sync.sync_instruments_detailed = lambda market: InstrumentSyncResult(
         fetched=10, inserted=2, updated=8, delisted=0, provider="TICKFLOW", fallback_used=False
@@ -282,13 +282,13 @@ def test_reference_data_sync_routes_six_universes_and_preserves_us_on_failure(us
 
     assert result["instrument_fetched"] == 30
     assert requested_indices == [
-        ("FUYAO", "000300.SH"), ("FUYAO", "000905.SH"),
-        ("FUYAO", "000852.SH"), ("FUYAO", "932000.SH"),
+        ("AKSHARE", "000300"), ("AKSHARE", "000905"),
+        ("AKSHARE", "000852"), ("AKSHARE", "932000"),
         ("WIKIPEDIA", "SP500"), ("WIKIPEDIA", "NASDAQ100"),
     ]
     expected_sources = {
-        "cn_csi300": "FUYAO", "cn_csi500": "FUYAO",
-        "cn_csi1000": "FUYAO", "cn_csi2000": "FUYAO",
+        "cn_csi300": "AKSHARE", "cn_csi500": "AKSHARE",
+        "cn_csi1000": "AKSHARE", "cn_csi2000": "AKSHARE",
     }
     if us_failure:
         assert result["universe_count"] == 4

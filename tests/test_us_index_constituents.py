@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from finance_analysis.integrations.market_data.providers.us_index_constituents import USIndexConstituentProvider
-from finance_analysis.integrations.market_data.service import MarketDataService, build_default_registry
+from finance_analysis.integrations.market_data.service import build_default_registry
 from finance_analysis.tasks.celery.jobs.reference_data_sync.service import ReferenceDataSyncService
 
 
@@ -35,15 +35,16 @@ def test_wikipedia_current_constituents_preserve_existing_normalization(index, s
 
 def test_default_reference_routes_do_not_register_wikipedia_as_market_data(monkeypatch):
     fetch = Mock(return_value=[{"code": "600519.SH"}])
-    monkeypatch.setattr(MarketDataService, "get_index_members", fetch)
+    from finance_analysis.integrations.market_data.providers.akshare_index_constituents import AkShareIndexConstituentProvider
+    monkeypatch.setattr(AkShareIndexConstituentProvider, "fetch_index_members", fetch)
     service = ReferenceDataSyncService(
         instrument_repository=object(), universe_repository=object(),
         instrument_primary=object(), instrument_fallback=object(),
     )
-    assert set(service.index_providers) == {"FUYAO", "WIKIPEDIA"}
+    assert set(service.index_providers) == {"AKSHARE", "WIKIPEDIA"}
     assert isinstance(service.index_providers["WIKIPEDIA"], USIndexConstituentProvider)
-    assert service.index_providers["FUYAO"].fetch_index_members("000300.SH") == [{"code": "600519.SH"}]
-    fetch.assert_called_once_with("000300.SH")
+    assert service.index_providers["AKSHARE"].fetch_index_members("000300") == [{"code": "600519.SH"}]
+    fetch.assert_called_once_with("000300")
     registry = build_default_registry()
     assert set(registry.names()) == {"tickflow", "yfinance", "longbridge", "fuyao", "easyquotation"}
     assert "wikipedia" not in registry.names(include_internal=True)

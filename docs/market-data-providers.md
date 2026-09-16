@@ -6,7 +6,10 @@
 
 `USIndexConstituentProvider` 是独立 Reference Data Source，不属于 Market Data Provider，
 不注册到 ProviderRegistry，也不参与日线、Quote 或分钟 fallback。S&P 500 / Nasdaq-100
-当前成分继续通过 Wikipedia 同步；四个 CN 指数 Universe 通过 Fuyao 同步。
+当前成分继续通过 Wikipedia 同步；四个 CN 指数 Universe 恢复通过 AkShare
+`index_stock_cons_csindex` 同步（000300 / 000905 / 000852 / 932000）。
+`AkShareIndexConstituentProvider` 同样仅属于 Reference Data Source，不加入行情 registry
+或 fallback。AkShare 及其传递依赖为此恢复，不恢复其旧行情/基本面实现。
 ReferenceDataSyncService 独立路由这两类来源。请求失败或返回空成员时记录该 Universe
 同步失败，不执行 replacement，保留数据库已有成员。
 
@@ -121,7 +124,10 @@ Streamer Redis schema 不变。可选基本面模块返回 failed / not_supporte
 （`Unknown thscode: 932000.SH`），不是返回 1002 条成分。目录搜索 `932000` 为空，
 搜索“中证2000”仅返回 ETF。该成分接口官方仅声明 `thscode` 参数，无分页参数；
 实测增加 `limit/offset` 或 `page/size` 后仍返回相同错误，未取得任何有效成分数据。
-中证2000 同步需继续观察 API 覆盖，失败时保留已有成员。
+因此四个 CN Universe 已恢复原 AkShare 成分来源；失败或空结果仍保留已有成员。
+2026-09-17 通过恢复后的适配器实际请求，四个指数分别返回 300 / 500 / 1000 / 2000 条，
+canonical code 去重后数量相同。AkShare 依赖的 openpyxl/xlrd 用于上游成分文件读取，
+与已删除的用户股票列表导入功能无关。
 
 财务指标实测使用 `calculate_operating_income_yoy_growth_ratio` 和
 `calculate_parent_holder_net_profit_yoy_growth_ratio`；适配器同时识别文档中公布的
