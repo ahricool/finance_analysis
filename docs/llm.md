@@ -44,7 +44,8 @@ AGY effort 支持 low/medium/high；Codex 也支持 xhigh，模型是否接受�
 ## Docker → Host
 
 1. Host 安装并登录 AGY 或 Codex。用专用 OS 用户提供 SSH 密码登录。
-2. 确保 SSH 非交互 shell 的 PATH 可以找到 `agy` / `codex`。
+2. AGY 和 Codex 分别固定使用绝对路径 `/usr/local/bin/agy` 和 `/usr/local/bin/codex`，
+   确保所选引擎的路径为 SSH 用户可执行的程序或符号链接，不依赖非交互 shell 的 PATH。
 3. Docker Desktop 使用 `host.docker.internal:22`；Linux 如需此名称，可在本地 compose override
    为调用 LLM 的 server/worker 增加 `extra_hosts: ["host.docker.internal:host-gateway"]`。
 4. 在 `.env` 配置用户名和密码。容器不执行 CLI 登录，不挂载 CLI binary 或 Docker socket。
@@ -59,7 +60,7 @@ system prompt 与 user prompt 在 backend 内以 `\n\n---\n\n` 拼接后，通�
 ### AGY（已实现）
 
 ```sh
-umask 077; mkdir -p /tmp/finance-analysis-llm && cd /tmp/finance-analysis-llm && exec agy --input-format stream-json --output-format stream-json --sandbox --disable-slash-commands --print-timeout 180s
+umask 077; mkdir -p /tmp/finance-analysis-llm && cd /tmp/finance-analysis-llm && exec /usr/local/bin/agy --input-format stream-json --output-format stream-json --sandbox --disable-slash-commands --print-timeout 180s
 ```
 
 实际 print-timeout 使用连接后剩余预算；可选追加 `--model`、`--effort`。
@@ -71,7 +72,7 @@ stdin 发送一条 `{"event":"user","message":{"content":"完整 prompt"}}` JSON
 ### Codex（已实现）
 
 ```sh
-umask 077; mkdir -p /tmp/finance-analysis-llm && cd /tmp/finance-analysis-llm && exec codex exec --json --sandbox read-only --skip-git-repo-check --ephemeral --ignore-user-config --ignore-rules -c approval_policy=never -
+umask 077; mkdir -p /tmp/finance-analysis-llm && cd /tmp/finance-analysis-llm && exec /usr/local/bin/codex exec --json --sandbox read-only --skip-git-repo-check --ephemeral --ignore-user-config --ignore-rules -c approval_policy=never -
 ```
 
 可选追加 `--model` 和 `-c model_reasoning_effort='"high"'`（在结尾 `-` 之前）。

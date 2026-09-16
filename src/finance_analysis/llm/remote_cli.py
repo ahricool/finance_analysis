@@ -12,7 +12,9 @@ from .types import LLMRequest, LLMResult
 
 def build_command(config: LLMConfig, timeout: float) -> str:
     if config.cli_engine == "agy":
-        command = "agy --input-format stream-json --output-format stream-json --sandbox --disable-slash-commands"
+        command = (
+            "/usr/local/bin/agy --input-format stream-json --output-format stream-json --sandbox --disable-slash-commands"
+        )
         command += f" --print-timeout {timeout:g}s"
         if config.cli_model:
             command += " --model " + shlex.quote(config.cli_model)
@@ -20,7 +22,7 @@ def build_command(config: LLMConfig, timeout: float) -> str:
             command += " --effort " + shlex.quote(config.cli_effort)
     else:
         command = (
-            "codex exec --json --sandbox read-only --skip-git-repo-check --ephemeral"
+            "/usr/local/bin/codex exec --json --sandbox read-only --skip-git-repo-check --ephemeral"
             " --ignore-user-config --ignore-rules -c approval_policy=never"
         )
         if config.cli_model:
