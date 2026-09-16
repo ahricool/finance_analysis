@@ -83,6 +83,7 @@ const router = createRouter({
               component: TrendFollowingPage,
               meta: { title: '趋势跟踪' },
             },
+            { path: 'industry-strength', name: 'research-industry-strength', component: () => import('@/pages/market/IndustryStrengthPage.vue'), meta: { title: '行业强度' } },
             { path: 'macro', name: 'research-macro', component: () => import('@/pages/market/MacroPage.vue'), meta: { title: '宏观' } },
             {
               path: 'quant',

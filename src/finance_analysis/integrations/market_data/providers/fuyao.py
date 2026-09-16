@@ -7,6 +7,7 @@ is shares, percentages are percentage points, and timestamps are milliseconds.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+import re
 import math
 from copy import deepcopy
 from threading import RLock
@@ -23,6 +24,7 @@ from ..models import (
     BatchInstrumentResult,
     BatchQuoteResult,
     DailyBarsRequest,
+    IndexDailyBar,
     InstrumentInfo,
     InstrumentRequest,
     Market,
@@ -477,3 +479,56 @@ class FuyaoProvider:
     def fetch_index_members(self, index_code: str) -> list[dict]:
         data = self._get("/api/a-share-index/constituents/ths-stock-list", thscode=self._symbol(index_code))
         return [self._instrument_record(row) for row in self._items(data)]
+
+    def _members(self, path, pattern, **params):
+        data = self._get("/api/a-share-index/" + path, **params)
+        rows = self._items(data)
+        if not rows or any(
+            not isinstance(r, dict)
+            or not re.fullmatch(pattern, str(r.get("thscode", "")))
+            or not str(r.get("name", "")).strip()
+            for r in rows
+        ):
+            raise FuyaoError("Fuyao empty or invalid reference list")
+        if len({r["thscode"] for r in rows}) != len(rows):
+            raise FuyaoError("Fuyao duplicate reference codes")
+        return [{"thscode": r["thscode"], "name": r["name"]} for r in rows]
+
+    def get_industry_catalog(self):
+        return self._members("catalog/ths-index-list", r"\d{6}\.TI", tag="industry")
+
+    def get_index_constituents(self, code):
+        self._validate_index(code)
+        return self._members("constituents/ths-stock-list", r"\d{6}\.(SH|SZ|BJ)", thscode=code)
+
+    def get_index_history(self, code, start, end):
+        self._validate_index(code)
+        data = self._get(
+            "/api/a-share-index/prices/historical",
+            thscode=code,
+            interval="1d",
+            start=int(datetime.combine(start, time.min, SHANGHAI).timestamp() * 1000),
+            end=int(datetime.combine(end + timedelta(days=1), time.min, SHANGHAI).timestamp() * 1000) - 1,
+        )
+        try:
+            bars = [
+                IndexDailyBar(
+                    trade_date=datetime.fromtimestamp(r["date_ms"] / 1000, SHANGHAI).date(),
+                    close=float(r["close_price"]),
+                    amount=float(r["turnover"]),
+                    open=float(r["open_price"]),
+                    high=float(r["high_price"]),
+                    low=float(r["low_price"]),
+                    volume=float(r["volume"]),
+                )
+                for r in self._items(data)
+            ]
+            timestamp = datetime.fromtimestamp(data["timestamp"] / 1000, timezone.utc)
+        except (ValueError, KeyError, TypeError, OverflowError):
+            raise FuyaoError("Fuyao invalid historical bars") from None
+        return [b for b in bars if start <= b.trade_date <= end], timestamp
+
+    @staticmethod
+    def _validate_index(code):
+        if not re.fullmatch(r"\d{6}\.(TI|SH|SZ)", code):
+            raise ValueError("Fuyao supports A-share indices only")

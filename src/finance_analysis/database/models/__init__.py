@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """ORM model exports."""
 
+from finance_analysis.database.models.industry_strength import IndustryStrengthSnapshot
+
 from finance_analysis.database.models.market_structure import MarketStructureSnapshot
 
 from finance_analysis.database.models.notification import Notification
@@ -34,6 +36,7 @@ from finance_analysis.database.models.watch_list import WatchListItem
 from finance_analysis.database.models.crypto import CryptoKline, CryptoStrategySnapshot, CryptoStrategyState
 
 __all__ = [
+    "IndustryStrengthSnapshot",
     "MarketStructureSnapshot",
     "Notification",
     "CryptoKline",

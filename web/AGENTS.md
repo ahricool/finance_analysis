@@ -249,3 +249,9 @@ Cookie 会话，`apiClient` 设了 `withCredentials: true`。
 ## 消息中心
 
 `/notifications` 仅从头像菜单进入，使用 `/api/v1/notifications` 列表/详情，不显示 uid 或推送状态。Timeline 仅展示财经事件与新闻，不提供报告消息。
+
+## 行业强度
+
+`/research/industry-strength` 位于研究导航；排名、矩阵、Top20 热力历史联动独立行业详情。
+历史快照 Breadth 与当前成分表必须分别标注日期；当前成分不代表历史成分，等权涨跌不是指数贡献。
+仅展示 A 股市场环境，不增加市场切换或交易建议，数据源密钥不得进入 WebUI。

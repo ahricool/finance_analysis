@@ -10,6 +10,7 @@ from typing import Literal, Optional
 from celery.schedules import crontab
 
 from .constants import (
+    JOB_INDUSTRY_STRENGTH_CN,
     EXPIRES_CALENDAR,
     EXPIRES_DAILY,
     EXPIRES_ETF_ROTATION,
@@ -101,6 +102,18 @@ class ScheduledTaskDefinition:
 
 
 SCHEDULED_TASK_DEFINITIONS = (
+    ScheduledTaskDefinition(
+        job_id=JOB_INDUSTRY_STRENGTH_CN,
+        name="行业强度 CN",
+        description="同花顺 A 股行业地图：收盘强度、加速度和成分股广度；覆盖不足拒绝发布",
+        task_type="scheduled_industry_strength_cn",
+        celery_task_name=celery_task_name(JOB_INDUSTRY_STRENGTH_CN),
+        schedules=(CronSchedule(minute="10", hour="19", day_of_week="mon-fri", timezone=SCHEDULE_TIMEZONE),),
+        schedule_text="周一至周五 19:10 Asia/Shanghai",
+        timezone=SCHEDULE_TIMEZONE,
+        queue=QUEUE_ANALYSIS,
+        expires=EXPIRES_ETF_ROTATION,
+    ),
     ScheduledTaskDefinition(
         job_id=JOB_REFERENCE_DATA_SYNC,
         name="证券主数据与指数成分同步",

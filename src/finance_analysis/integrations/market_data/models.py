@@ -247,3 +247,16 @@ class BatchInstrumentResult:
     missing_symbols: list[str] = field(default_factory=list)
     failed_symbols: dict[str, str] = field(default_factory=dict)
     providers_used: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class IndexDailyBar:
+    """Native A-share index levels, deliberately separate from adjusted stock bars."""
+
+    trade_date: date
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    amount: float

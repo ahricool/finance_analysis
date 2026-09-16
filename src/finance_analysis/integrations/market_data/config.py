@@ -9,6 +9,9 @@ from finance_analysis.config.env_parsing import env_int, env_str
 
 from .models import Market, market_from_value
 from .registry import (
+    INDUSTRY_CATALOG,
+    INDEX_HISTORY,
+    INDEX_CONSTITUENTS,
     DAILY_BARS,
     INSTRUMENT_INFO,
     LATEST_MARKET_SNAPSHOT,
@@ -22,6 +25,9 @@ from .registry import (
 FIVE_YEAR_HISTORY_DAYS = 5 * 365
 
 DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
+    (Market.CN, INDUSTRY_CATALOG): ("fuyao",),
+    (Market.CN, INDEX_HISTORY): ("fuyao",),
+    (Market.CN, INDEX_CONSTITUENTS): ("fuyao",),
     (Market.CN, DAILY_BARS): ("tickflow", "fuyao", "yfinance"),
     (Market.US, DAILY_BARS): ("yfinance", "tickflow"),
     (Market.HK, DAILY_BARS): ("longbridge", "yfinance"),

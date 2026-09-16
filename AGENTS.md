@@ -302,3 +302,11 @@ API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`�
 系统不负责通用互联网检索。Longbridge 是唯一的外部新闻消息源，用于美股盘前新闻与盘中分析；
 美股收盘复盘只读已持久化新闻，空新闻不阻断报告或通知。新闻存储与调用方见
 `docs/investment-timeline.md` 的“新闻数据边界”。
+
+## Industry Strength
+
+`industry_strength/` 只计算 A 股行业观察，不输出交易动作，与 ETF Rotation 独立。
+扶摇是 `integrations/market_data/providers/fuyao.py` 的独立 Provider，通过 `MarketDataService`
+复用行业目录、指数历史、当前成分三个 CN capability；`FUYAO_API_KEY` 仅后端读取。
+`industry_strength_cn` 在上海19:10检查收盘、行业/成分覆盖率后保存独立快照；禁止用当前成分回填历史 Breadth。
+页面 `/research/industry-strength`，指标和口径见 `docs/industry-strength.md`。

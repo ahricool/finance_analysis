@@ -7,6 +7,7 @@ async function mountResearch(path: string) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
+      { path: '/research/industry-strength', component: { template: '<div>行业强度内容</div>' } },
       { path: '/research/macro', component: { template: '<div>宏观内容</div>' } },
       { path: '/research/quant', component: { template: '<div>量化内容</div>' } },
       { path: '/research/etf-rotation', component: { template: '<div>ETF 轮动内容</div>' } },
@@ -40,4 +41,10 @@ it('selects the Macro research navigation tab', async () => {
   const wrapper = await mountResearch('/research/macro');
   expect(wrapper.get('a[href="/research/macro"]').attributes('data-state')).toBe('active');
   expect(wrapper.text()).toContain('宏观内容');
+});
+
+it('selects the Industry Strength research navigation tab', async () => {
+  const wrapper = await mountResearch('/research/industry-strength');
+  expect(wrapper.get('a[href="/research/industry-strength"]').attributes('data-state')).toBe('active');
+  expect(wrapper.text()).toContain('行业强度内容');
 });

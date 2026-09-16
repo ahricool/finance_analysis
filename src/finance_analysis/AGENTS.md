@@ -271,3 +271,10 @@ uv run ./scripts/ci_gate.sh
 `crypto_stream/` 为独立WS主通道/REST备用进程。只持久化已闭合1m；15m与1h严格UTC本地聚合。
 `database/repositories/crypto.py` 原子写状态及不可变15m快照，用唯一时间点和行锁防止重放信号。迁移为 `0044_crypto_btc`。
 这是共享研究状态，不是用户仓位/Paper Trading。不要添加资金、订单或AI执行。详见 `docs/crypto-btc.md`。
+
+## A 股行业强度
+
+`industry_strength/` 通过 `MarketDataService` 读取扶摇指数及现有股票日线，独立保存
+`industry_strength_snapshot`。三个扶摇能力仅支持 CN；指数无股票复权语义，使用 `IndexDailyBar`。
+股票优先 DB，缺完整窗口则既有 Provider 只读补取；不写 `stock_daily`，不修改 ETF Universe。
+正式 Breadth 仅当日收盘计算，不做当前成分历史回填。配置、状态和覆盖规则见 `docs/industry-strength.md`。

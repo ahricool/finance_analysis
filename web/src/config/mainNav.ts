@@ -44,6 +44,7 @@ export const researchNavItems: NavDestination[] = [
     to: '/research/trend-following',
     icon: TrendingUp,
   },
+  { key: 'industry-strength', label: '行业强度', to: '/research/industry-strength', icon: BarChart3 },
   { key: 'macro', label: '宏观', to: '/research/macro', icon: Activity },
   {
     key: 'quant',
