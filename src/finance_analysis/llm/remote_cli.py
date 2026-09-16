@@ -12,7 +12,9 @@ from .types import LLMRequest, LLMResult
 
 def build_command(config: LLMConfig, timeout: float) -> str:
     if config.cli_engine == "agy":
-        command = "agy --input-format stream-json --output-format stream-json --sandbox --disable-slash-commands"
+        command = (
+            "/usr/local/bin/agy --input-format stream-json --output-format stream-json --sandbox --disable-slash-commands"
+        )
         command += f" --print-timeout {timeout:g}s"
         if config.cli_model:
             command += " --model " + shlex.quote(config.cli_model)
