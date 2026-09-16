@@ -14,9 +14,7 @@ from finance_analysis.integrations.market_data.service import MarketDataService
 
 
 def provider(monkeypatch, handler):
-    monkeypatch.setenv("FUYAO_API_KEY", "offline-test-key")
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    return FuyaoProvider(client=client, pause=lambda _: None)
+    return FuyaoProvider(api_key="offline-test-key", transport=httpx.MockTransport(handler))
 
 
 def test_reusable_cn_provider_protocol_and_no_secret_in_params(monkeypatch):
@@ -78,5 +76,17 @@ def test_errors_are_bounded_and_sanitized(monkeypatch, response):
     p = provider(monkeypatch, lambda r: calls.append(r) or response)
     with pytest.raises(FuyaoError) as error:
         p.get_industry_catalog()
-    assert 1 <= len(calls) <= 3
+    assert len(calls) == 1
     assert "secret-body" not in str(error.value) and "offline-test-key" not in str(error.value)
+
+
+def test_unified_provider_identity_and_existing_routes_unchanged():
+    from finance_analysis.integrations.market_data.config import DEFAULT_PROVIDER_ORDER
+    from finance_analysis.integrations.market_data.service import build_default_registry
+    registry = build_default_registry()
+    assert set(registry.names()) == {"tickflow", "yfinance", "longbridge", "fuyao", "easyquotation"}
+    assert type(registry.get("fuyao").provider) is FuyaoProvider
+    from finance_analysis.integrations.market_data.models import Market
+    for capability in (INDUSTRY_CATALOG, INDEX_HISTORY, INDEX_CONSTITUENTS):
+        assert capability in registry.capabilities("fuyao")
+        assert DEFAULT_PROVIDER_ORDER[Market.CN, capability] == ("fuyao",)

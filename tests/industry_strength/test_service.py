@@ -94,12 +94,13 @@ def test_missing_stock_history_uses_existing_provider_without_persisting():
     assert len(repo.saved) == 1
 
 
-def test_incomplete_breadth_rejects_publication():
+def test_incomplete_breadth_does_not_reject_publication():
     repo, data = Repository(), MarketData()
     data.get_daily_bars = lambda *a, **kw: Obj(data={}, request_errors={})
-    with pytest.raises(IndustryReadinessError, match="Breadth daily readiness"):
-        IndustryStrengthService(repo, data).run()
-    assert repo.saved == []
+    result = IndustryStrengthService(repo, data).run()
+    assert result["industries"] == 20
+    assert all(r["up_ratio"] is None and r["above_ma20_ratio"] is None for r in repo.saved[0][1])
+    assert all(r["quality"]["breadth_status"] == "partial" for r in repo.saved[0][1])
 
 
 def test_current_members_are_not_used_to_backfill_previous_day(monkeypatch):
@@ -108,3 +109,35 @@ def test_current_members_are_not_used_to_backfill_previous_day(monkeypatch):
     with pytest.raises(IndustryReadinessError, match="no historical backfill"):
         IndustryStrengthService(repo, MarketData()).run()
     assert repo.saved == []
+
+
+def test_sixty_percent_ma20_coverage_still_ranks_every_industry():
+    repo, data = Repository(), MarketData()
+    data.get_index_constituents = lambda code: [{"thscode": str(i), "name": str(i)} for i in range(5)]
+    full = [Obj(trade_date=d, close=100 + i, amount=100, volume=10) for i, d in enumerate(DAYS)]
+    data.get_daily_bars = lambda *a, **kw: Obj(data={str(i): full if i < 3 else full[-10:] for i in range(5)})
+    assert IndustryStrengthService(repo, data).run()["industries"] == 20
+    for row in repo.saved[0][1]:
+        assert row["strength_rank"] is not None
+        assert row["quality"]["ma20_coverage"] == .6
+        assert row["quality"]["daily_breadth_coverage"] == row["quality"]["ma5_coverage"] == 1
+        assert row["above_ma20_ratio"] is None
+        assert row["up_ratio"] == row["above_ma5_ratio"] == 1
+        assert row["ma20_valid_count"] == row["above_ma20_count"] == 3
+
+
+def test_constituent_api_failure_does_not_remove_valid_indices():
+    repo, data = Repository(), MarketData()
+    def fail(code):
+        raise module.FuyaoError("upstream unavailable")
+    data.get_index_constituents = fail
+    assert IndustryStrengthService(repo, data).run()["industries"] == 20
+    assert repo.saved[0][1][0]["quality"]["breadth_errors"]
+
+
+def test_failed_remote_history_preserves_usable_short_stored_window():
+    data = MarketData()
+    short = [Obj(trade_date=d, close=100, amount=100, volume=10) for d in DAYS[-10:]]
+    data.get_daily_bars = lambda *a, **kw: Obj(data={"600001.SH": short} if kw["source_policy"] == "db_only" else {})
+    result = IndustryStrengthService(Repository(), data).load_member_history(["600001.SH"], DAYS)
+    assert len(result["600001.SH"]) == 10

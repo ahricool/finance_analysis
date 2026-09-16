@@ -45,7 +45,11 @@ class IndustrySnapshot(BaseModel):
     rank_change_3d: int | None = None
     rank_change_5d: int | None = None
     constituent_count: int | None = None
-    valid_constituent_count: int | None = None
+    daily_valid_count: int | None = None
+    ma5_valid_count: int | None = None
+    above_ma5_count: int | None = None
+    ma20_valid_count: int | None = None
+    above_ma20_count: int | None = None
     up_count: int | None = None
     down_count: int | None = None
     flat_count: int | None = None
@@ -80,12 +84,17 @@ class Constituent(BaseModel):
 
 
 class ConstituentsResponse(BaseModel):
+    quality: dict[str, Any]
     industry_code: str
     trade_date: date
     members_observed_at: datetime
     basis: str
     constituent_count: int
-    valid_constituent_count: int
+    daily_valid_count: int
+    ma5_valid_count: int
+    above_ma5_count: int
+    ma20_valid_count: int
+    above_ma20_count: int
     up_count: int
     down_count: int
     flat_count: int

@@ -9,7 +9,7 @@ def classify(row, industry_count, previous=None, config=DEFAULT_CONFIG):
     gain = row["rank_change_3d"]
     if score >= config.cooling_score and (
         row["momentum_acceleration_5d"] < 0
-        or row["up_ratio"] < config.cooling_breadth
+        or (row["up_ratio"] is not None and row["up_ratio"] < config.cooling_breadth)
         or (gain is not None and gain <= config.cooling_rank_loss)
     ):
         return "COOLING"
@@ -30,16 +30,16 @@ def classify(row, industry_count, previous=None, config=DEFAULT_CONFIG):
         and row["rs_5d"] > 0
         and row["rs_10d"] > 0
         and row["rs_20d"] > 0
-        and row["up_ratio"] >= config.strong_breadth
-        and row["above_ma20_ratio"] >= config.strong_ma20
+        and (row["up_ratio"] is None or row["up_ratio"] >= config.strong_breadth)
+        and (row["above_ma20_ratio"] is None or row["above_ma20_ratio"] >= config.strong_ma20)
     ):
         return "STRONG"
     if (
         score <= config.weak_score
         and row["rs_5d"] < 0
         and row["rs_10d"] < 0
-        and row["up_ratio"] <= config.weak_breadth
-        and row["above_ma20_ratio"] <= config.weak_ma20
+        and (row["up_ratio"] is None or row["up_ratio"] <= config.weak_breadth)
+        and (row["above_ma20_ratio"] is None or row["above_ma20_ratio"] <= config.weak_ma20)
     ):
         return "WEAK"
     return "NEUTRAL"

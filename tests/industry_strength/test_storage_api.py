@@ -49,6 +49,9 @@ def payload(code="881101.TI", day=DAY, rank=1):
         strength_rank=rank,
         strength_score=100 - rank,
         rs_5d=rank / 100,
+        constituent_count=5, daily_valid_count=5, up_count=4, down_count=1, flat_count=0,
+        ma5_valid_count=4, above_ma5_count=3, above_ma5_ratio=None,
+        ma20_valid_count=3, above_ma20_count=2, above_ma20_ratio=None,
         data_timestamp=now,
         members_observed_at=now,
         quality={"member_codes": ["600001.SH"], "catalog_count": 2},
@@ -156,6 +159,10 @@ def test_api_latest_date_explicit_date_sorting_and_detail(api):
     response = client.get("/industry-strength/ranking")
     assert response.status_code == 200 and response.json()["trade_date"] == str(DAY)
     assert "member_codes" not in response.json()["items"][0]["quality"]
+    item = response.json()["items"][0]
+    assert (item["daily_valid_count"], item["ma5_valid_count"], item["ma20_valid_count"]) == (5, 4, 3)
+    assert item["above_ma20_ratio"] is None
+    assert "valid_constituent_count" not in item
     response = client.get("/industry-strength/ranking?trade_date=2026-09-15&sort_by=rs_5d&limit=1&descending=false")
     assert response.status_code == 200 and repo.calls[-1] == (OLD, "rs_5d", False, 1)
     assert client.get("/industry-strength/ranking?sort_by=DROP").status_code == 422

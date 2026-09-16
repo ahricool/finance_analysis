@@ -21,10 +21,10 @@
 
 全部调用固定 HTTPS 官方域名，后端环境变量 `FUYAO_API_KEY` 经 `X-api-key` 请求头传递。
 `.env.example` 只有空配置项。不得通过 `VITE_*`、查询参数、任务 payload 或 HTTP 响应传递密钥。
-请求超时 30 秒、串行节流；限流、传输及 5xx 最多尝试三次，有限退避。
+复用统一 FuyaoProvider 的 `_get()`、`_items()`、配置、错误类型及既有 timeout/budget/cache 机制；不另设 HTTP 实现或重试。
 错误仅包含安全摘要，不转发上游 body、headers 或 key。
 
-目录每次计算动态获取，不维护固定名单、不假定 90 个行业。2026-09-17 的接口验证返回 320 个条目，
+目录每次计算动态获取，不维护固定名单，以扶摇 / 同花顺 industry 目录作为 universe。2026-09-17 的接口验证返回 320 个条目，
 这个数量不是配置或契约。目录可能含不同层级及重叠成分，不把所有行业上涨家数相加视为全市场股票家数。
 
 基准固定沪深300 `000300.SH`，与行业指数来自同一个指数 API。请求使用 `interval=1d`、
@@ -39,7 +39,7 @@
 4. 先用 `db_only` 复用已有前复权日线。现有 `cn_daily_sync` Universe 小于全部行业成分；
    对缺少完整 20 个交易日的股票，使用既有 `remote_only` Provider 链批量补取完整窗口到内存。
    不新增股票 Provider，不修改 daily sync Universe，不隐式写入 `stock_daily`。
-5. 每行业有效成分覆盖必须达到 **95%**，且指数 / Breadth 都有效的行业至少占当次目录 **95%**。
+5. 行业指数数据完整的行业至少占当次目录 **95%** 才可发布。Breadth 独立记录覆盖率，不影响排名准入；某项 Breadth 覆盖低于 **95%** 时仅将该项比例标记为 null。
    基准任一必需交易日缺失、行业覆盖不达标均拒绝发布；不把缺失记作零、不用前值填充停牌。
 6. 在整个有效横截面上计算分位、Score、Rank 和状态，原子保存整日结果。
    少量排除的行业与原因记录在任务结果、日志和每个快照 `quality.excluded` 中，页面展示覆盖及排除原因。
@@ -70,16 +70,16 @@ RS 和 Acceleration 的差值应按百分点理解。Score 与 percentile 为 0�
 
 ## Breadth 与时间口径
 
-有效成分必须有截至观测日的连续 20 个交易日、有限且大于零的前复权收盘价。
-停牌缺日、新股历史不足、Provider 失败的成分保留在总数中，不进入有效分母。
-这是有意采用的共同分母：当日涨跌、MA5 和 MA20 的比例可以直接比较，但不是全行业所有股票的无缺失统计。
+三个分母分别使用截至观测日的有效、连续交易日窗口，不填补缺日：
 
-- `constituent_count`：扶摇当前行业成分总数。
-- `valid_constituent_count`：满足上述完整度的成分数。
-- 当日收益大于 / 小于 / 等于 0 分别计 `up_count/down_count/flat_count`。
-- `up_ratio = up_count / valid_constituent_count`。
-- `above_ma5_ratio / above_ma20_ratio`：收盘价严格大于对应 MA 的有效成分比例。
-- `equal_weight_return = mean(有效成分当日收益)`。
+- `constituent_count`：当前目录成分总数。
+- `daily_valid_count`：T 与 T-1 有效；用于涨跌/平盘计数、`up_ratio`、`equal_weight_return`。
+- `ma5_valid_count`：最近 5 日有效；`above_ma5_count / ma5_valid_count`。
+- `ma20_valid_count`：最近 20 日有效；`above_ma20_count / ma20_valid_count`。
+- 新股只有 10 日历史仍参与 Daily 和 MA5；仅 2 日则参与 Daily。
+- quality 保存 `daily_breadth_coverage`、`ma5_coverage`、`ma20_coverage`，以及 `catalog_count`、`ranked_count`。
+- 成分获取失败或覆盖不足不会删除指数数据完整的行业。低覆盖比例为 null，计数保留；UI 显示 —，其余展示各自分子/分母。
+- State 对缺失 Breadth 跳过该项确认条件，不将缺失转成零；Strength、RS、Acceleration 和 Rank Change 的核心判断保持不变。
 
 **当前成分股等权涨跌仅为行业内部广度代理，不代表行业指数贡献。**
 指数本身的涨跌来自原始指数日线，不能用成分等权涨跌替代。

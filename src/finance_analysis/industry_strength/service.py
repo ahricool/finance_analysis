@@ -52,15 +52,12 @@ class IndustryStrengthService:
             aligned_closes(benchmark, sessions)
         except ValueError as exc:
             raise IndustryReadinessError(f"CSI300 benchmark not ready for {day}: {exc}") from None
-        ready, failures, memberships = [], {}, {}
+        ready, failures, memberships, breadth_failures = [], {}, {}, {}
         for item in catalog:
             code = item["thscode"]
             try:
                 bars, timestamp = self.market_data.get_index_history(code, sessions[0], day)
                 features = index_features(bars, benchmark, sessions)
-                memberships[code] = self.market_data.get_index_constituents(code)
-                if not memberships[code]:
-                    raise ValueError("empty constituent list")
                 ready.append(
                     {
                         "trade_date": day,
@@ -75,28 +72,37 @@ class IndustryStrengthService:
                 failures[code] = str(exc)
                 logger.warning("Industry %s excluded: %s", code, exc)
         self._coverage(len(ready), len(catalog), failures)
-        codes = sorted({m["thscode"] for r in ready for m in memberships[r["industry_code"]]})
-        # Existing stock capability batches all constituents, never introduces another quote provider.
-        stocks = self.load_member_history(codes, sessions)
-        valid = []
         for row in ready:
             code = row["industry_code"]
-            metrics = breadth(constituent_observations(memberships[code], stocks, sessions))
-            if metrics["valid_constituent_count"] / metrics["constituent_count"] < self.config.minimum_breadth_coverage:
-                failures[code] = (
-                    f"Breadth daily readiness {metrics['valid_constituent_count']}/{metrics['constituent_count']}"
-                )
-                logger.warning("Industry %s excluded: %s", code, failures[code])
-                continue
-            row.update(metrics)
-            valid.append(row)
-        self._coverage(len(valid), len(catalog), failures)
+            try:
+                memberships[code] = self.market_data.get_index_constituents(code)
+                if not memberships[code]:
+                    raise ValueError("empty constituent list")
+            except (FuyaoError, ValueError) as exc:
+                memberships[code] = []
+                breadth_failures[code] = str(exc)
+        codes = sorted({m["thscode"] for r in ready for m in memberships[r["industry_code"]]})
+        # Retain the existing history fetch path; breadth failure cannot discard valid indices.
+        try:
+            stocks = self.load_member_history(codes, sessions) if codes else {}
+        except Exception as exc:
+            stocks = {}
+            breadth_failures["history"] = str(exc)
+        valid = ready
+        for row in valid:
+            code = row["industry_code"]
+            row.update(breadth(
+                constituent_observations(memberships[code], stocks, sessions),
+                self.config.minimum_breadth_coverage,
+            ))
         past = self.repository.history(sessions[-2], limit=5)
         history = {(r["trade_date"], r["industry_code"]): r for r in past}
         rank_rows(valid, history, sessions[:-1], self.config)
         for row in valid:
             row["state"] = classify(row, len(valid), history.get((sessions[-4], row["industry_code"])), self.config)
             row["quality"] = {
+                **row["quality"],
+                "breadth_errors": breadth_failures,
                 "version": self.config.version,
                 "catalog_count": len(catalog),
                 "ranked_count": len(valid),
@@ -152,7 +158,7 @@ class IndustryStrengthService:
             for code in missing:
                 # A validated, complete fallback is sufficient for a read-only calculation.
                 # Sticky errors are a full-history persistence guard, not a ban on fallback reads.
-                stored[code] = remote.data.get(code, [])
+                stored[code] = remote.data.get(code) or stored.get(code, [])
         return stored
 
     def constituents(self, code):
@@ -167,5 +173,5 @@ class IndustryStrengthService:
             "members_observed_at": utc_now(),
             "basis": "current_members_latest_completed_close",
             "items": rows,
-            **breadth(rows),
+            **breadth(rows, self.config.minimum_breadth_coverage),
         }

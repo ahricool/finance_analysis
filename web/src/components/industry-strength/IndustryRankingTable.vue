@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import type { IndustrySnapshot } from '@/api/industryStrength';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { pct, num, delta, tone, stateColors, stateLabels } from './display';
+import { breadthLabel, pct, num, delta, tone, stateColors, stateLabels } from './display';
 const props = defineProps<{ rows: IndustrySnapshot[]; selected: string }>();
 const emit = defineEmits<{ select: [code: string] }>();
 const columns = [
@@ -89,8 +89,8 @@ const sorted = computed(() => [...props.rows].sort((a, b) => {
             {{ pct(row.momentumAcceleration5D) }}
           </TableCell>
           <TableCell class="font-semibold">
-            {{ pct(row.upRatio) }}
-          </TableCell><TableCell>{{ pct(row.aboveMa5Ratio) }}</TableCell><TableCell>{{ pct(row.aboveMa20Ratio) }}</TableCell><TableCell>{{ num(row.turnoverRatio5D) }}×</TableCell>
+            {{ breadthLabel(row.upRatio, row.upCount, row.dailyValidCount) }}
+          </TableCell><TableCell>{{ breadthLabel(row.aboveMa5Ratio, row.aboveMa5Count, row.ma5ValidCount) }}</TableCell><TableCell>{{ breadthLabel(row.aboveMa20Ratio, row.aboveMa20Count, row.ma20ValidCount) }}</TableCell><TableCell>{{ num(row.turnoverRatio5D) }}×</TableCell>
         </TableRow>
       </TableBody>
     </Table>

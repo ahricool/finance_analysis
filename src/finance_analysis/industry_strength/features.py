@@ -34,7 +34,7 @@ def index_features(bars, benchmark_bars, sessions):
 
 
 def constituent_observations(members, histories, sessions):
-    """Complete 20-session members share the same denominator for all breadth metrics."""
+    """Daily, MA5 and MA20 use independent windows ending at the same session."""
     rows = []
     for member in members:
         code = member["thscode"]
@@ -48,39 +48,53 @@ def constituent_observations(members, histories, sessions):
             "above_ma5": None,
             "above_ma20": None,
         }
-        try:
-            bars = histories.get(code, [])
-            prices = aligned_closes(bars, sessions[-20:])
-            bar = next(b for b in bars if b.trade_date == sessions[-1])
-            row.update(
-                price=prices[-1],
-                change_pct=prices[-1] / prices[-2] - 1,
-                volume=finite_nonnegative(bar.volume),
-                amount=finite_nonnegative(bar.amount),
-                above_ma5=prices[-1] > fmean(prices[-5:]),
-                above_ma20=prices[-1] > fmean(prices),
-            )
-        except ValueError:
-            pass
+        bars = histories.get(code, [])
+        for window, field in ((2, "change_pct"), (5, "above_ma5"), (20, "above_ma20")):
+            try:
+                if len(sessions) < window:
+                    continue
+                prices = aligned_closes(bars, sessions[-window:])
+                row[field] = prices[-1] / prices[-2] - 1 if window == 2 else prices[-1] > fmean(prices)
+                bar = next(b for b in bars if b.trade_date == sessions[-1])
+                row.update(price=prices[-1], volume=finite_nonnegative(bar.volume), amount=finite_nonnegative(bar.amount))
+            except ValueError:
+                pass
         rows.append(row)
     return sorted(rows, key=lambda r: (r["change_pct"] is None, -(r["change_pct"] or 0), r["code"]))
 
 
-def breadth(rows):
-    valid = [r for r in rows if r["change_pct"] is not None]
-    count = len(valid)
-    up = sum(r["change_pct"] > 0 for r in valid)
-    down = sum(r["change_pct"] < 0 for r in valid)
+def breadth(rows, minimum_coverage=0.0):
+    daily = [r for r in rows if r["change_pct"] is not None]
+    ma5 = [r for r in rows if r["above_ma5"] is not None]
+    ma20 = [r for r in rows if r["above_ma20"] is not None]
+    total, count = len(rows), len(daily)
+    up = sum(r["change_pct"] > 0 for r in daily)
+    down = sum(r["change_pct"] < 0 for r in daily)
+    above5 = sum(r["above_ma5"] for r in ma5)
+    above20 = sum(r["above_ma20"] for r in ma20)
+    coverage = {
+        "daily_breadth_coverage": count / total if total else 0.0,
+        "ma5_coverage": len(ma5) / total if total else 0.0,
+        "ma20_coverage": len(ma20) / total if total else 0.0,
+    }
+    def usable(n):
+        return bool(n and total and n / total >= minimum_coverage)
+
     return {
-        "constituent_count": len(rows),
-        "valid_constituent_count": count,
+        "constituent_count": total,
+        "daily_valid_count": count,
         "up_count": up,
         "down_count": down,
         "flat_count": count - up - down,
-        "up_ratio": up / count if count else None,
-        "above_ma5_ratio": sum(r["above_ma5"] for r in valid) / count if count else None,
-        "above_ma20_ratio": sum(r["above_ma20"] for r in valid) / count if count else None,
-        "equal_weight_return": fmean(r["change_pct"] for r in valid) if count else None,
+        "up_ratio": up / count if usable(count) else None,
+        "equal_weight_return": fmean(r["change_pct"] for r in daily) if usable(count) else None,
+        "ma5_valid_count": len(ma5),
+        "above_ma5_count": above5,
+        "above_ma5_ratio": above5 / len(ma5) if usable(len(ma5)) else None,
+        "ma20_valid_count": len(ma20),
+        "above_ma20_count": above20,
+        "above_ma20_ratio": above20 / len(ma20) if usable(len(ma20)) else None,
+        "quality": {**coverage, "breadth_status": "ok" if total and min(coverage.values()) == 1 else "partial"},
     }
 
 

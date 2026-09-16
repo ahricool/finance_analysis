@@ -9,7 +9,7 @@ const rows = names.map((name, i) => ({
   rs_5d: .05, rs_10d: .08, rs_20d: .1, rank_change_1d: 6 - i, rank_change_3d: 10 - i, rank_change_5d: null,
   previous_5d_return: .03, momentum_acceleration_5d: Math.sin(i + 1) / 20, acceleration_percentile: 90 - i,
   turnover_ratio_5d: 1.6 - i / 25, up_ratio: .8 - i / 35, above_ma5_ratio: .7, above_ma20_ratio: .6,
-  equal_weight_return: .012, constituent_count: 80, valid_constituent_count: 78, up_count: 50, down_count: 26, flat_count: 2,
+  equal_weight_return: .012, constituent_count: 80, daily_valid_count: 78, ma5_valid_count: 78, above_ma5_count: 60, ma20_valid_count: 78, above_ma20_count: 60, up_count: 50, down_count: 26, flat_count: 2,
   data_timestamp: `${day}T07:00:00Z`, members_observed_at: `${day}T11:10:00Z`, created_at: `${day}T11:12:00Z`, updated_at: `${day}T11:12:00Z`,
   quality: { catalog_count: 20, ranked_count: 20, coverage: 1, excluded: {} },
 }));
@@ -26,7 +26,7 @@ for (const width of [1280, 1440, 1920]) {
         if (path.endsWith('/ranking')) return route.fulfill({ json: { trade_date: day, expected_trade_date: day, items: rows } });
         if (path.endsWith('/dates')) return route.fulfill({ json: [...dates].reverse() });
         if (path.endsWith('/history')) return route.fulfill({ json: { dates, items: dates.flatMap((d, j) => rows.map((r, i) => ({ ...r, trade_date: d, strength_rank: 1 + (i + j) % 20 }))) } });
-        if (path.endsWith('/constituents')) return route.fulfill({ json: { trade_date: day, members_observed_at: `${day}T11:20:00Z`, constituent_count: 2, valid_constituent_count: 2, items: [
+        if (path.endsWith('/constituents')) return route.fulfill({ json: { trade_date: day, members_observed_at: `${day}T11:20:00Z`, constituent_count: 2, daily_valid_count: 2, ma5_valid_count: 2, above_ma5_count: 1, ma20_valid_count: 2, above_ma20_count: 1, items: [
           { code: '600001.SH', name: '示例成分甲', price: 42.5, change_pct: .035, above_ma5: true, above_ma20: true, amount: 600000000 },
           { code: '600002.SH', name: '示例成分乙', price: 21.5, change_pct: -.021, above_ma5: false, above_ma20: true, amount: 350000000 },
         ] } });

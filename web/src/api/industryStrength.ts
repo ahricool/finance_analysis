@@ -8,11 +8,11 @@ export interface IndustrySnapshot {
   rs5D: number; rs10D: number; rs20D: number; strengthScore: number; strengthRank: number;
   rankChange1D: number | null; rankChange3D: number | null; rankChange5D: number | null;
   previous5DReturn: number; momentumAcceleration5D: number; accelerationPercentile: number;
-  turnoverRatio5D: number; constituentCount: number; validConstituentCount: number;
-  upCount: number; downCount: number; flatCount: number; upRatio: number;
-  aboveMa5Ratio: number; aboveMa20Ratio: number; equalWeightReturn: number;
+  turnoverRatio5D: number; constituentCount: number; dailyValidCount: number; ma5ValidCount: number; aboveMa5Count: number; ma20ValidCount: number; aboveMa20Count: number;
+  upCount: number; downCount: number; flatCount: number; upRatio: number | null;
+  aboveMa5Ratio: number | null; aboveMa20Ratio: number | null; equalWeightReturn: number | null;
   dataTimestamp: string; membersObservedAt: string; createdAt: string; updatedAt: string;
-  quality: { catalogCount: number; rankedCount: number; coverage: number; excluded: Record<string, string> };
+  quality: { dailyBreadthCoverage: number; ma5Coverage: number; ma20Coverage: number; catalogCount: number; rankedCount: number; coverage: number; excluded: Record<string, string> };
 }
 export interface IndustryRanking { tradeDate: string | null; expectedTradeDate: string; source: string; items: IndustrySnapshot[] }
 export interface IndustryHistory { dates: string[]; items: IndustrySnapshot[] }
@@ -22,7 +22,7 @@ export interface Constituent {
   amount: number | null; aboveMa5: boolean | null; aboveMa20: boolean | null;
 }
 export interface Constituents { industryCode: string; tradeDate: string; membersObservedAt: string;
-  constituentCount: number; validConstituentCount: number; items: Constituent[] }
+  constituentCount: number; dailyValidCount: number; ma5ValidCount: number; aboveMa5Count: number; ma20ValidCount: number; aboveMa20Count: number; items: Constituent[] }
 const base = '/api/v1/industry-strength';
 export const industryStrengthApi = {
   async ranking(tradeDate?: string): Promise<IndustryRanking> {

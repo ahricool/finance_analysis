@@ -2,7 +2,7 @@
 import type { IndustryDetail, Constituents } from '@/api/industryStrength';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@/components/ui/table';
-import { pct, num, delta, tone, stateLabels, stateColors } from './display';
+import { breadthLabel, pct, num, delta, tone, stateLabels, stateColors } from './display';
 import { formatDateTime } from '@/utils/format';
 defineProps<{ detail: IndustryDetail; constituents: Constituents | null }>();
 const ma = (value: boolean | null) => value == null ? '缺失' : value ? '上方' : '下方 / 持平';
@@ -54,19 +54,19 @@ const ma = (value: boolean | null) => value == null ? '缺失' : value ? '上方
           <p class="text-muted-foreground">
             上涨广度
           </p><p class="mt-2 font-semibold">
-            {{ pct(detail.current.upRatio) }}
+            {{ breadthLabel(detail.current.upRatio, detail.current.upCount, detail.current.dailyValidCount) }}
           </p>
         </div><div>
           <p class="text-muted-foreground">
             MA5 上方
           </p><p class="mt-2 font-semibold">
-            {{ pct(detail.current.aboveMa5Ratio) }}
+            {{ breadthLabel(detail.current.aboveMa5Ratio, detail.current.aboveMa5Count, detail.current.ma5ValidCount) }}
           </p>
         </div><div>
           <p class="text-muted-foreground">
             MA20 上方
           </p><p class="mt-2 font-semibold">
-            {{ pct(detail.current.aboveMa20Ratio) }}
+            {{ breadthLabel(detail.current.aboveMa20Ratio, detail.current.aboveMa20Count, detail.current.ma20ValidCount) }}
           </p>
         </div><div>
           <p class="text-muted-foreground">
@@ -77,7 +77,7 @@ const ma = (value: boolean | null) => value == null ? '缺失' : value ? '上方
         </div>
       </div>
       <p class="text-xs text-muted-foreground">
-        快照有效成分 {{ detail.current.validConstituentCount }} / {{ detail.current.constituentCount }} · 上涨 {{ detail.current.upCount }} / 下跌 {{ detail.current.downCount }} / 平盘 {{ detail.current.flatCount }}。成分观察时间：{{ formatDateTime(detail.current.membersObservedAt) }}。历史广度为当时保存的观测值。
+        快照 Daily 有效成分 {{ detail.current.dailyValidCount }} / {{ detail.current.constituentCount }} · 上涨 {{ detail.current.upCount }} / 下跌 {{ detail.current.downCount }} / 平盘 {{ detail.current.flatCount }}。成分观察时间：{{ formatDateTime(detail.current.membersObservedAt) }}。历史广度为当时保存的观测值。
       </p>
       <details class="rounded-lg border p-3">
         <summary class="cursor-pointer text-sm font-medium">
@@ -99,11 +99,11 @@ const ma = (value: boolean | null) => value == null ? '缺失' : value ? '上方
                 :key="r.tradeDate"
               >
                 <TableCell>{{ r.tradeDate }}</TableCell><TableCell>{{ r.strengthRank }}</TableCell><TableCell>{{ num(r.strengthScore) }}</TableCell><TableCell
-                  v-for="k in (['rs5D', 'rs10D', 'rs20D', 'momentumAcceleration5D', 'upRatio', 'aboveMa5Ratio', 'aboveMa20Ratio'] as const)"
+                  v-for="k in (['rs5D', 'rs10D', 'rs20D', 'momentumAcceleration5D'] as const)"
                   :key="k"
                 >
                   {{ pct(r[k]) }}
-                </TableCell><TableCell>{{ num(r.turnoverRatio5D) }}×</TableCell>
+                </TableCell><TableCell>{{ breadthLabel(r.upRatio, r.upCount, r.dailyValidCount) }}</TableCell><TableCell>{{ breadthLabel(r.aboveMa5Ratio, r.aboveMa5Count, r.ma5ValidCount) }}</TableCell><TableCell>{{ breadthLabel(r.aboveMa20Ratio, r.aboveMa20Count, r.ma20ValidCount) }}</TableCell><TableCell>{{ num(r.turnoverRatio5D) }}×</TableCell>
               </TableRow>
             </TableBody>
           </Table>
@@ -118,7 +118,7 @@ const ma = (value: boolean | null) => value == null ? '缺失' : value ? '上方
       </div>
       <template v-if="constituents">
         <p class="text-xs text-muted-foreground">
-          行情日期 {{ constituents.tradeDate }} · 成分获取时间 {{ formatDateTime(constituents.membersObservedAt) }} · 有效 {{ constituents.validConstituentCount }} / {{ constituents.constituentCount }} · 按涨跌幅降序，缺失排最后
+          行情日期 {{ constituents.tradeDate }} · 成分获取时间 {{ formatDateTime(constituents.membersObservedAt) }} · Daily {{ constituents.dailyValidCount }} / {{ constituents.constituentCount }} · MA5 {{ constituents.ma5ValidCount }} / {{ constituents.constituentCount }} · MA20 {{ constituents.ma20ValidCount }} / {{ constituents.constituentCount }} · 按涨跌幅降序，缺失排最后
         </p>
         <div class="max-h-80 overflow-auto">
           <Table>

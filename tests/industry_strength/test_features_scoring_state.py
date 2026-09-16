@@ -56,9 +56,11 @@ def test_breadth_denominator_excludes_stale_and_incomplete_members():
     }
     observations = constituent_observations(members, prices, DAYS)
     row = breadth(observations)
-    assert row["constituent_count"] == 6 and row["valid_constituent_count"] == 3
-    assert row["up_count"] == row["down_count"] == row["flat_count"] == 1
-    assert row["up_ratio"] == row["above_ma5_ratio"] == row["above_ma20_ratio"] == pytest.approx(1 / 3)
+    assert row["constituent_count"] == 6 and row["daily_valid_count"] == 4
+    assert row["up_count"] == row["down_count"] == 1
+    assert row["flat_count"] == 2
+    assert row["up_ratio"] == pytest.approx(1 / 4)
+    assert row["above_ma5_ratio"] == row["above_ma20_ratio"] == pytest.approx(1 / 3)
     assert row["equal_weight_return"] == pytest.approx(0)
     assert observations[0]["code"] == "up"
     assert breadth([])["up_ratio"] is None
@@ -116,3 +118,28 @@ def test_deterministic_states(state, updates, previous):
         above_ma20_ratio=0.7,
     )
     assert classify({**row, **updates}, 20, previous) == state
+
+
+def test_independent_daily_ma5_ma20_denominators():
+    members = [{"thscode": c, "name": c} for c in "ABC"]
+    full = bars([100] * 20 + [105])
+    result = breadth(constituent_observations(members, {"A": full[-20:], "B": full[-10:], "C": full[-2:]}, DAYS))
+    assert result["daily_valid_count"] == result["up_count"] == 3
+    assert result["ma5_valid_count"] == result["above_ma5_count"] == 2
+    assert result["ma20_valid_count"] == result["above_ma20_count"] == 1
+    assert result["up_ratio"] == result["above_ma5_ratio"] == result["above_ma20_ratio"] == 1
+    assert result["equal_weight_return"] == pytest.approx(.05)
+    assert result["quality"]["daily_breadth_coverage"] == 1
+    assert result["quality"]["ma5_coverage"] == pytest.approx(2 / 3)
+    assert result["quality"]["ma20_coverage"] == pytest.approx(1 / 3)
+
+
+@pytest.mark.parametrize("score,expected", [(90, "STRONG"), (50, "NEUTRAL")])
+def test_missing_breadth_does_not_imply_weak_or_cooling(score, expected):
+    row = dict(strength_score=score, strength_rank=1, rank_change_3d=0,
+               rs_5d=.1, rs_10d=.1, rs_20d=.1, momentum_acceleration_5d=.01,
+               acceleration_percentile=50, turnover_ratio_5d=1.1, up_ratio=None, above_ma20_ratio=None)
+    assert classify(row, 20, {"strength_score": 85}) == expected
+    # Missing breadth must not mask an independently observed loss of momentum.
+    if score == 90:
+        assert classify({**row, "momentum_acceleration_5d": -.01}, 20) == "COOLING"

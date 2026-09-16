@@ -14,10 +14,10 @@ function row(code = '881101.TI', name = '行业甲', rank = 1): IndustrySnapshot
     rs5D: .01, rs10D: .02, rs20D: .03, rankChange1D: 2, rankChange3D: 5, rankChange5D: null,
     previous5DReturn: .01, momentumAcceleration5D: .02, accelerationPercentile: 80, turnoverRatio5D: 1.2,
     upRatio: .7, aboveMa5Ratio: .8, aboveMa20Ratio: .9, equalWeightReturn: .01,
-    constituentCount: 10, validConstituentCount: 10, upCount: 7, downCount: 2, flatCount: 1,
+    constituentCount: 10, dailyValidCount: 10, ma5ValidCount: 10, aboveMa5Count: 8, ma20ValidCount: 10, aboveMa20Count: 9, upCount: 7, downCount: 2, flatCount: 1,
     dataTimestamp: '2026-09-16T07:00:00Z', membersObservedAt: '2026-09-16T11:00:00Z',
     createdAt: '2026-09-16T11:05:00Z', updatedAt: '2026-09-16T11:05:00Z',
-    quality: { catalogCount: 2, rankedCount: 2, coverage: 1, excluded: {} } };
+    quality: { dailyBreadthCoverage: 1, ma5Coverage: 1, ma20Coverage: 1, catalogCount: 2, rankedCount: 2, coverage: 1, excluded: {} } };
 }
 const rows = [row(), row('881102.TI', '行业乙', 2)];
 async function render() {
@@ -32,7 +32,7 @@ beforeEach(() => {
   api.dates.mockResolvedValue(['2026-09-16', '2026-09-15']);
   api.history.mockResolvedValue({ dates: ['2026-09-16'], items: rows });
   api.detail.mockImplementation(async (code: string) => ({ current: rows.find(r => r.industryCode === code), history: rows.filter(r => r.industryCode === code) }));
-  api.constituents.mockResolvedValue({ tradeDate: '2026-09-16', membersObservedAt: '2026-09-16T11:00:00Z', constituentCount: 0, validConstituentCount: 0, items: [] });
+  api.constituents.mockResolvedValue({ tradeDate: '2026-09-16', membersObservedAt: '2026-09-16T11:00:00Z', constituentCount: 0, dailyValidCount: 0, items: [] });
 });
 describe('Industry Strength', () => {
   it('renders loading then rankings, semantics and charts', async () => {
@@ -45,6 +45,8 @@ describe('Industry Strength', () => {
     expect(wrapper.text()).toContain('当前成分股不代表历史成分');
     expect(wrapper.text()).toContain('不代表行业指数贡献');
     expect(wrapper.findAll('[data-testid="chart"]')).toHaveLength(2);
+    expect(wrapper.get('[data-testid="industry-ranking"]').text()).toContain('70.00% (7/10)');
+    expect(wrapper.get('[data-testid="industry-ranking"]').text()).toContain('80.00% (8/10)');
     wrapper.unmount();
   });
   it('renders explicit empty state without requesting live constituents', async () => {
@@ -83,6 +85,17 @@ describe('Industry Strength', () => {
     await wrapper.get('[data-testid="industry-ranking"]').findAll('button').find(b => b.text() === '行业乙')!.trigger('click');
     await flushPromises(); resolve({ current: rows[0], history: [rows[0]] }); await flushPromises();
     expect(wrapper.get('[data-testid="industry-detail"]').text()).toContain('行业乙'); wrapper.unmount();
+  });
+  it('keeps partial industries ranked and renders missing breadth as a dash', async () => {
+    api.ranking.mockResolvedValue({ tradeDate: '2026-09-16', expectedTradeDate: '2026-09-16', items: [
+      { ...row(), aboveMa20Ratio: null, ma20ValidCount: 6, aboveMa20Count: 5 },
+    ] });
+    const wrapper = await render(); await flushPromises();
+    const table = wrapper.get('[data-testid="industry-ranking"]');
+    expect(table.text()).toContain('行业甲');
+    expect(table.findAll('tbody td')[12]!.text()).toBe('—');
+    expect(table.text()).toContain('70.00% (7/10)');
+    wrapper.unmount();
   });
   it('keeps numeric window casing in API conversion', () => {
     expect(toCamelCase({ rs_5d: .1, ret_10d: .2, above_ma5_ratio: .6, rank_change_3d: 1 }))
