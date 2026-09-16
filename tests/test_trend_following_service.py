@@ -161,7 +161,7 @@ def test_domain_has_no_strategy_portfolio_or_external_provider_imports():
         "finance_analysis.quant",
         "finance_analysis.etf_rotation",
         "yfinance",
-        "akshare",
+        "fuyao",
         "requests",
         "httpx",
         "market_data.providers",

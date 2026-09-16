@@ -22,7 +22,6 @@ class PreCloseReviewConfig:
     max_strong_sectors: int = 5
     sector_ranking_scan_limit: int = 100
     max_candidates: int = 6
-    max_board_lookups: int = 20
     task_time_limit_seconds: int = 10 * 60
     task_completion_reserve_seconds: int = 30
     recent_result_count: int = 3

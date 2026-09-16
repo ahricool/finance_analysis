@@ -56,7 +56,7 @@ class MarketDataRouter:
             if not requested:
                 raise ProviderConfigurationError("providers override must not be empty")
             return self.registry.resolve(requested, capability)
-        available = set(self.registry.names())
+        available = set(self.registry.names(include_internal=True))
         registrations = []
         for name in provider_order(market, capability):
             if name in available and capability in self.registry.capabilities(name):
@@ -175,6 +175,9 @@ class MarketDataRouter:
         for registration in registrations:
             try:
                 result = registration.provider.fetch_market_snapshot(market)
+                if market.value in result.failed_symbols:
+                    errors.append(f"{registration.name}: {result.failed_symbols[market.value]}")
+                    continue
                 if result.data:
                     validated = {}
                     for symbol, quote in result.data.items():

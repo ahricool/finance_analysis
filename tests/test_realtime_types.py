@@ -15,7 +15,7 @@ class CircuitBreakerConcurrencyTestCase(unittest.TestCase):
             cooldown_seconds=0.01,
             half_open_max_calls=1,
         )
-        breaker.record_failure("akshare_em", "boom")
+        breaker.record_failure("fuyao", "boom")
         time.sleep(0.02)
 
         barrier = threading.Barrier(2)
@@ -25,7 +25,7 @@ class CircuitBreakerConcurrencyTestCase(unittest.TestCase):
         def worker():
             try:
                 barrier.wait(timeout=1)
-                allowed.append(breaker.is_available("akshare_em"))
+                allowed.append(breaker.is_available("fuyao"))
             except Exception as exc:  # pragma: no cover - thread collection
                 errors.append(exc)
 
@@ -37,7 +37,7 @@ class CircuitBreakerConcurrencyTestCase(unittest.TestCase):
 
         self.assertEqual(errors, [])
         self.assertCountEqual(allowed, [True, False])
-        self.assertEqual(breaker.get_status()["akshare_em"], CircuitBreaker.HALF_OPEN)
+        self.assertEqual(breaker.get_status()["fuyao"], CircuitBreaker.HALF_OPEN)
 
     def test_concurrent_record_updates_keep_state_consistent(self):
         breaker = CircuitBreaker(
@@ -52,7 +52,7 @@ class CircuitBreakerConcurrencyTestCase(unittest.TestCase):
             try:
                 barrier.wait(timeout=1)
                 for _ in range(100):
-                    breaker.record_success("akshare")
+                    breaker.record_success("fuyao")
             except Exception as exc:  # pragma: no cover - thread collection
                 errors.append(exc)
 
@@ -60,7 +60,7 @@ class CircuitBreakerConcurrencyTestCase(unittest.TestCase):
             try:
                 barrier.wait(timeout=1)
                 for _ in range(100):
-                    breaker.record_failure("akshare", "network")
+                    breaker.record_failure("fuyao", "network")
             except Exception as exc:  # pragma: no cover - thread collection
                 errors.append(exc)
 
@@ -76,7 +76,7 @@ class CircuitBreakerConcurrencyTestCase(unittest.TestCase):
             thread.join(timeout=2)
 
         self.assertEqual(errors, [])
-        state = breaker._states["akshare"]
+        state = breaker._states["fuyao"]
         self.assertIn(state["state"], {CircuitBreaker.CLOSED, CircuitBreaker.OPEN, CircuitBreaker.HALF_OPEN})
         self.assertGreaterEqual(state["failures"], 0)
         self.assertGreaterEqual(state["half_open_calls"], 0)

@@ -93,13 +93,8 @@ def safe_int(val: Any, default: Optional[int] = None) -> Optional[int]:
 
 class RealtimeSource(Enum):
     """实时行情数据源"""
-    EFINANCE = "efinance"           # 东方财富（efinance库）
-    AKSHARE_EM = "akshare_em"       # 东方财富（akshare库）
-    AKSHARE_SINA = "akshare_sina"   # 新浪财经
-    AKSHARE_QQ = "akshare_qq"       # 腾讯财经
-    TENCENT = "tencent"             # 腾讯直连
-    SINA = "sina"                   # 新浪直连
-    STOOQ = "stooq"                 # Stooq 美股兜底
+    FUYAO = "fuyao"
+    EASYQUOTATION = "easyquotation"
     LONGBRIDGE = "longbridge"       # 长桥（美股/港股兜底）
     MARKET_STREAMER = "market_streamer"  # Redis 实时行情订阅服务
     FALLBACK = "fallback"           # 降级兜底
@@ -187,7 +182,7 @@ class ChipDistribution:
     """
     code: str
     date: str = ""
-    source: str = "akshare"
+    source: str = ""
     
     # 获利情况
     profit_ratio: float = 0.0     # 获利比例(0-1)

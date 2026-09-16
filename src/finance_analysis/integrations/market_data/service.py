@@ -23,6 +23,7 @@ from .models import (
     Market,
     MarketBar,
     MarketIndex,
+    MarketQuote,
     MarketStats,
     MinuteBarsRequest,
     QuoteRequest,
@@ -42,6 +43,7 @@ from .registry import (
     SECTOR_RANKINGS,
     ProviderRegistry,
 )
+from .request_budget import BudgetExhausted, check_budget, remaining_seconds, request_budget
 from .router import MarketDataRouter
 
 logger = logging.getLogger(__name__)
@@ -156,18 +158,15 @@ def build_default_registry(
     instrument_repository: InstrumentRepository | None = None,
     streaming_source: Any = None,
 ) -> ProviderRegistry:
-    from .providers.akshare import AkShareProvider
-    from .providers.baostock import BaoStockProvider
+    from .providers.fuyao import FuyaoProvider
     from .providers.easyquotation import EasyQuotationProvider
-    from .providers.efinance import EfinanceProvider
-    from .providers.pytdx import PyTDXProvider
     from .providers.tickflow import TickFlowFreeProvider
     from .providers.yfinance import YFinanceProvider
 
     resolved_config = config or get_data_provider_config()
     registry = ProviderRegistry()
-    registry.register("database", _DatabaseInstrumentProvider(instrument_repository), capabilities={INSTRUMENT_INFO})
-    registry.register(
+    registry.register_internal("database", _DatabaseInstrumentProvider(instrument_repository), capabilities={INSTRUMENT_INFO})
+    registry.register_internal(
         "streaming",
         _StreamingStateProvider(streaming_source),
         capabilities={MINUTE_BARS, REALTIME_QUOTES},
@@ -181,44 +180,10 @@ def build_default_registry(
         capabilities={DAILY_BARS, INSTRUMENT_INFO},
     )
     registry.register(
-        "akshare",
-        AkShareProvider(),
-        capabilities={
-            DAILY_BARS,
-            MINUTE_BARS,
-            REALTIME_QUOTES,
-            LATEST_MARKET_SNAPSHOT,
-            MARKET_INDICES,
-            MARKET_STATS,
-            SECTOR_RANKINGS,
-            INSTRUMENT_INFO,
-        },
-    )
-    registry.register(
-        "pytdx",
-        PyTDXProvider(),
-        capabilities={
-            DAILY_BARS,
-            MINUTE_BARS,
-            REALTIME_QUOTES,
-            LATEST_MARKET_SNAPSHOT,
-            MARKET_INDICES,
-            INSTRUMENT_INFO,
-        },
-    )
-    registry.register("baostock", BaoStockProvider(), capabilities={DAILY_BARS, INSTRUMENT_INFO})
-    registry.register(
-        "efinance",
-        EfinanceProvider(),
-        capabilities={
-            MINUTE_BARS,
-            REALTIME_QUOTES,
-            LATEST_MARKET_SNAPSHOT,
-            MARKET_INDICES,
-            MARKET_STATS,
-            SECTOR_RANKINGS,
-            INSTRUMENT_INFO,
-        },
+        "fuyao",
+        FuyaoProvider(api_key=resolved_config.fuyao_api_key, timeout=resolved_config.fuyao_timeout_seconds),
+        capabilities={DAILY_BARS, REALTIME_QUOTES, LATEST_MARKET_SNAPSHOT, MARKET_INDICES,
+                      MARKET_STATS, SECTOR_RANKINGS, INSTRUMENT_INFO},
     )
     registry.register(
         "easyquotation",
@@ -234,14 +199,13 @@ def build_default_registry(
         ),
         capabilities={DAILY_BARS, MINUTE_BARS, REALTIME_QUOTES, MARKET_INDICES, INSTRUMENT_INFO},
     )
-    if resolved_config.longbridge_configured:
-        from .providers.longbridge.market import LongbridgeProvider
+    from .providers.longbridge.market import LongbridgeProvider
 
-        registry.register(
-            "longbridge",
-            LongbridgeProvider(),
-            capabilities={DAILY_BARS, MINUTE_BARS, REALTIME_QUOTES, MARKET_INDICES, INSTRUMENT_INFO},
-        )
+    registry.register(
+        "longbridge",
+        LongbridgeProvider(),
+        capabilities={DAILY_BARS, MINUTE_BARS, REALTIME_QUOTES, MARKET_INDICES, INSTRUMENT_INFO},
+    )
     return registry
 
 
@@ -460,28 +424,13 @@ class MarketDataService:
     ) -> BatchInstrumentResult:
         return self.router.route_instruments(InstrumentRequest(self._canonical_symbols(symbols)), providers)
 
-    def get_chip_distribution(self, symbol: str):
-        canonical = canonical_symbol(symbol)
-        if infer_market(canonical) is not Market.CN:
-            return None
-        provider = self.registry.get("akshare").provider
-        return provider.get_chip_distribution(canonical)
+    def get_index_members(self, index_code: str) -> list[dict[str, Any]]:
+        return self.registry.get("fuyao").provider.fetch_index_members(index_code)
 
-    def get_belong_boards(self, symbol: str) -> list[dict[str, Any]]:
-        canonical = canonical_symbol(symbol)
-        if infer_market(canonical) is not Market.CN:
-            return []
-        provider = self.registry.get("efinance").provider
-        frame = provider.get_belong_board(canonical)
-        if frame is None:
-            return []
-        if isinstance(frame, pd.Series):
-            return [frame.to_dict()]
-        if isinstance(frame, pd.DataFrame):
-            return frame.to_dict(orient="records")
-        if isinstance(frame, dict):
-            return [frame]
-        return []
+    def _fundamental_adapter(self):
+        from .fundamental_adapter import FuyaoFundamentalAdapter
+
+        return FuyaoFundamentalAdapter(self.registry.get("fuyao").provider)
 
     @staticmethod
     def _context_block(status: str, data: dict[str, Any], provider: str, errors=None) -> dict[str, Any]:
@@ -507,96 +456,101 @@ class MarketDataService:
         }
 
     def get_capital_flow_context(self, symbol: str, budget_seconds: float | None = None) -> dict[str, Any]:
-        del budget_seconds
-        canonical = canonical_symbol(symbol)
-        if infer_market(canonical) is not Market.CN:
-            return self._context_block("not_supported", {}, "akshare", ["market not supported"])
-        from .fundamental_adapter import AkshareFundamentalAdapter
-
-        payload = AkshareFundamentalAdapter().get_capital_flow(canonical.split(".", 1)[0])
-        status = str(payload.get("status") or ("ok" if payload else "not_supported"))
-        return self._context_block(status, payload if isinstance(payload, dict) else {}, "akshare")
+        return self._context_block("not_supported", {}, "fuyao", ["public capital-flow API unavailable"])
 
     def get_dragon_tiger_context(self, symbol: str, budget_seconds: float | None = None) -> dict[str, Any]:
-        del budget_seconds
         canonical = canonical_symbol(symbol)
         if infer_market(canonical) is not Market.CN:
-            return self._context_block("not_supported", {}, "akshare", ["market not supported"])
-        from .fundamental_adapter import AkshareFundamentalAdapter
-
-        payload = AkshareFundamentalAdapter().get_dragon_tiger_flag(canonical.split(".", 1)[0])
-        status = str(payload.get("status") or ("ok" if payload else "not_supported"))
-        return self._context_block(status, payload if isinstance(payload, dict) else {}, "akshare")
+            return self._context_block("not_supported", {}, "fuyao", ["market not supported"])
+        with request_budget(budget_seconds):
+            payload = self._fundamental_adapter().get_dragon_tiger_flag(canonical)
+        return self._context_block(payload["status"], payload, "fuyao", payload.get("errors"))
 
     def get_board_context(self, symbol: str, budget_seconds: float | None = None) -> dict[str, Any]:
-        del budget_seconds
         market = infer_market(canonical_symbol(symbol))
         if market is not Market.CN:
             return self._context_block("not_supported", {}, "market_data_service", ["market not supported"])
-        rankings = self.get_sector_rankings(market, limit=5)
-        if rankings is None:
-            return self._context_block("failed", {}, "market_data_service", ["sector rankings unavailable"])
+        try:
+            with request_budget(budget_seconds):
+                rankings = self.get_sector_rankings(market, limit=5)
+                if rankings is None:
+                    check_budget()
+                    return self._context_block("failed", {}, "market_data_service", ["sector rankings unavailable"])
+        except BudgetExhausted:
+            return self._context_block("skipped_budget", {}, "fuyao", ["skipped_budget"])
         return self._context_block(
             "ok" if rankings.top and rankings.bottom else "partial",
             {"top": rankings.top, "bottom": rankings.bottom},
             rankings.provider,
         )
 
-    def get_fundamental_context(self, symbol: str, budget_seconds: float | None = None) -> dict[str, Any]:
+    def get_fundamental_context(
+        self, symbol: str, budget_seconds: float | None = None, *, realtime_quote: MarketQuote | None = None
+    ) -> dict[str, Any]:
+        with request_budget(budget_seconds):
+            return self._get_fundamental_context(symbol, budget_seconds, realtime_quote)
+
+    def _get_fundamental_context(
+        self, symbol: str, budget_seconds: float | None, quote: MarketQuote | None
+    ) -> dict[str, Any]:
         canonical = canonical_symbol(symbol)
         market = infer_market(canonical)
         if market is not Market.CN:
             return self.build_failed_fundamental_context(canonical, "market not supported")
         try:
-            quote_result = self.get_realtime_quotes([canonical])
-            quote = quote_result.data.get(canonical)
-            valuation_data = {
-                "pe_ratio": quote.pe_ratio if quote else None,
-                "pb_ratio": quote.pb_ratio if quote else None,
-                "total_mv": quote.total_mv if quote else None,
-                "circ_mv": quote.circ_mv if quote else None,
-            }
-            valuation = self._context_block(
-                "ok" if any(value is not None for value in valuation_data.values()) else "partial",
-                valuation_data,
-                quote.provider if quote else "market_data_service",
-            )
-            from .fundamental_adapter import AkshareFundamentalAdapter
-
-            bundle = AkshareFundamentalAdapter().get_fundamental_bundle(canonical.split(".", 1)[0])
-            bundle_status = str(bundle.get("status") or "partial")
-            growth = self._context_block(
-                bundle_status, dict(bundle.get("growth") or {}), "akshare", bundle.get("errors")
-            )
-            earnings = self._context_block(
-                bundle_status, dict(bundle.get("earnings") or {}), "akshare", bundle.get("errors")
-            )
-            institution = self._context_block(
-                bundle_status, dict(bundle.get("institution") or {}), "akshare", bundle.get("errors")
-            )
-            capital_flow = self.get_capital_flow_context(canonical, budget_seconds)
-            dragon_tiger = self.get_dragon_tiger_context(canonical, budget_seconds)
-            boards = self.get_board_context(canonical, budget_seconds)
-            blocks = {
-                "valuation": valuation,
-                "growth": growth,
-                "earnings": earnings,
-                "institution": institution,
-                "capital_flow": capital_flow,
-                "dragon_tiger": dragon_tiger,
-                "boards": boards,
-            }
-            statuses = {name: block["status"] for name, block in blocks.items()}
-            return {
-                "market": "cn",
-                "status": "ok" if all(value == "ok" for value in statuses.values()) else "partial",
-                "coverage": statuses,
-                "source_chain": [item for block in blocks.values() for item in block["source_chain"]],
-                "errors": [item for block in blocks.values() for item in block["errors"]],
-                **blocks,
-            }
+            bundle = self._fundamental_adapter().get_fundamental_bundle(canonical)
         except Exception as exc:
-            return self.build_failed_fundamental_context(canonical, str(exc))
+            bundle = {"errors": [str(exc)]}
+        blocks = {}
+        for name in ("valuation", "growth", "earnings"):
+            data = dict(bundle.get(name) or {})
+            has_values = any(value is not None for value in data.values())
+            blocks[name] = self._context_block(
+                "partial" if has_values else ("skipped_budget" if bundle.get("skipped_budget") else "failed"),
+                data, "fuyao", bundle.get("errors")
+            )
+        # Retain existing quote-source preference for fields it already supplies.
+        try:
+            # The quote chain includes SDKs without deadline support. Do not launch
+            # it inside a bounded enrichment stage; Fuyao valuation remains available.
+            if quote is None:
+                if budget_seconds is not None:
+                    raise BudgetExhausted()
+                quote = self.get_realtime_quotes([canonical]).data.get(canonical)
+            if quote:
+                for field in ("pe_ratio", "pb_ratio", "total_mv", "circ_mv"):
+                    value = getattr(quote, field)
+                    if value is not None:
+                        blocks["valuation"]["data"][field] = value
+                blocks["valuation"]["source_chain"].append(
+                    {"provider": quote.provider, "result": "partial", "duration_ms": 0}
+                )
+                if any(v is not None for v in blocks["valuation"]["data"].values()):
+                    blocks["valuation"]["status"] = "partial"
+        except Exception as exc:
+            blocks["valuation"]["errors"].append(str(exc))
+        blocks["institution"] = self._context_block(
+            "not_supported", {}, "fuyao", ["public institution/holder-change API unavailable"]
+        )
+        blocks["capital_flow"] = self.get_capital_flow_context(canonical)
+        for name, fetch in (("dragon_tiger", self.get_dragon_tiger_context), ("boards", self.get_board_context)):
+            try:
+                check_budget()
+                blocks[name] = fetch(canonical, remaining_seconds())
+            except BudgetExhausted:
+                blocks[name] = self._context_block("skipped_budget", {}, "fuyao", ["skipped_budget"])
+            except Exception as exc:
+                blocks[name] = self._context_block("failed", {}, "fuyao", [str(exc)])
+        statuses = {name: block["status"] for name, block in blocks.items()}
+        return {
+            "market": "cn",
+            "status": (
+                "partial" if any(s in {"partial", "ok", "skipped_budget"} for s in statuses.values()) else "failed"
+            ),
+            "coverage": statuses,
+            "source_chain": [item for block in blocks.values() for item in block["source_chain"]],
+            "errors": [item for block in blocks.values() for item in block["errors"]], **blocks,
+        }
 
 
 __all__ = ["MarketDataService", "build_default_registry"]

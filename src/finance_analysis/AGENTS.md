@@ -61,7 +61,7 @@ interfaces/api + tasks/celery/jobs
 | 模块 | 责任 |
 | --- | --- |
 | `auth.py` | 登录两阶段流程、状态、资料、密码、通知设置 |
-| `stocks.py` | 证券静态信息、实时 Quote、日线历史和 CSV/Excel/文本代码解析 |
+| `stocks.py` | 证券静态信息、实时 Quote、日线历史和证券主数据搜索 |
 | `watch_list.py` | 用户自选股 CRUD |
 | `calendar.py` | 日历条目和财经事件 |
 | `tasks.py` | 代码定义的周期任务、管理员手动运行、任务记录 |
@@ -111,7 +111,8 @@ LLM 调用统一进入 `llm/LLMClient`，由 `LLM_BACKEND=api|cli` 二选一。�
 - `registry.py`：Provider + capability 注册。
 - `router.py`：按市场/capability 确定性 fallback。
 - `validator.py`：结果进入业务层前校验。
-- `providers/`：TickFlow、AkShare、PyTDX、BaoStock、efinance、yfinance、Longbridge。
+- `providers/`：TickFlow、Fuyao、easyquotation（仅 Preview）、yfinance、Longbridge。
+  Fuyao 接口、数据语义与缺失能力见 `docs/market-data-providers.md`（仓库根目录）。
 - `realtime_state/`：Streamer 写入的 Redis schema 与同步/异步读取。
 - `instrument_sync.py`：证券主数据与指数成分同步辅助。
 

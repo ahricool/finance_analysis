@@ -6,7 +6,6 @@ import StockAutocomplete from '../StockAutocomplete.vue';
 
 vi.mock('@/api/stocks', () => ({
   stocksApi: {
-    parseImport: vi.fn(),
     searchInstruments: vi.fn(),
   },
 }));

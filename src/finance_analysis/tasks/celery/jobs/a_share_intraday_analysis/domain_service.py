@@ -428,7 +428,7 @@ class AShareIntradayAnalysisService:
             main_index_metrics=main_metrics,
             board_index_metrics=board_metrics,
             sector_change_15m=None,
-            data_source="efinance",
+            data_source="fuyao",
         )
 
         matched = evaluate_signal_candidates(metrics, phase, self.rules)

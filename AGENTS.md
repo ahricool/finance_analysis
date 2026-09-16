@@ -70,7 +70,6 @@ src/finance_analysis/ <!-- pragma: allowlist secret -->
   llm/                     API / SSH CLI 调用、重试、审计日志与用量统计
   reporting/               报告 schema、本地化、Jinja/Markdown/图片渲染
   notification/            路由、降噪及 Telegram/ntfy 与消息持久化
-  stock_lists/             CSV/Excel/文本股票代码导入解析
   patches/                 受配置控制的第三方兼容补丁
   users/                   会话 JWT、用户配置和数据归属
 qlib_worker/               独立 Python 3.12 Qlib Celery 包及自身锁文件/测试
@@ -122,7 +121,7 @@ static/                    Web 构建产物，由 `web/vite.config.ts` 生成
 所有 `/api/v1/*` 默认由会话中间件保护；认证入口、OpenAPI 与兼容 health 路径的完整豁免表见 `interfaces/api/middlewares/auth.py::EXEMPT_PATHS`。主要路由聚合在 `interfaces/api/v1/router.py`：
 
 - `/auth`：登录、状态、用户资料、密码和通知配置。
-- `/stocks`：证券静态信息、实时 Quote、日线历史和 CSV/Excel/文本代码解析。
+- `/stocks`：证券静态信息、实时 Quote、日线历史和证券主数据搜索。
 - `/watch-list`：用户级自选股 CRUD。
 - `/calendar`：日历记录和财经事件。
 - `/tasks`：周期定义、手动触发及任务运行记录。

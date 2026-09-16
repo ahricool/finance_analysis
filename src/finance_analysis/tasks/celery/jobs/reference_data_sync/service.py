@@ -9,7 +9,7 @@ from typing import Any
 from finance_analysis.database.repositories.stock import InstrumentRepository
 from finance_analysis.database.repositories.universe import UniverseRepository
 from finance_analysis.integrations.market_data.instrument_sync import InstrumentSyncService
-from finance_analysis.integrations.market_data.providers.akshare import AkShareProvider
+from finance_analysis.integrations.market_data.providers.akshare_index_constituents import AkShareIndexConstituentProvider
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
 from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
 from finance_analysis.integrations.market_data.providers.us_index_constituents import USIndexConstituentProvider
@@ -50,8 +50,9 @@ class ReferenceDataSyncService:
             instrument_fallback or LongbridgeProvider(),
             instrument_repository=self.instruments,
         )
-        self.index_providers = index_providers or {
-            "AKSHARE": AkShareProvider(),
+        # Independent reference-data routing, not the market-data registry.
+        self.index_providers = index_providers if index_providers is not None else {
+            "AKSHARE": AkShareIndexConstituentProvider(),
             "WIKIPEDIA": USIndexConstituentProvider(),
         }
 
@@ -76,8 +77,7 @@ class ReferenceDataSyncService:
         failed_universes: dict[str, str] = {}
         for key, config in INDEX_UNIVERSE_SYNC_CONFIG.items():
             try:
-                provider = self.index_providers[config.provider]
-                members = provider.fetch_index_members(config.index_code)
+                members = self.index_providers[config.provider].fetch_index_members(config.index_code)
                 if not members:
                     raise ValueError(f"Provider returned no members for {key}")
                 self.instrument_sync.ensure_instruments({member["code"] for member in members})

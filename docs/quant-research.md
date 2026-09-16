@@ -264,9 +264,13 @@ model trained on today's S&P 500 / CSI 300/500/1000 members back through the
 training window has survivorship bias: names that were added later appear in
 the past, and names that left the index disappear from history.
 
-CN index members come from AkShare current CSI lists; US members come from the
-current Wikipedia S&P 500 / Nasdaq-100 tables. Neither pipeline stores
-effective-from / effective-to dates.
+CN index members use AkShare `index_stock_cons_csindex` current CSI lists through
+`AkShareIndexConstituentProvider`, an independent reference-data source. US S&P 500 /
+Nasdaq-100 current constituents continue to sync from Wikipedia through
+`USIndexConstituentProvider`, an independent reference-data source outside the
+five Market Data Providers and their registry/fallback routes. Reference sync can
+update all six universes. A failed request or empty result does not replace stored
+members. Membership rows do not store effective-from / effective-to dates.
 
 Supporting point-in-time membership would need at least:
 

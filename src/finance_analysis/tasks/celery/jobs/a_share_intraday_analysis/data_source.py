@@ -85,7 +85,7 @@ class AShareIntradayDataSource:
             return []
         bars = normalize_bars(raw, now=now)
         if bars:
-            logger.info("symbol=%s source=efinance fallback_reason=longbridge_empty bars=%s", code, len(bars))
+            logger.info("symbol=%s source=%s bars=%s", code, result.providers_used.get(symbol), len(bars))
         return bars
 
     def get_quote(self, code: str):

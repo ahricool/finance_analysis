@@ -107,7 +107,7 @@ def test_instrument_validation_and_upsert_support_all_canonical_markets():
         == 1
     )
     assert (
-        repository.upsert_symbols([{"market": "CN", "code": "600519.SH", "name": "贵州茅台股份", "source": "AKSHARE"}])
+        repository.upsert_symbols([{"market": "CN", "code": "600519.SH", "name": "贵州茅台股份", "source": "FUYAO"}])
         == 1
     )
     migrated = repository.get_by_code("600519.SH")
@@ -135,7 +135,7 @@ def test_resolver_market_index_strategy_include_dedup_and_manual_member():
         strategy = Universe(key="cn_trend", name="A股趋势", market="CN", universe_type="STRATEGY")
         session.add_all([market, index, strategy])
         session.flush()
-        session.add(UniverseMember(universe_id=index.id, instrument_id=active.id, source="AKSHARE"))
+        session.add(UniverseMember(universe_id=index.id, instrument_id=active.id, source="FUYAO"))
         session.add(UniverseMember(universe_id=strategy.id, instrument_id=manual.id, source="MANUAL"))
         session.add_all(
             [
@@ -225,12 +225,13 @@ def test_index_membership_refresh_preserves_current_and_deletes_stale():
             ]
         )
     stats = UniverseRepository(database).replace_members_with_stats(
-        "us_sp500", [{"code": "AAPL.US", "metadata": {}}], "WIKIPEDIA"
+        "us_sp500", [{"code": "AAPL.US", "metadata": {}}], "yfinance"
     )
     assert stats == MembershipSyncStats(inserted=0, deleted=1, total=1)
 
 
-def test_reference_data_sync_updates_three_markets_and_six_index_universes():
+@pytest.mark.parametrize("us_failure", [None, "request", "empty"])
+def test_reference_data_sync_routes_six_universes_and_preserves_us_on_failure(us_failure):
     class Instruments:
         def upsert_symbols(self, members):
             raise AssertionError("Index membership must not overwrite Instrument Master")
@@ -241,19 +242,29 @@ def test_reference_data_sync_updates_three_markets_and_six_index_universes():
     class Universes:
         def __init__(self):
             self.keys = []
+            self.members = {"us_sp500": ["MSFT.US"], "us_nasdaq100": ["MSFT.US"]}
 
         def replace_members_with_stats(self, key, members, source):
+            assert members, "Never replace a Universe with an empty response"
             self.keys.append((key, source))
+            self.members[key] = [member["code"] for member in members]
             return MembershipSyncStats(inserted=len(members), total=len(members))
 
     requested_indices = []
 
     class Provider:
+        def __init__(self, source):
+            self.source = source
+
         def fetch_index_members(self, index_code):
-            requested_indices.append(index_code)
-            market = "CN" if index_code.isdigit() else "US"
-            suffix = ".SH" if market == "CN" else ".US"
-            return [{"market": market, "code": f"{index_code}{suffix}", "name": index_code}]
+            requested_indices.append((self.source, index_code))
+            if self.source == "WIKIPEDIA":
+                if us_failure == "request":
+                    raise RuntimeError("Wikipedia request failed")
+                if us_failure == "empty":
+                    return []
+                return [{"market": "US", "code": "AAPL.US", "name": "Apple"}]
+            return [{"market": "CN", "code": "600519.SH", "name": "贵州茅台"}]
 
     universes = Universes()
     service = ReferenceDataSyncService(
@@ -261,7 +272,7 @@ def test_reference_data_sync_updates_three_markets_and_six_index_universes():
         universe_repository=universes,
         instrument_primary=object(),
         instrument_fallback=object(),
-        index_providers={"AKSHARE": Provider(), "WIKIPEDIA": Provider()},
+        index_providers={"AKSHARE": Provider("AKSHARE"), "WIKIPEDIA": Provider("WIKIPEDIA")},
     )
     service.instrument_sync.sync_instruments_detailed = lambda market: InstrumentSyncResult(
         fetched=10, inserted=2, updated=8, delisted=0, provider="TICKFLOW", fallback_used=False
@@ -270,16 +281,29 @@ def test_reference_data_sync_updates_three_markets_and_six_index_universes():
     result = service.run()
 
     assert result["instrument_fetched"] == 30
-    assert result["universe_count"] == 6
-    assert "932000" in requested_indices
-    assert {key for key, _ in universes.keys} == {
-        "cn_csi300",
-        "cn_csi500",
-        "cn_csi1000",
-        "cn_csi2000",
-        "us_sp500",
-        "us_nasdaq100",
+    assert requested_indices == [
+        ("AKSHARE", "000300"), ("AKSHARE", "000905"),
+        ("AKSHARE", "000852"), ("AKSHARE", "932000"),
+        ("WIKIPEDIA", "SP500"), ("WIKIPEDIA", "NASDAQ100"),
+    ]
+    expected_sources = {
+        "cn_csi300": "AKSHARE", "cn_csi500": "AKSHARE",
+        "cn_csi1000": "AKSHARE", "cn_csi2000": "AKSHARE",
     }
+    if us_failure:
+        assert result["universe_count"] == 4
+        assert result["sync_status"] == "partial"
+        assert set(result["failed_universes"]) == {"us_sp500", "us_nasdaq100"}
+        assert universes.members["us_sp500"] == universes.members["us_nasdaq100"] == ["MSFT.US"]
+    else:
+        assert result["universe_count"] == 6
+        assert result["sync_status"] == "success"
+        assert result["failed_universes"] == {}
+        expected_sources.update(us_sp500="WIKIPEDIA", us_nasdaq100="WIKIPEDIA")
+        assert universes.members["us_sp500"] == universes.members["us_nasdaq100"] == ["AAPL.US"]
+    assert dict(universes.keys) == expected_sources
+    for key, source in expected_sources.items():
+        assert result["provider"][f"universe:{key}"] == source
 
 
 def test_instrument_sync_uses_fallback_without_deleting_existing_rows():
@@ -496,7 +520,7 @@ def test_index_etf_migration_preserves_members_fk_metadata_and_final_includes(ex
         instrument = Instrument(market="CN", code="600009.SH", name="CSI2000 only")
         session.add(instrument)
         session.flush()
-        session.add(UniverseMember(universe_id=csi2000_id, instrument_id=instrument.id, source="AKSHARE"))
+        session.add(UniverseMember(universe_id=csi2000_id, instrument_id=instrument.id, source="FUYAO"))
     resolver = UniverseResolver(repository)
     assert {item.code for item in resolver.resolve_universe("cn_trend")} == {
         "600000.SH",
