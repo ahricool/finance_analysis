@@ -265,8 +265,10 @@ training window has survivorship bias: names that were added later appear in
 the past, and names that left the index disappear from history.
 
 CN index members are requested from Fuyao current CSI lists. US S&P 500 /
-Nasdaq-100 automatic membership refresh has no supported source in the five-provider
-configuration: reference sync reports these universes as failed and retains stored
+Nasdaq-100 current constituents continue to sync from Wikipedia through
+`USIndexConstituentProvider`, an independent reference-data source outside the
+five Market Data Providers and their registry/fallback routes. Reference sync can
+update all six universes. A failed request or empty result does not replace stored
 members. Membership rows do not store effective-from / effective-to dates.
 
 Supporting point-in-time membership would need at least:

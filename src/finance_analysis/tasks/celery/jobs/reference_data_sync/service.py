@@ -12,6 +12,7 @@ from finance_analysis.integrations.market_data.instrument_sync import Instrument
 from finance_analysis.integrations.market_data import MarketDataService
 from finance_analysis.integrations.market_data.providers.longbridge.market import LongbridgeProvider
 from finance_analysis.integrations.market_data.providers.tickflow import TickFlowFreeProvider
+from finance_analysis.integrations.market_data.providers.us_index_constituents import USIndexConstituentProvider
 
 
 @dataclass(frozen=True)
@@ -25,9 +26,19 @@ INDEX_UNIVERSE_SYNC_CONFIG = {
     "cn_csi500": IndexUniverseSyncConfig("FUYAO", "000905.SH"),
     "cn_csi1000": IndexUniverseSyncConfig("FUYAO", "000852.SH"),
     "cn_csi2000": IndexUniverseSyncConfig("FUYAO", "932000.SH"),
-    "us_sp500": IndexUniverseSyncConfig("unavailable", "SP500"),
-    "us_nasdaq100": IndexUniverseSyncConfig("unavailable", "NASDAQ100"),
+    "us_sp500": IndexUniverseSyncConfig("WIKIPEDIA", "SP500"),
+    "us_nasdaq100": IndexUniverseSyncConfig("WIKIPEDIA", "NASDAQ100"),
 }
+
+
+class _FuyaoIndexMemberSource:
+    """Reference-data adapter retaining the MarketDataService boundary for Fuyao."""
+
+    def __init__(self) -> None:
+        self.market_data = MarketDataService()
+
+    def fetch_index_members(self, index_code: str) -> list[dict[str, Any]]:
+        return self.market_data.get_index_members(index_code)
 
 
 class ReferenceDataSyncService:
@@ -49,8 +60,11 @@ class ReferenceDataSyncService:
             instrument_fallback or LongbridgeProvider(),
             instrument_repository=self.instruments,
         )
-        self.index_providers = index_providers
-        self.market_data = MarketDataService()
+        # Independent reference-data routing, not the market-data registry.
+        self.index_providers = index_providers if index_providers is not None else {
+            "FUYAO": _FuyaoIndexMemberSource(),
+            "WIKIPEDIA": USIndexConstituentProvider(),
+        }
 
     def run(self) -> dict[str, Any]:
         started = monotonic()
@@ -73,12 +87,7 @@ class ReferenceDataSyncService:
         failed_universes: dict[str, str] = {}
         for key, config in INDEX_UNIVERSE_SYNC_CONFIG.items():
             try:
-                if config.provider == "unavailable":
-                    raise ValueError("US index membership refresh has no supported source; stored members retained")
-                if self.index_providers is not None:
-                    members = self.index_providers[config.provider].fetch_index_members(config.index_code)
-                else:
-                    members = self.market_data.get_index_members(config.index_code)
+                members = self.index_providers[config.provider].fetch_index_members(config.index_code)
                 if not members:
                     raise ValueError(f"Provider returned no members for {key}")
                 self.instrument_sync.ensure_instruments({member["code"] for member in members})

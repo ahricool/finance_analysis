@@ -230,7 +230,8 @@ def test_index_membership_refresh_preserves_current_and_deletes_stale():
     assert stats == MembershipSyncStats(inserted=0, deleted=1, total=1)
 
 
-def test_reference_data_sync_updates_three_markets_and_four_cn_universes_preserving_us_members():
+@pytest.mark.parametrize("us_failure", [None, "request", "empty"])
+def test_reference_data_sync_routes_six_universes_and_preserves_us_on_failure(us_failure):
     class Instruments:
         def upsert_symbols(self, members):
             raise AssertionError("Index membership must not overwrite Instrument Master")
@@ -241,16 +242,28 @@ def test_reference_data_sync_updates_three_markets_and_four_cn_universes_preserv
     class Universes:
         def __init__(self):
             self.keys = []
+            self.members = {"us_sp500": ["MSFT.US"], "us_nasdaq100": ["MSFT.US"]}
 
         def replace_members_with_stats(self, key, members, source):
+            assert members, "Never replace a Universe with an empty response"
             self.keys.append((key, source))
+            self.members[key] = [member["code"] for member in members]
             return MembershipSyncStats(inserted=len(members), total=len(members))
 
     requested_indices = []
 
     class Provider:
+        def __init__(self, source):
+            self.source = source
+
         def fetch_index_members(self, index_code):
-            requested_indices.append(index_code)
+            requested_indices.append((self.source, index_code))
+            if self.source == "WIKIPEDIA":
+                if us_failure == "request":
+                    raise RuntimeError("Wikipedia request failed")
+                if us_failure == "empty":
+                    return []
+                return [{"market": "US", "code": "AAPL.US", "name": "Apple"}]
             return [{"market": "CN", "code": "600519.SH", "name": "贵州茅台"}]
 
     universes = Universes()
@@ -259,7 +272,7 @@ def test_reference_data_sync_updates_three_markets_and_four_cn_universes_preserv
         universe_repository=universes,
         instrument_primary=object(),
         instrument_fallback=object(),
-        index_providers={"FUYAO": Provider()},
+        index_providers={"FUYAO": Provider("FUYAO"), "WIKIPEDIA": Provider("WIKIPEDIA")},
     )
     service.instrument_sync.sync_instruments_detailed = lambda market: InstrumentSyncResult(
         fetched=10, inserted=2, updated=8, delisted=0, provider="TICKFLOW", fallback_used=False
@@ -268,15 +281,29 @@ def test_reference_data_sync_updates_three_markets_and_four_cn_universes_preserv
     result = service.run()
 
     assert result["instrument_fetched"] == 30
-    assert result["universe_count"] == 4
-    assert set(result["failed_universes"]) == {"us_sp500", "us_nasdaq100"}
-    assert "932000.SH" in requested_indices
-    assert {key for key, _ in universes.keys} == {
-        "cn_csi300",
-        "cn_csi500",
-        "cn_csi1000",
-        "cn_csi2000",
+    assert requested_indices == [
+        ("FUYAO", "000300.SH"), ("FUYAO", "000905.SH"),
+        ("FUYAO", "000852.SH"), ("FUYAO", "932000.SH"),
+        ("WIKIPEDIA", "SP500"), ("WIKIPEDIA", "NASDAQ100"),
+    ]
+    expected_sources = {
+        "cn_csi300": "FUYAO", "cn_csi500": "FUYAO",
+        "cn_csi1000": "FUYAO", "cn_csi2000": "FUYAO",
     }
+    if us_failure:
+        assert result["universe_count"] == 4
+        assert result["sync_status"] == "partial"
+        assert set(result["failed_universes"]) == {"us_sp500", "us_nasdaq100"}
+        assert universes.members["us_sp500"] == universes.members["us_nasdaq100"] == ["MSFT.US"]
+    else:
+        assert result["universe_count"] == 6
+        assert result["sync_status"] == "success"
+        assert result["failed_universes"] == {}
+        expected_sources.update(us_sp500="WIKIPEDIA", us_nasdaq100="WIKIPEDIA")
+        assert universes.members["us_sp500"] == universes.members["us_nasdaq100"] == ["AAPL.US"]
+    assert dict(universes.keys) == expected_sources
+    for key, source in expected_sources.items():
+        assert result["provider"][f"universe:{key}"] == source
 
 
 def test_instrument_sync_uses_fallback_without_deleting_existing_rows():

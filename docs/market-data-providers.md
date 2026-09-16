@@ -4,6 +4,12 @@
 `easyquotation`。`ProviderRegistry.names()` 返回外部列表；数据库和 Streamer Redis
 读取器是内部来源，`names(include_internal=True)` 可用于检查完整路由。
 
+`USIndexConstituentProvider` 是独立 Reference Data Source，不属于 Market Data Provider，
+不注册到 ProviderRegistry，也不参与日线、Quote 或分钟 fallback。S&P 500 / Nasdaq-100
+当前成分继续通过 Wikipedia 同步；四个 CN 指数 Universe 通过 Fuyao 同步。
+ReferenceDataSyncService 独立路由这两类来源。请求失败或返回空成员时记录该 Universe
+同步失败，不执行 replacement，保留数据库已有成员。
+
 ## 路由顺序
 
 以 `integrations/market_data/config.py` 为事实源：
@@ -72,8 +78,6 @@ models，价格为 CNY 元、成交量为股、涨跌幅为百分数值、时间
 - 业绩预告、业绩快报、机构持仓变化、十大股东持仓变化。
 - 筹码分布、个股所属行业/概念板块反查。
 - 个股和板块主力资金流：官方页面明确尚未开放外部调用。
-- US S&P 500 / Nasdaq-100 自动成分更新：五个保留来源没有已接入的等价能力；
-  reference sync 明确报告失败，保留既有成员，不清空 Universe。
 - 原国内来源提供的 HK/US 专项 fallback，仅移除对应节点，保留其余顺序。
 
 报告 schema、数据库 schema、策略计算、Preview 专用数据链、财经日历、新闻及
