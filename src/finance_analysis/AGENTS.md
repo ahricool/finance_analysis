@@ -61,7 +61,7 @@ interfaces/api + tasks/celery/jobs
 | 模块 | 责任 |
 | --- | --- |
 | `auth.py` | 登录两阶段流程、状态、资料、密码、通知设置 |
-| `stocks.py` | 证券静态信息、实时 Quote、日线历史和 CSV/Excel/文本代码解析 |
+| `stocks.py` | 证券静态信息、实时 Quote、日线历史和证券主数据搜索 |
 | `watch_list.py` | 用户自选股 CRUD |
 | `calendar.py` | 日历条目和财经事件 |
 | `tasks.py` | 代码定义的周期任务、管理员手动运行、任务记录 |

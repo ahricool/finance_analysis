@@ -426,9 +426,6 @@ class MarketDataService:
         """No public per-stock board membership capability is available."""
         return []
 
-    def get_instrument_directory(self, market: str) -> list[dict[str, Any]]:
-        return self.registry.get("fuyao").provider.fetch_instruments(market)
-
     def get_index_members(self, index_code: str) -> list[dict[str, Any]]:
         return self.registry.get("fuyao").provider.fetch_index_members(index_code)
 
