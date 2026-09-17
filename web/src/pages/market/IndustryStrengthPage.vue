@@ -322,7 +322,7 @@ onMounted(() => loadRanking('initial'));
         >
           <CardContent class="pt-4">
             <p class="text-xs text-muted-foreground">
-              上涨行业占比
+              有效行业上涨占比
             </p>
             <p class="my-2 text-lg font-semibold tabular-nums">
               {{ summary.advancingLabel }}

@@ -54,7 +54,7 @@ export const stateExplanations: Record<IndustryState, string> = {
 export const methodologyLines = [
   '数据源：同花顺金融数据 API / 扶摇行业指数；成分股行情复用现有 A 股前复权日线。',
   '基准：沪深300（000300.SH）。5/10/20 日超额 = 行业指数收益 − 同期基准收益。',
-  '综合强度 = 40%×5 日超额分位 + 35%×10 日超额分位 + 25%×20 日超额分位，按当日完整截面排序，1 为最强。',
+  '综合强度 = 40%×5 日超额分位 + 35%×10 日超额分位 + 25%×20 日超额分位，分位和排名均基于当日实际参与排名的有效行业截面。',
   '5 日动量变化 = 近 5 日收益 − 再往前 5 日收益，单位为百分点，正值表示动量加快，负值表示动量降速，不是资金流出。',
   '成交额脉冲 = 近 5 日成交额均值 / 近 20 日成交额均值，衡量自身活跃程度，不是市值、绝对成交额或资金净流入。',
   '状态描述市场环境，不构成买卖建议；四象限辅助线不是交易阈值，与五种状态不是一一对应。',
@@ -145,6 +145,7 @@ export function coverageBelowThreshold(value: number | null | undefined): boolea
 }
 
 export function coverageInsufficient(row: IndustrySnapshot): boolean {
+  if (row.quality.breadthStatus === 'unavailable_historical_members') return false;
   return coverageBelowThreshold(row.quality.dailyBreadthCoverage)
     || coverageBelowThreshold(row.quality.ma5Coverage)
     || coverageBelowThreshold(row.quality.ma20Coverage);
@@ -246,7 +247,7 @@ export const rankingColumns: RankingColumn[] = [
     label: '强度排名',
     short: '排名',
     unit: '',
-    hint: '当日完整截面按综合强度降序的原始排名，1 为最强。筛选或列排序不会重新编号。',
+    hint: '在当日有效行业截面中按综合强度降序排列，1 为最强；实际参与排名数量见“行业覆盖”。筛选或列排序不会重新编号。',
     core: true,
     numeric: true,
   },
@@ -273,7 +274,7 @@ export const rankingColumns: RankingColumn[] = [
     label: '综合强度',
     short: '综合强度',
     unit: '',
-    hint: '由 5/10/20 日超额分位加权得到，范围约 0–100，不是买入概率。',
+    hint: '由 5/10/20 日超额分位加权得到，范围约 0–100，不是买入概率。分位基于当日实际参与排名的有效行业截面。',
     core: true,
     numeric: true,
   },

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { IndustrySnapshot } from '@/api/industryStrength';
 import {
+  breadthMissingReason,
   computeSummary,
   filterRankingRows,
   formatPercent,
@@ -8,6 +9,8 @@ import {
   formatPulse,
   formatRankDelta,
   heatmapNormalizedRank,
+  methodologyLines,
+  rankingColumns,
   selectedDateLeaders,
   stateCounts,
   coverageInsufficient,
@@ -47,7 +50,7 @@ describe('industry strength display', () => {
     expect(formatPulse(null)).toBe('—');
   });
 
-  it('computes summary from the full cross section and does not treat empty as 0%', () => {
+  it('computes summary from the ranked valid industries and does not treat empty as 0%', () => {
     const rows = [
       row({ strengthRank: 2, industryName: '乙', industryCode: 'B', momentumAcceleration5D: -0.03, ret1D: -0.01 }),
       row({ strengthRank: 1, industryName: '甲', industryCode: 'A', momentumAcceleration5D: 0.04, ret1D: 0.02 }),
@@ -57,6 +60,8 @@ describe('industry strength display', () => {
     expect(summary.strongest?.industryName).toBe('甲');
     expect(summary.accelerating?.industryName).toBe('甲');
     expect(summary.decelerating?.industryName).toBe('乙');
+    expect(summary.validCount).toBe(3);
+    expect(summary.advancingCount).toBe(1);
     expect(summary.advancingLabel).toBe('33.3%（1 / 3）');
     expect(computeSummary([]).advancingLabel).toBe('暂无有效行业');
   });
@@ -99,7 +104,33 @@ describe('industry strength display', () => {
       quality: { ...row().quality, dailyBreadthCoverage: 0.94, ma5Coverage: 1, ma20Coverage: 1, breadthStatus: 'partial' },
     }))).toBe(true);
     expect(coverageInsufficient(row({
-      quality: { ...row().quality, dailyBreadthCoverage: 1, ma5Coverage: 1, ma20Coverage: 1, breadthStatus: 'unavailable_historical_members' },
-    }))).toBe(false);
+      quality: { ...row().quality, dailyBreadthCoverage: 0.94, ma5Coverage: 1, ma20Coverage: 1 },
+    }))).toBe(true);
+  });
+
+  it('does not treat historical backfill with zero coverage as 覆盖不足', () => {
+    const historical = row({
+      upRatio: null,
+      aboveMa5Ratio: null,
+      aboveMa20Ratio: null,
+      quality: {
+        ...row().quality,
+        dailyBreadthCoverage: 0,
+        ma5Coverage: 0,
+        ma20Coverage: 0,
+        breadthStatus: 'unavailable_historical_members',
+      },
+    });
+    expect(coverageInsufficient(historical)).toBe(false);
+    expect(breadthMissingReason(historical, 'up')).toBe('缺少当日成分记录，历史广度不可用');
+    expect(breadthMissingReason(historical, 'ma5')).toBe('缺少当日成分记录，历史广度不可用');
+    expect(breadthMissingReason(historical, 'ma20')).toBe('缺少当日成分记录，历史广度不可用');
+  });
+
+  it('describes ranking within the ranked valid set instead of a complete catalog cross-section', () => {
+    expect(methodologyLines.join('\n')).not.toContain('完整截面');
+    expect(methodologyLines.join('\n')).toContain('分位和排名均基于当日实际参与排名的有效行业截面');
+    expect(rankingColumns.find((column) => column.key === 'strengthRank')?.hint).toContain('当日有效行业截面');
+    expect(rankingColumns.find((column) => column.key === 'strengthRank')?.hint).not.toContain('完整截面');
   });
 });

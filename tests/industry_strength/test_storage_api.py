@@ -175,9 +175,74 @@ def test_api_latest_date_explicit_date_sorting_and_detail(api):
     assert client.get("/industry-strength/history?trade_date=2020-01-01").json()["items"] == []
 
 
+def _constituents_payload(code="881101.TI"):
+    now = datetime.now(timezone.utc)
+    return {
+        "quality": {},
+        "industry_code": code,
+        "trade_date": DAY,
+        "members_observed_at": now,
+        "basis": "current_members_latest_completed_close",
+        "constituent_count": 0,
+        "daily_valid_count": 0,
+        "ma5_valid_count": 0,
+        "above_ma5_count": 0,
+        "ma20_valid_count": 0,
+        "above_ma20_count": 0,
+        "up_count": 0,
+        "down_count": 0,
+        "flat_count": 0,
+        "up_ratio": None,
+        "above_ma5_ratio": None,
+        "above_ma20_ratio": None,
+        "equal_weight_return": None,
+        "items": [],
+    }
+
+
+def _install_catalog(monkeypatch, codes=("881101.TI", "881199.TI")):
+    catalog = [{"thscode": code, "name": code} for code in codes]
+
+    class FakeMarket:
+        def get_industry_catalog(self):
+            return catalog
+
+    def init(self, repository=None, market_data=None, config=None):
+        self.repository = repository
+        self.market_data = market_data or FakeMarket()
+        self.config = config
+
+    monkeypatch.setattr(endpoint.IndustryStrengthService, "__init__", init)
+
+
+def test_api_constituents_accepts_catalog_industry_missing_from_ranking(api, monkeypatch):
+    client, repo = api
+    _install_catalog(monkeypatch)
+
+    def ok(self, code):
+        return _constituents_payload(code)
+
+    monkeypatch.setattr(endpoint.IndustryStrengthService, "constituents", ok)
+    response = client.get("/industry-strength/881199.TI/constituents")
+    assert response.status_code == 200
+    assert response.json()["industry_code"] == "881199.TI"
+    assert repo.calls == []
+
+
+def test_api_constituents_unknown_catalog_industry_is_404(api, monkeypatch):
+    client, repo = api
+    _install_catalog(monkeypatch)
+    monkeypatch.setattr(endpoint.IndustryStrengthService, "constituents", lambda self, code: _constituents_payload(code))
+    response = client.get("/industry-strength/unknown/constituents")
+    assert response.status_code == 404
+    assert repo.calls == []
+
+
 def test_api_constituents_current_only_and_sanitized_failure(api, monkeypatch):
-    client, _ = api
+    client, repo = api
     from finance_analysis.integrations.market_data.providers.fuyao import FuyaoError
+
+    _install_catalog(monkeypatch)
 
     def fail(*a):
         raise FuyaoError("private transport failure")
@@ -185,7 +250,10 @@ def test_api_constituents_current_only_and_sanitized_failure(api, monkeypatch):
     monkeypatch.setattr(endpoint.IndustryStrengthService, "constituents", fail)
     response = client.get("/industry-strength/881101.TI/constituents")
     assert response.status_code == 503 and "private" not in response.text
+    assert repo.calls == []
     assert client.get("/industry-strength/unknown/constituents").status_code == 404
+    ranked_missing = client.get("/industry-strength/881199.TI/constituents")
+    assert ranked_missing.status_code == 503 and "private" not in ranked_missing.text
 
 
 def test_api_requires_authentication():

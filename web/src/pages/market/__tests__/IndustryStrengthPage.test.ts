@@ -280,14 +280,28 @@ describe('Industry Strength', () => {
     wrapper.unmount();
   });
 
-  it('labels index-only historical backfill', async () => {
+  it('labels index-only historical backfill without treating zero coverage as 覆盖不足', async () => {
     api.ranking.mockResolvedValueOnce({
       tradeDate: '2026-09-16', expectedTradeDate: '2026-09-16', items: [
-        { ...row(), quality: { ...row().quality, breadthStatus: 'unavailable_historical_members' } },
+        {
+          ...row(),
+          upRatio: null,
+          aboveMa5Ratio: null,
+          aboveMa20Ratio: null,
+          quality: {
+            ...row().quality,
+            breadthStatus: 'unavailable_historical_members',
+            dailyBreadthCoverage: 0,
+            ma5Coverage: 0,
+            ma20Coverage: 0,
+          },
+        },
       ],
     });
     const wrapper = await render(); await flushPromises();
     expect(wrapper.text()).toContain('缺少当日成分记录，历史广度不可用');
+    expect(wrapper.text()).not.toContain('覆盖不足');
+    expect(wrapper.text()).not.toContain('对应广度比例显示为不可用');
     wrapper.unmount();
   });
 
@@ -377,6 +391,26 @@ describe('Industry Strength', () => {
     const wrapper = await render(); await flushPromises();
     expect(wrapper.text()).not.toContain('覆盖不足');
     expect(wrapper.text()).not.toContain('对应广度比例显示为不可用');
+    wrapper.unmount();
+  });
+
+  it('still shows 覆盖不足 for an official snapshot below the 0.95 breadth threshold', async () => {
+    api.ranking.mockResolvedValue({
+      tradeDate: '2026-09-16', expectedTradeDate: '2026-09-16', items: [
+        { ...row(), quality: { ...row().quality, dailyBreadthCoverage: 0.94, ma5Coverage: 1, ma20Coverage: 1 } },
+      ],
+    });
+    const wrapper = await render(); await flushPromises();
+    expect(wrapper.text()).toContain('覆盖不足');
+    expect(wrapper.text()).toContain('对应广度比例显示为不可用');
+    wrapper.unmount();
+  });
+
+  it('labels advancing ratio from valid ranked industries and avoids complete-cross-section copy', async () => {
+    const wrapper = await render(); await flushPromises();
+    expect(wrapper.get('[data-testid="industry-summary-advancing"]').text()).toContain('有效行业上涨占比');
+    expect(wrapper.get('[data-testid="industry-summary-advancing"]').text()).toContain('50.0%（1 / 2）');
+    expect(wrapper.text()).not.toContain('完整截面');
     wrapper.unmount();
   });
 });
