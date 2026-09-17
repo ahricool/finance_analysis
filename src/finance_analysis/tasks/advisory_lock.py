@@ -27,6 +27,7 @@ class TaskAdvisoryLockId(IntEnum):
     STOCK_ANALYSIS = 5
     REFERENCE_DATA_SYNC = 6
     CN_INDUSTRY_STRENGTH = 7
+    CN_MARKET_SENTIMENT = 8
 
 
 @dataclass

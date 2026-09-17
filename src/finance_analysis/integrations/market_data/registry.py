@@ -7,6 +7,11 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 
+LIMIT_UP_POOL = "limit_up_pool"
+LIMIT_DOWN_POOL = "limit_down_pool"
+LIMIT_BREAK_POOL = "limit_break_pool"
+LIMIT_UP_LADDER = "limit_up_ladder"
+
 INDUSTRY_CATALOG = "industry_catalog"
 INDEX_HISTORY = "index_history"
 INDEX_CONSTITUENTS = "index_constituents"
@@ -22,6 +27,10 @@ INSTRUMENT_INFO = "instrument_info"
 
 CAPABILITY_METHODS: Mapping[str, str] = MappingProxyType(
     {
+        LIMIT_UP_POOL: "get_limit_up_pool",
+        LIMIT_DOWN_POOL: "get_limit_down_pool",
+        LIMIT_BREAK_POOL: "get_limit_break_pool",
+        LIMIT_UP_LADDER: "get_limit_up_ladder",
         INDUSTRY_CATALOG: "get_industry_catalog",
         INDEX_HISTORY: "get_index_history",
         INDEX_CONSTITUENTS: "get_index_constituents",

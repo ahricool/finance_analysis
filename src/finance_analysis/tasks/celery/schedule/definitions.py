@@ -11,6 +11,7 @@ from celery.schedules import crontab
 
 from .constants import (
     JOB_INDUSTRY_STRENGTH_CN,
+    JOB_MARKET_SENTIMENT_CN,
     EXPIRES_CALENDAR,
     EXPIRES_DAILY,
     EXPIRES_ETF_ROTATION,
@@ -102,6 +103,18 @@ class ScheduledTaskDefinition:
 
 
 SCHEDULED_TASK_DEFINITIONS = (
+    ScheduledTaskDefinition(
+        job_id=JOB_MARKET_SENTIMENT_CN,
+        name="市场情绪 CN",
+        description="A股完整涨停池、连板晋级与盘后情绪观察；完整分页后原子发布",
+        task_type="scheduled_market_sentiment_cn",
+        celery_task_name=celery_task_name(JOB_MARKET_SENTIMENT_CN),
+        schedules=(CronSchedule(minute="20", hour="19", day_of_week="mon-fri", timezone=SCHEDULE_TIMEZONE),),
+        schedule_text="周一至周五 19:20 Asia/Shanghai",
+        timezone=SCHEDULE_TIMEZONE,
+        queue=QUEUE_ANALYSIS,
+        expires=EXPIRES_ETF_ROTATION,
+    ),
     ScheduledTaskDefinition(
         job_id=JOB_INDUSTRY_STRENGTH_CN,
         name="行业强度 CN",
