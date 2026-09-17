@@ -233,7 +233,7 @@ def test_default_orders_are_explicit_and_not_integer_priorities():
     assert "longbridge" not in provider_order(Market.US, DAILY_BARS)
     assert "fuyao" not in provider_order(Market.US, DAILY_BARS)
     assert provider_order(Market.CN, MINUTE_BARS) == ("streaming", "longbridge")
-    assert "easyquotation" not in provider_order(Market.CN, LATEST_MARKET_SNAPSHOT)
+    assert provider_order(Market.CN, LATEST_MARKET_SNAPSHOT) == ("fuyao", "easyquotation")
     assert provider_order(Market.CN, LATEST_MARKET_SNAPSHOT)[0] == "fuyao"
 
 

@@ -30,7 +30,10 @@ class AShareIntradayDataSource:
     def get_market_snapshot_rows(self) -> List[Dict[str, Any]]:
         """Return the normalized full-market realtime snapshot (one call)."""
         try:
-            return [quote.to_dict() for quote in self.data_manager.get_market_snapshot("CN").data.values()]
+            result = self.data_manager.get_market_snapshot("CN")
+            if not result.data:
+                logger.warning("获取 A 股全市场快照失败: %s", result.failed_symbols)
+            return [quote.to_dict() for quote in result.data.values()]
         except Exception as exc:
             logger.warning("获取 A 股全市场快照失败: %s", exc, exc_info=True)
             return []

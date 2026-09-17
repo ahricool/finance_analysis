@@ -37,7 +37,7 @@ DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
     (Market.CN, REALTIME_QUOTES): ("streaming", "longbridge", "fuyao"),
     (Market.US, REALTIME_QUOTES): ("streaming", "longbridge", "yfinance"),
     (Market.HK, REALTIME_QUOTES): ("streaming", "longbridge", "yfinance"),
-    (Market.CN, LATEST_MARKET_SNAPSHOT): ("fuyao",),
+    (Market.CN, LATEST_MARKET_SNAPSHOT): ("fuyao", "easyquotation"),
     (Market.CN, MARKET_INDICES): ("fuyao",),
     (Market.US, MARKET_INDICES): ("longbridge", "yfinance"),
     (Market.HK, MARKET_INDICES): ("longbridge", "yfinance"),
