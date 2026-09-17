@@ -62,3 +62,5 @@ JOB_TREND_FOLLOWING_PREVIEW_US = "trend_following_preview_us"
 
 def celery_task_name(job_id: str) -> str:
     return f"scheduled.{job_id}"
+
+JOB_MARKET_SENTIMENT_CN = "market_sentiment_cn"

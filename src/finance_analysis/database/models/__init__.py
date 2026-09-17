@@ -2,6 +2,7 @@
 """ORM model exports."""
 
 from finance_analysis.database.models.industry_strength import IndustryStrengthSnapshot
+from finance_analysis.database.models.market_sentiment import MarketSentimentSnapshot, MarketSentimentSourceSnapshot
 
 from finance_analysis.database.models.market_structure import MarketStructureSnapshot
 
@@ -36,6 +37,8 @@ from finance_analysis.database.models.watch_list import WatchListItem
 from finance_analysis.database.models.crypto import CryptoKline, CryptoStrategySnapshot, CryptoStrategyState
 
 __all__ = [
+    "MarketSentimentSnapshot",
+    "MarketSentimentSourceSnapshot",
     "IndustryStrengthSnapshot",
     "MarketStructureSnapshot",
     "Notification",

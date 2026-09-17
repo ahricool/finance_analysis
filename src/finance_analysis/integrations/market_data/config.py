@@ -9,6 +9,10 @@ from finance_analysis.config.env_parsing import env_int, env_str
 
 from .models import Market, market_from_value
 from .registry import (
+    LIMIT_UP_POOL,
+    LIMIT_DOWN_POOL,
+    LIMIT_BREAK_POOL,
+    LIMIT_UP_LADDER,
     INDUSTRY_CATALOG,
     INDEX_HISTORY,
     INDEX_CONSTITUENTS,
@@ -25,6 +29,10 @@ from .registry import (
 FIVE_YEAR_HISTORY_DAYS = 5 * 365
 
 DEFAULT_PROVIDER_ORDER: dict[tuple[Market, str], tuple[str, ...]] = {
+    (Market.CN, LIMIT_UP_POOL): ("fuyao",),
+    (Market.CN, LIMIT_DOWN_POOL): ("fuyao",),
+    (Market.CN, LIMIT_BREAK_POOL): ("fuyao",),
+    (Market.CN, LIMIT_UP_LADDER): ("fuyao",),
     (Market.CN, INDUSTRY_CATALOG): ("fuyao",),
     (Market.CN, INDEX_HISTORY): ("fuyao",),
     (Market.CN, INDEX_CONSTITUENTS): ("fuyao",),

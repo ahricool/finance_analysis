@@ -321,3 +321,10 @@ API `/api/v1/crypto` 与页面 `/research/crypto/btc` 统一走 `CryptoService`�
 复用行业目录、指数历史、当前成分三个 CN capability；`FUYAO_API_KEY` 仅后端读取。
 `industry_strength_cn` 在上海19:10检查收盘、行业/成分覆盖率后保存独立快照；禁止用当前成分回填历史 Breadth。
 页面 `/research/industry-strength`，指标和口径见 `docs/industry-strength.md`。
+
+## Market Sentiment
+
+`market_sentiment/` 独立计算 A 股完整盘后涨停池、连板晋级与情绪观察；经现有 FuyaoProvider 四个 CN capability 取数。
+`market_sentiment_cn` 上海19:20在独立任务锁下原子保存完整源与结果，核心不完整不覆盖旧结果，补数重算后续派生值。
+`/api/v1/market-sentiment` GET只读，管理员 `/run` 支持单日或最多31交易日异步补数；页面 `/research/market-sentiment`。
+主观察为非ST且非未开板新股；官方天梯有限样本和补充池独立展示，不参与评分。见 `docs/market-sentiment.md`。

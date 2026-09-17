@@ -33,6 +33,10 @@ from .models import (
 )
 from .normalizer import bars_from_frame, canonical_symbol, currency_for_market, infer_market, quote_from_value
 from .registry import (
+    LIMIT_UP_POOL,
+    LIMIT_DOWN_POOL,
+    LIMIT_BREAK_POOL,
+    LIMIT_UP_LADDER,
     INDUSTRY_CATALOG,
     INDEX_HISTORY,
     INDEX_CONSTITUENTS,
@@ -187,7 +191,8 @@ def build_default_registry(
         FuyaoProvider(api_key=resolved_config.fuyao_api_key, timeout=resolved_config.fuyao_timeout_seconds),
         capabilities={DAILY_BARS, REALTIME_QUOTES, LATEST_MARKET_SNAPSHOT, MARKET_INDICES,
                       MARKET_STATS, SECTOR_RANKINGS, INSTRUMENT_INFO,
-                      INDUSTRY_CATALOG, INDEX_HISTORY, INDEX_CONSTITUENTS},
+                      INDUSTRY_CATALOG, INDEX_HISTORY, INDEX_CONSTITUENTS,
+                      LIMIT_UP_POOL, LIMIT_DOWN_POOL, LIMIT_BREAK_POOL, LIMIT_UP_LADDER},
     )
     registry.register(
         "easyquotation",
@@ -214,6 +219,22 @@ def build_default_registry(
 
 
 class MarketDataService:
+    def get_limit_up_pool(self, trade_date, market="CN"):
+        with request_budget(120):
+            return self.router.route_market_pool(market, LIMIT_UP_POOL, trade_date)
+
+    def get_limit_down_pool(self, trade_date, market="CN"):
+        with request_budget(120):
+            return self.router.route_market_pool(market, LIMIT_DOWN_POOL, trade_date)
+
+    def get_limit_break_pool(self, trade_date, market="CN"):
+        with request_budget(120):
+            return self.router.route_market_pool(market, LIMIT_BREAK_POOL, trade_date)
+
+    def get_limit_up_ladder(self, market="CN"):
+        with request_budget(120):
+            return self.router.route_market_pool(market, LIMIT_UP_LADDER)
+
     def get_industry_catalog(self, market="CN"):
         return self.router.route_index_reference(market, INDUSTRY_CATALOG)
 
