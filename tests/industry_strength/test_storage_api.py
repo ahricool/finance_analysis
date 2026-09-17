@@ -232,7 +232,11 @@ def test_api_constituents_accepts_catalog_industry_missing_from_ranking(api, mon
 def test_api_constituents_unknown_catalog_industry_is_404(api, monkeypatch):
     client, repo = api
     _install_catalog(monkeypatch)
-    monkeypatch.setattr(endpoint.IndustryStrengthService, "constituents", lambda self, code: _constituents_payload(code))
+    monkeypatch.setattr(
+        endpoint.IndustryStrengthService,
+        "constituents",
+        lambda self, code: _constituents_payload(code),
+    )
     response = client.get("/industry-strength/unknown/constituents")
     assert response.status_code == 404
     assert repo.calls == []
