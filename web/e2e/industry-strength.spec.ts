@@ -47,13 +47,22 @@ for (const width of [1280, 1440, 1920]) {
       await expect(page.getByTestId('industry-summary')).toContainText('动量降速最大');
       await page.getByTestId('industry-view-matrix').click();
       await expect(page.getByTestId('industry-matrix').locator('canvas')).toHaveCount(1);
+      if (width === 1280 && theme === 'light') {
+        await page.screenshot({ path: testInfo.outputPath('industry-matrix.png'), fullPage: true });
+      }
       await page.getByTestId('industry-view-history').click();
       await expect(page.getByRole('heading', { name: '所选日 Top20 · 历史强度排名' })).toBeVisible();
       await expect(page.getByTestId('industry-heatmap').locator('canvas')).toHaveCount(1);
+      if (width === 1280 && theme === 'light') {
+        await page.screenshot({ path: testInfo.outputPath('industry-heatmap.png'), fullPage: true });
+      }
       await page.getByTestId('industry-view-ranking').click();
       await page.getByTestId('industry-ranking').getByRole('button', { name: '通信设备', exact: true }).click();
       await expect(page.getByTestId('industry-detail')).toContainText('通信设备');
       await expect(page.getByTestId('industry-detail')).toContainText(`实际查询快照日期 ${day}`);
+      if (width === 1280 && theme === 'light') {
+        await page.screenshot({ path: testInfo.outputPath('industry-drawer.png') });
+      }
       await page.getByRole('tab', { name: '当前成分股' }).click();
       await expect(page.getByTestId('industry-constituents-banner')).toContainText('不随上方历史快照日期切换');
       await expect(page.getByTestId('industry-detail')).toContainText('示例成分甲');
@@ -75,7 +84,7 @@ for (const width of [1280, 1440, 1920]) {
   }
 }
 
-test('industry strength drawer is near full width at 390px', async ({ page }) => {
+test('industry strength drawer is near full width at 390px', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => localStorage.setItem('theme', 'light'));
   await mockIndustryApis(page);
@@ -84,6 +93,7 @@ test('industry strength drawer is near full width at 390px', async ({ page }) =>
   const drawer = page.getByTestId('industry-detail');
   await expect(drawer).toBeVisible();
   const box = await drawer.boundingBox();
-  expect(box?.width ?? 0).toBeGreaterThan(300);
+  expect(box?.width ?? 0).toBeGreaterThan(360);
+  await page.screenshot({ path: testInfo.outputPath('industry-390-drawer.png') });
   await expect(page.getByTestId('industry-summary').locator('[data-slot="card"]')).toHaveCount(4);
 });

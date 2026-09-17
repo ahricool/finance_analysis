@@ -21,7 +21,7 @@ export function matrixOption(rows: IndustrySnapshot[], selected: string, theme: 
   const selectedRow = rows.find((row) => row.industryCode === selected);
   return {
     animation: false,
-    grid: { top: 36, right: 36, bottom: 56, left: 64, containLabel: true },
+    grid: { top: 36, right: 56, bottom: 56, left: 72, containLabel: true },
     tooltip: {
       trigger: 'item',
       confine: true,
@@ -78,9 +78,9 @@ export function matrixOption(rows: IndustrySnapshot[], selected: string, theme: 
             borderColor: active ? text : 'rgba(255,255,255,0.35)',
           },
           label: {
-            show: active || row.strengthRank <= 5,
+            show: active || row.strengthRank <= 3,
             formatter: row.industryName,
-            position: row.strengthScore >= 70 ? 'left' : 'right',
+            position: row.strengthScore >= 55 ? 'left' : 'right',
             color: text,
             fontSize: 11,
           },

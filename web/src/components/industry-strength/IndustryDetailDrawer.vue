@@ -83,7 +83,7 @@ function ma(value: boolean | null) {
   >
     <SheetContent
       side="right"
-      class="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl md:max-w-2xl lg:max-w-3xl"
+      class="flex w-full flex-col gap-0 overflow-hidden p-0 data-[side=right]:w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl"
       :show-close-button="false"
       data-testid="industry-detail"
     >
@@ -176,7 +176,7 @@ function ma(value: boolean | null) {
               <p class="text-sm leading-6 text-muted-foreground">
                 {{ stateExplanations[current.state] }}
               </p>
-              <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+              <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
                 <div
                   v-for="item in overviewItems"
                   :key="item[0]"
