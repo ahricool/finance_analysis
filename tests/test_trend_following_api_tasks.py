@@ -196,11 +196,11 @@ def test_tasks_and_schedules_are_registered():
     preview_us = require_scheduled_task_definition("trend_following_preview_us")
     assert preview_cn.celery_task_name == "scheduled.trend_following_preview_cn"
     assert preview_us.celery_task_name == "scheduled.trend_following_preview_us"
-    assert {(item.hour, item.minute) for item in preview_cn.schedules} == {("11", "0"), ("14", "0"), ("14", "30")}
+    assert {(item.hour, item.minute) for item in preview_cn.schedules} == {
+        ("10-11", "0"), ("13-14", "0"), ("14", "30"),
+    }
     assert {(item.hour, item.minute, item.timezone) for item in preview_us.schedules} == {
-        ("11", "0", "America/New_York"),
-        ("15", "0", "America/New_York"),
-        ("15", "30", "America/New_York"),
+        ("10-15", "0", "America/New_York"),
     }
 
 
